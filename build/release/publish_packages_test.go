@@ -7,6 +7,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +143,61 @@ func TestAssetUploadEndpointUsesConfiguredForgejoBaseURL(t *testing.T) {
 	want := "http://forgejo-http.forgejo.svc.cluster.local:3000/api/v1/repos/carverauto/serviceradar/releases/362/assets?name=serviceradar-agent-gateway.rpm"
 	if got != want {
 		t.Fatalf("assetUploadEndpoint() = %q, want %q", got, want)
+	}
+}
+
+func TestUploadAssetUsesForgejoMultipartAttachment(t *testing.T) {
+	const assetName = "serviceradar-agent-gateway-1.2.57-1-1.2.57-1.x86_64.rpm"
+	const assetContent = "fake rpm bytes"
+
+	uploadPath := filepath.Join(t.TempDir(), assetName)
+	if err := os.WriteFile(uploadPath, []byte(assetContent), 0o644); err != nil {
+		t.Fatalf("WriteFile(upload asset) error = %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		if got := r.URL.Query().Get("name"); got != assetName {
+			t.Fatalf("query name = %q, want %q", got, assetName)
+		}
+		if got := r.Header.Get("Authorization"); got != "token test-token" {
+			t.Fatalf("authorization header = %q", got)
+		}
+
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("MultipartReader() error = %v", err)
+		}
+		part, err := reader.NextPart()
+		if err != nil {
+			t.Fatalf("NextPart() error = %v", err)
+		}
+		if got := part.FormName(); got != "attachment" {
+			t.Fatalf("form field = %q, want attachment", got)
+		}
+		if got := part.FileName(); got != assetName {
+			t.Fatalf("file name = %q, want %q", got, assetName)
+		}
+		body, err := io.ReadAll(part)
+		if err != nil {
+			t.Fatalf("ReadAll(part) error = %v", err)
+		}
+		if string(body) != assetContent {
+			t.Fatalf("uploaded body = %q, want %q", string(body), assetContent)
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(server.Close)
+
+	client := &githubClient{
+		token:   "test-token",
+		http:    server.Client(),
+		baseURL: server.URL,
+		repo:    "carverauto/serviceradar",
+	}
+	if err := client.uploadAsset(server.URL+"/api/v1/repos/carverauto/serviceradar/releases/1/assets{?name}", uploadPath, assetName); err != nil {
+		t.Fatalf("uploadAsset() error = %v", err)
 	}
 }
