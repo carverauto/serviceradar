@@ -11,7 +11,7 @@ env:
 
 jobs:
   build:
-    runs-on: serviceradar-ubuntu-24.04
+    runs-on: ubuntu24
     permissions:
       contents: read
     env:

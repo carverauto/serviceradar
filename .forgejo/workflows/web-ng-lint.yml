@@ -35,7 +35,7 @@ on:
 jobs:
   assets_js:
     name: Assets JS (Bun)
-    runs-on: serviceradar-ubuntu-24.04
+    runs-on: ubuntu24
     defaults:
       run:
         working-directory: elixir/web-ng/assets

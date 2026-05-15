@@ -32,7 +32,7 @@ on:
 jobs:
   lint:
     name: Helm Lint
-    runs-on: serviceradar-ubuntu-24.04
+    runs-on: ubuntu24
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

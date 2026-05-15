@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: serviceradar-ubuntu-24.04
+    runs-on: ubuntu24
     enable-openid-connect: true
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
