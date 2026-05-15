@@ -591,8 +591,12 @@ func rdpAgentManifestArtifact(version string, runtimeURL string, runtimeDigest s
 			"sha256": runtimeDigest,
 		},
 		DeploymentRequirements: map[string]interface{}{
-			"helper":       defaultRDPHelperBinary,
-			"install_path": defaultRDPHelperInstallPath,
+			"helper":                          defaultRDPHelperBinary,
+			"install_path":                    defaultRDPHelperInstallPath,
+			"helper_capabilities_arg":         "--capabilities",
+			"helper_connector_ready":          false,
+			"requires_helper_readiness_probe": true,
+			"release_phase":                   "experimental",
 		},
 	}
 }

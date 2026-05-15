@@ -196,6 +196,11 @@ func TestBuildManagedAgentManifestAssetsWithRDPBundle(t *testing.T) {
 	if rdpArtifact.DeploymentRequirements["helper"] != defaultRDPHelperBinary {
 		t.Fatalf("rdp artifact helper requirement = %v", rdpArtifact.DeploymentRequirements["helper"])
 	}
+	if rdpArtifact.DeploymentRequirements["helper_connector_ready"] != false ||
+		rdpArtifact.DeploymentRequirements["requires_helper_readiness_probe"] != true ||
+		rdpArtifact.DeploymentRequirements["release_phase"] != "experimental" {
+		t.Fatalf("rdp artifact deployment requirements = %#v", rdpArtifact.DeploymentRequirements)
+	}
 	if rdpArtifact.Checksums["sha256"] != digestBytes(rdpRuntimeArtifact) {
 		t.Fatalf("rdp artifact checksum = %q", rdpArtifact.Checksums["sha256"])
 	}

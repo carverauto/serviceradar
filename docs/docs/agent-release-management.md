@@ -73,6 +73,7 @@ Relevant agent settings:
 - Package-managed agents use fixed package-owned paths for the updater, seed binary, and mutable runtime root.
 - The control plane still reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` at runtime for release import and validation.
 - RDP-capable agent/helper artifacts must declare `remote_access.rdp` in their manifest `capabilities`.
+- RDP helper artifacts that carry a placeholder or fail-closed connector must mark `deployment_requirements.release_phase` as `experimental`, set `helper_connector_ready` to `false`, and require the helper readiness probe. EdgeOps may show these only to RDP-enabled deployments, but installed agents must not advertise `remote_access.rdp` until the local helper `--capabilities` probe reports `connector_ready: true`.
 - RDP-capable artifacts are hidden from the EdgeOps release catalog and rejected by rollout artifact selection unless `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true`.
 - One-click rollout commands include an RDP helper install plan only for the selected signed artifact that declares `remote_access.rdp`; base-agent rollouts omit helper installation metadata.
 - Keep the default base-agent release artifact free of the IronRDP helper so standard deployments do not install desktop remote-access components.

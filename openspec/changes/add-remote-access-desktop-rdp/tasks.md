@@ -209,6 +209,7 @@
   - [x] Add a separate fail-closed `rdp_adapter_ironrdp` Bazel target that links reviewed IronRDP core/PDU crates without changing the default agent or runtime bundle.
   - [ ] Link the reviewed IronRDP backend into the helper target before advertising the optional artifact as production-ready.
 - [x] 6.2 Add Forgejo release metadata fields for artifact capabilities, helper protocol version, compatibility range, checksums, signatures, SBOM/license review, and deployment requirements.
+- [x] 6.2.1 Mark fail-closed RDP helper artifacts as experimental and connector-not-ready in deployment requirements until the helper readiness probe can pass.
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
 - [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.
