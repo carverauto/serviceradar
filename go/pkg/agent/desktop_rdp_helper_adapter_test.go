@@ -373,6 +373,83 @@ func TestDesktopRDPHelperAdapterRejectsMediaAcksAfterHelperClose(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterParsesAndClearsHelperClosePayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	payload := []byte(`{"reason":"helper closed"}`)
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageClose, Payload: payload}
+
+	select {
+	case <-session.(*desktopRDPHelperSession).done:
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		t.Fatalf("helper session returned error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper close")
+	}
+	if !allZeroBytes(payload) {
+		t.Fatalf("helper close payload was not cleared: %q", string(payload))
+	}
+}
+
+func TestDesktopRDPHelperAdapterRejectsInvalidHelperClosePayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	payload := []byte(`{"reason":"helper closed","unexpected":"secret"}`)
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageClose, Payload: payload}
+
+	select {
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		if !errors.Is(err, errDesktopRDPHelperInvalidFrame) {
+			t.Fatalf("helper close error = %v, want %v", err, errDesktopRDPHelperInvalidFrame)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper close error")
+	}
+	if !allZeroBytes(payload) {
+		t.Fatalf("invalid helper close payload was not cleared: %q", string(payload))
+	}
+}
+
+func TestDesktopRDPHelperAdapterNormalizesAndClearsHelperErrorPayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	payload := []byte(" rdp\nfailed\t" + strings.Repeat("x", remoteaccess.DesktopMaxAuditReason))
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageError, Payload: payload}
+
+	select {
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		if !errors.Is(err, remoteaccess.ErrDesktopAdapterUnavailable) {
+			t.Fatalf("helper error = %v, want %v", err, remoteaccess.ErrDesktopAdapterUnavailable)
+		}
+		if strings.ContainsAny(err.Error(), "\n\t") {
+			t.Fatalf("helper error was not normalized: %q", err.Error())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper error")
+	}
+	if !allZeroBytes(payload) {
+		t.Fatalf("helper error payload was not cleared: %q", string(payload))
+	}
+}
+
 func openTestDesktopRDPHelperSession(
 	t *testing.T,
 	transport *fakeDesktopRDPHelperTransport,

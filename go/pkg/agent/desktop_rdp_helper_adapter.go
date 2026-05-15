@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -242,13 +243,17 @@ func (s *desktopRDPHelperSession) markClosed() {
 }
 
 func normalizeDesktopRDPHelperCloseReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
+	return normalizeDesktopRDPHelperTerminalMessage(reason)
+}
+
+func normalizeDesktopRDPHelperTerminalMessage(message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" {
 		return ""
 	}
 
 	var out strings.Builder
-	for _, r := range reason {
+	for _, r := range message {
 		if r < ' ' || r == 0x7f {
 			r = ' '
 		}
@@ -294,6 +299,7 @@ func (s *desktopRDPHelperSession) readLoop() {
 		case desktopRDPHelperMessageMediaFrame:
 			mediaFrame, err := remoteaccess.DecodeDesktopMediaFrameView(frame.Payload, s.target.Screen)
 			if err != nil {
+				clearBytes(frame.Payload)
 				s.failReadLoop(err)
 
 				return
@@ -304,11 +310,21 @@ func (s *desktopRDPHelperSession) readLoop() {
 				return
 			}
 		case desktopRDPHelperMessageClose:
+			if _, err := parseAndClearDesktopRDPHelperClosePayload(frame.Payload); err != nil {
+				s.failReadLoop(err)
+
+				return
+			}
 			s.cleanupAfterReadLoopTerminal()
 
 			return
 		case desktopRDPHelperMessageError:
-			s.failReadLoop(fmt.Errorf("%w: %s", remoteaccess.ErrDesktopAdapterUnavailable, strings.TrimSpace(string(frame.Payload))))
+			message := normalizeDesktopRDPHelperTerminalMessage(string(frame.Payload))
+			clearBytes(frame.Payload)
+			if message == "" {
+				message = "rdp helper error"
+			}
+			s.failReadLoop(fmt.Errorf("%w: %s", remoteaccess.ErrDesktopAdapterUnavailable, message))
 
 			return
 		default:
@@ -317,6 +333,24 @@ func (s *desktopRDPHelperSession) readLoop() {
 			return
 		}
 	}
+}
+
+func parseAndClearDesktopRDPHelperClosePayload(payload []byte) (desktopRDPHelperClosePayload, error) {
+	defer clearBytes(payload)
+	if len(payload) == 0 {
+		return desktopRDPHelperClosePayload{}, nil
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+
+	var closePayload desktopRDPHelperClosePayload
+	if err := decoder.Decode(&closePayload); err != nil {
+		return desktopRDPHelperClosePayload{}, fmt.Errorf("%w: decode helper close payload", errDesktopRDPHelperInvalidFrame)
+	}
+	closePayload.Reason = normalizeDesktopRDPHelperCloseReason(closePayload.Reason)
+
+	return closePayload, nil
 }
 
 type desktopRDPHelperProcessTransport struct {

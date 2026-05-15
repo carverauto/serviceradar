@@ -122,6 +122,7 @@
 - [x] 3.3.14 Mark agent-side RDP helper sessions terminal and close their transport when the helper reports an error or emits invalid frames.
 - [x] 3.3.15 Mark helper-initiated RDP close frames terminal, close their transport, and keep later manager cleanup idempotent.
 - [x] 3.3.16 Normalize and cap agent-to-helper close reasons before IPC so close metadata cannot exceed the helper validation budget.
+- [x] 3.3.17 Decode, normalize, cap, and clear helper-to-agent terminal close/error metadata before session teardown.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -190,6 +191,7 @@
 - [x] 5.2.30 Add focused Rust helper tests proving input/control payload validation, close payload validation, buffer zeroing, and invalid-frame rejection before backend session delivery.
 - [x] 5.2.31 Add focused Rust helper tests proving close payload validation also applies before backend open and keeps invalid close metadata fail-closed.
 - [x] 5.2.32 Add focused Go tests proving agent-to-helper close reasons are normalized and capped before IPC.
+- [x] 5.2.33 Add focused Go tests proving helper-to-agent terminal close/error payloads are decoded, capped, normalized, cleared, and rejected when malformed.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
