@@ -31,12 +31,12 @@ pkg_files(
     name = "agent_rdp_release_runtime_files",
     srcs = [
         "//go/cmd/agent:agent",
-        "//rust/rdp-adapter:rdp_adapter",
+        "//rust/rdp-adapter:rdp_adapter_ironrdp",
     ],
     prefix = "/",
     renames = {
         "//go/cmd/agent:agent": "serviceradar-agent",
-        "//rust/rdp-adapter:rdp_adapter": "serviceradar-rdp-adapter",
+        "//rust/rdp-adapter:rdp_adapter_ironrdp": "serviceradar-rdp-adapter",
     },
     attributes = pkg_attributes(mode = "0755"),
 )

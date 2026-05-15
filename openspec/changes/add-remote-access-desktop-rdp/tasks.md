@@ -207,6 +207,7 @@
   - [x] Add release-publisher support for an explicit optional RDP-enabled runtime bundle artifact that is omitted from default releases.
   - [x] Add a separate `serviceradar-rdp-adapter` helper binary target and RDP-enabled runtime archive that are omitted from base agent installs.
   - [x] Add a separate fail-closed `rdp_adapter_ironrdp` Bazel target that links reviewed IronRDP core/PDU crates without changing the default agent or runtime bundle.
+  - [x] Package the optional RDP runtime archive with `rdp_adapter_ironrdp` rather than the base helper target while still requiring the helper readiness probe before runtime advertisement.
   - [ ] Link the reviewed IronRDP backend into the helper target before advertising the optional artifact as production-ready.
 - [x] 6.2 Add Forgejo release metadata fields for artifact capabilities, helper protocol version, compatibility range, checksums, signatures, SBOM/license review, and deployment requirements.
 - [x] 6.2.1 Mark fail-closed RDP helper artifacts as experimental and connector-not-ready in deployment requirements until the helper readiness probe can pass.
