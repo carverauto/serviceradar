@@ -363,6 +363,31 @@ func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *te
 	}
 }
 
+func TestDesktopMediaGatewaySenderReturnsCleanupErrorWhenAcceptedSessionCloseFails(t *testing.T) {
+	t.Parallel()
+
+	streamErr := errors.New("stream unavailable")
+	closeErr := errors.New("close failed")
+	gateway := &fakeDesktopMediaGateway{
+		openResp:  acceptedDesktopMediaOpenResponse(),
+		streamErr: streamErr,
+		closeErr:  closeErr,
+	}
+
+	_, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	)
+	if !errors.Is(err, streamErr) || !errors.Is(err, closeErr) {
+		t.Fatalf("stream cleanup error = %v, want stream and close errors", err)
+	}
+	if gateway.closeCount != 1 {
+		t.Fatalf("gateway close count = %d, want 1", gateway.closeCount)
+	}
+}
+
 func TestDesktopMediaGatewaySenderCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -506,6 +531,7 @@ type fakeDesktopMediaGateway struct {
 	openResp   *proto.OpenDesktopMediaSessionResponse
 	stream     *fakeDesktopMediaStream
 	streamErr  error
+	closeErr   error
 	closeReq   *proto.CloseDesktopMediaSessionRequest
 	closeCount int
 }
@@ -531,6 +557,10 @@ func (g *fakeDesktopMediaGateway) CloseDesktopMediaSession(
 ) (*proto.CloseDesktopMediaSessionResponse, error) {
 	g.closeReq = req
 	g.closeCount++
+	if g.closeErr != nil {
+		return nil, g.closeErr
+	}
+
 	return &proto.CloseDesktopMediaSessionResponse{Closed: true}, nil
 }
 

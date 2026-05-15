@@ -275,6 +275,7 @@
 - [x] 5.6.40 Add focused Go tests proving the desktop media gateway sender rejects malformed SRDP payload family and dimension fields before forwarding.
 - [x] 5.6.41 Add focused Go tests proving accepted desktop media gateway sessions are closed when stream open fails.
 - [x] 5.6.42 Add focused Go tests proving accepted desktop media gateway sessions are closed on returned max-chunk and media-session validation failures.
+- [x] 5.6.43 Add focused Go tests proving desktop media sender setup returns both stream-open and accepted-session cleanup errors when cleanup fails.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
