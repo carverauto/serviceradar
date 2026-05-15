@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.61
+
+Release pipeline and CI hotfix.
+
+## Whats New
+
+**1.2.61**
+- Fixed managed agent release-key stamping so Bazel receives the release public key from CI and resolves fallback key files from the repository root.
+- Fixed the agent Bazel target to include remote file-transfer sources and tests, restoring release builds for the agent file-transfer path.
+- Fixed first-party Wasm plugin builds after the Go 1.26 upgrade by pinning TinyGo genrules to a Bazel-managed Go 1.25 SDK while leaving the main ServiceRadar Go SDK on Go 1.26.
+- Fixed web-ng precommit formatter drift that blocked release validation after recent CI recovery changes.
+
 # ServiceRadar v1.2.60
 
 Remote access, inventory availability, object-store retention, and CI recovery release.
