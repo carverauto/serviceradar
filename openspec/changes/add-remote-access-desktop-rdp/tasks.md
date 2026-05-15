@@ -303,6 +303,7 @@
 - [x] 5.7.8 Add browser WebRTC client tests for final close acknowledgements with pending and already-flushed media credit.
 - [x] 5.7.9 Add browser WebRTC client tests proving close acknowledgement reasons are normalized and capped.
 - [x] 5.7.10 Add browser WebRTC client tests proving close acknowledgement reasons are capped by UTF-8 byte length.
+- [x] 5.7.11 Add browser renderer-state tests for dirty tile masks, no-copy tile upload planning, Canvas harness application, and metadata-only frame handling.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
