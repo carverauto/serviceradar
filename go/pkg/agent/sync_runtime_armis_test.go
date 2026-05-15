@@ -154,6 +154,37 @@ func TestArmisSearchOmitsFromOnFirstPage(t *testing.T) {
 	}
 }
 
+func TestArmisSearchAcceptsStringNames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"count": 1,
+				"next": 0,
+				"prev": null,
+				"results": [
+					{"id": 101, "ipAddress": "192.0.2.10", "names": "plc-01"}
+				],
+				"total": 1
+			},
+			"success": true
+		}`))
+	}))
+	defer server.Close()
+
+	client := &armisClient{endpoint: server.URL}
+	resp, err := client.search(context.Background(), "token-123", testArmisDeviceQuery, 0, 100)
+	if err != nil {
+		t.Fatalf("search returned error: %v", err)
+	}
+	if len(resp.Data.Results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(resp.Data.Results))
+	}
+	if got := resp.Data.Results[0].Names; len(got) != 1 || got[0] != "plc-01" {
+		t.Fatalf("names = %#v, want [plc-01]", got)
+	}
+}
+
 func TestArmisSearchErrorIncludesBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "bad aql", http.StatusBadRequest)

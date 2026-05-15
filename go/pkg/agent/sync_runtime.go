@@ -89,7 +89,7 @@ type armisDevice struct {
 	MacAddress        string                   `json:"macAddress"`
 	MacAddresses      []string                 `json:"mac_addresses"`
 	Name              string                   `json:"name"`
-	Names             []string                 `json:"names"`
+	Names             armisStringList          `json:"names"`
 	Display           string                   `json:"display"`
 	Type              string                   `json:"type"`
 	Category          string                   `json:"category"`
@@ -112,6 +112,46 @@ type armisDevice struct {
 	SerialNumbers     []string                 `json:"serial_numbers"`
 	Site              map[string]interface{}   `json:"site"`
 	Visibility        string                   `json:"visibility"`
+}
+
+type armisStringList []string
+
+func (l *armisStringList) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*l = nil
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal(data, &values); err == nil {
+		*l = normalizeArmisStringList(values)
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		*l = nil
+		return nil
+	}
+
+	*l = armisStringList{value}
+	return nil
+}
+
+func normalizeArmisStringList(values []string) armisStringList {
+	normalized := make(armisStringList, 0, len(values))
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			normalized = append(normalized, value)
+		}
+	}
+
+	return normalized
 }
 
 type armisSearchResponse struct {
