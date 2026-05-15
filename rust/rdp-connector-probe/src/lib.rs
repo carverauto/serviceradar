@@ -153,6 +153,8 @@ pub struct InitialConnectorPdu {
     pub after_state: &'static str,
     pub advertises_credssp: bool,
     pub advertises_tls_fallback: bool,
+    pub mstshash_cookie: Option<String>,
+    pub contains_cleartext_password: bool,
     pub bytes: Vec<u8>,
 }
 
@@ -342,6 +344,7 @@ fn split_domain_username(username: String) -> (Option<String>, String) {
 pub fn build_initial_connector_pdu(
     request: ServiceRadarOpenRequest,
 ) -> Result<InitialConnectorPdu, &'static str> {
+    let password = request.credential_grant.password.clone();
     let config = build_connector_config(request)?;
     let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
     let before_state = connector_state_name(&connector);
@@ -357,6 +360,8 @@ pub fn build_initial_connector_pdu(
         after_state: connector_state_name(&connector),
         advertises_credssp: initial_pdu_advertises_credssp(buffer.filled())?,
         advertises_tls_fallback: initial_pdu_advertises_tls_fallback(buffer.filled())?,
+        mstshash_cookie: initial_pdu_mstshash_cookie(buffer.filled())?,
+        contains_cleartext_password: bytes_contain_secret(buffer.filled(), password.as_bytes()),
         bytes: buffer.filled()[..written_len].to_vec(),
     })
 }
@@ -415,7 +420,7 @@ fn connector_state_name(connector: &ironrdp_connector::ClientConnector) -> &'sta
 }
 
 fn initial_pdu_advertises_credssp(bytes: &[u8]) -> Result<bool, &'static str> {
-    let protocol = decode_initial_security_protocol(bytes)?;
+    let protocol = decode_initial_connection_request(bytes)?.protocol;
 
     Ok(protocol.intersects(
         ironrdp_pdu::nego::SecurityProtocol::HYBRID
@@ -424,21 +429,34 @@ fn initial_pdu_advertises_credssp(bytes: &[u8]) -> Result<bool, &'static str> {
 }
 
 fn initial_pdu_advertises_tls_fallback(bytes: &[u8]) -> Result<bool, &'static str> {
-    let protocol = decode_initial_security_protocol(bytes)?;
+    let protocol = decode_initial_connection_request(bytes)?.protocol;
 
     Ok(protocol.intersects(ironrdp_pdu::nego::SecurityProtocol::SSL))
 }
 
-fn decode_initial_security_protocol(
+fn initial_pdu_mstshash_cookie(bytes: &[u8]) -> Result<Option<String>, &'static str> {
+    let request = decode_initial_connection_request(bytes)?;
+
+    match request.nego_data {
+        Some(ironrdp_pdu::nego::NegoRequestData::Cookie(cookie)) => Ok(Some(cookie.0)),
+        _ => Ok(None),
+    }
+}
+
+fn decode_initial_connection_request(
     bytes: &[u8],
-) -> Result<ironrdp_pdu::nego::SecurityProtocol, &'static str> {
+) -> Result<ironrdp_pdu::nego::ConnectionRequest, &'static str> {
     let request = ironrdp_core::decode::<
         ironrdp_pdu::x224::X224<ironrdp_pdu::nego::ConnectionRequest>,
     >(bytes)
     .map_err(|_| "initial connector pdu decode failed")?
     .0;
 
-    Ok(request.protocol)
+    Ok(request)
+}
+
+fn bytes_contain_secret(bytes: &[u8], secret: &[u8]) -> bool {
+    !secret.is_empty() && bytes.windows(secret.len()).any(|window| window == secret)
 }
 
 impl ServiceRadarOpenRequest {
@@ -497,8 +515,23 @@ mod tests {
         assert_eq!(pdu.after_state, "ConnectionInitiationWaitResponse");
         assert!(pdu.advertises_credssp);
         assert!(!pdu.advertises_tls_fallback);
+        assert_eq!(pdu.mstshash_cookie.as_deref(), Some("alice"));
+        assert!(!pdu.contains_cleartext_password);
         assert!(pdu.bytes.len() > 10);
         assert_eq!(&pdu.bytes[..2], &[0x03, 0x00]);
+    }
+
+    #[test]
+    fn initial_negotiation_includes_username_cookie_but_not_password() {
+        let pdu = crate::build_initial_connector_pdu(open_request("EXAMPLE\\alice", "required"))
+            .expect("initial pdu");
+
+        assert_eq!(pdu.mstshash_cookie.as_deref(), Some("alice"));
+        assert!(!pdu.contains_cleartext_password);
+        assert!(!pdu
+            .bytes
+            .windows(b"secret".len())
+            .any(|window| window == b"secret"));
     }
 
     #[test]
