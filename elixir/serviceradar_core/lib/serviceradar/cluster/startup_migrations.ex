@@ -856,11 +856,14 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
         do: [],
         else: [{app_user, app_password, "application credentials"}]
 
-    if primary_user == app_user and primary_password == app_password do
-      configured
-    else
-      configured ++ app_creds
-    end
+    if_result =
+      if primary_user == app_user and primary_password == app_password do
+        configured
+      else
+        configured ++ app_creds
+      end
+
+    if_result
     |> Enum.reject(fn
       {nil, _, _} -> true
       {_, nil, _} -> true

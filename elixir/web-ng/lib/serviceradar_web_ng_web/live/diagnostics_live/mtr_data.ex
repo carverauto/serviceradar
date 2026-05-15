@@ -496,7 +496,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       {:ok,
        %{
          rows: [
-           [trace_count, reached_count, failed_count, avg_hops, avg_last_hop_us, avg_loss_pct, agent_count, target_count]
+           [
+             trace_count,
+             reached_count,
+             failed_count,
+             avg_hops,
+             avg_last_hop_us,
+             avg_loss_pct,
+             agent_count,
+             target_count
+           ]
          ]
        }} ->
         {:ok,

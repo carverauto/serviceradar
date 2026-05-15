@@ -17,6 +17,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookTaskResult do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.PlaybookContent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.runs.view"}
@@ -146,6 +147,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookTaskResult do
       allow_nil? false
       public? true
       default %{}
+
       description "Selected fields from the AWX event payload (no full blob — those go to PlaybookContent)"
     end
 
@@ -173,14 +175,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookTaskResult do
       source_attribute :run_target_id
     end
 
-    belongs_to :stdout_content, ServiceRadar.Automation.Ansible.PlaybookContent do
+    belongs_to :stdout_content, PlaybookContent do
       attribute_writable? true
       public? true
       define_attribute? false
       source_attribute :stdout_content_id
     end
 
-    belongs_to :stderr_content, ServiceRadar.Automation.Ansible.PlaybookContent do
+    belongs_to :stderr_content, PlaybookContent do
       attribute_writable? true
       public? true
       define_attribute? false

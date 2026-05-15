@@ -155,7 +155,8 @@ defmodule ServiceRadar.Spatial.Actions.BulkInsertSpectrumObservations do
     end
   end
 
-  defp build_entry(_session_id, _observation, _inserted_at), do: {:error, :invalid_spectrum_observation}
+  defp build_entry(_session_id, _observation, _inserted_at),
+    do: {:error, :invalid_spectrum_observation}
 
   defp valid_session_id?(session_id), do: is_binary(session_id) and byte_size(session_id) <= 128
 

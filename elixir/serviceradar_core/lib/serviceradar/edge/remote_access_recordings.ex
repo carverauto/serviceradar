@@ -9,8 +9,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
-  alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecording
+  alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
 
@@ -262,7 +262,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     metadata = event_metadata(attrs, payload)
     payload_decision = payload_decision(policy, stream, payload)
 
-    %{
+    reject_nil(%{
       recording_id: recording.id,
       session_id: recording.session_id,
       sequence: positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts),
@@ -276,8 +276,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       redaction_reason: payload_decision.reason,
       metadata: metadata,
       retention_expires_at: recording.retention_expires_at
-    }
-    |> reject_nil()
+    })
   end
 
   defp event_stream(attrs) do
@@ -365,7 +364,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     |> payload_binary()
     |> case do
       nil -> nil
-      binary -> :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
+      binary -> :sha256 |> :crypto.hash(binary) |> Base.encode16(case: :lower)
     end
   end
 
@@ -445,7 +444,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     redacted_payload(
       redacted,
       changed?,
-      if(changed?, do: "credential_redaction", else: nil)
+      if(changed?, do: "credential_redaction")
     )
   end
 

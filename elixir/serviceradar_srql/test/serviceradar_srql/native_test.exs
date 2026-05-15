@@ -23,9 +23,7 @@ defmodule ServiceRadarSRQL.NativeTest do
     assert {:ok, payload} =
              Native.encode_arrow_json(["site_code", "ap_count", "latitude", "active"], rows)
 
-    assert is_binary(payload)
-    assert byte_size(payload) > 0
-    assert binary_part(payload, 0, 6) == "ARROW1"
+    assert <<"ARROW1", _::binary>> = payload
   end
 
   test "rejects invalid row JSON" do

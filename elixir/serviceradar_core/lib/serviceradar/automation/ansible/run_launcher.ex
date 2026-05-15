@@ -94,9 +94,14 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   @spec validate_intent(intent()) :: :ok | {:error, error_reason()}
   def validate_intent(intent) do
     cond do
-      blank?(intent[:playbook_id]) -> {:error, :playbook_required}
-      not is_list(intent[:device_uids]) or intent[:device_uids] == [] -> {:error, :devices_required}
-      true -> :ok
+      blank?(intent[:playbook_id]) ->
+        {:error, :playbook_required}
+
+      not is_list(intent[:device_uids]) or intent[:device_uids] == [] ->
+        {:error, :devices_required}
+
+      true ->
+        :ok
     end
   end
 
@@ -121,8 +126,7 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   def resolve_controller_id(%{source_type: :awx, controller_id: id}) when is_binary(id),
     do: {:ok, id}
 
-  def resolve_controller_id(%{source_type: :git}),
-    do: {:error, :git_sourced_not_supported_v1}
+  def resolve_controller_id(%{source_type: :git}), do: {:error, :git_sourced_not_supported_v1}
 
   def resolve_controller_id(_), do: {:error, :playbook_unbound}
 

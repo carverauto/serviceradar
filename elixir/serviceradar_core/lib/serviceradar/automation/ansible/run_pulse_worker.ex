@@ -100,31 +100,29 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorker do
     awx_client = Keyword.get(opts, :awx_client, AwxClient)
     pairs = build_pairs(runs)
 
-    cond do
-      pairs == [] ->
-        :ok
+    if pairs == [] do
+      :ok
+    else
+      case awx_client.fetch_events_for_jobs(controller, pairs,
+             source: :automation,
+             context: %{
+               "controller_id" => controller.id,
+               "verb" => "awx.fetch_events_for_jobs",
+               "active_run_count" => length(pairs)
+             }
+           ) do
+        {:ok, _command} ->
+          :ok
 
-      true ->
-        case awx_client.fetch_events_for_jobs(controller, pairs,
-               source: :automation,
-               context: %{
-                 "controller_id" => controller.id,
-                 "verb" => "awx.fetch_events_for_jobs",
-                 "active_run_count" => length(pairs)
-               }
-             ) do
-          {:ok, _command} ->
-            :ok
+        {:error, reason} = err ->
+          Logger.warning("AWX RunPulseWorker: dispatch failed",
+            controller_id: controller.id,
+            active_run_count: length(pairs),
+            reason: inspect(reason)
+          )
 
-          {:error, reason} = err ->
-            Logger.warning("AWX RunPulseWorker: dispatch failed",
-              controller_id: controller.id,
-              active_run_count: length(pairs),
-              reason: inspect(reason)
-            )
-
-            err
-        end
+          err
+      end
     end
   end
 

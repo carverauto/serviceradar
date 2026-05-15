@@ -21,7 +21,7 @@ defmodule ServiceRadarCoreElx.MetricsRouterTest do
 
     assert conn.status == 200
     assert ["text/plain; version=0.0.4; charset=utf-8"] = get_resp_header(conn, "content-type")
-    assert is_binary(conn.resp_body)
+    assert byte_size(conn.resp_body) > 0
   end
 
   test "serves health check" do

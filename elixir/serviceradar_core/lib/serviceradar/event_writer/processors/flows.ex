@@ -149,7 +149,9 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       |> Enum.map(& &1.bgp_observation)
       |> Enum.reject(&is_nil/1)
 
-    if observations != [] do
+    if observations == [] do
+      :ok
+    else
       case Ingestor.batch_upsert_observations(observations) do
         {:ok, _ids} ->
           :ok
@@ -158,8 +160,6 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
           Logger.warning("Failed to upsert derived BGP observations: #{inspect(reason)}")
           :ok
       end
-    else
-      :ok
     end
   end
 
@@ -495,17 +495,15 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   defp mac_to_string(0), do: nil
 
   defp mac_to_string(mac) when is_integer(mac) do
-    :io_lib.format(
-      "~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B",
-      [
-        Bitwise.band(Bitwise.bsr(mac, 40), 0xFF),
-        Bitwise.band(Bitwise.bsr(mac, 32), 0xFF),
-        Bitwise.band(Bitwise.bsr(mac, 24), 0xFF),
-        Bitwise.band(Bitwise.bsr(mac, 16), 0xFF),
-        Bitwise.band(Bitwise.bsr(mac, 8), 0xFF),
-        Bitwise.band(mac, 0xFF)
-      ]
-    )
+    "~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B:~2.16.0B"
+    |> :io_lib.format([
+      Bitwise.band(Bitwise.bsr(mac, 40), 0xFF),
+      Bitwise.band(Bitwise.bsr(mac, 32), 0xFF),
+      Bitwise.band(Bitwise.bsr(mac, 24), 0xFF),
+      Bitwise.band(Bitwise.bsr(mac, 16), 0xFF),
+      Bitwise.band(Bitwise.bsr(mac, 8), 0xFF),
+      Bitwise.band(mac, 0xFF)
+    ])
     |> IO.iodata_to_binary()
   end
 

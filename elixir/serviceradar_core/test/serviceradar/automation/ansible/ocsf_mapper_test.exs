@@ -98,7 +98,12 @@ defmodule ServiceRadar.Automation.Ansible.OcsfMapperTest do
     end
 
     test "ok task → severity 1 / status_id 1" do
-      event = OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{status: :ok, awx_event_id: 42, changed: true})
+      event =
+        OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{
+          status: :ok,
+          awx_event_id: 42,
+          changed: true
+        })
 
       assert event["class_uid"] == 6003
       assert event["severity_id"] == 1
@@ -114,25 +119,41 @@ defmodule ServiceRadar.Automation.Ansible.OcsfMapperTest do
     end
 
     test "failed task → severity 3 / status_id 2" do
-      event = OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{status: :failed})
+      event =
+        OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{
+          status: :failed
+        })
+
       assert event["severity_id"] == 3
       assert event["status_id"] == 2
       assert event["activity_name"] == "ansible_task_failed"
     end
 
     test "unreachable task → severity 4" do
-      event = OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{status: :unreachable})
+      event =
+        OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{
+          status: :unreachable
+        })
+
       assert event["severity_id"] == 4
     end
 
     test "skipped task → severity 1 (treated as success)" do
-      event = OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{status: :skipped})
+      event =
+        OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{
+          status: :skipped
+        })
+
       assert event["severity_id"] == 1
       assert event["status_id"] == 1
     end
 
     test "message contains task name and host" do
-      event = OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{status: :ok})
+      event =
+        OcsfMapper.task_result_event(run_fixture(), task_fixture(), target_fixture(), %{
+          status: :ok
+        })
+
       assert event["message"] =~ "Install nginx"
       assert event["message"] =~ "web01"
     end

@@ -76,12 +76,12 @@ pushd "${project}" >/dev/null
 
 run mix deps.get
 run mix deps.compile
-run env MIX_BUILD_PATH="${MIX_BUILD_PATH:-_build/format_check}" mix format --check-formatted
+run mix format --check-formatted
 
 if [[ "${skip_warnings_as_errors}" == "true" ]]; then
-  run mix compile
+  run mix compile --no-deps-check
 else
-  run mix compile --warnings-as-errors
+  run mix compile --no-deps-check --warnings-as-errors
 fi
 run mix xref graph --format stats --label compile-connected
 if [[ "${skip_credo}" != "true" ]]; then

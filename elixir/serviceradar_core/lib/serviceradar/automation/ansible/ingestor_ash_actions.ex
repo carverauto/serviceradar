@@ -72,8 +72,7 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   def transition_run(run, :record_partial, args),
     do: PlaybookRun.record_partial(run, args, actor())
 
-  def transition_run(run, :record_failed, args),
-    do: PlaybookRun.record_failed(run, args, actor())
+  def transition_run(run, :record_failed, args), do: PlaybookRun.record_failed(run, args, actor())
 
   def transition_run(run, :record_unreachable, args),
     do: PlaybookRun.record_unreachable(run, args, actor())

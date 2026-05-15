@@ -188,6 +188,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisWorkerResolverTest do
              )
   end
 
+  # credo:disable-for-next-line Jump.CredoChecks.TooManyAssertions
   test "marks a registered worker unhealthy and healthy with bounded reason metadata" do
     assert {:ok, unhealthy_worker} =
              AnalysisWorkerResolver.mark_worker_unhealthy(

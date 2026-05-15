@@ -17,11 +17,11 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   3c, 4, 6.
   """
 
-  require Logger
-
   alias ServiceRadar.Automation.Ansible.IngestorAshActions
   alias ServiceRadar.Automation.Ansible.OcsfMapper
   alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
+
+  require Logger
 
   @type result_data :: %{
           required(:command_type) => String.t(),
@@ -199,61 +199,59 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
     host_name = event_host_name(event)
     counter = event_counter(event)
 
-    cond do
-      task_uuid == "" or play_uuid == "" or host_name == "" or counter == 0 ->
+    if task_uuid == "" or play_uuid == "" or host_name == "" or counter == 0 do
+      run
+    else
+      with {:ok, play} <-
+             actions.upsert_play(%{
+               run_id: run.id,
+               awx_play_uuid: play_uuid,
+               name: event_play_name(event),
+               started_at: nil,
+               metadata: %{}
+             }),
+           {:ok, task} <-
+             actions.upsert_task(%{
+               play_id: play.id,
+               awx_task_uuid: task_uuid,
+               name: event_task_name(event),
+               action: event_task_action(event),
+               is_handler: false,
+               path: nil,
+               line_number: nil,
+               tags: [],
+               started_at: nil,
+               metadata: %{}
+             }),
+           {:ok, target} <- actions.get_run_target(run.id, host_name),
+           result_args = %{
+             task_id: task.id,
+             run_target_id: target.id,
+             awx_event_id: counter,
+             status: runner_status(type, event),
+             changed: !!Map.get(event, "changed", false),
+             ignore_errors: get_in(event, ["event_data", "ignore_errors"]) == true,
+             delegated_to: get_in(event, ["event_data", "delegated"]),
+             stdout_content_id: nil,
+             stderr_content_id: nil,
+             result_payload: result_payload_subset(event),
+             event_at: event_created(event)
+           },
+           {:ok, _} <- actions.upsert_task_result(result_args) do
+        _ = actions.emit_ocsf_event(OcsfMapper.task_result_event(run, task, target, result_args))
         run
+      else
+        {:error, :run_target_not_found} ->
+          Logger.info("AWX EventIngestor: result for unknown host",
+            run_id: run.id,
+            host_name: host_name
+          )
 
-      true ->
-        with {:ok, play} <-
-               actions.upsert_play(%{
-                 run_id: run.id,
-                 awx_play_uuid: play_uuid,
-                 name: event_play_name(event),
-                 started_at: nil,
-                 metadata: %{}
-               }),
-             {:ok, task} <-
-               actions.upsert_task(%{
-                 play_id: play.id,
-                 awx_task_uuid: task_uuid,
-                 name: event_task_name(event),
-                 action: event_task_action(event),
-                 is_handler: false,
-                 path: nil,
-                 line_number: nil,
-                 tags: [],
-                 started_at: nil,
-                 metadata: %{}
-               }),
-             {:ok, target} <- actions.get_run_target(run.id, host_name),
-             result_args = %{
-               task_id: task.id,
-               run_target_id: target.id,
-               awx_event_id: counter,
-               status: runner_status(type, event),
-               changed: !!Map.get(event, "changed", false),
-               ignore_errors: get_in(event, ["event_data", "ignore_errors"]) == true,
-               delegated_to: get_in(event, ["event_data", "delegated"]),
-               stdout_content_id: nil,
-               stderr_content_id: nil,
-               result_payload: result_payload_subset(event),
-               event_at: event_created(event)
-             },
-             {:ok, _} <- actions.upsert_task_result(result_args) do
-          _ = actions.emit_ocsf_event(OcsfMapper.task_result_event(run, task, target, result_args))
           run
-        else
-          {:error, :run_target_not_found} ->
-            Logger.info("AWX EventIngestor: result for unknown host",
-              run_id: run.id,
-              host_name: host_name
-            )
 
-            run
-
-          _ ->
-            run
-        end
+        _ ->
+          run
+      end
     end
   end
 
@@ -286,7 +284,11 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
 
     case actions.transition_run(run, transition, %{summary: summary}) do
       {:ok, updated} ->
-        _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, terminal_state_for(transition)))
+        _ =
+          actions.emit_ocsf_event(
+            OcsfMapper.run_state_event(updated, terminal_state_for(transition))
+          )
+
         updated
 
       _ ->
@@ -324,30 +326,28 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp handle_launch(data, actions) do
     payload = result_payload(data)
 
-    cond do
-      not Map.get(payload, "ok", false) ->
-        log_verb_failure("awx.launch_job", payload, command_id(data))
-        :ok
+    if Map.get(payload, "ok", false) do
+      with awx_job_id when is_integer(awx_job_id) <- get_in(payload, ["job", "id"]),
+           {:ok, run_id} <- correlate_run_id(data, actions),
+           {:ok, run} <- actions.get_run_by_id(run_id) do
+        if run.state == :pending do
+          case actions.transition_run(run, :record_launching, %{awx_job_id: awx_job_id}) do
+            {:ok, updated} ->
+              _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, :launching))
+              AnsiblePubSub.broadcast_run_updated(updated)
 
-      true ->
-        with awx_job_id when is_integer(awx_job_id) <- get_in(payload, ["job", "id"]),
-             {:ok, run_id} <- correlate_run_id(data, actions),
-             {:ok, run} <- actions.get_run_by_id(run_id) do
-          if run.state == :pending do
-            case actions.transition_run(run, :record_launching, %{awx_job_id: awx_job_id}) do
-              {:ok, updated} ->
-                _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, :launching))
-                AnsiblePubSub.broadcast_run_updated(updated)
-
-              _ ->
-                :ok
-            end
+            _ ->
+              :ok
           end
-
-          :ok
-        else
-          _ -> :ok
         end
+
+        :ok
+      else
+        _ -> :ok
+      end
+    else
+      log_verb_failure("awx.launch_job", payload, command_id(data))
+      :ok
     end
   end
 
@@ -375,7 +375,11 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
                diagnostics: %{awx_status: awx_status}
              }) do
           {:ok, updated} ->
-            _ = actions.emit_ocsf_event(OcsfMapper.run_state_event(updated, terminal_state_for(transition)))
+            _ =
+              actions.emit_ocsf_event(
+                OcsfMapper.run_state_event(updated, terminal_state_for(transition))
+              )
+
             AnsiblePubSub.broadcast_run_updated(updated)
 
           _ ->
@@ -455,7 +459,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   end
 
   defp ping_summary(payload) do
-    "AWX " <> nonempty(Map.get(payload, "version"), "?") <>
+    "AWX " <>
+      nonempty(Map.get(payload, "version"), "?") <>
       " reachable (active: " <> nonempty(Map.get(payload, "active_node"), "?") <> ")"
   end
 
@@ -475,21 +480,21 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp handle_list_templates(data, actions) do
     payload = result_payload(data)
 
-    cond do
-      not Map.get(payload, "ok", true) ->
-        log_verb_failure("awx.list_templates", payload, command_id(data))
-        :ok
-
-      true ->
-        with {:ok, controller_id} <- correlate_controller_id(data, actions) do
+    if Map.get(payload, "ok", true) do
+      case correlate_controller_id(data, actions) do
+        {:ok, controller_id} ->
           payload
           |> Map.get("results", [])
           |> Enum.each(fn template -> upsert_template(actions, controller_id, template) end)
 
           :ok
-        else
-          _ -> :ok
-        end
+
+        _ ->
+          :ok
+      end
+    else
+      log_verb_failure("awx.list_templates", payload, command_id(data))
+      :ok
     end
   end
 
@@ -535,10 +540,17 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp tags_from_template(template) do
     # AWX stores comma-separated tags on the job template's `job_tags` field.
     case Map.get(template, "job_tags") do
-      nil -> []
-      "" -> []
-      raw when is_binary(raw) -> raw |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
-      _ -> []
+      nil ->
+        []
+
+      "" ->
+        []
+
+      raw when is_binary(raw) ->
+        raw |> String.split(",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+      _ ->
+        []
     end
   end
 
@@ -546,7 +558,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
 
   defp correlate_run_id(data, actions) do
     with {:ok, ctx} <- fetch_context(data, actions),
-         id when is_binary(id) <- Map.get(ctx, "playbook_run_id") || Map.get(ctx, :playbook_run_id) do
+         id when is_binary(id) <-
+           Map.get(ctx, "playbook_run_id") || Map.get(ctx, :playbook_run_id) do
       {:ok, id}
     else
       _ -> {:error, :no_playbook_run_id}
@@ -591,26 +604,18 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   defp result_payload(_), do: %{}
 
   defp play_uuid(event),
-    do:
-      get_in(event, ["event_data", "play_uuid"]) || Map.get(event, "play_uuid") ||
-        ""
+    do: get_in(event, ["event_data", "play_uuid"]) || Map.get(event, "play_uuid") || ""
 
   defp task_uuid(event),
-    do:
-      get_in(event, ["event_data", "task_uuid"]) || Map.get(event, "task_uuid") ||
-        ""
+    do: get_in(event, ["event_data", "task_uuid"]) || Map.get(event, "task_uuid") || ""
 
   defp event_name(event),
-    do:
-      get_in(event, ["event_data", "play"]) || get_in(event, ["event_data", "name"]) ||
-        ""
+    do: get_in(event, ["event_data", "play"]) || get_in(event, ["event_data", "name"]) || ""
 
   defp event_play_name(event), do: get_in(event, ["event_data", "play"]) || ""
 
   defp event_task_name(event),
-    do:
-      get_in(event, ["event_data", "task"]) || get_in(event, ["event_data", "name"]) ||
-        ""
+    do: get_in(event, ["event_data", "task"]) || get_in(event, ["event_data", "name"]) || ""
 
   defp event_task_action(event), do: get_in(event, ["event_data", "task_action"])
 

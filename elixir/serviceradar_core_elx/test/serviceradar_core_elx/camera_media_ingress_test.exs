@@ -54,6 +54,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
     :ok
   end
 
+  # credo:disable-for-next-line Jump.CredoChecks.TooManyAssertions
   test "opens an ingress pid and forwards upload, heartbeat, and close through it" do
     relay_session_id = unique_id("relay-ingress")
     :ok = RelayPubSub.subscribe(relay_session_id)

@@ -51,8 +51,7 @@ defmodule ServiceRadar.Identity.CliSessionTest do
       now = DateTime.utc_now()
 
       changeset =
-        CliSession
-        |> Ash.Changeset.for_create(:create, %{
+        Ash.Changeset.for_create(CliSession, :create, %{
           attrs: %{
             jti: "abc123",
             device_authorization_id: device_authorization_id,

@@ -101,7 +101,15 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
 
       {:error, reason} ->
         sanitized = sanitize_git_error(reason)
-        record_sync(repo, :error, "git sync failed: #{sanitized}", %{"git_error" => sanitized}, opts)
+
+        record_sync(
+          repo,
+          :error,
+          "git sync failed: #{sanitized}",
+          %{"git_error" => sanitized},
+          opts
+        )
+
         Logger.warning("AWX GitCatalogSyncWorker: git sync failed",
           repository_id: repo.id,
           reason: inspect(reason)
@@ -259,7 +267,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
         {:ok, body} ->
           case parse_playbook(body, basename) do
             {:ok, parsed} ->
-              args = Map.put(parsed, :path, relpath) |> Map.put(:repository_id, repo.id)
+              args = parsed |> Map.put(:path, relpath) |> Map.put(:repository_id, repo.id)
 
               case upsert_fn.(args, actor: actor) do
                 {:ok, _} ->
@@ -320,7 +328,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
     |> String.slice(0, 200)
   end
 
-  defp sanitize_git_error(other), do: inspect(other) |> String.slice(0, 200)
+  defp sanitize_git_error(other), do: other |> inspect() |> String.slice(0, 200)
 
   defp default_base_dir do
     Application.get_env(

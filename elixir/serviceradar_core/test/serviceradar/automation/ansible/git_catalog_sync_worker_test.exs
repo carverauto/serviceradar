@@ -2,6 +2,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Automation.Ansible.GitCatalogSyncWorker, as: Worker
+  alias ServiceRadar.Automation.Ansible.PlaybookRepository
 
   defp drain_upserts(acc) do
     receive do
@@ -129,7 +130,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
       File.write!(Path.join(tmp, "roles/myrole/tasks.yml"), "")
       File.write!(Path.join(tmp, "README.md"), "")
 
-      paths = Worker.discover_yaml_files(tmp) |> Enum.sort()
+      paths = tmp |> Worker.discover_yaml_files() |> Enum.sort()
 
       assert paths == [
                "deploy.yml",
@@ -160,6 +161,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
 
       repo_dir = Path.join(tmp, "repo-uuid-1")
       File.mkdir_p!(Path.join(repo_dir, ".git"))
+
       File.write!(Path.join(repo_dir, "deploy.yml"), """
       - name: Deploy
         hosts: all
@@ -173,7 +175,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
 
     test "iterates yaml files, upserts good ones and records error for bad ones",
          %{base_dir: base} do
-      repo = %ServiceRadar.Automation.Ansible.PlaybookRepository{
+      repo = %PlaybookRepository{
         id: "repo-uuid-1",
         git_url: "https://github.com/example/playbooks.git",
         git_ref: "main",
@@ -202,7 +204,9 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
 
       msgs = drain_upserts([])
 
-      paths = msgs |> Enum.map(fn {:upsert, args} -> {args.path, args.parse_status} end) |> Enum.sort()
+      paths =
+        msgs |> Enum.map(fn {:upsert, args} -> {args.path, args.parse_status} end) |> Enum.sort()
+
       assert {"deploy.yml", :ok} in paths
       assert {"broken.yml", :error} in paths
     end
@@ -210,7 +214,7 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
     test "records error sync when git fails", %{base_dir: base} do
       # Repo that doesn't exist on disk -- ensure_clone tries to clone,
       # fake runner fails.
-      repo = %ServiceRadar.Automation.Ansible.PlaybookRepository{
+      repo = %PlaybookRepository{
         id: "repo-fail",
         git_url: "https://github.com/example/playbooks.git",
         git_ref: "main",

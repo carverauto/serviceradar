@@ -7,7 +7,9 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DataService.Client, as: DataServiceClient
-  alias ServiceRadar.Edge.{AgentRelease, AgentReleaseRollout, AgentReleaseTarget}
+  alias ServiceRadar.Edge.AgentRelease
+  alias ServiceRadar.Edge.AgentReleaseRollout
+  alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Sync.Client, as: SyncClient
 
   require Ash.Query
@@ -36,8 +38,8 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
 
     with {:ok, releases} <- read_releases(actor),
          {:ok, protected_release_ids} <- protected_release_ids(releases, keep_latest, actor),
-         {:ok, summary} <- with_datasvc_channel(releases, protected_release_ids, dry_run?, timeout) do
-
+         {:ok, summary} <-
+           with_datasvc_channel(releases, protected_release_ids, dry_run?, timeout) do
       Logger.info("ObjectStoreRetention: release artifact cleanup completed",
         scanned: summary.scanned,
         protected: summary.protected,
@@ -72,10 +74,22 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
 
         cond do
           release_id && MapSet.member?(protected_release_ids, release_id) ->
-            %{key: key, object: object, release: release, action: :protect, reason: :referenced_release}
+            %{
+              key: key,
+              object: object,
+              release: release,
+              action: :protect,
+              reason: :referenced_release
+            }
 
           release_id ->
-            %{key: key, object: object, release: release, action: :delete, reason: :retained_release_count_exceeded}
+            %{
+              key: key,
+              object: object,
+              release: release,
+              action: :delete,
+              reason: :retained_release_count_exceeded
+            }
 
           true ->
             %{key: key, object: object, release: nil, action: :delete, reason: :orphaned_object}
@@ -100,8 +114,7 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
     newest =
       releases
       |> Enum.take(max(keep_latest, 0))
-      |> Enum.map(& &1.id)
-      |> MapSet.new()
+      |> MapSet.new(& &1.id)
 
     with {:ok, rollout_ids} <- active_rollout_release_ids(actor),
          {:ok, target_ids} <- active_target_release_ids(actor) do
@@ -116,7 +129,7 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, rollouts} ->
-        {:ok, rollouts |> Enum.map(& &1.release_id) |> MapSet.new()}
+        {:ok, MapSet.new(rollouts, & &1.release_id)}
 
       error ->
         error
@@ -130,7 +143,7 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
     |> Ash.read(actor: actor)
     |> case do
       {:ok, targets} ->
-        {:ok, targets |> Enum.map(& &1.release_id) |> MapSet.new()}
+        {:ok, MapSet.new(targets, & &1.release_id)}
 
       error ->
         error

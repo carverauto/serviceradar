@@ -11,15 +11,15 @@ defmodule ServiceRadar.WifiMap do
   end
 
   resources do
-    resource(ServiceRadar.WifiMap.Source)
-    resource(ServiceRadar.WifiMap.Batch)
-    resource(ServiceRadar.WifiMap.SiteReference)
-    resource(ServiceRadar.WifiMap.Site)
-    resource(ServiceRadar.WifiMap.SiteSnapshot)
-    resource(ServiceRadar.WifiMap.AccessPointObservation)
-    resource(ServiceRadar.WifiMap.ControllerObservation)
-    resource(ServiceRadar.WifiMap.RadiusGroupObservation)
-    resource(ServiceRadar.WifiMap.FleetHistory)
-    resource(ServiceRadar.WifiMap.MapView)
+    resource ServiceRadar.WifiMap.Source
+    resource ServiceRadar.WifiMap.Batch
+    resource ServiceRadar.WifiMap.SiteReference
+    resource ServiceRadar.WifiMap.Site
+    resource ServiceRadar.WifiMap.SiteSnapshot
+    resource ServiceRadar.WifiMap.AccessPointObservation
+    resource ServiceRadar.WifiMap.ControllerObservation
+    resource ServiceRadar.WifiMap.RadiusGroupObservation
+    resource ServiceRadar.WifiMap.FleetHistory
+    resource ServiceRadar.WifiMap.MapView
   end
 end

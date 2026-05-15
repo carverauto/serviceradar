@@ -184,7 +184,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.BoomboxSidecarManagerTest do
                capture_ms: 10_000
              })
 
-    assert is_binary(branch.output_path)
     assert String.starts_with?(Path.expand(branch.output_path), Path.expand(SecureTempCapture.base_dir()) <> "/")
 
     assert :ok =

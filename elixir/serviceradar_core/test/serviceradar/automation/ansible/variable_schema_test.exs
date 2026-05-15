@@ -11,10 +11,34 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
         survey_spec: %{
           "name" => "Deploy",
           "spec" => [
-            %{"question_name" => "Target version", "variable" => "version", "type" => "text", "default" => "1.0.0", "required" => true},
-            %{"question_name" => "Replicas", "variable" => "replicas", "type" => "integer", "default" => 3, "min" => 1, "max" => 10},
-            %{"question_name" => "Secret", "variable" => "secret", "type" => "password", "required" => true},
-            %{"question_name" => "Env", "variable" => "env", "type" => "multiplechoice", "choices" => "prod\nstage\ndev", "default" => "stage"}
+            %{
+              "question_name" => "Target version",
+              "variable" => "version",
+              "type" => "text",
+              "default" => "1.0.0",
+              "required" => true
+            },
+            %{
+              "question_name" => "Replicas",
+              "variable" => "replicas",
+              "type" => "integer",
+              "default" => 3,
+              "min" => 1,
+              "max" => 10
+            },
+            %{
+              "question_name" => "Secret",
+              "variable" => "secret",
+              "type" => "password",
+              "required" => true
+            },
+            %{
+              "question_name" => "Env",
+              "variable" => "env",
+              "type" => "multiplechoice",
+              "choices" => "prod\nstage\ndev",
+              "default" => "stage"
+            }
           ]
         }
       }
@@ -24,10 +48,19 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
 
       [v1, v2, v3, v4] = vars
 
-      assert %Var{name: "version", type: :text, default: "1.0.0", required: true, label: "Target version"} = v1
+      assert %Var{
+               name: "version",
+               type: :text,
+               default: "1.0.0",
+               required: true,
+               label: "Target version"
+             } = v1
+
       assert %Var{name: "replicas", type: :integer, default: 3, min: 1, max: 10} = v2
       assert %Var{name: "secret", type: :password, private: true, required: true} = v3
-      assert %Var{name: "env", type: :select, choices: ["prod", "stage", "dev"], default: "stage"} = v4
+
+      assert %Var{name: "env", type: :select, choices: ["prod", "stage", "dev"], default: "stage"} =
+               v4
     end
 
     test "git-sourced with vars_prompt returns text / password vars" do
@@ -83,7 +116,8 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
         }
       }
 
-      assert [%Var{type: :select, choices: ["prod", "stage", "dev"]}] = VariableSchema.from_playbook(playbook)
+      assert [%Var{type: :select, choices: ["prod", "stage", "dev"]}] =
+               VariableSchema.from_playbook(playbook)
     end
 
     test "AWX multiselect type produces choices list" do
@@ -96,7 +130,8 @@ defmodule ServiceRadar.Automation.Ansible.VariableSchemaTest do
         }
       }
 
-      assert [%Var{type: :multiselect, choices: ["us-east", "us-west"]}] = VariableSchema.from_playbook(playbook)
+      assert [%Var{type: :multiselect, choices: ["us-east", "us-west"]}] =
+               VariableSchema.from_playbook(playbook)
     end
 
     test "AWX unknown type falls back to :text" do

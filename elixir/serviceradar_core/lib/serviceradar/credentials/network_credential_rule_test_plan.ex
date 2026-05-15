@@ -104,7 +104,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
       "grant_type" => "proxmox_api_token",
       "credential_rule_id" => value_string(rule, [:id, "id"]),
       "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "target" => %{"device_uid" => Map.get(target, "device_uid"), "base_url" => Map.get(target, "base_url")},
+      "target" => %{
+        "device_uid" => Map.get(target, "device_uid"),
+        "base_url" => Map.get(target, "base_url")
+      },
       "inject" => %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
       "allow" => %{"methods" => ["GET"], "paths" => ["/api2/json/version", "/api2/json/nodes"]},
       "ttl_seconds" => metadata_int(rule, "test_ttl_seconds", 120)
