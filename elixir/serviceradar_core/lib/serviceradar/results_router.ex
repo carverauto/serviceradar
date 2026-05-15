@@ -338,7 +338,12 @@ defmodule ServiceRadar.ResultsRouter do
     case host_ip(host) do
       host_ip when is_binary(host_ip) and host_ip != "" ->
         icmp_status = icmp_status(host)
-        canonical_port_results = build_port_scan_results(port_results(host))
+
+        canonical_port_results =
+          host
+          |> port_results()
+          |> build_port_scan_results()
+          |> merge_tcp_open_ports(tcp_open_ports(host))
 
         base = %{
           "host_ip" => host_ip,
@@ -372,6 +377,10 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp port_results(host) when is_map(host) do
     host["port_results"] || host["port_scan_results"] || host["portScanResults"] || []
+  end
+
+  defp tcp_open_ports(host) when is_map(host) do
+    host["tcp_ports_open"] || host["tcpPortsOpen"] || []
   end
 
   defp icmp_status(host) do
@@ -448,6 +457,36 @@ defmodule ServiceRadar.ResultsRouter do
     end)
     |> Enum.reverse()
   end
+
+  defp merge_tcp_open_ports(port_results, open_ports) do
+    open_ports =
+      open_ports
+      |> List.wrap()
+      |> Enum.map(&parse_integer/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&valid_port?/1)
+
+    if open_ports == [] do
+      port_results
+    else
+      port_results
+      |> Map.new(fn result -> {result["port"], result} end)
+      |> then(fn by_port ->
+        Enum.reduce(open_ports, by_port, fn port, acc ->
+          result =
+            acc
+            |> Map.get(port, %{"port" => port, "response_time_ns" => 0})
+            |> Map.put("available", true)
+
+          Map.put(acc, port, result)
+        end)
+      end)
+      |> Map.values()
+      |> Enum.sort_by(& &1["port"])
+    end
+  end
+
+  defp valid_port?(port), do: port >= 1 and port <= 65_535
 
   defp parse_duration_ns(value) when is_integer(value) and value >= 0, do: value
   defp parse_duration_ns(value) when is_float(value) and value >= 0, do: trunc(value)

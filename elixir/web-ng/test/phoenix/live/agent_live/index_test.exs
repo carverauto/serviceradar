@@ -76,6 +76,48 @@ defmodule ServiceRadarWebNGWeb.AgentLive.IndexTest do
            end)
   end
 
+  test "normalizes duplicate live registry rows by logical agent id" do
+    stale_connected_at = ~U[2026-05-15 22:49:58Z]
+    fresh_connected_at = ~U[2026-05-15 22:51:56Z]
+
+    agents =
+      ServiceRadarWebNGWeb.AgentLive.Index.normalize_live_agents([
+        %{
+          key: {:agent, "agent-host03", :old_gateway},
+          agent_id: "agent-host03",
+          status: :connected,
+          partition_id: "default",
+          connected_at: stale_connected_at,
+          last_heartbeat: ~U[2026-05-15 22:51:36Z],
+          capabilities: [:icmp]
+        },
+        %{
+          key: {:agent, "agent-host03", :new_gateway},
+          agent_id: "agent-host03",
+          status: :connected,
+          partition_id: "default",
+          connected_at: fresh_connected_at,
+          last_heartbeat: ~U[2026-05-15 23:00:57Z],
+          capabilities: [:icmp, :sweep]
+        },
+        %{
+          key: {:agent, "k8s-agent", :gateway},
+          status: :connected,
+          partition_id: "default",
+          connected_at: ~U[2026-05-15 22:49:35Z],
+          last_heartbeat: ~U[2026-05-15 22:59:07Z],
+          capabilities: [:icmp]
+        }
+      ])
+
+    assert Enum.map(agents, & &1.agent_id) == ["agent-host03", "k8s-agent"]
+
+    assert %{
+             connected_at: ^fresh_connected_at,
+             capabilities: [:icmp, :sweep]
+           } = Enum.find(agents, &(&1.agent_id == "agent-host03"))
+  end
+
   defp collect_srql_queries(acc) do
     receive do
       {:srql_query, query} when is_binary(query) ->

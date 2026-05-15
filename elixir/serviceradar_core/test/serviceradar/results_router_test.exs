@@ -277,6 +277,42 @@ defmodule ServiceRadar.ResultsRouterTest do
            ]
   end
 
+  test "derives sweep host availability from flattened TCP open ports" do
+    execution_id = Ash.UUID.generate()
+
+    payload = %{
+      "execution_id" => execution_id,
+      "last_sweep" => 1_700_000_000,
+      "hosts" => [
+        %{
+          "host" => "192.168.1.14",
+          "available" => false,
+          "icmp_status" => %{"available" => false},
+          "tcp_ports_open" => [445, "3389", 70_000]
+        }
+      ]
+    }
+
+    status = %{
+      source: "results",
+      service_type: "sweep",
+      message: Jason.encode!(payload),
+      agent_id: "agent-1"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:sweep_ingest, [result], ^execution_id, _opts}
+    assert result["host_ip"] == "192.168.1.14"
+    assert result["available"] == true
+    assert result["icmp_available"] == false
+
+    assert result["port_results"] == [
+             %{"port" => 445, "available" => true, "response_time_ns" => 0},
+             %{"port" => 3389, "available" => true, "response_time_ns" => 0}
+           ]
+  end
+
   test "does not manufacture ICMP availability for TCP-only sweep results" do
     execution_id = Ash.UUID.generate()
 

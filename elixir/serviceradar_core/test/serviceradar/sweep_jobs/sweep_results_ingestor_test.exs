@@ -355,6 +355,23 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       assert record.open_ports == [80]
     end
+
+    test "extracts open ports from flattened tcp_ports_open fields" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "available" => false,
+          "icmp_status" => %{"available" => false},
+          "tcp_ports_open" => [445, "3389", 70_000, "bad"]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == [445, 3389]
+    end
   end
 
   describe "composite availability" do
@@ -419,6 +436,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       assert record.status == :available
       assert record.open_ports == [443]
+      assert record.sweep_modes_results["tcp"] == "success"
+      assert stats.hosts_available == 1
+      assert stats.hosts_failed == 0
+    end
+
+    test "host is available when flattened TCP open ports are present" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "available" => false,
+          "icmp_status" => %{"available" => false, "round_trip" => 0},
+          "tcp_ports_open" => [445, 3389, 5985]
+        }
+      ]
+
+      {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.status == :available
+      assert record.open_ports == [445, 3389, 5985]
       assert record.sweep_modes_results["tcp"] == "success"
       assert stats.hosts_available == 1
       assert stats.hosts_failed == 0

@@ -235,7 +235,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :skipped_count, :integer, default: 0
 
       change set_attribute(:northbound_status, :success)
-      change set_attribute(:northbound_last_run_at, &DateTime.utc_now/0)
+      change set_attribute(:northbound_last_run_at, &__MODULE__.utc_now_second/0)
       change set_attribute(:northbound_last_result, arg(:result))
       change set_attribute(:northbound_last_device_count, arg(:device_count))
       change set_attribute(:northbound_last_updated_count, arg(:updated_count))
@@ -263,7 +263,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
         changeset
         |> Ash.Changeset.change_attribute(:northbound_status, :failed)
-        |> Ash.Changeset.change_attribute(:northbound_last_run_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(:northbound_last_run_at, utc_now_second())
         |> Ash.Changeset.change_attribute(
           :northbound_last_result,
           Ash.Changeset.get_argument(changeset, :result)
@@ -313,7 +313,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
           end
 
         changeset
-        |> Ash.Changeset.change_attribute(:last_sync_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(:last_sync_at, utc_now_second())
         |> Ash.Changeset.change_attribute(:last_sync_result, result)
         |> Ash.Changeset.change_attribute(
           :last_device_count,
@@ -669,4 +669,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   defp encrypt_credentials(changeset, credentials) do
     AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
   end
+
+  @doc false
+  def utc_now_second, do: DateTime.truncate(DateTime.utc_now(), :second)
 end
