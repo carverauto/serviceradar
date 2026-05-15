@@ -253,14 +253,15 @@ where
                 }
             }
             MSG_CLOSE => {
+                let close = match parse_and_clear_close_payload(&mut frame.payload) {
+                    Ok(close) => close,
+                    Err(err) => {
+                        write_error_frame(writer, "invalid rdp helper close payload")?;
+                        return Err(err.into());
+                    }
+                };
+
                 if let Some(mut active) = active_session.take() {
-                    let close = match parse_and_clear_close_payload(&mut frame.payload) {
-                        Ok(close) => close,
-                        Err(err) => {
-                            write_error_frame(writer, "invalid rdp helper close payload")?;
-                            return Err(err.into());
-                        }
-                    };
                     if let Err(err) = active.session.close(&close) {
                         write_error_frame(writer, err.safe_message())?;
                         return Err(err.into());
@@ -839,6 +840,46 @@ mod tests {
 
         run_stdio(&mut input.as_slice(), &mut output).expect("close succeeds");
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_accepts_valid_close_payload_before_open() {
+        let mut input = Vec::new();
+        write_frame(&mut input, MSG_CLOSE, br#"{"reason":"client closed"}"#)
+            .expect("write close frame");
+
+        let mut output = Vec::new();
+
+        run_stdio(&mut input.as_slice(), &mut output).expect("close succeeds");
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_rejects_invalid_close_payload_before_open() {
+        let reason = "x".repeat(257);
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_CLOSE,
+            format!(r#"{{"reason":"{reason}"}}"#).as_bytes(),
+        )
+        .expect("write close frame");
+
+        let mut output = Vec::new();
+
+        let err = run_stdio(&mut input.as_slice(), &mut output).expect_err("close rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidClosePayload(protocol::DesktopClosePayloadError::ReasonTooLarge)
+        ));
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"invalid rdp helper close payload".to_vec(),
+            })
+        );
     }
 
     #[test]
