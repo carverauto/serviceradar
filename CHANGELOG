@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.62
+
+Device ingest, inventory UI, Elixir quality, and NATS platform update.
+
+## Whats New
+
+**1.2.62**
+- Fixed sync ingestion failures caused by microsecond-bearing timestamps so Armis enrichment batches can persist normalized device metadata again.
+- Fixed `/devices` matching-count and vendor/type selector regressions, including stale "Counting total results" states and unusable long facet lists.
+- Restored agent identity indicators in the device list after recent inventory metadata normalization changes.
+- Fixed integration discovery status accounting so paged Armis runs report the total discovered device count instead of the final page size.
+- Added event emission for failed integration sync runs so operators get explicit failure visibility instead of only status text.
+- Fixed Elixir quality workflows by avoiding dependency-format scanning churn and serializing project checks that were fighting over shared runner resources.
+- Updated NATS runtime images to `2.14.0-alpine`, Bazel-managed `nats-server` to `v2.14.0`, Go NATS modules to current releases, and Rust `async-nats` clients to `0.48`.
+
 # ServiceRadar v1.2.61
 
 Release pipeline and CI hotfix.
