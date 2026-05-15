@@ -5,7 +5,8 @@ use crate::{
     models::DeviceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
-        agent_id as col_agent_id, deleted_at as col_deleted_at, device_type as col_device_type,
+        agent_id as col_agent_id, availability_source_agent_id as col_availability_source_agent_id,
+        deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
         hostname as col_hostname, ip as col_ip, is_available as col_is_available,
         last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
@@ -522,6 +523,15 @@ fn build_grouped_stats_filter_clause(
         "mac" => build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => build_grouped_text_clause("gateway_id", filter, &mut binds)?,
         "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
+        "availability_source_agent_id" | "availability_source_agent" => {
+            build_grouped_text_clause("availability_source_agent_id", filter, &mut binds)?
+        }
+        "available_from_agent" => {
+            build_grouped_agent_availability_clause(filter, true, &mut binds)?
+        }
+        "unavailable_from_agent" => {
+            build_grouped_agent_availability_clause(filter, false, &mut binds)?
+        }
         "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
         "type_id" => {
             let type_id: i64 =
@@ -665,6 +675,26 @@ fn build_grouped_text_clause(
     }
 }
 
+fn build_grouped_agent_availability_clause(
+    filter: &Filter,
+    available: bool,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    if !matches!(filter.op, FilterOp::Eq) {
+        return Err(ServiceError::InvalidRequest(
+            "per-agent availability filters only support equality".into(),
+        ));
+    }
+
+    binds.push(DeviceSqlBindValue::Text(
+        filter.value.as_scalar()?.to_string(),
+    ));
+
+    Ok(format!(
+        "EXISTS (SELECT 1 FROM device_agent_availability daa WHERE daa.device_uid = ocsf_devices.uid AND daa.agent_id = ? AND daa.is_available = {available})"
+    ))
+}
+
 /// Rewrites ? placeholders to $1, $2, etc. for PostgreSQL
 fn rewrite_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
@@ -743,6 +773,21 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 filter.value.as_scalar()?.to_string(),
                 "agent filter only supports equality"
             )?;
+        }
+        "availability_source_agent_id" | "availability_source_agent" => {
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_availability_source_agent_id,
+                filter.value.as_scalar()?.to_string(),
+                "availability source agent filter only supports equality"
+            )?;
+        }
+        "available_from_agent" => {
+            query = apply_agent_availability_filter(query, filter, true)?;
+        }
+        "unavailable_from_agent" => {
+            query = apply_agent_availability_filter(query, filter, false)?;
         }
         "is_available" => {
             query = apply_eq_filter!(
@@ -948,6 +993,29 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
     apply_text_filter_no_lists!(query, filter, col_ip, "ip filter does not support lists")
 }
 
+fn apply_agent_availability_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+    available: bool,
+) -> Result<DeviceQuery<'a>> {
+    if !matches!(filter.op, FilterOp::Eq) {
+        return Err(ServiceError::InvalidRequest(
+            "per-agent availability filters only support equality".into(),
+        ));
+    }
+
+    let agent_id = filter.value.as_scalar()?.to_string();
+    let expr = sql::<Bool>(
+        "EXISTS (SELECT 1 FROM device_agent_availability daa WHERE daa.device_uid = ocsf_devices.uid AND daa.agent_id = ",
+    )
+    .bind::<Text, _>(agent_id)
+    .sql(" AND daa.is_available = ")
+    .sql(if available { "true" } else { "false" })
+    .sql(")");
+
+    Ok(query.filter(expr))
+}
+
 /// Normalized MAC filter for the Diesel typed query path.
 /// Strips separators from both column and value so any format matches.
 fn apply_mac_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
@@ -1071,7 +1139,16 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "hostname" => collect_text_params(params, filter, false),
         "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
-        "gateway_id" | "agent_id" | "type" | "device_type" | "vendor_name" | "model"
+        "gateway_id"
+        | "agent_id"
+        | "availability_source_agent_id"
+        | "availability_source_agent"
+        | "available_from_agent"
+        | "unavailable_from_agent"
+        | "type"
+        | "device_type"
+        | "vendor_name"
+        | "model"
         | "risk_level" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(())
