@@ -197,6 +197,7 @@ func (s *desktopRDPHelperSession) SendDesktopMediaAck(_ context.Context, ack rem
 	if err := remoteaccess.ValidateDesktopMediaAck(ack, s.sessionID, ""); err != nil {
 		return err
 	}
+	ack.CloseReason = normalizeDesktopMediaTerminalReason(ack.CloseReason)
 
 	payload, err := json.Marshal(desktopRDPHelperAckPayload{
 		Type:            remoteaccess.DesktopMediaControlTypeAck,

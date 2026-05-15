@@ -499,6 +499,41 @@ func TestDesktopRDPHelperAdapterRejectsInvalidMediaAckBeforeIPC(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterNormalizesMediaAckCloseReasonBeforeIPC(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	ack := remoteaccess.DesktopMediaAck{
+		SessionBindingID: "desktop-session-1",
+		MediaSessionID:   "media-session-1",
+		LastAcceptedSeq:  7,
+		CloseReason:      " browser\nclosed\t",
+	}
+	if err := mediaSender.ackHandler(context.Background(), ack); err != nil {
+		t.Fatalf("ack handler returned error: %v", err)
+	}
+
+	ackFrame := transport.sentFrame(t, 1)
+	got, err := remoteaccess.DecodeDesktopMediaAckMessage(
+		ackFrame.Payload,
+		"desktop-session-1",
+		"media-session-1",
+	)
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaAckMessage returned error: %v", err)
+	}
+	if got.CloseReason != "browser closed" {
+		t.Fatalf("CloseReason = %q, want browser closed", got.CloseReason)
+	}
+}
+
 func TestDesktopRDPHelperAdapterClearsSerializedAckPayload(t *testing.T) {
 	t.Parallel()
 
