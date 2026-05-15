@@ -33,9 +33,17 @@ Observed connector crate surface from the pinned IronRDP checkout:
 - `picky = 7.0.0-rc.22` is `MIT OR Apache-2.0`; its default feature set includes X.509, JOSE, HTTP signature traits, and PKCS#12 support.
 - `ironrdp-client` is not an import target for ServiceRadar. It pulls UI/windowing, audio, clipboard, RDPDR, RDPSND, dynamic virtual channel, MSTS Gateway, WebSocket, and Devolutions Gateway transport dependencies that do not belong in the agent helper.
 
+Crates.io import check:
+
+- The published `ironrdp-connector = 0.8.0` is not the same dependency surface as the pinned local IronRDP checkout. It depends on `sspi = 0.18` and `picky = 7.0.0-rc.20`.
+- `picky = 7.0.0-rc.20` pins several pre-release crypto crates with exact requirements, including `digest = 0.11.0-rc.3`, `hmac = 0.13.0-rc.2`, and `sha2 = 0.11.0-rc.2`.
+- A same-workspace import of the published connector forces the root `Cargo.lock` away from existing stable crypto crate versions. Do not land that import in the shared ServiceRadar Rust workspace.
+- The production IronRDP helper should use an isolated optional helper dependency graph, for example a separate helper workspace/lockfile or Bazel crate-universe repository, so CredSSP/PKI dependencies cannot perturb SRQL, collectors, or other Rust services.
+
 ServiceRadar connector import requirements:
 
 - Import connector dependencies in a dedicated commit with the exact crate list, versions, features, and license check output.
+- Keep connector/CredSSP/PKI dependencies out of the root ServiceRadar Rust lockfile unless the resolver impact is explicitly reviewed across all Rust services.
 - Prefer the smallest direct IronRDP crate set required for TCP + TLS + NLA + screen frames. Do not import `ironrdp-client`.
 - Disable clipboard, drive, printer, audio, smart-card redirection, file transfer, dynamic virtual channel plugins, and MSTS Gateway/RDCleanPath support until each feature has its own policy and audit implementation.
 - Do not enable TOFU or any target-trust mode that requires agent-local persistent state. Target trust must come from the registered target policy, system roots, or an explicit CA bundle/pin managed outside the helper.
@@ -59,6 +67,6 @@ The feature-linked helper target must still fail closed until the connector loop
 
 ## Follow-Up Before Import
 - Verify the selected IronRDP commit's crate licenses from the upstream checkout, not from Teleport's AGPL workspace.
-- Decide whether the agent links Rust through cgo/staticlib, a sidecar helper process, or another build boundary.
+- Decide whether the optional IronRDP connector helper needs a separate Rust workspace/lockfile or Bazel crate-universe repository to keep the connector crypto graph isolated from the root ServiceRadar workspace.
 - Update Bazel/Rust dependency manifests in the same commit that imports the crates.
 - Add protocol integration tests against a controlled RDP test server before enabling runtime capability advertisement.
