@@ -364,6 +364,13 @@ pub fn build_initial_connector_pdu(
 pub fn drive_connector_to_credssp_boundary(
     request: ServiceRadarOpenRequest,
 ) -> Result<ConnectorUpgradeBoundary, &'static str> {
+    drive_connector_with_server_protocol(request, ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+}
+
+fn drive_connector_with_server_protocol(
+    request: ServiceRadarOpenRequest,
+    selected_protocol: ironrdp_pdu::nego::SecurityProtocol,
+) -> Result<ConnectorUpgradeBoundary, &'static str> {
     let config = build_connector_config(request)?;
     let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
     let mut buffer = ironrdp_core::WriteBuf::new();
@@ -372,7 +379,7 @@ pub fn drive_connector_to_credssp_boundary(
         .map_err(|_| "initial connector step failed")?;
 
     let before_confirm_state = connector_state_name(&connector);
-    let server_confirm = encode_nla_server_confirm()?;
+    let server_confirm = encode_server_confirm(selected_protocol)?;
     let mut output = ironrdp_core::WriteBuf::new();
 
     ironrdp_connector::Sequence::step(&mut connector, &server_confirm, &mut output)
@@ -391,11 +398,13 @@ pub fn drive_connector_to_credssp_boundary(
     })
 }
 
-fn encode_nla_server_confirm() -> Result<Vec<u8>, &'static str> {
+fn encode_server_confirm(
+    selected_protocol: ironrdp_pdu::nego::SecurityProtocol,
+) -> Result<Vec<u8>, &'static str> {
     ironrdp_core::encode_vec(&ironrdp_pdu::x224::X224(
         ironrdp_pdu::nego::ConnectionConfirm::Response {
             flags: ironrdp_pdu::nego::ResponseFlags::empty(),
-            protocol: ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX,
+            protocol: selected_protocol,
         },
     ))
     .map_err(|_| "server confirm encode failed")
@@ -516,6 +525,17 @@ mod tests {
         assert!(boundary.requires_security_upgrade);
         assert_eq!(boundary.after_upgrade_state, "Credssp");
         assert!(boundary.requires_credssp);
+    }
+
+    #[test]
+    fn server_tls_only_confirm_is_rejected_as_downgrade() {
+        let err = crate::drive_connector_with_server_protocol(
+            open_request("EXAMPLE\\alice", "required"),
+            ironrdp_pdu::nego::SecurityProtocol::SSL,
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "server confirm step failed");
     }
 
     #[test]

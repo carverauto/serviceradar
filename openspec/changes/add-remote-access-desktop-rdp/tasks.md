@@ -11,6 +11,7 @@
 - [x] 1.4.6 Add a review-only full helper-open JSON parser in the isolated connector probe so unknown fields and unsupported policy are rejected before IronRDP config construction.
 - [x] 1.4.7 Decode the review-only initial X.224 negotiation PDU and assert it advertises CredSSP/NLA without plain TLS fallback.
 - [x] 1.4.8 Drive the review-only IronRDP connector through a HYBRID_EX server confirm to prove the TLS upgrade boundary is reached before CredSSP.
+- [x] 1.4.9 Add a review-only downgrade test proving TLS-only server selection is rejected after the client advertises NLA-only posture.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
