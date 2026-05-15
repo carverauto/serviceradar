@@ -195,6 +195,19 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
                last_accepted_sequence: 1,
                credit_bytes: 1
              })
+
+    assert {:error, :media_ingest_mismatch} =
+             DesktopMediaSessionTracker.apply_ack("desktop-media-check-1", "media-owner-1", %{
+               media_ingest_id: "ingest-other",
+               last_accepted_sequence: 1,
+               credit_bytes: 1
+             })
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session("desktop-media-check-1", "agent-owner")
+
+    assert session.last_accepted_sequence == 0
+    assert session.received_credit_bytes == 0
   end
 
   test "moves to closing when an ack carries a close reason" do

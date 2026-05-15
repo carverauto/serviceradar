@@ -290,6 +290,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
                }),
              {:ok, _session} <-
                session_tracker().apply_ack(session.desktop_session_id, session.media_session_id, %{
+                 media_ingest_id: ack.media_ingest_id,
                  last_accepted_sequence: ack.last_accepted_sequence,
                  credit_bytes: ack.credit_bytes,
                  quality_level: ack.quality_level,

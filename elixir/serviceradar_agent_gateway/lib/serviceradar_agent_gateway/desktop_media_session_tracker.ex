@@ -106,7 +106,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   def handle_call({:record_frame_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
-    case fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id) do
+    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id) do
       {:ok, session} ->
         cost = normalize_uint(Map.get(attrs, :credit_cost, Map.get(attrs, :payload_bytes, 0)))
 
@@ -125,7 +125,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   def handle_call({:apply_ack, desktop_session_id, media_session_id, attrs}, _from, state) do
-    case fetch_and_verify_session(state, desktop_session_id, media_session_id) do
+    case fetch_and_verify_session_with_ingest(state, desktop_session_id, media_session_id, attrs) do
       {:ok, session} ->
         accepted_sequence = normalize_uint(Map.get(attrs, :last_accepted_sequence, session.last_accepted_sequence))
 
@@ -150,7 +150,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   def handle_call({:heartbeat_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
-    case fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
+    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
       {:ok, session} ->
         updated =
           Map.merge(session, %{
@@ -170,7 +170,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   def handle_call({:mark_closing_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
-    case fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
+    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
       {:ok, session} ->
         updated =
           session
@@ -188,7 +188,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   def handle_call({:close_session_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
-    case fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
+    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
       {:ok, session} ->
         log_session(:info, "Gateway desktop media closed", session)
         emit_session_event(:closed, session)
@@ -247,7 +247,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     end
   end
 
-  defp fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id) do
+  defp fetch_and_verify_session_with_ingest(state, desktop_session_id, media_session_id, attrs) do
+    case fetch_and_verify_session(state, desktop_session_id, media_session_id) do
+      {:ok, session} -> verify_optional_media_ingest(session, Map.get(attrs, :media_ingest_id))
+      error -> error
+    end
+  end
+
+  defp fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id) do
     case fetch_and_verify_session(state, desktop_session_id, media_session_id) do
       {:ok, %{agent_id: ^agent_id} = session} -> {:ok, session}
       {:ok, _session} -> {:error, :agent_id_mismatch}
@@ -255,8 +262,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     end
   end
 
-  defp fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
-    case fetch_and_verify_session(state, desktop_session_id, media_session_id, agent_id) do
+  defp fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
+    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id) do
       {:ok, session} -> verify_optional_media_ingest(session, Map.get(attrs, :media_ingest_id))
       error -> error
     end
