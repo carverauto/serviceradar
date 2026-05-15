@@ -168,7 +168,7 @@ serviceradar-agent
 serviceradar-rdp-adapter
 ```
 
-Automatic deployment from core/web-ng should still deploy one agent artifact version. The agent advertises `remote_access.rdp` only when the helper exists, matches the expected protocol version, and local policy enforcement is enabled.
+Automatic deployment from core/web-ng should still deploy one selected agent artifact version. The agent advertises `remote_access.rdp` only when local policy enables RDP and the installed helper `--capabilities` probe reports the expected helper protocol version and `connector_ready: true`.
 
 ## Open Questions Before Implementation
 - Whether to create a new `desktop_media.proto` service or extend the existing camera media service with a generic media session shape.
