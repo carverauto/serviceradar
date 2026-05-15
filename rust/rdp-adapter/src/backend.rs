@@ -21,12 +21,14 @@ impl RdpBackend for UnavailableBackend {
 #[derive(Debug, Eq, PartialEq)]
 pub enum BackendError {
     Unavailable,
+    Unsupported(&'static str),
 }
 
 impl BackendError {
     pub fn safe_message(&self) -> &'static str {
         match self {
             Self::Unavailable => BACKEND_UNAVAILABLE,
+            Self::Unsupported(message) => message,
         }
     }
 }

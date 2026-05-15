@@ -15,12 +15,36 @@ rust_library(
     ],
 )
 
+rust_library(
+    name = "rdp_adapter_ironrdp_lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    crate_features = ["ironrdp-backend"],
+    deps = [
+        "@rust_crates//:ironrdp-core",
+        "@rust_crates//:ironrdp-pdu",
+        "@rust_crates//:serde",
+        "@rust_crates//:serde_json-1.0.149",
+        "@rust_crates//:zeroize",
+    ],
+)
+
 rust_binary(
     name = "rdp_adapter",
     srcs = ["src/main.rs"],
     crate_root = "src/main.rs",
     edition = "2021",
     deps = [":rdp_adapter_lib"],
+)
+
+rust_binary(
+    name = "rdp_adapter_ironrdp",
+    srcs = ["src/main.rs"],
+    crate_root = "src/main.rs",
+    edition = "2021",
+    deps = [":rdp_adapter_ironrdp_lib"],
 )
 
 rust_test(

@@ -175,7 +175,7 @@ impl SensitiveString {
         self.value.is_empty()
     }
 
-    fn expose(&self) -> &str {
+    pub(crate) fn expose(&self) -> &str {
         std::str::from_utf8(&self.value).unwrap_or("")
     }
 

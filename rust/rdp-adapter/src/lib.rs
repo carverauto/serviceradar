@@ -1,4 +1,6 @@
 mod backend;
+#[cfg(feature = "ironrdp-backend")]
+mod backend_ironrdp;
 mod protocol;
 
 use std::error::Error;
@@ -6,6 +8,8 @@ use std::fmt;
 use std::io::{self, ErrorKind, Read, Write};
 
 pub use backend::{BackendError, RdpBackend, UnavailableBackend};
+#[cfg(feature = "ironrdp-backend")]
+pub use backend_ironrdp::IronRdpBackend;
 pub use protocol::{parse_open_payload, OpenPayload};
 
 const HEADER_LEN: usize = 5;
@@ -85,6 +89,10 @@ where
     R: Read,
     W: Write,
 {
+    #[cfg(feature = "ironrdp-backend")]
+    let mut backend = IronRdpBackend;
+
+    #[cfg(not(feature = "ironrdp-backend"))]
     let mut backend = UnavailableBackend;
 
     run_stdio_with_backend(reader, writer, &mut backend)
@@ -236,6 +244,8 @@ mod tests {
         let mut output = Vec::new();
         let err = run_stdio(&mut input.as_slice(), &mut output).expect_err("backend unavailable");
 
+        assert!(matches!(err, ProtocolError::Backend(_)));
+        #[cfg(not(feature = "ironrdp-backend"))]
         assert!(matches!(
             err,
             ProtocolError::Backend(BackendError::Unavailable)
@@ -244,7 +254,10 @@ mod tests {
             read_frame(&mut output.as_slice()).expect("read error frame"),
             Some(Frame {
                 message_type: MSG_ERROR,
-                payload: BackendError::Unavailable.safe_message().as_bytes().to_vec(),
+                payload: match err {
+                    ProtocolError::Backend(err) => err.safe_message().as_bytes().to_vec(),
+                    _ => unreachable!("matched backend error above"),
+                },
             })
         );
     }
