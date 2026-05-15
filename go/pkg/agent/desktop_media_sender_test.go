@@ -300,6 +300,35 @@ func TestDesktopMediaGatewaySenderRejectsOversizedChunkNegotiation(t *testing.T)
 	}
 }
 
+func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *testing.T) {
+	t.Parallel()
+
+	streamErr := errors.New("stream unavailable")
+	gateway := &fakeDesktopMediaGateway{
+		openResp:  acceptedDesktopMediaOpenResponse(),
+		streamErr: streamErr,
+	}
+
+	_, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	)
+	if !errors.Is(err, streamErr) {
+		t.Fatalf("stream open error = %v, want %v", err, streamErr)
+	}
+	if gateway.closeCount != 1 {
+		t.Fatalf("gateway close count = %d, want 1", gateway.closeCount)
+	}
+	if gateway.closeReq.GetDesktopSessionId() != testDesktopMediaSessionID ||
+		gateway.closeReq.GetMediaSessionId() != testDesktopMediaID ||
+		gateway.closeReq.GetMediaIngestId() != testDesktopMediaIngestID ||
+		gateway.closeReq.GetReason() == "" {
+		t.Fatalf("gateway close request = %#v", gateway.closeReq)
+	}
+}
+
 func TestDesktopMediaGatewaySenderCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -442,6 +471,7 @@ type fakeDesktopMediaGateway struct {
 	openReq    *proto.OpenDesktopMediaSessionRequest
 	openResp   *proto.OpenDesktopMediaSessionResponse
 	stream     *fakeDesktopMediaStream
+	streamErr  error
 	closeReq   *proto.CloseDesktopMediaSessionRequest
 	closeCount int
 }
@@ -455,6 +485,9 @@ func (g *fakeDesktopMediaGateway) OpenDesktopMediaSession(
 }
 
 func (g *fakeDesktopMediaGateway) StreamDesktopMedia(context.Context) (desktopMediaStream, error) {
+	if g.streamErr != nil {
+		return nil, g.streamErr
+	}
 	return g.stream, nil
 }
 

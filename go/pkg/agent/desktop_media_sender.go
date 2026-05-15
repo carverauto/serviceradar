@@ -135,6 +135,18 @@ func newDesktopMediaGatewaySender(
 
 	stream, err := gateway.StreamDesktopMedia(ctx)
 	if err != nil {
+		_, closeErr := gateway.CloseDesktopMediaSession(ctx, &proto.CloseDesktopMediaSessionRequest{
+			DesktopSessionId: normalized.DesktopSessionID,
+			MediaSessionId:   normalized.MediaSessionID,
+			MediaIngestId:    mediaIngestID,
+			AgentId:          normalized.AgentID,
+			GatewayId:        normalized.GatewayID,
+			Reason:           normalizeDesktopMediaTerminalReason("desktop media stream open failed"),
+		})
+		if closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+
 		return nil, err
 	}
 
