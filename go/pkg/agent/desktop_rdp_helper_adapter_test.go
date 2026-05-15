@@ -426,6 +426,47 @@ func TestDesktopRDPHelperAdapterRejectsTrailingHelperMediaPayload(t *testing.T) 
 	}
 }
 
+func TestDesktopRDPHelperAdapterRejectsMismatchedHelperMediaSession(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{frames: make(chan remoteaccess.DesktopMediaFrame, 1)}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	frame := remoteaccess.DesktopMediaFrame{
+		SessionBindingID: "other-session",
+		MediaSessionID:   "media-session-1",
+		Sequence:         3,
+		Width:            640,
+		Height:           480,
+		PayloadFamily:    remoteaccess.DesktopMediaPayloadDirtyRect,
+		Encoding:         "raw_rgba",
+		Payload:          []byte{1, 2, 3, 4},
+	}
+	payload, err := remoteaccess.EncodeDesktopMediaFrame(frame, testDesktopRDPHelperTarget().Screen)
+	if err != nil {
+		t.Fatalf("EncodeDesktopMediaFrame returned error: %v", err)
+	}
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageMediaFrame, Payload: payload}
+
+	select {
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		if !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+			t.Fatalf("helper media error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+		}
+	case got := <-mediaSender.frames:
+		t.Fatalf("forwarded mismatched media frame = %#v", got)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper media error")
+	}
+	if !allZeroBytes(payload) {
+		t.Fatalf("mismatched helper media payload was not cleared: %q", string(payload))
+	}
+}
+
 func TestDesktopRDPHelperAdapterRoutesMediaAcks(t *testing.T) {
 	t.Parallel()
 

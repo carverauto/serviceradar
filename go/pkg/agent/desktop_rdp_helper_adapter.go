@@ -330,7 +330,7 @@ func (s *desktopRDPHelperSession) readLoop() {
 
 		switch frame.Type {
 		case desktopRDPHelperMessageMediaFrame:
-			mediaFrame, err := decodeDesktopRDPHelperMediaFrame(frame.Payload, s.target.Screen)
+			mediaFrame, err := decodeDesktopRDPHelperMediaFrame(frame.Payload, s.target.Screen, s.sessionID)
 			if err != nil {
 				clearBytes(frame.Payload)
 				s.failReadLoop(err)
@@ -371,10 +371,14 @@ func (s *desktopRDPHelperSession) readLoop() {
 func decodeDesktopRDPHelperMediaFrame(
 	payload []byte,
 	policy remoteaccess.DesktopScreenPolicy,
+	sessionID string,
 ) (remoteaccess.DesktopMediaFrame, error) {
 	frame, err := remoteaccess.DecodeDesktopMediaFrameView(payload, policy)
 	if err != nil {
 		return frame, err
+	}
+	if frame.SessionBindingID != sessionID {
+		return frame, fmt.Errorf("%w: helper media session binding mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
 	}
 
 	expectedLength := remoteaccess.DesktopMediaHeaderSize +
