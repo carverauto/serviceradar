@@ -5460,6 +5460,11 @@ dependencies = [
 [[package]]
 name = "serviceradar-rdp-adapter"
 version = "0.1.0"
+dependencies = [
+ "serde 1.0.228",
+ "serde_json 1.0.149",
+ "zeroize",
+]
 
 [[package]]
 name = "serviceradar-rperf-checker"

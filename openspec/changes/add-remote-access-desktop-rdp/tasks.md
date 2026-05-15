@@ -80,6 +80,7 @@
 - [x] 3.2.3 Gate `remote_access.desktop` and `remote_access.rdp` capability advertisement on explicit agent config plus a locally executable per-session RDP helper.
 - [x] 3.2.4 Add a bounded local IPC frame protocol for the per-session RDP helper so screen payloads use length-prefixed binary frames instead of ad hoc JSON.
 - [x] 3.2.5 Add the agent-side per-session RDP helper adapter wrapper that sends the trusted open payload, routes input/control frames to the helper, forwards SRDP media frames to the gateway sender, and tears down on close.
+- [x] 3.2.6 Add typed Rust helper open-payload parsing, fail-closed credential grant validation, and a backend boundary for the IronRDP connector implementation.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -132,6 +133,7 @@
 - [x] 5.2.8 Add focused Go tests proving RDP capability advertisement stays disabled until config enables it and the helper binary is executable.
 - [x] 5.2.9 Add focused Go tests proving the RDP helper IPC protocol round-trips frames and rejects invalid, oversized, and truncated messages.
 - [x] 5.2.10 Add focused Go tests proving the RDP helper adapter sends open credentials only to the helper, clears credential grants, routes input/close frames, forwards helper SRDP media frames, and reports helper errors.
+- [x] 5.2.11 Add focused Rust helper tests proving open payload validation rejects malformed schemas, invalid memory-user grants, and brokered-secret grants that carry passwords.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

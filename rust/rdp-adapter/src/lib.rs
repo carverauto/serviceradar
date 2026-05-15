@@ -1,6 +1,12 @@
+mod backend;
+mod protocol;
+
 use std::error::Error;
 use std::fmt;
 use std::io::{self, ErrorKind, Read, Write};
+
+pub use backend::{BackendError, RdpBackend, UnavailableBackend};
+pub use protocol::{parse_open_payload, OpenPayload};
 
 const HEADER_LEN: usize = 5;
 const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
@@ -11,14 +17,12 @@ const MSG_ACK: u8 = 4;
 const MSG_CLOSE: u8 = 5;
 const MSG_ERROR: u8 = 6;
 
-const BACKEND_UNAVAILABLE: &str = "IronRDP backend is not linked into this helper build";
-
 #[derive(Debug)]
 pub enum ProtocolError {
     Io(io::Error),
     InvalidFrameLength(u32),
-    MissingOpenPayload,
-    BackendUnavailable,
+    InvalidOpenPayload(protocol::OpenPayloadError),
+    Backend(BackendError),
     UnexpectedMessage(u8),
 }
 
@@ -29,8 +33,8 @@ impl fmt::Display for ProtocolError {
             Self::InvalidFrameLength(length) => {
                 write!(f, "rdp helper frame length is invalid: {length}")
             }
-            Self::MissingOpenPayload => write!(f, "rdp helper open frame payload is required"),
-            Self::BackendUnavailable => write!(f, "{BACKEND_UNAVAILABLE}"),
+            Self::InvalidOpenPayload(err) => write!(f, "invalid rdp helper open payload: {err}"),
+            Self::Backend(err) => write!(f, "{err}"),
             Self::UnexpectedMessage(message_type) => {
                 write!(
                     f,
@@ -45,6 +49,8 @@ impl Error for ProtocolError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Io(err) => Some(err),
+            Self::InvalidOpenPayload(err) => Some(err),
+            Self::Backend(err) => Some(err),
             _ => None,
         }
     }
@@ -53,6 +59,18 @@ impl Error for ProtocolError {
 impl From<io::Error> for ProtocolError {
     fn from(err: io::Error) -> Self {
         Self::Io(err)
+    }
+}
+
+impl From<protocol::OpenPayloadError> for ProtocolError {
+    fn from(err: protocol::OpenPayloadError) -> Self {
+        Self::InvalidOpenPayload(err)
+    }
+}
+
+impl From<BackendError> for ProtocolError {
+    fn from(err: BackendError) -> Self {
+        Self::Backend(err)
     }
 }
 
@@ -67,16 +85,36 @@ where
     R: Read,
     W: Write,
 {
+    let mut backend = UnavailableBackend;
+
+    run_stdio_with_backend(reader, writer, &mut backend)
+}
+
+pub fn run_stdio_with_backend<R, W, B>(
+    reader: &mut R,
+    writer: &mut W,
+    backend: &mut B,
+) -> Result<(), ProtocolError>
+where
+    R: Read,
+    W: Write,
+    B: RdpBackend,
+{
     while let Some(frame) = read_frame(reader)? {
         match frame.message_type {
             MSG_OPEN => {
-                if frame.payload.is_empty() {
-                    write_error_frame(writer, "rdp helper open frame payload is required")?;
-                    return Err(ProtocolError::MissingOpenPayload);
-                }
+                let open = match parse_open_payload(&frame.payload) {
+                    Ok(open) => open,
+                    Err(err) => {
+                        write_error_frame(writer, "invalid rdp helper open payload")?;
+                        return Err(err.into());
+                    }
+                };
 
-                write_error_frame(writer, BACKEND_UNAVAILABLE)?;
-                return Err(ProtocolError::BackendUnavailable);
+                if let Err(err) = backend.open(open) {
+                    write_error_frame(writer, err.safe_message())?;
+                    return Err(err.into());
+                }
             }
             MSG_CLOSE => return Ok(()),
             MSG_INPUT | MSG_ACK => {
@@ -150,22 +188,86 @@ fn write_frame<W: Write>(
 mod tests {
     use super::*;
 
-    const OPEN_PAYLOAD: &[u8] = br#"{"schema":"serviceradar.rdp.helper.open.v1"}"#;
+    struct RecordingBackend {
+        opened_session: Option<String>,
+    }
+
+    impl RdpBackend for RecordingBackend {
+        fn open(&mut self, request: OpenPayload) -> Result<(), BackendError> {
+            self.opened_session = Some(request.session_id);
+
+            Ok(())
+        }
+    }
 
     #[test]
-    fn run_stdio_writes_error_for_open_until_backend_is_linked() {
+    fn run_stdio_parses_open_payload_before_backend_open() {
         let mut input = Vec::new();
-        write_frame(&mut input, MSG_OPEN, OPEN_PAYLOAD).expect("write open frame");
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        write_frame(&mut input, MSG_CLOSE, b"").expect("write close frame");
+
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            opened_session: None,
+        };
+
+        run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect("open then close succeeds");
+
+        assert_eq!(backend.opened_session.as_deref(), Some("session-1"));
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_writes_error_for_unavailable_backend() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
 
         let mut output = Vec::new();
         let err = run_stdio(&mut input.as_slice(), &mut output).expect_err("backend unavailable");
 
-        assert!(matches!(err, ProtocolError::BackendUnavailable));
+        assert!(matches!(
+            err,
+            ProtocolError::Backend(BackendError::Unavailable)
+        ));
         assert_eq!(
             read_frame(&mut output.as_slice()).expect("read error frame"),
             Some(Frame {
                 message_type: MSG_ERROR,
-                payload: BACKEND_UNAVAILABLE.as_bytes().to_vec(),
+                payload: BackendError::Unavailable.safe_message().as_bytes().to_vec(),
+            })
+        );
+    }
+
+    #[test]
+    fn run_stdio_rejects_invalid_open_payload_before_backend() {
+        let mut input = Vec::new();
+        write_frame(&mut input, MSG_OPEN, br#"{"schema":"wrong"}"#).expect("write open frame");
+
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            opened_session: None,
+        };
+        let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect_err("open payload rejected");
+
+        assert!(matches!(err, ProtocolError::InvalidOpenPayload(_)));
+        assert!(backend.opened_session.is_none());
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"invalid rdp helper open payload".to_vec(),
             })
         );
     }

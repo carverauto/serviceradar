@@ -1,0 +1,40 @@
+use std::error::Error;
+use std::fmt;
+
+use crate::protocol::OpenPayload;
+
+const BACKEND_UNAVAILABLE: &str = "IronRDP backend is not linked into this helper build";
+
+pub trait RdpBackend {
+    fn open(&mut self, request: OpenPayload) -> Result<(), BackendError>;
+}
+
+#[derive(Default)]
+pub struct UnavailableBackend;
+
+impl RdpBackend for UnavailableBackend {
+    fn open(&mut self, _request: OpenPayload) -> Result<(), BackendError> {
+        Err(BackendError::Unavailable)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum BackendError {
+    Unavailable,
+}
+
+impl BackendError {
+    pub fn safe_message(&self) -> &'static str {
+        match self {
+            Self::Unavailable => BACKEND_UNAVAILABLE,
+        }
+    }
+}
+
+impl fmt::Display for BackendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.safe_message())
+    }
+}
+
+impl Error for BackendError {}
