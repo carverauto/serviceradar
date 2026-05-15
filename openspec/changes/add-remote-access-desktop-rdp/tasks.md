@@ -169,7 +169,7 @@
 - [x] 4.2.1.2 Add the server-side web-ng WebRTC signaling facade/controller contract for `webrtc_desktop_media`.
 - [ ] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
-- [ ] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
+- [x] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
 
 ## 5. Validation And Demo
 - [ ] 5.1 Add unit tests for resource normalization, override rejection, RBAC, approval, redirection gates, quota enforcement, and audit records.
