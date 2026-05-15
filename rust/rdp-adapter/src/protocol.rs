@@ -16,6 +16,10 @@ const TLS_MODE_SYSTEM: &str = "system";
 const NLA_MODE_REQUIRED: &str = "required";
 const CLIPBOARD_MODE_DISABLED: &str = "disabled";
 const MAX_TCP_PORT: u32 = u16::MAX as u32;
+const MAX_SCREEN_WIDTH: u32 = 7680;
+const MAX_SCREEN_HEIGHT: u32 = 4320;
+const MAX_FRAME_RATE: u32 = 60;
+const MAX_BITRATE_BPS: u32 = 100_000_000;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -224,12 +228,15 @@ pub enum OpenPayloadError {
     Decode,
     InvalidSchema,
     MissingSession,
+    InvalidSessionPolicy,
     MissingAgent,
     UnsupportedProtocol,
     MissingRoute,
     MissingTarget,
     MissingUpstream,
     UnsupportedTlsPolicy,
+    UnsupportedCredentialMode,
+    InvalidScreenPolicy,
     UnsupportedRedirection,
     UnsupportedRecordingPolicy,
     InvalidCredentialGrant,
@@ -241,12 +248,15 @@ impl fmt::Display for OpenPayloadError {
             Self::Decode => f.write_str("decode failed"),
             Self::InvalidSchema => f.write_str("schema is unsupported"),
             Self::MissingSession => f.write_str("session id is required"),
+            Self::InvalidSessionPolicy => f.write_str("session policy is invalid"),
             Self::MissingAgent => f.write_str("local agent id is required"),
             Self::UnsupportedProtocol => f.write_str("target protocol is unsupported"),
             Self::MissingRoute => f.write_str("selected agent route is required"),
             Self::MissingTarget => f.write_str("target id is required"),
             Self::MissingUpstream => f.write_str("upstream host and port are required"),
             Self::UnsupportedTlsPolicy => f.write_str("target TLS/NLA policy is unsupported"),
+            Self::UnsupportedCredentialMode => f.write_str("credential mode is unsupported"),
+            Self::InvalidScreenPolicy => f.write_str("desktop screen policy is invalid"),
             Self::UnsupportedRedirection => {
                 f.write_str("desktop redirection policy is unsupported")
             }
@@ -275,6 +285,9 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     if payload.session_id.trim().is_empty() {
         return Err(OpenPayloadError::MissingSession);
     }
+    if payload.start_unix <= 0 {
+        return Err(OpenPayloadError::InvalidSessionPolicy);
+    }
     if payload.local_agent_id.trim().is_empty() {
         return Err(OpenPayloadError::MissingAgent);
     }
@@ -292,6 +305,9 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     if target.route.selected_agent_id != payload.local_agent_id {
         return Err(OpenPayloadError::MissingRoute);
     }
+    if !helper_route_policy_supported(&target.route) {
+        return Err(OpenPayloadError::MissingRoute);
+    }
     if !payload.gateway_id.is_empty()
         && !target.route.selected_gateway_id.is_empty()
         && target.route.selected_gateway_id != payload.gateway_id
@@ -307,6 +323,12 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     if !helper_tls_policy_supported(&target.tls) {
         return Err(OpenPayloadError::UnsupportedTlsPolicy);
     }
+    if !helper_credential_policy_supported(&target.credential) {
+        return Err(OpenPayloadError::UnsupportedCredentialMode);
+    }
+    if !helper_screen_policy_supported(&target.screen) {
+        return Err(OpenPayloadError::InvalidScreenPolicy);
+    }
     if !helper_redirection_policy_supported(&target.redirection) {
         return Err(OpenPayloadError::UnsupportedRedirection);
     }
@@ -317,11 +339,39 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     validate_credential_grant(payload)
 }
 
+fn helper_route_policy_supported(route: &DesktopRoute) -> bool {
+    route.allowed_agent_ids.is_empty()
+        || route
+            .allowed_agent_ids
+            .iter()
+            .any(|agent_id| agent_id == &route.selected_agent_id)
+}
+
 fn helper_tls_policy_supported(policy: &DesktopTlsPolicy) -> bool {
     matches!(
         policy.mode.as_str(),
         TLS_MODE_VERIFY | TLS_MODE_PINNED_CA | TLS_MODE_SYSTEM
     ) && policy.nla_mode == NLA_MODE_REQUIRED
+}
+
+fn helper_credential_policy_supported(policy: &DesktopCredentialPolicy) -> bool {
+    matches!(
+        policy.mode.as_str(),
+        CREDENTIAL_MODE_MEMORY_USER | CREDENTIAL_MODE_BROKERED_SECRET
+    )
+}
+
+fn helper_screen_policy_supported(policy: &DesktopScreenPolicy) -> bool {
+    policy.max_width > 0
+        && policy.max_width <= MAX_SCREEN_WIDTH
+        && policy.max_height > 0
+        && policy.max_height <= MAX_SCREEN_HEIGHT
+        && policy.frame_rate > 0
+        && policy.frame_rate <= MAX_FRAME_RATE
+        && policy.bitrate_bps > 0
+        && policy.bitrate_bps <= MAX_BITRATE_BPS
+        && policy.idle_seconds > 0
+        && policy.ttl_seconds > 0
 }
 
 fn helper_redirection_policy_supported(policy: &DesktopRedirectionPolicy) -> bool {
@@ -512,6 +562,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn parse_open_payload_rejects_invalid_start_timestamp() {
+        let raw = valid_open_payload().replace(r#""start_unix":1778636531"#, r#""start_unix":0"#);
+        let err = parse_open_payload(raw.as_bytes()).expect_err("session policy rejected");
+
+        assert_eq!(err, OpenPayloadError::InvalidSessionPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_selected_agent_outside_allowed_route_set() {
+        let raw = valid_open_payload().replace(
+            r#""route":{"selected_agent_id":"agent-1","selected_gateway_id":"gateway-1"}"#,
+            r#""route":{"selected_agent_id":"agent-1","selected_gateway_id":"gateway-1","allowed_agent_ids":["agent-2"]}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("route allowlist rejected");
+
+        assert_eq!(err, OpenPayloadError::MissingRoute);
+    }
+
+    #[test]
     fn parse_open_payload_rejects_unsupported_tls_policy() {
         let raw = valid_open_payload().replace(
             r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
@@ -520,6 +589,28 @@ pub(crate) mod tests {
         let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
 
         assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_unsupported_credential_policy() {
+        let raw = valid_open_payload().replace(
+            r#""credential":{"mode":"memory_user","allowed_principals":["alice"]}"#,
+            r#""credential":{"mode":"domain_delegation","allowed_principals":["alice"]}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("credential policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedCredentialMode);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_invalid_screen_policy() {
+        let raw = valid_open_payload().replace(
+            r#""screen":{"max_width":1920,"max_height":1080,"frame_rate":30,"bitrate_bps":8000000,"idle_seconds":900,"ttl_seconds":3600}"#,
+            r#""screen":{"max_width":7681,"max_height":1080,"frame_rate":30,"bitrate_bps":8000000,"idle_seconds":900,"ttl_seconds":3600}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("screen policy rejected");
+
+        assert_eq!(err, OpenPayloadError::InvalidScreenPolicy);
     }
 
     #[test]
