@@ -347,6 +347,7 @@ func (s *desktopMediaGatewaySender) handleAck(ctx context.Context, ack remoteacc
 	if err := remoteaccess.ValidateDesktopMediaAck(ack, s.desktopID, s.mediaID); err != nil {
 		return err
 	}
+	ack.CloseReason = normalizeDesktopMediaTerminalReason(ack.CloseReason)
 
 	s.ackMu.RLock()
 	handler := s.ackHandler

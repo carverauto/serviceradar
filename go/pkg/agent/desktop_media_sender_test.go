@@ -136,6 +136,7 @@ func TestDesktopMediaGatewaySenderRoutesAcks(t *testing.T) {
 				CreditBytes:          1024,
 				QualityLevel:         1,
 				Pause:                true,
+				CloseReason:          " gateway\nclosed\t",
 			},
 		},
 	}
@@ -147,6 +148,7 @@ func TestDesktopMediaGatewaySenderRoutesAcks(t *testing.T) {
 			ack.LastAcceptedSeq != 9 ||
 			ack.CreditBytes != 1024 ||
 			ack.QualityLevel != remoteaccess.DesktopMediaQualityLow ||
+			ack.CloseReason != "gateway closed" ||
 			!ack.Pause {
 			t.Fatalf("ack = %#v", ack)
 		}
