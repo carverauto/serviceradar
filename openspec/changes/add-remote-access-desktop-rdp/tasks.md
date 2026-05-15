@@ -7,6 +7,7 @@
 - [x] 1.4.2 Record the published `ironrdp-connector` root-lockfile conflict and require an isolated optional helper dependency graph before importing CredSSP/PKI crates.
 - [x] 1.4.3 Add a review-only isolated IronRDP connector probe workspace with its own lockfile so connector/CredSSP/PKI dependencies do not perturb the root Rust workspace.
 - [x] 1.4.4 Add a review-only ServiceRadar-to-IronRDP connector config mapping for NLA-required username/password sessions inside the isolated connector probe.
+- [x] 1.4.5 Add a review-only IronRDP connector state-machine smoke test that emits the initial X.224 negotiation PDU from a ServiceRadar-shaped open request.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.

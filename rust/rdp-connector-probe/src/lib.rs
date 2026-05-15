@@ -1,8 +1,10 @@
 use serde::Deserialize;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 const CLIENT_BUILD: u32 = 1;
 const CLIENT_NAME: &str = "serviceradar";
 const CLIENT_DIR: &str = "C:\\Windows\\System32\\mstscax.dll";
+const CLIENT_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 
 #[derive(Debug, Deserialize)]
 pub struct ServiceRadarOpenRequest {
@@ -34,6 +36,13 @@ pub struct ServiceRadarCredentialGrant {
     pub mode: String,
     pub username: String,
     pub password: String,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct InitialConnectorPdu {
+    pub before_state: &'static str,
+    pub after_state: &'static str,
+    pub bytes: Vec<u8>,
 }
 
 pub fn connector_dependency_is_linked() -> bool {
@@ -111,6 +120,30 @@ fn split_domain_username(username: String) -> (Option<String>, String) {
     (None, username)
 }
 
+pub fn build_initial_connector_pdu(
+    request: ServiceRadarOpenRequest,
+) -> Result<InitialConnectorPdu, &'static str> {
+    let config = build_connector_config(request)?;
+    let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
+    let before_state = connector_state_name(&connector);
+    let mut buffer = ironrdp_core::WriteBuf::new();
+    let written = ironrdp_connector::Sequence::step_no_input(&mut connector, &mut buffer)
+        .map_err(|_| "initial connector step failed")?;
+    let written_len = written
+        .size()
+        .ok_or("initial connector step wrote no bytes")?;
+
+    Ok(InitialConnectorPdu {
+        before_state,
+        after_state: connector_state_name(&connector),
+        bytes: buffer.filled()[..written_len].to_vec(),
+    })
+}
+
+fn connector_state_name(connector: &ironrdp_connector::ClientConnector) -> &'static str {
+    ironrdp_connector::Sequence::state(connector).name()
+}
+
 impl ServiceRadarOpenRequest {
     fn tls_nla_mode(&self) -> &str {
         self.target.tls.nla_mode.as_str()
@@ -155,6 +188,17 @@ mod tests {
         let err = crate::build_connector_config(open_request("alice", "optional")).unwrap_err();
 
         assert_eq!(err, "nla is required");
+    }
+
+    #[test]
+    fn builds_initial_x224_negotiation_pdu() {
+        let pdu = crate::build_initial_connector_pdu(open_request("EXAMPLE\\alice", "required"))
+            .expect("initial pdu");
+
+        assert_eq!(pdu.before_state, "ConnectionInitiationSendRequest");
+        assert_eq!(pdu.after_state, "ConnectionInitiationWaitResponse");
+        assert!(pdu.bytes.len() > 10);
+        assert_eq!(&pdu.bytes[..2], &[0x03, 0x00]);
     }
 
     fn open_request(username: &str, nla_mode: &str) -> crate::ServiceRadarOpenRequest {

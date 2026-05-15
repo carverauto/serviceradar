@@ -12,5 +12,6 @@ resolver = "2"
 
 [dependencies]
 ironrdp-connector = { version = "=0.8.0", default-features = false }
+ironrdp-core = { version = "=0.1.5", default-features = false, features = ["alloc"] }
 ironrdp-pdu = { version = "=0.7.0", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
