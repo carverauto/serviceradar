@@ -11,6 +11,7 @@ pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBacken
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
 pub use protocol::{parse_open_payload, OpenPayload};
+use zeroize::Zeroize;
 
 pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
 pub const HELPER_CAPABILITIES_SCHEMA: &str = "serviceradar.rdp.helper.capabilities.v1";
@@ -131,7 +132,7 @@ where
 {
     let mut active_session: Option<Box<dyn RdpBackendSession>> = None;
 
-    while let Some(frame) = read_frame(reader)? {
+    while let Some(mut frame) = read_frame(reader)? {
         match frame.message_type {
             MSG_OPEN => {
                 if active_session.is_some() {
@@ -139,7 +140,7 @@ where
                     return Err(ProtocolError::UnexpectedMessage(frame.message_type));
                 }
 
-                let open = match parse_open_payload(&frame.payload) {
+                let open = match parse_and_clear_open_payload(&mut frame.payload) {
                     Ok(open) => open,
                     Err(err) => {
                         write_error_frame(writer, "invalid rdp helper open payload")?;
@@ -195,6 +196,15 @@ where
     }
 
     Ok(())
+}
+
+fn parse_and_clear_open_payload(
+    payload: &mut [u8],
+) -> Result<OpenPayload, protocol::OpenPayloadError> {
+    let result = parse_open_payload(payload);
+    payload.zeroize();
+
+    result
 }
 
 fn read_frame<R: Read>(reader: &mut R) -> Result<Option<Frame>, ProtocolError> {
@@ -349,6 +359,36 @@ mod tests {
         assert_eq!(state.opened_session.as_deref(), Some("session-1"));
         assert_eq!(state.close_payloads, vec![Vec::<u8>::new()]);
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn parse_and_clear_open_payload_zeroizes_raw_credential_frame() {
+        let mut payload = protocol::tests::valid_open_payload().into_bytes();
+        assert!(payload
+            .windows(b"secret".len())
+            .any(|window| window == b"secret"));
+
+        let parsed = parse_and_clear_open_payload(&mut payload).expect("valid payload");
+
+        assert_eq!(
+            parsed
+                .credential_grant
+                .as_ref()
+                .map(|grant| grant.password.expose()),
+            Some("secret")
+        );
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn parse_and_clear_open_payload_zeroizes_invalid_raw_frame() {
+        let mut payload =
+            br#"{"schema":"wrong","credential_grant":{"password":"secret"}}"#.to_vec();
+
+        let err = parse_and_clear_open_payload(&mut payload).expect_err("payload rejected");
+
+        assert!(matches!(err, protocol::OpenPayloadError::Decode));
+        assert!(payload.iter().all(|byte| *byte == 0));
     }
 
     #[test]
