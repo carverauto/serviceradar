@@ -92,6 +92,7 @@
 - [x] 3.1.47 Normalize desktop media acknowledgement close reasons before storing sender credit-window terminal state.
 - [x] 3.1.48 Treat whitespace-only desktop media acknowledgement close reasons as empty before accepting same-sequence control acknowledgements.
 - [x] 3.1.49 Normalize desktop media gateway acknowledgement close reasons before registered handler callbacks receive them.
+- [x] 3.1.50 Reject desktop media gateway chunk negotiation above the absolute SRDP frame-data limit.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -263,6 +264,7 @@
 - [x] 5.6.36 Add focused Go tests proving desktop media acknowledgement close reasons are normalized before sender credit-window storage.
 - [x] 5.6.37 Add focused Go tests proving whitespace-only desktop media close acknowledgements cannot bypass same-sequence acknowledgement rejection.
 - [x] 5.6.38 Add focused Go tests proving desktop media gateway acknowledgement handlers receive normalized close reasons.
+- [x] 5.6.39 Add focused Go tests proving desktop media gateway requested and accepted max chunks cannot exceed the absolute SRDP frame-data limit.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

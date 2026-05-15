@@ -120,6 +120,9 @@ func newDesktopMediaGatewaySender(
 	if !openResp.GetAccepted() {
 		return nil, fmt.Errorf("%w: %s", errDesktopMediaSessionRejected, strings.TrimSpace(openResp.GetMessage()))
 	}
+	if openResp.GetMaxChunkBytes() > remoteaccess.DesktopMaxFrameData {
+		return nil, fmt.Errorf("%w: gateway max chunk exceeds desktop policy", remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
 	if strings.TrimSpace(openResp.GetMediaSessionId()) != "" &&
 		openResp.GetMediaSessionId() != normalized.MediaSessionID {
 		return nil, fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
@@ -394,6 +397,9 @@ func normalizeDesktopMediaGatewaySenderConfig(
 	}
 	if cfg.RequestedMaxChunkBytes == 0 {
 		cfg.RequestedMaxChunkBytes = remoteaccess.DesktopMediaDefaultMaxChunkBytes
+	}
+	if cfg.RequestedMaxChunkBytes > remoteaccess.DesktopMaxFrameData {
+		return cfg, fmt.Errorf("%w: requested max chunk exceeds desktop policy", remoteaccess.ErrInvalidDesktopMediaFrame)
 	}
 
 	return cfg, nil

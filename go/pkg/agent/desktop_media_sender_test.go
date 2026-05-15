@@ -245,6 +245,47 @@ func TestDesktopMediaGatewaySenderRejectsInvalidFrames(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaGatewaySenderRejectsOversizedChunkNegotiation(t *testing.T) {
+	t.Parallel()
+
+	stream := newFakeDesktopMediaStream()
+	cfg := testDesktopMediaGatewaySenderConfig()
+	cfg.RequestedMaxChunkBytes = remoteaccess.DesktopMaxFrameData + 1
+	gateway := &fakeDesktopMediaGateway{
+		openResp: acceptedDesktopMediaOpenResponse(),
+		stream:   stream,
+	}
+	if _, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		cfg,
+		nil,
+	); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("requested max chunk error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+	if gateway.openReq != nil {
+		t.Fatalf("gateway open called for invalid config: %#v", gateway.openReq)
+	}
+
+	gateway = &fakeDesktopMediaGateway{
+		openResp: &proto.OpenDesktopMediaSessionResponse{
+			Accepted:       true,
+			MediaIngestId:  testDesktopMediaIngestID,
+			MediaSessionId: testDesktopMediaID,
+			MaxChunkBytes:  remoteaccess.DesktopMaxFrameData + 1,
+		},
+		stream: stream,
+	}
+	if _, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("gateway max chunk error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+}
+
 func TestDesktopMediaGatewaySenderCloseIsIdempotent(t *testing.T) {
 	t.Parallel()
 
