@@ -412,6 +412,13 @@ fn validate_credential_grant(payload: &OpenPayload) -> Result<(), OpenPayloadErr
             if grant.username.trim().is_empty() || grant.password.is_empty() {
                 return Err(OpenPayloadError::InvalidCredentialGrant);
             }
+            if grant.session_id.trim().is_empty()
+                || grant.target_id.trim().is_empty()
+                || grant.session_id != payload.session_id
+                || grant.target_id != target.target_id
+            {
+                return Err(OpenPayloadError::InvalidCredentialGrant);
+            }
             if !target.credential.allowed_principals.is_empty()
                 && !target
                     .credential
@@ -544,6 +551,26 @@ pub(crate) mod tests {
         let raw = valid_open_payload().replace(
             r#""session_id":"session-1","target_id":"target-1""#,
             r#""session_id":"other-session","target_id":"target-1""#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("credential rejected");
+
+        assert_eq!(err, OpenPayloadError::InvalidCredentialGrant);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_memory_user_missing_binding() {
+        let raw =
+            valid_open_payload().replace(r#","session_id":"session-1","target_id":"target-1""#, "");
+        let err = parse_open_payload(raw.as_bytes()).expect_err("credential rejected");
+
+        assert_eq!(err, OpenPayloadError::InvalidCredentialGrant);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_memory_user_target_mismatch() {
+        let raw = valid_open_payload().replace(
+            r#""session_id":"session-1","target_id":"target-1""#,
+            r#""session_id":"session-1","target_id":"other-target""#,
         );
         let err = parse_open_payload(raw.as_bytes()).expect_err("credential rejected");
 
