@@ -11,7 +11,7 @@ use std::io::{self, ErrorKind, Read, Write};
 pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
-pub use protocol::{parse_open_payload, OpenPayload};
+pub use protocol::{parse_open_payload, DesktopMediaAck, OpenPayload};
 use zeroize::Zeroize;
 
 pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
@@ -32,6 +32,7 @@ pub enum ProtocolError {
     Io(io::Error),
     InvalidFrameLength(u32),
     InvalidOpenPayload(protocol::OpenPayloadError),
+    InvalidAckPayload(protocol::DesktopMediaAckError),
     Backend(BackendError),
     UnexpectedMessage(u8),
 }
@@ -44,6 +45,7 @@ impl fmt::Display for ProtocolError {
                 write!(f, "rdp helper frame length is invalid: {length}")
             }
             Self::InvalidOpenPayload(err) => write!(f, "invalid rdp helper open payload: {err}"),
+            Self::InvalidAckPayload(err) => write!(f, "invalid rdp helper ack payload: {err}"),
             Self::Backend(err) => write!(f, "{err}"),
             Self::UnexpectedMessage(message_type) => {
                 write!(
@@ -60,6 +62,7 @@ impl Error for ProtocolError {
         match self {
             Self::Io(err) => Some(err),
             Self::InvalidOpenPayload(err) => Some(err),
+            Self::InvalidAckPayload(err) => Some(err),
             Self::Backend(err) => Some(err),
             _ => None,
         }
@@ -78,6 +81,12 @@ impl From<protocol::OpenPayloadError> for ProtocolError {
     }
 }
 
+impl From<protocol::DesktopMediaAckError> for ProtocolError {
+    fn from(err: protocol::DesktopMediaAckError) -> Self {
+        Self::InvalidAckPayload(err)
+    }
+}
+
 impl From<BackendError> for ProtocolError {
     fn from(err: BackendError) -> Self {
         Self::Backend(err)
@@ -88,6 +97,11 @@ impl From<BackendError> for ProtocolError {
 struct Frame {
     message_type: u8,
     payload: Vec<u8>,
+}
+
+struct ActiveSession {
+    session_id: String,
+    session: Box<dyn RdpBackendSession>,
 }
 
 pub fn run_stdio<R, W>(reader: &mut R, writer: &mut W) -> Result<(), ProtocolError>
@@ -135,7 +149,7 @@ where
     W: Write,
     B: RdpBackend,
 {
-    let mut active_session: Option<Box<dyn RdpBackendSession>> = None;
+    let mut active_session: Option<ActiveSession> = None;
 
     while let Some(mut frame) = read_frame(reader)? {
         match frame.message_type {
@@ -153,9 +167,14 @@ where
                     }
                 };
 
+                let session_id = open.session_id.clone();
+
                 match backend.open(open) {
                     Ok(session) => {
-                        active_session = Some(session);
+                        active_session = Some(ActiveSession {
+                            session_id,
+                            session,
+                        });
                     }
                     Err(err) => {
                         write_error_frame(writer, err.safe_message())?;
@@ -164,28 +183,36 @@ where
                 }
             }
             MSG_INPUT => {
-                let Some(session) = active_session.as_mut() else {
+                let Some(active) = active_session.as_mut() else {
                     write_error_frame(writer, "rdp helper session is not open")?;
                     return Err(ProtocolError::UnexpectedMessage(frame.message_type));
                 };
-                if let Err(err) = session.input(&frame.payload) {
+                if let Err(err) = active.session.input(&frame.payload) {
                     write_error_frame(writer, err.safe_message())?;
                     return Err(err.into());
                 }
             }
             MSG_ACK => {
-                let Some(session) = active_session.as_mut() else {
+                let Some(active) = active_session.as_mut() else {
                     write_error_frame(writer, "rdp helper session is not open")?;
                     return Err(ProtocolError::UnexpectedMessage(frame.message_type));
                 };
-                if let Err(err) = session.ack(&frame.payload) {
+                let ack = match parse_and_clear_ack_payload(&mut frame.payload, &active.session_id)
+                {
+                    Ok(ack) => ack,
+                    Err(err) => {
+                        write_error_frame(writer, "invalid rdp helper ack payload")?;
+                        return Err(err.into());
+                    }
+                };
+                if let Err(err) = active.session.ack(&ack) {
                     write_error_frame(writer, err.safe_message())?;
                     return Err(err.into());
                 }
             }
             MSG_CLOSE => {
-                if let Some(mut session) = active_session.take() {
-                    if let Err(err) = session.close(&frame.payload) {
+                if let Some(mut active) = active_session.take() {
+                    if let Err(err) = active.session.close(&frame.payload) {
                         write_error_frame(writer, err.safe_message())?;
                         return Err(err.into());
                     }
@@ -207,6 +234,16 @@ fn parse_and_clear_open_payload(
     payload: &mut [u8],
 ) -> Result<OpenPayload, protocol::OpenPayloadError> {
     let result = parse_open_payload(payload);
+    payload.zeroize();
+
+    result
+}
+
+fn parse_and_clear_ack_payload(
+    payload: &mut [u8],
+    session_id: &str,
+) -> Result<DesktopMediaAck, protocol::DesktopMediaAckError> {
+    let result = protocol::parse_desktop_media_ack(payload, session_id);
     payload.zeroize();
 
     result
@@ -279,7 +316,7 @@ mod tests {
     struct RecordingState {
         opened_session: Option<String>,
         input_payloads: Vec<Vec<u8>>,
-        ack_payloads: Vec<Vec<u8>>,
+        acks: Vec<DesktopMediaAck>,
         close_payloads: Vec<Vec<u8>>,
     }
 
@@ -310,8 +347,17 @@ mod tests {
             Ok(())
         }
 
-        fn ack(&mut self, payload: &[u8]) -> Result<(), BackendError> {
-            self.state.borrow_mut().ack_payloads.push(payload.to_vec());
+        fn ack(&mut self, ack: &DesktopMediaAck) -> Result<(), BackendError> {
+            self.state.borrow_mut().acks.push(DesktopMediaAck {
+                session_binding_id: ack.session_binding_id.clone(),
+                media_session_id: ack.media_session_id.clone(),
+                last_accepted_seq: ack.last_accepted_seq,
+                credit_bytes: ack.credit_bytes,
+                quality_level: ack.quality_level.clone(),
+                pause: ack.pause,
+                resume: ack.resume,
+                close_reason: ack.close_reason.clone(),
+            });
 
             Ok(())
         }
@@ -397,6 +443,32 @@ mod tests {
     }
 
     #[test]
+    fn parse_and_clear_ack_payload_zeroizes_raw_ack_frame() {
+        let mut payload = valid_ack_payload().into_bytes();
+        assert!(payload
+            .windows(b"browser close".len())
+            .any(|window| window == b"browser close"));
+
+        let ack = parse_and_clear_ack_payload(&mut payload, "session-1").expect("valid ack");
+
+        assert_eq!(ack.session_binding_id, "session-1");
+        assert_eq!(ack.media_session_id, "media-1");
+        assert_eq!(ack.last_accepted_seq, 7);
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn parse_and_clear_ack_payload_zeroizes_invalid_raw_ack_frame() {
+        let mut payload =
+            br#"{"type":"wrong","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"close_reason":"browser close"}"#.to_vec();
+
+        let err = parse_and_clear_ack_payload(&mut payload, "session-1").expect_err("ack rejected");
+
+        assert!(matches!(err, protocol::DesktopMediaAckError::InvalidType));
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
     fn run_stdio_routes_input_and_ack_after_open() {
         let mut input = Vec::new();
         write_frame(
@@ -407,7 +479,7 @@ mod tests {
         .expect("write open frame");
         write_frame(&mut input, MSG_INPUT, br#"{"frame_type":"desktop.input"}"#)
             .expect("write input frame");
-        write_frame(&mut input, MSG_ACK, b"ack").expect("write ack frame");
+        write_frame(&mut input, MSG_ACK, valid_ack_payload().as_bytes()).expect("write ack frame");
         write_frame(&mut input, MSG_CLOSE, br#"{"reason":"done"}"#).expect("write close frame");
 
         let state = Rc::new(RefCell::new(RecordingState::default()));
@@ -425,9 +497,60 @@ mod tests {
             state.input_payloads,
             vec![br#"{"frame_type":"desktop.input"}"#.to_vec()]
         );
-        assert_eq!(state.ack_payloads, vec![b"ack".to_vec()]);
+        assert_eq!(
+            state.acks,
+            vec![DesktopMediaAck {
+                session_binding_id: "session-1".to_owned(),
+                media_session_id: "media-1".to_owned(),
+                last_accepted_seq: 7,
+                credit_bytes: 8192,
+                quality_level: "low".to_owned(),
+                pause: true,
+                resume: false,
+                close_reason: "browser close".to_owned(),
+            }]
+        );
         assert_eq!(state.close_payloads, vec![br#"{"reason":"done"}"#.to_vec()]);
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_rejects_invalid_ack_before_backend_session() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        write_frame(
+            &mut input,
+            MSG_ACK,
+            br#"{"type":"desktop_media_ack","session_binding_id":"other-session","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192}"#,
+        )
+        .expect("write ack frame");
+
+        let state = Rc::new(RefCell::new(RecordingState::default()));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect_err("ack rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidAckPayload(protocol::DesktopMediaAckError::SessionMismatch)
+        ));
+        assert!(state.borrow().acks.is_empty());
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"invalid rdp helper ack payload".to_vec(),
+            })
+        );
     }
 
     #[test]
@@ -522,5 +645,9 @@ mod tests {
             ProtocolError::InvalidFrameLength(length) if length == MAX_FRAME_LENGTH + 1
         ));
         assert!(output.is_empty());
+    }
+
+    fn valid_ack_payload() -> String {
+        r#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"quality_level":"low","pause":true,"close_reason":"browser close"}"#.to_owned()
     }
 }

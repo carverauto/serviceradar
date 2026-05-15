@@ -15,11 +15,16 @@ const TLS_MODE_PINNED_CA: &str = "pinned_ca";
 const TLS_MODE_SYSTEM: &str = "system";
 const NLA_MODE_REQUIRED: &str = "required";
 const CLIPBOARD_MODE_DISABLED: &str = "disabled";
+const ACK_TYPE: &str = "desktop_media_ack";
+const MEDIA_QUALITY_AUTO: &str = "auto";
+const MEDIA_QUALITY_LOW: &str = "low";
 const MAX_TCP_PORT: u32 = u16::MAX as u32;
 const MAX_SCREEN_WIDTH: u32 = 7680;
 const MAX_SCREEN_HEIGHT: u32 = 4320;
 const MAX_FRAME_RATE: u32 = 60;
 const MAX_BITRATE_BPS: u32 = 100_000_000;
+const MAX_ACK_CREDIT_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_ACK_CLOSE_REASON_BYTES: usize = 256;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -175,6 +180,32 @@ pub struct DesktopRecordingPolicy {
     pub audio_enabled: bool,
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopMediaAckMessage {
+    #[serde(rename = "type")]
+    pub message_type: String,
+    #[serde(flatten)]
+    pub ack: DesktopMediaAck,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopMediaAck {
+    pub session_binding_id: String,
+    pub media_session_id: String,
+    pub last_accepted_seq: u64,
+    pub credit_bytes: u64,
+    #[serde(default)]
+    pub quality_level: String,
+    #[serde(default)]
+    pub pause: bool,
+    #[serde(default)]
+    pub resume: bool,
+    #[serde(default)]
+    pub close_reason: String,
+}
+
 #[derive(Default, Eq, PartialEq)]
 pub struct SensitiveString {
     value: Vec<u8>,
@@ -242,6 +273,37 @@ pub enum OpenPayloadError {
     InvalidCredentialGrant,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum DesktopMediaAckError {
+    Decode,
+    InvalidType,
+    MissingSession,
+    SessionMismatch,
+    MissingMediaSession,
+    AmbiguousFlowControl,
+    UnsupportedQuality,
+    CreditTooLarge,
+    CloseReasonTooLarge,
+}
+
+impl fmt::Display for DesktopMediaAckError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Decode => f.write_str("decode failed"),
+            Self::InvalidType => f.write_str("ack type is unsupported"),
+            Self::MissingSession => f.write_str("session binding id is required"),
+            Self::SessionMismatch => f.write_str("session binding mismatch"),
+            Self::MissingMediaSession => f.write_str("media session id is required"),
+            Self::AmbiguousFlowControl => f.write_str("pause and resume cannot both be set"),
+            Self::UnsupportedQuality => f.write_str("quality level is unsupported"),
+            Self::CreditTooLarge => f.write_str("ack credit is too large"),
+            Self::CloseReasonTooLarge => f.write_str("close reason is too large"),
+        }
+    }
+}
+
+impl Error for DesktopMediaAckError {}
+
 impl fmt::Display for OpenPayloadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -276,6 +338,17 @@ pub fn parse_open_payload(payload: &[u8]) -> Result<OpenPayload, OpenPayloadErro
     validate_open_payload(&parsed)?;
 
     Ok(parsed)
+}
+
+pub fn parse_desktop_media_ack(
+    payload: &[u8],
+    session_id: &str,
+) -> Result<DesktopMediaAck, DesktopMediaAckError> {
+    let parsed: DesktopMediaAckMessage =
+        serde_json::from_slice(payload).map_err(|_| DesktopMediaAckError::Decode)?;
+    validate_desktop_media_ack_message(&parsed, session_id)?;
+
+    Ok(parsed.ack)
 }
 
 fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> {
@@ -337,6 +410,43 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     }
 
     validate_credential_grant(payload)
+}
+
+fn validate_desktop_media_ack_message(
+    message: &DesktopMediaAckMessage,
+    session_id: &str,
+) -> Result<(), DesktopMediaAckError> {
+    if message.message_type != ACK_TYPE {
+        return Err(DesktopMediaAckError::InvalidType);
+    }
+
+    let ack = &message.ack;
+    if ack.session_binding_id.trim().is_empty() {
+        return Err(DesktopMediaAckError::MissingSession);
+    }
+    if !session_id.is_empty() && ack.session_binding_id != session_id {
+        return Err(DesktopMediaAckError::SessionMismatch);
+    }
+    if ack.media_session_id.trim().is_empty() {
+        return Err(DesktopMediaAckError::MissingMediaSession);
+    }
+    if ack.pause && ack.resume {
+        return Err(DesktopMediaAckError::AmbiguousFlowControl);
+    }
+    if !matches!(
+        ack.quality_level.as_str(),
+        "" | MEDIA_QUALITY_AUTO | MEDIA_QUALITY_LOW
+    ) {
+        return Err(DesktopMediaAckError::UnsupportedQuality);
+    }
+    if ack.credit_bytes > MAX_ACK_CREDIT_BYTES {
+        return Err(DesktopMediaAckError::CreditTooLarge);
+    }
+    if ack.close_reason.trim().len() > MAX_ACK_CLOSE_REASON_BYTES {
+        return Err(DesktopMediaAckError::CloseReasonTooLarge);
+    }
+
+    Ok(())
 }
 
 fn helper_route_policy_supported(route: &DesktopRoute) -> bool {
@@ -491,6 +601,66 @@ pub(crate) mod tests {
                 .map(|grant| grant.username.as_str()),
             Some("alice")
         );
+    }
+
+    #[test]
+    fn parse_desktop_media_ack_accepts_valid_ack_payload() {
+        let ack = parse_desktop_media_ack(
+            br#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"quality_level":"low","pause":true}"#,
+            "session-1",
+        )
+        .expect("valid ack");
+
+        assert_eq!(ack.session_binding_id, "session-1");
+        assert_eq!(ack.media_session_id, "media-1");
+        assert_eq!(ack.last_accepted_seq, 7);
+        assert_eq!(ack.credit_bytes, 8192);
+        assert_eq!(ack.quality_level, "low");
+        assert!(ack.pause);
+    }
+
+    #[test]
+    fn parse_desktop_media_ack_rejects_session_mismatch() {
+        let err = parse_desktop_media_ack(
+            br#"{"type":"desktop_media_ack","session_binding_id":"other-session","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192}"#,
+            "session-1",
+        )
+        .expect_err("ack rejected");
+
+        assert_eq!(err, DesktopMediaAckError::SessionMismatch);
+    }
+
+    #[test]
+    fn parse_desktop_media_ack_rejects_unsupported_quality() {
+        let err = parse_desktop_media_ack(
+            br#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"quality_level":"ultra"}"#,
+            "session-1",
+        )
+        .expect_err("ack rejected");
+
+        assert_eq!(err, DesktopMediaAckError::UnsupportedQuality);
+    }
+
+    #[test]
+    fn parse_desktop_media_ack_rejects_oversized_credit() {
+        let err = parse_desktop_media_ack(
+            br#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":4194305}"#,
+            "session-1",
+        )
+        .expect_err("ack rejected");
+
+        assert_eq!(err, DesktopMediaAckError::CreditTooLarge);
+    }
+
+    #[test]
+    fn parse_desktop_media_ack_rejects_ambiguous_pause_resume() {
+        let err = parse_desktop_media_ack(
+            br#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"pause":true,"resume":true}"#,
+            "session-1",
+        )
+        .expect_err("ack rejected");
+
+        assert_eq!(err, DesktopMediaAckError::AmbiguousFlowControl);
     }
 
     #[test]
