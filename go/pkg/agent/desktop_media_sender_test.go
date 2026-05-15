@@ -363,6 +363,33 @@ func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *te
 	}
 }
 
+func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamIsNil(t *testing.T) {
+	t.Parallel()
+
+	gateway := &fakeDesktopMediaGateway{
+		openResp: acceptedDesktopMediaOpenResponse(),
+	}
+
+	_, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	)
+	if !errors.Is(err, errDesktopMediaSessionRejected) {
+		t.Fatalf("nil stream error = %v, want %v", err, errDesktopMediaSessionRejected)
+	}
+	if gateway.closeCount != 1 {
+		t.Fatalf("gateway close count = %d, want 1", gateway.closeCount)
+	}
+	if gateway.closeReq.GetDesktopSessionId() != testDesktopMediaSessionID ||
+		gateway.closeReq.GetMediaSessionId() != testDesktopMediaID ||
+		gateway.closeReq.GetMediaIngestId() != testDesktopMediaIngestID ||
+		gateway.closeReq.GetReason() == "" {
+		t.Fatalf("gateway close request = %#v", gateway.closeReq)
+	}
+}
+
 func TestDesktopMediaGatewaySenderReturnsCleanupErrorWhenAcceptedSessionCloseFails(t *testing.T) {
 	t.Parallel()
 
@@ -548,6 +575,10 @@ func (g *fakeDesktopMediaGateway) StreamDesktopMedia(context.Context) (desktopMe
 	if g.streamErr != nil {
 		return nil, g.streamErr
 	}
+	if g.stream == nil {
+		return nil, nil
+	}
+
 	return g.stream, nil
 }
 

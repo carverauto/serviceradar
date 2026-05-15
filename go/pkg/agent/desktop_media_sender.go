@@ -172,6 +172,21 @@ func newDesktopMediaGatewaySender(
 
 		return nil, err
 	}
+	if stream == nil {
+		err := fmt.Errorf("%w: empty desktop media stream", errDesktopMediaSessionRejected)
+		if closeErr := closeAcceptedDesktopMediaGatewaySession(
+			ctx,
+			gateway,
+			normalized,
+			responseMediaSessionID,
+			mediaIngestID,
+			"desktop media stream open failed",
+		); closeErr != nil {
+			return nil, errors.Join(err, closeErr)
+		}
+
+		return nil, err
+	}
 
 	sender := &desktopMediaGatewaySender{
 		stream:      stream,
