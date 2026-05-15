@@ -112,6 +112,7 @@
 - [x] 3.3.9 Require memory-user credential grants to carry exact helper-side session and target bindings before connector code can consume them.
 - [x] 3.3.10 Align the Go adapter runtime with helper credential binding by requiring explicit memory-user session/target bindings and rejecting session mismatches before helper handoff.
 - [x] 3.3.11 Harden the per-session RDP helper process against credential-bearing core dumps before reading session frames.
+- [x] 3.3.12 Make agent-side RDP helper process shutdown context-aware so stuck helpers are killed during session cleanup.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -171,6 +172,7 @@
 - [x] 5.2.21 Add focused Rust helper tests proving memory-user grants without exact session/target bindings are rejected before adapter use.
 - [x] 5.2.22 Add focused Go tests proving memory-user credential grants without explicit bindings or with mismatched session bindings fail before adapter/helper use.
 - [x] 5.2.23 Add focused Go tests proving RDP helpers cannot advertise ready when the IronRDP backend is not linked.
+- [x] 5.2.24 Add focused Go tests proving stuck RDP helper processes are killed when close cleanup exceeds its context deadline.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

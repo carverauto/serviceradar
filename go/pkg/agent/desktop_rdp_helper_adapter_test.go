@@ -21,6 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -316,5 +319,31 @@ func TestDesktopRDPHelperAdapterReportsHelperErrors(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for helper error")
+	}
+}
+
+func TestDesktopRDPHelperProcessCloseKillsStuckHelper(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("shell helper test requires POSIX sh")
+	}
+
+	helperPath := filepath.Join(t.TempDir(), "stuck-rdp-helper.sh")
+	if err := os.WriteFile(helperPath, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	transport, err := startDesktopRDPHelperProcess(context.Background(), helperPath)
+	if err != nil {
+		t.Fatalf("startDesktopRDPHelperProcess returned error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+
+	err = transport.Close(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close error = %v, want %v", err, context.DeadlineExceeded)
 	}
 }

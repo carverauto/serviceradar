@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 )
@@ -236,9 +237,11 @@ func (s *desktopRDPHelperSession) readLoop() {
 }
 
 type desktopRDPHelperProcessTransport struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
+	cmd      *exec.Cmd
+	stdin    io.WriteCloser
+	stdout   io.ReadCloser
+	waitCh   chan error
+	killOnce sync.Once
 }
 
 func startDesktopRDPHelperProcess(ctx context.Context, helperPath string) (desktopRDPHelperTransport, error) {
@@ -255,10 +258,17 @@ func startDesktopRDPHelperProcess(ctx context.Context, helperPath string) (deskt
 		return nil, err
 	}
 
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+		close(waitCh)
+	}()
+
 	return &desktopRDPHelperProcessTransport{
 		cmd:    cmd,
 		stdin:  stdin,
 		stdout: stdout,
+		waitCh: waitCh,
 	}, nil
 }
 
@@ -270,11 +280,31 @@ func (t *desktopRDPHelperProcessTransport) ReadFrame() (desktopRDPHelperFrame, e
 	return readDesktopRDPHelperFrame(t.stdout, desktopRDPHelperMaxFrameBytes)
 }
 
-func (t *desktopRDPHelperProcessTransport) Close(context.Context) error {
+func (t *desktopRDPHelperProcessTransport) Close(ctx context.Context) error {
 	_ = t.stdin.Close()
 	_ = t.stdout.Close()
 
-	return t.cmd.Wait()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	select {
+	case err := <-t.waitCh:
+		return err
+	case <-ctx.Done():
+		t.killOnce.Do(func() {
+			if t.cmd.Process != nil {
+				_ = t.cmd.Process.Kill()
+			}
+		})
+
+		select {
+		case err := <-t.waitCh:
+			return errors.Join(ctx.Err(), err)
+		case <-time.After(time.Second):
+			return ctx.Err()
+		}
+	}
 }
 
 func clearBytes(data []byte) {
