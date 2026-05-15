@@ -153,6 +153,32 @@ func TestDesktopRDPHelperAdapterRejectsInvalidInputBeforeIPC(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterRejectsScreenUpdateBeforeIPC(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	frame := remoteaccess.DesktopFrame{
+		SessionID: "desktop-session-1",
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeUpdate,
+		Width:     640,
+		Height:    480,
+		Data:      []byte{1, 2, 3, 4},
+	}
+	if err := session.SendDesktopFrame(context.Background(), frame); !errors.Is(err, remoteaccess.ErrInvalidDesktopFrame) {
+		t.Fatalf("SendDesktopFrame error = %v, want %v", err, remoteaccess.ErrInvalidDesktopFrame)
+	}
+	if got := transport.sentCount(); got != 1 {
+		t.Fatalf("sent frames = %d, want only open frame", got)
+	}
+}
+
 func TestDesktopRDPHelperAdapterClearsSerializedInputPayload(t *testing.T) {
 	t.Parallel()
 

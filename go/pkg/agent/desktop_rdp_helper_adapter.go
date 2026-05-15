@@ -155,6 +155,9 @@ type desktopRDPHelperSession struct {
 }
 
 func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remoteaccess.DesktopFrame) error {
+	if !desktopRDPHelperOutboundFrameTypeAllowed(frame.FrameType) {
+		return fmt.Errorf("%w: unsupported helper input frame type", remoteaccess.ErrInvalidDesktopFrame)
+	}
 	if err := remoteaccess.ValidateDesktopFrameWithPolicy(frame, s.target.Screen, s.target.Redirection); err != nil {
 		return err
 	}
@@ -172,6 +175,18 @@ func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remo
 		Type:    desktopRDPHelperMessageInput,
 		Payload: payload,
 	})
+}
+
+func desktopRDPHelperOutboundFrameTypeAllowed(frameType string) bool {
+	switch frameType {
+	case remoteaccess.DesktopFrameTypeInput,
+		remoteaccess.DesktopFrameTypeResize,
+		remoteaccess.DesktopFrameTypeQuality,
+		remoteaccess.DesktopFrameTypeDisconnect:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *desktopRDPHelperSession) SendDesktopMediaAck(_ context.Context, ack remoteaccess.DesktopMediaAck) error {
