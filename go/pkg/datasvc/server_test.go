@@ -190,3 +190,57 @@ func TestUploadObjectRejectsOversizeStream(t *testing.T) {
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Nil(t, stream.resp)
 }
+
+func TestListObjects(t *testing.T) {
+	s, mockStore := setupServer(t)
+
+	mockStore.EXPECT().
+		ListObjects(gomock.Any(), ObjectListOptions{
+			Domain:    "hub",
+			Prefix:    "agent-releases/",
+			PageSize:  2,
+			PageToken: "4",
+		}).
+		Return([]*ObjectInfo{
+			{
+				Key:    "domains/hub/agent-releases/1.2.48/linux-amd64.tar.gz",
+				Domain: "hub",
+				SHA256: "abc123",
+				Size:   42,
+				Metadata: ObjectMetadata{
+					Domain:      "hub",
+					ContentType: "application/gzip",
+					SHA256:      "abc123",
+				},
+			},
+		}, "6", nil)
+
+	resp, err := s.ListObjects(context.Background(), &proto.ListObjectsRequest{
+		Domain:    "hub",
+		Prefix:    "agent-releases/",
+		PageSize:  2,
+		PageToken: "4",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, resp.GetObjects(), 1)
+	assert.Equal(t, "6", resp.GetNextPageToken())
+	assert.Equal(t, "domains/hub/agent-releases/1.2.48/linux-amd64.tar.gz", resp.GetObjects()[0].GetMetadata().GetKey())
+	assert.Equal(t, "abc123", resp.GetObjects()[0].GetSha256())
+}
+
+func TestListObjectsCapsPageSize(t *testing.T) {
+	s, mockStore := setupServer(t)
+
+	mockStore.EXPECT().
+		ListObjects(gomock.Any(), gomock.AssignableToTypeOf(ObjectListOptions{})).
+		DoAndReturn(func(_ context.Context, opts ObjectListOptions) ([]*ObjectInfo, string, error) {
+			assert.Equal(t, 1000, opts.PageSize)
+			return []*ObjectInfo{}, "", nil
+		})
+
+	resp, err := s.ListObjects(context.Background(), &proto.ListObjectsRequest{PageSize: 5000})
+
+	require.NoError(t, err)
+	assert.Empty(t, resp.GetObjects())
+}

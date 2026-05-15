@@ -6,7 +6,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   northbound flow:
   - validating whether a source can run northbound updates
   - loading persisted Armis candidates from canonical inventory state
-  - collapsing candidate device rows to one record per `armis_device_id`
+  - collapsing candidate device rows to one record per integration ID
   - batching outbound updates for bulk API submission
   - building the bulk payload written to the configured custom field
   """
@@ -18,6 +18,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Monitoring
   alias ServiceRadar.Monitoring.OcsfEvent
@@ -203,11 +204,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   @spec candidates_query(IntegrationSource.t() | map()) :: Ecto.Query.t()
   def candidates_query(source) do
     source_id = to_string(Map.fetch!(source, :id))
+    availability_source_agent_id = availability_source_agent_id(source)
 
+    if blank?(availability_source_agent_id) do
+      canonical_candidates_query(source_id)
+    else
+      agent_candidates_query(source_id, availability_source_agent_id)
+    end
+  end
+
+  defp canonical_candidates_query(source_id) do
     from(di in DeviceIdentifier,
       join: d in Device,
       on: d.uid == di.device_id,
-      where: di.identifier_type == :armis_device_id,
+      where: di.identifier_type == :integration_id,
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
       where:
         fragment(
@@ -242,6 +252,55 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       },
       order_by: [asc: di.identifier_value, asc: d.uid]
     )
+  end
+
+  defp agent_candidates_query(source_id, availability_source_agent_id) do
+    from(di in DeviceIdentifier,
+      join: d in Device,
+      on: d.uid == di.device_id,
+      join: daa in DeviceAgentAvailability,
+      on: daa.device_uid == d.uid and daa.agent_id == ^availability_source_agent_id,
+      where: di.identifier_type == :integration_id,
+      where: not is_nil(d.uid) and is_nil(d.deleted_at),
+      where:
+        fragment(
+          "COALESCE(?->>'sync_service_id', ?->>'sync_service_id', '') = ?",
+          di.metadata,
+          d.metadata,
+          ^source_id
+        ),
+      where:
+        fragment(
+          "COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis'",
+          di.metadata,
+          d.metadata
+        ),
+      select: %{
+        armis_device_id: di.identifier_value,
+        is_available: fragment("COALESCE(?, false)", daa.is_available),
+        device_id: d.uid,
+        sync_service_id:
+          fragment(
+            "COALESCE(?->>'sync_service_id', ?->>'sync_service_id')",
+            di.metadata,
+            d.metadata
+          ),
+        metadata:
+          fragment(
+            "jsonb_strip_nulls(COALESCE(?, '{}'::jsonb) || jsonb_build_object('integration_type', COALESCE(?->>'integration_type', ?->>'integration_type'), 'availability_source_agent_id', ?))::jsonb",
+            d.metadata,
+            di.metadata,
+            d.metadata,
+            ^availability_source_agent_id
+          )
+      },
+      order_by: [asc: di.identifier_value, asc: d.uid]
+    )
+  end
+
+  defp availability_source_agent_id(source) do
+    Map.get(source, :northbound_availability_source_agent_id) ||
+      Map.get(source, "northbound_availability_source_agent_id")
   end
 
   @spec collapse_candidates([candidate()]) :: [collapsed_candidate()]

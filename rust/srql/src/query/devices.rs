@@ -5,7 +5,8 @@ use crate::{
     models::DeviceRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
-        agent_id as col_agent_id, deleted_at as col_deleted_at, device_type as col_device_type,
+        agent_id as col_agent_id, availability_source_agent_id as col_availability_source_agent_id,
+        deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
         hostname as col_hostname, ip as col_ip, is_available as col_is_available,
         last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
@@ -297,7 +298,6 @@ fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<DeviceRollupStats
             SELECT type, count
             FROM device_inventory_type_counts
             ORDER BY count DESC, type ASC
-            LIMIT 10
         ) t
     ), '[]'::jsonb),
     'by_vendor', COALESCE((
@@ -309,7 +309,6 @@ fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<DeviceRollupStats
             SELECT vendor_name, count
             FROM device_inventory_vendor_counts
             ORDER BY count DESC, vendor_name ASC
-            LIMIT 10
         ) v
     ), '[]'::jsonb)
 ) AS payload"#,
@@ -522,6 +521,15 @@ fn build_grouped_stats_filter_clause(
         "mac" => build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => build_grouped_text_clause("gateway_id", filter, &mut binds)?,
         "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
+        "availability_source_agent_id" | "availability_source_agent" => {
+            build_grouped_text_clause("availability_source_agent_id", filter, &mut binds)?
+        }
+        "available_from_agent" => {
+            build_grouped_agent_availability_clause(filter, true, &mut binds)?
+        }
+        "unavailable_from_agent" => {
+            build_grouped_agent_availability_clause(filter, false, &mut binds)?
+        }
         "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
         "type_id" => {
             let type_id: i64 =
@@ -665,6 +673,26 @@ fn build_grouped_text_clause(
     }
 }
 
+fn build_grouped_agent_availability_clause(
+    filter: &Filter,
+    available: bool,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    if !matches!(filter.op, FilterOp::Eq) {
+        return Err(ServiceError::InvalidRequest(
+            "per-agent availability filters only support equality".into(),
+        ));
+    }
+
+    binds.push(DeviceSqlBindValue::Text(
+        filter.value.as_scalar()?.to_string(),
+    ));
+
+    Ok(format!(
+        "EXISTS (SELECT 1 FROM device_agent_availability daa WHERE daa.device_uid = ocsf_devices.uid AND daa.agent_id = ? AND daa.is_available = {available})"
+    ))
+}
+
 /// Rewrites ? placeholders to $1, $2, etc. for PostgreSQL
 fn rewrite_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
@@ -743,6 +771,21 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 filter.value.as_scalar()?.to_string(),
                 "agent filter only supports equality"
             )?;
+        }
+        "availability_source_agent_id" | "availability_source_agent" => {
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_availability_source_agent_id,
+                filter.value.as_scalar()?.to_string(),
+                "availability source agent filter only supports equality"
+            )?;
+        }
+        "available_from_agent" => {
+            query = apply_agent_availability_filter(query, filter, true)?;
+        }
+        "unavailable_from_agent" => {
+            query = apply_agent_availability_filter(query, filter, false)?;
         }
         "is_available" => {
             query = apply_eq_filter!(
@@ -913,12 +956,13 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
         FilterOp::Eq | FilterOp::NotEq => {
             let value = filter.value.as_scalar()?.to_string();
             if let Some(cidr) = parse_cidr(&value)? {
+                let ip_expr = safe_device_ip_inet_sql();
                 let expr = if matches!(filter.op, FilterOp::NotEq) {
-                    sql::<Bool>("(ip IS NOT NULL AND NOT (try_inet(NULLIF(ip, '')) <<= ")
+                    sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND NOT ({ip_expr} <<= "))
                         .bind::<Text, _>(cidr)
                         .sql("::cidr))")
                 } else {
-                    sql::<Bool>("(ip IS NOT NULL AND try_inet(NULLIF(ip, '')) <<= ")
+                    sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND {ip_expr} <<= "))
                         .bind::<Text, _>(cidr)
                         .sql("::cidr)")
                 };
@@ -926,16 +970,17 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
             }
 
             if let Some((start, end)) = parse_ip_range(&value)? {
+                let ip_expr = safe_device_ip_inet_sql();
                 let expr = if matches!(filter.op, FilterOp::NotEq) {
-                    sql::<Bool>("(ip IS NOT NULL AND NOT (try_inet(NULLIF(ip, '')) >= ")
+                    sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND NOT ({ip_expr} >= "))
                         .bind::<Text, _>(start)
-                        .sql("::inet AND try_inet(NULLIF(ip, '')) <= ")
+                        .sql(&format!("::inet AND {ip_expr} <= "))
                         .bind::<Text, _>(end)
                         .sql("::inet))")
                 } else {
-                    sql::<Bool>("(ip IS NOT NULL AND try_inet(NULLIF(ip, '')) >= ")
+                    sql::<Bool>(&format!("({ip_expr} IS NOT NULL AND {ip_expr} >= "))
                         .bind::<Text, _>(start)
-                        .sql("::inet AND try_inet(NULLIF(ip, '')) <= ")
+                        .sql(&format!("::inet AND {ip_expr} <= "))
                         .bind::<Text, _>(end)
                         .sql("::inet)")
                 };
@@ -946,6 +991,29 @@ fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<Device
     }
 
     apply_text_filter_no_lists!(query, filter, col_ip, "ip filter does not support lists")
+}
+
+fn apply_agent_availability_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+    available: bool,
+) -> Result<DeviceQuery<'a>> {
+    if !matches!(filter.op, FilterOp::Eq) {
+        return Err(ServiceError::InvalidRequest(
+            "per-agent availability filters only support equality".into(),
+        ));
+    }
+
+    let agent_id = filter.value.as_scalar()?.to_string();
+    let expr = sql::<Bool>(
+        "EXISTS (SELECT 1 FROM device_agent_availability daa WHERE daa.device_uid = ocsf_devices.uid AND daa.agent_id = ",
+    )
+    .bind::<Text, _>(agent_id)
+    .sql(" AND daa.is_available = ")
+    .sql(if available { "true" } else { "false" })
+    .sql(")");
+
+    Ok(query.filter(expr))
 }
 
 /// Normalized MAC filter for the Diesel typed query path.
@@ -1071,7 +1139,16 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "hostname" => collect_text_params(params, filter, false),
         "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
-        "gateway_id" | "agent_id" | "type" | "device_type" | "vendor_name" | "model"
+        "gateway_id"
+        | "agent_id"
+        | "availability_source_agent_id"
+        | "availability_source_agent"
+        | "available_from_agent"
+        | "unavailable_from_agent"
+        | "type"
+        | "device_type"
+        | "vendor_name"
+        | "model"
         | "risk_level" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(())
@@ -1253,6 +1330,10 @@ fn parse_ip_range(value: &str) -> Result<Option<(String, String)>> {
     Ok(Some((start_ip.to_string(), end_ip.to_string())))
 }
 
+fn safe_device_ip_inet_sql() -> &'static str {
+    "(CASE WHEN pg_input_is_valid(NULLIF(btrim(split_part(ip, ',', 1)), ''), 'inet') THEN NULLIF(btrim(split_part(ip, ',', 1)), '')::inet ELSE NULL END)"
+}
+
 fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> DeviceQuery<'a> {
     let mut applied = false;
     let mut saw_is_available = false;
@@ -1280,11 +1361,11 @@ fn apply_ordering<'a>(mut query: DeviceQuery<'a>, order: &[OrderClause]) -> Devi
     if !applied {
         query = query
             .order(sql::<Bool>("coalesce(is_available, false)").desc())
-            .then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
+            .then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
             .then_order_by(col_uid.asc());
     } else if saw_is_available && !saw_ip {
         query = query
-            .then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
+            .then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
             .then_order_by(col_uid.asc());
     } else {
         query = query.then_order_by(col_uid.asc());
@@ -1312,10 +1393,10 @@ fn apply_primary_order<'a>(
         "ip" => (
             match clause.direction {
                 OrderDirection::Asc => {
-                    query.order(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
+                    query.order(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
                 }
                 OrderDirection::Desc => {
-                    query.order(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").desc())
+                    query.order(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).desc())
                 }
             },
             true,
@@ -1372,10 +1453,10 @@ fn apply_secondary_order<'a>(
         "ip" => (
             match clause.direction {
                 OrderDirection::Asc => {
-                    query.then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").asc())
+                    query.then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
                 }
                 OrderDirection::Desc => {
-                    query.then_order_by(sql::<Nullable<Inet>>("try_inet(NULLIF(ip, ''))").desc())
+                    query.then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).desc())
                 }
             },
             true,

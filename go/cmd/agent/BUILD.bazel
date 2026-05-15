@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
 
 go_library(
@@ -29,4 +29,10 @@ go_binary(
         "github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey": "{STABLE_AGENT_RELEASE_PUBLIC_KEY}",
         "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
     },
+)
+
+go_test(
+    name = "agent_test",
+    srcs = ["main_test.go"],
+    embed = [":agent_lib"],
 )

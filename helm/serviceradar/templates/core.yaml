@@ -11,6 +11,7 @@
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
@@ -241,6 +242,16 @@ spec:
         - name: PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS
           value: {{ $pluginStorage.downloadTtlSeconds | quote }}
         {{- end }}
+        - name: OBJECT_STORE_RETENTION_ENABLED
+          value: {{ default false $objectStoreRetention.enabled | quote }}
+        - name: OBJECT_STORE_RETENTION_DRY_RUN
+          value: {{ default true $objectStoreRetention.dryRun | quote }}
+        - name: OBJECT_STORE_RETENTION_CRON
+          value: {{ default "0 3 * * *" $objectStoreRetention.cron | quote }}
+        - name: OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST
+          value: {{ default 5 $objectStoreRetention.agentReleaseKeepLatest | quote }}
+        - name: OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS
+          value: {{ default 30000 $objectStoreRetention.datasvcTimeoutMs | quote }}
         - name: SYNC_INGESTOR_ASYNC
           value: {{ default true $syncIngestor.async | quote }}
         - name: DEVICE_ENRICHMENT_RULES_DIR

@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.InterfaceSettings
@@ -106,6 +107,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:sysmon_profile_info, nil)
      |> assign(:available_profiles, [])
      |> assign(:availability, nil)
+     |> assign(:agent_availability, [])
      |> assign(:healthcheck_summary, nil)
      |> assign(:virtualization_summary, nil)
      |> assign(:has_virtualization_guests, false)
@@ -341,7 +343,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:device_details, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Device details task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.device_details_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.device_details_request_ref do
       {:noreply, socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
     else
       {:noreply, socket}
@@ -361,7 +364,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:device_metrics, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Device metrics task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.device_metrics_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.device_metrics_request_ref do
       {:noreply, socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
     else
       {:noreply, socket}
@@ -381,7 +385,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_async({:flow_stats, device_uid, request_ref}, {:exit, reason}, socket) do
     Logger.warning("Device flow stats task failed for #{device_uid}: #{inspect(reason)}")
 
-    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.flow_stats_request_ref do
+    if device_uid == socket.assigns.device_uid and
+         request_ref == socket.assigns.flow_stats_request_ref do
       {:noreply, assign(socket, :flow_stats_loading, false)}
     else
       {:noreply, socket}
@@ -529,9 +534,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp normalize_requested_tab(url_tab, fallback_tab) do
-    if url_tab in ["details", "interfaces", "flows", "logs", "profiles", "sysmon", "mtr", "guests"],
-      do: url_tab,
-      else: fallback_tab
+    if url_tab in [
+         "details",
+         "interfaces",
+         "flows",
+         "logs",
+         "profiles",
+         "sysmon",
+         "mtr",
+         "guests"
+       ],
+       do: url_tab,
+       else: fallback_tab
   end
 
   defp same_device_and_limit?(socket, uid, limit) do
@@ -707,7 +721,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if requested_tab == "details" do
       base_context = Map.put(supplemental_context, :include_metrics?, false)
-      base_context = Map.put(base_context, :supplemental_timeout_ms, @details_supplemental_timeout_ms)
+
+      base_context =
+        Map.put(base_context, :supplemental_timeout_ms, @details_supplemental_timeout_ms)
+
       supplemental_assigns = load_device_supplemental_assigns(base_context)
 
       {:noreply,
@@ -767,7 +784,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       has_logs = Map.get(supplemental_assigns, :has_logs, false)
       has_mtr = Map.get(supplemental_assigns, :has_mtr, false)
       has_virtualization_guests = Map.get(supplemental_assigns, :has_virtualization_guests, false)
-      active_tab = resolve_active_tab(requested_tab, has_ifaces, has_flows, has_logs, has_mtr, has_virtualization_guests)
+
+      active_tab =
+        resolve_active_tab(
+          requested_tab,
+          has_ifaces,
+          has_flows,
+          has_logs,
+          has_mtr,
+          has_virtualization_guests
+        )
+
       srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
       {:noreply,
@@ -811,7 +838,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     show_stale = Map.get(context, :show_stale, false)
     include_metrics? = Map.get(context, :include_metrics?, true)
     virtualization_summary = Map.get(context, :virtualization_summary)
-    supplemental_timeout_ms = Map.get(context, :supplemental_timeout_ms, @tab_supplemental_timeout_ms)
+
+    supplemental_timeout_ms =
+      Map.get(context, :supplemental_timeout_ms, @tab_supplemental_timeout_ms)
+
     camera_sources = Map.get(context, :camera_sources, [])
     camera_inventory_error = Map.get(context, :camera_inventory_error)
 
@@ -846,8 +876,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     metric_tasks =
       if include_metrics? do
         [
-          timed_device_task(:metrics, fn -> load_metric_sections(srql_module, sysmon_filters, scope) end),
-          timed_device_task(:process, fn -> load_process_metrics(srql_module, sysmon_filters, scope) end)
+          timed_device_task(:metrics, fn ->
+            load_metric_sections(srql_module, sysmon_filters, scope)
+          end),
+          timed_device_task(:process, fn ->
+            load_process_metrics(srql_module, sysmon_filters, scope)
+          end)
         ]
       else
         []
@@ -920,6 +954,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
+      agent_availability: Map.get(parallel_results, :agent_availability, []),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
       virtualization_summary: virtualization_summary,
       has_virtualization_guests: virtualization_guests?(virtualization_summary),
@@ -974,8 +1009,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        }) do
     base_tasks = [
       timed_device_task(:availability, fn -> load_availability(srql_module, uid, scope) end),
+      timed_device_task(:agent_availability, fn -> load_agent_availability(scope, uid) end),
       timed_device_task(:healthcheck, fn -> load_healthcheck_summary(srql_module, uid, scope) end),
-      timed_device_task(:sweep, fn -> load_sweep_results(socket.assigns.current_scope, device_ip) end),
+      timed_device_task(:sweep, fn ->
+        load_sweep_results(socket.assigns.current_scope, device_ip)
+      end),
       timed_device_task(:mapper, fn -> load_mapper_jobs_for_device(scope, device_row) end),
       timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end)
     ]
@@ -1002,7 +1040,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_interface_tasks(tasks, false, srql_module, uid, scope) do
-    tasks ++ [timed_device_task(:has_ifaces, fn -> detect_has_interfaces(srql_module, uid, scope) end)]
+    tasks ++
+      [timed_device_task(:has_ifaces, fn -> detect_has_interfaces(srql_module, uid, scope) end)]
   end
 
   defp maybe_add_flow_tasks(tasks, true, srql_module, uid, scope, params) do
@@ -1157,9 +1196,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp resolve_active_tab("interfaces", false, _has_flows, _has_logs, _has_mtr, _has_guests), do: "details"
+
   defp resolve_active_tab("flows", _has_ifaces, false, _has_logs, _has_mtr, _has_guests), do: "details"
+
   defp resolve_active_tab("logs", _has_ifaces, _has_flows, false, _has_mtr, _has_guests), do: "details"
+
   defp resolve_active_tab("mtr", _has_ifaces, _has_flows, _has_logs, false, _has_guests), do: "details"
+
   defp resolve_active_tab("guests", _has_ifaces, _has_flows, _has_logs, _has_mtr, false), do: "details"
 
   defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_logs, _has_mtr, _has_guests), do: requested_tab
@@ -1191,7 +1234,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end
 
     current_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_uid}"
-    target = page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => socket.assigns.limit})
+
+    target =
+      page_path <> "?" <> URI.encode_query(%{"q" => query, "limit" => socket.assigns.limit})
 
     socket =
       if page_path == current_path do
@@ -1306,6 +1351,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:show_stale_aliases, show_stale)
      |> assign(:ip_aliases, ip_aliases)
      |> assign(:ip_alias_error, ip_alias_error)}
+  end
+
+  def handle_event("set_availability_source", %{"agent_id" => agent_id}, socket) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    availability_source_agent_id =
+      agent_id
+      |> to_string()
+      |> String.trim()
+      |> case do
+        "" -> nil
+        value -> value
+      end
+
+    case load_device(scope, device_uid) do
+      {:ok, device} ->
+        result =
+          device
+          |> Ash.Changeset.for_update(:set_availability_source, %{
+            availability_source_agent_id: availability_source_agent_id
+          })
+          |> Ash.update(scope: scope)
+
+        case result do
+          {:ok, _updated} ->
+            {:noreply,
+             socket
+             |> put_flash(:info, "Availability source updated")
+             |> push_patch(to: device_show_path(socket, device_uid))}
+
+          {:error, reason} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "Failed to update availability source: #{format_ash_error(reason)}"
+             )}
+        end
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+    end
   end
 
   def handle_event(
@@ -3685,6 +3773,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
               <.availability_section :if={is_map(@availability)} availability={@availability} />
 
+              <.agent_availability_section
+                :if={is_list(@agent_availability)}
+                rows={@agent_availability}
+                device_row={@device_row}
+              />
+
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
                 summary={@healthcheck_summary}
@@ -4704,11 +4798,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
       />
+      <.discovery_metadata_card :if={@has_discovery_metadata} fields={@discovery_metadata_fields} />
     </div>
     """
   end
 
   defp assign_ocsf_info(assigns) do
+    metadata = row_metadata(assigns.device_row)
     os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
     risk_level = Map.get(assigns.device_row, "risk_level")
@@ -4716,11 +4812,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
+    discovery_metadata_fields = discovery_metadata_fields(metadata)
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
     has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
-    has_any = has_os or has_hw or has_compliance
+    has_discovery_metadata = discovery_metadata_fields != []
+    has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
     assigns
     |> assign(:os, os)
@@ -4733,6 +4831,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:has_os, has_os)
     |> assign(:has_hw, has_hw)
     |> assign(:has_compliance, has_compliance)
+    |> assign(:has_discovery_metadata, has_discovery_metadata)
+    |> assign(:discovery_metadata_fields, discovery_metadata_fields)
     |> assign(:has_any, has_any)
   end
 
@@ -4920,10 +5020,115 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
-  attr(:camera_sources, :list, default: [])
-  attr(:inventory_error, :string, default: nil)
-  attr(:active_session, :any, default: nil)
-  attr(:last_session, :any, default: nil)
+  attr :fields, :list, required: true
+
+  defp discovery_metadata_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-squares-plus" class="size-4 text-secondary" />
+          <span class="text-sm font-semibold">Discovery Details</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div :for={field <- @fields} class="min-w-0">
+            <div class="text-xs text-base-content/50">{field.label}</div>
+            <div class="font-medium truncate" title={field.value}>{field.value}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp discovery_metadata_fields(metadata) when is_map(metadata) do
+    Enum.flat_map(
+      [
+        {"Source Device ID",
+         metadata_first_value(metadata, [
+           "source_device_id",
+           "integration_device_id",
+           "integration_id",
+           "external_device_id"
+         ])},
+        {"Query Label", metadata_first_value(metadata, ["query_label", "integration_query_label"])},
+        {"Category", metadata_first_value(metadata, ["category", "device_category"])},
+        {"Visibility", metadata_first_value(metadata, ["visibility"])},
+        {"Purdue Level", metadata_first_value(metadata, ["purdue_level"])},
+        {"IPv4 Addresses", metadata_first_value(metadata, ["ipv4_addresses"])},
+        {"IPv6 Addresses", metadata_first_value(metadata, ["ipv6_addresses"])},
+        {"MAC Addresses", metadata_first_value(metadata, ["mac_addresses"])},
+        {"Serial Numbers", metadata_first_value(metadata, ["serial_numbers", "serial_number"])},
+        {"Tags", metadata_first_value(metadata, ["source_tags", "tags"])},
+        {"Boundaries",
+         metadata_first_value(metadata, ["boundary_names"]) ||
+           summarize_json_metadata(metadata_first_value(metadata, ["boundaries"]))},
+        {"Site", summarize_json_metadata(metadata_first_value(metadata, ["site"]))},
+        {"Network Interfaces", summarize_json_metadata(metadata_first_value(metadata, ["network_interfaces"]))}
+      ],
+      fn {label, value} ->
+        value = clean_display_value(value)
+        if present?(value), do: [%{label: label, value: value}], else: []
+      end
+    )
+  end
+
+  defp discovery_metadata_fields(_metadata), do: []
+
+  defp metadata_first_value(metadata, keys) when is_map(metadata) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(metadata, key) do
+        value when value in [nil, ""] -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp summarize_json_metadata(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> summarize_metadata_value(decoded)
+      _ -> value
+    end
+  end
+
+  defp summarize_json_metadata(value), do: summarize_metadata_value(value)
+
+  defp summarize_metadata_value(value) when is_list(value) do
+    case value do
+      [] -> nil
+      [%{} | _] -> "#{length(value)} items"
+      _ -> Enum.map_join(value, ", ", &to_string/1)
+    end
+  end
+
+  defp summarize_metadata_value(value) when is_map(value) do
+    cond do
+      map_size(value) == 0 -> nil
+      is_binary(value["name"]) -> value["name"]
+      is_binary(value["display"]) -> value["display"]
+      true -> "#{map_size(value)} fields"
+    end
+  end
+
+  defp summarize_metadata_value(value), do: value
+
+  defp clean_display_value(nil), do: nil
+  defp clean_display_value(""), do: nil
+
+  defp clean_display_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.slice(0, 160)
+  end
+
+  defp clean_display_value(value), do: value |> to_string() |> String.slice(0, 160)
+
+  attr :camera_sources, :list, default: []
+  attr :inventory_error, :string, default: nil
+  attr :active_session, :any, default: nil
+  attr :last_session, :any, default: nil
 
   defp camera_streams_section(assigns) do
     sources = normalize_camera_sources_for_display(assigns.camera_sources)
@@ -7899,6 +8104,136 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  attr(:rows, :list, required: true)
+  attr(:device_row, :map, default: %{})
+
+  def agent_availability_section(assigns) do
+    primary_agent_id = device_availability_source_agent_id(assigns.device_row)
+
+    assigns =
+      assigns
+      |> assign(:primary_agent_id, primary_agent_id)
+      |> assign(:row_count, length(assigns.rows))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-map-pin" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Agent Availability</span>
+            <span :if={@row_count > 0} class="text-xs text-base-content/50">({@row_count})</span>
+          </div>
+          <form :if={@rows != []} phx-change="set_availability_source" class="flex items-center gap-2">
+            <label for="availability-source-agent" class="text-xs text-base-content/60">
+              Canonical source
+            </label>
+            <select
+              id="availability-source-agent"
+              name="agent_id"
+              class="select select-bordered select-xs w-48"
+            >
+              <option value="" selected={!present?(@primary_agent_id)}>Fallback</option>
+              <%= for row <- @rows do %>
+                <option value={row.agent_id} selected={row.agent_id == @primary_agent_id}>
+                  {availability_agent_label(row)}
+                </option>
+              <% end %>
+            </select>
+          </form>
+          <div :if={@rows == []} class="text-xs text-base-content/60">Canonical source: fallback</div>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div :if={@rows == []} class="text-sm text-base-content/60">
+          No per-agent sweep availability has been recorded for this device yet.
+        </div>
+
+        <div :if={@rows != []} class="overflow-x-auto">
+          <table class="table table-xs">
+            <thead>
+              <tr class="text-xs text-base-content/60">
+                <th>Agent</th>
+                <th>Status</th>
+                <th>Checked</th>
+                <th>Response</th>
+                <th>Ports</th>
+                <th>Checks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for row <- @rows do %>
+                <tr class="hover:bg-base-200/40">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-xs">{availability_agent_label(row)}</span>
+                      <span
+                        :if={row.agent_id == @primary_agent_id}
+                        class="badge badge-primary badge-xs"
+                      >
+                        source
+                      </span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class={[
+                      "inline-flex items-center gap-1",
+                      row.is_available && "text-success",
+                      !row.is_available && "text-error"
+                    ]}>
+                      <span class="size-1.5 rounded-full bg-current"></span>
+                      {if row.is_available, do: "Available", else: "Unavailable"}
+                    </span>
+                  </td>
+                  <td class="font-mono text-xs">{format_sweep_time(row.checked_at)}</td>
+                  <td class="font-mono text-xs">{format_response_time(row.response_time_ms)}</td>
+                  <td class="font-mono text-xs">{format_ports_compact(row.open_ports || [])}</td>
+                  <td class="text-xs text-base-content/70">
+                    {format_mode_results(row.sweep_modes_results)}
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp device_availability_source_agent_id(device_row) when is_map(device_row) do
+    Map.get(device_row, "availability_source_agent_id") ||
+      Map.get(device_row, :availability_source_agent_id)
+  end
+
+  defp device_availability_source_agent_id(_), do: nil
+
+  defp availability_agent_label(%{agent_name: name, agent_id: agent_id}) when is_binary(name) and name != "" do
+    "#{name} (#{truncate_agent_id(agent_id)})"
+  end
+
+  defp availability_agent_label(%{agent_id: agent_id}), do: truncate_agent_id(agent_id)
+  defp availability_agent_label(_), do: "—"
+
+  defp format_mode_results(results) when is_map(results) do
+    results
+    |> Enum.map_join(" · ", fn {mode, status} ->
+      "#{String.upcase(to_string(mode))} #{format_mode_status(status)}"
+    end)
+    |> case do
+      "" -> "—"
+      text -> text
+    end
+  end
+
+  defp format_mode_results(_), do: "—"
+
+  defp format_mode_status("success"), do: "ok"
+  defp format_mode_status("failed"), do: "failed"
+  defp format_mode_status("no_response"), do: "no response"
+  defp format_mode_status(status), do: to_string(status)
+
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
   defp format_pct(_), do: "—"
@@ -8174,6 +8509,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       segments: segments
     }
   end
+
+  defp load_agent_availability(_scope, nil), do: []
+
+  defp load_agent_availability(scope, device_uid) when is_binary(device_uid) do
+    query = Ash.Query.for_read(DeviceAgentAvailability, :by_device, %{device_uid: device_uid})
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) -> rows
+      _ -> []
+    end
+  end
+
+  defp load_agent_availability(_scope, _device_uid), do: []
 
   defp format_bytes(bytes) when is_number(bytes) do
     cond do
@@ -8567,7 +8915,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp virtualization_interface_address(%{address: address}) when is_binary(address) and address != "", do: address
+
   defp virtualization_interface_address(%{cidr: cidr}) when is_binary(cidr) and cidr != "", do: cidr
+
   defp virtualization_interface_address(_iface), do: "—"
 
   defp virtualization_guests?(%{guests: guests}) when is_list(guests), do: guests != []
@@ -9123,7 +9473,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_sweep_checks(_), do: "—"
 
   defp sweep_check_parts(modes) do
-    Enum.reject([sweep_mode_part(modes, "icmp", "ICMP"), sweep_mode_part(modes, "tcp", "TCP")], &is_nil/1)
+    Enum.reject(
+      [sweep_mode_part(modes, "icmp", "ICMP"), sweep_mode_part(modes, "tcp", "TCP")],
+      &is_nil/1
+    )
   end
 
   defp sweep_mode_part(modes, key, label) do

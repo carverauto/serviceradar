@@ -105,6 +105,11 @@ config :serviceradar_core, Oban,
   ],
   peer: {Oban.Peers.Database, []}
 
+config :serviceradar_web_ng, :object_store_retention,
+  enabled?: false,
+  dry_run?: true,
+  plugin_orphan_grace_seconds: 604_800
+
 # Configure the shared repo from serviceradar_core
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
 config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"

@@ -90,6 +90,14 @@ func (r *DNSResolver) Resolve(ip string, callback func(hostname string)) {
 
 // LookupSync performs a blocking reverse DNS lookup with cache.
 func (r *DNSResolver) LookupSync(ip string) string {
+	lookupCtx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+	defer cancel()
+
+	return r.Lookup(lookupCtx, ip)
+}
+
+// Lookup performs a blocking reverse DNS lookup with cache using the supplied context.
+func (r *DNSResolver) Lookup(ctx context.Context, ip string) string {
 	r.mu.RLock()
 	if entry, ok := r.cache[ip]; ok && time.Now().Before(entry.expiry) {
 		r.mu.RUnlock()
@@ -97,10 +105,7 @@ func (r *DNSResolver) LookupSync(ip string) string {
 	}
 	r.mu.RUnlock()
 
-	lookupCtx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
-	defer cancel()
-
-	hostname := reverseLookup(lookupCtx, ip)
+	hostname := reverseLookup(ctx, ip)
 	r.cacheResult(ip, hostname)
 
 	return hostname

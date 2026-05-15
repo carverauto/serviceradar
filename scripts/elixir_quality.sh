@@ -93,7 +93,13 @@ deps_audit_args=()
 if [[ -f ".deps_audit_ignore" ]]; then
   deps_audit_args+=(--ignore-file .deps_audit_ignore)
 fi
-run mix deps.audit "${deps_audit_args[@]}"
+
+if mix help deps.audit >/dev/null 2>&1; then
+  run mix deps.audit "${deps_audit_args[@]}"
+else
+  echo
+  echo "==> mix deps.audit unavailable; skipping dependency vulnerability audit"
+fi
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
   dialyzer_args=()

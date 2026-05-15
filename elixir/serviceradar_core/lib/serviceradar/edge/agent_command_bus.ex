@@ -175,7 +175,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     command_context =
       build_command_context(ctx.context, command, actual_partition, ctx.created_at)
 
-    case GenServer.call(pid, {:send_command, command_request, command_context}, @send_timeout) do
+    case call_control_session(
+           ctx.agent_id,
+           pid,
+           {:send_command, command_request, command_context}
+         ) do
       {:ok, _} ->
         _ = mark_sent(command, [partition_id: actual_partition], ctx.ash_opts)
         {:ok, command.id}
@@ -324,7 +328,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     with {:ok, pid, _metadata} <- lookup_control_session(agent_id) do
       response = AgentConfigGenerator.generate_proto_response(agent_id)
 
-      case GenServer.call(pid, {:push_config, response}, @send_timeout) do
+      case call_control_session(agent_id, pid, {:push_config, response}) do
         :ok -> :ok
         {:error, reason} -> {:error, reason}
         other -> {:error, other}
@@ -344,7 +348,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     case lookup_control_session(agent_id, required_gateway_node) do
       {:ok, pid, _metadata} ->
-        GenServer.call(pid, {:send_console_frame, frame}, @send_timeout)
+        call_control_session(agent_id, pid, {:send_console_frame, frame})
 
       {:error, reason} ->
         {:error, reason}
@@ -363,6 +367,22 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @spec list_online_agents() :: [map()]
   def list_online_agents do
     list_online_sessions()
+  end
+
+  defp call_control_session(agent_id, pid, request) do
+    GenServer.call(pid, request, @send_timeout)
+  catch
+    :exit, {:noproc, _} ->
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      {:error, :control_session_unavailable}
+
+    :exit, {:normal, _} ->
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      {:error, :control_session_unavailable}
+
+    :exit, reason ->
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      {:error, {:control_session_exit, reason}}
   end
 
   defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
@@ -543,7 +563,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp pick_control_session(entries, agent_id, required_gateway_node) do
     entries
     |> Enum.uniq_by(fn {pid, metadata} -> {pid, gateway_node_from_metadata(metadata)} end)
-    |> Enum.filter(fn {pid, _metadata} -> is_pid(pid) and process_alive?(pid) end)
+    |> Enum.filter(&valid_control_session_entry?(&1, agent_id))
     |> Enum.sort_by(fn {_pid, metadata} ->
       control_session_preference(metadata, required_gateway_node)
     end)
@@ -559,6 +579,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       gateway_node_from_metadata(metadata) == required_gateway_node -> 0
       true -> 2
     end
+  end
+
+  defp valid_control_session_entry?({pid, _metadata}, agent_id) when is_pid(pid) do
+    if process_alive?(pid) do
+      true
+    else
+      ProcessRegistry.unregister({:agent_control, agent_id})
+      false
+    end
+  end
+
+  defp valid_control_session_entry?(_entry, agent_id) do
+    ProcessRegistry.unregister({:agent_control, agent_id})
+    false
   end
 
   defp list_online_sessions do
@@ -577,6 +611,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     metadata = if(is_map(metadata), do: metadata, else: %{})
 
     %{
+      key: key,
       agent_id: agent_id,
       pid: pid,
       metadata: metadata,
@@ -585,8 +620,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     }
   end
 
-  defp valid_online_session?(%{agent_id: agent_id, pid: pid}) do
-    is_binary(agent_id) and process_alive?(pid)
+  defp valid_online_session?(%{agent_id: agent_id, pid: pid, key: key}) do
+    alive? = is_binary(agent_id) and process_alive?(pid)
+
+    if !alive? do
+      ProcessRegistry.unregister(key)
+    end
+
+    alive?
   end
 
   defp pick_online_agent(partition, capability) do

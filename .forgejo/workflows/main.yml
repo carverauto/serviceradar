@@ -3,15 +3,19 @@ name: CI
 on:
   push:
     branches:
-      - main
+      - staging
   pull_request:
+
+env:
+  ImageOS: ubuntu24
 
 jobs:
   build:
-    runs-on: serviceradar-ubuntu-24.04
+    runs-on: ubuntu24
     permissions:
       contents: read
     env:
+      ImageOS: ubuntu24
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
@@ -53,6 +57,8 @@ jobs:
 
       - name: Setup Beam
         uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        env:
+          ImageOS: ubuntu24
         with:
           otp-version: "28.3"
           elixir-version: "1.19.4"

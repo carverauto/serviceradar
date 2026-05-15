@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Repo
 
   require Logger
@@ -122,7 +123,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp ingest_batch(updates, actor) do
     normalized_updates = normalize_updates(updates)
 
-    {resolved_updates, device_records, identifier_records} =
+    {resolved_updates, device_records, identifier_records, interface_records} =
       resolve_updates(normalized_updates, actor)
 
     case upsert_devices(device_records) do
@@ -134,18 +135,20 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         # resolved-update tuples so downstream steps reference uids that
         # actually landed in `ocsf_devices` and don't trip the FK constraint.
         identifier_records = apply_uid_remap_to_identifier_records(identifier_records, remap)
+        interface_records = apply_uid_remap_to_interface_records(interface_records, remap)
         resolved_updates = apply_uid_remap_to_resolved_updates(resolved_updates, remap)
 
         identifier_result = upsert_identifiers(identifier_records)
+        interface_result = upsert_interfaces(interface_records)
         invalidate_identity_cache_for_identifier_records(identifier_records)
 
         _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
         alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
 
-        finalize_ingest_results(:ok, identifier_result, alias_result)
+        finalize_ingest_results(:ok, identifier_result, interface_result, alias_result)
 
       {:error, _} = error ->
-        finalize_ingest_results(error, :ok, :ok)
+        finalize_ingest_results(error, :ok, :ok, :ok)
     end
   end
 
@@ -161,6 +164,17 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       end
     end)
     |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
+  end
+
+  defp apply_uid_remap_to_interface_records(records, remap) when map_size(remap) == 0, do: records
+
+  defp apply_uid_remap_to_interface_records(records, remap) do
+    Enum.map(records, fn record ->
+      case Map.get(remap, record.device_id) do
+        nil -> record
+        canonical_uid -> %{record | device_id: canonical_uid}
+      end
+    end)
   end
 
   defp apply_uid_remap_to_resolved_updates(resolved, remap) when map_size(remap) == 0,
@@ -224,8 +238,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     timestamp = DateTime.truncate(DateTime.utc_now(), :second)
     device_records = build_device_upsert_records(resolved_updates, timestamp)
     identifier_records = build_identifier_records(resolved_updates)
+    interface_records = build_interface_upsert_records(resolved_updates, timestamp)
 
-    {resolved_updates, device_records, identifier_records}
+    {resolved_updates, device_records, identifier_records, interface_records}
   end
 
   defp upsert_devices([]), do: {:ok, %{}}
@@ -233,6 +248,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp upsert_identifiers([]), do: :ok
   defp upsert_identifiers(records), do: bulk_upsert_identifiers(records)
+
+  defp upsert_interfaces([]), do: :ok
+  defp upsert_interfaces(records), do: bulk_upsert_interfaces(records)
 
   defp maybe_process_alias_conflicts(:ok, resolved_updates, actor) do
     process_alias_conflicts(resolved_updates, actor)
@@ -246,11 +264,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp maybe_process_alias_updates(_result, _resolved_updates, _actor), do: :ok
 
-  defp finalize_ingest_results(device_result, identifier_result, alias_result) do
-    case {device_result, identifier_result, alias_result} do
-      {:ok, :ok, :ok} -> :ok
-      {{:error, _} = error, _, _} -> error
-      {_, {:error, _} = error, _} -> error
+  defp finalize_ingest_results(device_result, identifier_result, interface_result, alias_result) do
+    case {device_result, identifier_result, interface_result, alias_result} do
+      {:ok, :ok, :ok, :ok} -> :ok
+      {{:error, _} = error, _, _, _} -> error
+      {_, {:error, _} = error, _, _} -> error
+      {_, _, {:error, _} = error, _} -> error
+      {_, _, _, {:error, _} = error} -> error
     end
   end
 
@@ -265,7 +285,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       []
       |> maybe_add_id_if(include_agent?, :agent_id, ids.agent_id, partition)
-      |> maybe_add_id(:armis_device_id, ids.armis_id, partition)
       |> maybe_add_id(:integration_id, ids.integration_id, partition)
       |> maybe_add_id(:netbox_device_id, ids.netbox_id, partition)
       |> maybe_add_id_if(include_mac?, :mac, ids.mac, partition)
@@ -415,7 +434,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp cached_device_id(ids, existing_mappings) do
     lookup_cached(:agent_id, ids.agent_id, ids.partition, existing_mappings) ||
-      lookup_cached(:armis_device_id, ids.armis_id, ids.partition, existing_mappings) ||
       lookup_cached(:integration_id, ids.integration_id, ids.partition, existing_mappings) ||
       lookup_cached(:netbox_device_id, ids.netbox_id, ids.partition, existing_mappings) ||
       lookup_cached(:mac, ids.mac, ids.partition, existing_mappings)
@@ -461,15 +479,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         type_id: device_type_id,
         vendor_name: vendor_name,
         model: model,
-        os: infer_os(metadata, vendor_name),
-        hw_info: infer_hw_info(metadata),
+        risk_level: infer_risk_level(metadata),
+        risk_score: infer_risk_score(metadata),
+        os: merge_inferred_map(update.os, infer_os(metadata, vendor_name)),
+        hw_info: merge_inferred_map(update.hw_info, infer_hw_info(metadata)),
+        network_interfaces: update.network_interfaces || [],
         is_available: update.is_available,
+        is_managed: true,
         owner: owner,
         metadata: metadata,
         tags: update.tags || %{},
         discovery_sources: [source],
-        first_seen_time: timestamp,
-        last_seen_time: timestamp,
+        first_seen_time: update.first_seen_time || timestamp,
+        last_seen_time: update.last_seen_time || update.timestamp || timestamp,
         created_time: timestamp,
         modified_time: timestamp
       }
@@ -656,6 +678,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     merged_os = Map.merge(existing.os || %{}, incoming.os || %{})
     merged_hw_info = Map.merge(existing.hw_info || %{}, incoming.hw_info || %{})
 
+    merged_network_interfaces =
+      if incoming.network_interfaces in [nil, []],
+        do: existing.network_interfaces || [],
+        else: incoming.network_interfaces
+
     merged_discovery_sources =
       merge_discovery_sources(existing.discovery_sources, incoming.discovery_sources)
 
@@ -669,9 +696,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         type_id: prefer_positive_int(incoming.type_id, existing.type_id),
         vendor_name: prefer_non_empty(incoming.vendor_name, existing.vendor_name),
         model: prefer_non_empty(incoming.model, existing.model),
+        risk_level: prefer_non_empty(incoming.risk_level, existing.risk_level),
+        risk_score: prefer_positive_int(incoming.risk_score, existing.risk_score),
         os: merged_os,
         hw_info: merged_hw_info,
         is_available: prefer_non_nil(incoming.is_available, existing.is_available),
+        network_interfaces: merged_network_interfaces,
         owner: prefer_non_nil(incoming.owner, existing.owner),
         metadata: merged_metadata,
         tags: merged_tags,
@@ -730,6 +760,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             ),
           vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
           model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
+          risk_level: fragment("COALESCE(EXCLUDED.risk_level, ?)", d.risk_level),
+          risk_score: fragment("COALESCE(EXCLUDED.risk_score, ?)", d.risk_score),
           os:
             fragment(
               "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.os, '{}'::jsonb)",
@@ -739,6 +771,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             fragment(
               "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.hw_info, '{}'::jsonb)",
               d.hw_info
+            ),
+          network_interfaces:
+            fragment(
+              "CASE WHEN EXCLUDED.network_interfaces IS NOT NULL AND array_length(EXCLUDED.network_interfaces, 1) > 0 THEN EXCLUDED.network_interfaces ELSE ? END",
+              d.network_interfaces
             ),
           is_available: fragment("COALESCE(EXCLUDED.is_available, ?)", d.is_available),
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
@@ -780,7 +817,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         ids.agent_id,
         partition
       )
-      |> maybe_add_identifier_record(update, device_id, :armis_device_id, ids.armis_id, partition)
       |> maybe_add_identifier_record(
         update,
         device_id,
@@ -822,6 +858,157 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp maybe_add_identifier_record_if(acc, true, update, device_id, type, value, partition) do
     maybe_add_identifier_record(acc, update, device_id, type, value, partition)
+  end
+
+  defp build_interface_upsert_records(resolved_updates, timestamp) do
+    resolved_updates
+    |> Enum.flat_map(fn {update, device_id} ->
+      update.network_interfaces
+      |> List.wrap()
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {interface, index} ->
+        case build_interface_record(update, device_id, interface, index, timestamp) do
+          nil -> []
+          record -> [record]
+        end
+      end)
+    end)
+    |> log_sync_interface_shape()
+  end
+
+  defp build_interface_record(update, device_id, interface, index, timestamp)
+       when is_map(interface) do
+    interface_uid = interface_uid(interface, index)
+
+    if interface_uid == "" do
+      nil
+    else
+      %{
+        timestamp: timestamp,
+        device_id: device_id,
+        interface_uid: interface_uid,
+        agent_id: update.agent_id,
+        gateway_id: update.gateway_id,
+        partition: update.partition || "default",
+        device_ip: update.ip,
+        if_name: interface_string(interface, ["name", :name]),
+        if_descr: interface_string(interface, ["description", :description]),
+        if_alias: interface_string(interface, ["alias", :alias]),
+        if_phys_address: interface_string(interface, ["mac_address", :mac_address, "mac", :mac]),
+        ip_addresses: interface_ip_addresses(interface),
+        if_type_name: interface_string(interface, ["type", :type]),
+        interface_kind: infer_interface_kind(interface),
+        classifications: ["sync"],
+        classification_meta: %{},
+        classification_source: "sync",
+        metadata: build_interface_metadata(interface),
+        created_at: timestamp
+      }
+    end
+  end
+
+  defp build_interface_record(_update, _device_id, _interface, _index, _timestamp), do: nil
+
+  defp interface_uid(interface, index) do
+    cond do
+      (mac = interface_string(interface, ["mac_address", :mac_address, "mac", :mac])) not in [
+        nil,
+        ""
+      ] ->
+        "mac:#{String.downcase(mac)}"
+
+      (name = interface_string(interface, ["name", :name])) not in [nil, ""] ->
+        "name:#{name}"
+
+      true ->
+        "sync:#{index}"
+    end
+  end
+
+  defp interface_ip_addresses(interface) do
+    Enum.reject(
+      [
+        interface_string(interface, ["ipv4_address", :ipv4_address, "ip", :ip]),
+        interface_string(interface, ["ipv6_address", :ipv6_address])
+      ],
+      &(&1 in [nil, ""])
+    )
+  end
+
+  defp infer_interface_kind(interface) do
+    type =
+      interface
+      |> interface_string(["type", :type])
+      |> to_string()
+      |> String.downcase()
+
+    cond do
+      type =~ "wireless" or type =~ "wifi" -> "wireless"
+      type =~ "ethernet" or type =~ "wired" -> "physical"
+      type in ["", "nil"] -> nil
+      true -> type
+    end
+  end
+
+  defp build_interface_metadata(interface) do
+    %{}
+    |> maybe_put("source", "sync")
+    |> maybe_put("brand", interface_string(interface, ["brand", :brand]))
+    |> maybe_put(
+      "broadcast_ssid",
+      interface_string(interface, ["broadcast_ssid", :broadcast_ssid])
+    )
+    |> maybe_put(
+      "hidden_broadcast_ssid",
+      interface_bool_string(interface, ["hidden_broadcast_ssid", :hidden_broadcast_ssid])
+    )
+    |> maybe_put(
+      "last_connected_ssid",
+      interface_string(interface, ["last_connected_ssid", :last_connected_ssid])
+    )
+    |> maybe_put("channels", interface_channels(interface))
+    |> maybe_put("vlan", interface_int_string(interface, ["vlan", :vlan]))
+  end
+
+  defp interface_string(map, keys), do: map_get_string_any(map, keys)
+  defp interface_int_string(map, keys), do: map_get_int_string_any(map, keys)
+
+  defp interface_bool_string(map, keys) do
+    case map_get_any(map, keys) do
+      value when is_boolean(value) ->
+        to_string(value)
+
+      value when is_binary(value) ->
+        if(String.trim(value) == "", do: nil, else: String.trim(value))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp interface_channels(interface) do
+    case map_get_any(interface, ["channels", :channels]) do
+      channels when is_list(channels) -> Enum.map_join(channels, ",", &to_string/1)
+      _ -> nil
+    end
+  end
+
+  defp log_sync_interface_shape([]), do: []
+
+  defp log_sync_interface_shape(records) do
+    sample_keys =
+      records
+      |> List.first()
+      |> Map.get(:metadata, %{})
+      |> Map.keys()
+      |> Enum.sort()
+
+    Logger.info("SyncIngestor: prepared sync interface observations",
+      interface_count: length(records),
+      sample_metadata_keys: sample_keys
+    )
+
+    records
   end
 
   defp include_agent_identifier?(update, ids) do
@@ -895,23 +1082,61 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       {:error, e}
   end
 
+  defp bulk_upsert_interfaces(records) do
+    case Ash.bulk_create(Interface, records, :create,
+           actor: SystemActor.system(:sync_ingestor_interfaces),
+           return_errors?: true,
+           stop_on_error?: false,
+           upsert?: true,
+           upsert_identity: :unique_interface,
+           upsert_fields: []
+         ) do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: []} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        Logger.warning("Bulk sync interface upsert partially failed: #{inspect(errors)}")
+        {:error, errors}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        Logger.warning("Bulk sync interface upsert failed: #{inspect(errors)}")
+        {:error, errors}
+    end
+  rescue
+    e ->
+      Logger.warning("Bulk sync interface upsert failed: #{inspect(e)}")
+      {:error, e}
+  end
+
   defp normalize_update(update) when is_map(update) do
     sync_meta = get_map(update, ["sync_meta", :sync_meta])
 
     metadata =
       update
       |> get_map(["metadata", :metadata])
+      |> merge_top_level_inventory_metadata(update)
       |> merge_sync_meta_metadata(sync_meta)
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
+      |> merge_boundary_names_metadata()
 
     %{
       device_id: get_string(update, ["device_id", :device_id]),
+      agent_id: get_string(update, ["agent_id", :agent_id]),
+      gateway_id: get_string(update, ["gateway_id", :gateway_id]),
       ip: get_string(update, ["ip", :ip]),
       mac: get_string(update, ["mac", :mac]),
       hostname: get_string(update, ["hostname", :hostname]),
       partition: get_string(update, ["partition", :partition]) || "default",
       metadata: metadata,
       tags: get_map(update, ["tags", :tags]),
+      os: get_map(update, ["os", :os]),
+      hw_info: get_map(update, ["hw_info", :hw_info]),
+      network_interfaces: get_list(update, ["network_interfaces", :network_interfaces]),
+      first_seen_time: parse_timestamp(get_value(update, ["first_seen_time", :first_seen_time])),
+      last_seen_time: parse_timestamp(get_value(update, ["last_seen_time", :last_seen_time])),
       timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
       is_available: get_bool(update, ["is_available", :is_available]),
       source: get_string(update, ["source", :source]) || "unknown"
@@ -921,12 +1146,19 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp normalize_update(_update) do
     %{
       device_id: nil,
+      agent_id: nil,
+      gateway_id: nil,
       ip: nil,
       mac: nil,
       hostname: nil,
       partition: "default",
       metadata: %{},
       tags: %{},
+      os: %{},
+      hw_info: %{},
+      network_interfaces: [],
+      first_seen_time: nil,
+      last_seen_time: nil,
       timestamp: nil,
       is_available: nil,
       source: "unknown"
@@ -981,6 +1213,91 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     case get_value(map, keys) do
       value when is_map(value) -> value
       _ -> %{}
+    end
+  end
+
+  defp get_list(map, keys) do
+    case get_value(map, keys) do
+      value when is_list(value) -> value
+      _ -> []
+    end
+  end
+
+  defp merge_top_level_inventory_metadata(metadata, update) when is_map(metadata) do
+    metadata
+    |> maybe_put("type", get_string(update, ["type", :type, "device_type", :device_type]))
+    |> maybe_put("device_type", get_string(update, ["type", :type, "device_type", :device_type]))
+    |> maybe_put(
+      "vendor_name",
+      get_string(update, ["vendor_name", :vendor_name, "vendor", :vendor])
+    )
+    |> maybe_put("model", get_string(update, ["model", :model]))
+    |> maybe_put("risk_score", get_int_string(update, ["risk_score", :risk_score]))
+  end
+
+  defp merge_top_level_inventory_metadata(_metadata, _update), do: %{}
+
+  defp merge_boundary_names_metadata(metadata) when is_map(metadata) do
+    cond do
+      get_string(metadata, ["boundary_names"]) not in [nil, ""] ->
+        metadata
+
+      (names = boundary_names_from_metadata(metadata)) != [] ->
+        Map.put(metadata, "boundary_names", Enum.join(names, ","))
+
+      true ->
+        metadata
+    end
+  end
+
+  defp merge_boundary_names_metadata(_metadata), do: %{}
+
+  defp boundary_names_from_metadata(metadata) do
+    metadata
+    |> get_value(["boundaries", :boundaries])
+    |> decode_json_metadata()
+    |> extract_boundary_names()
+    |> Enum.uniq()
+  end
+
+  defp decode_json_metadata(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> decoded
+      _ -> value
+    end
+  end
+
+  defp decode_json_metadata(value), do: value
+
+  defp extract_boundary_names(values) when is_list(values) do
+    Enum.flat_map(values, &extract_boundary_names/1)
+  end
+
+  defp extract_boundary_names(%{"name" => name}) when is_binary(name) do
+    name = String.trim(name)
+    if name == "", do: [], else: [name]
+  end
+
+  defp extract_boundary_names(%{name: name}) when is_binary(name) do
+    name = String.trim(name)
+    if name == "", do: [], else: [name]
+  end
+
+  defp extract_boundary_names(_value), do: []
+
+  defp get_int_string(map, keys) do
+    case get_value(map, keys) do
+      value when is_integer(value) ->
+        Integer.to_string(value)
+
+      value when is_float(value) ->
+        value |> trunc() |> Integer.to_string()
+
+      value when is_binary(value) ->
+        if(String.trim(value) == "", do: nil, else: String.trim(value))
+
+      _ ->
+        nil
     end
   end
 
@@ -1088,6 +1405,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         "vendor_name",
         "vendor",
         "manufacturer",
+        "brand",
         "make",
         "vendorName"
       ])
@@ -1174,6 +1492,26 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp infer_hw_info(_metadata), do: nil
+
+  defp infer_risk_score(metadata) when is_map(metadata) do
+    metadata
+    |> get_string(["risk_score", "risk_level"])
+    |> parse_int_value()
+  end
+
+  defp infer_risk_score(_metadata), do: nil
+
+  defp infer_risk_level(metadata) when is_map(metadata) do
+    case infer_risk_score(metadata) do
+      score when is_integer(score) and score >= 90 -> "Critical"
+      score when is_integer(score) and score >= 70 -> "High"
+      score when is_integer(score) and score >= 40 -> "Medium"
+      score when is_integer(score) and score >= 1 -> "Low"
+      _ -> nil
+    end
+  end
+
+  defp infer_risk_level(_metadata), do: nil
 
   defp infer_owner(update, metadata) do
     explicit_owner =
@@ -1458,6 +1796,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp empty_map_to_nil(map) when is_map(map) and map_size(map) == 0, do: nil
   defp empty_map_to_nil(map), do: map
 
+  defp merge_inferred_map(explicit, inferred) when is_map(explicit) and is_map(inferred),
+    do: Map.merge(inferred, explicit)
+
+  defp merge_inferred_map(explicit, _inferred) when is_map(explicit) and map_size(explicit) > 0,
+    do: explicit
+
+  defp merge_inferred_map(_explicit, inferred), do: inferred
+
   defp enrich_alias_metadata(update) do
     metadata = update.metadata || %{}
     alias_ips = alias_ips_from_metadata(metadata)
@@ -1573,7 +1919,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     source_has_agent_identity? = not mapper_like_source?(update)
 
     (source_has_agent_identity? and ids.agent_id not in [nil, ""]) or
-      ids.armis_id not in [nil, ""] or
       ids.integration_id not in [nil, ""] or
       ids.netbox_id not in [nil, ""]
   end

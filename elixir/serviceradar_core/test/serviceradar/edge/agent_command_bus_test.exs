@@ -64,6 +64,23 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     defp maybe_ack_before_reply(_command, _state), do: :ok
   end
 
+  defmodule CrashingControlSession do
+    @moduledoc false
+    use GenServer
+
+    def start(opts) do
+      GenServer.start(__MODULE__, opts, name: opts[:name])
+    end
+
+    @impl true
+    def init(_opts), do: {:ok, %{}}
+
+    @impl true
+    def handle_call({:push_config, _response}, _from, state) do
+      {:stop, :shutdown, state}
+    end
+  end
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -161,7 +178,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
       send(
         StatusHandler,
-        {:command_result, %{command_id: command_id, success: true, message: "done", payload: %{"ok" => true}}}
+        {:command_result,
+         %{command_id: command_id, success: true, message: "done", payload: %{"ok" => true}}}
       )
 
       command = wait_for_status(command_id, :completed, actor)
@@ -184,7 +202,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         )
 
       assert {:ok, command_id} =
-               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["1.1.1.1"], context: %{"mtr_policy_id" => "policy-ack-race"})
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["1.1.1.1"],
+                 context: %{"mtr_policy_id" => "policy-ack-race"}
+               )
 
       command = wait_for_status(command_id, :acknowledged, actor)
       assert command.message == "ack"
@@ -476,6 +496,14 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert_receive {:push_config, %Monitoring.AgentConfigResponse{} = response}, 1_000
       assert is_binary(response.config_version)
     end
+
+    test "returns an error when the control session exits during push", %{agent_id: agent_id} do
+      name = ProcessRegistry.via({:agent_control, agent_id}, %{partition_id: "default"})
+      {:ok, pid} = CrashingControlSession.start(name: name)
+
+      assert {:error, {:control_session_exit, _reason}} = AgentCommandBus.push_config(agent_id)
+      refute Process.alive?(pid)
+    end
   end
 
   describe "camera relay dispatch" do
@@ -542,7 +570,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  required_gateway_node: "gateway-b"
                )
 
-      assert_receive {:send_command, :gateway_b, %Monitoring.CommandRequest{} = command, _context},
+      assert_receive {:send_command, :gateway_b, %Monitoring.CommandRequest{} = command,
+                      _context},
                      1_000
 
       assert command.command_type == "camera.open_relay"
@@ -660,7 +689,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     name = ProcessRegistry.via(registry_key, metadata)
 
     {:ok, pid} =
-      TestControlSession.start_link([name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?, :marker]))
+      TestControlSession.start_link(
+        [name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?, :marker])
+      )
 
     on_exit(fn ->
       if Process.alive?(pid) do

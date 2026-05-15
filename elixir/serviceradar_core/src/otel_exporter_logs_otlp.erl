@@ -20,7 +20,8 @@
          export/3,
          export/4,
          shutdown/1,
-         merge_with_environment/1]).
+         merge_with_environment/1,
+         sanitize_logs_for_export/1]).
 
 -include_lib("kernel/include/logger.hrl").
 
@@ -31,6 +32,9 @@
 -define(DEFAULT_RETRY_MAX_DELAY_MS, 10000).
 -define(RESTART_COOLDOWN_MS, 120000).
 -define(ENSURE_COOLDOWN_MS, 10000).
+-define(MAX_METADATA_BYTES, 2048).
+-define(MAX_REPORT_BYTES, 8192).
+-define(INSPECT_DEPTH, 6).
 
 -record(state, {channel :: term(),
                 httpc_profile :: atom() | undefined,
@@ -126,8 +130,9 @@ export(Logs, Resource, #state{protocol=http_protobuf,
                       [Type, Error]),
             error;
         Address ->
-            {Batch, HandlerConfig} = normalize_logs_arg(Logs),
-            RequestMap0 = otel_otlp_logs:to_proto(normalize_log_batch(Batch), Resource, HandlerConfig),
+            {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
+            Batch = sanitize_logs_for_export(normalize_log_batch(Batch0)),
+            RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
             RequestMap = normalize_request_map(RequestMap0),
             Body = opentelemetry_exporter_logs_service_pb:encode_msg(RequestMap, export_logs_service_request),
             otel_exporter_otlp:export_http(Address, Headers, Body, Compression, SSLOptions, HttpcProfile)
@@ -141,8 +146,9 @@ export(Logs, Resource, #state{protocol=grpc,
                               retry_max_attempts=MaxAttempts,
                               retry_base_delay_ms=BaseDelay,
                               retry_max_delay_ms=MaxDelay}) ->
-    {Batch, HandlerConfig} = normalize_logs_arg(Logs),
-    RequestMap0 = otel_otlp_logs:to_proto(normalize_log_batch(Batch), Resource, HandlerConfig),
+    {Batch0, HandlerConfig} = normalize_logs_arg(Logs),
+    Batch = sanitize_logs_for_export(normalize_log_batch(Batch0)),
+    RequestMap0 = otel_otlp_logs:to_proto(Batch, Resource, HandlerConfig),
     RequestMap = normalize_request_map(RequestMap0),
     export_grpc_with_retry(opentelemetry_logs_service,
                            Metadata,
@@ -161,6 +167,151 @@ export(logs, Logs, Resource, State) ->
     export(Logs, Resource, State);
 export(_Kind, _Logs, _Resource, _State) ->
     {error, unimplemented}.
+
+%% Keep OTLP log export tolerant of Logger reports and metadata that contain
+%% nested structs, protobuf messages, pids, stacktraces, or improper lists.
+%% `otel_otlp_common:to_any_value/1` recursively encodes maps/lists/tuples and
+%% can raise on values Logger accepts. Local logs should remain rich, but the
+%% exported attribute surface must be bounded and OTLP-safe.
+sanitize_logs_for_export(Batch) when is_map(Batch) ->
+    maps:map(fun(_Scope, Logs) -> sanitize_log_list(Logs) end, Batch);
+sanitize_logs_for_export(_Other) ->
+    #{}.
+
+sanitize_log_list(Logs) when is_list(Logs) ->
+    [sanitize_log_event(Log) || Log <- Logs];
+sanitize_log_list(_Other) ->
+    [].
+
+sanitize_log_event(Log=#{meta := Meta, msg := Msg}) when is_map(Meta) ->
+    Log#{meta := sanitize_metadata(Meta),
+         msg := sanitize_message(Msg)};
+sanitize_log_event(Log=#{meta := Meta}) when is_map(Meta) ->
+    Log#{meta := sanitize_metadata(Meta)};
+sanitize_log_event(Log=#{msg := Msg}) ->
+    Log#{msg := sanitize_message(Msg)};
+sanitize_log_event(Log) ->
+    Log.
+
+sanitize_metadata(Meta) ->
+    maps:map(fun(time, Value) -> Value;
+                (report_cb, Value) -> Value;
+                (_Key, Value) -> sanitize_metadata_value(Value)
+             end, Meta).
+
+sanitize_metadata_value(Value) when is_boolean(Value) ->
+    Value;
+sanitize_metadata_value(Value) when is_binary(Value) ->
+    truncate_binary(Value, ?MAX_METADATA_BYTES);
+sanitize_metadata_value(Value) when is_atom(Value); is_integer(Value); is_float(Value) ->
+    Value;
+sanitize_metadata_value(Value) when is_list(Value) ->
+    case charlist_to_binary(Value) of
+        {ok, Binary} ->
+            truncate_binary(Binary, ?MAX_METADATA_BYTES);
+        error ->
+            inspect_term(Value, ?MAX_METADATA_BYTES)
+    end;
+sanitize_metadata_value(Value) ->
+    inspect_term(Value, ?MAX_METADATA_BYTES).
+
+sanitize_message({report, Report}) ->
+    {report, sanitize_report(Report)};
+sanitize_message(Message) ->
+    Message.
+
+sanitize_report(Report) when is_map(Report) ->
+    maps:fold(fun(Key, Value, Acc) ->
+                      case safe_report_key(Key) of
+                          true ->
+                              Acc#{Key => sanitize_report_value(Value)};
+                          false ->
+                              Acc
+                      end
+              end, #{}, Report);
+sanitize_report(Report) when is_list(Report) ->
+    case proper_list(Report) andalso proplist(Report) of
+        true ->
+            [sanitize_report_pair(Pair) || Pair <- Report];
+        false ->
+            inspect_term(Report, ?MAX_REPORT_BYTES)
+    end;
+sanitize_report(Report) ->
+    sanitize_report_value(Report).
+
+sanitize_report_pair({Key, Value}) when is_atom(Key); is_binary(Key) ->
+    {Key, sanitize_report_value(Value)};
+sanitize_report_pair(Other) ->
+    inspect_term(Other, ?MAX_REPORT_BYTES).
+
+sanitize_report_value(Value) when is_boolean(Value) ->
+    Value;
+sanitize_report_value(Value) when is_binary(Value) ->
+    truncate_binary(Value, ?MAX_REPORT_BYTES);
+sanitize_report_value(Value) when is_atom(Value); is_integer(Value); is_float(Value) ->
+    Value;
+sanitize_report_value(Value) when is_list(Value) ->
+    case charlist_to_binary(Value) of
+        {ok, Binary} ->
+            truncate_binary(Binary, ?MAX_REPORT_BYTES);
+        error ->
+            inspect_term(Value, ?MAX_REPORT_BYTES)
+    end;
+sanitize_report_value(Value) when is_map(Value); is_tuple(Value) ->
+    inspect_term(Value, ?MAX_REPORT_BYTES);
+sanitize_report_value(Value) ->
+    inspect_term(Value, ?MAX_REPORT_BYTES).
+
+safe_report_key(Key) when is_atom(Key); is_binary(Key) ->
+    true;
+safe_report_key(_Key) ->
+    false.
+
+proplist([]) ->
+    true;
+proplist([{Key, _Value} | Rest]) when is_atom(Key); is_binary(Key) ->
+    proplist(Rest);
+proplist(_Other) ->
+    false.
+
+proper_list(Value) ->
+    try
+        _ = length(Value),
+        true
+    catch
+        _:_ ->
+            false
+    end.
+
+charlist_to_binary(Value) ->
+    case proper_list(Value) of
+        true ->
+            try unicode:characters_to_binary(Value) of
+                Binary when is_binary(Binary) ->
+                    {ok, Binary};
+                _Other ->
+                    error
+            catch
+                _:_ ->
+                    error
+            end;
+        false ->
+            error
+    end.
+
+inspect_term(Value, MaxBytes) ->
+    try
+        truncate_binary(iolist_to_binary(io_lib:format("~0P", [Value, ?INSPECT_DEPTH])), MaxBytes)
+    catch
+        _:_ ->
+            <<"<uninspectable>">>
+    end.
+
+truncate_binary(Binary, MaxBytes) when is_binary(Binary), byte_size(Binary) =< MaxBytes ->
+    Binary;
+truncate_binary(Binary, MaxBytes) when is_binary(Binary) ->
+    <<Prefix:MaxBytes/binary, _Rest/binary>> = Binary,
+    <<Prefix/binary, "...[truncated]">>.
 
 normalize_logs_arg({Batch, HandlerConfig}) when is_map(Batch), is_map(HandlerConfig) ->
     {Batch, HandlerConfig};

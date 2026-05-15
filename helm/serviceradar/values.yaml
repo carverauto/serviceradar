@@ -660,7 +660,17 @@ webNg:
     size: 10Gi
     storageClassName: ""
     downloadTtlSeconds: 86400
+    jetstreamBucket: "serviceradar_plugins"
     jetstreamReplicas: 3
+
+objectStoreRetention:
+  enabled: false
+  dryRun: true
+  cron: "0 3 * * *"
+  agentReleaseKeepLatest: 5
+  pluginOrphanGraceSeconds: 604800
+  datasvcTimeoutMs: 30000
+  webNgMaintenanceQueueLimit: 1
 agent:
   enabled: true
   agentId: "k8s-agent"
@@ -691,6 +701,17 @@ agent:
     basePath: "/var/lib/serviceradar/checkers"
     existingClaim: ""
     size: 2Gi
+    storageClassName: ""
+  cacheStorage:
+    enabled: true
+    existingClaim: ""
+    size: 1Gi
+    storageClassName: ""
+  runtimeStorage:
+    enabled: true
+    basePath: "/var/lib/serviceradar/agent"
+    existingClaim: ""
+    size: 5Gi
     storageClassName: ""
   resources:
     limits:

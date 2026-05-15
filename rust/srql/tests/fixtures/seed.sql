@@ -465,6 +465,53 @@ FROM base, ids;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
+INSERT INTO device_agent_availability (
+        device_uid,
+        agent_id,
+        agent_name,
+        is_available,
+        checked_at,
+        response_time_ms,
+        open_ports,
+        sweep_modes_results,
+        metadata
+    )
+SELECT 'device-alpha',
+    'agent-1',
+    'Agent One',
+    TRUE,
+    base.now_ts - INTERVAL '30 minutes',
+    12,
+    ARRAY [22, 443],
+    '{"icmp":"success","tcp":"success"}'::jsonb,
+    '{}'::jsonb
+FROM base
+UNION ALL
+SELECT 'device-alpha',
+    'agent-2',
+    'Agent Two',
+    FALSE,
+    base.now_ts - INTERVAL '20 minutes',
+    NULL,
+    ARRAY []::INT[],
+    '{"icmp":"failed","tcp":"no_response"}'::jsonb,
+    '{}'::jsonb
+FROM base
+UNION ALL
+SELECT 'device-beta',
+    'agent-1',
+    'Agent One',
+    TRUE,
+    base.now_ts - INTERVAL '25 minutes',
+    18,
+    ARRAY [80],
+    '{"icmp":"success","tcp":"success"}'::jsonb,
+    '{}'::jsonb
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
 INSERT INTO gateways (
         gateway_id,
         component_id,

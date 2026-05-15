@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNG.TenantUsage do
   @spec managed_device_count() :: non_neg_integer()
   def managed_device_count do
     from(d in "ocsf_devices",
-      where: is_nil(field(d, :deleted_at)),
+      where: is_nil(field(d, :deleted_at)) and field(d, :is_managed) == true,
       select: count()
     )
     |> Repo.one()

@@ -73,6 +73,9 @@ type KVStore interface {
 	// GetObjectInfo returns object metadata without downloading payload data.
 	GetObjectInfo(ctx context.Context, key string) (*ObjectInfo, bool, error)
 
+	// ListObjects returns object metadata without downloading payload data.
+	ListObjects(ctx context.Context, opts ObjectListOptions) ([]*ObjectInfo, string, error)
+
 	// Close shuts down the KV store, releasing any resources (e.g., connections).
 	Close() error
 }
@@ -110,4 +113,12 @@ type ObjectInfo struct {
 	ModifiedAtUnix int64
 	Chunks         uint64
 	Metadata       ObjectMetadata
+}
+
+// ObjectListOptions controls object metadata listing.
+type ObjectListOptions struct {
+	Domain    string
+	Prefix    string
+	PageSize  int
+	PageToken string
 }

@@ -680,6 +680,11 @@ http_archive = use_repo_rule(
     "http_archive",
 )
 
+tinygo_host_repository = use_repo_rule(
+    "//build/wasm_plugins:tinygo_repo.bzl",
+    "tinygo_host_repository",
+)
+
 http_file(
     name = "jq_linux_amd64",
     executable = True,
@@ -754,64 +759,9 @@ filegroup(
     ],
 )
 
-http_archive(
-    name = "tinygo_darwin_arm64",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "tinygo_bin",
-    srcs = ["tinygo/bin/tinygo"],
-)
-""",
-    sha256 = "c684d154d89a452cc9c7fc5dc5fc80cb6a42445b3e44b3c12ed048692de0f341",
-    urls = [
-        "https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo0.41.1.darwin-arm64.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "tinygo_darwin_amd64",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "tinygo_bin",
-    srcs = ["tinygo/bin/tinygo"],
-)
-""",
-    sha256 = "1a8e62a234d3aea20793ada2c4a628de96ed7533384f0f5dc3c3f2ffa84f9bab",
-    urls = [
-        "https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo0.41.1.darwin-amd64.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "tinygo_linux_amd64",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "tinygo_bin",
-    srcs = ["tinygo/bin/tinygo"],
-)
-""",
-    sha256 = "e156d1d93a376eef639a4143d13be07e8c463fb6cf2d7d447698ed4474d23e91",
-    urls = [
-        "https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo0.41.1.linux-amd64.tar.gz",
-    ],
-)
-
-http_archive(
-    name = "tinygo_linux_arm64",
-    build_file_content = """
-package(default_visibility = ["//visibility:public"])
-filegroup(
-    name = "tinygo_bin",
-    srcs = ["tinygo/bin/tinygo"],
-)
-""",
-    sha256 = "789733bc3b5bace0bd1835a267b3ea267804a7ef1cfe69bc522c295f5226d624",
-    urls = [
-        "https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo0.41.1.linux-arm64.tar.gz",
-    ],
+tinygo_host_repository(
+    name = "tinygo_host",
+    version = "0.40.1",
 )
 
 http_file(

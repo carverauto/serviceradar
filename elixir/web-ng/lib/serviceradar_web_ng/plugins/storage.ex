@@ -187,6 +187,19 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
 
   def blob_exists?(_object_key), do: false
 
+  @spec list_blobs(String.t()) :: {:ok, [map()]} | {:error, term()}
+  def list_blobs(prefix \\ "plugins/")
+
+  def list_blobs(prefix) when is_binary(prefix) do
+    :jetstream = backend()
+
+    with_jetstream_client(:list_blobs, [prefix], fn ->
+      list_blobs_jetstream(prefix)
+    end)
+  end
+
+  def list_blobs(_prefix), do: {:error, :invalid_prefix}
+
   @spec sha256(binary()) :: String.t()
   def sha256(payload) do
     :sha256
@@ -311,6 +324,17 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
       {:error, %{"code" => 404}} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp list_blobs_jetstream(prefix) do
+    with_jetstream(fn conn ->
+      with {:ok, _} <- ensure_bucket(conn), {:ok, metas} <- Object.list(conn, bucket_name()) do
+        metas
+        |> Enum.filter(fn meta -> String.starts_with?(meta.name, prefix) end)
+        |> Enum.map(fn meta -> %{key: meta.name, size: meta.size, chunks: meta.chunks, digest: meta.digest} end)
+        |> then(&{:ok, &1})
+      end
+    end)
   end
 
   defp blob_exists_jetstream(object_key) do

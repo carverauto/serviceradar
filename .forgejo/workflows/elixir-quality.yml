@@ -20,24 +20,29 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'elixir/**'
-      - '.github/workflows/elixir-quality.yml'
+      - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
   pull_request:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'elixir/**'
-      - '.github/workflows/elixir-quality.yml'
+      - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
+
+env:
+  ImageOS: ubuntu24
 
 jobs:
   quality:
     name: Elixir Quality (${{ matrix.name }})
-    runs-on: serviceradar-ubuntu-24.04
+    runs-on: ubuntu24
+    env:
+      ImageOS: ubuntu24
     strategy:
       fail-fast: false
       matrix:
@@ -96,15 +101,21 @@ jobs:
             credo: true
             dialyzer: false
             warnings_as_errors: true
-
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Beam
         uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        env:
+          ImageOS: ubuntu24
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
 
       - name: Cache Elixir dependencies and build
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
