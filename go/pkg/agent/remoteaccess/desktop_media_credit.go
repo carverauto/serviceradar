@@ -19,7 +19,6 @@ package remoteaccess
 import (
 	"fmt"
 	"math"
-	"strings"
 )
 
 func NewDesktopMediaCreditWindow(initialCreditBytes uint64, maxChunkBytes uint32) (DesktopMediaCreditWindow, error) {
@@ -170,24 +169,4 @@ func (w *DesktopMediaCreditWindow) applyAckControl(ack DesktopMediaAck) {
 
 func mediaFrameCreditCost(frame DesktopMediaFrame) uint64 {
 	return uint64(len(frame.Metadata)) + uint64(len(frame.Payload))
-}
-
-func normalizeDesktopMediaAckCloseReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if reason == "" {
-		return ""
-	}
-
-	var normalized strings.Builder
-	normalized.Grow(len(reason))
-
-	for _, r := range reason {
-		if r < ' ' || r == 0x7f {
-			r = ' '
-		}
-
-		normalized.WriteRune(r)
-	}
-
-	return strings.TrimSpace(normalized.String())
 }

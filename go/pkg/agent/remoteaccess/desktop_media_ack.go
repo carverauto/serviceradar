@@ -66,7 +66,7 @@ func ValidateDesktopMediaAck(ack DesktopMediaAck, sessionBindingID, mediaSession
 }
 
 func desktopMediaAckHasControlSignal(ack DesktopMediaAck) bool {
-	return ack.Pause || ack.Resume || ack.QualityLevel != "" || ack.CloseReason != ""
+	return ack.Pause || ack.Resume || ack.QualityLevel != "" || normalizeDesktopMediaAckCloseReason(ack.CloseReason) != ""
 }
 
 func validDesktopMediaQualityLevel(level string) bool {
@@ -76,4 +76,24 @@ func validDesktopMediaQualityLevel(level string) bool {
 	default:
 		return false
 	}
+}
+
+func normalizeDesktopMediaAckCloseReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var normalized strings.Builder
+	normalized.Grow(len(reason))
+
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		normalized.WriteRune(r)
+	}
+
+	return strings.TrimSpace(normalized.String())
 }

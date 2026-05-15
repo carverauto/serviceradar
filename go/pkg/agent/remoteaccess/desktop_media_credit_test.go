@@ -274,6 +274,34 @@ func TestDesktopMediaCreditWindowRejectsDuplicateCreditAtCurrentSequence(t *test
 	}
 }
 
+func TestDesktopMediaCreditWindowRejectsWhitespaceOnlyCloseReasonAtCurrentSequence(t *testing.T) {
+	t.Parallel()
+
+	window, err := NewDesktopMediaCreditWindow(1, 8)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  7,
+		CreditBytes:      16,
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck returned error: %v", err)
+	}
+
+	ack.CreditBytes = 0
+	ack.CloseReason = "\n\t"
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ApplyAck whitespace close reason error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if window.CloseReason() != "" {
+		t.Fatalf("CloseReason = %q, want empty", window.CloseReason())
+	}
+}
+
 func TestDesktopMediaCreditWindowStopsMediaAfterCloseAck(t *testing.T) {
 	t.Parallel()
 
