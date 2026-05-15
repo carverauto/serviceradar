@@ -344,6 +344,10 @@ func normalizeDesktopMediaTerminalReason(reason string) string {
 }
 
 func (s *desktopMediaGatewaySender) handleAck(ctx context.Context, ack remoteaccess.DesktopMediaAck) error {
+	if err := remoteaccess.ValidateDesktopMediaAck(ack, s.desktopID, s.mediaID); err != nil {
+		return err
+	}
+
 	s.ackMu.RLock()
 	handler := s.ackHandler
 	s.ackMu.RUnlock()

@@ -157,6 +157,50 @@ func TestDesktopMediaGatewaySenderRoutesAcks(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaGatewaySenderRejectsInvalidAcksBeforeHandler(t *testing.T) {
+	t.Parallel()
+
+	stream := newFakeDesktopMediaStream()
+	called := make(chan struct{}, 1)
+	sender, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		&fakeDesktopMediaGateway{
+			openResp: acceptedDesktopMediaOpenResponse(),
+			stream:   stream,
+		},
+		testDesktopMediaGatewaySenderConfig(),
+		func(context.Context, remoteaccess.DesktopMediaAck) error {
+			called <- struct{}{}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("newDesktopMediaGatewaySender returned error: %v", err)
+	}
+
+	stream.recv <- &proto.DesktopMediaServerMessage{
+		Message: &proto.DesktopMediaServerMessage_Ack{
+			Ack: &proto.DesktopMediaAck{
+				DesktopSessionId:     "other-session",
+				MediaSessionId:       testDesktopMediaID,
+				LastAcceptedSequence: 9,
+				CreditBytes:          1024,
+			},
+		},
+	}
+
+	select {
+	case err := <-sender.RecvErr():
+		if !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaAck) {
+			t.Fatalf("recv error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaAck)
+		}
+	case <-called:
+		t.Fatal("ack handler was called for invalid ack")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for invalid ack error")
+	}
+}
+
 func TestDesktopMediaGatewaySenderRejectsInvalidFrames(t *testing.T) {
 	t.Parallel()
 
