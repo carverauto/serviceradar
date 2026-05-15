@@ -168,99 +168,101 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   @impl true
   def render(assigns) do
     ~H"""
-    <SettingsComponents.settings_shell current_path={@current_path}>
-      <SettingsComponents.settings_nav
-        current_path={@current_path}
-        current_scope={@current_scope}
-      />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <SettingsComponents.settings_shell current_path={@current_path}>
+        <SettingsComponents.settings_nav
+          current_path={@current_path}
+          current_scope={@current_scope}
+        />
 
-      <header class="space-y-1">
-        <h1 class="text-2xl font-semibold">Audit · Events</h1>
-        <p class="text-sm text-zinc-500">
-          Stateless security events: rate-limit denials, signature failures, policy denials,
-          CSP violations, lockout triggers and clears. Live-tailed via Phoenix.PubSub.
-        </p>
-      </header>
+        <header class="space-y-1">
+          <h1 class="text-2xl font-semibold">Audit · Events</h1>
+          <p class="text-sm text-base-content/60">
+            Stateless security events: rate-limit denials, signature failures, policy denials,
+            CSP violations, lockout triggers and clears. Live-tailed via Phoenix.PubSub.
+          </p>
+        </header>
 
-      <%= if @can_view? do %>
-        <form phx-change="filter" class="flex flex-wrap items-end gap-3">
-          <label class="text-sm">
-            <span class="block mb-1 text-zinc-600">Kind</span>
-            <select name="kind" class="ui-select">
-              <option value="">All</option>
-              <%= for kind <- @kinds do %>
-                <option value={to_string(kind)} selected={to_string(kind) == @kind_filter}>
-                  {kind}
-                </option>
-              <% end %>
-            </select>
-          </label>
+        <%= if @can_view? do %>
+          <form phx-change="filter" class="flex flex-wrap items-end gap-3">
+            <label class="text-sm">
+              <span class="mb-1 block text-base-content/70">Kind</span>
+              <select name="kind" class="ui-select">
+                <option value="">All</option>
+                <%= for kind <- @kinds do %>
+                  <option value={to_string(kind)} selected={to_string(kind) == @kind_filter}>
+                    {kind}
+                  </option>
+                <% end %>
+              </select>
+            </label>
 
-          <label class="text-sm">
-            <span class="block mb-1 text-zinc-600">Severity</span>
-            <select name="severity" class="ui-select">
-              <option value="">All</option>
-              <%= for severity <- @severities do %>
-                <option
-                  value={to_string(severity)}
-                  selected={to_string(severity) == @severity_filter}
-                >
-                  {severity}
-                </option>
-              <% end %>
-            </select>
-          </label>
+            <label class="text-sm">
+              <span class="mb-1 block text-base-content/70">Severity</span>
+              <select name="severity" class="ui-select">
+                <option value="">All</option>
+                <%= for severity <- @severities do %>
+                  <option
+                    value={to_string(severity)}
+                    selected={to_string(severity) == @severity_filter}
+                  >
+                    {severity}
+                  </option>
+                <% end %>
+              </select>
+            </label>
 
-          <button
-            type="button"
-            class="ui-button"
-            phx-click="clear-filters"
-          >
-            Clear
-          </button>
-        </form>
+            <button
+              type="button"
+              class="ui-button"
+              phx-click="clear-filters"
+            >
+              Clear
+            </button>
+          </form>
 
-        <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-          <table class="min-w-full text-sm">
-            <thead class="bg-zinc-50 dark:bg-zinc-800">
-              <tr>
-                <th class="px-4 py-2 text-left">When</th>
-                <th class="px-4 py-2 text-left">Kind</th>
-                <th class="px-4 py-2 text-left">Severity</th>
-                <th class="px-4 py-2 text-left">Actor</th>
-                <th class="px-4 py-2 text-left">IP</th>
-                <th class="px-4 py-2 text-left">Route</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-              <%= for e <- @events do %>
+          <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
+            <table class="min-w-full text-sm text-base-content">
+              <thead class="bg-base-200/70 text-base-content/70">
                 <tr>
-                  <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
-                    {format_dt(e.occurred_at)}
-                  </td>
-                  <td class="px-4 py-2">{e.kind}</td>
-                  <td class="px-4 py-2">{e.severity}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{e.actor_id || "—"}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{e.ip || "—"}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{e.route || "—"}</td>
+                  <th class="px-4 py-2 text-left">When</th>
+                  <th class="px-4 py-2 text-left">Kind</th>
+                  <th class="px-4 py-2 text-left">Severity</th>
+                  <th class="px-4 py-2 text-left">Actor</th>
+                  <th class="px-4 py-2 text-left">IP</th>
+                  <th class="px-4 py-2 text-left">Route</th>
                 </tr>
-              <% end %>
-              <%= if Enum.empty?(@events) do %>
-                <tr>
-                  <td colspan="6" class="px-4 py-8 text-center text-zinc-500">
-                    No security events yet.
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-      <% else %>
-        <p class="text-sm text-red-600">
-          You need <code>settings.audit.view</code> to see security events.
-        </p>
-      <% end %>
-    </SettingsComponents.settings_shell>
+              </thead>
+              <tbody class="divide-y divide-base-200">
+                <%= for e <- @events do %>
+                  <tr class="hover:bg-base-200/40">
+                    <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
+                      {format_dt(e.occurred_at)}
+                    </td>
+                    <td class="px-4 py-2">{e.kind}</td>
+                    <td class="px-4 py-2">{e.severity}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{e.actor_id || "—"}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{e.ip || "—"}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{e.route || "—"}</td>
+                  </tr>
+                <% end %>
+                <%= if Enum.empty?(@events) do %>
+                  <tr>
+                    <td colspan="6" class="px-4 py-8 text-center text-base-content/60">
+                      No security events yet.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% else %>
+          <p class="text-sm text-error">
+            You need <code>settings.audit.view</code> to see security events.
+          </p>
+        <% end %>
+      </SettingsComponents.settings_shell>
+    </Layouts.app>
     """
   end
 
