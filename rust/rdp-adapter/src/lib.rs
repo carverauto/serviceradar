@@ -1,6 +1,7 @@
 mod backend;
 #[cfg(feature = "ironrdp-backend")]
 mod backend_ironrdp;
+mod process_hardening;
 mod protocol;
 
 use std::error::Error;
@@ -101,6 +102,10 @@ where
     let mut backend = UnavailableBackend;
 
     run_stdio_with_backend(reader, writer, &mut backend)
+}
+
+pub fn harden_process_for_secrets() -> io::Result<()> {
+    process_hardening::harden_process_for_secrets()
 }
 
 pub fn write_capabilities<W>(writer: &mut W) -> io::Result<()>

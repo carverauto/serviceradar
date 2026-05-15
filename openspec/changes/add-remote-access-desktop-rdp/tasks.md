@@ -111,6 +111,7 @@
 - [x] 3.3.8 Split domain-qualified memory-user credentials into zeroizing domain/login fields before future connector config construction.
 - [x] 3.3.9 Require memory-user credential grants to carry exact helper-side session and target bindings before connector code can consume them.
 - [x] 3.3.10 Align the Go adapter runtime with helper credential binding by requiring explicit memory-user session/target bindings and rejecting session mismatches before helper handoff.
+- [x] 3.3.11 Harden the per-session RDP helper process against credential-bearing core dumps before reading session frames.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
