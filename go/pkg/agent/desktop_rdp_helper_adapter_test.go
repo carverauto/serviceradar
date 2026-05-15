@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -182,6 +183,37 @@ func TestDesktopRDPHelperAdapterClearsSerializedClosePayload(t *testing.T) {
 	}
 	if !allZeroBytes(closeFrame.Payload) {
 		t.Fatalf("close payload was not cleared: %q", string(closeFrame.Payload))
+	}
+}
+
+func TestDesktopRDPHelperAdapterNormalizesCloseReasonBeforeIPC(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	reason := " operator\nclosed\t" + strings.Repeat("x", remoteaccess.DesktopMaxAuditReason)
+	if err := session.Close(context.Background(), reason); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	closeFrame := transport.sentFrame(t, 1)
+	if closeFrame.Type != desktopRDPHelperMessageClose {
+		t.Fatalf("close frame type = %d, want %d", closeFrame.Type, desktopRDPHelperMessageClose)
+	}
+
+	var payload desktopRDPHelperClosePayload
+	if err := json.Unmarshal(closeFrame.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal close payload returned error: %v", err)
+	}
+	if strings.ContainsAny(payload.Reason, "\n\t") {
+		t.Fatalf("close reason was not normalized: %q", payload.Reason)
+	}
+	if len(payload.Reason) > remoteaccess.DesktopMaxAuditReason {
+		t.Fatalf("close reason length = %d, want <= %d", len(payload.Reason), remoteaccess.DesktopMaxAuditReason)
 	}
 }
 

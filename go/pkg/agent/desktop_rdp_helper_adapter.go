@@ -186,7 +186,9 @@ func (s *desktopRDPHelperSession) Close(ctx context.Context, reason string) erro
 	}
 
 	s.closeOnce.Do(func() {
-		payload, err := json.Marshal(desktopRDPHelperClosePayload{Reason: strings.TrimSpace(reason)})
+		payload, err := json.Marshal(desktopRDPHelperClosePayload{
+			Reason: normalizeDesktopRDPHelperCloseReason(reason),
+		})
 		if err != nil {
 			s.closeErr = fmt.Errorf("%w: encode helper close payload: %w", remoteaccess.ErrInvalidDesktopFrame, err)
 		} else {
@@ -237,6 +239,28 @@ func (s *desktopRDPHelperSession) markClosed() {
 	s.sendMu.Lock()
 	s.closed = true
 	s.sendMu.Unlock()
+}
+
+func normalizeDesktopRDPHelperCloseReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		next := string(r)
+		if out.Len()+len(next) > remoteaccess.DesktopMaxAuditReason {
+			break
+		}
+		out.WriteString(next)
+	}
+
+	return strings.TrimSpace(out.String())
 }
 
 func (s *desktopRDPHelperSession) cleanupAfterReadLoopTerminal() {
