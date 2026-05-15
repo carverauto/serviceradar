@@ -420,7 +420,15 @@ go_sdk.from_file(
     name = "go_sdk",
     go_mod = "//:go.mod",
 )
-use_repo(go_sdk, "go_sdk")
+go_sdk.download(
+    name = "tinygo_compatible_go_sdk",
+    version = "1.25.5",
+)
+use_repo(
+    go_sdk,
+    "go_sdk",
+    "tinygo_compatible_go_sdk",
+)
 
 go_deps = use_extension(
     "@bazel_gazelle//:extensions.bzl",
