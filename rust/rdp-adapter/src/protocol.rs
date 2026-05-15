@@ -10,6 +10,12 @@ const PROTOCOL_RDP: &str = "rdp";
 const PROTOCOL_DESKTOP: &str = "desktop";
 const CREDENTIAL_MODE_MEMORY_USER: &str = "memory_user";
 const CREDENTIAL_MODE_BROKERED_SECRET: &str = "brokered_secret";
+const TLS_MODE_VERIFY: &str = "verify";
+const TLS_MODE_PINNED_CA: &str = "pinned_ca";
+const TLS_MODE_SYSTEM: &str = "system";
+const NLA_MODE_REQUIRED: &str = "required";
+const CLIPBOARD_MODE_DISABLED: &str = "disabled";
+const MAX_TCP_PORT: u32 = u16::MAX as u32;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -223,6 +229,9 @@ pub enum OpenPayloadError {
     MissingRoute,
     MissingTarget,
     MissingUpstream,
+    UnsupportedTlsPolicy,
+    UnsupportedRedirection,
+    UnsupportedRecordingPolicy,
     InvalidCredentialGrant,
 }
 
@@ -237,6 +246,13 @@ impl fmt::Display for OpenPayloadError {
             Self::MissingRoute => f.write_str("selected agent route is required"),
             Self::MissingTarget => f.write_str("target id is required"),
             Self::MissingUpstream => f.write_str("upstream host and port are required"),
+            Self::UnsupportedTlsPolicy => f.write_str("target TLS/NLA policy is unsupported"),
+            Self::UnsupportedRedirection => {
+                f.write_str("desktop redirection policy is unsupported")
+            }
+            Self::UnsupportedRecordingPolicy => {
+                f.write_str("desktop content recording policy is unsupported")
+            }
             Self::InvalidCredentialGrant => f.write_str("credential grant is invalid"),
         }
     }
@@ -282,11 +298,47 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     {
         return Err(OpenPayloadError::MissingRoute);
     }
-    if target.upstream.host.trim().is_empty() || target.upstream.port == 0 {
+    if target.upstream.host.trim().is_empty()
+        || target.upstream.port == 0
+        || target.upstream.port > MAX_TCP_PORT
+    {
         return Err(OpenPayloadError::MissingUpstream);
+    }
+    if !helper_tls_policy_supported(&target.tls) {
+        return Err(OpenPayloadError::UnsupportedTlsPolicy);
+    }
+    if !helper_redirection_policy_supported(&target.redirection) {
+        return Err(OpenPayloadError::UnsupportedRedirection);
+    }
+    if !helper_recording_policy_supported(&target.recording) {
+        return Err(OpenPayloadError::UnsupportedRecordingPolicy);
     }
 
     validate_credential_grant(payload)
+}
+
+fn helper_tls_policy_supported(policy: &DesktopTlsPolicy) -> bool {
+    matches!(
+        policy.mode.as_str(),
+        TLS_MODE_VERIFY | TLS_MODE_PINNED_CA | TLS_MODE_SYSTEM
+    ) && policy.nla_mode == NLA_MODE_REQUIRED
+}
+
+fn helper_redirection_policy_supported(policy: &DesktopRedirectionPolicy) -> bool {
+    policy.clipboard_mode == CLIPBOARD_MODE_DISABLED
+        && !policy.drive
+        && !policy.printer
+        && !policy.audio
+        && !policy.smart_card
+        && !policy.file_copy
+}
+
+fn helper_recording_policy_supported(policy: &DesktopRecordingPolicy) -> bool {
+    policy.metadata_enabled
+        && !policy.screen_enabled
+        && !policy.clipboard_enabled
+        && !policy.file_enabled
+        && !policy.audio_enabled
 }
 
 fn validate_credential_grant(payload: &OpenPayload) -> Result<(), OpenPayloadError> {
@@ -415,7 +467,7 @@ pub(crate) mod tests {
                 "protocol":"rdp",
                 "route":{"selected_agent_id":"agent-1"},
                 "upstream":{"host":"win.example","port":3389},
-                "tls":{"mode":"verify"},
+                "tls":{"mode":"verify","nla_mode":"required"},
                 "credential":{"mode":"brokered_secret","credential_secret_ref":"secret/ref"},
                 "screen":{"max_width":1920,"max_height":1080,"frame_rate":30,"bitrate_bps":8000000,"idle_seconds":900,"ttl_seconds":3600},
                 "redirection":{"clipboard_mode":"disabled"},
@@ -457,6 +509,50 @@ pub(crate) mod tests {
         let err = parse_open_payload(raw.as_bytes()).expect_err("route rejected");
 
         assert_eq!(err, OpenPayloadError::MissingRoute);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_unsupported_tls_policy() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"insecure","nla_mode":"disabled","server_name":"win.example"}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_unsupported_redirection_policy() {
+        let raw = valid_open_payload().replace(
+            r#""redirection":{"clipboard_mode":"disabled"}"#,
+            r#""redirection":{"clipboard_mode":"text_bidirectional","drive":true}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("redirection policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedRedirection);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_content_recording_policy() {
+        let raw = valid_open_payload().replace(
+            r#""recording":{"metadata_enabled":true}"#,
+            r#""recording":{"metadata_enabled":true,"screen_enabled":true}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("recording policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedRecordingPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_out_of_range_upstream_port() {
+        let raw = valid_open_payload().replace(
+            r#""upstream":{"host":"win.example","port":3389}"#,
+            r#""upstream":{"host":"win.example","port":70000}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("upstream port rejected");
+
+        assert_eq!(err, OpenPayloadError::MissingUpstream);
     }
 
     #[test]
