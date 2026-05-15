@@ -151,6 +151,8 @@ pub struct ServiceRadarCredentialGrant {
 pub struct InitialConnectorPdu {
     pub before_state: &'static str,
     pub after_state: &'static str,
+    pub advertises_credssp: bool,
+    pub advertises_tls_fallback: bool,
     pub bytes: Vec<u8>,
 }
 
@@ -344,12 +346,41 @@ pub fn build_initial_connector_pdu(
     Ok(InitialConnectorPdu {
         before_state,
         after_state: connector_state_name(&connector),
+        advertises_credssp: initial_pdu_advertises_credssp(buffer.filled())?,
+        advertises_tls_fallback: initial_pdu_advertises_tls_fallback(buffer.filled())?,
         bytes: buffer.filled()[..written_len].to_vec(),
     })
 }
 
 fn connector_state_name(connector: &ironrdp_connector::ClientConnector) -> &'static str {
     ironrdp_connector::Sequence::state(connector).name()
+}
+
+fn initial_pdu_advertises_credssp(bytes: &[u8]) -> Result<bool, &'static str> {
+    let protocol = decode_initial_security_protocol(bytes)?;
+
+    Ok(protocol.intersects(
+        ironrdp_pdu::nego::SecurityProtocol::HYBRID
+            | ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX,
+    ))
+}
+
+fn initial_pdu_advertises_tls_fallback(bytes: &[u8]) -> Result<bool, &'static str> {
+    let protocol = decode_initial_security_protocol(bytes)?;
+
+    Ok(protocol.intersects(ironrdp_pdu::nego::SecurityProtocol::SSL))
+}
+
+fn decode_initial_security_protocol(
+    bytes: &[u8],
+) -> Result<ironrdp_pdu::nego::SecurityProtocol, &'static str> {
+    let request = ironrdp_core::decode::<
+        ironrdp_pdu::x224::X224<ironrdp_pdu::nego::ConnectionRequest>,
+    >(bytes)
+    .map_err(|_| "initial connector pdu decode failed")?
+    .0;
+
+    Ok(request.protocol)
 }
 
 impl ServiceRadarOpenRequest {
@@ -406,6 +437,8 @@ mod tests {
 
         assert_eq!(pdu.before_state, "ConnectionInitiationSendRequest");
         assert_eq!(pdu.after_state, "ConnectionInitiationWaitResponse");
+        assert!(pdu.advertises_credssp);
+        assert!(!pdu.advertises_tls_fallback);
         assert!(pdu.bytes.len() > 10);
         assert_eq!(&pdu.bytes[..2], &[0x03, 0x00]);
     }
