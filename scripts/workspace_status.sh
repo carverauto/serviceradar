@@ -12,13 +12,21 @@
 
 set -eo pipefail # exit immediately if any command fails.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if WORKSPACE_ROOT="$(git -C "${SCRIPT_DIR}/.." rev-parse --show-toplevel 2>/dev/null)"; then
+  :
+else
+  WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+fi
+cd "${WORKSPACE_ROOT}"
+
 function remove_url_credentials() {
   which perl >/dev/null && perl -pe 's#//.*?:.*?@#//#' || cat
 }
 
 function emit_agent_release_public_key() {
   local key="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY:-}"
-  local key_file="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY_FILE:-.bazel-agent-release-public-key}"
+  local key_file="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY_FILE:-${WORKSPACE_ROOT}/.bazel-agent-release-public-key}"
   if [[ -z "${key}" && -f "${key_file}" ]]; then
     key="$(tr -d '\r\n' < "${key_file}")"
   fi

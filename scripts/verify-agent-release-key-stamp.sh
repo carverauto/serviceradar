@@ -14,10 +14,20 @@ key_file="${SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY_FILE:-.bazel-agent-release-pub
 
 printf '%s\n' "${expected_key}" > "${key_file}"
 
-bazel build "${bazel_args[@]}" --stamp --remote_download_outputs=all "${target}"
+bazel build \
+  "${bazel_args[@]}" \
+  --action_env=SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY \
+  --stamp \
+  --remote_download_outputs=all \
+  "${target}"
 
 output="$(
-  bazel cquery "${bazel_args[@]}" --stamp --output=files "${target}" 2>/dev/null \
+  bazel cquery \
+    "${bazel_args[@]}" \
+    --action_env=SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY \
+    --stamp \
+    --output=files \
+    "${target}" 2>/dev/null \
     | awk 'NF { last = $0 } END { print last }'
 )"
 
@@ -26,7 +36,7 @@ if [[ -z "${output}" ]]; then
   exit 1
 fi
 
-execroot="$(bazel info "${bazel_args[@]}" execution_root 2>/dev/null | tail -n1)"
+execroot="$(bazel info "${bazel_args[@]}" --action_env=SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY execution_root 2>/dev/null | tail -n1)"
 binary_path="${execroot}/${output}"
 
 if [[ ! -f "${binary_path}" ]]; then
