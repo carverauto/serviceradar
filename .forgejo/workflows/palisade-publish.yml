@@ -47,7 +47,6 @@ jobs:
       run:
         working-directory: elixir/palisade
     env:
-      ImageOS: ubuntu24
       MIX_ENV: test
     steps:
       - name: Checkout
@@ -55,6 +54,8 @@ jobs:
 
       - name: Setup Beam
         uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        env:
+          ImageOS: ubuntu24
         with:
           otp-version: "28.1"
           elixir-version: "1.19.4"

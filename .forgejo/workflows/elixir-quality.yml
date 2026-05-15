@@ -96,14 +96,13 @@ jobs:
             credo: true
             dialyzer: false
             warnings_as_errors: true
-    env:
-      ImageOS: ubuntu24
-
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Beam
         uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        env:
+          ImageOS: ubuntu24
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'
