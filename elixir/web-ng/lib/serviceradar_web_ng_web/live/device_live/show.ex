@@ -4745,9 +4745,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> row_metadata()
     |> Map.keys()
     |> Enum.map(&to_string/1)
-    |> Enum.reject(&MapSet.member?(shown_keys, &1))
-    |> Enum.reject(&String.starts_with?(&1, "scan_available_ip_"))
-    |> Enum.reject(&String.starts_with?(&1, "scan_unavailable_ip_"))
+    |> Enum.reject(fn key ->
+      MapSet.member?(shown_keys, key) or
+        String.starts_with?(key, "scan_available_ip_") or
+        String.starts_with?(key, "scan_unavailable_ip_")
+    end)
     |> Enum.sort()
   end
 
