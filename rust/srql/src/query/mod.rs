@@ -1308,6 +1308,30 @@ mod tests {
     }
 
     #[test]
+    fn devices_inventory_summary_rollup_returns_all_type_and_vendor_buckets() {
+        let query = "in:devices rollup_stats:inventory_summary";
+        let plan = plan_for(query);
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build inventory summary SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("device_inventory_type_counts"),
+            "expected type rollup table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("device_inventory_vendor_counts"),
+            "expected vendor rollup table in SQL, got: {sql}"
+        );
+        assert!(
+            !lower.contains("limit 10"),
+            "inventory summary should not truncate facet buckets, got: {sql}"
+        );
+        assert!(params.is_empty(), "rollup summary should not bind params");
+    }
+
+    #[test]
     fn devices_stats_group_by_vendor() {
         let query = "in:devices stats:count() as count by vendor_name";
         let plan = plan_for(query);
