@@ -1,5 +1,6 @@
 use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
 use crate::protocol::{DesktopCredentialGrant, OpenPayload};
+use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
     "IronRDP backend is linked, but the connector loop is not implemented";
@@ -16,6 +17,36 @@ struct NonSecretConnectionPlan {
     desktop_height: u16,
 }
 
+struct MemoryUserCredential {
+    username: Zeroizing<String>,
+    password: RedactedSecret,
+}
+
+struct RedactedSecret {
+    value: Zeroizing<String>,
+}
+
+impl MemoryUserCredential {
+    fn has_material(&self) -> bool {
+        !self.username.is_empty() && !self.password.value.is_empty()
+    }
+}
+
+impl std::fmt::Debug for MemoryUserCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryUserCredential")
+            .field("username", &"<redacted>")
+            .field("password", &self.password)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for RedactedSecret {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 #[derive(Default)]
 pub struct IronRdpBackend;
 
@@ -28,9 +59,13 @@ impl RdpBackend for IronRdpBackend {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         }
         let _plan = build_nonsecret_connection_plan(&request)?;
+        let credential = build_memory_user_credential(grant)?;
+        if !credential.has_material() {
+            return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
+        }
 
-        // Do not copy live credentials into IronRDP-owned strings until the
-        // connection loop can guarantee drop ordering and zeroization.
+        // Keep connector readiness false until the real IronRDP loop consumes
+        // only zeroizing credential wrappers and proves cleanup ordering.
         Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
     }
 }
@@ -68,6 +103,23 @@ fn build_nonsecret_connection_plan(
         tls_server_name: effective_tls_server_name.to_owned(),
         desktop_width,
         desktop_height,
+    })
+}
+
+fn build_memory_user_credential(
+    grant: &DesktopCredentialGrant,
+) -> Result<MemoryUserCredential, BackendError> {
+    let username = grant.username.trim();
+    let password = grant.password.expose();
+    if username.is_empty() || password.is_empty() {
+        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
+    }
+
+    Ok(MemoryUserCredential {
+        username: Zeroizing::new(username.to_owned()),
+        password: RedactedSecret {
+            value: Zeroizing::new(password.to_owned()),
+        },
     })
 }
 
@@ -119,5 +171,24 @@ mod tests {
 
         assert_eq!(plan.upstream_host, "win.example");
         assert_eq!(plan.tls_server_name, "win.example");
+    }
+
+    #[test]
+    fn memory_user_credential_uses_zeroizing_redacted_storage() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        assert_eq!(credential.username.as_str(), "alice");
+        assert_eq!(credential.password.value.as_str(), "secret");
+        assert_eq!(
+            format!("{credential:?}"),
+            r#"MemoryUserCredential { username: "<redacted>", password: <redacted> }"#
+        );
     }
 }
