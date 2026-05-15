@@ -83,6 +83,7 @@ defmodule ServiceRadar.Inventory.Device do
     :discovery_sources,
     :tags,
     :is_available,
+    :availability_source_agent_id,
     :metadata
   ]
   @device_update_fields [
@@ -114,6 +115,7 @@ defmodule ServiceRadar.Inventory.Device do
     :agent_list,
     :discovery_sources,
     :is_available,
+    :availability_source_agent_id,
     :tags,
     :metadata,
     :group_id,
@@ -133,6 +135,7 @@ defmodule ServiceRadar.Inventory.Device do
   ]
   @group_fields [:group_id]
   @availability_fields [:is_available]
+  @availability_source_fields [:availability_source_agent_id]
   @soft_delete_fields [:deleted_reason, :deleted_by]
 
   postgres do
@@ -275,6 +278,11 @@ defmodule ServiceRadar.Inventory.Device do
 
     update :set_availability do
       accept @availability_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :set_availability_source do
+      accept @availability_source_fields
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -616,6 +624,12 @@ defmodule ServiceRadar.Inventory.Device do
       description "Current availability status"
     end
 
+    attribute :availability_source_agent_id, :string do
+      public? true
+
+      description "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior"
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true
@@ -642,6 +656,13 @@ defmodule ServiceRadar.Inventory.Device do
       destination_attribute :device_id
       public? true
       description "Device identifiers for identity reconciliation"
+    end
+
+    has_many :agent_availability, ServiceRadar.Inventory.DeviceAgentAvailability do
+      source_attribute :uid
+      destination_attribute :device_uid
+      public? true
+      description "Latest availability reported by each agent for this device"
     end
 
     belongs_to :group, ServiceRadar.Inventory.DeviceGroup do

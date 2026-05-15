@@ -43,6 +43,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     :sweep_interval_seconds,
     :northbound_enabled,
     :northbound_interval_seconds,
+    :northbound_availability_source_agent_id,
     :page_size,
     :network_blacklist,
     :queries,
@@ -420,6 +421,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       default 3600
       public? true
       description "How often to run northbound Armis updates (seconds)"
+    end
+
+    attribute :northbound_availability_source_agent_id, :string do
+      public? true
+
+      description "Optional agent whose per-agent availability should be sent by northbound updates"
     end
 
     # Source-specific settings

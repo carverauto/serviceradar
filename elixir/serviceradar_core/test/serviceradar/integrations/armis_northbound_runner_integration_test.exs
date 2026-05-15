@@ -6,6 +6,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
 
@@ -36,17 +38,44 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(candidates, & &1.is_available) == [true, false]
   end
 
-  defp create_source!(actor, name) do
+  test "load_candidates can use a selected per-agent availability source", %{actor: actor} do
+    source =
+      create_source!(actor, "armis-per-agent",
+        northbound_availability_source_agent_id: "agent-northbound"
+      )
+
+    ingest_armis_update(actor, source.id, "192.0.2.20", "armis-agent-1", false)
+    ingest_armis_update(actor, source.id, "192.0.2.21", "armis-agent-2", true)
+
+    {:ok, device_a} = Device.get_by_ip("192.0.2.20", false, actor: actor)
+    {:ok, device_b} = Device.get_by_ip("192.0.2.21", false, actor: actor)
+
+    create_agent_availability!(actor, device_a.uid, "agent-northbound", true)
+    create_agent_availability!(actor, device_b.uid, "agent-other", false)
+
+    assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
+
+    assert Enum.map(candidates, & &1.armis_device_id) == ["armis-agent-1"]
+    assert Enum.map(candidates, & &1.is_available) == [true]
+  end
+
+  defp create_source!(actor, name, attrs \\ []) do
+    attrs =
+      Map.merge(
+        %{
+          name: name,
+          source_type: :armis,
+          endpoint: "https://example.invalid/#{System.unique_integer([:positive])}",
+          northbound_enabled: true,
+          custom_fields: ["availability"]
+        },
+        Map.new(attrs)
+      )
+
     IntegrationSource
     |> Ash.Changeset.for_create(
       :create,
-      %{
-        name: name,
-        source_type: :armis,
-        endpoint: "https://example.invalid/#{System.unique_integer([:positive])}",
-        northbound_enabled: true,
-        custom_fields: ["availability"]
-      },
+      attrs,
       actor: actor
     )
     |> Ash.Changeset.set_argument(:credentials, %{secret_key: "secret", api_key: "api"})
@@ -70,6 +99,21 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     }
 
     :ok = SyncIngestor.ingest_updates([update], actor: actor)
+  end
+
+  defp create_agent_availability!(actor, device_uid, agent_id, is_available) do
+    DeviceAgentAvailability
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        device_uid: device_uid,
+        agent_id: agent_id,
+        is_available: is_available,
+        checked_at: DateTime.utc_now()
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 
   defp unique_mac do

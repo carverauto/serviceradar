@@ -995,6 +995,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             Poll: fetch updates • Discovery: full device scan • Sweep: network scan
           </p>
 
+          <%= if armis_source_type?(@form[:source_type].value) do %>
+            <div class="grid grid-cols-2 gap-4">
+              <.input
+                field={@form[:northbound_availability_source_agent_id]}
+                type="select"
+                label="Northbound Availability Source"
+                options={@agent_options}
+                prompt="Use canonical device availability"
+              />
+            </div>
+          <% end %>
+
           <div class="divider text-xs text-base-content/60">Credentials</div>
 
           <.dynamic_credentials_fields
@@ -1185,6 +1197,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <p class="text-xs text-base-content/60 -mt-2">
             Poll: fetch updates • Discovery: full device scan • Sweep: network scan
           </p>
+
+          <%= if armis_source?(@source) do %>
+            <div class="grid grid-cols-2 gap-4">
+              <.input
+                field={@form[:northbound_availability_source_agent_id]}
+                type="select"
+                label="Northbound Availability Source"
+                options={@agent_options}
+                prompt="Use canonical device availability"
+              />
+            </div>
+          <% end %>
 
           <div class="divider text-xs text-base-content/60">Credentials</div>
 
@@ -1484,6 +1508,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp armis_source?(%{source_type: :armis}), do: true
   defp armis_source?(_), do: false
 
+  defp armis_source_type?(type) when type in [:armis, "armis"], do: true
+  defp armis_source_type?(_), do: false
+
   defp refresh_selected_source(nil, _actor), do: nil
 
   defp refresh_selected_source(%{id: id}, actor) do
@@ -1653,6 +1680,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> normalize_blank_param("agent_id")
     |> normalize_blank_param("gateway_id")
     |> normalize_blank_param("partition")
+    |> normalize_blank_param("northbound_availability_source_agent_id")
   end
 
   defp normalize_blank_param(params, key) do

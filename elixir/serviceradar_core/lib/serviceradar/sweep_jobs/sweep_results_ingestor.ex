@@ -40,7 +40,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.MapperPromotion
@@ -201,7 +203,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     |> Enum.reduce_while({:ok, initial_stats}, fn {batch, batch_num}, {:ok, acc_stats} ->
       batch_start = System.monotonic_time(:millisecond)
 
-      case process_batch(batch, execution_id, sweep_group_id, actor) do
+      case process_batch(batch, execution_id, sweep_group_id, agent_id, actor) do
         {:ok, batch_stats} ->
           batch_elapsed = System.monotonic_time(:millisecond) - batch_start
 
@@ -292,7 +294,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     error
   end
 
-  defp process_batch(results, execution_id, sweep_group_id, actor) do
+  defp process_batch(results, execution_id, sweep_group_id, agent_id, actor) do
     # Step 1: Extract all IPs for bulk device lookup
     ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
@@ -338,7 +340,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case bulk_insert_host_results(host_results) do
       :ok ->
         # Step 9: Update device availability
-        update_device_availability(results, all_devices, sweep_group_id, actor)
+        update_device_availability(
+          results,
+          all_devices,
+          execution_id,
+          sweep_group_id,
+          agent_id,
+          actor
+        )
 
         final_stats =
           stats
@@ -698,8 +707,24 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Default threshold: require 2 consecutive failures before marking unavailable
   @unavailable_threshold 2
 
-  defp update_device_availability(results, device_map, sweep_group_id, actor) do
+  defp update_device_availability(
+         results,
+         device_map,
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         actor
+       ) do
     timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    upsert_agent_availability(
+      results,
+      device_map,
+      execution_id,
+      sweep_group_id,
+      agent_id,
+      timestamp
+    )
 
     available_ips = result_ips_for_status(results, true)
     unavailable_ips = result_ips_for_status(results, false)
@@ -711,17 +736,169 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # DB connection's search_path determines the schema
     # Mark available devices (resets failure count)
-    update_device_statuses_available(available_uids, timestamp)
+    update_device_statuses_available(available_uids, timestamp, agent_id)
 
     # Apply hysteresis for unavailable devices
     # Only mark unavailable after consecutive failure threshold is exceeded
     # "Available wins" window is based on sweep interval
-    update_device_statuses_with_hysteresis(unavailable_uids, timestamp, sweep_group_id)
+    update_device_statuses_with_hysteresis(unavailable_uids, timestamp, sweep_group_id, agent_id)
 
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
     :ok
   end
+
+  defp upsert_agent_availability(
+         _results,
+         _device_map,
+         _execution_id,
+         _sweep_group_id,
+         agent_id,
+         _timestamp
+       )
+       when agent_id in [nil, ""] do
+    :ok
+  end
+
+  defp upsert_agent_availability(
+         results,
+         device_map,
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         timestamp
+       ) do
+    agent_name = agent_display_name(agent_id)
+
+    records =
+      results
+      |> Enum.map(
+        &build_agent_availability_record(
+          &1,
+          device_map,
+          execution_id,
+          sweep_group_id,
+          agent_id,
+          agent_name,
+          timestamp
+        )
+      )
+      |> Enum.reject(&is_nil/1)
+
+    bulk_upsert_agent_availability(records)
+  end
+
+  defp build_agent_availability_record(
+         result,
+         device_map,
+         execution_id,
+         sweep_group_id,
+         agent_id,
+         agent_name,
+         fallback_timestamp
+       ) do
+    ip = extract_ip(result)
+    device_uid = device_id_for_ip(device_map, ip)
+
+    if is_nil(device_uid) do
+      nil
+    else
+      now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+      %{
+        id: Ash.UUID.generate(),
+        device_uid: device_uid,
+        agent_id: agent_id,
+        agent_name: agent_name,
+        is_available: result_available?(result),
+        checked_at: result_checked_at(result, fallback_timestamp),
+        response_time_ms: response_time_ms(result),
+        open_ports: open_ports(result),
+        sweep_modes_results: build_modes_results(result),
+        sweep_group_id: valid_uuid_or_nil(sweep_group_id),
+        execution_id: valid_uuid_or_nil(execution_id),
+        metadata: result_metadata(result),
+        inserted_at: now,
+        updated_at: now
+      }
+    end
+  end
+
+  defp bulk_upsert_agent_availability([]), do: :ok
+
+  defp bulk_upsert_agent_availability(records) do
+    on_conflict_query =
+      from(a in DeviceAgentAvailability,
+        update: [
+          set: [
+            agent_name: fragment("EXCLUDED.agent_name"),
+            is_available: fragment("EXCLUDED.is_available"),
+            checked_at: fragment("EXCLUDED.checked_at"),
+            response_time_ms: fragment("EXCLUDED.response_time_ms"),
+            open_ports: fragment("EXCLUDED.open_ports"),
+            sweep_modes_results: fragment("EXCLUDED.sweep_modes_results"),
+            sweep_group_id: fragment("EXCLUDED.sweep_group_id"),
+            execution_id: fragment("EXCLUDED.execution_id"),
+            metadata: fragment("EXCLUDED.metadata"),
+            updated_at: fragment("EXCLUDED.updated_at")
+          ]
+        ]
+      )
+
+    {count, _} =
+      Repo.insert_all(
+        DeviceAgentAvailability,
+        records,
+        on_conflict: on_conflict_query,
+        conflict_target: [:device_uid, :agent_id],
+        returning: false
+      )
+
+    Logger.debug("SweepResultsIngestor: Upserted #{count} per-agent availability rows")
+
+    :ok
+  rescue
+    e ->
+      Logger.error("SweepResultsIngestor: Failed to upsert per-agent availability: #{inspect(e)}")
+      :ok
+  end
+
+  defp agent_display_name(agent_id) do
+    Repo.one(from(a in Agent, where: a.uid == ^agent_id, select: coalesce(a.name, a.uid)))
+  rescue
+    _ -> nil
+  end
+
+  defp result_checked_at(result, fallback_timestamp) do
+    case result["last_sweep_time"] || result["lastSweepTime"] do
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, parsed, _offset} -> DateTime.truncate(parsed, :microsecond)
+          _ -> DateTime.truncate(fallback_timestamp, :microsecond)
+        end
+
+      _ ->
+        DateTime.truncate(fallback_timestamp, :microsecond)
+    end
+  end
+
+  defp result_metadata(result) do
+    %{}
+    |> maybe_put_string("hostname", normalize_hostname(result["hostname"]))
+    |> maybe_put_string("error", result["error"])
+  end
+
+  defp maybe_put_string(map, _key, value) when value in [nil, ""], do: map
+  defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
+
+  defp valid_uuid_or_nil(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp valid_uuid_or_nil(_value), do: nil
 
   defp restore_deleted_devices([], _actor), do: :ok
 
@@ -802,9 +979,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   # Mark devices as available and reset consecutive failure count
-  defp update_device_statuses_available([], _timestamp), do: :ok
+  defp update_device_statuses_available([], _timestamp, _agent_id), do: :ok
 
-  defp update_device_statuses_available(device_uids, timestamp) do
+  defp update_device_statuses_available(device_uids, timestamp, agent_id) do
     # DB connection's search_path determines the schema
     # Reset consecutive failure count to 0 when device becomes available
     sql = """
@@ -819,9 +996,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         '0'
       )
     WHERE uid = ANY($1)
+      AND (availability_source_agent_id IS NULL OR availability_source_agent_id = $3)
     """
 
-    case Repo.query(sql, [device_uids, timestamp]) do
+    case Repo.query(sql, [device_uids, timestamp, agent_id]) do
       {:ok, %{num_rows: count}} ->
         Logger.debug(
           "SweepResultsIngestor: Marked #{count} devices as available (reset failure count)"
@@ -838,9 +1016,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Apply hysteresis for unavailable devices
   # Only marks device as unavailable after threshold consecutive failures
   # "Available wins" - skips devices recently marked available by another sweep
-  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id), do: :ok
+  defp update_device_statuses_with_hysteresis([], _timestamp, _sweep_group_id, _agent_id), do: :ok
 
-  defp update_device_statuses_with_hysteresis(device_uids, timestamp, sweep_group_id) do
+  defp update_device_statuses_with_hysteresis(device_uids, timestamp, sweep_group_id, agent_id) do
     # DB connection's search_path determines the schema
     #
     # Hysteresis logic using metadata.sweep_consecutive_failures:
@@ -876,9 +1054,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
       AND NOT (is_available = true AND last_seen_time > $4)
+      AND (availability_source_agent_id IS NULL OR availability_source_agent_id = $5)
     """
 
-    case Repo.query(sql, [device_uids, @unavailable_threshold, timestamp, available_wins_cutoff]) do
+    case Repo.query(sql, [
+           device_uids,
+           @unavailable_threshold,
+           timestamp,
+           available_wins_cutoff,
+           agent_id
+         ]) do
       {:ok, %{num_rows: count}} ->
         skipped = length(device_uids) - count
 

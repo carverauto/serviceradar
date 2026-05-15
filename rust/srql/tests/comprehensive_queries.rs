@@ -120,6 +120,31 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(body["results"][0]["uid"], "device-beta")
             })),
         },
+        TestCase {
+            // Per-agent latest availability: agent-1 sees alpha and beta as reachable.
+            query: "in:devices available_from_agent:agent-1 sort:uid:asc",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                let ids: Vec<&str> = results.iter().map(|r| r["uid"].as_str().unwrap()).collect();
+                assert_eq!(ids, vec!["device-alpha", "device-beta"]);
+            })),
+        },
+        TestCase {
+            // Per-agent latest availability: agent-2 cannot reach alpha.
+            query: "in:devices unavailable_from_agent:agent-2",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
+            })),
+        },
+        TestCase {
+            query: "in:devices availability_source_agent_id:agent-1",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
+            })),
+        },
         // JSONB path queries for os field
         TestCase {
             // os.name:IOS-XE -> device-alpha only

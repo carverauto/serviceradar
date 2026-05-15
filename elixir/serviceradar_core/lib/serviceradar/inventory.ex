@@ -33,6 +33,7 @@ defmodule ServiceRadar.Inventory do
 
   resources do
     resource ServiceRadar.Inventory.Device
+    resource ServiceRadar.Inventory.DeviceAgentAvailability
     resource ServiceRadar.Inventory.Interface
     resource ServiceRadar.Inventory.InterfaceSettings
     resource ServiceRadar.Inventory.InterfaceClassificationRule
