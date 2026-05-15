@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::protocol::{DesktopMediaAck, OpenPayload};
+use crate::protocol::{DesktopClosePayload, DesktopFrame, DesktopMediaAck, OpenPayload};
 
 const BACKEND_UNAVAILABLE: &str = "IronRDP backend is not linked into this helper build";
 
@@ -10,9 +10,9 @@ pub trait RdpBackend {
 }
 
 pub trait RdpBackendSession {
-    fn input(&mut self, payload: &[u8]) -> Result<(), BackendError>;
+    fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError>;
     fn ack(&mut self, ack: &DesktopMediaAck) -> Result<(), BackendError>;
-    fn close(&mut self, payload: &[u8]) -> Result<(), BackendError>;
+    fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError>;
 }
 
 #[derive(Default)]

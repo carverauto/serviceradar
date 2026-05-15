@@ -11,7 +11,9 @@ use std::io::{self, ErrorKind, Read, Write};
 pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
-pub use protocol::{parse_open_payload, DesktopMediaAck, OpenPayload};
+pub use protocol::{
+    parse_open_payload, DesktopClosePayload, DesktopFrame, DesktopMediaAck, OpenPayload,
+};
 use zeroize::Zeroize;
 
 pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
@@ -32,7 +34,9 @@ pub enum ProtocolError {
     Io(io::Error),
     InvalidFrameLength(u32),
     InvalidOpenPayload(protocol::OpenPayloadError),
+    InvalidInputPayload(protocol::DesktopFrameError),
     InvalidAckPayload(protocol::DesktopMediaAckError),
+    InvalidClosePayload(protocol::DesktopClosePayloadError),
     Backend(BackendError),
     UnexpectedMessage(u8),
 }
@@ -45,7 +49,9 @@ impl fmt::Display for ProtocolError {
                 write!(f, "rdp helper frame length is invalid: {length}")
             }
             Self::InvalidOpenPayload(err) => write!(f, "invalid rdp helper open payload: {err}"),
+            Self::InvalidInputPayload(err) => write!(f, "invalid rdp helper input payload: {err}"),
             Self::InvalidAckPayload(err) => write!(f, "invalid rdp helper ack payload: {err}"),
+            Self::InvalidClosePayload(err) => write!(f, "invalid rdp helper close payload: {err}"),
             Self::Backend(err) => write!(f, "{err}"),
             Self::UnexpectedMessage(message_type) => {
                 write!(
@@ -62,7 +68,9 @@ impl Error for ProtocolError {
         match self {
             Self::Io(err) => Some(err),
             Self::InvalidOpenPayload(err) => Some(err),
+            Self::InvalidInputPayload(err) => Some(err),
             Self::InvalidAckPayload(err) => Some(err),
+            Self::InvalidClosePayload(err) => Some(err),
             Self::Backend(err) => Some(err),
             _ => None,
         }
@@ -81,9 +89,21 @@ impl From<protocol::OpenPayloadError> for ProtocolError {
     }
 }
 
+impl From<protocol::DesktopFrameError> for ProtocolError {
+    fn from(err: protocol::DesktopFrameError) -> Self {
+        Self::InvalidInputPayload(err)
+    }
+}
+
 impl From<protocol::DesktopMediaAckError> for ProtocolError {
     fn from(err: protocol::DesktopMediaAckError) -> Self {
         Self::InvalidAckPayload(err)
+    }
+}
+
+impl From<protocol::DesktopClosePayloadError> for ProtocolError {
+    fn from(err: protocol::DesktopClosePayloadError) -> Self {
+        Self::InvalidClosePayload(err)
     }
 }
 
@@ -101,6 +121,7 @@ struct Frame {
 
 struct ActiveSession {
     session_id: String,
+    screen_policy: protocol::DesktopScreenPolicy,
     session: Box<dyn RdpBackendSession>,
 }
 
@@ -168,11 +189,21 @@ where
                 };
 
                 let session_id = open.session_id.clone();
+                let screen_policy = protocol::DesktopScreenPolicy {
+                    max_width: open.target.screen.max_width,
+                    max_height: open.target.screen.max_height,
+                    color_depth: open.target.screen.color_depth,
+                    frame_rate: open.target.screen.frame_rate,
+                    bitrate_bps: open.target.screen.bitrate_bps,
+                    idle_seconds: open.target.screen.idle_seconds,
+                    ttl_seconds: open.target.screen.ttl_seconds,
+                };
 
                 match backend.open(open) {
                     Ok(session) => {
                         active_session = Some(ActiveSession {
                             session_id,
+                            screen_policy,
                             session,
                         });
                     }
@@ -187,7 +218,18 @@ where
                     write_error_frame(writer, "rdp helper session is not open")?;
                     return Err(ProtocolError::UnexpectedMessage(frame.message_type));
                 };
-                if let Err(err) = active.session.input(&frame.payload) {
+                let input = match parse_and_clear_input_payload(
+                    &mut frame.payload,
+                    &active.session_id,
+                    &active.screen_policy,
+                ) {
+                    Ok(input) => input,
+                    Err(err) => {
+                        write_error_frame(writer, "invalid rdp helper input payload")?;
+                        return Err(err.into());
+                    }
+                };
+                if let Err(err) = active.session.input(&input) {
                     write_error_frame(writer, err.safe_message())?;
                     return Err(err.into());
                 }
@@ -212,7 +254,14 @@ where
             }
             MSG_CLOSE => {
                 if let Some(mut active) = active_session.take() {
-                    if let Err(err) = active.session.close(&frame.payload) {
+                    let close = match parse_and_clear_close_payload(&mut frame.payload) {
+                        Ok(close) => close,
+                        Err(err) => {
+                            write_error_frame(writer, "invalid rdp helper close payload")?;
+                            return Err(err.into());
+                        }
+                    };
+                    if let Err(err) = active.session.close(&close) {
                         write_error_frame(writer, err.safe_message())?;
                         return Err(err.into());
                     }
@@ -239,11 +288,31 @@ fn parse_and_clear_open_payload(
     result
 }
 
+fn parse_and_clear_input_payload(
+    payload: &mut [u8],
+    session_id: &str,
+    policy: &protocol::DesktopScreenPolicy,
+) -> Result<DesktopFrame, protocol::DesktopFrameError> {
+    let result = protocol::parse_desktop_frame(payload, session_id, policy);
+    payload.zeroize();
+
+    result
+}
+
 fn parse_and_clear_ack_payload(
     payload: &mut [u8],
     session_id: &str,
 ) -> Result<DesktopMediaAck, protocol::DesktopMediaAckError> {
     let result = protocol::parse_desktop_media_ack(payload, session_id);
+    payload.zeroize();
+
+    result
+}
+
+fn parse_and_clear_close_payload(
+    payload: &mut [u8],
+) -> Result<DesktopClosePayload, protocol::DesktopClosePayloadError> {
+    let result = protocol::parse_desktop_close_payload(payload);
     payload.zeroize();
 
     result
@@ -315,9 +384,9 @@ mod tests {
     #[derive(Default)]
     struct RecordingState {
         opened_session: Option<String>,
-        input_payloads: Vec<Vec<u8>>,
+        input_frames: Vec<DesktopFrame>,
         acks: Vec<DesktopMediaAck>,
-        close_payloads: Vec<Vec<u8>>,
+        close_payloads: Vec<DesktopClosePayload>,
     }
 
     impl RdpBackend for RecordingBackend {
@@ -338,11 +407,8 @@ mod tests {
     }
 
     impl RdpBackendSession for RecordingSession {
-        fn input(&mut self, payload: &[u8]) -> Result<(), BackendError> {
-            self.state
-                .borrow_mut()
-                .input_payloads
-                .push(payload.to_vec());
+        fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError> {
+            self.state.borrow_mut().input_frames.push(frame.clone());
 
             Ok(())
         }
@@ -362,11 +428,8 @@ mod tests {
             Ok(())
         }
 
-        fn close(&mut self, payload: &[u8]) -> Result<(), BackendError> {
-            self.state
-                .borrow_mut()
-                .close_payloads
-                .push(payload.to_vec());
+        fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError> {
+            self.state.borrow_mut().close_payloads.push(payload.clone());
 
             Ok(())
         }
@@ -408,7 +471,7 @@ mod tests {
         let state = state.borrow();
 
         assert_eq!(state.opened_session.as_deref(), Some("session-1"));
-        assert_eq!(state.close_payloads, vec![Vec::<u8>::new()]);
+        assert_eq!(state.close_payloads, vec![DesktopClosePayload::default()]);
         assert!(output.is_empty());
     }
 
@@ -443,6 +506,35 @@ mod tests {
     }
 
     #[test]
+    fn parse_and_clear_input_payload_zeroizes_raw_input_frame() {
+        let policy = input_test_policy();
+        let mut payload = valid_input_payload().into_bytes();
+        assert!(payload
+            .windows(b"Enter".len())
+            .any(|window| window == b"Enter"));
+
+        let frame =
+            parse_and_clear_input_payload(&mut payload, "session-1", &policy).expect("valid input");
+
+        assert_eq!(frame.session_id, "session-1");
+        assert_eq!(frame.frame_type, "desktop.input");
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn parse_and_clear_input_payload_zeroizes_invalid_raw_input_frame() {
+        let policy = input_test_policy();
+        let mut payload =
+            br#"{"session_id":"other-session","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"key","key":"Enter","down":true}}"#.to_vec();
+
+        let err = parse_and_clear_input_payload(&mut payload, "session-1", &policy)
+            .expect_err("input rejected");
+
+        assert!(matches!(err, protocol::DesktopFrameError::SessionMismatch));
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
     fn parse_and_clear_ack_payload_zeroizes_raw_ack_frame() {
         let mut payload = valid_ack_payload().into_bytes();
         assert!(payload
@@ -469,7 +561,34 @@ mod tests {
     }
 
     #[test]
-    fn run_stdio_routes_input_and_ack_after_open() {
+    fn parse_and_clear_close_payload_zeroizes_raw_close_frame() {
+        let mut payload = br#"{"reason":"operator close"}"#.to_vec();
+        assert!(payload
+            .windows(b"operator close".len())
+            .any(|window| window == b"operator close"));
+
+        let close = parse_and_clear_close_payload(&mut payload).expect("valid close");
+
+        assert_eq!(close.reason, "operator close");
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn parse_and_clear_close_payload_zeroizes_invalid_raw_close_frame() {
+        let reason = "x".repeat(257);
+        let mut payload = format!(r#"{{"reason":"{reason}"}}"#).into_bytes();
+
+        let err = parse_and_clear_close_payload(&mut payload).expect_err("close rejected");
+
+        assert!(matches!(
+            err,
+            protocol::DesktopClosePayloadError::ReasonTooLarge
+        ));
+        assert!(payload.iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn run_stdio_routes_input_ack_and_close_after_open() {
         let mut input = Vec::new();
         write_frame(
             &mut input,
@@ -477,7 +596,7 @@ mod tests {
             protocol::tests::valid_open_payload().as_bytes(),
         )
         .expect("write open frame");
-        write_frame(&mut input, MSG_INPUT, br#"{"frame_type":"desktop.input"}"#)
+        write_frame(&mut input, MSG_INPUT, valid_input_payload().as_bytes())
             .expect("write input frame");
         write_frame(&mut input, MSG_ACK, valid_ack_payload().as_bytes()).expect("write ack frame");
         write_frame(&mut input, MSG_CLOSE, br#"{"reason":"done"}"#).expect("write close frame");
@@ -494,8 +613,27 @@ mod tests {
         let state = state.borrow();
 
         assert_eq!(
-            state.input_payloads,
-            vec![br#"{"frame_type":"desktop.input"}"#.to_vec()]
+            state.input_frames,
+            vec![DesktopFrame {
+                session_id: "session-1".to_owned(),
+                protocol: "rdp".to_owned(),
+                frame_type: "desktop.input".to_owned(),
+                width: 0,
+                height: 0,
+                input: Some(protocol::DesktopInputEvent {
+                    kind: "key".to_owned(),
+                    key: "Enter".to_owned(),
+                    down: true,
+                    button: String::new(),
+                    x: 0,
+                    y: 0,
+                    focused: false,
+                }),
+                quality: None,
+                reason: String::new(),
+                timestamp: 0,
+                metadata: Default::default(),
+            }]
         );
         assert_eq!(
             state.acks,
@@ -510,8 +648,52 @@ mod tests {
                 close_reason: "browser close".to_owned(),
             }]
         );
-        assert_eq!(state.close_payloads, vec![br#"{"reason":"done"}"#.to_vec()]);
+        assert_eq!(
+            state.close_payloads,
+            vec![DesktopClosePayload {
+                reason: "done".to_owned()
+            }]
+        );
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_rejects_invalid_input_before_backend_session() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        write_frame(
+            &mut input,
+            MSG_INPUT,
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"pointer","x":9999,"y":1}}"#,
+        )
+        .expect("write input frame");
+
+        let state = Rc::new(RefCell::new(RecordingState::default()));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect_err("input rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidInputPayload(protocol::DesktopFrameError::PointerOutOfBounds)
+        ));
+        assert!(state.borrow().input_frames.is_empty());
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"invalid rdp helper input payload".to_vec(),
+            })
+        );
     }
 
     #[test]
@@ -549,6 +731,46 @@ mod tests {
             Some(Frame {
                 message_type: MSG_ERROR,
                 payload: b"invalid rdp helper ack payload".to_vec(),
+            })
+        );
+    }
+
+    #[test]
+    fn run_stdio_rejects_invalid_close_before_backend_session() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        let reason = "x".repeat(257);
+        write_frame(
+            &mut input,
+            MSG_CLOSE,
+            format!(r#"{{"reason":"{reason}"}}"#).as_bytes(),
+        )
+        .expect("write close frame");
+
+        let state = Rc::new(RefCell::new(RecordingState::default()));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect_err("close rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidClosePayload(protocol::DesktopClosePayloadError::ReasonTooLarge)
+        ));
+        assert!(state.borrow().close_payloads.is_empty());
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"invalid rdp helper close payload".to_vec(),
             })
         );
     }
@@ -649,5 +871,21 @@ mod tests {
 
     fn valid_ack_payload() -> String {
         r#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"quality_level":"low","pause":true,"close_reason":"browser close"}"#.to_owned()
+    }
+
+    fn valid_input_payload() -> String {
+        r#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"key","key":"Enter","down":true}}"#.to_owned()
+    }
+
+    fn input_test_policy() -> protocol::DesktopScreenPolicy {
+        protocol::DesktopScreenPolicy {
+            max_width: 1920,
+            max_height: 1080,
+            color_depth: 0,
+            frame_rate: 30,
+            bitrate_bps: 8_000_000,
+            idle_seconds: 900,
+            ttl_seconds: 3600,
+        }
     }
 }

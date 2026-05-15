@@ -16,6 +16,13 @@ const TLS_MODE_SYSTEM: &str = "system";
 const NLA_MODE_REQUIRED: &str = "required";
 const CLIPBOARD_MODE_DISABLED: &str = "disabled";
 const ACK_TYPE: &str = "desktop_media_ack";
+const FRAME_TYPE_INPUT: &str = "desktop.input";
+const FRAME_TYPE_RESIZE: &str = "desktop.resize";
+const FRAME_TYPE_QUALITY: &str = "desktop.quality";
+const FRAME_TYPE_DISCONNECT: &str = "desktop.disconnect";
+const INPUT_KIND_KEY: &str = "key";
+const INPUT_KIND_POINTER: &str = "pointer";
+const INPUT_KIND_FOCUS: &str = "focus";
 const MEDIA_QUALITY_AUTO: &str = "auto";
 const MEDIA_QUALITY_LOW: &str = "low";
 const MAX_TCP_PORT: u32 = u16::MAX as u32;
@@ -25,6 +32,8 @@ const MAX_FRAME_RATE: u32 = 60;
 const MAX_BITRATE_BPS: u32 = 100_000_000;
 const MAX_ACK_CREDIT_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_ACK_CLOSE_REASON_BYTES: usize = 256;
+const MAX_INPUT_TOKEN_BYTES: usize = 128;
+const MAX_CLOSE_REASON_BYTES: usize = 256;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -180,7 +189,67 @@ pub struct DesktopRecordingPolicy {
     pub audio_enabled: bool,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopFrame {
+    pub session_id: String,
+    pub protocol: String,
+    pub frame_type: String,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+    #[serde(default)]
+    pub input: Option<DesktopInputEvent>,
+    #[serde(default)]
+    pub quality: Option<DesktopQuality>,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub timestamp: i64,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopInputEvent {
+    pub kind: String,
+    #[serde(default)]
+    pub key: String,
+    #[serde(default)]
+    pub down: bool,
+    #[serde(default)]
+    pub button: String,
+    #[serde(default)]
+    pub x: u32,
+    #[serde(default)]
+    pub y: u32,
+    #[serde(default)]
+    pub focused: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopQuality {
+    #[serde(default)]
+    pub max_frame_rate: u32,
+    #[serde(default)]
+    pub max_bitrate_bps: u32,
+    #[serde(default)]
+    pub width: u32,
+    #[serde(default)]
+    pub height: u32,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct DesktopClosePayload {
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DesktopMediaAckMessage {
     #[serde(rename = "type")]
@@ -189,7 +258,7 @@ pub struct DesktopMediaAckMessage {
     pub ack: DesktopMediaAck,
 }
 
-#[derive(Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct DesktopMediaAck {
     pub session_binding_id: String,
@@ -286,6 +355,28 @@ pub enum DesktopMediaAckError {
     CloseReasonTooLarge,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum DesktopFrameError {
+    Decode,
+    MissingSession,
+    SessionMismatch,
+    UnsupportedProtocol,
+    UnsupportedFrameType,
+    InvalidDimensions,
+    InvalidInputEvent,
+    InputTokenTooLarge,
+    PointerOutOfBounds,
+    MissingQualityRequest,
+    QualityExceedsPolicy,
+    ReasonTooLarge,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum DesktopClosePayloadError {
+    Decode,
+    ReasonTooLarge,
+}
+
 impl fmt::Display for DesktopMediaAckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -303,6 +394,38 @@ impl fmt::Display for DesktopMediaAckError {
 }
 
 impl Error for DesktopMediaAckError {}
+
+impl fmt::Display for DesktopFrameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Decode => f.write_str("decode failed"),
+            Self::MissingSession => f.write_str("session id is required"),
+            Self::SessionMismatch => f.write_str("session binding mismatch"),
+            Self::UnsupportedProtocol => f.write_str("desktop protocol is unsupported"),
+            Self::UnsupportedFrameType => f.write_str("desktop frame type is unsupported"),
+            Self::InvalidDimensions => f.write_str("desktop dimensions are invalid"),
+            Self::InvalidInputEvent => f.write_str("desktop input event is invalid"),
+            Self::InputTokenTooLarge => f.write_str("desktop input token is too large"),
+            Self::PointerOutOfBounds => f.write_str("desktop pointer coordinates exceed policy"),
+            Self::MissingQualityRequest => f.write_str("desktop quality request is required"),
+            Self::QualityExceedsPolicy => f.write_str("desktop quality request exceeds policy"),
+            Self::ReasonTooLarge => f.write_str("desktop reason is too large"),
+        }
+    }
+}
+
+impl Error for DesktopFrameError {}
+
+impl fmt::Display for DesktopClosePayloadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Decode => f.write_str("decode failed"),
+            Self::ReasonTooLarge => f.write_str("close reason is too large"),
+        }
+    }
+}
+
+impl Error for DesktopClosePayloadError {}
 
 impl fmt::Display for OpenPayloadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -349,6 +472,34 @@ pub fn parse_desktop_media_ack(
     validate_desktop_media_ack_message(&parsed, session_id)?;
 
     Ok(parsed.ack)
+}
+
+pub fn parse_desktop_frame(
+    payload: &[u8],
+    session_id: &str,
+    policy: &DesktopScreenPolicy,
+) -> Result<DesktopFrame, DesktopFrameError> {
+    let parsed: DesktopFrame =
+        serde_json::from_slice(payload).map_err(|_| DesktopFrameError::Decode)?;
+    validate_desktop_frame(&parsed, session_id, policy)?;
+
+    Ok(parsed)
+}
+
+pub fn parse_desktop_close_payload(
+    payload: &[u8],
+) -> Result<DesktopClosePayload, DesktopClosePayloadError> {
+    if payload.is_empty() {
+        return Ok(DesktopClosePayload::default());
+    }
+
+    let parsed: DesktopClosePayload =
+        serde_json::from_slice(payload).map_err(|_| DesktopClosePayloadError::Decode)?;
+    if parsed.reason.trim().len() > MAX_CLOSE_REASON_BYTES {
+        return Err(DesktopClosePayloadError::ReasonTooLarge);
+    }
+
+    Ok(parsed)
 }
 
 fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> {
@@ -410,6 +561,91 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     }
 
     validate_credential_grant(payload)
+}
+
+fn validate_desktop_frame(
+    frame: &DesktopFrame,
+    session_id: &str,
+    policy: &DesktopScreenPolicy,
+) -> Result<(), DesktopFrameError> {
+    if frame.session_id.trim().is_empty() {
+        return Err(DesktopFrameError::MissingSession);
+    }
+    if !session_id.is_empty() && frame.session_id != session_id {
+        return Err(DesktopFrameError::SessionMismatch);
+    }
+    if frame.protocol != PROTOCOL_RDP && frame.protocol != PROTOCOL_DESKTOP {
+        return Err(DesktopFrameError::UnsupportedProtocol);
+    }
+
+    match frame.frame_type.as_str() {
+        FRAME_TYPE_INPUT => validate_desktop_input_frame(frame, policy),
+        FRAME_TYPE_RESIZE => validate_desktop_dimensions(frame.width, frame.height, policy),
+        FRAME_TYPE_QUALITY => validate_desktop_quality_frame(frame, policy),
+        FRAME_TYPE_DISCONNECT => {
+            if frame.reason.trim().len() > MAX_CLOSE_REASON_BYTES {
+                return Err(DesktopFrameError::ReasonTooLarge);
+            }
+
+            Ok(())
+        }
+        _ => Err(DesktopFrameError::UnsupportedFrameType),
+    }
+}
+
+fn validate_desktop_input_frame(
+    frame: &DesktopFrame,
+    policy: &DesktopScreenPolicy,
+) -> Result<(), DesktopFrameError> {
+    let Some(input) = frame.input.as_ref() else {
+        return Err(DesktopFrameError::InvalidInputEvent);
+    };
+    if !matches!(
+        input.kind.as_str(),
+        INPUT_KIND_KEY | INPUT_KIND_POINTER | INPUT_KIND_FOCUS
+    ) {
+        return Err(DesktopFrameError::InvalidInputEvent);
+    }
+    if input.key.len() > MAX_INPUT_TOKEN_BYTES || input.button.len() > MAX_INPUT_TOKEN_BYTES {
+        return Err(DesktopFrameError::InputTokenTooLarge);
+    }
+    if input.kind == INPUT_KIND_POINTER
+        && (input.x > policy.max_width || input.y > policy.max_height)
+    {
+        return Err(DesktopFrameError::PointerOutOfBounds);
+    }
+
+    Ok(())
+}
+
+fn validate_desktop_dimensions(
+    width: u32,
+    height: u32,
+    policy: &DesktopScreenPolicy,
+) -> Result<(), DesktopFrameError> {
+    if width == 0 || height == 0 || width > policy.max_width || height > policy.max_height {
+        return Err(DesktopFrameError::InvalidDimensions);
+    }
+
+    Ok(())
+}
+
+fn validate_desktop_quality_frame(
+    frame: &DesktopFrame,
+    policy: &DesktopScreenPolicy,
+) -> Result<(), DesktopFrameError> {
+    let Some(quality) = frame.quality.as_ref() else {
+        return Err(DesktopFrameError::MissingQualityRequest);
+    };
+    if quality.max_frame_rate > policy.frame_rate
+        || quality.max_bitrate_bps > policy.bitrate_bps
+        || quality.width > policy.max_width
+        || quality.height > policy.max_height
+    {
+        return Err(DesktopFrameError::QualityExceedsPolicy);
+    }
+
+    Ok(())
 }
 
 fn validate_desktop_media_ack_message(
@@ -664,6 +900,100 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn parse_desktop_frame_accepts_valid_input_payload() {
+        let policy = test_screen_policy();
+        let frame = parse_desktop_frame(
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"pointer","x":640,"y":360}}"#,
+            "session-1",
+            &policy,
+        )
+        .expect("valid frame");
+
+        assert_eq!(frame.session_id, "session-1");
+        assert_eq!(frame.frame_type, FRAME_TYPE_INPUT);
+        assert_eq!(
+            frame.input.as_ref().map(|input| input.kind.as_str()),
+            Some(INPUT_KIND_POINTER)
+        );
+    }
+
+    #[test]
+    fn parse_desktop_frame_rejects_session_mismatch() {
+        let policy = test_screen_policy();
+        let err = parse_desktop_frame(
+            br#"{"session_id":"other-session","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"key","key":"Enter"}}"#,
+            "session-1",
+            &policy,
+        )
+        .expect_err("frame rejected");
+
+        assert_eq!(err, DesktopFrameError::SessionMismatch);
+    }
+
+    #[test]
+    fn parse_desktop_frame_rejects_pointer_out_of_bounds() {
+        let policy = test_screen_policy();
+        let err = parse_desktop_frame(
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"pointer","x":1921,"y":360}}"#,
+            "session-1",
+            &policy,
+        )
+        .expect_err("frame rejected");
+
+        assert_eq!(err, DesktopFrameError::PointerOutOfBounds);
+    }
+
+    #[test]
+    fn parse_desktop_frame_rejects_quality_above_policy() {
+        let policy = test_screen_policy();
+        let err = parse_desktop_frame(
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.quality","quality":{"max_frame_rate":61}}"#,
+            "session-1",
+            &policy,
+        )
+        .expect_err("frame rejected");
+
+        assert_eq!(err, DesktopFrameError::QualityExceedsPolicy);
+    }
+
+    #[test]
+    fn parse_desktop_frame_rejects_screen_update_on_input_channel() {
+        let policy = test_screen_policy();
+        let err = parse_desktop_frame(
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.update","width":640,"height":360}"#,
+            "session-1",
+            &policy,
+        )
+        .expect_err("frame rejected");
+
+        assert_eq!(err, DesktopFrameError::UnsupportedFrameType);
+    }
+
+    #[test]
+    fn parse_desktop_close_payload_accepts_empty_or_reason_payload() {
+        let empty = parse_desktop_close_payload(b"").expect("empty close payload");
+        let reason =
+            parse_desktop_close_payload(br#"{"reason":"operator"}"#).expect("reason close payload");
+
+        assert_eq!(empty, DesktopClosePayload::default());
+        assert_eq!(
+            reason,
+            DesktopClosePayload {
+                reason: "operator".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_desktop_close_payload_rejects_oversized_reason() {
+        let reason = "x".repeat(MAX_CLOSE_REASON_BYTES + 1);
+        let err = parse_desktop_close_payload(format!(r#"{{"reason":"{reason}"}}"#).as_bytes())
+            .expect_err("close payload rejected");
+
+        assert_eq!(err, DesktopClosePayloadError::ReasonTooLarge);
+    }
+
+    #[test]
     fn parse_open_payload_rejects_unsupported_schema() {
         let raw = valid_open_payload().replace(
             r#""schema":"serviceradar.rdp.helper.open.v1""#,
@@ -861,5 +1191,17 @@ pub(crate) mod tests {
         let secret = SensitiveString::from("secret".to_string());
 
         assert_eq!(format!("{secret:?}"), "<redacted>");
+    }
+
+    fn test_screen_policy() -> DesktopScreenPolicy {
+        DesktopScreenPolicy {
+            max_width: 1920,
+            max_height: 1080,
+            color_depth: 0,
+            frame_rate: 30,
+            bitrate_bps: 8_000_000,
+            idle_seconds: 900,
+            ttl_seconds: 3600,
+        }
     }
 }

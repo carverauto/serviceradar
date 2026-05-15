@@ -103,6 +103,7 @@
 - [x] 3.2.13 Require RDP helper capability probes to fail closed unless the IronRDP backend is linked as well as connector-ready.
 - [x] 3.2.14 Route validated desktop media acknowledgements from the Go adapter into the RDP helper IPC acknowledgement channel for end-to-end backpressure.
 - [x] 3.2.15 Parse and validate RDP helper desktop media acknowledgements before concrete Rust backend sessions can consume backpressure state.
+- [x] 3.2.16 Parse and validate RDP helper desktop input/control frames and close metadata before concrete Rust backend sessions can consume them.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -184,6 +185,7 @@
 - [x] 5.2.27 Add focused Go tests proving helper-initiated close frames close the session, reject subsequent browser input, and keep manager cleanup idempotent.
 - [x] 5.2.28 Add focused Go tests proving RDP helper media acknowledgements are forwarded over the helper ack channel, cleared after IPC handoff, and rejected after terminal close.
 - [x] 5.2.29 Add focused Rust helper tests proving ACK payload validation, ACK buffer zeroing, and invalid ACK rejection before backend session delivery.
+- [x] 5.2.30 Add focused Rust helper tests proving input/control payload validation, close payload validation, buffer zeroing, and invalid-frame rejection before backend session delivery.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
