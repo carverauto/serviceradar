@@ -22,6 +22,26 @@ The upstream IronRDP repository is the cleaner dependency candidate. Its GitHub 
 
 The pinned local checkout at `~/src/IronRDP` is detached at `df0bf9c69d88febaf6b82c479fdc7dcafe226567`. The root workspace and reviewed crates declare `MIT OR Apache-2.0` and include `LICENSE-APACHE` and `LICENSE-MIT`. The first ServiceRadar import intentionally stops at `ironrdp-core` and `ironrdp-pdu` because enabling the connector feature pulls the CredSSP/SSPI crypto graph into the shared workspace lockfile. That graph must be reviewed in a dedicated connector import before any helper can dial real RDP targets.
 
+## Connector Import Gate
+Do not link `ironrdp-connector` into the production helper until this gate is satisfied.
+
+Observed connector crate surface from the pinned IronRDP checkout:
+
+- `ironrdp-connector = 0.8.0` is `MIT OR Apache-2.0`.
+- `ironrdp-connector` depends on `sspi = 0.19` with the `scard` feature enabled, `picky = 7.0.0-rc.22`, `picky-asn1-der`, `picky-asn1-x509`, `rand`, `url`, and `tracing`.
+- `sspi = 0.19.0` is `MIT OR Apache-2.0`, defaults to `aws-lc-rs`, and its `scard` feature pulls smart-card/PKCS#11 support via `winscard` and `cryptoki`.
+- `picky = 7.0.0-rc.22` is `MIT OR Apache-2.0`; its default feature set includes X.509, JOSE, HTTP signature traits, and PKCS#12 support.
+- `ironrdp-client` is not an import target for ServiceRadar. It pulls UI/windowing, audio, clipboard, RDPDR, RDPSND, dynamic virtual channel, MSTS Gateway, WebSocket, and Devolutions Gateway transport dependencies that do not belong in the agent helper.
+
+ServiceRadar connector import requirements:
+
+- Import connector dependencies in a dedicated commit with the exact crate list, versions, features, and license check output.
+- Prefer the smallest direct IronRDP crate set required for TCP + TLS + NLA + screen frames. Do not import `ironrdp-client`.
+- Disable clipboard, drive, printer, audio, smart-card redirection, file transfer, dynamic virtual channel plugins, and MSTS Gateway/RDCleanPath support until each feature has its own policy and audit implementation.
+- Do not enable TOFU or any target-trust mode that requires agent-local persistent state. Target trust must come from the registered target policy, system roots, or an explicit CA bundle/pin managed outside the helper.
+- Treat `sspi`/CredSSP and `picky`/PKI as security-sensitive dependencies: run focused dependency review, record crypto provider features, and add an integration test against a controlled RDP server before advertising `remote_access.rdp`.
+- Keep the Go agent as the credential, route, policy, audit, and flow-control owner. The Rust connector loop may receive only a session-scoped open payload over local IPC and must drop credential material on any open, auth, TLS, route, or process failure.
+
 ## Implementation Boundary
 The ServiceRadar adapter must own:
 
