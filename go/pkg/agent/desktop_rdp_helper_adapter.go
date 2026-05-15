@@ -329,7 +329,7 @@ func (s *desktopRDPHelperSession) readLoop() {
 
 		switch frame.Type {
 		case desktopRDPHelperMessageMediaFrame:
-			mediaFrame, err := remoteaccess.DecodeDesktopMediaFrameView(frame.Payload, s.target.Screen)
+			mediaFrame, err := decodeDesktopRDPHelperMediaFrame(frame.Payload, s.target.Screen)
 			if err != nil {
 				clearBytes(frame.Payload)
 				s.failReadLoop(err)
@@ -365,6 +365,28 @@ func (s *desktopRDPHelperSession) readLoop() {
 			return
 		}
 	}
+}
+
+func decodeDesktopRDPHelperMediaFrame(
+	payload []byte,
+	policy remoteaccess.DesktopScreenPolicy,
+) (remoteaccess.DesktopMediaFrame, error) {
+	frame, err := remoteaccess.DecodeDesktopMediaFrameView(payload, policy)
+	if err != nil {
+		return frame, err
+	}
+
+	expectedLength := remoteaccess.DesktopMediaHeaderSize +
+		len(frame.SessionBindingID) +
+		len(frame.MediaSessionID) +
+		len(frame.Encoding) +
+		len(frame.Metadata) +
+		len(frame.Payload)
+	if expectedLength != len(payload) {
+		return frame, fmt.Errorf("%w: trailing helper media payload", remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+
+	return frame, nil
 }
 
 func parseAndClearDesktopRDPHelperClosePayload(payload []byte) (desktopRDPHelperClosePayload, error) {
