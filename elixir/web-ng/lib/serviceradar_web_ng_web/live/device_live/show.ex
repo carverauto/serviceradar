@@ -3783,11 +3783,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
       />
+      <.discovery_metadata_card :if={@has_discovery_metadata} fields={@discovery_metadata_fields} />
     </div>
     """
   end
 
   defp assign_ocsf_info(assigns) do
+    metadata = row_metadata(assigns.device_row)
     os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
     risk_level = Map.get(assigns.device_row, "risk_level")
@@ -3795,11 +3797,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
+    discovery_metadata_fields = discovery_metadata_fields(metadata)
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
     has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
-    has_any = has_os or has_hw or has_compliance
+    has_discovery_metadata = discovery_metadata_fields != []
+    has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
     assigns
     |> assign(:os, os)
@@ -3812,6 +3816,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:has_os, has_os)
     |> assign(:has_hw, has_hw)
     |> assign(:has_compliance, has_compliance)
+    |> assign(:has_discovery_metadata, has_discovery_metadata)
+    |> assign(:discovery_metadata_fields, discovery_metadata_fields)
     |> assign(:has_any, has_any)
   end
 
@@ -3998,6 +4004,111 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     <span class={["badge badge-sm", "badge-#{@color}"]}>{@label}</span>
     """
   end
+
+  attr :fields, :list, required: true
+
+  defp discovery_metadata_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-squares-plus" class="size-4 text-secondary" />
+          <span class="text-sm font-semibold">Discovery Details</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div :for={field <- @fields} class="min-w-0">
+            <div class="text-xs text-base-content/50">{field.label}</div>
+            <div class="font-medium truncate" title={field.value}>{field.value}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp discovery_metadata_fields(metadata) when is_map(metadata) do
+    Enum.flat_map(
+      [
+        {"Source Device ID",
+         metadata_first_value(metadata, [
+           "source_device_id",
+           "integration_device_id",
+           "integration_id",
+           "external_device_id"
+         ])},
+        {"Query Label", metadata_first_value(metadata, ["query_label", "integration_query_label"])},
+        {"Category", metadata_first_value(metadata, ["category", "device_category"])},
+        {"Visibility", metadata_first_value(metadata, ["visibility"])},
+        {"Purdue Level", metadata_first_value(metadata, ["purdue_level"])},
+        {"IPv4 Addresses", metadata_first_value(metadata, ["ipv4_addresses"])},
+        {"IPv6 Addresses", metadata_first_value(metadata, ["ipv6_addresses"])},
+        {"MAC Addresses", metadata_first_value(metadata, ["mac_addresses"])},
+        {"Serial Numbers", metadata_first_value(metadata, ["serial_numbers", "serial_number"])},
+        {"Tags", metadata_first_value(metadata, ["source_tags", "tags"])},
+        {"Boundaries",
+         metadata_first_value(metadata, ["boundary_names"]) ||
+           summarize_json_metadata(metadata_first_value(metadata, ["boundaries"]))},
+        {"Site", summarize_json_metadata(metadata_first_value(metadata, ["site"]))},
+        {"Network Interfaces", summarize_json_metadata(metadata_first_value(metadata, ["network_interfaces"]))}
+      ],
+      fn {label, value} ->
+        value = clean_display_value(value)
+        if present?(value), do: [%{label: label, value: value}], else: []
+      end
+    )
+  end
+
+  defp discovery_metadata_fields(_metadata), do: []
+
+  defp metadata_first_value(metadata, keys) when is_map(metadata) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(metadata, key) do
+        value when value in [nil, ""] -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp summarize_json_metadata(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> summarize_metadata_value(decoded)
+      _ -> value
+    end
+  end
+
+  defp summarize_json_metadata(value), do: summarize_metadata_value(value)
+
+  defp summarize_metadata_value(value) when is_list(value) do
+    case value do
+      [] -> nil
+      [%{} | _] -> "#{length(value)} items"
+      _ -> Enum.map_join(value, ", ", &to_string/1)
+    end
+  end
+
+  defp summarize_metadata_value(value) when is_map(value) do
+    cond do
+      map_size(value) == 0 -> nil
+      is_binary(value["name"]) -> value["name"]
+      is_binary(value["display"]) -> value["display"]
+      true -> "#{map_size(value)} fields"
+    end
+  end
+
+  defp summarize_metadata_value(value), do: value
+
+  defp clean_display_value(nil), do: nil
+  defp clean_display_value(""), do: nil
+
+  defp clean_display_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.slice(0, 160)
+  end
+
+  defp clean_display_value(value), do: value |> to_string() |> String.slice(0, 160)
 
   attr :camera_sources, :list, default: []
   attr :inventory_error, :string, default: nil

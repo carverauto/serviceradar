@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
 
     assert html =~ "Type 12"
     assert html =~ "Vendor 12"
-    assert html =~ "max-h-80 overflow-y-auto"
+    assert html =~ "max-h-80 overflow-y-auto overflow-x-hidden"
   end
 
   defp facet_items(prefix, count) do

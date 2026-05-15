@@ -65,6 +65,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
         name: device_data.hostname || device_data.ip,
         type: device_data.type,
         type_id: parse_type_id(device_data.type),
+        is_managed: true,
         tags: normalize_tags(device_data.tags),
         discovery_sources: ["manual"],
         first_seen_time: now,

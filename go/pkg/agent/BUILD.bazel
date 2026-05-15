@@ -79,6 +79,7 @@ go_test(
         "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
         "sweep_service_sequencing_test.go",
+        "sync_runtime_test.go",
         "sysmon_service_test.go",
     ],
     embed = [":agent"],

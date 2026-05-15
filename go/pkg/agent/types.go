@@ -95,16 +95,16 @@ type SweepGroupsConfig struct {
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-	AgentID       string                 `json:"agent_id"`                        // Unique identifier for this agent
-	AgentName     string                 `json:"agent_name,omitempty"`            // Explicit name for KV namespacing
-	ComponentType string                 `json:"component_type,omitempty"`        // Component type (agent, gateway, checker)
-	HostIP      string                 `json:"host_ip,omitempty"`     // Host IP address for device correlation
-	Partition   string                 `json:"partition,omitempty"`   // Partition for device correlation
-	Security    *models.SecurityConfig `json:"security,omitempty"`    // Security config for checker connections
-	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
-	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
-	CheckersDir string                 `json:"checkers_dir"`
-	Logging     *logger.Config         `json:"logging,omitempty" hot:"reload"`
+	AgentID       string                 `json:"agent_id"`                 // Unique identifier for this agent
+	AgentName     string                 `json:"agent_name,omitempty"`     // Explicit name for KV namespacing
+	ComponentType string                 `json:"component_type,omitempty"` // Component type (agent, gateway, checker)
+	HostIP        string                 `json:"host_ip,omitempty"`        // Host IP address for device correlation
+	Partition     string                 `json:"partition,omitempty"`      // Partition for device correlation
+	Security      *models.SecurityConfig `json:"security,omitempty"`       // Security config for checker connections
+	KVAddress     string                 `json:"kv_address,omitempty"`     // Optional KV store address
+	KVSecurity    *models.SecurityConfig `json:"kv_security,omitempty"`    // Separate security config for KV
+	CheckersDir   string                 `json:"checkers_dir"`
+	Logging       *logger.Config         `json:"logging,omitempty" hot:"reload"`
 
 	// Gateway configuration for push-based architecture
 	GatewayAddr             string                 `json:"gateway_addr,omitempty"`              // Address of the agent-gateway to push status to
@@ -115,6 +115,9 @@ type ServerConfig struct {
 
 	// Embedded sync runtime
 	SyncRuntimeEnabled *bool `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
+
+	// Deprecated: accepted for compatibility with older rendered ConfigMaps.
+	RemoteAccessKnownHostsFile string `json:"remote_access_known_hosts_file,omitempty"`
 }
 
 // ServiceError represents an error that occurred in a specific service.
