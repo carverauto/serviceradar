@@ -107,6 +107,7 @@
 - [x] 3.2.17 Validate and clear RDP helper close payloads before session teardown decisions, including close frames received before backend open.
 - [x] 3.2.18 Re-validate agent-to-helper desktop input and media acknowledgement frames at the IPC boundary before serialization.
 - [x] 3.2.19 Reject screen update and clipboard frame types on the agent-to-helper input/control channel before IPC serialization.
+- [x] 3.2.20 Normalize and cap agent-to-helper disconnect control-frame reasons before IPC serialization.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -196,6 +197,7 @@
 - [x] 5.2.33 Add focused Go tests proving helper-to-agent terminal close/error payloads are decoded, capped, normalized, cleared, and rejected when malformed.
 - [x] 5.2.34 Add focused Go tests proving invalid agent-to-helper input and media acknowledgement frames are rejected before IPC serialization.
 - [x] 5.2.35 Add focused Go tests proving screen update frames cannot be sent on the agent-to-helper input/control channel.
+- [x] 5.2.36 Add focused Go tests proving disconnect control-frame reasons are normalized and capped before IPC serialization.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

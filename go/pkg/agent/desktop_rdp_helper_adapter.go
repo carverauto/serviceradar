@@ -158,6 +158,9 @@ func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remo
 	if !desktopRDPHelperOutboundFrameTypeAllowed(frame.FrameType) {
 		return fmt.Errorf("%w: unsupported helper input frame type", remoteaccess.ErrInvalidDesktopFrame)
 	}
+	if frame.FrameType == remoteaccess.DesktopFrameTypeDisconnect {
+		frame.Reason = normalizeDesktopRDPHelperTerminalMessage(frame.Reason)
+	}
 	if err := remoteaccess.ValidateDesktopFrameWithPolicy(frame, s.target.Screen, s.target.Redirection); err != nil {
 		return err
 	}

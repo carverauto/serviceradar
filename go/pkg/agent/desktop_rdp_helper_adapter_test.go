@@ -179,6 +179,43 @@ func TestDesktopRDPHelperAdapterRejectsScreenUpdateBeforeIPC(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterNormalizesDisconnectReasonBeforeIPC(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	frame := remoteaccess.DesktopFrame{
+		SessionID: "desktop-session-1",
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeDisconnect,
+		Reason:    " operator\ndisconnect\t" + strings.Repeat("x", remoteaccess.DesktopMaxAuditReason),
+	}
+	if err := session.SendDesktopFrame(context.Background(), frame); err != nil {
+		t.Fatalf("SendDesktopFrame returned error: %v", err)
+	}
+
+	inputFrame := transport.sentFrame(t, 1)
+	if inputFrame.Type != desktopRDPHelperMessageInput {
+		t.Fatalf("input frame type = %d, want %d", inputFrame.Type, desktopRDPHelperMessageInput)
+	}
+
+	var payload remoteaccess.DesktopFrame
+	if err := json.Unmarshal(inputFrame.Payload, &payload); err != nil {
+		t.Fatalf("Unmarshal input payload returned error: %v", err)
+	}
+	if strings.ContainsAny(payload.Reason, "\n\t") {
+		t.Fatalf("disconnect reason was not normalized: %q", payload.Reason)
+	}
+	if len(payload.Reason) > remoteaccess.DesktopMaxAuditReason {
+		t.Fatalf("disconnect reason length = %d, want <= %d", len(payload.Reason), remoteaccess.DesktopMaxAuditReason)
+	}
+}
+
 func TestDesktopRDPHelperAdapterClearsSerializedInputPayload(t *testing.T) {
 	t.Parallel()
 
