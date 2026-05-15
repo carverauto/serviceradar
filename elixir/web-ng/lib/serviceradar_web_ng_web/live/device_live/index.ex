@@ -76,6 +76,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:show_bulk_delete_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:breakdown_modal, nil)
+     |> assign(:breakdown_search, "")
      # Device management modals
      |> assign(:show_add_device_modal, false)
      |> assign(:show_import_modal, false)
@@ -223,6 +225,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     updated_query = toggle_include_deleted_query(query)
     path = device_list_path(updated_query, socket.assigns.limit)
     {:noreply, push_patch(socket, to: path)}
+  end
+
+  def handle_event("open_breakdown_modal", %{"kind" => kind}, socket) do
+    stats = Map.get(socket.assigns, :device_stats, %{})
+
+    modal =
+      case kind do
+        "type" ->
+          breakdown_modal_data("Device Types", "type", Map.get(stats, :by_type, []))
+
+        "vendor" ->
+          breakdown_modal_data("Device Vendors", "vendor_name", Map.get(stats, :by_vendor, []))
+
+        _ ->
+          nil
+      end
+
+    {:noreply, assign(socket, breakdown_modal: modal, breakdown_search: "")}
+  end
+
+  def handle_event("close_breakdown_modal", _params, socket) do
+    {:noreply, assign(socket, breakdown_modal: nil, breakdown_search: "")}
+  end
+
+  def handle_event("breakdown_search", %{"q" => query}, socket) do
+    {:noreply, assign(socket, :breakdown_search, to_string(query || ""))}
   end
 
   # Device management modal handlers
@@ -1357,6 +1385,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
       />
+
+      <.breakdown_modal
+        :if={@breakdown_modal}
+        modal={@breakdown_modal}
+        search={@breakdown_search}
+      />
     </Layouts.app>
     """
   end
@@ -1854,6 +1888,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           title="By Type"
           items={@by_type}
           icon="hero-cpu-chip"
+          kind="type"
           filter_field="type"
           empty_text="No type data"
         />
@@ -1863,6 +1898,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           title="By Vendor"
           items={@by_vendor}
           icon="hero-building-office"
+          kind="vendor"
           filter_field="vendor_name"
           empty_text="No vendor data"
         />
@@ -1874,6 +1910,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   attr(:title, :string, required: true)
   attr(:items, :list, required: true)
   attr(:icon, :string, required: true)
+  attr(:kind, :string, required: true)
   attr(:filter_field, :string, required: true)
   attr(:empty_text, :string, default: "No data")
 
@@ -1882,10 +1919,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     top_item = List.first(items)
     other_count = items |> Enum.drop(1) |> Enum.reduce(0, fn %{count: c}, acc -> acc + c end)
 
-    # Build the link for the top item (skip "Unknown" since we can't filter NULL values)
     top_item_link =
       if top_item && top_item.name != "Unknown" do
-        "/devices?q=" <> URI.encode("in:devices #{assigns.filter_field}:\"#{top_item.name}\"")
+        breakdown_item_path(assigns.filter_field, top_item.name)
       end
 
     assigns =
@@ -1944,37 +1980,135 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
           <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
         </div>
-        <div :if={@items != []} class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-ghost btn-xs btn-circle">
-            <.icon name="hero-chevron-down" class="size-3" />
-          </div>
-          <ul
-            tabindex="0"
-            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 max-h-80 overflow-y-auto overflow-x-hidden border border-base-200"
-          >
-            <%= for item <- @items do %>
-              <li>
-                <%= if item.name == "Unknown" do %>
-                  <span class="flex justify-between gap-2 min-w-0 text-sm text-base-content/50 cursor-not-allowed">
-                    <span class="min-w-0 flex-1 truncate">{item.name}</span>
-                    <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
-                  </span>
-                <% else %>
-                  <.link
-                    navigate={"/devices?q=" <> URI.encode("in:devices #{@filter_field}:\"#{item.name}\"")}
-                    class="flex justify-between gap-2 min-w-0 text-sm"
-                  >
-                    <span class="min-w-0 flex-1 truncate">{item.name}</span>
-                    <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
-                  </.link>
-                <% end %>
-              </li>
-            <% end %>
-          </ul>
-        </div>
+        <button
+          :if={@items != []}
+          type="button"
+          class="btn btn-ghost btn-xs btn-circle shrink-0"
+          phx-click="open_breakdown_modal"
+          phx-value-kind={@kind}
+          title={"Browse #{@title}"}
+        >
+          <.icon name="hero-chevron-down" class="size-3" />
+        </button>
       </div>
     </div>
     """
+  end
+
+  attr(:modal, :map, required: true)
+  attr(:search, :string, default: "")
+
+  defp breakdown_modal(assigns) do
+    modal = assigns.modal || %{}
+    search = assigns.search || ""
+    all_items = Map.get(modal, :items, [])
+    filtered_items = filter_breakdown_items(all_items, search)
+
+    assigns =
+      assigns
+      |> assign(:title, Map.get(modal, :title, "Browse"))
+      |> assign(:filter_field, Map.get(modal, :filter_field, ""))
+      |> assign(:items, filtered_items)
+      |> assign(:total_items, length(all_items))
+      |> assign(:filtered_count, length(filtered_items))
+      |> assign(:search, search)
+
+    ~H"""
+    <dialog id="device_breakdown_modal" class="modal modal-open">
+      <div class="modal-box max-w-xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-lg font-semibold text-base-content">{@title}</h3>
+            <p class="text-xs text-base-content/60">
+              {format_stat_number(@filtered_count)} of {format_stat_number(@total_items)}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm btn-circle"
+            phx-click="close_breakdown_modal"
+          >
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+
+        <form class="mt-4" phx-change="breakdown_search">
+          <input
+            type="search"
+            name="q"
+            value={@search}
+            placeholder="Filter"
+            class="input input-bordered input-sm w-full"
+          />
+        </form>
+
+        <div class="mt-4 max-h-[24rem] overflow-y-auto rounded-lg border border-base-200">
+          <div :if={@items == []} class="p-4 text-sm text-base-content/60">
+            No matches.
+          </div>
+          <%= for item <- @items do %>
+            <%= if item.name == "Unknown" do %>
+              <div class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm text-base-content/50">
+                <span class="min-w-0 flex-1 truncate">{item.name}</span>
+                <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
+              </div>
+            <% else %>
+              <.link
+                navigate={breakdown_item_path(@filter_field, item.name)}
+                class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm hover:bg-base-200/60"
+              >
+                <span class="min-w-0 flex-1 truncate">{item.name}</span>
+                <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
+              </.link>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_breakdown_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  defp breakdown_modal_data(title, filter_field, items) do
+    %{
+      title: title,
+      filter_field: filter_field,
+      items: items || []
+    }
+  end
+
+  defp filter_breakdown_items(items, ""), do: items
+
+  defp filter_breakdown_items(items, search) when is_binary(search) do
+    needle = search |> String.trim() |> String.downcase()
+
+    if needle == "" do
+      items
+    else
+      Enum.filter(items, fn item ->
+        item
+        |> Map.get(:name, "")
+        |> to_string()
+        |> String.downcase()
+        |> String.contains?(needle)
+      end)
+    end
+  end
+
+  defp breakdown_item_path(filter_field, name) do
+    encoded_query =
+      URI.encode(~s|in:devices #{filter_field}:"#{escape_srql_string_value(name)}"|)
+
+    "/devices?q=" <> encoded_query
+  end
+
+  defp escape_srql_string_value(value) do
+    value
+    |> to_string()
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
   end
 
   defp format_stat_number(n) when is_integer(n) and n >= 1000 do
@@ -2681,13 +2815,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp latency_ms(_), do: 0.0
 
   defp agent_device_row?(row) when is_map(row) do
-    row
-    |> agent_list()
+    has_agent_list?(agent_list(row)) or present_text?(device_row_value(row, "agent_id", :agent_id))
+  end
+
+  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+
+  defp has_agent_list?(items) do
+    items
     |> List.wrap()
     |> Enum.any?(&is_map/1)
   end
 
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+  defp device_row_value(row, string_key, atom_key) do
+    Map.get(row, string_key) || Map.get(row, atom_key)
+  end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
@@ -2793,13 +2934,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Kernel.<>(~s| stats:"count() as total"|)
 
     case srql_module.query(full_query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"total" => count} | _]}} ->
-        to_stats_int(count)
+      {:ok, %{"results" => [count | _]}} ->
+        extract_total_count(count)
+
+      {:error, reason} ->
+        Logger.warning("Device total count query failed: #{inspect(reason)}")
+        nil
 
       _ ->
         nil
     end
   end
+
+  defp extract_total_count(%{} = row) do
+    row
+    |> Map.values()
+    |> Enum.find_value(&parse_count_value/1)
+  end
+
+  defp extract_total_count(value), do: parse_count_value(value)
+
+  defp parse_count_value(value) when is_integer(value), do: value
+  defp parse_count_value(value) when is_float(value), do: trunc(value)
+  defp parse_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
+
+  defp parse_count_value(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_count_value(_value), do: nil
 
   defp normalize_device_count_query(""), do: "in:devices"
 
