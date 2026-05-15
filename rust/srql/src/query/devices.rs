@@ -298,7 +298,6 @@ fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<DeviceRollupStats
             SELECT type, count
             FROM device_inventory_type_counts
             ORDER BY count DESC, type ASC
-            LIMIT 10
         ) t
     ), '[]'::jsonb),
     'by_vendor', COALESCE((
@@ -310,7 +309,6 @@ fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<DeviceRollupStats
             SELECT vendor_name, count
             FROM device_inventory_vendor_counts
             ORDER BY count DESC, vendor_name ASC
-            LIMIT 10
         ) v
     ), '[]'::jsonb)
 ) AS payload"#,

@@ -1140,8 +1140,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         <.ui_panel>
           <:header>
-            <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
-              ICMP: {@icmp_error}
+            <div class="flex w-full flex-wrap items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold text-base-content">Matching Devices</div>
+                <div class="text-xs text-base-content/60">
+                  <%= if is_integer(@total_device_count) do %>
+                    {format_stat_number(@total_device_count)} total {if @total_device_count == 1,
+                      do: "result",
+                      else: "results"}
+                  <% else %>
+                    Counting total results…
+                  <% end %>
+                </div>
+              </div>
+              <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
+                ICMP: {@icmp_error}
+              </div>
             </div>
           </:header>
 
@@ -1936,9 +1950,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
           <ul
             tabindex="0"
-            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 border border-base-200"
+            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 max-h-80 overflow-y-auto border border-base-200"
           >
-            <%= for item <- Enum.take(@items, 10) do %>
+            <%= for item <- @items do %>
               <li>
                 <%= if item.name == "Unknown" do %>
                   <span class="flex justify-between text-sm text-base-content/50 cursor-not-allowed">
@@ -2774,11 +2788,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     query = (query || "") |> to_string() |> String.trim()
 
     full_query =
-      if query == "" do
-        ~s|in:devices stats:"count() as total"|
-      else
-        ~s|in:devices #{query} stats:"count() as total"|
-      end
+      query
+      |> normalize_device_count_query()
+      |> Kernel.<>(~s| stats:"count() as total"|)
 
     case srql_module.query(full_query, %{scope: scope}) do
       {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
@@ -2787,6 +2799,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       _ ->
         nil
     end
+  end
+
+  defp normalize_device_count_query(""), do: "in:devices"
+
+  defp normalize_device_count_query(query) when is_binary(query) do
+    query = strip_device_count_control_tokens(query)
+
+    cond do
+      query == "" -> "in:devices"
+      String.starts_with?(query, "in:") -> query
+      true -> "in:devices #{query}"
+    end
+  end
+
+  defp strip_device_count_control_tokens(query) do
+    query
+    |> String.replace(~r/(^|\s)(?:limit|sort|cursor):"[^"]*"(?=\s|$)/i, " ")
+    |> String.replace(~r/(^|\s)(?:limit|sort|cursor):\S+/i, " ")
+    |> String.trim()
+    |> String.replace(~r/\s+/, " ")
   end
 
   defp parse_page_param(params) do

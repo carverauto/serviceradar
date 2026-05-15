@@ -101,6 +101,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert_redirect(view, ~p"/devices?#{%{q: ~s(in:devices ip:"192.168.2.10"), limit: 50}}")
   end
 
+  test "shows query-wide matching count in the device results header", %{conn: conn} do
+    previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid)
+
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_test_pid, self())
+
+    on_exit(fn ->
+      restore_env(:srql_module, previous_srql_module)
+      restore_env(:device_live_srql_test_pid, previous_test_pid)
+    end)
+
+    query = ~s|in:devices vendor_name:"Ubiquiti" sort:last_seen:desc limit:20|
+
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: query, limit: "20"}}")
+
+    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" stats:"count() as total"|},
+                   1_000
+
+    assert render(view) =~ "42 total"
+  end
+
   test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
     previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
     Application.put_env(:serviceradar_web_ng, :managed_device_limit, 1)
@@ -1887,5 +1909,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         Process.sleep(50)
         render_until(view, expected, deadline, html)
     end
+  end
+
+  defmodule RecordingSRQLStub do
+    @moduledoc false
+
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    def query(query) when is_binary(query), do: query(query, %{})
+    def query(_query), do: {:error, :invalid_query}
+
+    def query(query, _opts) when is_binary(query) do
+      if pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid) do
+        send(pid, {:srql_query, query})
+      end
+
+      cond do
+        String.contains?(query, ~s|stats:"count() as total"|) ->
+          {:ok, %{"results" => [%{"total" => 42}], "pagination" => %{}}}
+
+        String.contains?(query, "rollup_stats:inventory_summary") ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "total" => 42,
+                 "available" => 40,
+                 "unavailable" => 2,
+                 "by_type" => [],
+                 "by_vendor" => []
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        true ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "uid" => "stub-device",
+                 "hostname" => "stub-device",
+                 "vendor_name" => "Ubiquiti",
+                 "is_available" => true
+               }
+             ],
+             "pagination" => %{}
+           }}
+      end
+    end
+
+    def query(_query, _opts), do: {:error, :invalid_query}
+
+    def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
+    def query_request(_payload), do: {:error, :invalid_request}
   end
 end
