@@ -399,6 +399,40 @@ func TestDesktopRDPHelperAdapterReportsHelperErrors(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterClosesSessionAfterHelperError(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageError, Payload: []byte("rdp failed")}
+
+	select {
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		if !errors.Is(err, remoteaccess.ErrDesktopAdapterUnavailable) {
+			t.Fatalf("helper error = %v, want %v", err, remoteaccess.ErrDesktopAdapterUnavailable)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper error")
+	}
+
+	input := remoteaccess.DesktopFrame{
+		SessionID: "desktop-session-1",
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Input:     &remoteaccess.DesktopInputEvent{Kind: remoteaccess.DesktopInputKindKey, Key: "Enter", Down: true},
+	}
+	if err := session.SendDesktopFrame(context.Background(), input); !errors.Is(err, errDesktopRDPHelperClosed) {
+		t.Fatalf("post-error SendDesktopFrame error = %v, want %v", err, errDesktopRDPHelperClosed)
+	}
+	if transport.closeCount != 1 {
+		t.Fatalf("transport close count = %d, want 1", transport.closeCount)
+	}
+}
+
 func TestDesktopRDPHelperProcessCloseKillsStuckHelper(t *testing.T) {
 	t.Parallel()
 

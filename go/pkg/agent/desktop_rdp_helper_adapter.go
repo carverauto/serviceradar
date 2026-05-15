@@ -198,6 +198,26 @@ func (s *desktopRDPHelperSession) send(frame desktopRDPHelperFrame) error {
 	return s.transport.SendFrame(frame)
 }
 
+func (s *desktopRDPHelperSession) markClosed() {
+	s.sendMu.Lock()
+	s.closed = true
+	s.sendMu.Unlock()
+}
+
+func (s *desktopRDPHelperSession) cleanupAfterReadLoopError() {
+	s.markClosed()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_ = s.transport.Close(ctx)
+}
+
+func (s *desktopRDPHelperSession) failReadLoop(err error) {
+	s.cleanupAfterReadLoopError()
+	s.errCh <- err
+}
+
 func (s *desktopRDPHelperSession) readLoop() {
 	defer close(s.done)
 
@@ -205,7 +225,7 @@ func (s *desktopRDPHelperSession) readLoop() {
 		frame, err := s.transport.ReadFrame()
 		if err != nil {
 			if !errors.Is(err, io.EOF) {
-				s.errCh <- err
+				s.failReadLoop(err)
 			}
 
 			return
@@ -215,23 +235,25 @@ func (s *desktopRDPHelperSession) readLoop() {
 		case desktopRDPHelperMessageMediaFrame:
 			mediaFrame, err := remoteaccess.DecodeDesktopMediaFrameView(frame.Payload, s.target.Screen)
 			if err != nil {
-				s.errCh <- err
+				s.failReadLoop(err)
 
 				return
 			}
 			if err := s.mediaSender.SendDesktopMediaFrame(context.Background(), mediaFrame); err != nil {
-				s.errCh <- err
+				s.failReadLoop(err)
 
 				return
 			}
 		case desktopRDPHelperMessageClose:
+			s.markClosed()
+
 			return
 		case desktopRDPHelperMessageError:
-			s.errCh <- fmt.Errorf("%w: %s", remoteaccess.ErrDesktopAdapterUnavailable, strings.TrimSpace(string(frame.Payload)))
+			s.failReadLoop(fmt.Errorf("%w: %s", remoteaccess.ErrDesktopAdapterUnavailable, strings.TrimSpace(string(frame.Payload))))
 
 			return
 		default:
-			s.errCh <- fmt.Errorf("%w: unexpected helper frame", errDesktopRDPHelperInvalidFrame)
+			s.failReadLoop(fmt.Errorf("%w: unexpected helper frame", errDesktopRDPHelperInvalidFrame))
 
 			return
 		}
