@@ -262,10 +262,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_info(
-        {:flow_ip_enrichment_loaded, device_uid, request_ref, rdns_map, geo_iso2_map},
-        socket
-      ) do
+  def handle_info({:flow_ip_enrichment_loaded, device_uid, request_ref, rdns_map, geo_iso2_map}, socket) do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
@@ -348,8 +345,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_details_request_ref do
-      {:noreply,
-       socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
+      {:noreply, socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -370,8 +366,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_metrics_request_ref do
-      {:noreply,
-       socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
+      {:noreply, socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -398,11 +393,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_async(
-        {:flow_ip_enrichment, device_uid, request_ref},
-        {:ok, {rdns_map, geo_iso2_map}},
-        socket
-      ) do
+  def handle_async({:flow_ip_enrichment, device_uid, request_ref}, {:ok, {rdns_map, geo_iso2_map}}, socket) do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
@@ -432,8 +423,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facets} = stats_bundle
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets} = stats_bundle
 
     socket
     |> assign(:flow_stats, flow_stats)
@@ -670,14 +661,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_reload_profiles_for_active_tab(socket, _active_tab, _uid), do: socket
 
-  defp srql_for_tab_if_needed("interfaces", uid, limit, srql),
-    do: srql_for_tab("interfaces", uid, limit, srql)
+  defp srql_for_tab_if_needed("interfaces", uid, limit, srql), do: srql_for_tab("interfaces", uid, limit, srql)
 
-  defp srql_for_tab_if_needed("flows", uid, limit, srql),
-    do: srql_for_tab("flows", uid, limit, srql)
+  defp srql_for_tab_if_needed("flows", uid, limit, srql), do: srql_for_tab("flows", uid, limit, srql)
 
-  defp srql_for_tab_if_needed("logs", uid, limit, srql),
-    do: srql_for_tab("logs", uid, limit, srql)
+  defp srql_for_tab_if_needed("logs", uid, limit, srql), do: srql_for_tab("logs", uid, limit, srql)
 
   defp srql_for_tab_if_needed(_active_tab, _uid, _limit, srql), do: srql
 
@@ -1080,18 +1068,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_add_log_tasks(tasks, false, _srql_module, _uid, _scope, _params), do: tasks
 
-  defp extract_interface_results(parallel_results, true),
-    do: Map.get(parallel_results, :interfaces, {[], nil})
+  defp extract_interface_results(parallel_results, true), do: Map.get(parallel_results, :interfaces, {[], nil})
 
   defp extract_interface_results(_parallel_results, false), do: {[], nil}
 
-  defp extract_flow_results(parallel_results, true),
-    do: Map.get(parallel_results, :flows, {[], %{}, nil})
+  defp extract_flow_results(parallel_results, true), do: Map.get(parallel_results, :flows, {[], %{}, nil})
 
   defp extract_flow_results(_parallel_results, false), do: {[], %{}, nil}
 
-  defp extract_log_results(parallel_results, true),
-    do: Map.get(parallel_results, :logs, {[], %{}, nil})
+  defp extract_log_results(parallel_results, true), do: Map.get(parallel_results, :logs, {[], %{}, nil})
 
   defp extract_log_results(_parallel_results, false), do: {[], %{}, nil}
 
@@ -1134,21 +1119,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          _metrics_enabled_interfaces,
          _network_interfaces,
          _scope
-       ),
-       do: nil
+       ), do: nil
 
   defp determine_has_ifaces(true, interfaces_error, network_interfaces, has_discovery_job, _probe) do
     is_binary(interfaces_error) or
       (is_list(network_interfaces) and network_interfaces != []) or has_discovery_job
   end
 
-  defp determine_has_ifaces(
-         false,
-         _interfaces_error,
-         _network_interfaces,
-         has_discovery_job,
-         probe
-       ) do
+  defp determine_has_ifaces(false, _interfaces_error, _network_interfaces, has_discovery_job, probe) do
     probe or has_discovery_job
   end
 
@@ -1217,29 +1195,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp resolve_active_tab("interfaces", false, _has_flows, _has_logs, _has_mtr, _has_guests),
-    do: "details"
+  defp resolve_active_tab("interfaces", false, _has_flows, _has_logs, _has_mtr, _has_guests), do: "details"
 
-  defp resolve_active_tab("flows", _has_ifaces, false, _has_logs, _has_mtr, _has_guests),
-    do: "details"
+  defp resolve_active_tab("flows", _has_ifaces, false, _has_logs, _has_mtr, _has_guests), do: "details"
 
-  defp resolve_active_tab("logs", _has_ifaces, _has_flows, false, _has_mtr, _has_guests),
-    do: "details"
+  defp resolve_active_tab("logs", _has_ifaces, _has_flows, false, _has_mtr, _has_guests), do: "details"
 
-  defp resolve_active_tab("mtr", _has_ifaces, _has_flows, _has_logs, false, _has_guests),
-    do: "details"
+  defp resolve_active_tab("mtr", _has_ifaces, _has_flows, _has_logs, false, _has_guests), do: "details"
 
-  defp resolve_active_tab("guests", _has_ifaces, _has_flows, _has_logs, _has_mtr, false),
-    do: "details"
+  defp resolve_active_tab("guests", _has_ifaces, _has_flows, _has_logs, _has_mtr, false), do: "details"
 
-  defp resolve_active_tab(
-         requested_tab,
-         _has_ifaces,
-         _has_flows,
-         _has_logs,
-         _has_mtr,
-         _has_guests
-       ), do: requested_tab
+  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_logs, _has_mtr, _has_guests), do: requested_tab
 
   @impl true
   def handle_event("srql_change", %{"q" => q}, socket) do
@@ -1345,15 +1311,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           {:error, reason} ->
             Logger.error("Device delete failed for #{device_uid}: #{inspect(reason)}")
 
-            {:noreply,
-             put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
+            {:noreply, put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
         end
 
       {:error, reason} ->
         Logger.error("Device load failed for delete #{device_uid}: #{inspect(reason)}")
 
-        {:noreply,
-         put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
     end
   end
 
@@ -1371,8 +1335,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         Logger.error("Device restore failed for #{device_uid}: #{inspect(reason)}")
 
-        {:noreply,
-         put_flash(socket, :error, "Failed to restore device: #{format_ash_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to restore device: #{format_ash_error(reason)}")}
     end
   end
 
@@ -1429,15 +1392,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         end
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
     end
   end
 
   def handle_event(
         "open_camera_relay",
-        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} =
-          params,
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} = params,
         socket
       ) do
     scope = socket.assigns.current_scope
@@ -1448,8 +1409,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:noreply, put_flash(socket, :error, "You are not authorized to start a camera relay")}
 
       not is_nil(socket.assigns.active_camera_relay_session) ->
-        {:noreply,
-         put_flash(socket, :error, "Close the current camera relay before starting another")}
+        {:noreply, put_flash(socket, :error, "Close the current camera relay before starting another")}
 
       true ->
         with {:ok, camera_source_id} <- normalize_uuid_param(camera_source_id),
@@ -1558,8 +1518,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           {:noreply, put_flash(socket, :error, format_ash_error(error))}
 
         {:error, reason} ->
-          {:noreply,
-           put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
+          {:noreply, put_flash(socket, :error, "Failed to save SNMP credentials: #{inspect(reason)}")}
       end
     else
       {:noreply, put_flash(socket, :info, "Provide SNMP credentials to create an override")}
@@ -1583,8 +1542,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
              |> put_flash(:info, "SNMP credential override cleared")}
 
           {:error, reason} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to clear SNMP credentials: #{inspect(reason)}")}
+            {:noreply, put_flash(socket, :error, "Failed to clear SNMP credentials: #{inspect(reason)}")}
         end
     end
   end
@@ -1808,8 +1766,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("set_interface_metrics_layout", %{"layout" => layout}, socket) do
-    {:noreply,
-     assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
+    {:noreply, assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
   end
 
   @allowed_flow_filter_fields ~w(
@@ -1839,13 +1796,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facets} =
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets} =
       Map.get(
         results,
         :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-         %{protocols: [], directions: [], services: []}}
+        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
       )
 
     srql = socket.assigns.srql |> Map.put(:query, base) |> Map.put(:draft, base)
@@ -1952,8 +1908,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           rescue
             _ ->
               {:stats,
-               {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-                %{protocols: [], directions: [], services: []}}}
+               {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}}
           end
         end)
 
@@ -1961,13 +1916,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
-      {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-       top_destinations_json, top_ports_json, top_protocols_json, facets} =
+      {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+       top_ports_json, top_protocols_json, facets} =
         Map.get(
           results,
           :stats,
-          {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-           %{protocols: [], directions: [], services: []}}
+          {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
         )
 
       srql = socket.assigns.srql |> Map.put(:query, zoomed_base) |> Map.put(:draft, zoomed_base)
@@ -2009,13 +1963,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facets} =
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets} =
       Map.get(
         results,
         :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-         %{protocols: [], directions: [], services: []}}
+        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
       )
 
     default_query = default_flows_query(uid)
@@ -2351,13 +2304,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facet_data} =
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facet_data} =
       Map.get(
         results,
         :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-         %{protocols: [], directions: [], services: []}}
+        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
       )
 
     socket
@@ -2386,8 +2338,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_begin_flow_background_loads(socket, _active_tab, _uid, _flows), do: socket
 
   defp empty_flow_stats_bundle do
-    {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]",
-     %{protocols: [], directions: [], services: []}}
+    {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
   end
 
   defp begin_flow_stats_refresh(socket, uid) do
@@ -2395,8 +2346,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_mod = srql_module()
     request_ref = make_ref()
 
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facets} =
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets} =
       empty_flow_stats_bundle()
 
     socket
@@ -2527,8 +2478,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         |> Enum.reject(&(&1.label == "unknown"))
     }
 
-    {summary, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facets}
+    {summary, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets}
   end
 
   defp load_device_flow_summary(srql_mod, scope, base) do
@@ -2536,8 +2487,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
       {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
       {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
-      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers,
-       "unique_talkers"}
+      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
     ]
 
     queries
@@ -2616,8 +2566,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp parse_timestamp_ms(%NaiveDateTime{} = ndt),
     do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
 
-  defp parse_timestamp_ms(raw) when is_integer(raw),
-    do: if(raw < 1_000_000_000_000, do: raw * 1000, else: raw)
+  defp parse_timestamp_ms(raw) when is_integer(raw), do: if(raw < 1_000_000_000_000, do: raw * 1000, else: raw)
 
   defp parse_timestamp_ms(raw) when is_float(raw) do
     ms = trunc(raw)
@@ -2745,8 +2694,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp to_safe_number(_), do: 0
 
-  defp filter_interfaces_for_display(interfaces, device_row)
-       when is_list(interfaces) and is_map(device_row) do
+  defp filter_interfaces_for_display(interfaces, device_row) when is_list(interfaces) and is_map(device_row) do
     if switch_device?(device_row) do
       front_panel = Enum.filter(interfaces, &front_panel_switch_interface?/1)
 
@@ -2849,14 +2797,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp apply_interface_settings(interfaces, _settings_by_uid), do: interfaces
 
-  defp load_interface_metrics(
-         _srql_module,
-         _device_uid,
-         favorited,
-         _metrics_enabled,
-         _interfaces,
-         _scope
-       )
+  defp load_interface_metrics(_srql_module, _device_uid, favorited, _metrics_enabled, _interfaces, _scope)
        when map_size(favorited) == 0 do
     %{
       has_favorited: false,
@@ -2866,14 +2807,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     }
   end
 
-  defp load_interface_metrics(
-         srql_module,
-         device_uid,
-         favorited_uids,
-         metrics_enabled_uids,
-         interfaces,
-         scope
-       ) do
+  defp load_interface_metrics(srql_module, device_uid, favorited_uids, metrics_enabled_uids, interfaces, scope) do
     total_favorited = MapSet.size(favorited_uids)
     enabled_favorited_uids = MapSet.intersection(favorited_uids, metrics_enabled_uids)
 
@@ -2967,8 +2901,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             panels: [],
             error: nil,
             favorited_count: total_favorited,
-            message:
-              "No metrics data available yet. Ensure SNMP polling is configured for this device."
+            message: "No metrics data available yet. Ensure SNMP polling is configured for this device."
           }
       end
     end
@@ -4865,11 +4798,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
       />
+      <.discovery_metadata_card :if={@has_discovery_metadata} fields={@discovery_metadata_fields} />
     </div>
     """
   end
 
   defp assign_ocsf_info(assigns) do
+    metadata = row_metadata(assigns.device_row)
     os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
     risk_level = Map.get(assigns.device_row, "risk_level")
@@ -4877,11 +4812,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
+    discovery_metadata_fields = discovery_metadata_fields(metadata)
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
     has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
-    has_any = has_os or has_hw or has_compliance
+    has_discovery_metadata = discovery_metadata_fields != []
+    has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
     assigns
     |> assign(:os, os)
@@ -4894,6 +4831,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:has_os, has_os)
     |> assign(:has_hw, has_hw)
     |> assign(:has_compliance, has_compliance)
+    |> assign(:has_discovery_metadata, has_discovery_metadata)
+    |> assign(:discovery_metadata_fields, discovery_metadata_fields)
     |> assign(:has_any, has_any)
   end
 
@@ -5081,10 +5020,115 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
-  attr(:camera_sources, :list, default: [])
-  attr(:inventory_error, :string, default: nil)
-  attr(:active_session, :any, default: nil)
-  attr(:last_session, :any, default: nil)
+  attr :fields, :list, required: true
+
+  defp discovery_metadata_card(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-squares-plus" class="size-4 text-secondary" />
+          <span class="text-sm font-semibold">Discovery Details</span>
+        </div>
+      </div>
+      <div class="p-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div :for={field <- @fields} class="min-w-0">
+            <div class="text-xs text-base-content/50">{field.label}</div>
+            <div class="font-medium truncate" title={field.value}>{field.value}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp discovery_metadata_fields(metadata) when is_map(metadata) do
+    Enum.flat_map(
+      [
+        {"Source Device ID",
+         metadata_first_value(metadata, [
+           "source_device_id",
+           "integration_device_id",
+           "integration_id",
+           "external_device_id"
+         ])},
+        {"Query Label", metadata_first_value(metadata, ["query_label", "integration_query_label"])},
+        {"Category", metadata_first_value(metadata, ["category", "device_category"])},
+        {"Visibility", metadata_first_value(metadata, ["visibility"])},
+        {"Purdue Level", metadata_first_value(metadata, ["purdue_level"])},
+        {"IPv4 Addresses", metadata_first_value(metadata, ["ipv4_addresses"])},
+        {"IPv6 Addresses", metadata_first_value(metadata, ["ipv6_addresses"])},
+        {"MAC Addresses", metadata_first_value(metadata, ["mac_addresses"])},
+        {"Serial Numbers", metadata_first_value(metadata, ["serial_numbers", "serial_number"])},
+        {"Tags", metadata_first_value(metadata, ["source_tags", "tags"])},
+        {"Boundaries",
+         metadata_first_value(metadata, ["boundary_names"]) ||
+           summarize_json_metadata(metadata_first_value(metadata, ["boundaries"]))},
+        {"Site", summarize_json_metadata(metadata_first_value(metadata, ["site"]))},
+        {"Network Interfaces", summarize_json_metadata(metadata_first_value(metadata, ["network_interfaces"]))}
+      ],
+      fn {label, value} ->
+        value = clean_display_value(value)
+        if present?(value), do: [%{label: label, value: value}], else: []
+      end
+    )
+  end
+
+  defp discovery_metadata_fields(_metadata), do: []
+
+  defp metadata_first_value(metadata, keys) when is_map(metadata) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(metadata, key) do
+        value when value in [nil, ""] -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp summarize_json_metadata(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> summarize_metadata_value(decoded)
+      _ -> value
+    end
+  end
+
+  defp summarize_json_metadata(value), do: summarize_metadata_value(value)
+
+  defp summarize_metadata_value(value) when is_list(value) do
+    case value do
+      [] -> nil
+      [%{} | _] -> "#{length(value)} items"
+      _ -> Enum.map_join(value, ", ", &to_string/1)
+    end
+  end
+
+  defp summarize_metadata_value(value) when is_map(value) do
+    cond do
+      map_size(value) == 0 -> nil
+      is_binary(value["name"]) -> value["name"]
+      is_binary(value["display"]) -> value["display"]
+      true -> "#{map_size(value)} fields"
+    end
+  end
+
+  defp summarize_metadata_value(value), do: value
+
+  defp clean_display_value(nil), do: nil
+  defp clean_display_value(""), do: nil
+
+  defp clean_display_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.slice(0, 160)
+  end
+
+  defp clean_display_value(value), do: value |> to_string() |> String.slice(0, 160)
+
+  attr :camera_sources, :list, default: []
+  attr :inventory_error, :string, default: nil
+  attr :active_session, :any, default: nil
+  attr :last_session, :any, default: nil
 
   defp camera_streams_section(assigns) do
     sources = normalize_camera_sources_for_display(assigns.camera_sources)
@@ -7542,8 +7586,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp normalize_log_severity(nil), do: ""
 
-  defp normalize_log_severity(value) when is_binary(value),
-    do: value |> String.trim() |> String.downcase()
+  defp normalize_log_severity(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
 
   defp normalize_log_severity(value), do: value |> to_string() |> normalize_log_severity()
 
@@ -7834,8 +7877,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp resolve_sysmon_filter_tokens(_srql_module, identity, _scope)
-       when identity == %{} or identity == nil, do: []
+  defp resolve_sysmon_filter_tokens(_srql_module, identity, _scope) when identity == %{} or identity == nil, do: []
 
   defp resolve_sysmon_filter_tokens(srql_module, identity, scope) do
     device_tokens = sysmon_filter_tokens(identity, :device_uid, "device_id")
@@ -8167,8 +8209,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp device_availability_source_agent_id(_), do: nil
 
-  defp availability_agent_label(%{agent_name: name, agent_id: agent_id})
-       when is_binary(name) and name != "" do
+  defp availability_agent_label(%{agent_name: name, agent_id: agent_id}) when is_binary(name) and name != "" do
     "#{name} (#{truncate_agent_id(agent_id)})"
   end
 
@@ -8342,8 +8383,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp virtualization_query(resource, nil), do: Ash.Query.for_read(resource, :read, %{})
 
-  defp virtualization_query(resource, scope),
-    do: Ash.Query.for_read(resource, :read, %{}, scope: scope)
+  defp virtualization_query(resource, scope), do: Ash.Query.for_read(resource, :read, %{}, scope: scope)
 
   defp ash_read_first(query, scope) do
     case ash_read_many(query, scope) do
@@ -8843,13 +8883,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp virtualization_guest_type_label(value) when is_binary(value), do: String.upcase(value)
   defp virtualization_guest_type_label(_value), do: "Guest"
 
-  defp virtualization_guest_disk_value(%{disk_used_bytes: used})
-       when is_integer(used) and used > 0 do
+  defp virtualization_guest_disk_value(%{disk_used_bytes: used}) when is_integer(used) and used > 0 do
     format_bytes(used)
   end
 
-  defp virtualization_guest_disk_value(%{disk_total_bytes: total})
-       when is_integer(total) and total > 0 do
+  defp virtualization_guest_disk_value(%{disk_total_bytes: total}) when is_integer(total) and total > 0 do
     "Usage unavailable"
   end
 
@@ -8860,8 +8898,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     "of #{format_bytes(total)}"
   end
 
-  defp virtualization_guest_disk_subvalue(%{disk_total_bytes: total})
-       when is_integer(total) and total > 0 do
+  defp virtualization_guest_disk_subvalue(%{disk_total_bytes: total}) when is_integer(total) and total > 0 do
     "provisioned #{format_bytes(total)}"
   end
 
@@ -8877,11 +8914,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     "#{first}#{suffix}"
   end
 
-  defp virtualization_interface_address(%{address: address})
-       when is_binary(address) and address != "", do: address
+  defp virtualization_interface_address(%{address: address}) when is_binary(address) and address != "", do: address
 
-  defp virtualization_interface_address(%{cidr: cidr}) when is_binary(cidr) and cidr != "",
-    do: cidr
+  defp virtualization_interface_address(%{cidr: cidr}) when is_binary(cidr) and cidr != "", do: cidr
 
   defp virtualization_interface_address(_iface), do: "—"
 
@@ -9148,8 +9183,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     "in:logs device_id:\"#{escape_value(device_uid)}\" time:last_24h sort:timestamp:desc"
   end
 
-  defp srql_for_tab("interfaces", device_uid, _limit, srql)
-       when is_binary(device_uid) and device_uid != "" do
+  defp srql_for_tab("interfaces", device_uid, _limit, srql) when is_binary(device_uid) and device_uid != "" do
     query = default_interfaces_query(device_uid)
 
     srql
@@ -9160,8 +9194,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> Map.put(:loading, false)
   end
 
-  defp srql_for_tab("flows", device_uid, _limit, srql)
-       when is_binary(device_uid) and device_uid != "" do
+  defp srql_for_tab("flows", device_uid, _limit, srql) when is_binary(device_uid) and device_uid != "" do
     query = default_flows_query(device_uid)
 
     srql
@@ -9172,8 +9205,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> Map.put(:loading, false)
   end
 
-  defp srql_for_tab("logs", device_uid, _limit, srql)
-       when is_binary(device_uid) and device_uid != "" do
+  defp srql_for_tab("logs", device_uid, _limit, srql) when is_binary(device_uid) and device_uid != "" do
     query = default_logs_query(device_uid)
 
     srql
@@ -9184,8 +9216,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> Map.put(:loading, false)
   end
 
-  defp srql_for_tab(_tab, device_uid, limit, srql)
-       when is_binary(device_uid) and device_uid != "" do
+  defp srql_for_tab(_tab, device_uid, limit, srql) when is_binary(device_uid) and device_uid != "" do
     query = default_device_query(device_uid, limit)
 
     srql
@@ -9580,8 +9611,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       map_get_any(trace, [:target_ip, "target_ip", :target, "target"], nil)
   end
 
-  defp msg_matches_device?(candidate, expected)
-       when is_binary(candidate) and is_binary(expected) do
+  defp msg_matches_device?(candidate, expected) when is_binary(candidate) and is_binary(expected) do
     candidate = String.trim(candidate)
     expected = String.trim(expected)
 
@@ -9719,8 +9749,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp mtr_retention_status_class(%{status: :ok}), do: "text-success"
 
-  defp mtr_retention_status_class(%{status: status}) when status in [:mismatch, :missing],
-    do: "text-warning"
+  defp mtr_retention_status_class(%{status: status}) when status in [:mismatch, :missing], do: "text-warning"
 
   defp mtr_retention_status_class(%{status: :degraded}), do: "text-error"
   defp mtr_retention_status_class(_), do: "sr-mtr-muted"
@@ -10622,8 +10651,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {Map.get(session, :camera_source_id), Map.get(session, :stream_profile_id)}
   end
 
-  defp relay_status_label(status) when is_atom(status),
-    do: status |> Atom.to_string() |> String.capitalize()
+  defp relay_status_label(status) when is_atom(status), do: status |> Atom.to_string() |> String.capitalize()
 
   defp relay_status_label(status) when is_binary(status), do: String.capitalize(status)
   defp relay_status_label(_), do: "Requested"
@@ -10643,9 +10671,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     "ready"
   end
 
-  defp relay_playback_state(%{status: status})
-       when status in [:requested, :opening, "requested", "opening"],
-       do: "pending"
+  defp relay_playback_state(%{status: status}) when status in [:requested, :opening, "requested", "opening"],
+    do: "pending"
 
   defp relay_playback_state(%{status: status}) when status in [:closing, "closing"], do: "closing"
   defp relay_playback_state(%{status: status}) when status in [:closed, "closed"], do: "closed"
@@ -10758,8 +10785,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp relay_session_closable?(_session), do: false
 
-  defp relay_session_terminal?(%{status: status}),
-    do: status in [:closed, :failed, "closed", "failed"]
+  defp relay_session_terminal?(%{status: status}), do: status in [:closed, :failed, "closed", "failed"]
 
   defp relay_session_terminal?(_session), do: false
 
@@ -10794,10 +10820,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp relay_session_regresses?(
-         %{id: current_id} = current_session,
-         %{id: incoming_id} = incoming_session
-       )
+  defp relay_session_regresses?(%{id: current_id} = current_session, %{id: incoming_id} = incoming_session)
        when is_binary(current_id) and current_id == incoming_id do
     relay_status_rank(incoming_session) < relay_status_rank(current_session)
   end
@@ -10854,8 +10877,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp normalize_uuid_param(_value), do: {:error, :invalid_uuid}
 
-  defp format_camera_relay_error({:agent_offline, _agent_id}),
-    do: "Assigned agent is offline for this camera source"
+  defp format_camera_relay_error({:agent_offline, _agent_id}), do: "Assigned agent is offline for this camera source"
 
   defp format_camera_relay_error(:invalid_uuid), do: "Invalid camera relay request"
   defp format_camera_relay_error(reason) when is_binary(reason), do: reason
@@ -10949,8 +10971,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp linked_agent_list(_), do: []
 
-  defp agent_list(row) when is_map(row),
-    do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
 
   defp agent_value(map, key) when is_map(map) and is_binary(key) do
     Map.get(map, key) || agent_atom_value(map, key)
@@ -10983,11 +11004,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_ash_error(error), do: inspect(error)
 
-  defp format_single_ash_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}),
-    do: "#{field}: #{msg}"
+  defp format_single_ash_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
 
-  defp format_single_ash_error(%Ash.Error.Changes.Required{field: field}),
-    do: "#{field} is required"
+  defp format_single_ash_error(%Ash.Error.Changes.Required{field: field}), do: "#{field} is required"
 
   defp format_single_ash_error(%{message: msg}) when is_binary(msg), do: msg
 

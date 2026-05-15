@@ -116,7 +116,7 @@ type ServerConfig struct {
 	// Embedded sync runtime
 	SyncRuntimeEnabled *bool `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
 
-	// Optional OpenSSH known_hosts file for generic remote-access SSH host key verification.
+	// Deprecated: accepted for compatibility with older rendered ConfigMaps.
 	RemoteAccessKnownHostsFile string `json:"remote_access_known_hosts_file,omitempty"`
 }
 

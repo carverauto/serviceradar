@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -80,20 +81,37 @@ type syncConfigPayload struct {
 }
 
 type armisDevice struct {
-	ID              int       `json:"id"`
-	IPAddress       string    `json:"ipAddress"`
-	MacAddress      string    `json:"macAddress"`
-	Name            string    `json:"name"`
-	Type            string    `json:"type"`
-	Category        string    `json:"category"`
-	Manufacturer    string    `json:"manufacturer"`
-	Model           string    `json:"model"`
-	OperatingSystem string    `json:"operatingSystem"`
-	FirstSeen       time.Time `json:"firstSeen"`
-	LastSeen        time.Time `json:"lastSeen"`
-	RiskLevel       int       `json:"riskLevel"`
-	Boundaries      string    `json:"boundaries"`
-	Tags            []string  `json:"tags"`
+	ID                int                      `json:"id"`
+	DeviceID          int                      `json:"device_id"`
+	IPAddress         string                   `json:"ipAddress"`
+	IPv4Addresses     []string                 `json:"ipv4_addresses"`
+	IPv6Addresses     []string                 `json:"ipv6_addresses"`
+	MacAddress        string                   `json:"macAddress"`
+	MacAddresses      []string                 `json:"mac_addresses"`
+	Name              string                   `json:"name"`
+	Names             []string                 `json:"names"`
+	Display           string                   `json:"display"`
+	Type              string                   `json:"type"`
+	Category          string                   `json:"category"`
+	Manufacturer      string                   `json:"manufacturer"`
+	Brand             string                   `json:"brand"`
+	Model             string                   `json:"model"`
+	OperatingSystem   string                   `json:"operatingSystem"`
+	OSName            string                   `json:"os_name"`
+	OSVersion         string                   `json:"os_version"`
+	FirstSeen         time.Time                `json:"firstSeen"`
+	FirstSeenSnake    time.Time                `json:"first_seen"`
+	LastSeen          time.Time                `json:"lastSeen"`
+	LastSeenSnake     time.Time                `json:"last_seen"`
+	RiskLevel         int                      `json:"riskLevel"`
+	RiskLevelSnake    int                      `json:"risk_level"`
+	Boundaries        interface{}              `json:"boundaries"`
+	Tags              []string                 `json:"tags"`
+	NetworkInterfaces []map[string]interface{} `json:"network_interfaces"`
+	PurdueLevel       *float64                 `json:"purdue_level"`
+	SerialNumbers     []string                 `json:"serial_numbers"`
+	Site              map[string]interface{}   `json:"site"`
+	Visibility        string                   `json:"visibility"`
 }
 
 type armisSearchResponse struct {
@@ -432,6 +450,8 @@ func (r *SyncRuntime) runArmisSync(
 			}
 
 			filtered := filterArmisDevices(resp.Data.Results, runner.config.NetworkBlacklist)
+			r.logArmisShape(runID, queryLabel, from, filtered)
+
 			updates := make([]map[string]interface{}, 0, len(filtered))
 			for _, device := range filtered {
 				update := buildArmisUpdate(r.server, runner, device, queryLabel)
@@ -475,6 +495,52 @@ func (r *SyncRuntime) runArmisSync(
 	}
 
 	return totalUpdates, nil
+}
+
+func (r *SyncRuntime) logArmisShape(runID, queryLabel string, from int, devices []armisDevice) {
+	interfaceDeviceCount := 0
+	var sampleInterfaceKeys []string
+
+	for _, device := range devices {
+		if len(device.NetworkInterfaces) == 0 {
+			continue
+		}
+
+		interfaceDeviceCount++
+		if len(sampleInterfaceKeys) == 0 {
+			sampleInterfaceKeys = sortedMapKeys(device.NetworkInterfaces[0])
+		}
+	}
+
+	boundaryDeviceCount := 0
+	var sampleBoundaryNames []string
+	for _, device := range devices {
+		names := boundaryNames(device.Boundaries)
+		if len(names) == 0 {
+			continue
+		}
+
+		boundaryDeviceCount++
+		if len(sampleBoundaryNames) == 0 {
+			sampleBoundaryNames = names
+		}
+	}
+
+	if interfaceDeviceCount == 0 && boundaryDeviceCount == 0 {
+		return
+	}
+
+	r.logger.Info().
+		Str("source", armisSourceType).
+		Str("run_id", runID).
+		Str("query_label", queryLabel).
+		Int("from", from).
+		Int("device_count", len(devices)).
+		Int("devices_with_network_interfaces", interfaceDeviceCount).
+		Strs("network_interface_sample_keys", sampleInterfaceKeys).
+		Int("devices_with_boundaries", boundaryDeviceCount).
+		Strs("boundary_sample_names", sampleBoundaryNames).
+		Msg("Armis device shape sample")
 }
 
 func (r *SyncRuntime) sendSyncUpdates(
@@ -668,7 +734,11 @@ func (c *armisClient) accessToken(ctx context.Context, creds map[string]string) 
 }
 
 func armisSecretKey(creds map[string]string) string {
-	for _, key := range []string{"secret_key", "api_secret", "api_key"} {
+	return firstCredentialValue(creds, "secret_key", "api_secret", "api_key", "key")
+}
+
+func firstCredentialValue(creds map[string]string, keys ...string) string {
+	for _, key := range keys {
 		if value := strings.TrimSpace(creds[key]); value != "" {
 			return value
 		}
@@ -788,8 +858,12 @@ func filterArmisDevices(devices []armisDevice, blacklist []string) []armisDevice
 
 	filtered := make([]armisDevice, 0, len(devices))
 	for _, device := range devices {
-		ips := splitArmisDeviceIPs(device.IPAddress)
+		rawIP := device.primaryIP()
+		ips := splitArmisDeviceIPs(rawIP)
 		if len(ips) == 0 {
+			if rawIP == "" {
+				filtered = append(filtered, device)
+			}
 			continue
 		}
 
@@ -853,10 +927,36 @@ func armisIPBlacklisted(value string, cidrs []*net.IPNet) bool {
 }
 
 func buildArmisUpdate(server *Server, runner *syncSourceRunner, device armisDevice, queryLabel string) map[string]interface{} {
-	if device.IPAddress == "" {
+	ipAddress := device.primaryIP()
+	if ipAddress == "" {
 		return nil
 	}
 
+	context := armisUpdateContextFor(server, runner)
+	metadata := buildArmisMetadata(device, queryLabel)
+	update := map[string]interface{}{
+		"agent_id":   context.agentID,
+		"gateway_id": context.gatewayID,
+		"partition":  context.partition,
+		"device_id":  fmt.Sprintf("%s:%s", context.partition, ipAddress),
+		"ip":         ipAddress,
+		"source":     armisSourceType,
+		"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		"metadata":   metadata,
+	}
+
+	addArmisTopLevelFields(update, device)
+
+	return update
+}
+
+type armisUpdateContext struct {
+	agentID   string
+	gatewayID string
+	partition string
+}
+
+func armisUpdateContextFor(server *Server, runner *syncSourceRunner) armisUpdateContext {
 	server.mu.RLock()
 	agentID := server.config.AgentID
 	partition := server.config.Partition
@@ -875,58 +975,277 @@ func buildArmisUpdate(server *Server, runner *syncSourceRunner, device armisDevi
 		partition = defaultPartition
 	}
 
+	return armisUpdateContext{
+		agentID:   agentID,
+		gatewayID: gatewayID,
+		partition: partition,
+	}
+}
+
+func buildArmisMetadata(device armisDevice, queryLabel string) map[string]string {
 	metadata := map[string]string{
-		"armis_device_id":  strconv.Itoa(device.ID),
 		"integration_type": armisSourceType,
+	}
+	if id := device.effectiveID(); id > 0 {
+		deviceID := strconv.Itoa(id)
+		metadata["source_device_id"] = deviceID
+		metadata["integration_id"] = deviceID
 	}
 
 	if device.Type != "" {
-		metadata["armis_type"] = device.Type
+		metadata["type"] = device.Type
+		metadata["device_type"] = device.Type
 	}
 	if device.Category != "" {
-		metadata["armis_category"] = device.Category
+		metadata["category"] = device.Category
 	}
-	if device.Manufacturer != "" {
-		metadata["manufacturer"] = device.Manufacturer
+	if brand := armisFirstNonEmpty(device.Brand, device.Manufacturer); brand != "" {
+		metadata["brand"] = brand
+		metadata["manufacturer"] = brand
 	}
 	if device.Model != "" {
 		metadata["model"] = device.Model
 	}
-	if device.OperatingSystem != "" {
-		metadata["operating_system"] = device.OperatingSystem
+	if osName := armisFirstNonEmpty(device.OSName, device.OperatingSystem); osName != "" {
+		metadata["os_name"] = osName
+		metadata["operating_system"] = osName
 	}
-	if device.Boundaries != "" {
-		metadata["armis_boundaries"] = device.Boundaries
+	if device.OSVersion != "" {
+		metadata["os_version"] = device.OSVersion
 	}
-	if device.RiskLevel > 0 {
-		metadata["armis_risk_level"] = strconv.Itoa(device.RiskLevel)
+	if encoded := compactJSONValue(device.Boundaries); encoded != "" {
+		metadata["boundaries"] = encoded
+	}
+	if names := boundaryNames(device.Boundaries); len(names) > 0 {
+		metadata["boundary_names"] = strings.Join(names, ",")
+	}
+	if riskLevel := device.effectiveRiskLevel(); riskLevel > 0 {
+		metadata["risk_score"] = strconv.Itoa(riskLevel)
 	}
 	if queryLabel != "" {
 		metadata["query_label"] = queryLabel
 	}
 	if len(device.Tags) > 0 {
-		metadata["armis_tags"] = strings.Join(device.Tags, ",")
+		metadata["source_tags"] = strings.Join(device.Tags, ",")
+	}
+	if len(device.IPv4Addresses) > 0 {
+		metadata["ipv4_addresses"] = strings.Join(device.IPv4Addresses, ",")
+	}
+	if len(device.IPv6Addresses) > 0 {
+		metadata["ipv6_addresses"] = strings.Join(device.IPv6Addresses, ",")
+	}
+	if len(device.MacAddresses) > 0 {
+		metadata["mac_addresses"] = strings.Join(device.MacAddresses, ",")
+	}
+	if len(device.SerialNumbers) > 0 {
+		metadata["serial_number"] = device.SerialNumbers[0]
+		metadata["serial_numbers"] = strings.Join(device.SerialNumbers, ",")
+	}
+	if device.PurdueLevel != nil {
+		purdueLevel := strconv.FormatFloat(*device.PurdueLevel, 'f', -1, 64)
+		metadata["purdue_level"] = purdueLevel
+	}
+	if device.Visibility != "" {
+		metadata["visibility"] = device.Visibility
+	}
+	if encoded := compactJSONValue(device.Site); encoded != "" {
+		metadata["site"] = encoded
+	}
+	if encoded := compactJSONValue(device.NetworkInterfaces); encoded != "" {
+		metadata["network_interfaces"] = encoded
 	}
 
-	update := map[string]interface{}{
-		"agent_id":   agentID,
-		"gateway_id": gatewayID,
-		"partition":  partition,
-		"device_id":  fmt.Sprintf("%s:%s", partition, device.IPAddress),
-		"ip":         device.IPAddress,
-		"source":     armisSourceType,
-		"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
-		"metadata":   metadata,
+	return metadata
+}
+
+func addArmisTopLevelFields(update map[string]interface{}, device armisDevice) {
+	if macAddress := device.primaryMAC(); macAddress != "" {
+		update["mac"] = macAddress
+	}
+	if hostname := device.primaryName(); hostname != "" {
+		update["hostname"] = hostname
+	}
+	if device.Type != "" {
+		update["type"] = device.Type
+	}
+	if brand := armisFirstNonEmpty(device.Brand, device.Manufacturer); brand != "" {
+		update["vendor_name"] = brand
+	}
+	if device.Model != "" {
+		update["model"] = device.Model
+	}
+	if osName := armisFirstNonEmpty(device.OSName, device.OperatingSystem); osName != "" {
+		update["os"] = map[string]interface{}{
+			"name":    osName,
+			"version": device.OSVersion,
+		}
+	}
+	if len(device.NetworkInterfaces) > 0 {
+		update["network_interfaces"] = device.NetworkInterfaces
+	}
+	if firstSeen := device.effectiveFirstSeen(); !firstSeen.IsZero() {
+		update["first_seen_time"] = firstSeen.UTC().Format(time.RFC3339Nano)
+	}
+	if lastSeen := device.effectiveLastSeen(); !lastSeen.IsZero() {
+		update["last_seen_time"] = lastSeen.UTC().Format(time.RFC3339Nano)
+	}
+	if riskLevel := device.effectiveRiskLevel(); riskLevel > 0 {
+		update["risk_score"] = riskLevel
+	}
+}
+
+func (d armisDevice) effectiveID() int {
+	if d.DeviceID > 0 {
+		return d.DeviceID
+	}
+	return d.ID
+}
+
+func (d armisDevice) effectiveRiskLevel() int {
+	if d.RiskLevelSnake > 0 {
+		return d.RiskLevelSnake
+	}
+	return d.RiskLevel
+}
+
+func (d armisDevice) effectiveFirstSeen() time.Time {
+	if !d.FirstSeenSnake.IsZero() {
+		return d.FirstSeenSnake
+	}
+	return d.FirstSeen
+}
+
+func (d armisDevice) effectiveLastSeen() time.Time {
+	if !d.LastSeenSnake.IsZero() {
+		return d.LastSeenSnake
+	}
+	return d.LastSeen
+}
+
+func (d armisDevice) primaryIP() string {
+	if value := strings.TrimSpace(d.IPAddress); value != "" {
+		return value
+	}
+	for _, value := range d.IPv4Addresses {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	for _, value := range d.IPv6Addresses {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (d armisDevice) primaryMAC() string {
+	if value := strings.TrimSpace(d.MacAddress); value != "" {
+		return value
+	}
+	for _, value := range d.MacAddresses {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (d armisDevice) primaryName() string {
+	if value := armisFirstNonEmpty(d.Display, d.Name); value != "" {
+		return value
+	}
+	for _, value := range d.Names {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func armisFirstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func boundaryNames(value interface{}) []string {
+	if value == nil {
+		return nil
 	}
 
-	if device.MacAddress != "" {
-		update["mac"] = device.MacAddress
-	}
-	if device.Name != "" {
-		update["hostname"] = device.Name
+	if text, ok := value.(string); ok {
+		var decoded interface{}
+		if err := json.Unmarshal([]byte(text), &decoded); err == nil {
+			return boundaryNames(decoded)
+		}
+		return nil
 	}
 
-	return update
+	var names []string
+	switch typed := value.(type) {
+	case []interface{}:
+		for _, item := range typed {
+			names = append(names, boundaryNames(item)...)
+		}
+	case []map[string]interface{}:
+		for _, item := range typed {
+			names = append(names, boundaryNames(item)...)
+		}
+	case map[string]interface{}:
+		if name, ok := typed["name"].(string); ok && strings.TrimSpace(name) != "" {
+			names = append(names, strings.TrimSpace(name))
+		}
+	}
+
+	return uniqueStrings(names)
+}
+
+func sortedMapKeys(value map[string]interface{}) []string {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func uniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func compactJSONValue(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	data, err := json.Marshal(value)
+	if err != nil || string(data) == "null" || string(data) == "{}" || string(data) == "[]" {
+		return ""
+	}
+	return string(data)
 }
 
 type syncChunkMeta struct {

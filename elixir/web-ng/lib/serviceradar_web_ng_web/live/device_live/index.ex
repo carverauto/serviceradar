@@ -1030,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <div>
                 This deployment is using {@managed_device_count} managed devices, above the
                 configured advisory limit of {@managed_device_limit}. Managed device count tracks
-                non-deleted inventory devices.
+                non-deleted inventory devices marked managed.
               </div>
             </div>
           </div>
@@ -1950,22 +1950,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
           <ul
             tabindex="0"
-            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 max-h-80 overflow-y-auto border border-base-200"
+            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 max-h-80 overflow-y-auto overflow-x-hidden border border-base-200"
           >
             <%= for item <- @items do %>
               <li>
                 <%= if item.name == "Unknown" do %>
-                  <span class="flex justify-between text-sm text-base-content/50 cursor-not-allowed">
-                    <span class="truncate">{item.name}</span>
-                    <span class="badge badge-sm badge-ghost">{item.count}</span>
+                  <span class="flex justify-between gap-2 min-w-0 text-sm text-base-content/50 cursor-not-allowed">
+                    <span class="min-w-0 flex-1 truncate">{item.name}</span>
+                    <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
                   </span>
                 <% else %>
                   <.link
                     navigate={"/devices?q=" <> URI.encode("in:devices #{@filter_field}:\"#{item.name}\"")}
-                    class="flex justify-between text-sm"
+                    class="flex justify-between gap-2 min-w-0 text-sm"
                   >
-                    <span class="truncate">{item.name}</span>
-                    <span class="badge badge-sm badge-ghost">{item.count}</span>
+                    <span class="min-w-0 flex-1 truncate">{item.name}</span>
+                    <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
                   </.link>
                 <% end %>
               </li>
@@ -2793,8 +2793,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Kernel.<>(~s| stats:"count() as total"|)
 
     case srql_module.query(full_query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
-        count
+      {:ok, %{"results" => [%{"total" => count} | _]}} ->
+        to_stats_int(count)
 
       _ ->
         nil

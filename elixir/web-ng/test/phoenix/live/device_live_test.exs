@@ -137,6 +137,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 0,
         hostname: "advisory-host-1",
         is_available: true,
+        is_managed: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       },
@@ -145,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 0,
         hostname: "advisory-host-2",
         is_available: true,
+        is_managed: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }
@@ -173,6 +175,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 0,
         hostname: "within-limit-host",
         is_available: true,
+        is_managed: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }

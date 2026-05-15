@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
 
@@ -255,6 +256,99 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
     assert is_map(device.metadata["snmp_fingerprint"])
     assert device.owner == %{"name" => "Network Operations"}
+  end
+
+  test "maps Armis SDK inventory fields into OCSF device fields", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "mac" => "00:11:22:33:44:55",
+      "hostname" => "axis-camera-01",
+      "source" => "armis",
+      "type" => "Camera",
+      "vendor_name" => "Axis Communications",
+      "model" => "P1375",
+      "risk_score" => 72,
+      "os" => %{"name" => "Linux", "version" => "5.15"},
+      "network_interfaces" => [
+        %{
+          "name" => "eth0",
+          "alias" => "OT uplink",
+          "mac_address" => "00:11:22:33:44:55",
+          "ipv4_address" => ip,
+          "type" => "Ethernet",
+          "vlan" => 100
+        }
+      ],
+      "metadata" => %{
+        "integration_id" => "armis-sdk-#{System.unique_integer([:positive])}",
+        "integration_type" => "armis",
+        "type" => "Camera",
+        "boundaries" => Jason.encode!([%{"id" => 7, "name" => "All OT Boundaries"}]),
+        "brand" => "Axis Communications",
+        "serial_number" => "SN-123",
+        "query_label" => "managed"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.type == "Camera"
+    assert device.type_id == 99
+    assert device.vendor_name == "Axis Communications"
+    assert device.model == "P1375"
+    assert device.risk_score == 72
+    assert device.risk_level == "High"
+    assert device.os == %{"name" => "Linux", "version" => "5.15"}
+    assert device.hw_info == %{"serial_number" => "SN-123"}
+    assert [%{"name" => "eth0"}] = device.network_interfaces
+    assert device.is_managed == true
+    assert device.metadata["query_label"] == "managed"
+    assert device.metadata["boundary_names"] == "All OT Boundaries"
+
+    interfaces =
+      Interface
+      |> Ash.Query.for_read(:by_device, %{device_id: device.uid})
+      |> Ash.read!(actor: actor, authorize?: false)
+
+    assert [interface] = interfaces
+    assert interface.if_name == "eth0"
+    assert interface.if_alias == "OT uplink"
+    assert interface.if_phys_address == "00:11:22:33:44:55"
+    assert interface.ip_addresses == [ip]
+    assert interface.if_type_name == "Ethernet"
+    assert interface.interface_kind == "physical"
+    assert interface.metadata["vlan"] == "100"
+  end
+
+  test "does not re-enable devices manually marked unmanaged", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "user-unmanaged-test",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => "armis-user-unmanaged-#{System.unique_integer([:positive])}",
+        "integration_type" => "armis"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.is_managed == true
+
+    assert {:ok, _updated} =
+             device
+             |> Ash.Changeset.for_update(:update, %{is_managed: false}, actor: actor)
+             |> Ash.update(authorize?: false)
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    assert fetch_device_by_ip!(actor, ip).is_managed == false
   end
 
   test "merges metadata maps across updates instead of replacing existing keys", %{actor: actor} do
@@ -516,8 +610,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       "ip" => ip,
       "hostname" => "updated-host",
       "source" => "armis",
-      "armis_device_id" => "armis-#{System.unique_integer([:positive])}",
       "metadata" => %{
+        "integration_id" => "armis-#{System.unique_integer([:positive])}",
+        "integration_type" => "armis",
         "sys_descr" => "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
       }
     }

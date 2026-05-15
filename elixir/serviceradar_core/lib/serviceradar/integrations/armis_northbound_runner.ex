@@ -6,7 +6,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   northbound flow:
   - validating whether a source can run northbound updates
   - loading persisted Armis candidates from canonical inventory state
-  - collapsing candidate device rows to one record per `armis_device_id`
+  - collapsing candidate device rows to one record per integration ID
   - batching outbound updates for bulk API submission
   - building the bulk payload written to the configured custom field
   """
@@ -217,7 +217,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     from(di in DeviceIdentifier,
       join: d in Device,
       on: d.uid == di.device_id,
-      where: di.identifier_type == :armis_device_id,
+      where: di.identifier_type == :integration_id,
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
       where:
         fragment(
@@ -260,7 +260,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       on: d.uid == di.device_id,
       join: daa in DeviceAgentAvailability,
       on: daa.device_uid == d.uid and daa.agent_id == ^availability_source_agent_id,
-      where: di.identifier_type == :armis_device_id,
+      where: di.identifier_type == :integration_id,
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
       where:
         fragment(

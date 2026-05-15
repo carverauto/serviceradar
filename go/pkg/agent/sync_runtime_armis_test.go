@@ -870,9 +870,9 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 				if !ok {
 					t.Fatalf("missing metadata in update: %#v", update)
 				}
-				rawArmisID, _ := metadata["armis_device_id"].(string)
-				if _, err := strconv.Atoi(rawArmisID); err != nil {
-					t.Fatalf("invalid armis_device_id %q: %v", rawArmisID, err)
+				rawSourceID, _ := metadata["source_device_id"].(string)
+				if _, err := strconv.Atoi(rawSourceID); err != nil {
+					t.Fatalf("invalid source_device_id %q: %v", rawSourceID, err)
 				}
 			}
 		}
