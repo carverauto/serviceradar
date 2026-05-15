@@ -156,6 +156,15 @@ pub struct InitialConnectorPdu {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct ConnectorUpgradeBoundary {
+    pub before_confirm_state: &'static str,
+    pub after_confirm_state: &'static str,
+    pub requires_security_upgrade: bool,
+    pub after_upgrade_state: &'static str,
+    pub requires_credssp: bool,
+}
+
 pub fn connector_dependency_is_linked() -> bool {
     let desktop_size = ironrdp_connector::DesktopSize {
         width: 1024,
@@ -352,6 +361,46 @@ pub fn build_initial_connector_pdu(
     })
 }
 
+pub fn drive_connector_to_credssp_boundary(
+    request: ServiceRadarOpenRequest,
+) -> Result<ConnectorUpgradeBoundary, &'static str> {
+    let config = build_connector_config(request)?;
+    let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
+    let mut buffer = ironrdp_core::WriteBuf::new();
+
+    ironrdp_connector::Sequence::step_no_input(&mut connector, &mut buffer)
+        .map_err(|_| "initial connector step failed")?;
+
+    let before_confirm_state = connector_state_name(&connector);
+    let server_confirm = encode_nla_server_confirm()?;
+    let mut output = ironrdp_core::WriteBuf::new();
+
+    ironrdp_connector::Sequence::step(&mut connector, &server_confirm, &mut output)
+        .map_err(|_| "server confirm step failed")?;
+
+    let after_confirm_state = connector_state_name(&connector);
+    let requires_security_upgrade = connector.should_perform_security_upgrade();
+    connector.mark_security_upgrade_as_done();
+
+    Ok(ConnectorUpgradeBoundary {
+        before_confirm_state,
+        after_confirm_state,
+        requires_security_upgrade,
+        after_upgrade_state: connector_state_name(&connector),
+        requires_credssp: connector.should_perform_credssp(),
+    })
+}
+
+fn encode_nla_server_confirm() -> Result<Vec<u8>, &'static str> {
+    ironrdp_core::encode_vec(&ironrdp_pdu::x224::X224(
+        ironrdp_pdu::nego::ConnectionConfirm::Response {
+            flags: ironrdp_pdu::nego::ResponseFlags::empty(),
+            protocol: ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX,
+        },
+    ))
+    .map_err(|_| "server confirm encode failed")
+}
+
 fn connector_state_name(connector: &ironrdp_connector::ClientConnector) -> &'static str {
     ironrdp_connector::Sequence::state(connector).name()
 }
@@ -451,6 +500,22 @@ mod tests {
 
         assert_eq!(pdu.after_state, "ConnectionInitiationWaitResponse");
         assert_eq!(&pdu.bytes[..2], &[0x03, 0x00]);
+    }
+
+    #[test]
+    fn server_nla_confirm_reaches_tls_upgrade_boundary_then_credssp() {
+        let boundary =
+            crate::drive_connector_to_credssp_boundary(open_request("EXAMPLE\\alice", "required"))
+                .expect("boundary");
+
+        assert_eq!(
+            boundary.before_confirm_state,
+            "ConnectionInitiationWaitResponse"
+        );
+        assert_eq!(boundary.after_confirm_state, "EnhancedSecurityUpgrade");
+        assert!(boundary.requires_security_upgrade);
+        assert_eq!(boundary.after_upgrade_state, "Credssp");
+        assert!(boundary.requires_credssp);
     }
 
     #[test]

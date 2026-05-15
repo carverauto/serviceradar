@@ -10,6 +10,7 @@
 - [x] 1.4.5 Add a review-only IronRDP connector state-machine smoke test that emits the initial X.224 negotiation PDU from a ServiceRadar-shaped open request.
 - [x] 1.4.6 Add a review-only full helper-open JSON parser in the isolated connector probe so unknown fields and unsupported policy are rejected before IronRDP config construction.
 - [x] 1.4.7 Decode the review-only initial X.224 negotiation PDU and assert it advertises CredSSP/NLA without plain TLS fallback.
+- [x] 1.4.8 Drive the review-only IronRDP connector through a HYBRID_EX server confirm to prove the TLS upgrade boundary is reached before CredSSP.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
