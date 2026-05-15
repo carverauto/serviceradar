@@ -1,3 +1,19 @@
+# ServiceRadar v1.2.60
+
+Remote access, inventory availability, object-store retention, and CI recovery release.
+
+## Whats New
+
+**1.2.60**
+- Added remote access file-transfer support with SFTP-backed agent adapters, streamed upload/download frames, transfer lifecycle records, policy checks, RBAC permissions, REST APIs, and web console integration.
+- Added per-agent device availability so inventory can distinguish global device state from the specific agent/profile evidence that observed it, including SRQL, device details, and sweep ingestion updates.
+- Added persistent Helm storage options for agent runtime and checker cache data so recent agent state is written to PVC-backed storage instead of node ephemeral storage.
+- Added NATS Object Store retention workers and documentation for pruning stale release artifacts, plugin blobs, and dashboard/package artifacts.
+- Hardened Armis and generic sync ingestion by accepting deprecated agent config fields, preserving availability state when integrations omit it, normalizing imported vendor/model/type/interface metadata, and improving large paged imports.
+- Fixed manual hostname-only device creation by resolving hostnames during create and rejecting unresolved hostnames that do not provide a primary IP address.
+- Fixed device search result counts and facet dropdown behavior so `/devices` shows total matching SRQL results and scrollable full vendor/type lists.
+- Fixed OTLP log export metadata sanitization, MTR hop hostname snapshots, stale agent control session pruning, TinyGo/Bazelisk CI fetches, Forgejo release asset uploads, and Forgejo workflow routing back to `staging`.
+
 # ServiceRadar v1.2.54
 
 Release artifact publishing hotfix.
