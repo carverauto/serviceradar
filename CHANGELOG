@@ -1,3 +1,19 @@
+# ServiceRadar v1.2.59
+
+Agent config compatibility, normalized integration inventory imports, Armis sync repair, and device inventory UI fixes.
+
+## Whats New
+
+**1.2.59**
+- Fixed agent startup compatibility with stale Kubernetes ConfigMaps that still contain the deprecated `remote_access_known_hosts_file` field.
+- Fixed Armis token requests to use the `secret_key` parameter expected by the Armis API while accepting common stored credential aliases.
+- Normalized Armis device imports into ServiceRadar inventory fields and generic `integration_id` source identifiers instead of provider-specific metadata display paths.
+- Persisted sync-provided network interface observations into discovered interface records for imported devices.
+- Added clean device-detail discovery metadata rendering using normalized fields, including source IDs, query labels, boundaries, site, tags, and interface summaries.
+- Fixed SRQL device ordering and vendor/type filtering when imported inventory contains dirty comma-separated IP values.
+- Fixed device list matching counts and fixed-height vendor/type dropdown scrolling.
+- Added managed-device defaults for imported and manually-created devices while preserving explicit user-managed unmanaged overrides.
+
 # ServiceRadar v1.2.58
 
 Per-agent availability source selection, Armis northbound availability controls, device inventory filter visibility, and release-path hardening.
