@@ -106,7 +106,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   def handle_call({:record_frame_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
-    case fetch_and_verify_active_owned_session(state, desktop_session_id, media_session_id, agent_id) do
+    case fetch_and_verify_active_owned_session(state, desktop_session_id, media_session_id, agent_id, attrs) do
       {:ok, session} ->
         cost = normalize_uint(Map.get(attrs, :credit_cost, Map.get(attrs, :payload_bytes, 0)))
 
@@ -265,13 +265,6 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     case fetch_and_verify_session(state, desktop_session_id, media_session_id) do
       {:ok, %{agent_id: ^agent_id} = session} -> {:ok, session}
       {:ok, _session} -> {:error, :agent_id_mismatch}
-      error -> error
-    end
-  end
-
-  defp fetch_and_verify_active_owned_session(state, desktop_session_id, media_session_id, agent_id) do
-    case fetch_and_verify_owned_session(state, desktop_session_id, media_session_id, agent_id) do
-      {:ok, session} -> verify_active_session(session)
       error -> error
     end
   end

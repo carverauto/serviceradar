@@ -190,6 +190,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
                %{sequence: 1, credit_cost: 1}
              )
 
+    assert {:error, :media_ingest_mismatch} =
+             DesktopMediaSessionTracker.record_frame(
+               "desktop-media-check-1",
+               "media-owner-1",
+               "agent-owner",
+               %{media_ingest_id: "ingest-other", sequence: 1, credit_cost: 1}
+             )
+
     assert {:error, :media_session_mismatch} =
              DesktopMediaSessionTracker.apply_ack("desktop-media-check-1", "media-other", %{
                last_accepted_sequence: 1,
@@ -206,6 +214,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
     assert {:ok, session} =
              DesktopMediaSessionTracker.fetch_session("desktop-media-check-1", "agent-owner")
 
+    assert session.last_sequence == 0
+    assert session.sent_bytes == 0
     assert session.last_accepted_sequence == 0
     assert session.received_credit_bytes == 0
   end

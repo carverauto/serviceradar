@@ -302,6 +302,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
         with {:ok, _session} <-
                session_tracker().record_frame(session.desktop_session_id, session.media_session_id, agent_id, %{
+                 media_ingest_id: frame.media_ingest_id,
                  sequence: frame.sequence,
                  credit_cost: frame_cost
                }),
