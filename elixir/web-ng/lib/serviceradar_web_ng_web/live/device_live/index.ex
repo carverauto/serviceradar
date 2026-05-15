@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Changes.Required
   alias Ash.Error.Invalid
+  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
@@ -75,6 +76,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:total_matching_count, nil)
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:show_bulk_delete_modal, false)
+     |> assign(:ansible_launch_available, false)
+     |> assign(:ansible_launch_available_loading, connected?(socket))
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      |> assign(:breakdown_modal, nil)
      |> assign(:breakdown_search, "")
@@ -91,7 +94,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        max_entries: 1,
        max_file_size: 5_000_000
      )
-     |> SRQLPage.init("devices", default_limit: @default_limit)}
+     |> SRQLPage.init("devices", default_limit: @default_limit)
+     |> start_ansible_launch_availability_task()}
   end
 
   @impl true
@@ -193,6 +197,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> assign(:device_stats_loading, false)
 
     {:noreply, socket}
+  end
+
+  def handle_async(:ansible_launch_available, {:ok, available?}, socket) do
+    {:noreply,
+     socket
+     |> assign(:ansible_launch_available, available?)
+     |> assign(:ansible_launch_available_loading, false)}
+  end
+
+  def handle_async(:ansible_launch_available, {:exit, reason}, socket) do
+    Logger.warning("Ansible launch availability check failed: #{inspect(reason)}")
+
+    {:noreply,
+     socket
+     |> assign(:ansible_launch_available, false)
+     |> assign(:ansible_launch_available_loading, false)}
   end
 
   @impl true
@@ -437,6 +457,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       not RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") ->
         {:noreply, put_flash(socket, :error, "You are not authorized to launch Ansible runs.")}
 
+      not socket.assigns.ansible_launch_available ->
+        {:noreply, put_flash(socket, :error, "No launchable Ansible playbooks are configured.")}
+
       MapSet.size(socket.assigns.selected_devices) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
 
@@ -668,6 +691,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       srql = srql_module()
       load_device_stats(srql, scope)
     end)
+  end
+
+  defp start_ansible_launch_availability_task(socket) do
+    if connected?(socket) and RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") do
+      start_async(socket, :ansible_launch_available, &ansible_launch_available?/0)
+    else
+      assign(socket, :ansible_launch_available_loading, false)
+    end
+  end
+
+  defp ansible_launch_available? do
+    actor = ServiceRadar.Actors.SystemActor.system(:device_live_index)
+
+    query =
+      Playbook
+      |> Ash.Query.filter(not is_nil(awx_job_template_id))
+      |> Ash.Query.limit(1)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [_ | _]} -> true
+      _ -> false
+    end
   end
 
   defp clear_task_ref(socket, key, ref) do
@@ -1143,8 +1188,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               variant="primary"
               size="sm"
               phx-click="run_task_for_selection"
+              disabled={not @ansible_launch_available}
+              title={
+                if @ansible_launch_available do
+                  "Launch a configured job for the selected devices"
+                else
+                  "No launchable Ansible playbooks are configured"
+                end
+              }
             >
-              <.icon name="hero-play" class="size-4" /> Run Task
+              <.icon name="hero-play" class="size-4" />
+              <span :if={@ansible_launch_available_loading}>Checking jobs…</span>
+              <span :if={not @ansible_launch_available_loading}>Run Task</span>
             </.ui_button>
             <.ui_button
               :if={RBAC.can?(@current_scope, "devices.bulk_edit")}

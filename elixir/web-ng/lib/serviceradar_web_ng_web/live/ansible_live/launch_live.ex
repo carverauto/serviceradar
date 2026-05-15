@@ -519,7 +519,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
   defp ensure_can_launch(%{devices: []}), do: {:error, :devices_required}
 
   defp ensure_can_launch(%{devices: devices}) do
-    if Enum.all?(devices, & &1.ansible_managed) do
+    if Enum.all?(devices, &ansible_managed?/1) do
       :ok
     else
       {:error, :unmanaged_devices}
@@ -543,11 +543,31 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.LaunchLive do
 
   defp launch_error_message(other), do: String.slice("Launch failed: #{inspect(other)}", 0, 240)
 
+  defp ansible_managed?(device) do
+    ref = ansible_inventory_ref(device)
+
+    Map.get(device, :ansible_managed) == true or
+      Map.get(device, "ansible_managed") == true or
+      Map.get(ref, "managed") == true or
+      Map.get(ref, :managed) == true
+  end
+
   defp ref_field(device, key) do
-    ref = Map.get(device, :ansible_inventory_ref) || %{}
-    Map.get(ref, key) || Map.get(ref, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> Map.get(Map.get(device, :ansible_inventory_ref) || %{}, key)
+    ref = ansible_inventory_ref(device)
+    Map.get(ref, key) || Map.get(ref, atom_ref_key(key))
+  end
+
+  defp atom_ref_key("controller_id"), do: :controller_id
+  defp atom_ref_key("host_id"), do: :host_id
+  defp atom_ref_key("host_name"), do: :host_name
+  defp atom_ref_key(_), do: nil
+
+  defp ansible_inventory_ref(device) when is_map(device) do
+    Map.get(device, :ansible_inventory_ref) ||
+      Map.get(device, "ansible_inventory_ref") ||
+      get_in(Map.get(device, :metadata) || %{}, ["ansible_inventory_ref"]) ||
+      get_in(Map.get(device, "metadata") || %{}, ["ansible_inventory_ref"]) ||
+      %{}
   end
 
   defp shorten(nil), do: "—"
