@@ -65,6 +65,7 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNorthboundTest do
     assert Map.get(success, :northbound_last_error_message) == nil
     assert Map.get(success, :northbound_consecutive_failures) == 0
     assert Map.get(success, :northbound_last_run_at)
+    assert Map.get(success, :northbound_last_run_at).microsecond == {0, 0}
   end
 
   test "northbound_failed increments failures across runs", %{actor: actor} do
@@ -97,6 +98,7 @@ defmodule ServiceRadar.Integrations.IntegrationSourceNorthboundTest do
     assert Map.get(failed_twice, :northbound_last_device_count) == 12
     assert Map.get(failed_twice, :northbound_last_error_message) == "still boom"
     assert Map.get(failed_twice, :northbound_consecutive_failures) == 2
+    assert Map.get(failed_twice, :northbound_last_run_at).microsecond == {0, 0}
   end
 
   defp create_source!(actor, attrs) do

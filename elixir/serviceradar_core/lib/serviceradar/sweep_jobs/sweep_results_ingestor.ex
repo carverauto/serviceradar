@@ -684,7 +684,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           []
       end
 
-    ports_from_port_results
+    ports_from_tcp_open_fields = tcp_open_ports(result)
+
+    (ports_from_port_results ++ ports_from_tcp_open_fields)
     |> Enum.map(&parse_integer/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(&valid_port?/1)
@@ -694,6 +696,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp port_results(result) do
     result["port_results"] || result["port_scan_results"] || result["portScanResults"]
+  end
+
+  defp tcp_open_ports(result) do
+    case result["tcp_ports_open"] || result["tcpPortsOpen"] do
+      ports when is_list(ports) -> ports
+      _ -> []
+    end
   end
 
   defp parse_integer(value) when is_integer(value), do: value

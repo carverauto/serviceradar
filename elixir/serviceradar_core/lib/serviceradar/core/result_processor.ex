@@ -235,12 +235,75 @@ defmodule ServiceRadar.Core.ResultProcessor do
   end
 
   defp port_results(host) do
-    host[:port_results] ||
-      host["port_results"] ||
-      host["port_scan_results"] ||
-      host["portScanResults"] ||
+    detailed_results =
+      host[:port_results] ||
+        host["port_results"] ||
+        host["port_scan_results"] ||
+        host["portScanResults"] ||
+        []
+
+    merge_tcp_open_ports(List.wrap(detailed_results), tcp_open_ports(host))
+  end
+
+  defp tcp_open_ports(host) do
+    host[:tcp_ports_open] ||
+      host["tcp_ports_open"] ||
+      host["tcpPortsOpen"] ||
       []
   end
+
+  defp merge_tcp_open_ports(port_results, open_ports) do
+    open_ports =
+      open_ports
+      |> List.wrap()
+      |> Enum.map(&parse_integer/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&valid_port?/1)
+
+    if open_ports == [] do
+      port_results
+    else
+      port_results
+      |> Map.new(fn result ->
+        port = parse_integer(result[:port] || result["port"])
+        {port, result}
+      end)
+      |> Map.delete(nil)
+      |> then(fn by_port ->
+        Enum.reduce(open_ports, by_port, fn port, acc ->
+          result =
+            acc
+            |> Map.get(port, %{port: port})
+            |> put_port_available()
+
+          Map.put(acc, port, result)
+        end)
+      end)
+      |> Map.values()
+      |> Enum.sort_by(&(parse_integer(&1[:port] || &1["port"]) || 0))
+    end
+  end
+
+  defp put_port_available(port_result) when is_map(port_result) do
+    if Map.has_key?(port_result, :available) do
+      Map.put(port_result, :available, true)
+    else
+      Map.put(port_result, "available", true)
+    end
+  end
+
+  defp parse_integer(value) when is_integer(value), do: value
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_integer(_), do: nil
+
+  defp valid_port?(port), do: port >= 1 and port <= 65_535
 
   defp port_available?(port_result) when is_map(port_result) do
     port_result[:available] == true || port_result["available"] == true
