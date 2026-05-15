@@ -1,6 +1,6 @@
 # ServiceRadar v1.2.58
 
-Per-agent availability source selection, Armis northbound availability controls, and release package upload hardening.
+Per-agent availability source selection, Armis northbound availability controls, device inventory filter visibility, and release-path hardening.
 
 ## Whats New
 
@@ -10,7 +10,11 @@ Per-agent availability source selection, Armis northbound availability controls,
 - Added clean device-detail visibility for per-agent availability, including agent, status, checks, response time, ports, and freshness.
 - Added SRQL filters for querying devices by selected availability source and per-agent available or unavailable status.
 - Added Armis northbound availability source selection so outbound availability tags can use canonical availability or a specific agent's view.
+- Added query-wide matching device totals to the devices table header so ad-hoc SRQL and vendor/type filters show the full result count, not just the current page size.
+- Expanded the devices By Type and By Vendor facets to return all rollup buckets while keeping the dropdown menus fixed-height and scrollable.
 - Hardened Forgejo release package publishing by avoiding duplicate version suffixes in uploaded package asset names.
+- Fixed Bazel-managed TinyGo host toolchain downloads used by release builds so they no longer depend on stale upstream URLs.
+- Hardened the Forgejo Bazelisk installer with retries and fallback download paths for transient GitHub/curl failures.
 
 # ServiceRadar v1.2.57
 
