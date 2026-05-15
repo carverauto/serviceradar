@@ -402,6 +402,7 @@ func (r *SyncRuntime) runArmisSync(
 
 	pageSize := armisPageSize(runner.config)
 	totalUpdates := 0
+	runChunkIndex := 0
 	tokenRefreshes := 0
 
 	r.logger.Info().
@@ -461,10 +462,23 @@ func (r *SyncRuntime) runArmisSync(
 				updates = append(updates, update)
 			}
 
+			isRunFinalPage := queryIndex == len(queries)-1 && (resp.Data.Next <= 0 || resp.Data.Next <= from)
+			runTotalAfterPage := totalUpdates + len(updates)
+
 			if len(updates) > 0 {
-				if err := r.sendSyncUpdates(ctx, runner, updates, runID); err != nil {
+				sentChunks, err := r.sendSyncUpdates(
+					ctx,
+					runner,
+					updates,
+					runID,
+					runTotalAfterPage,
+					runChunkIndex,
+					isRunFinalPage,
+				)
+				if err != nil {
 					return totalUpdates, err
 				}
+				runChunkIndex += sentChunks
 				totalUpdates += len(updates)
 			}
 
@@ -548,22 +562,32 @@ func (r *SyncRuntime) sendSyncUpdates(
 	runner *syncSourceRunner,
 	updates []map[string]interface{},
 	runID string,
-) error {
-	chunks, err := buildSyncResultsChunks(updates, runner.config, runID)
+	runTotalDevices int,
+	baseChunkIndex int,
+	runFinalPage bool,
+) (int, error) {
+	chunks, err := buildSyncResultsChunks(
+		updates,
+		runner.config,
+		runID,
+		runTotalDevices,
+		baseChunkIndex,
+		runFinalPage,
+	)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if len(chunks) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	statusChunks := r.buildResultsStatusChunks(chunks, syncServiceName, syncServiceType)
 	if len(statusChunks) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	_, err = r.gateway.StreamStatus(ctx, statusChunks)
-	return err
+	return len(chunks), err
 }
 
 func (r *SyncRuntime) buildResultsStatusChunks(
@@ -1249,20 +1273,34 @@ func compactJSONValue(value interface{}) string {
 }
 
 type syncChunkMeta struct {
-	syncServiceID string
-	runID         string
-	totalDevices  int
+	syncServiceID  string
+	runID          string
+	totalDevices   int
+	baseChunkIndex int
+	runFinalPage   bool
 }
 
-func buildSyncResultsChunks(updates []map[string]interface{}, source models.SourceConfig, runID string) ([]*proto.ResultsChunk, error) {
+func buildSyncResultsChunks(
+	updates []map[string]interface{},
+	source models.SourceConfig,
+	runID string,
+	runTotalDevices int,
+	baseChunkIndex int,
+	runFinalPage bool,
+) ([]*proto.ResultsChunk, error) {
 	if len(updates) == 0 {
 		return nil, nil
 	}
+	if runTotalDevices < len(updates) {
+		runTotalDevices = len(updates)
+	}
 
 	meta := syncChunkMeta{
-		syncServiceID: source.SyncServiceID,
-		runID:         runID,
-		totalDevices:  len(updates),
+		syncServiceID:  source.SyncServiceID,
+		runID:          runID,
+		totalDevices:   runTotalDevices,
+		baseChunkIndex: baseChunkIndex,
+		runFinalPage:   runFinalPage,
 	}
 
 	maxChunkSize, maxHosts := sweepResultsChunkLimits()
@@ -1275,8 +1313,8 @@ func buildSyncResultsChunks(updates []map[string]interface{}, source models.Sour
 	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
 
 	for idx, chunk := range chunkRanges {
-		isFinal := idx == totalChunks-1
-		applySyncMeta(chunk, meta, idx, totalChunks, isFinal)
+		isFinal := runFinalPage && idx == totalChunks-1
+		applySyncMeta(chunk, meta, meta.baseChunkIndex+idx, syncMetaTotalChunks(meta, totalChunks), isFinal)
 
 		payload, err := json.Marshal(chunk)
 		if err != nil {
@@ -1358,6 +1396,14 @@ func applySyncMeta(
 		}
 		update[syncMetaKey] = buildSyncMeta(meta, chunkIndex, totalChunks, isFinal)
 	}
+}
+
+func syncMetaTotalChunks(meta syncChunkMeta, pageTotalChunks int) int {
+	if meta.runFinalPage {
+		return meta.baseChunkIndex + pageTotalChunks
+	}
+
+	return 0
 }
 
 func buildSyncMeta(meta syncChunkMeta, chunkIndex int, totalChunks int, isFinal bool) map[string]interface{} {

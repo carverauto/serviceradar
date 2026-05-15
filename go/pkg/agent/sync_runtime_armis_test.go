@@ -487,22 +487,22 @@ func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
 			}
 		}
 		lastChunk := stream[len(stream)-1]
-		if !lastChunk.IsFinal {
-			t.Fatalf("stream %d last chunk is not final", streamIdx)
-		}
-		if lastChunk.ChunkIndex != lastChunk.TotalChunks-1 {
-			t.Fatalf(
-				"stream %d final chunk index = %d, total_chunks = %d",
-				streamIdx,
-				lastChunk.ChunkIndex,
-				lastChunk.TotalChunks,
-			)
+		if streamIdx == len(streams)-1 {
+			if !lastChunk.IsFinal {
+				t.Fatalf("final stream last chunk is not final")
+			}
+			assertSyncChunkRunTotal(t, lastChunk, totalDevices)
+		} else if lastChunk.IsFinal {
+			t.Fatalf("stream %d was marked final before the run completed", streamIdx)
 		}
 	}
 
 	if len(seen) != totalDevices {
 		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
 	}
+
+	finalStream := streams[len(streams)-1]
+	assertSyncChunkRunTotal(t, finalStream[len(finalStream)-1], totalDevices)
 }
 
 func TestRunArmisSyncReleaseGateStreamsMultipleQueriesAndRefreshesToken(t *testing.T) {
@@ -878,6 +878,34 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 		}
 	}
 	return deviceIDs
+}
+
+func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want int) {
+	t.Helper()
+	if len(chunk.Services) == 0 {
+		t.Fatal("final chunk has no services")
+	}
+
+	var updates []map[string]interface{}
+	if err := json.Unmarshal(chunk.Services[0].Message, &updates); err != nil {
+		t.Fatalf("decode final chunk: %v", err)
+	}
+	if len(updates) == 0 {
+		t.Fatal("final chunk has no updates")
+	}
+
+	meta, ok := updates[len(updates)-1]["sync_meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("final update missing sync_meta: %#v", updates[len(updates)-1])
+	}
+
+	got, ok := meta["total_devices"].(float64)
+	if !ok {
+		t.Fatalf("sync_meta total_devices = %#v", meta["total_devices"])
+	}
+	if int(got) != want {
+		t.Fatalf("sync_meta total_devices = %d, want %d", int(got), want)
+	}
 }
 
 func releaseGateArmisIP(deviceNumber int) string {

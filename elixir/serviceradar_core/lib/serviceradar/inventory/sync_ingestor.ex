@@ -1184,12 +1184,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp parse_timestamp(timestamp) when is_binary(timestamp) do
     case DateTime.from_iso8601(timestamp) do
-      {:ok, parsed, _offset} -> parsed
+      {:ok, parsed, _offset} -> DateTime.truncate(parsed, :second)
       _ -> nil
     end
   end
 
-  defp parse_timestamp(%DateTime{} = timestamp), do: timestamp
+  defp parse_timestamp(%DateTime{} = timestamp), do: DateTime.truncate(timestamp, :second)
 
   defp parse_timestamp(_timestamp), do: nil
 
