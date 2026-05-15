@@ -13,6 +13,7 @@
 - [x] 1.4.8 Drive the review-only IronRDP connector through a HYBRID_EX server confirm to prove the TLS upgrade boundary is reached before CredSSP.
 - [x] 1.4.9 Add a review-only downgrade test proving TLS-only server selection is rejected after the client advertises NLA-only posture.
 - [x] 1.4.10 Add a review-only pre-TLS credential exposure test proving the initial X.224 request includes the mstshash username cookie but not the cleartext password.
+- [x] 1.4.11 Add review-only negotiation branch tests proving HYBRID is accepted into the TLS/CredSSP boundary and standard RDP security is rejected.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.

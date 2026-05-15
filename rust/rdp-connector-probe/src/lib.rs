@@ -561,10 +561,35 @@ mod tests {
     }
 
     #[test]
+    fn server_hybrid_confirm_reaches_tls_upgrade_boundary_then_credssp() {
+        let boundary = crate::drive_connector_with_server_protocol(
+            open_request("EXAMPLE\\alice", "required"),
+            ironrdp_pdu::nego::SecurityProtocol::HYBRID,
+        )
+        .expect("boundary");
+
+        assert_eq!(boundary.after_confirm_state, "EnhancedSecurityUpgrade");
+        assert!(boundary.requires_security_upgrade);
+        assert_eq!(boundary.after_upgrade_state, "Credssp");
+        assert!(boundary.requires_credssp);
+    }
+
+    #[test]
     fn server_tls_only_confirm_is_rejected_as_downgrade() {
         let err = crate::drive_connector_with_server_protocol(
             open_request("EXAMPLE\\alice", "required"),
             ironrdp_pdu::nego::SecurityProtocol::SSL,
+        )
+        .unwrap_err();
+
+        assert_eq!(err, "server confirm step failed");
+    }
+
+    #[test]
+    fn server_standard_rdp_confirm_is_rejected() {
+        let err = crate::drive_connector_with_server_protocol(
+            open_request("EXAMPLE\\alice", "required"),
+            ironrdp_pdu::nego::SecurityProtocol::empty(),
         )
         .unwrap_err();
 
