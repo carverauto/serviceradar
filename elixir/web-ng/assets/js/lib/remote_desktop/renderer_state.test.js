@@ -9,6 +9,7 @@ import {
 import {
   applyCanvasTileFrame,
   createDirtyTileMask,
+  desktopMetadataAttachment,
   desktopFrameUploadPlan,
   dirtyTileMaskHas,
 } from "./renderer_state"
@@ -127,5 +128,56 @@ describe("remote desktop renderer state helpers", () => {
       })
     ).toBe(0)
     expect(calls).toEqual([])
+  })
+
+  it("keeps Arrow IPC metadata attachments separate from screen-pixel upload paths", () => {
+    const arrowBytes = new Uint8Array([255, 65, 82, 82, 79, 87])
+    const frame = parseDesktopMediaFrame(
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_METADATA,
+        metadata: {format: "arrow_ipc", role: "overlay", overlayId: "quota"},
+        payload: arrowBytes,
+      })
+    )
+
+    const attachment = desktopMetadataAttachment(frame)
+
+    expect(desktopFrameUploadPlan(frame)).toEqual([])
+    expect(attachment).toMatchObject({
+      role: "overlay",
+      format: "arrow_ipc",
+      metadata: {format: "arrow_ipc", role: "overlay", overlayId: "quota"},
+    })
+    expect(attachment.bytes.buffer).toBe(frame.payload.buffer)
+    expect(attachment.bytes.byteOffset).toBe(frame.payload.byteOffset)
+  })
+
+  it("rejects metadata attachments that try to masquerade as screen pixels", () => {
+    const frame = parseDesktopMediaFrame(
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_METADATA,
+        metadata: {format: "arrow_ipc", role: "screen_pixels"},
+        payload: new Uint8Array([1, 2, 3, 4]),
+      })
+    )
+
+    expect(desktopMetadataAttachment(frame)).toBeNull()
+    expect(desktopFrameUploadPlan(frame)).toEqual([])
+  })
+
+  it("does not treat Arrow IPC tile payloads as renderer upload descriptors", () => {
+    const frame = parseDesktopMediaFrame(
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "arrow_ipc",
+        metadata: {
+          format: "arrow_ipc",
+          tiles: [{x: 0, y: 0, width: 1, height: 1, payloadOffset: 0, payloadLength: 4}],
+        },
+        payload: new Uint8Array([1, 2, 3, 4]),
+      })
+    )
+
+    expect(desktopFrameUploadPlan(frame)).toEqual([])
   })
 })

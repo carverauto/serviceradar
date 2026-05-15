@@ -6,6 +6,8 @@ import {
 } from "./media_frame"
 
 const DEFAULT_TILE_SIZE = 64
+const ARROW_IPC_FORMAT = "arrow_ipc"
+const METADATA_ATTACHMENT_ROLES = new Set(["metadata", "stats", "audit_stats", "overlay", "frame_manifest"])
 
 function positiveInteger(value, fallback = 0) {
   return Number.isInteger(value) && value > 0 ? value : fallback
@@ -78,6 +80,10 @@ export function desktopFrameUploadPlan(frame) {
   }
 
   const metadata = parseDesktopMediaMetadata(frame) || {}
+  if (isArrowIPCFormat(frame.encoding) || isArrowIPCFormat(metadata.format) || isArrowIPCFormat(metadata.payloadFormat)) {
+    return []
+  }
+
   const payload = frame.payload || new Uint8Array(0)
   const regions = Array.isArray(metadata.tiles)
     ? metadata.tiles
@@ -86,6 +92,38 @@ export function desktopFrameUploadPlan(frame) {
       : []
 
   return regions.flatMap((region) => uploadDescriptor(region, payload, metadata.tileSize))
+}
+
+export function desktopMetadataAttachment(frame) {
+  if (!frame || frame.payloadFamily !== DESKTOP_PAYLOAD_METADATA) {
+    return null
+  }
+
+  const metadata = parseDesktopMediaMetadata(frame) || {}
+  const role = normalizeMetadataRole(metadata.role || metadata.kind)
+
+  if (!METADATA_ATTACHMENT_ROLES.has(role)) {
+    return null
+  }
+
+  return {
+    role,
+    format: normalizeMetadataFormat(metadata.format || metadata.contentType || metadata.content_type),
+    metadata,
+    bytes: frame.payload || new Uint8Array(0),
+  }
+}
+
+function normalizeMetadataRole(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim().toLowerCase() : "metadata"
+}
+
+function normalizeMetadataFormat(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim().toLowerCase() : "json"
+}
+
+function isArrowIPCFormat(value) {
+  return normalizeMetadataFormat(value).replaceAll("-", "_") === ARROW_IPC_FORMAT
 }
 
 function uploadDescriptor(region, payload, defaultTileSize) {
