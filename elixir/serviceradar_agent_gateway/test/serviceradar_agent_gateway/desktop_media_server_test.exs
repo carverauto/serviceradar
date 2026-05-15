@@ -537,6 +537,41 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
     assert session.sent_bytes == 0
   end
 
+  test "desktop media stream rejects frames after the session starts closing" do
+    stream = test_stream()
+    open_response = open_desktop_session!("desktop-stream-closing-1", "media-stream-closing-1", stream)
+
+    assert {:ok, closing} =
+             DesktopMediaSessionTracker.mark_closing(
+               "desktop-stream-closing-1",
+               "media-stream-closing-1",
+               "agent-1",
+               %{media_ingest_id: open_response.media_ingest_id, reason: "browser closed"}
+             )
+
+    assert closing.status == "closing"
+
+    assert_raise GRPC.RPCError, ~r/desktop media session is closing/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-closing-1",
+                 media_session_id: "media-stream-closing-1",
+                 media_ingest_id: open_response.media_ingest_id,
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+  end
+
   test "desktop media stream rejects frames above the session chunk limit" do
     stream = test_stream()
 

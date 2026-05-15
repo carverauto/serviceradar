@@ -231,6 +231,23 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
 
     assert closing.status == "closing"
     assert closing.close_reason == "browser closed"
+
+    assert {:error, :session_closing} =
+             DesktopMediaSessionTracker.record_frame("desktop-close-ack-1", "media-close-ack-1", "agent-1", %{
+               sequence: 1,
+               credit_cost: 1
+             })
+
+    assert {:error, :session_closing} =
+             DesktopMediaSessionTracker.apply_ack("desktop-close-ack-1", "media-close-ack-1", %{
+               last_accepted_sequence: 1,
+               credit_bytes: 1
+             })
+
+    assert {:error, :session_closing} =
+             DesktopMediaSessionTracker.heartbeat("desktop-close-ack-1", "media-close-ack-1", "agent-1", %{})
+
+    assert :ok = DesktopMediaSessionTracker.close_session("desktop-close-ack-1", "media-close-ack-1", "agent-1", %{})
   end
 
   test "enforces per-agent and per-gateway desktop media session limits" do
