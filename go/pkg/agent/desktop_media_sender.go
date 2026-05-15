@@ -198,7 +198,7 @@ func (s *desktopMediaGatewaySender) Close(ctx context.Context, reason string) er
 		defer s.sendMu.Unlock()
 
 		s.closed = true
-		reason = strings.TrimSpace(reason)
+		reason = normalizeDesktopMediaTerminalReason(reason)
 		closeMsg := &proto.DesktopMediaClientMessage{
 			Message: &proto.DesktopMediaClientMessage_Close{
 				Close: &proto.DesktopMediaStreamClose{
@@ -310,11 +310,37 @@ func (s *desktopMediaGatewaySender) recvLoop() {
 		}
 
 		if closeMsg := msg.GetClose(); closeMsg != nil {
-			s.recvErr <- fmt.Errorf("%w: %s", errDesktopMediaStreamClosed, strings.TrimSpace(closeMsg.GetReason()))
+			reason := normalizeDesktopMediaTerminalReason(closeMsg.GetReason())
+			if reason == "" {
+				reason = "desktop media stream closed"
+			}
+			s.recvErr <- fmt.Errorf("%w: %s", errDesktopMediaStreamClosed, reason)
 
 			return
 		}
 	}
+}
+
+func normalizeDesktopMediaTerminalReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		next := string(r)
+		if out.Len()+len(next) > remoteaccess.DesktopMediaMaxCloseReason {
+			break
+		}
+		out.WriteString(next)
+	}
+
+	return strings.TrimSpace(out.String())
 }
 
 func (s *desktopMediaGatewaySender) handleAck(ctx context.Context, ack remoteaccess.DesktopMediaAck) error {

@@ -87,6 +87,7 @@
 - [x] 3.1.42 Wrap adapter-facing desktop media senders with the session guard so SRDP frames are validated before entering the dedicated media stream.
 - [x] 3.1.43 Add an agent-side desktop media gateway sender that opens the route-bound gRPC media session, maps SRDP frames to protobuf chunks, and routes gateway acknowledgements.
 - [x] 3.1.44 Route browser/gateway desktop media acknowledgements through the adapter-facing session guard before concrete RDP adapters can consume backpressure state.
+- [x] 3.1.45 Normalize and cap desktop media gateway close reasons on both outbound close requests and inbound gateway close notifications.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -249,6 +250,7 @@
 - [x] 5.6.31 Add focused Elixir tests proving the desktop media manager can still fail closed when the WebRTC offer provider is explicitly disabled.
 - [x] 5.6.32 Add focused Go tests proving the agent desktop media gateway sender opens sessions, forwards chunks, handles acks, enforces chunk limits, and closes idempotently.
 - [x] 5.6.33 Add focused Go tests proving adapter-facing desktop media acknowledgements are route/session validated before reaching concrete adapter backpressure handlers.
+- [x] 5.6.34 Add focused Go tests proving desktop media gateway close reasons are normalized and capped in both directions.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

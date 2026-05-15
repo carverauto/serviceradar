@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -235,6 +236,80 @@ func TestDesktopMediaGatewaySenderCloseIsIdempotent(t *testing.T) {
 	})
 	if !errors.Is(err, errDesktopMediaStreamClosed) {
 		t.Fatalf("post-close send error = %v, want %v", err, errDesktopMediaStreamClosed)
+	}
+}
+
+func TestDesktopMediaGatewaySenderNormalizesCloseReason(t *testing.T) {
+	t.Parallel()
+
+	stream := newFakeDesktopMediaStream()
+	gateway := &fakeDesktopMediaGateway{
+		openResp: acceptedDesktopMediaOpenResponse(),
+		stream:   stream,
+	}
+	sender, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		gateway,
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("newDesktopMediaGatewaySender returned error: %v", err)
+	}
+
+	reason := " operator\nclosed\t" + strings.Repeat("x", remoteaccess.DesktopMediaMaxCloseReason)
+	if err := sender.Close(context.Background(), reason); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	closeMsg := stream.sent[0].GetClose()
+	if closeMsg == nil {
+		t.Fatal("sent message did not contain close")
+	}
+	if strings.ContainsAny(closeMsg.GetReason(), "\n\t") ||
+		strings.ContainsAny(gateway.closeReq.GetReason(), "\n\t") {
+		t.Fatalf("close reasons were not normalized: stream=%q gateway=%q", closeMsg.GetReason(), gateway.closeReq.GetReason())
+	}
+	if len(closeMsg.GetReason()) > remoteaccess.DesktopMediaMaxCloseReason ||
+		len(gateway.closeReq.GetReason()) > remoteaccess.DesktopMediaMaxCloseReason {
+		t.Fatalf("close reasons were not capped: stream=%d gateway=%d", len(closeMsg.GetReason()), len(gateway.closeReq.GetReason()))
+	}
+}
+
+func TestDesktopMediaGatewaySenderNormalizesInboundCloseReason(t *testing.T) {
+	t.Parallel()
+
+	stream := newFakeDesktopMediaStream()
+	sender, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		&fakeDesktopMediaGateway{
+			openResp: acceptedDesktopMediaOpenResponse(),
+			stream:   stream,
+		},
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("newDesktopMediaGatewaySender returned error: %v", err)
+	}
+
+	reason := " gateway\nclosed\t" + strings.Repeat("x", remoteaccess.DesktopMediaMaxCloseReason)
+	stream.recv <- &proto.DesktopMediaServerMessage{
+		Message: &proto.DesktopMediaServerMessage_Close{
+			Close: &proto.DesktopMediaStreamClose{Reason: reason},
+		},
+	}
+
+	select {
+	case err := <-sender.RecvErr():
+		if !errors.Is(err, errDesktopMediaStreamClosed) {
+			t.Fatalf("recv error = %v, want %v", err, errDesktopMediaStreamClosed)
+		}
+		if strings.ContainsAny(err.Error(), "\n\t") {
+			t.Fatalf("recv close reason was not normalized: %q", err.Error())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for inbound close error")
 	}
 }
 
