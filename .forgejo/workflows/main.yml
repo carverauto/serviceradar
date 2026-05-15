@@ -6,12 +6,16 @@ on:
       - staging
   pull_request:
 
+env:
+  ImageOS: ubuntu24
+
 jobs:
   build:
     runs-on: serviceradar-ubuntu-24.04
     permissions:
       contents: read
     env:
+      ImageOS: ubuntu24
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}

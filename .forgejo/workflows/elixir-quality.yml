@@ -34,10 +34,15 @@ on:
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
 
+env:
+  ImageOS: ubuntu24
+
 jobs:
   quality:
     name: Elixir Quality (${{ matrix.name }})
     runs-on: serviceradar-ubuntu-24.04
+    env:
+      ImageOS: ubuntu24
     strategy:
       fail-fast: false
       matrix:

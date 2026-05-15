@@ -39,6 +39,9 @@ on:
     tags:
       - "palisade-v*"
 
+env:
+  ImageOS: ubuntu24
+
 jobs:
   publish:
     name: Publish palisade to hex.pm
@@ -47,6 +50,7 @@ jobs:
       run:
         working-directory: elixir/palisade
     env:
+      ImageOS: ubuntu24
       MIX_ENV: test
     steps:
       - name: Checkout
