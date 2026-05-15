@@ -233,6 +233,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
     case session_tracker().fetch_session(desktop_session_id, agent_id) do
       {:ok, %{media_session_id: ^media_session_id} = session} ->
+        enforce_frame_media_ingest!(frame, session)
         enforce_frame_size!(frame, session)
         {agent_id, session}
 
@@ -249,6 +250,12 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     error in ArgumentError ->
       reraise GRPC.RPCError.exception(status: :invalid_argument, message: Exception.message(error)),
               __STACKTRACE__
+  end
+
+  defp enforce_frame_media_ingest!(frame, session) do
+    if default_ack_id(frame.media_ingest_id, session.media_ingest_id) != session.media_ingest_id do
+      raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
+    end
   end
 
   defp enforce_frame_size!(frame, session) do

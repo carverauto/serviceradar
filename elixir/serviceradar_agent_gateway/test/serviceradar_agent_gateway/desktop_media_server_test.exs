@@ -488,7 +488,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
 
   test "desktop media stream validates frame media binding before forwarding gate" do
     stream = test_stream()
-    open_desktop_session!("desktop-stream-media-mismatch-1", "media-stream-owner-1", stream)
+    open_response = open_desktop_session!("desktop-stream-media-mismatch-1", "media-stream-owner-1", stream)
 
     assert_raise GRPC.RPCError, ~r/media_session_id mismatch/, fn ->
       DesktopMediaServer.stream_desktop_media(
@@ -508,6 +508,33 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
         stream
       )
     end
+
+    assert_raise GRPC.RPCError, ~r/media_ingest_id mismatch/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-media-mismatch-1",
+                 media_session_id: "media-stream-owner-1",
+                 media_ingest_id: "media-ingest-other",
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session("desktop-stream-media-mismatch-1", "agent-1")
+
+    assert session.media_ingest_id == open_response.media_ingest_id
+    assert session.last_sequence == 0
+    assert session.sent_bytes == 0
   end
 
   test "desktop media stream rejects frames above the session chunk limit" do
