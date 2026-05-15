@@ -230,6 +230,117 @@ func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterRoutesMediaAcks(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	if mediaSender.ackHandler == nil {
+		t.Fatal("media ack handler was not registered")
+	}
+
+	ack := remoteaccess.DesktopMediaAck{
+		SessionBindingID: "desktop-session-1",
+		MediaSessionID:   "media-session-1",
+		LastAcceptedSeq:  7,
+		CreditBytes:      8192,
+		QualityLevel:     remoteaccess.DesktopMediaQualityLow,
+		Pause:            true,
+	}
+	if err := mediaSender.ackHandler(context.Background(), ack); err != nil {
+		t.Fatalf("ack handler returned error: %v", err)
+	}
+
+	ackFrame := transport.sentFrame(t, 1)
+	if ackFrame.Type != desktopRDPHelperMessageAck {
+		t.Fatalf("ack frame type = %d, want %d", ackFrame.Type, desktopRDPHelperMessageAck)
+	}
+
+	got, err := remoteaccess.DecodeDesktopMediaAckMessage(
+		ackFrame.Payload,
+		"desktop-session-1",
+		"media-session-1",
+	)
+	if err != nil {
+		t.Fatalf("DecodeDesktopMediaAckMessage returned error: %v", err)
+	}
+	if got.LastAcceptedSeq != ack.LastAcceptedSeq ||
+		got.CreditBytes != ack.CreditBytes ||
+		got.QualityLevel != ack.QualityLevel ||
+		!got.Pause {
+		t.Fatalf("ack payload = %#v, want %#v", got, ack)
+	}
+}
+
+func TestDesktopRDPHelperAdapterClearsSerializedAckPayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	transport.copySent = false
+	mediaSender := &fakeDesktopRDPHelperMediaSender{}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	ack := remoteaccess.DesktopMediaAck{
+		SessionBindingID: "desktop-session-1",
+		MediaSessionID:   "media-session-1",
+		LastAcceptedSeq:  7,
+		CreditBytes:      8192,
+		CloseReason:      "browser close",
+	}
+	if err := mediaSender.ackHandler(context.Background(), ack); err != nil {
+		t.Fatalf("ack handler returned error: %v", err)
+	}
+
+	ackFrame := transport.sentFrame(t, 1)
+	if bytes.Contains(ackFrame.Payload, []byte("browser close")) {
+		t.Fatalf("ack payload retained serialized close reason: %q", string(ackFrame.Payload))
+	}
+	if !allZeroBytes(ackFrame.Payload) {
+		t.Fatalf("ack payload was not cleared: %q", string(ackFrame.Payload))
+	}
+}
+
+func TestDesktopRDPHelperAdapterRejectsMediaAcksAfterHelperClose(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageClose}
+
+	select {
+	case <-session.(*desktopRDPHelperSession).done:
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		t.Fatalf("helper session returned error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper close")
+	}
+
+	err = mediaSender.ackHandler(context.Background(), remoteaccess.DesktopMediaAck{
+		SessionBindingID: "desktop-session-1",
+		MediaSessionID:   "media-session-1",
+		LastAcceptedSeq:  7,
+		CreditBytes:      8192,
+	})
+	if !errors.Is(err, errDesktopRDPHelperClosed) {
+		t.Fatalf("post-close ack error = %v, want %v", err, errDesktopRDPHelperClosed)
+	}
+}
+
 func openTestDesktopRDPHelperSession(
 	t *testing.T,
 	transport *fakeDesktopRDPHelperTransport,
@@ -362,8 +473,9 @@ func allZeroBytes(data []byte) bool {
 }
 
 type fakeDesktopRDPHelperMediaSender struct {
-	frames chan remoteaccess.DesktopMediaFrame
-	err    error
+	frames     chan remoteaccess.DesktopMediaFrame
+	ackHandler remoteaccess.DesktopMediaAckHandler
+	err        error
 }
 
 func (s *fakeDesktopRDPHelperMediaSender) SendDesktopMediaFrame(_ context.Context, frame remoteaccess.DesktopMediaFrame) error {
@@ -375,6 +487,10 @@ func (s *fakeDesktopRDPHelperMediaSender) SendDesktopMediaFrame(_ context.Contex
 	}
 
 	return nil
+}
+
+func (s *fakeDesktopRDPHelperMediaSender) SetDesktopMediaAckHandler(handler remoteaccess.DesktopMediaAckHandler) {
+	s.ackHandler = handler
 }
 
 func TestDesktopRDPHelperAdapterReportsHelperErrors(t *testing.T) {

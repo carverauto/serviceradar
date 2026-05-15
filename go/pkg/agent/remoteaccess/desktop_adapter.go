@@ -35,6 +35,14 @@ type DesktopMediaSender interface {
 	SendDesktopMediaFrame(context.Context, DesktopMediaFrame) error
 }
 
+type DesktopMediaAckHandler func(context.Context, DesktopMediaAck) error
+
+// DesktopMediaAckHandlerRegistrar lets adapter-facing media sinks route
+// browser/gateway backpressure acknowledgements back to protocol adapters.
+type DesktopMediaAckHandlerRegistrar interface {
+	SetDesktopMediaAckHandler(DesktopMediaAckHandler)
+}
+
 // DesktopAdapterInput receives browser control/input frames after the session
 // guard has validated route, lifetime, redirection, and quota policy.
 type DesktopAdapterInput interface {
@@ -228,6 +236,24 @@ func (s *guardedDesktopMediaSender) SendDesktopMediaFrame(ctx context.Context, f
 	return s.inner.SendDesktopMediaFrame(ctx, frame)
 }
 
+func (s *guardedDesktopMediaSender) SetDesktopMediaAckHandler(handler DesktopMediaAckHandler) {
+	registrar, ok := s.inner.(DesktopMediaAckHandlerRegistrar)
+	if !ok {
+		return
+	}
+
+	registrar.SetDesktopMediaAckHandler(func(ctx context.Context, ack DesktopMediaAck) error {
+		if err := s.state.validateMediaAck(ack); err != nil {
+			return err
+		}
+		if handler == nil {
+			return nil
+		}
+
+		return handler(ctx, ack)
+	})
+}
+
 func (s *guardedDesktopAdapterState) validateFrame(frame DesktopFrame) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -257,6 +283,26 @@ func (s *guardedDesktopAdapterState) validateMediaFrame(frame DesktopMediaFrame)
 	}
 	if err := s.guard.ValidateMediaFrame(
 		frame,
+		s.localAgentID,
+		s.currentGatewayID,
+		s.nowUnix(),
+	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *guardedDesktopAdapterState) validateMediaAck(ack DesktopMediaAck) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return ErrDesktopAdapterClosed
+	}
+	if err := s.guard.ValidateMediaAck(
+		ack,
+		ack.MediaSessionID,
 		s.localAgentID,
 		s.currentGatewayID,
 		s.nowUnix(),

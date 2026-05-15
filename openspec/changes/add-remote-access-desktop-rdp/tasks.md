@@ -86,6 +86,7 @@
 - [x] 3.1.41 Make the supervised core-elx DataChannel provider the default desktop WebRTC offer provider so runtime sessions do not depend on an out-of-band app-env knob.
 - [x] 3.1.42 Wrap adapter-facing desktop media senders with the session guard so SRDP frames are validated before entering the dedicated media stream.
 - [x] 3.1.43 Add an agent-side desktop media gateway sender that opens the route-bound gRPC media session, maps SRDP frames to protobuf chunks, and routes gateway acknowledgements.
+- [x] 3.1.44 Route browser/gateway desktop media acknowledgements through the adapter-facing session guard before concrete RDP adapters can consume backpressure state.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -100,6 +101,7 @@
 - [x] 3.2.11 Add an RDP helper capability probe and keep agent RDP capability advertisement disabled until the helper explicitly reports a ready connector.
 - [x] 3.2.12 Add the IronRDP feature backend's non-secret connection plan for registered upstream endpoint, TLS server identity, and screen dimensions while keeping credentials out of copied connector-owned state.
 - [x] 3.2.13 Require RDP helper capability probes to fail closed unless the IronRDP backend is linked as well as connector-ready.
+- [x] 3.2.14 Route validated desktop media acknowledgements from the Go adapter into the RDP helper IPC acknowledgement channel for end-to-end backpressure.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -179,6 +181,7 @@
 - [x] 5.2.25 Add focused Go tests proving serialized RDP helper input and close payload buffers are zeroed after IPC handoff.
 - [x] 5.2.26 Add focused Go tests proving helper-reported errors close the RDP helper session and reject subsequent browser input.
 - [x] 5.2.27 Add focused Go tests proving helper-initiated close frames close the session, reject subsequent browser input, and keep manager cleanup idempotent.
+- [x] 5.2.28 Add focused Go tests proving RDP helper media acknowledgements are forwarded over the helper ack channel, cleared after IPC handoff, and rejected after terminal close.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
@@ -223,6 +226,7 @@
 - [x] 5.6.30 Add focused Elixir tests proving the core-elx DataChannel provider emits offers, creates media/control DataChannels, gates frame sends on channel-open state, and routes browser acks to the signaling owner.
 - [x] 5.6.31 Add focused Elixir tests proving the desktop media manager can still fail closed when the WebRTC offer provider is explicitly disabled.
 - [x] 5.6.32 Add focused Go tests proving the agent desktop media gateway sender opens sessions, forwards chunks, handles acks, enforces chunk limits, and closes idempotently.
+- [x] 5.6.33 Add focused Go tests proving adapter-facing desktop media acknowledgements are route/session validated before reaching concrete adapter backpressure handlers.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

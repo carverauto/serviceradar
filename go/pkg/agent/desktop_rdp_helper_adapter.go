@@ -62,6 +62,11 @@ type desktopRDPHelperClosePayload struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+type desktopRDPHelperAckPayload struct {
+	Type string `json:"type"`
+	remoteaccess.DesktopMediaAck
+}
+
 func (a desktopRDPHelperAdapter) Open(
 	ctx context.Context,
 	req remoteaccess.DesktopAdapterOpenRequest,
@@ -126,6 +131,9 @@ func (a desktopRDPHelperAdapter) Open(
 		done:        make(chan struct{}),
 		errCh:       make(chan error, 1),
 	}
+	if registrar, ok := req.MediaSender.(remoteaccess.DesktopMediaAckHandlerRegistrar); ok {
+		registrar.SetDesktopMediaAckHandler(session.SendDesktopMediaAck)
+	}
 	go session.readLoop()
 
 	return session, nil
@@ -152,6 +160,22 @@ func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remo
 
 	return s.send(desktopRDPHelperFrame{
 		Type:    desktopRDPHelperMessageInput,
+		Payload: payload,
+	})
+}
+
+func (s *desktopRDPHelperSession) SendDesktopMediaAck(_ context.Context, ack remoteaccess.DesktopMediaAck) error {
+	payload, err := json.Marshal(desktopRDPHelperAckPayload{
+		Type:            remoteaccess.DesktopMediaControlTypeAck,
+		DesktopMediaAck: ack,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: encode helper media ack: %w", remoteaccess.ErrInvalidDesktopMediaAck, err)
+	}
+	defer clearBytes(payload)
+
+	return s.send(desktopRDPHelperFrame{
+		Type:    desktopRDPHelperMessageAck,
 		Payload: payload,
 	})
 }

@@ -65,12 +65,11 @@ type desktopMediaGatewaySenderConfig struct {
 	RequestedMaxChunkBytes      uint32
 }
 
-type desktopMediaAckHandler func(context.Context, remoteaccess.DesktopMediaAck) error
-
 type desktopMediaGatewaySender struct {
 	stream        desktopMediaStream
 	gateway       desktopMediaGateway
-	ackHandler    desktopMediaAckHandler
+	ackHandler    remoteaccess.DesktopMediaAckHandler
+	ackMu         sync.RWMutex
 	recvDone      chan struct{}
 	recvErr       chan error
 	desktopID     string
@@ -89,7 +88,7 @@ func newDesktopMediaGatewaySender(
 	ctx context.Context,
 	gateway desktopMediaGateway,
 	cfg desktopMediaGatewaySenderConfig,
-	ackHandler desktopMediaAckHandler,
+	ackHandler remoteaccess.DesktopMediaAckHandler,
 ) (*desktopMediaGatewaySender, error) {
 	if gateway == nil {
 		return nil, errDesktopMediaGatewayRequired
@@ -236,6 +235,16 @@ func (s *desktopMediaGatewaySender) RecvErr() <-chan error {
 	return s.recvErr
 }
 
+func (s *desktopMediaGatewaySender) SetDesktopMediaAckHandler(handler remoteaccess.DesktopMediaAckHandler) {
+	if s == nil {
+		return
+	}
+
+	s.ackMu.Lock()
+	s.ackHandler = handler
+	s.ackMu.Unlock()
+}
+
 func (s *desktopMediaGatewaySender) validateFrame(frame remoteaccess.DesktopMediaFrame) error {
 	if frame.SessionBindingID != s.desktopID {
 		return fmt.Errorf("%w: desktop session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
@@ -293,12 +302,10 @@ func (s *desktopMediaGatewaySender) recvLoop() {
 				Resume:           ack.GetResume(),
 				CloseReason:      ack.GetCloseReason(),
 			}
-			if s.ackHandler != nil {
-				if err := s.ackHandler(context.Background(), converted); err != nil {
-					s.recvErr <- err
+			if err := s.handleAck(context.Background(), converted); err != nil {
+				s.recvErr <- err
 
-					return
-				}
+				return
 			}
 		}
 
@@ -308,6 +315,18 @@ func (s *desktopMediaGatewaySender) recvLoop() {
 			return
 		}
 	}
+}
+
+func (s *desktopMediaGatewaySender) handleAck(ctx context.Context, ack remoteaccess.DesktopMediaAck) error {
+	s.ackMu.RLock()
+	handler := s.ackHandler
+	s.ackMu.RUnlock()
+
+	if handler == nil {
+		return nil
+	}
+
+	return handler(ctx, ack)
 }
 
 func normalizeDesktopMediaGatewaySenderConfig(

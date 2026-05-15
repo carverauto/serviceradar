@@ -81,6 +81,15 @@ func (s *desktopMediaSenderStub) SendDesktopMediaFrame(_ context.Context, frame 
 	return nil
 }
 
+type desktopMediaAckSenderStub struct {
+	desktopMediaSenderStub
+	handler DesktopMediaAckHandler
+}
+
+func (s *desktopMediaAckSenderStub) SetDesktopMediaAckHandler(handler DesktopMediaAckHandler) {
+	s.handler = handler
+}
+
 func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +253,67 @@ func TestDesktopAdapterRuntimeGuardsMediaFrames(t *testing.T) {
 	}
 	if len(mediaSender.frames) != 1 {
 		t.Fatalf("invalid media frame was forwarded: %#v", mediaSender.frames)
+	}
+}
+
+func TestDesktopAdapterRuntimeGuardsMediaAcks(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	adapter := &desktopAdapterStub{}
+	mediaSender := &desktopMediaAckSenderStub{}
+	session, err := (DesktopAdapterRuntime{
+		LocalAgentID:     desktopTestAgentID,
+		CurrentGatewayID: "gateway-1",
+		NowUnix:          func() int64 { return 1_778_000_000 },
+		Adapter:          adapter,
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), mediaSender)
+	if err != nil {
+		t.Fatalf("OpenRDP returned error: %v", err)
+	}
+
+	registrar, ok := adapter.request.MediaSender.(DesktopMediaAckHandlerRegistrar)
+	if !ok {
+		t.Fatal("adapter media sender does not expose ack handler registration")
+	}
+
+	var received []DesktopMediaAck
+	registrar.SetDesktopMediaAckHandler(func(_ context.Context, ack DesktopMediaAck) error {
+		received = append(received, ack)
+
+		return nil
+	})
+	if mediaSender.handler == nil {
+		t.Fatal("inner media sender did not receive ack handler")
+	}
+
+	validAck := DesktopMediaAck{
+		SessionBindingID: fakeRemoteSessionID,
+		MediaSessionID:   "media-1",
+		LastAcceptedSeq:  1,
+		CreditBytes:      4096,
+	}
+	if err := mediaSender.handler(context.Background(), validAck); err != nil {
+		t.Fatalf("valid ack handler returned error: %v", err)
+	}
+	if len(received) != 1 || received[0].LastAcceptedSeq != validAck.LastAcceptedSeq {
+		t.Fatalf("received acks = %#v", received)
+	}
+
+	invalidAck := validAck
+	invalidAck.SessionBindingID = "other-session"
+	if err := mediaSender.handler(context.Background(), invalidAck); !errors.Is(err, ErrInvalidDesktopMediaAck) {
+		t.Fatalf("invalid ack error = %v, want %v", err, ErrInvalidDesktopMediaAck)
+	}
+	if len(received) != 1 {
+		t.Fatalf("invalid ack was forwarded: %#v", received)
+	}
+
+	if err := session.Close(context.Background(), "operator"); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if err := mediaSender.handler(context.Background(), validAck); !errors.Is(err, ErrDesktopAdapterClosed) {
+		t.Fatalf("post-close ack error = %v, want %v", err, ErrDesktopAdapterClosed)
 	}
 }
 
