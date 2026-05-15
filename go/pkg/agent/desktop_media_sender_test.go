@@ -240,6 +240,20 @@ func TestDesktopMediaGatewaySenderRejectsInvalidFrames(t *testing.T) {
 	if err := sender.SendDesktopMediaFrame(context.Background(), frame); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
 		t.Fatalf("media mismatch error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
 	}
+
+	frame.MediaSessionID = testDesktopMediaID
+	frame.PayloadFamily = "unknown"
+	if err := sender.SendDesktopMediaFrame(context.Background(), frame); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("payload-family error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+
+	frame.PayloadFamily = remoteaccess.DesktopMediaPayloadTile
+	frame.Width = remoteaccess.DesktopMaxWidth + 1
+	frame.Height = 1
+	if err := sender.SendDesktopMediaFrame(context.Background(), frame); !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("dimension error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+	}
+
 	if len(stream.sent) != 0 {
 		t.Fatalf("invalid frame was forwarded: %#v", stream.sent)
 	}
@@ -320,6 +334,9 @@ func TestDesktopMediaGatewaySenderCloseIsIdempotent(t *testing.T) {
 	err = sender.SendDesktopMediaFrame(context.Background(), remoteaccess.DesktopMediaFrame{
 		SessionBindingID: testDesktopMediaSessionID,
 		MediaSessionID:   testDesktopMediaID,
+		PayloadFamily:    remoteaccess.DesktopMediaPayloadTile,
+		Width:            1,
+		Height:           1,
 	})
 	if !errors.Is(err, errDesktopMediaStreamClosed) {
 		t.Fatalf("post-close send error = %v, want %v", err, errDesktopMediaStreamClosed)

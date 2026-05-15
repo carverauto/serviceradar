@@ -255,6 +255,9 @@ func (s *desktopMediaGatewaySender) validateFrame(frame remoteaccess.DesktopMedi
 	if frame.MediaSessionID != s.mediaID {
 		return fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
 	}
+	if err := remoteaccess.ValidateDesktopMediaFrame(frame, desktopMediaGatewaySenderValidationPolicy()); err != nil {
+		return err
+	}
 
 	cost := uint64(len(frame.Metadata)) + uint64(len(frame.Payload))
 	if cost > uint64(s.maxChunkBytes) {
@@ -422,5 +425,12 @@ func desktopMediaQualityFromProto(quality uint32) string {
 		return remoteaccess.DesktopMediaQualityLow
 	default:
 		return remoteaccess.DesktopMediaQualityAuto
+	}
+}
+
+func desktopMediaGatewaySenderValidationPolicy() remoteaccess.DesktopScreenPolicy {
+	return remoteaccess.DesktopScreenPolicy{
+		MaxWidth:  remoteaccess.DesktopMaxWidth,
+		MaxHeight: remoteaccess.DesktopMaxHeight,
 	}
 }
