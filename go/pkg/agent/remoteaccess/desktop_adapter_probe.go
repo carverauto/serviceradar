@@ -119,6 +119,9 @@ func validateRDPAdapterCapabilities(capabilities RDPAdapterCapabilities) error {
 	if capabilities.HelperProtocolVersion < RDPAdapterMinProtocolVersion {
 		return fmt.Errorf("%w: unsupported helper protocol version", ErrDesktopAdapterUnavailable)
 	}
+	if !capabilities.IronRDPBackendLinked {
+		return fmt.Errorf("%w: ironrdp backend not linked", ErrDesktopAdapterUnavailable)
+	}
 	if !capabilities.ConnectorReady {
 		return fmt.Errorf("%w: connector not ready", ErrDesktopAdapterUnavailable)
 	}

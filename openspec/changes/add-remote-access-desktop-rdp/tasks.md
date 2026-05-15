@@ -99,6 +99,7 @@
 - [x] 3.2.10 Add a Rust helper backend session seam so post-open input, acknowledgement, and close frames route through an active adapter session instead of being rejected as pre-open traffic.
 - [x] 3.2.11 Add an RDP helper capability probe and keep agent RDP capability advertisement disabled until the helper explicitly reports a ready connector.
 - [x] 3.2.12 Add the IronRDP feature backend's non-secret connection plan for registered upstream endpoint, TLS server identity, and screen dimensions while keeping credentials out of copied connector-owned state.
+- [x] 3.2.13 Require RDP helper capability probes to fail closed unless the IronRDP backend is linked as well as connector-ready.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -168,6 +169,7 @@
 - [x] 5.2.20 Add focused Rust helper tests proving domain-qualified memory-user credentials split into redacted zeroizing connector-prep fields.
 - [x] 5.2.21 Add focused Rust helper tests proving memory-user grants without exact session/target bindings are rejected before adapter use.
 - [x] 5.2.22 Add focused Go tests proving memory-user credential grants without explicit bindings or with mismatched session bindings fail before adapter/helper use.
+- [x] 5.2.23 Add focused Go tests proving RDP helpers cannot advertise ready when the IronRDP backend is not linked.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

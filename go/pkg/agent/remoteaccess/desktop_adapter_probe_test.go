@@ -57,7 +57,7 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	readyPath := writeRDPAdapterProbeScript(t, dir, "ready", true)
+	readyPath := writeRDPAdapterProbeScript(t, dir, "ready", true, true)
 	resolved, capabilities, err := ProbeRDPAdapterCapabilities(context.Background(), readyPath)
 	if err != nil {
 		t.Fatalf("ProbeRDPAdapterCapabilities returned error: %v", err)
@@ -69,7 +69,15 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 		t.Fatal("RDPAdapterReady returned false for ready helper")
 	}
 
-	notReadyPath := writeRDPAdapterProbeScript(t, dir, "not-ready", false)
+	unlinkedPath := writeRDPAdapterProbeScript(t, dir, "unlinked", false, true)
+	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), unlinkedPath); !errors.Is(err, ErrDesktopAdapterUnavailable) {
+		t.Fatalf("unlinked helper error = %v, want %v", err, ErrDesktopAdapterUnavailable)
+	}
+	if RDPAdapterReady(unlinkedPath) {
+		t.Fatal("RDPAdapterReady returned true for helper without IronRDP backend")
+	}
+
+	notReadyPath := writeRDPAdapterProbeScript(t, dir, "not-ready", true, false)
 	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), notReadyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) {
 		t.Fatalf("not-ready helper error = %v, want %v", err, ErrDesktopAdapterUnavailable)
 	}
@@ -78,17 +86,21 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 	}
 }
 
-func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, ready bool) string {
+func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, linked, ready bool) string {
 	tb.Helper()
 
 	path := filepath.Join(dir, name)
+	linkedValue := "false"
+	if linked {
+		linkedValue = "true"
+	}
 	readyValue := "false"
 	if ready {
 		readyValue = "true"
 	}
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"--capabilities\" ]; then\n" +
-		"  echo '{\"schema\":\"serviceradar.rdp.helper.capabilities.v1\",\"protocol\":\"rdp\",\"helper_protocol_version\":1,\"ironrdp_backend_linked\":true,\"connector_ready\":" + readyValue + "}'\n" +
+		"  echo '{\"schema\":\"serviceradar.rdp.helper.capabilities.v1\",\"protocol\":\"rdp\",\"helper_protocol_version\":1,\"ironrdp_backend_linked\":" + linkedValue + ",\"connector_ready\":" + readyValue + "}'\n" +
 		"  exit 0\n" +
 		"fi\n" +
 		"exit 0\n"
