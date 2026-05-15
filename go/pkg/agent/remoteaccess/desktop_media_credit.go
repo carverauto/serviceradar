@@ -163,11 +163,31 @@ func (w *DesktopMediaCreditWindow) applyAckControl(ack DesktopMediaAck) {
 	if ack.QualityLevel != "" {
 		w.qualityLevel = ack.QualityLevel
 	}
-	if closeReason := strings.TrimSpace(ack.CloseReason); closeReason != "" {
+	if closeReason := normalizeDesktopMediaAckCloseReason(ack.CloseReason); closeReason != "" {
 		w.closeReason = closeReason
 	}
 }
 
 func mediaFrameCreditCost(frame DesktopMediaFrame) uint64 {
 	return uint64(len(frame.Metadata)) + uint64(len(frame.Payload))
+}
+
+func normalizeDesktopMediaAckCloseReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var normalized strings.Builder
+	normalized.Grow(len(reason))
+
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		normalized.WriteRune(r)
+	}
+
+	return strings.TrimSpace(normalized.String())
 }

@@ -89,6 +89,7 @@
 - [x] 3.1.44 Route browser/gateway desktop media acknowledgements through the adapter-facing session guard before concrete RDP adapters can consume backpressure state.
 - [x] 3.1.45 Normalize and cap desktop media gateway close reasons on both outbound close requests and inbound gateway close notifications.
 - [x] 3.1.46 Validate desktop media gateway acknowledgements at the sender boundary before invoking registered handlers.
+- [x] 3.1.47 Normalize desktop media acknowledgement close reasons before storing sender credit-window terminal state.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -253,6 +254,7 @@
 - [x] 5.6.33 Add focused Go tests proving adapter-facing desktop media acknowledgements are route/session validated before reaching concrete adapter backpressure handlers.
 - [x] 5.6.34 Add focused Go tests proving desktop media gateway close reasons are normalized and capped in both directions.
 - [x] 5.6.35 Add focused Go tests proving invalid desktop media gateway acknowledgements are rejected before registered handlers run.
+- [x] 5.6.36 Add focused Go tests proving desktop media acknowledgement close reasons are normalized before sender credit-window storage.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

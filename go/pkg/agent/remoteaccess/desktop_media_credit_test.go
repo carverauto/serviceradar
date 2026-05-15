@@ -291,7 +291,7 @@ func TestDesktopMediaCreditWindowStopsMediaAfterCloseAck(t *testing.T) {
 		SessionBindingID: desktopMediaTestSessionID,
 		MediaSessionID:   desktopMediaTestMediaSessionID,
 		LastAcceptedSeq:  8,
-		CloseReason:      " viewer closed ",
+		CloseReason:      " viewer\nclosed\t",
 	}
 	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
 		t.Fatalf("ApplyAck close returned error: %v", err)
