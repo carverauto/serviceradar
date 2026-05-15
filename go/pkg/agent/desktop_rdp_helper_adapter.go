@@ -157,6 +157,10 @@ func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remo
 }
 
 func (s *desktopRDPHelperSession) Close(ctx context.Context, reason string) error {
+	if s.isClosed() {
+		return nil
+	}
+
 	s.closeOnce.Do(func() {
 		payload, err := json.Marshal(desktopRDPHelperClosePayload{Reason: strings.TrimSpace(reason)})
 		if err != nil {
@@ -198,13 +202,20 @@ func (s *desktopRDPHelperSession) send(frame desktopRDPHelperFrame) error {
 	return s.transport.SendFrame(frame)
 }
 
+func (s *desktopRDPHelperSession) isClosed() bool {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+
+	return s.closed
+}
+
 func (s *desktopRDPHelperSession) markClosed() {
 	s.sendMu.Lock()
 	s.closed = true
 	s.sendMu.Unlock()
 }
 
-func (s *desktopRDPHelperSession) cleanupAfterReadLoopError() {
+func (s *desktopRDPHelperSession) cleanupAfterReadLoopTerminal() {
 	s.markClosed()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -214,7 +225,7 @@ func (s *desktopRDPHelperSession) cleanupAfterReadLoopError() {
 }
 
 func (s *desktopRDPHelperSession) failReadLoop(err error) {
-	s.cleanupAfterReadLoopError()
+	s.cleanupAfterReadLoopTerminal()
 	s.errCh <- err
 }
 
@@ -245,7 +256,7 @@ func (s *desktopRDPHelperSession) readLoop() {
 				return
 			}
 		case desktopRDPHelperMessageClose:
-			s.markClosed()
+			s.cleanupAfterReadLoopTerminal()
 
 			return
 		case desktopRDPHelperMessageError:

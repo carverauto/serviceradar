@@ -433,6 +433,45 @@ func TestDesktopRDPHelperAdapterClosesSessionAfterHelperError(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterClosesSessionAfterHelperClose(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageClose}
+
+	select {
+	case <-session.(*desktopRDPHelperSession).done:
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		t.Fatalf("helper session returned error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper close")
+	}
+
+	input := remoteaccess.DesktopFrame{
+		SessionID: "desktop-session-1",
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Input:     &remoteaccess.DesktopInputEvent{Kind: remoteaccess.DesktopInputKindKey, Key: "Enter", Down: true},
+	}
+	if err := session.SendDesktopFrame(context.Background(), input); !errors.Is(err, errDesktopRDPHelperClosed) {
+		t.Fatalf("post-close SendDesktopFrame error = %v, want %v", err, errDesktopRDPHelperClosed)
+	}
+	if transport.closeCount != 1 {
+		t.Fatalf("transport close count = %d, want 1", transport.closeCount)
+	}
+	if err := session.Close(context.Background(), "manager cleanup"); err != nil {
+		t.Fatalf("Close after helper close returned error: %v", err)
+	}
+	if transport.closeCount != 1 {
+		t.Fatalf("transport close count after manager cleanup = %d, want 1", transport.closeCount)
+	}
+}
+
 func TestDesktopRDPHelperProcessCloseKillsStuckHelper(t *testing.T) {
 	t.Parallel()
 

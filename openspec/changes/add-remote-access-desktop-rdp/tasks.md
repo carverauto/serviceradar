@@ -115,6 +115,7 @@
 - [x] 3.3.12 Make agent-side RDP helper process shutdown context-aware so stuck helpers are killed during session cleanup.
 - [x] 3.3.13 Zero serialized helper input and close payload buffers after IPC handoff so typed keystrokes and close metadata are not retained in agent memory.
 - [x] 3.3.14 Mark agent-side RDP helper sessions terminal and close their transport when the helper reports an error or emits invalid frames.
+- [x] 3.3.15 Mark helper-initiated RDP close frames terminal, close their transport, and keep later manager cleanup idempotent.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -177,6 +178,7 @@
 - [x] 5.2.24 Add focused Go tests proving stuck RDP helper processes are killed when close cleanup exceeds its context deadline.
 - [x] 5.2.25 Add focused Go tests proving serialized RDP helper input and close payload buffers are zeroed after IPC handoff.
 - [x] 5.2.26 Add focused Go tests proving helper-reported errors close the RDP helper session and reject subsequent browser input.
+- [x] 5.2.27 Add focused Go tests proving helper-initiated close frames close the session, reject subsequent browser input, and keep manager cleanup idempotent.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
