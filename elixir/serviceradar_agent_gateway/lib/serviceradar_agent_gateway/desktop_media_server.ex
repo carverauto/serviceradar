@@ -110,6 +110,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     media_session_id = required_string(request.media_session_id, "media_session_id")
 
     case session_tracker().heartbeat(desktop_session_id, media_session_id, agent_id, %{
+           media_ingest_id: request.media_ingest_id,
            last_sequence: request.last_sequence,
            sent_bytes: request.sent_bytes,
            received_credit_bytes: request.received_credit_bytes,
@@ -131,6 +132,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
       {:error, :media_session_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
 
+      {:error, :media_ingest_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
+
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
     end
@@ -148,7 +152,10 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     desktop_session_id = required_string(request.desktop_session_id, "desktop_session_id")
     media_session_id = required_string(request.media_session_id, "media_session_id")
 
-    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{reason: request.reason}) do
+    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{
+           media_ingest_id: request.media_ingest_id,
+           reason: request.reason
+         }) do
       :ok ->
         %Desktopmedia.CloseDesktopMediaSessionResponse{
           closed: true,
@@ -163,6 +170,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
       {:error, :media_session_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
+
+      {:error, :media_ingest_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
 
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
@@ -181,7 +191,10 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     desktop_session_id = required_string(request.desktop_session_id, "desktop_session_id")
     media_session_id = required_string(request.media_session_id, "media_session_id")
 
-    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{reason: request.reason}) do
+    case session_tracker().close_session(desktop_session_id, media_session_id, agent_id, %{
+           media_ingest_id: request.media_ingest_id,
+           reason: request.reason
+         }) do
       :ok ->
         %Desktopmedia.DesktopMediaStreamClose{
           desktop_session_id: desktop_session_id,
@@ -201,6 +214,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
       {:error, :media_session_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "media_session_id mismatch"
+
+      {:error, :media_ingest_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "media_ingest_id mismatch"
 
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"

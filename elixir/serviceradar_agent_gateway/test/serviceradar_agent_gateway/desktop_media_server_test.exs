@@ -175,6 +175,75 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
     end
   end
 
+  test "rejects desktop media control calls with the wrong media ingest binding" do
+    stream = test_stream()
+
+    open_response =
+      DesktopMediaServer.open_desktop_media_session(
+        %Desktopmedia.OpenDesktopMediaSessionRequest{
+          desktop_session_id: "desktop-server-ingest-mismatch-1",
+          media_session_id: "media-server-ingest-mismatch-1",
+          agent_id: "agent-1",
+          target_id: "target-1",
+          route_id: "route-1",
+          lease_token: "lease-server-ingest-mismatch-1"
+        },
+        stream
+      )
+
+    assert open_response.accepted == true
+
+    assert_raise GRPC.RPCError, ~r/media_ingest_id mismatch/, fn ->
+      DesktopMediaServer.heartbeat(
+        %Desktopmedia.DesktopMediaHeartbeat{
+          desktop_session_id: "desktop-server-ingest-mismatch-1",
+          media_session_id: "media-server-ingest-mismatch-1",
+          media_ingest_id: "media-ingest-other",
+          agent_id: "agent-1"
+        },
+        stream
+      )
+    end
+
+    assert_raise GRPC.RPCError, ~r/media_ingest_id mismatch/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:close,
+               %Desktopmedia.DesktopMediaStreamClose{
+                 desktop_session_id: "desktop-server-ingest-mismatch-1",
+                 media_session_id: "media-server-ingest-mismatch-1",
+                 media_ingest_id: "media-ingest-other",
+                 agent_id: "agent-1"
+               }}
+          }
+        ],
+        stream
+      )
+    end
+
+    assert_raise GRPC.RPCError, ~r/media_ingest_id mismatch/, fn ->
+      DesktopMediaServer.close_desktop_media_session(
+        %Desktopmedia.CloseDesktopMediaSessionRequest{
+          desktop_session_id: "desktop-server-ingest-mismatch-1",
+          media_session_id: "media-server-ingest-mismatch-1",
+          media_ingest_id: "media-ingest-other",
+          agent_id: "agent-1"
+        },
+        stream
+      )
+    end
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session(
+               "desktop-server-ingest-mismatch-1",
+               "agent-1"
+             )
+
+    assert session.media_ingest_id == open_response.media_ingest_id
+  end
+
   test "fails closed when desktop media stream forwarding is not enabled" do
     assert_raise GRPC.RPCError, ~r/desktop media frame forwarding is not enabled/, fn ->
       stream = test_stream()
