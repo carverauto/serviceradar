@@ -467,9 +467,11 @@ pub fn parse_desktop_media_ack(
     payload: &[u8],
     session_id: &str,
 ) -> Result<DesktopMediaAck, DesktopMediaAckError> {
-    let parsed: DesktopMediaAckMessage =
+    let mut parsed: DesktopMediaAckMessage =
         serde_json::from_slice(payload).map_err(|_| DesktopMediaAckError::Decode)?;
     validate_desktop_media_ack_message(&parsed, session_id)?;
+    parsed.ack.close_reason =
+        normalize_terminal_reason(&parsed.ack.close_reason, MAX_ACK_CLOSE_REASON_BYTES);
 
     Ok(parsed.ack)
 }
@@ -479,9 +481,12 @@ pub fn parse_desktop_frame(
     session_id: &str,
     policy: &DesktopScreenPolicy,
 ) -> Result<DesktopFrame, DesktopFrameError> {
-    let parsed: DesktopFrame =
+    let mut parsed: DesktopFrame =
         serde_json::from_slice(payload).map_err(|_| DesktopFrameError::Decode)?;
     validate_desktop_frame(&parsed, session_id, policy)?;
+    if parsed.frame_type == FRAME_TYPE_DISCONNECT {
+        parsed.reason = normalize_terminal_reason(&parsed.reason, MAX_CLOSE_REASON_BYTES);
+    }
 
     Ok(parsed)
 }
@@ -493,13 +498,34 @@ pub fn parse_desktop_close_payload(
         return Ok(DesktopClosePayload::default());
     }
 
-    let parsed: DesktopClosePayload =
+    let mut parsed: DesktopClosePayload =
         serde_json::from_slice(payload).map_err(|_| DesktopClosePayloadError::Decode)?;
     if parsed.reason.trim().len() > MAX_CLOSE_REASON_BYTES {
         return Err(DesktopClosePayloadError::ReasonTooLarge);
     }
+    parsed.reason = normalize_terminal_reason(&parsed.reason, MAX_CLOSE_REASON_BYTES);
 
     Ok(parsed)
+}
+
+fn normalize_terminal_reason(reason: &str, max_bytes: usize) -> String {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        return String::new();
+    }
+
+    let mut normalized = String::with_capacity(reason.len().min(max_bytes));
+    for ch in reason.chars() {
+        let ch = if ch.is_control() { ' ' } else { ch };
+        let mut encoded = [0; 4];
+        let rendered = ch.encode_utf8(&mut encoded);
+        if normalized.len() + rendered.len() > max_bytes {
+            break;
+        }
+        normalized.push(ch);
+    }
+
+    normalized.trim().to_owned()
 }
 
 fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> {
@@ -856,6 +882,17 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn parse_desktop_media_ack_normalizes_close_reason() {
+        let ack = parse_desktop_media_ack(
+            br#"{"type":"desktop_media_ack","session_binding_id":"session-1","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192,"close_reason":" browser\nclosed\t"}"#,
+            "session-1",
+        )
+        .expect("valid ack");
+
+        assert_eq!(ack.close_reason, "browser closed");
+    }
+
+    #[test]
     fn parse_desktop_media_ack_rejects_session_mismatch() {
         let err = parse_desktop_media_ack(
             br#"{"type":"desktop_media_ack","session_binding_id":"other-session","media_session_id":"media-1","last_accepted_seq":7,"credit_bytes":8192}"#,
@@ -970,6 +1007,19 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn parse_desktop_frame_normalizes_disconnect_reason() {
+        let policy = test_screen_policy();
+        let frame = parse_desktop_frame(
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.disconnect","reason":" browser\ndisconnect\t"}"#,
+            "session-1",
+            &policy,
+        )
+        .expect("valid disconnect frame");
+
+        assert_eq!(frame.reason, "browser disconnect");
+    }
+
+    #[test]
     fn parse_desktop_close_payload_accepts_empty_or_reason_payload() {
         let empty = parse_desktop_close_payload(b"").expect("empty close payload");
         let reason =
@@ -980,6 +1030,19 @@ pub(crate) mod tests {
             reason,
             DesktopClosePayload {
                 reason: "operator".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_desktop_close_payload_normalizes_reason() {
+        let close = parse_desktop_close_payload(br#"{"reason":" operator\nclosed\t"}"#)
+            .expect("valid close payload");
+
+        assert_eq!(
+            close,
+            DesktopClosePayload {
+                reason: "operator closed".to_owned()
             }
         );
     }
