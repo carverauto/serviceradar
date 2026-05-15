@@ -6,7 +6,9 @@ defmodule ServiceRadarWebNG.Plugins.BlobRetention do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Plugins.{PluginAssignment, PluginPackage, PluginTargetPolicy}
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.PluginTargetPolicy
   alias ServiceRadarWebNG.Plugins.Storage
 
   require Ash.Query

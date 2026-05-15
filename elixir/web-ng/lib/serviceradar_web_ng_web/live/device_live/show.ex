@@ -3195,7 +3195,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-
+          
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -3302,7 +3302,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </div>
             </div>
           </div>
-
+          
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -3677,7 +3677,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </.form>
             </div>
           </div>
-
+          
     <!-- Tabs Navigation -->
           <div
             :if={is_map(@device_row)}
@@ -3746,7 +3746,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
             </button>
           </div>
-
+          
     <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
@@ -3877,12 +3877,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-
+          
     <!-- Guests Tab Content -->
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
-
+          
     <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content
@@ -3896,7 +3896,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               interface_metrics_layout={@interface_metrics_layout}
             />
           </div>
-
+          
     <!-- Flows Tab Content -->
           <div :if={@active_tab == "flows" and @has_flows}>
             <.flows_tab_content
@@ -3935,7 +3935,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               limit={@logs_limit}
             />
           </div>
-
+          
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
@@ -3947,7 +3947,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
             </div>
           </div>
-
+          
     <!-- MTR Diagnostics Tab Content -->
           <div :if={@active_tab == "mtr"}>
             <% mtr_dashboard = mtr_trace_dashboard(@mtr_traces, @mtr_pending_jobs, @mtr_trends) %>

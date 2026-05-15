@@ -1270,9 +1270,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       with {:ok, credential_secret_id} <-
              resolve_controller_credential_secret_id(params, ctrl.credential_secret_id),
            {:ok, updated} <-
-             Controller.update_controller(ctrl, controller_attrs(params, credential_secret_id),
-               actor: actor()
-             ) do
+             Controller.update_controller(ctrl, controller_attrs(params, credential_secret_id), actor: actor()) do
         updated
       else
         {:error, reason} -> Ash.DataLayer.rollback([NetworkCredentialSecret, Controller], reason)
@@ -1301,8 +1299,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     case NetworkCredentialSecret.create_secret(
            %{
              name: awx_token_secret_name(params["name"]),
-             description:
-               "AWX OAuth2 token for Ansible controller #{nonempty_string(params["name"], "unnamed")}",
+             description: "AWX OAuth2 token for Ansible controller #{nonempty_string(params["name"], "unnamed")}",
              provider: @awx_credential_provider,
              credential_kind: :api_token,
              secret_payload: token,
@@ -1551,11 +1548,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched),
-    do: PlaybookSchedule.disable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: true} = sched), do: PlaybookSchedule.disable(sched, actor: actor())
 
-  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched),
-    do: PlaybookSchedule.enable(sched, actor: actor())
+  defp toggle_enabled(%PlaybookSchedule{enabled: false} = sched), do: PlaybookSchedule.enable(sched, actor: actor())
 
   defp validate_and_normalize_schedule(params) do
     with uids when is_list(uids) <- parse_uids(params["target_device_uids"]),
@@ -1701,14 +1696,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     %{
       run_detail_days: base.run_detail_days,
       run_summary_days: base.run_summary_days,
-      interval_seconds:
-        Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
-      health_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
-      watchdog_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
-      scheduler_interval_seconds:
-        Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
+      interval_seconds: Application.get_env(:serviceradar_core, :ansible_retention_interval_seconds, 86_400),
+      health_interval_seconds: Application.get_env(:serviceradar_core, :awx_controller_health_interval_seconds, 30),
+      watchdog_interval_seconds: Application.get_env(:serviceradar_core, :awx_run_watchdog_interval_seconds, 60),
+      scheduler_interval_seconds: Application.get_env(:serviceradar_core, :awx_schedule_evaluator_interval_seconds, 60),
       catalog_base_dir:
         Application.get_env(
           :serviceradar_core,
@@ -1788,20 +1779,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp format_ash_error(other), do: String.slice(inspect(other), 0, 240)
 
-  defp format_ash_error_detail(%{field: field, message: message})
-       when not is_nil(field) and is_binary(message) do
+  defp format_ash_error_detail(%{field: field, message: message}) when not is_nil(field) and is_binary(message) do
     "#{field} #{message}"
   end
 
   defp format_ash_error_detail(%{message: message}) when is_binary(message), do: message
   defp format_ash_error_detail(_other), do: "invalid input"
 
-  defp format_controller_error(:missing_awx_credential),
-    do: "Enter an AWX API token or an existing credential secret ID."
+  defp format_controller_error(:missing_awx_credential), do: "Enter an AWX API token or an existing credential secret ID."
 
   defp format_controller_error(:invalid_credential_secret_id),
-    do:
-      "Existing credential secret ID must be a UUID. Paste the AWX token in the AWX API token field."
+    do: "Existing credential secret ID must be a UUID. Paste the AWX token in the AWX API token field."
 
   defp format_controller_error(other), do: format_ash_error(other)
 

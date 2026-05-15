@@ -60,7 +60,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
       RemoteAccessSession.create_session(
         %{
           attach_ticket_hash:
-            :crypto.hash(:sha256, "ticket-#{System.unique_integer([:positive])}")
+            :sha256
+            |> :crypto.hash("ticket-#{System.unique_integer([:positive])}")
             |> Base.encode16(case: :lower),
           attach_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
           device_uid: "recording-ui-device-#{System.unique_integer([:positive])}",
