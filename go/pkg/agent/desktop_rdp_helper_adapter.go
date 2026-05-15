@@ -148,6 +148,7 @@ func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remo
 	if err != nil {
 		return fmt.Errorf("%w: encode helper input frame: %w", remoteaccess.ErrInvalidDesktopFrame, err)
 	}
+	defer clearBytes(payload)
 
 	return s.send(desktopRDPHelperFrame{
 		Type:    desktopRDPHelperMessageInput,
@@ -161,6 +162,7 @@ func (s *desktopRDPHelperSession) Close(ctx context.Context, reason string) erro
 		if err != nil {
 			s.closeErr = fmt.Errorf("%w: encode helper close payload: %w", remoteaccess.ErrInvalidDesktopFrame, err)
 		} else {
+			defer clearBytes(payload)
 			s.closeErr = s.send(desktopRDPHelperFrame{
 				Type:    desktopRDPHelperMessageClose,
 				Payload: payload,

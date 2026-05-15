@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -127,6 +128,63 @@ func TestDesktopRDPHelperAdapterRoutesInputAndClose(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterClearsSerializedInputPayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	transport.copySent = false
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	input := remoteaccess.DesktopFrame{
+		SessionID: "desktop-session-1",
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Input: &remoteaccess.DesktopInputEvent{
+			Kind: remoteaccess.DesktopInputKindKey,
+			Key:  "SuperSecretPassword",
+			Down: true,
+		},
+	}
+	if err := session.SendDesktopFrame(context.Background(), input); err != nil {
+		t.Fatalf("SendDesktopFrame returned error: %v", err)
+	}
+
+	inputFrame := transport.sentFrame(t, 1)
+	if bytes.Contains(inputFrame.Payload, []byte("SuperSecretPassword")) {
+		t.Fatalf("input payload retained serialized key text: %q", string(inputFrame.Payload))
+	}
+	if !allZeroBytes(inputFrame.Payload) {
+		t.Fatalf("input payload was not cleared: %q", string(inputFrame.Payload))
+	}
+}
+
+func TestDesktopRDPHelperAdapterClearsSerializedClosePayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	transport.copySent = false
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	if err := session.Close(context.Background(), "operator close"); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+
+	closeFrame := transport.sentFrame(t, 1)
+	if bytes.Contains(closeFrame.Payload, []byte("operator close")) {
+		t.Fatalf("close payload retained serialized reason: %q", string(closeFrame.Payload))
+	}
+	if !allZeroBytes(closeFrame.Payload) {
+		t.Fatalf("close payload was not cleared: %q", string(closeFrame.Payload))
+	}
+}
+
 func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 	t.Parallel()
 
@@ -227,12 +285,16 @@ type fakeDesktopRDPHelperTransport struct {
 	mu         sync.Mutex
 	sent       []desktopRDPHelperFrame
 	recv       chan desktopRDPHelperFrame
+	copySent   bool
 	closeCount int
 	closed     bool
 }
 
 func newFakeDesktopRDPHelperTransport() *fakeDesktopRDPHelperTransport {
-	return &fakeDesktopRDPHelperTransport{recv: make(chan desktopRDPHelperFrame, 1)}
+	return &fakeDesktopRDPHelperTransport{
+		recv:     make(chan desktopRDPHelperFrame, 1),
+		copySent: true,
+	}
 }
 
 func (t *fakeDesktopRDPHelperTransport) SendFrame(frame desktopRDPHelperFrame) error {
@@ -242,7 +304,9 @@ func (t *fakeDesktopRDPHelperTransport) SendFrame(frame desktopRDPHelperFrame) e
 	if t.closed {
 		return errDesktopRDPHelperClosed
 	}
-	frame.Payload = append([]byte(nil), frame.Payload...)
+	if t.copySent {
+		frame.Payload = append([]byte(nil), frame.Payload...)
+	}
 	t.sent = append(t.sent, frame)
 
 	return nil
@@ -282,6 +346,19 @@ func (t *fakeDesktopRDPHelperTransport) sentFrame(tb testing.TB, index int) desk
 	}
 
 	return t.sent[index]
+}
+
+func allZeroBytes(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	for _, value := range data {
+		if value != 0 {
+			return false
+		}
+	}
+
+	return true
 }
 
 type fakeDesktopRDPHelperMediaSender struct {
