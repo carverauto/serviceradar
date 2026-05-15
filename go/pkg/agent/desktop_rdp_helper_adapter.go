@@ -128,6 +128,7 @@ func (a desktopRDPHelperAdapter) Open(
 	session := &desktopRDPHelperSession{
 		transport:   transport,
 		mediaSender: req.MediaSender,
+		sessionID:   req.SessionID,
 		target:      req.Target,
 		done:        make(chan struct{}),
 		errCh:       make(chan error, 1),
@@ -143,6 +144,7 @@ func (a desktopRDPHelperAdapter) Open(
 type desktopRDPHelperSession struct {
 	transport   desktopRDPHelperTransport
 	mediaSender remoteaccess.DesktopMediaSender
+	sessionID   string
 	target      remoteaccess.DesktopTarget
 	sendMu      sync.Mutex
 	closeOnce   sync.Once
@@ -153,6 +155,13 @@ type desktopRDPHelperSession struct {
 }
 
 func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remoteaccess.DesktopFrame) error {
+	if err := remoteaccess.ValidateDesktopFrameWithPolicy(frame, s.target.Screen, s.target.Redirection); err != nil {
+		return err
+	}
+	if frame.SessionID != s.sessionID {
+		return fmt.Errorf("%w: session binding mismatch", remoteaccess.ErrInvalidDesktopFrame)
+	}
+
 	payload, err := json.Marshal(frame)
 	if err != nil {
 		return fmt.Errorf("%w: encode helper input frame: %w", remoteaccess.ErrInvalidDesktopFrame, err)
@@ -166,6 +175,10 @@ func (s *desktopRDPHelperSession) SendDesktopFrame(_ context.Context, frame remo
 }
 
 func (s *desktopRDPHelperSession) SendDesktopMediaAck(_ context.Context, ack remoteaccess.DesktopMediaAck) error {
+	if err := remoteaccess.ValidateDesktopMediaAck(ack, s.sessionID, ""); err != nil {
+		return err
+	}
+
 	payload, err := json.Marshal(desktopRDPHelperAckPayload{
 		Type:            remoteaccess.DesktopMediaControlTypeAck,
 		DesktopMediaAck: ack,

@@ -129,6 +129,30 @@ func TestDesktopRDPHelperAdapterRoutesInputAndClose(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterRejectsInvalidInputBeforeIPC(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	input := remoteaccess.DesktopFrame{
+		SessionID: "other-session",
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Input:     &remoteaccess.DesktopInputEvent{Kind: remoteaccess.DesktopInputKindKey, Key: "Enter", Down: true},
+	}
+	if err := session.SendDesktopFrame(context.Background(), input); !errors.Is(err, remoteaccess.ErrInvalidDesktopFrame) {
+		t.Fatalf("SendDesktopFrame error = %v, want %v", err, remoteaccess.ErrInvalidDesktopFrame)
+	}
+	if got := transport.sentCount(); got != 1 {
+		t.Fatalf("sent frames = %d, want only open frame", got)
+	}
+}
+
 func TestDesktopRDPHelperAdapterClearsSerializedInputPayload(t *testing.T) {
 	t.Parallel()
 
@@ -307,6 +331,31 @@ func TestDesktopRDPHelperAdapterRoutesMediaAcks(t *testing.T) {
 		got.QualityLevel != ack.QualityLevel ||
 		!got.Pause {
 		t.Fatalf("ack payload = %#v, want %#v", got, ack)
+	}
+}
+
+func TestDesktopRDPHelperAdapterRejectsInvalidMediaAckBeforeIPC(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	err = mediaSender.ackHandler(context.Background(), remoteaccess.DesktopMediaAck{
+		SessionBindingID: "other-session",
+		MediaSessionID:   "media-session-1",
+		LastAcceptedSeq:  7,
+		CreditBytes:      8192,
+	})
+	if !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaAck) {
+		t.Fatalf("ack handler error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaAck)
+	}
+	if got := transport.sentCount(); got != 1 {
+		t.Fatalf("sent frames = %d, want only open frame", got)
 	}
 }
 
@@ -566,6 +615,13 @@ func (t *fakeDesktopRDPHelperTransport) sentFrame(tb testing.TB, index int) desk
 	}
 
 	return t.sent[index]
+}
+
+func (t *fakeDesktopRDPHelperTransport) sentCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return len(t.sent)
 }
 
 func allZeroBytes(data []byte) bool {
