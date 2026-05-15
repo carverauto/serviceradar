@@ -3,7 +3,7 @@ name: Publish OCI Images
 on:
   push:
     branches:
-      - main
+      - staging
   workflow_dispatch:
     inputs:
       release_tag:

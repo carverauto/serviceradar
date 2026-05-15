@@ -20,17 +20,17 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'elixir/**'
-      - '.github/workflows/elixir-quality.yml'
+      - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
   pull_request:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'elixir/**'
-      - '.github/workflows/elixir-quality.yml'
+      - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
 
