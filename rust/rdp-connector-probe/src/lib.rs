@@ -167,6 +167,14 @@ pub struct ConnectorUpgradeBoundary {
     pub requires_credssp: bool,
 }
 
+#[derive(Debug)]
+pub struct ConnectorPlan {
+    pub upstream_host: String,
+    pub upstream_port: u16,
+    pub tls_server_name: String,
+    pub connector_config: ironrdp_connector::Config,
+}
+
 pub fn connector_dependency_is_linked() -> bool {
     let desktop_size = ironrdp_connector::DesktopSize {
         width: 1024,
@@ -227,6 +235,38 @@ pub fn build_connector_config(
         enable_server_pointer: false,
         pointer_software_rendering: false,
     })
+}
+
+pub fn build_connector_plan(
+    request: ServiceRadarOpenRequest,
+) -> Result<ConnectorPlan, &'static str> {
+    validate_service_radar_open_request(&request)?;
+
+    let upstream_host = request.target.upstream.host.trim().to_owned();
+    let upstream_port = request.target.upstream.port;
+    let tls_server_name = effective_tls_server_name(&request)?;
+    let connector_config = build_connector_config(request)?;
+
+    Ok(ConnectorPlan {
+        upstream_host,
+        upstream_port,
+        tls_server_name,
+        connector_config,
+    })
+}
+
+fn effective_tls_server_name(request: &ServiceRadarOpenRequest) -> Result<String, &'static str> {
+    let explicit_server_name = request.target.tls.server_name.trim();
+    if !explicit_server_name.is_empty() {
+        return Ok(explicit_server_name.to_owned());
+    }
+
+    let upstream_host = request.target.upstream.host.trim();
+    if upstream_host.is_empty() {
+        return Err("tls server name is required");
+    }
+
+    Ok(upstream_host.to_owned())
 }
 
 fn validate_service_radar_open_request(
@@ -497,6 +537,29 @@ mod tests {
             }
             Credentials::SmartCard { .. } => panic!("unexpected smart-card config"),
         }
+    }
+
+    #[test]
+    fn connector_plan_uses_registered_endpoint_and_server_name() {
+        let plan =
+            crate::build_connector_plan(open_request("EXAMPLE\\alice", "required")).expect("plan");
+
+        assert_eq!(plan.upstream_host, "win.example");
+        assert_eq!(plan.upstream_port, 3389);
+        assert_eq!(plan.tls_server_name, "win.example");
+        assert!(plan.connector_config.enable_credssp);
+    }
+
+    #[test]
+    fn connector_plan_falls_back_to_upstream_host_for_tls_server_name() {
+        let mut request = open_request("EXAMPLE\\alice", "required");
+        request.target.upstream.host = "rdp.internal.example".to_owned();
+        request.target.tls.server_name.clear();
+
+        let plan = crate::build_connector_plan(request).expect("plan");
+
+        assert_eq!(plan.upstream_host, "rdp.internal.example");
+        assert_eq!(plan.tls_server_name, "rdp.internal.example");
     }
 
     #[test]
