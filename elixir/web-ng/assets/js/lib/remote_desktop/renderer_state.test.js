@@ -9,6 +9,7 @@ import {
 import {
   applyCanvasTileFrame,
   createDirtyTileMask,
+  createDesktopRenderQueue,
   desktopMetadataAttachment,
   desktopFrameUploadPlan,
   dirtyTileMaskHas,
@@ -180,4 +181,51 @@ describe("remote desktop renderer state helpers", () => {
 
     expect(desktopFrameUploadPlan(frame)).toEqual([])
   })
+
+  it("coalesces stale non-critical renderer frames when the queue is full", () => {
+    const queue = createDesktopRenderQueue({maxFrames: 2})
+    const first = rendererFrame({sequence: 1})
+    const second = rendererFrame({sequence: 2})
+    const replacement = rendererFrame({sequence: 3})
+
+    expect(queue.push(first)).toMatchObject({accepted: true, coalesced: false, dropped: []})
+    expect(queue.push(second)).toMatchObject({accepted: true, coalesced: false, dropped: []})
+
+    const result = queue.push(replacement)
+
+    expect(result).toMatchObject({accepted: true, coalesced: true})
+    expect(result.dropped).toEqual([second])
+    expect(queue.snapshot().map((frame) => frame.sequence)).toEqual([1, 3])
+    expect(queue.state()).toEqual({decodeQueueSize: 2, maxDecodeQueueSize: 2})
+  })
+
+  it("preserves critical metadata frames by evicting non-critical queued frames", () => {
+    const queue = createDesktopRenderQueue({maxFrames: 2})
+    const first = rendererFrame({sequence: 1})
+    const second = rendererFrame({sequence: 2})
+    const metadata = rendererFrame({sequence: 3, payloadFamily: DESKTOP_PAYLOAD_METADATA})
+
+    queue.push(first)
+    queue.push(second)
+
+    const result = queue.push(metadata)
+
+    expect(result).toMatchObject({accepted: true, coalesced: false})
+    expect(result.dropped).toEqual([first])
+    expect(queue.snapshot().map((frame) => frame.sequence)).toEqual([2, 3])
+  })
 })
+
+function rendererFrame({
+  sequence,
+  payloadFamily = DESKTOP_PAYLOAD_TILE,
+  sessionBindingId = "session-render-queue",
+  mediaSessionId = "media-render-queue",
+} = {}) {
+  return {
+    sequence,
+    payloadFamily,
+    sessionBindingId,
+    mediaSessionId,
+  }
+}

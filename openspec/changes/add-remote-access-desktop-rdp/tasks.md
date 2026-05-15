@@ -305,6 +305,7 @@
 - [x] 5.7.10 Add browser WebRTC client tests proving close acknowledgement reasons are capped by UTF-8 byte length.
 - [x] 5.7.11 Add browser renderer-state tests for dirty tile masks, no-copy tile upload planning, Canvas harness application, and metadata-only frame handling.
 - [x] 5.7.12 Add browser renderer-state tests proving Arrow IPC attachments stay metadata-only and cannot enter screen-pixel upload paths.
+- [x] 5.7.13 Add browser renderer-state tests for bounded render queues, stale-frame coalescing, and critical-frame preservation.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

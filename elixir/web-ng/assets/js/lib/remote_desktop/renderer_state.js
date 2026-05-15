@@ -6,6 +6,7 @@ import {
 } from "./media_frame"
 
 const DEFAULT_TILE_SIZE = 64
+const DEFAULT_RENDER_QUEUE_MAX_FRAMES = 12
 const ARROW_IPC_FORMAT = "arrow_ipc"
 const METADATA_ATTACHMENT_ROLES = new Set(["metadata", "stats", "audit_stats", "overlay", "frame_manifest"])
 
@@ -112,6 +113,92 @@ export function desktopMetadataAttachment(frame) {
     metadata,
     bytes: frame.payload || new Uint8Array(0),
   }
+}
+
+export function createDesktopRenderQueue({maxFrames = DEFAULT_RENDER_QUEUE_MAX_FRAMES} = {}) {
+  const safeMaxFrames = positiveInteger(maxFrames, DEFAULT_RENDER_QUEUE_MAX_FRAMES)
+  const frames = []
+
+  return {
+    push(frame) {
+      if (!frame) {
+        return {accepted: false, dropped: [], coalesced: false}
+      }
+
+      if (frames.length < safeMaxFrames) {
+        frames.push(frame)
+        return {accepted: true, dropped: [], coalesced: false}
+      }
+
+      if (isCriticalDesktopFrame(frame)) {
+        const dropIndex = frames.findIndex((queuedFrame) => !isCriticalDesktopFrame(queuedFrame))
+
+        if (dropIndex === -1) {
+          return {accepted: false, dropped: [frame], coalesced: false}
+        }
+
+        const [dropped] = frames.splice(dropIndex, 1)
+        frames.push(frame)
+
+        return {accepted: true, dropped: [dropped], coalesced: false}
+      }
+
+      const replaceIndex = replaceableDesktopFrameIndex(frames, frame)
+
+      if (replaceIndex === -1) {
+        return {accepted: false, dropped: [frame], coalesced: false}
+      }
+
+      const dropped = frames[replaceIndex]
+      frames[replaceIndex] = frame
+
+      return {accepted: true, dropped: [dropped], coalesced: true}
+    },
+
+    shift() {
+      return frames.shift() || null
+    },
+
+    clear() {
+      frames.length = 0
+    },
+
+    state() {
+      return {decodeQueueSize: frames.length, maxDecodeQueueSize: safeMaxFrames}
+    },
+
+    snapshot() {
+      return frames.slice()
+    },
+
+    get length() {
+      return frames.length
+    },
+  }
+}
+
+function isCriticalDesktopFrame(frame) {
+  return Boolean(frame?.keyframe || frame?.fullFrame || frame?.endOfStream || frame?.payloadFamily === DESKTOP_PAYLOAD_METADATA)
+}
+
+function replaceableDesktopFrameIndex(frames, frame) {
+  for (let index = frames.length - 1; index >= 0; index -= 1) {
+    const queuedFrame = frames[index]
+
+    if (
+      !isCriticalDesktopFrame(queuedFrame) &&
+      sameDesktopMediaBinding(queuedFrame, frame) &&
+      queuedFrame.payloadFamily === frame.payloadFamily
+    ) {
+      return index
+    }
+  }
+
+  return -1
+}
+
+function sameDesktopMediaBinding(left, right) {
+  return left?.sessionBindingId === right?.sessionBindingId && left?.mediaSessionId === right?.mediaSessionId
 }
 
 function normalizeMetadataRole(value) {
