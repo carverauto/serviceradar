@@ -1972,6 +1972,8 @@ name = "serviceradar-rdp-connector-probe"
 version = "0.1.0"
 dependencies = [
  "ironrdp-connector",
+ "ironrdp-pdu",
+ "serde",
 ]
 
 [[package]]

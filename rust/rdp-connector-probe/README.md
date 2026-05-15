@@ -1,6 +1,7 @@
 # ServiceRadar RDP Connector Probe
 
-This is a review-only Rust sub-workspace for the IronRDP connector dependency graph.
+This is a review-only Rust sub-workspace for the IronRDP connector dependency graph
+and ServiceRadar-to-IronRDP config mapping.
 
 It intentionally has its own `Cargo.lock` and is not a member of the repository root
 workspace. Keep connector, CredSSP, SSPI, and PKI dependencies here until the optional

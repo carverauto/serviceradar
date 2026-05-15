@@ -38,7 +38,7 @@ Crates.io import check:
 - The published `ironrdp-connector = 0.8.0` is not the same dependency surface as the pinned local IronRDP checkout. It depends on `sspi = 0.18` and `picky = 7.0.0-rc.20`.
 - `picky = 7.0.0-rc.20` pins several pre-release crypto crates with exact requirements, including `digest = 0.11.0-rc.3`, `hmac = 0.13.0-rc.2`, and `sha2 = 0.11.0-rc.2`.
 - A same-workspace import of the published connector forces the root `Cargo.lock` away from existing stable crypto crate versions. Do not land that import in the shared ServiceRadar Rust workspace.
-- `rust/rdp-connector-probe` is a review-only isolated Cargo workspace with its own `Cargo.lock`. It proves the connector graph can compile without perturbing the root ServiceRadar Rust lockfile.
+- `rust/rdp-connector-probe` is a review-only isolated Cargo workspace with its own `Cargo.lock`. It proves the connector graph and a minimal ServiceRadar-to-IronRDP config mapping can compile without perturbing the root ServiceRadar Rust lockfile.
 - The production IronRDP helper should use an isolated optional helper dependency graph, for example a separate helper workspace/lockfile or Bazel crate-universe repository, so CredSSP/PKI dependencies cannot perturb SRQL, collectors, or other Rust services.
 
 ServiceRadar connector import requirements:
