@@ -145,7 +145,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
           <h2 class="text-lg font-semibold">{target_label(@recording)}</h2>
           <p class="mt-1 font-mono text-xs text-base-content/60">Session {@recording.session_id}</p>
         </div>
-        <span class={["badge", status_badge_class(@recording.status)]}>{label(@recording.status)}</span>
+        <span class={["badge", status_badge_class(@recording.status)]}>
+          {label(@recording.status)}
+        </span>
       </div>
 
       <dl class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -197,7 +199,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
       <div :for={event <- @events} class="border-b border-base-200 p-4 last:border-b-0">
         <div class="flex flex-wrap items-center gap-2">
           <span class="badge badge-sm">{event.sequence}</span>
-          <span class={["badge badge-sm", stream_badge_class(event.stream)]}>{label(event.stream)}</span>
+          <span class={["badge badge-sm", stream_badge_class(event.stream)]}>
+            {label(event.stream)}
+          </span>
           <span class="text-sm font-medium">{event.event_type}</span>
           <span class="text-xs text-base-content/60">{format_datetime(event.occurred_at)}</span>
           <span :if={event.payload_redacted} class="badge badge-warning badge-sm">
@@ -360,8 +364,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
 
-  defp format_error(reason) when is_atom(reason),
-    do: reason |> to_string() |> String.replace("_", " ")
+  defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
 
   defp format_error(reason), do: inspect(reason)
 
