@@ -107,6 +107,7 @@
 - [x] 3.3.5 Mark guarded RDP adapter sessions closed before calling concrete adapter cleanup so post-close input and media frames fail closed.
 - [x] 3.3.6 Zeroize raw helper open-frame payload bytes immediately after parsing so memory-user credential material is not retained in the IPC frame buffer.
 - [x] 3.3.7 Add the IronRDP feature backend's memory-user credential wrapper with zeroizing storage and redacted debug output while keeping connector readiness disabled.
+- [x] 3.3.8 Split domain-qualified memory-user credentials into zeroizing domain/login fields before future connector config construction.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -162,6 +163,7 @@
 - [x] 5.2.17 Add focused Rust helper tests proving the IronRDP feature backend derives endpoint/TLS identity from target policy without copying credential material into a connector plan.
 - [x] 5.2.18 Add focused Rust helper tests proving raw open-frame payload bytes are zeroized after parse on success and failure paths.
 - [x] 5.2.19 Add focused Rust helper tests proving IronRDP memory-user credentials use redacted zeroizing storage before the connector loop is enabled.
+- [x] 5.2.20 Add focused Rust helper tests proving domain-qualified memory-user credentials split into redacted zeroizing connector-prep fields.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

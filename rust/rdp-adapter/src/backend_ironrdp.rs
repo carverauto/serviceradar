@@ -18,6 +18,7 @@ struct NonSecretConnectionPlan {
 }
 
 struct MemoryUserCredential {
+    domain: Option<Zeroizing<String>>,
     username: Zeroizing<String>,
     password: RedactedSecret,
 }
@@ -30,11 +31,19 @@ impl MemoryUserCredential {
     fn has_material(&self) -> bool {
         !self.username.is_empty() && !self.password.value.is_empty()
     }
+
+    fn connector_identity(&self) -> (Option<&str>, &str) {
+        (
+            self.domain.as_ref().map(|domain| domain.as_str()),
+            self.username.as_str(),
+        )
+    }
 }
 
 impl std::fmt::Debug for MemoryUserCredential {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MemoryUserCredential")
+            .field("domain", &"<redacted>")
             .field("username", &"<redacted>")
             .field("password", &self.password)
             .finish()
@@ -63,6 +72,7 @@ impl RdpBackend for IronRdpBackend {
         if !credential.has_material() {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         }
+        let _connector_identity = credential.connector_identity();
 
         // Keep connector readiness false until the real IronRDP loop consumes
         // only zeroizing credential wrappers and proves cleanup ordering.
@@ -109,18 +119,33 @@ fn build_nonsecret_connection_plan(
 fn build_memory_user_credential(
     grant: &DesktopCredentialGrant,
 ) -> Result<MemoryUserCredential, BackendError> {
-    let username = grant.username.trim();
+    let raw_username = grant.username.trim();
     let password = grant.password.expose();
-    if username.is_empty() || password.is_empty() {
+    if raw_username.is_empty() || password.is_empty() {
+        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
+    }
+    let (domain, username) = split_domain_username(raw_username);
+    if username.is_empty() {
         return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
     }
 
     Ok(MemoryUserCredential {
+        domain: domain.map(|value| Zeroizing::new(value.to_owned())),
         username: Zeroizing::new(username.to_owned()),
         password: RedactedSecret {
             value: Zeroizing::new(password.to_owned()),
         },
     })
+}
+
+fn split_domain_username(username: &str) -> (Option<&str>, &str) {
+    if let Some((domain, login)) = username.split_once('\\') {
+        if !domain.is_empty() && !login.is_empty() {
+            return (Some(domain), login);
+        }
+    }
+
+    (None, username)
 }
 
 #[cfg(test)]
@@ -184,11 +209,40 @@ mod tests {
         )
         .expect("credential");
 
+        assert!(credential.domain.is_none());
         assert_eq!(credential.username.as_str(), "alice");
         assert_eq!(credential.password.value.as_str(), "secret");
         assert_eq!(
             format!("{credential:?}"),
-            r#"MemoryUserCredential { username: "<redacted>", password: <redacted> }"#
+            r#"MemoryUserCredential { domain: "<redacted>", username: "<redacted>", password: <redacted> }"#
         );
+    }
+
+    #[test]
+    fn memory_user_credential_splits_windows_domain_username() {
+        let raw = valid_open_payload()
+            .replace(r#""username":"alice""#, r#""username":"EXAMPLE\\alice""#)
+            .replace(
+                r#""allowed_principals":["alice"]"#,
+                r#""allowed_principals":["EXAMPLE\\alice"]"#,
+            );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        assert_eq!(
+            credential.domain.as_ref().map(|domain| domain.as_str()),
+            Some("EXAMPLE")
+        );
+        assert_eq!(credential.username.as_str(), "alice");
+        assert_eq!(credential.password.value.as_str(), "secret");
+        assert!(!format!("{credential:?}").contains("EXAMPLE"));
+        assert!(!format!("{credential:?}").contains("alice"));
+        assert!(!format!("{credential:?}").contains("secret"));
     }
 }
