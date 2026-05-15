@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.58
+
+Per-agent availability source selection, Armis northbound availability controls, and release package upload hardening.
+
+## Whats New
+
+**1.2.58**
+- Added latest per-agent device availability tracking so multiple agents can report different ICMP/TCP reachability for the same inventory device without duplicating inventory.
+- Added canonical availability source selection on devices, preserving existing fallback behavior when no source agent is configured.
+- Added clean device-detail visibility for per-agent availability, including agent, status, checks, response time, ports, and freshness.
+- Added SRQL filters for querying devices by selected availability source and per-agent available or unavailable status.
+- Added Armis northbound availability source selection so outbound availability tags can use canonical availability or a specific agent's view.
+- Hardened Forgejo release package publishing by avoiding duplicate version suffixes in uploaded package asset names.
+
 # ServiceRadar v1.2.57
 
 Bazel release dependency repair for the Alpine package layer.
