@@ -188,7 +188,9 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   def blob_exists?(_object_key), do: false
 
   @spec list_blobs(String.t()) :: {:ok, [map()]} | {:error, term()}
-  def list_blobs(prefix \\ "plugins/") when is_binary(prefix) do
+  def list_blobs(prefix \\ "plugins/")
+
+  def list_blobs(prefix) when is_binary(prefix) do
     :jetstream = backend()
 
     with_jetstream_client(:list_blobs, [prefix], fn ->
@@ -325,23 +327,14 @@ defmodule ServiceRadarWebNG.Plugins.Storage do
   end
 
   defp list_blobs_jetstream(prefix) do
-    fn conn ->
-      with {:ok, _} <- ensure_bucket(conn),
-           {:ok, metas} <- Object.list(conn, bucket_name()) do
+    with_jetstream(fn conn ->
+      with {:ok, _} <- ensure_bucket(conn), {:ok, metas} <- Object.list(conn, bucket_name()) do
         metas
         |> Enum.filter(fn meta -> String.starts_with?(meta.name, prefix) end)
-        |> Enum.map(fn meta ->
-          %{
-            key: meta.name,
-            size: meta.size,
-            chunks: meta.chunks,
-            digest: meta.digest
-          }
-        end)
+        |> Enum.map(fn meta -> %{key: meta.name, size: meta.size, chunks: meta.chunks, digest: meta.digest} end)
         |> then(&{:ok, &1})
       end
-    end
-    |> with_jetstream()
+    end)
   end
 
   defp blob_exists_jetstream(object_key) do

@@ -31,6 +31,8 @@ import (
 func TestArmisAccessTokenUsesSecretKeyCredential(t *testing.T) {
 	t.Parallel()
 
+	const expectedToken = "token-1"
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != armisAccessTokenPath {
 			t.Fatalf("path = %q, want %q", r.URL.Path, armisAccessTokenPath)
@@ -48,7 +50,7 @@ func TestArmisAccessTokenUsesSecretKeyCredential(t *testing.T) {
 			t.Fatalf("body = %q, want secret_key=secret-1", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true,"data":{"access_token":"token-1"}}`))
+		_, _ = w.Write([]byte(`{"success":true,"data":{"access_token":"` + expectedToken + `"}}`))
 	}))
 	defer server.Close()
 
@@ -60,8 +62,8 @@ func TestArmisAccessTokenUsesSecretKeyCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("accessToken returned error: %v", err)
 	}
-	if token != "token-1" {
-		t.Fatalf("token = %q, want token-1", token)
+	if token != expectedToken {
+		t.Fatalf("token = %q, want %s", token, expectedToken)
 	}
 }
 
