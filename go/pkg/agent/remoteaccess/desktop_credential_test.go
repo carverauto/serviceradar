@@ -134,6 +134,18 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 		t.Fatalf("TargetID = %q, want %q", got.TargetID, desktopTestTargetID)
 	}
 
+	grant.TargetID = ""
+	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing target binding error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+	grant.TargetID = desktopTestTargetID
+
+	grant.SessionID = ""
+	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing session binding error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+	grant.SessionID = "session-1"
+
 	grant.Password = ""
 	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("missing password error = %v, want %v", err, ErrInvalidDesktopTarget)

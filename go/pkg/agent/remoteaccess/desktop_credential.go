@@ -51,10 +51,7 @@ func NormalizeDesktopCredentialGrantAt(
 		return grant, fmt.Errorf("%w: credential grant mode does not match target policy", ErrInvalidDesktopTarget)
 	}
 	if grant.TargetID == "" {
-		if grant.Mode == DesktopCredentialModeBrokeredSecret {
-			return grant, fmt.Errorf("%w: brokered credential grant requires target binding", ErrInvalidDesktopTarget)
-		}
-		grant.TargetID = target.TargetID
+		return grant, fmt.Errorf("%w: credential grant requires target binding", ErrInvalidDesktopTarget)
 	}
 	if grant.TargetID != target.TargetID {
 		return grant, fmt.Errorf("%w: credential grant target mismatch", ErrInvalidDesktopTarget)
@@ -80,6 +77,9 @@ func NormalizeDesktopCredentialGrantAt(
 	case DesktopCredentialModeMemoryUser:
 		if grant.Username == "" || grant.Password == "" {
 			return grant, fmt.Errorf("%w: memory user credential grant requires username and password", ErrInvalidDesktopTarget)
+		}
+		if grant.SessionID == "" {
+			return grant, fmt.Errorf("%w: memory user credential grant requires session binding", ErrInvalidDesktopTarget)
 		}
 		if !desktopStringListAllows(target.Credential.AllowedPrincipals, grant.Username) {
 			return grant, fmt.Errorf("%w: credential grant principal not allowed by target policy", ErrInvalidDesktopTarget)

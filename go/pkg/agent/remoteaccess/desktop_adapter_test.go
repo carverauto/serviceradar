@@ -129,6 +129,35 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 	}
 }
 
+func TestDesktopAdapterRuntimeRejectsMismatchedCredentialSession(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Credential.AllowedPrincipals = []string{"alice@example.com"}
+	grant := &DesktopCredentialGrant{
+		Mode:      DesktopCredentialModeMemoryUser,
+		Username:  "alice@example.com",
+		Password:  "secret",
+		SessionID: "other-session",
+		TargetID:  desktopTestTargetID,
+		RouteID:   desktopTestAgentID,
+	}
+	adapter := &desktopAdapterStub{}
+
+	_, err := (DesktopAdapterRuntime{
+		LocalAgentID:     desktopTestAgentID,
+		CurrentGatewayID: "gateway-1",
+		NowUnix:          func() int64 { return 1_778_000_000 },
+		Adapter:          adapter,
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), &desktopMediaSenderStub{})
+	if !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("mismatched session error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+	if adapter.request.SessionID != "" {
+		t.Fatalf("adapter should not have been called: %#v", adapter.request)
+	}
+}
+
 func TestDesktopAdapterRuntimeGuardsInputFrames(t *testing.T) {
 	t.Parallel()
 
