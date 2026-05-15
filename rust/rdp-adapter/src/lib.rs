@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fmt;
 use std::io::{self, ErrorKind, Read, Write};
 
-pub use backend::{BackendError, RdpBackend, UnavailableBackend};
+pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
 pub use protocol::{parse_open_payload, OpenPayload};
@@ -108,9 +108,16 @@ where
     W: Write,
     B: RdpBackend,
 {
+    let mut active_session: Option<Box<dyn RdpBackendSession>> = None;
+
     while let Some(frame) = read_frame(reader)? {
         match frame.message_type {
             MSG_OPEN => {
+                if active_session.is_some() {
+                    write_error_frame(writer, "rdp helper session is already open")?;
+                    return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+                }
+
                 let open = match parse_open_payload(&frame.payload) {
                     Ok(open) => open,
                     Err(err) => {
@@ -119,15 +126,45 @@ where
                     }
                 };
 
-                if let Err(err) = backend.open(open) {
+                match backend.open(open) {
+                    Ok(session) => {
+                        active_session = Some(session);
+                    }
+                    Err(err) => {
+                        write_error_frame(writer, err.safe_message())?;
+                        return Err(err.into());
+                    }
+                }
+            }
+            MSG_INPUT => {
+                let Some(session) = active_session.as_mut() else {
+                    write_error_frame(writer, "rdp helper session is not open")?;
+                    return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+                };
+                if let Err(err) = session.input(&frame.payload) {
                     write_error_frame(writer, err.safe_message())?;
                     return Err(err.into());
                 }
             }
-            MSG_CLOSE => return Ok(()),
-            MSG_INPUT | MSG_ACK => {
-                write_error_frame(writer, "rdp helper session is not open")?;
-                return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+            MSG_ACK => {
+                let Some(session) = active_session.as_mut() else {
+                    write_error_frame(writer, "rdp helper session is not open")?;
+                    return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+                };
+                if let Err(err) = session.ack(&frame.payload) {
+                    write_error_frame(writer, err.safe_message())?;
+                    return Err(err.into());
+                }
+            }
+            MSG_CLOSE => {
+                if let Some(mut session) = active_session.take() {
+                    if let Err(err) = session.close(&frame.payload) {
+                        write_error_frame(writer, err.safe_message())?;
+                        return Err(err.into());
+                    }
+                }
+
+                return Ok(());
             }
             message_type => {
                 write_error_frame(writer, "rdp helper message type is unsupported")?;
@@ -195,14 +232,59 @@ fn write_frame<W: Write>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     struct RecordingBackend {
+        state: Rc<RefCell<RecordingState>>,
+    }
+
+    #[derive(Default)]
+    struct RecordingState {
         opened_session: Option<String>,
+        input_payloads: Vec<Vec<u8>>,
+        ack_payloads: Vec<Vec<u8>>,
+        close_payloads: Vec<Vec<u8>>,
     }
 
     impl RdpBackend for RecordingBackend {
-        fn open(&mut self, request: OpenPayload) -> Result<(), BackendError> {
-            self.opened_session = Some(request.session_id);
+        fn open(
+            &mut self,
+            request: OpenPayload,
+        ) -> Result<Box<dyn RdpBackendSession>, BackendError> {
+            self.state.borrow_mut().opened_session = Some(request.session_id);
+
+            Ok(Box::new(RecordingSession {
+                state: Rc::clone(&self.state),
+            }))
+        }
+    }
+
+    struct RecordingSession {
+        state: Rc<RefCell<RecordingState>>,
+    }
+
+    impl RdpBackendSession for RecordingSession {
+        fn input(&mut self, payload: &[u8]) -> Result<(), BackendError> {
+            self.state
+                .borrow_mut()
+                .input_payloads
+                .push(payload.to_vec());
+
+            Ok(())
+        }
+
+        fn ack(&mut self, payload: &[u8]) -> Result<(), BackendError> {
+            self.state.borrow_mut().ack_payloads.push(payload.to_vec());
+
+            Ok(())
+        }
+
+        fn close(&mut self, payload: &[u8]) -> Result<(), BackendError> {
+            self.state
+                .borrow_mut()
+                .close_payloads
+                .push(payload.to_vec());
 
             Ok(())
         }
@@ -220,14 +302,52 @@ mod tests {
         write_frame(&mut input, MSG_CLOSE, b"").expect("write close frame");
 
         let mut output = Vec::new();
+        let state = Rc::new(RefCell::new(RecordingState::default()));
         let mut backend = RecordingBackend {
-            opened_session: None,
+            state: Rc::clone(&state),
         };
 
         run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
             .expect("open then close succeeds");
 
-        assert_eq!(backend.opened_session.as_deref(), Some("session-1"));
+        let state = state.borrow();
+
+        assert_eq!(state.opened_session.as_deref(), Some("session-1"));
+        assert_eq!(state.close_payloads, vec![Vec::<u8>::new()]);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_routes_input_and_ack_after_open() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        write_frame(&mut input, MSG_INPUT, br#"{"frame_type":"desktop.input"}"#)
+            .expect("write input frame");
+        write_frame(&mut input, MSG_ACK, b"ack").expect("write ack frame");
+        write_frame(&mut input, MSG_CLOSE, br#"{"reason":"done"}"#).expect("write close frame");
+
+        let state = Rc::new(RefCell::new(RecordingState::default()));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect("session frames succeed");
+
+        let state = state.borrow();
+
+        assert_eq!(
+            state.input_payloads,
+            vec![br#"{"frame_type":"desktop.input"}"#.to_vec()]
+        );
+        assert_eq!(state.ack_payloads, vec![b"ack".to_vec()]);
+        assert_eq!(state.close_payloads, vec![br#"{"reason":"done"}"#.to_vec()]);
         assert!(output.is_empty());
     }
 
@@ -268,14 +388,15 @@ mod tests {
         write_frame(&mut input, MSG_OPEN, br#"{"schema":"wrong"}"#).expect("write open frame");
 
         let mut output = Vec::new();
+        let state = Rc::new(RefCell::new(RecordingState::default()));
         let mut backend = RecordingBackend {
-            opened_session: None,
+            state: Rc::clone(&state),
         };
         let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
             .expect_err("open payload rejected");
 
         assert!(matches!(err, ProtocolError::InvalidOpenPayload(_)));
-        assert!(backend.opened_session.is_none());
+        assert!(state.borrow().opened_session.is_none());
         assert_eq!(
             read_frame(&mut output.as_slice()).expect("read error frame"),
             Some(Frame {

@@ -85,6 +85,7 @@
 - [x] 3.2.7 Add an IronRDP feature backend target that links the reviewed `ironrdp-core`/`ironrdp-pdu` crates while still failing closed until the connector loop is implemented.
 - [x] 3.2.8 Add helper-side fail-closed validation for RDP upstream port bounds, TLS/NLA posture, disabled redirection, and metadata-only recording before connector code can consume an open payload.
 - [x] 3.2.9 Add helper-side fail-closed validation for session timestamps, route allowlists, supported credential modes, and bounded screen policy before connector code can consume an open payload.
+- [x] 3.2.10 Add a Rust helper backend session seam so post-open input, acknowledgement, and close frames route through an active adapter session instead of being rejected as pre-open traffic.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -141,6 +142,7 @@
 - [x] 5.2.12 Add focused Rust/Bazel checks proving the IronRDP feature target links the reviewed core/PDU crates without enabling connector/CredSSP dependencies.
 - [x] 5.2.13 Add focused Rust helper tests proving unsupported TLS/NLA, redirection, content recording, and out-of-range upstream ports are rejected before adapter use.
 - [x] 5.2.14 Add focused Rust helper tests proving invalid session timestamps, selected-agent allowlist mismatches, unsupported credential modes, and invalid screen policy are rejected before adapter use.
+- [x] 5.2.15 Add focused Rust helper tests proving post-open input, acknowledgement, and close frames are delivered to the active backend session.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

@@ -6,14 +6,20 @@ use crate::protocol::OpenPayload;
 const BACKEND_UNAVAILABLE: &str = "IronRDP backend is not linked into this helper build";
 
 pub trait RdpBackend {
-    fn open(&mut self, request: OpenPayload) -> Result<(), BackendError>;
+    fn open(&mut self, request: OpenPayload) -> Result<Box<dyn RdpBackendSession>, BackendError>;
+}
+
+pub trait RdpBackendSession {
+    fn input(&mut self, payload: &[u8]) -> Result<(), BackendError>;
+    fn ack(&mut self, payload: &[u8]) -> Result<(), BackendError>;
+    fn close(&mut self, payload: &[u8]) -> Result<(), BackendError>;
 }
 
 #[derive(Default)]
 pub struct UnavailableBackend;
 
 impl RdpBackend for UnavailableBackend {
-    fn open(&mut self, _request: OpenPayload) -> Result<(), BackendError> {
+    fn open(&mut self, _request: OpenPayload) -> Result<Box<dyn RdpBackendSession>, BackendError> {
         Err(BackendError::Unavailable)
     }
 }

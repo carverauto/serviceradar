@@ -1,4 +1,4 @@
-use crate::backend::{BackendError, RdpBackend};
+use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
 use crate::protocol::{DesktopCredentialGrant, OpenPayload};
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
@@ -10,7 +10,7 @@ const MEMORY_USER_REQUIRED: &str =
 pub struct IronRdpBackend;
 
 impl RdpBackend for IronRdpBackend {
-    fn open(&mut self, request: OpenPayload) -> Result<(), BackendError> {
+    fn open(&mut self, request: OpenPayload) -> Result<Box<dyn RdpBackendSession>, BackendError> {
         let Some(grant) = request.credential_grant.as_ref() else {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         };
