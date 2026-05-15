@@ -290,8 +290,19 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     end
   end
 
-  defp verify_active_session(%{status: "active"} = session), do: {:ok, session}
+  defp verify_active_session(%{status: "active"} = session) do
+    if session_expired?(session) do
+      {:error, :session_expired}
+    else
+      {:ok, session}
+    end
+  end
+
   defp verify_active_session(_session), do: {:error, :session_closing}
+
+  defp session_expired?(session) do
+    normalize_uint(Map.get(session, :lease_expires_at_unix, 0)) <= now_unix()
+  end
 
   defp verify_optional_media_ingest(session, media_ingest_id) do
     case optional_string(%{media_ingest_id: media_ingest_id}, :media_ingest_id) do

@@ -250,6 +250,45 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
     assert :ok = DesktopMediaSessionTracker.close_session("desktop-close-ack-1", "media-close-ack-1", "agent-1", %{})
   end
 
+  test "rejects frame, acknowledgement, and heartbeat mutations after lease expiry" do
+    expired_at = System.os_time(:second) - 60
+
+    assert {:ok, _session} =
+             DesktopMediaSessionTracker.open_session(%{
+               desktop_session_id: "desktop-expired-1",
+               media_session_id: "media-expired-1",
+               media_ingest_id: "ingest-expired-1",
+               agent_id: "agent-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               target_id: "target-1",
+               route_id: "route-1",
+               lease_token: "lease-expired-1",
+               lease_expires_at_unix: expired_at
+             })
+
+    assert {:error, :session_expired} =
+             DesktopMediaSessionTracker.record_frame("desktop-expired-1", "media-expired-1", "agent-1", %{
+               sequence: 1,
+               credit_cost: 1
+             })
+
+    assert {:error, :session_expired} =
+             DesktopMediaSessionTracker.apply_ack("desktop-expired-1", "media-expired-1", %{
+               media_ingest_id: "ingest-expired-1",
+               last_accepted_sequence: 1,
+               credit_bytes: 1
+             })
+
+    assert {:error, :session_expired} =
+             DesktopMediaSessionTracker.heartbeat("desktop-expired-1", "media-expired-1", "agent-1", %{
+               media_ingest_id: "ingest-expired-1",
+               lease_expires_at_unix: System.os_time(:second) + 60
+             })
+
+    assert :ok = DesktopMediaSessionTracker.close_session("desktop-expired-1", "media-expired-1", "agent-1", %{})
+  end
+
   test "enforces per-agent and per-gateway desktop media session limits" do
     Application.put_env(:serviceradar_agent_gateway, :desktop_media_max_sessions_per_agent, 1)
     Application.put_env(:serviceradar_agent_gateway, :desktop_media_max_sessions_per_gateway, 2)

@@ -102,6 +102,7 @@
 - [x] 3.1.57 Reject desktop media frame chunks with mismatched media-ingest bindings before forwarding.
 - [x] 3.1.58 Reject desktop media acknowledgement credit mutations with mismatched media-ingest bindings.
 - [x] 3.1.59 Reject frame, heartbeat, and acknowledgement mutations after a desktop media session starts closing.
+- [x] 3.1.60 Reject frame, heartbeat, and acknowledgement mutations after the desktop media session lease expires.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -288,6 +289,7 @@
 - [x] 5.6.47 Add focused Elixir tests proving desktop media frame chunks reject mismatched media-ingest bindings before forwarding.
 - [x] 5.6.48 Add focused Elixir tests proving desktop media acknowledgement credit mutations reject mismatched media-ingest bindings without changing counters.
 - [x] 5.6.49 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session starts closing.
+- [x] 5.6.50 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session lease expires.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

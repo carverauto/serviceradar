@@ -572,6 +572,33 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
     end
   end
 
+  test "desktop media stream rejects frames after session lease expiry" do
+    stream = test_stream()
+    open_response = open_desktop_session!("desktop-stream-expired-1", "media-stream-expired-1", stream)
+
+    expire_desktop_session!("desktop-stream-expired-1")
+
+    assert_raise GRPC.RPCError, ~r/desktop media session expired/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-expired-1",
+                 media_session_id: "media-stream-expired-1",
+                 media_ingest_id: open_response.media_ingest_id,
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+  end
+
   test "desktop media stream rejects frames above the session chunk limit" do
     stream = test_stream()
 
@@ -620,6 +647,16 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
       },
       stream
     )
+  end
+
+  defp expire_desktop_session!(desktop_session_id) do
+    expired_at = System.os_time(:second) - 60
+
+    :sys.replace_state(DesktopMediaSessionTracker, fn state ->
+      update_in(state, [:sessions, desktop_session_id], fn session ->
+        %{session | lease_expires_at_unix: expired_at}
+      end)
+    end)
   end
 
   defp test_stream(opts) do

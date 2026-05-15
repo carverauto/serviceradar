@@ -138,6 +138,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
       {:error, :session_closing} ->
         raise GRPC.RPCError, status: :failed_precondition, message: "desktop media session is closing"
 
+      {:error, :session_expired} ->
+        raise GRPC.RPCError, status: :failed_precondition, message: "desktop media session expired"
+
       {:error, :agent_id_mismatch} ->
         raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
     end
@@ -262,7 +265,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     end
   end
 
-  defp enforce_active_media_session!(%{status: "active"}), do: :ok
+  defp enforce_active_media_session!(%{status: "active", lease_expires_at_unix: lease_expires_at_unix}) do
+    if is_integer(lease_expires_at_unix) and lease_expires_at_unix <= System.os_time(:second) do
+      raise GRPC.RPCError, status: :failed_precondition, message: "desktop media session expired"
+    end
+  end
 
   defp enforce_active_media_session!(_session) do
     raise GRPC.RPCError, status: :failed_precondition, message: "desktop media session is closing"
@@ -318,6 +325,9 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
           {:error, :session_closing} ->
             raise GRPC.RPCError, status: :failed_precondition, message: "desktop media session is closing"
+
+          {:error, :session_expired} ->
+            raise GRPC.RPCError, status: :failed_precondition, message: "desktop media session expired"
 
           {:error, :agent_id_mismatch} ->
             raise GRPC.RPCError, status: :permission_denied, message: "desktop media session owner mismatch"
