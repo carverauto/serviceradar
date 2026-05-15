@@ -10,9 +10,9 @@ defmodule ServiceRadar.Security.RateLimiterClusterTest do
 
   use ExUnit.Case, async: false
 
-  @moduletag :cluster
-
   alias ServiceRadar.Security.RateLimiter
+
+  @moduletag :cluster
 
   setup_all do
     case ensure_distributed_node() do
@@ -100,15 +100,13 @@ defmodule ServiceRadar.Security.RateLimiterClusterTest do
   ## Helpers
 
   defp ensure_distributed_node do
-    case Node.alive?() do
-      true ->
-        :ok
-
-      false ->
-        case Node.start(:"rl_primary@127.0.0.1", :shortnames) do
-          {:ok, _} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+    if Node.alive?() do
+      :ok
+    else
+      case Node.start(:"rl_primary@127.0.0.1", :shortnames) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

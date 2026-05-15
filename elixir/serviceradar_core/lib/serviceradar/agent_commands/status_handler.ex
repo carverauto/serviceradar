@@ -7,8 +7,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub
-  alias ServiceRadar.ControlRepo
   alias ServiceRadar.Automation.Ansible.EventIngestor, as: AnsibleEventIngestor
+  alias ServiceRadar.ControlRepo
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrPubSub

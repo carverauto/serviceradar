@@ -71,6 +71,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTarget do
 
     update :record_outcome do
       description "Apply per-host stats from AWX `playbook_on_stats` event"
+
       accept [
         :status,
         :changed_count,

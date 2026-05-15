@@ -47,6 +47,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
     assert row.src_as_number == 64_512
     assert row.dst_as_number == 64_515
     assert row.sampler_address == "10.1.0.1"
+
     assert DateTime.compare(
              row.start_time,
              DateTime.from_unix!(1_705_363_100_000_000_000, :nanosecond)
@@ -56,6 +57,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
              row.end_time,
              DateTime.from_unix!(1_705_363_210_000_000_000, :nanosecond)
            ) == :eq
+
     assert row.ocsf_payload["flow_source"] == "NetFlow v9"
     assert row.ocsf_payload["connection_info"]["input_snmp"] == 10
     assert row.ocsf_payload["connection_info"]["output_snmp"] == 20

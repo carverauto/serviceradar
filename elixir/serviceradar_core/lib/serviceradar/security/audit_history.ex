@@ -96,26 +96,24 @@ defmodule ServiceRadar.Security.AuditHistory do
   defp read_versions(resource, actor, since, until_, action_types, n) do
     version_module = Module.concat(resource, Version)
 
-    cond do
-      not Code.ensure_loaded?(version_module) ->
-        []
+    if Code.ensure_loaded?(version_module) do
+      version_module
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> apply_time_filters(since, until_)
+      |> apply_action_filter(action_types)
+      |> Ash.Query.sort(version_inserted_at: :desc)
+      |> Ash.Query.limit(n)
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, versions} ->
+          Enum.map(versions, &%{resource: resource, version: &1})
 
-      true ->
-        version_module
-        |> Ash.Query.for_read(:read, %{}, actor: actor)
-        |> apply_time_filters(since, until_)
-        |> apply_action_filter(action_types)
-        |> Ash.Query.sort(version_inserted_at: :desc)
-        |> Ash.Query.limit(n)
-        |> Ash.read(actor: actor)
-        |> case do
-          {:ok, versions} ->
-            Enum.map(versions, &%{resource: resource, version: &1})
-
-          {:error, _reason} ->
-            # Per-resource read may fail under RBAC — treat as empty.
-            []
-        end
+        {:error, _reason} ->
+          # Per-resource read may fail under RBAC — treat as empty.
+          []
+      end
+    else
+      []
     end
   rescue
     # Never let a single resource's failure poison the whole timeline.
@@ -126,11 +124,13 @@ defmodule ServiceRadar.Security.AuditHistory do
 
   defp apply_time_filters(query, since, nil) do
     require Ash.Expr
+
     Ash.Query.filter(query, Ash.Expr.expr(version_inserted_at >= ^since))
   end
 
   defp apply_time_filters(query, nil, until_) do
     require Ash.Expr
+
     Ash.Query.filter(query, Ash.Expr.expr(version_inserted_at <= ^until_))
   end
 
@@ -148,6 +148,7 @@ defmodule ServiceRadar.Security.AuditHistory do
 
   defp apply_action_filter(query, types) when is_list(types) do
     require Ash.Expr
+
     Ash.Query.filter(query, Ash.Expr.expr(version_action_type in ^types))
   end
 

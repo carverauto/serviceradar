@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorkerTest do
   alias ServiceRadar.Automation.Ansible.RunPulseWorker
 
   defmodule FakeAwxClient do
+    @moduledoc false
     def fetch_events_for_jobs(controller, pairs, opts) do
       send(opts[:test_pid] || self(), {:fetch_events_for_jobs, controller.id, pairs, opts})
       {:ok, %{id: "command-1"}}
@@ -14,6 +15,7 @@ defmodule ServiceRadar.Automation.Ansible.RunPulseWorkerTest do
   end
 
   defmodule FailingAwxClient do
+    @moduledoc false
     def fetch_events_for_jobs(_controller, _pairs, _opts), do: {:error, :boom}
   end
 

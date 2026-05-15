@@ -76,7 +76,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.ReferenceAnalysisWorkerTest do
       )
 
     assert response.status == 200
-    assert is_list(response.body)
 
     assert [
              %{

@@ -83,7 +83,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
                     _metadata},
                    5_000
 
-    assert is_binary(sdp)
     assert String.contains?(sdp, "m=video")
 
     assert :ok = PipelineManager.remove_webrtc_viewer(relay_session_id, viewer_session_id)

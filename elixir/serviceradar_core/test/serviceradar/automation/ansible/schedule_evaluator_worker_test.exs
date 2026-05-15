@@ -74,7 +74,9 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorkerTest do
       # underlying lookup raises ArgumentError; we wrap that into a typed
       # error so the worker can record :error rather than crashing.
       schedule = %{cron: "0 9 * * 1-5", timezone: "America/New_York"}
-      assert {:error, :timezone_database_unavailable} = Worker.compute_next_run_at(schedule, now())
+
+      assert {:error, :timezone_database_unavailable} =
+               Worker.compute_next_run_at(schedule, now())
     end
 
     test "shorthand expressions (@hourly etc.) work" do
@@ -88,8 +90,11 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorkerTest do
     end
 
     test "missing cron / timezone returns :invalid_schedule" do
-      assert {:error, :invalid_schedule} = Worker.compute_next_run_at(%{cron: nil, timezone: "UTC"}, now())
-      assert {:error, :invalid_schedule} = Worker.compute_next_run_at(%{cron: "* * * * *", timezone: nil}, now())
+      assert {:error, :invalid_schedule} =
+               Worker.compute_next_run_at(%{cron: nil, timezone: "UTC"}, now())
+
+      assert {:error, :invalid_schedule} =
+               Worker.compute_next_run_at(%{cron: "* * * * *", timezone: nil}, now())
     end
   end
 

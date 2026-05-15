@@ -13,10 +13,10 @@ defmodule ServiceRadar.Jobs.SecurityEventsRetentionWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Security.SecurityEvent
+
+  require Logger
 
   @default_retention_days 90
 
@@ -34,7 +34,10 @@ defmodule ServiceRadar.Jobs.SecurityEventsRetentionWorker do
 
     case SecurityEvent.delete_older_than(cutoff, actor: actor) do
       {:ok, _result} ->
-        Logger.info("SecurityEventsRetention: pruned rows older than #{cutoff} (retention=#{days}d)")
+        Logger.info(
+          "SecurityEventsRetention: pruned rows older than #{cutoff} (retention=#{days}d)"
+        )
+
         :ok
 
       {:error, reason} ->

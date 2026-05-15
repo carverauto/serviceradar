@@ -17,13 +17,13 @@ defmodule ServiceRadar.Security.Events do
 
   use GenServer
 
-  require Logger
-
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Security.SecurityEvent
 
+  require Logger
+
   @default_max_queue 1_000
-  @flush_interval :timer.seconds(1)
+  @flush_interval to_timeout(second: 1)
   @flush_batch_size 50
 
   ## Client API
@@ -64,7 +64,8 @@ defmodule ServiceRadar.Security.Events do
   def init(opts) do
     max_queue =
       Keyword.get(opts, :max_queue) ||
-        Application.get_env(:serviceradar_core, __MODULE__, [])
+        :serviceradar_core
+        |> Application.get_env(__MODULE__, [])
         |> Keyword.get(:max_queue, @default_max_queue)
 
     schedule_flush()
@@ -116,6 +117,7 @@ defmodule ServiceRadar.Security.Events do
       [] -> :ok
       _ -> spawn(fn -> persist(batch) end)
     end
+
     %{state | queue: remaining_queue, queue_size: remaining_size}
   end
 
@@ -123,7 +125,9 @@ defmodule ServiceRadar.Security.Events do
 
   defp take(queue, size, limit) do
     n = min(size, limit)
-    do_take(queue, n, [])
+
+    queue
+    |> do_take(n, [])
     |> case do
       {items, q_rest} -> {Enum.reverse(items), q_rest, size - n}
     end

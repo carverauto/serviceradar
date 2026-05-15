@@ -19,12 +19,13 @@ defmodule ServiceRadar.Security.Lockouts do
   """
 
   import Ash.Expr
-  require Ash.Query
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Security.AuthLockout
   alias ServiceRadar.Security.Events
   alias ServiceRadar.Security.SecurityEvent
+
+  require Ash.Query
 
   @default_threshold 20
   @default_window_seconds 3_600
@@ -125,9 +126,7 @@ defmodule ServiceRadar.Security.Lockouts do
 
     case SecurityEvent
          |> Ash.Query.filter(
-           expr(
-             kind == :login_failed and actor_id == ^actor_id and occurred_at >= ^cutoff
-           )
+           expr(kind == :login_failed and actor_id == ^actor_id and occurred_at >= ^cutoff)
          )
          |> Ash.count(actor: actor) do
       {:ok, count} -> count

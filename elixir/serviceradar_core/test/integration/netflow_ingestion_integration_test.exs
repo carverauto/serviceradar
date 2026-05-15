@@ -18,16 +18,14 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
 
   @moduletag :integration
   @moduletag timeout: 60_000
-  @nats_available (
-                    case :gen_tcp.connect(~c"127.0.0.1", 4222, [:binary, active: false], 200) do
-                      {:ok, socket} ->
-                        :ok = :gen_tcp.close(socket)
-                        true
+  @nats_available (case :gen_tcp.connect(~c"127.0.0.1", 4222, [:binary, active: false], 200) do
+                     {:ok, socket} ->
+                       :ok = :gen_tcp.close(socket)
+                       true
 
-                      _ ->
-                        false
-                    end
-                  )
+                     _ ->
+                       false
+                   end)
 
   setup do
     Repo.delete_all("bgp_routing_info")
@@ -163,7 +161,9 @@ defmodule ServiceRadar.Integration.NetflowIngestionIntegrationTest do
         ]
       )
 
-      assert [%{as_number: 64_512, bytes: 1_500_000}] = Stats.get_traffic_by_as("last_1h", "netflow", 1)
+      assert [%{as_number: 64_512, bytes: 1_500_000}] =
+               Stats.get_traffic_by_as("last_1h", "netflow", 1)
+
       assert [%{community: 65_538_000, bytes: 1_500_000}] =
                Stats.get_top_communities("last_1h", "netflow", 1)
     end

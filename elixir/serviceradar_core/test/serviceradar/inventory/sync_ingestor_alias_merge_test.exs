@@ -150,6 +150,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
 
   defp unique_mac(seed) do
     suffix = rem(System.unique_integer([:positive, :monotonic]) + seed, 255)
+
     "AA:BB:CC:DD:EE:#{suffix |> Integer.to_string(16) |> String.pad_leading(2, "0") |> String.upcase()}"
   end
 end

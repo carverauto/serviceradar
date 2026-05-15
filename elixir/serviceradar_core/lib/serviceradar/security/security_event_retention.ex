@@ -2,9 +2,10 @@ defmodule ServiceRadar.Security.SecurityEvent.Retention do
   @moduledoc false
 
   import Ash.Expr
-  require Ash.Query
 
   alias ServiceRadar.Security.SecurityEvent
+
+  require Ash.Query
 
   @spec run(DateTime.t(), keyword()) :: {:ok, map()}
   def run(%DateTime{} = cutoff, opts \\ []) do

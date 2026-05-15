@@ -63,6 +63,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     :ok
   end
 
+  # credo:disable-for-next-line Jump.CredoChecks.TooManyAssertions
   test "opens, tracks, heartbeats, and closes a core relay session" do
     relay_session_id = unique_relay_session_id()
     viewer_id = unique_viewer_id()

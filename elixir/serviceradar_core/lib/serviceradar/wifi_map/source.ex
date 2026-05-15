@@ -16,63 +16,63 @@ defmodule ServiceRadar.WifiMap.Source do
   ]
 
   postgres do
-    table("wifi_map_sources")
-    repo(ServiceRadar.Repo)
-    schema("platform")
-    migrate?(false)
+    table "wifi_map_sources"
+    repo ServiceRadar.Repo
+    schema "platform"
+    migrate? false
   end
 
   actions do
-    defaults([:read, :destroy])
+    defaults [:read, :destroy]
 
     create :upsert do
-      accept(@fields)
-      upsert?(true)
-      upsert_identity(:unique_name)
-      upsert_fields(@fields ++ [:updated_at])
+      accept @fields
+      upsert? true
+      upsert_identity :unique_name
+      upsert_fields @fields ++ [:updated_at]
     end
   end
 
   attributes do
-    uuid_primary_key(:id, source: :source_id)
+    uuid_primary_key :id, source: :source_id
 
     attribute :plugin_source_id, :uuid do
-      public?(true)
+      public? true
     end
 
     attribute :name, :string do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :source_kind, :string do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :latest_collection_at, :utc_datetime_usec do
-      public?(true)
+      public? true
     end
 
     attribute :latest_reference_hash, :string do
-      public?(true)
+      public? true
     end
 
     attribute :latest_reference_at, :utc_datetime_usec do
-      public?(true)
+      public? true
     end
 
     attribute :metadata, :map do
-      allow_nil?(false)
-      default(%{})
-      public?(true)
+      allow_nil? false
+      default %{}
+      public? true
     end
 
-    create_timestamp(:inserted_at)
-    update_timestamp(:updated_at)
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
   end
 
   identities do
-    identity(:unique_name, [:name])
+    identity :unique_name, [:name]
   end
 end

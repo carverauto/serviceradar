@@ -189,7 +189,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp build_insert_rows(results, agent_id, gateway_id, partition, now) do
-    Enum.reduce_while(results, {:ok, [], []}, fn result, {:ok, trace_rows, hop_rows} ->
+    results
+    |> Enum.reduce_while({:ok, [], []}, fn result, {:ok, trace_rows, hop_rows} ->
       case build_result_rows(result, agent_id, gateway_id, partition, now) do
         {:ok, trace_row, result_hops} when is_map(trace_row) ->
           {:cont, {:ok, [trace_row | trace_rows], Enum.reverse(result_hops, hop_rows)}}

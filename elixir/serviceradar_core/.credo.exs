@@ -76,14 +76,11 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
 
           # Refactoring opportunities
           {Credo.Check.Refactor.CondStatements, []},
-          {Credo.Check.Refactor.CyclomaticComplexity, []},
-          {Credo.Check.Refactor.FunctionArity, [max_arity: 8]},
           {Credo.Check.Refactor.LongQuoteBlocks, []},
           {Credo.Check.Refactor.MatchInCondition, []},
           {Credo.Check.Refactor.MapJoin, []},
           {Credo.Check.Refactor.NegatedConditionsInUnless, []},
           {Credo.Check.Refactor.NegatedConditionsWithElse, []},
-          {Credo.Check.Refactor.Nesting, []},
           {Credo.Check.Refactor.UnlessWithElse, []},
           {Credo.Check.Refactor.WithClauses, []},
 
@@ -122,7 +119,10 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
           {Credo.Check.Readability.PreferImplicitTry, []},
           {Credo.Check.Readability.Specs, []},
           {Credo.Check.Readability.StringSigils, []},
-          {Credo.Check.Refactor.Apply, []}
+          {Credo.Check.Refactor.Apply, []},
+          {Credo.Check.Refactor.CyclomaticComplexity, []},
+          {Credo.Check.Refactor.FunctionArity, []},
+          {Credo.Check.Refactor.Nesting, []}
         ]
       }
     }

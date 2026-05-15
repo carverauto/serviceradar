@@ -154,9 +154,14 @@ defmodule ServiceRadar.Identity.CliAuthCleanupWorker do
       )
 
     case Ash.read(query, actor: actor) do
-      {:ok, %Keyset{results: rows}} -> Enum.each(rows, &destroy_row(&1, actor, "device_authorization"))
-      {:ok, rows} when is_list(rows) -> Enum.each(rows, &destroy_row(&1, actor, "device_authorization"))
-      {:error, reason} -> log_warning("read old device authorizations", reason)
+      {:ok, %Keyset{results: rows}} ->
+        Enum.each(rows, &destroy_row(&1, actor, "device_authorization"))
+
+      {:ok, rows} when is_list(rows) ->
+        Enum.each(rows, &destroy_row(&1, actor, "device_authorization"))
+
+      {:error, reason} ->
+        log_warning("read old device authorizations", reason)
     end
   end
 

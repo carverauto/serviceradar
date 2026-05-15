@@ -50,6 +50,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
     store_action_name? true
     store_action_inputs? true
     create_version_on_destroy? false
+
     ignore_attributes [
       :inserted_at,
       :updated_at,

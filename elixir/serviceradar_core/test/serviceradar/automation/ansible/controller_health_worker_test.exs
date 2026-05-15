@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorkerTest do
   alias ServiceRadar.Automation.Ansible.ControllerHealthWorker
 
   defmodule FakeAwxClient do
+    @moduledoc false
     def ping(controller, opts) do
       send(opts[:test_pid] || self(), {:ping, controller.id, opts})
       {:ok, %{id: "command-1"}}
@@ -12,6 +13,7 @@ defmodule ServiceRadar.Automation.Ansible.ControllerHealthWorkerTest do
   end
 
   defmodule FailingAwxClient do
+    @moduledoc false
     def ping(_controller, _opts), do: {:error, :unreachable}
   end
 

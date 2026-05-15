@@ -2,6 +2,7 @@ defmodule ServiceRadar.Security.EventsTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Security.Events
+  alias ServiceRadar.Security.SecurityEvent
 
   setup do
     # Drain anything in flight from earlier tests so we start clean.
@@ -62,8 +63,8 @@ defmodule ServiceRadar.Security.EventsTest do
 
   describe "kinds/0 and severities/0" do
     test "expose the supported kinds and severities for callers/UI" do
-      kinds = ServiceRadar.Security.SecurityEvent.kinds()
-      severities = ServiceRadar.Security.SecurityEvent.severities()
+      kinds = SecurityEvent.kinds()
+      severities = SecurityEvent.severities()
 
       assert :rate_limit_denied in kinds
       assert :csp_violation in kinds

@@ -24,8 +24,6 @@ defmodule ServiceRadar.Identity.Validations.CurrentPasswordTest do
     assert CurrentPassword.validate(changeset, [required_message: "is required"], %{}) == :ok
   end
 
-
-
   test "falls back to the default required message when opts omit it" do
     changeset =
       User

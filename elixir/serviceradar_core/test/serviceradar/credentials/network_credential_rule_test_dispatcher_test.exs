@@ -70,7 +70,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
       context: %{credential_rule_id: "rule-1"},
       payload: %{
         "schema" => "serviceradar.proxmox_credential_test.v1",
-        "credential_secret_ref" => "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+        "credential_secret_ref" => "credentialref:test-ref"
       }
     }
 

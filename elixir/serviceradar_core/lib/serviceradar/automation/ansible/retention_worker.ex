@@ -92,16 +92,18 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
   @spec read_config() :: config()
   def read_config do
     %{
-      run_detail_days: normalize_days(
-        Application.get_env(
-          :serviceradar_core,
-          :ansible_retention_run_detail_days,
-          @default_run_detail_days
+      run_detail_days:
+        normalize_days(
+          Application.get_env(
+            :serviceradar_core,
+            :ansible_retention_run_detail_days,
+            @default_run_detail_days
+          )
+        ),
+      run_summary_days:
+        normalize_optional_days(
+          Application.get_env(:serviceradar_core, :ansible_retention_run_summary_days, nil)
         )
-      ),
-      run_summary_days: normalize_optional_days(
-        Application.get_env(:serviceradar_core, :ansible_retention_run_summary_days, nil)
-      )
     }
   end
 
@@ -184,7 +186,9 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorker do
 
   defp old_terminal_run_ids(cutoff, actor) do
     PlaybookRun
-    |> Ash.Query.filter(state in ^@terminal_states and not is_nil(ended_at) and ended_at < ^cutoff)
+    |> Ash.Query.filter(
+      state in ^@terminal_states and not is_nil(ended_at) and ended_at < ^cutoff
+    )
     |> Ash.Query.select([:id])
     |> Ash.read!(actor: actor)
     |> Enum.map(& &1.id)

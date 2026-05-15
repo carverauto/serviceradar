@@ -11,91 +11,92 @@ defmodule ServiceRadar.Observability.MtrSettings do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  @networks_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.networks.manage"}
+  @networks_manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                          permission: "settings.networks.manage"}
 
   @default_retention_days 30
   @mtr_tables ["mtr_traces", "mtr_hops"]
 
   postgres do
-    table("mtr_settings")
-    repo(ServiceRadar.Repo)
-    schema("platform")
-    migrate?(false)
+    table "mtr_settings"
+    repo ServiceRadar.Repo
+    schema "platform"
+    migrate? false
   end
 
   code_interface do
-    define(:get_settings, action: :get_singleton)
-    define(:create_settings, action: :create)
-    define(:update_settings, action: :update)
+    define :get_settings, action: :get_singleton
+    define :create_settings, action: :create
+    define :update_settings, action: :update
   end
 
   actions do
-    defaults([:read])
+    defaults [:read]
 
     read :get_singleton do
-      get?(true)
+      get? true
 
-      prepare(fn query, _ ->
+      prepare fn query, _ ->
         Ash.Query.limit(query, 1)
-      end)
+      end
     end
 
     create :create do
-      accept([
+      accept [
         :mtr_retention_days,
         :mtr_default_history_window,
         :mtr_history_page_size_default
-      ])
+      ]
     end
 
     update :update do
-      accept([
+      accept [
         :mtr_retention_days,
         :mtr_default_history_window,
         :mtr_history_page_size_default
-      ])
+      ]
     end
   end
 
   policies do
     bypass always() do
-      authorize_if(actor_attribute_equals(:role, :system))
+      authorize_if actor_attribute_equals(:role, :system)
     end
 
     policy action_type(:read) do
-      authorize_if(always())
+      authorize_if always()
     end
 
     policy action([:create, :update]) do
-      authorize_if(@networks_manage_check)
+      authorize_if @networks_manage_check
     end
   end
 
   attributes do
-    uuid_primary_key(:id)
+    uuid_primary_key :id
 
     attribute :mtr_retention_days, :integer do
-      allow_nil?(false)
-      default(@default_retention_days)
-      public?(true)
-      constraints(min: 1, max: 395)
+      allow_nil? false
+      default @default_retention_days
+      public? true
+      constraints min: 1, max: 395
     end
 
     attribute :mtr_default_history_window, :string do
-      allow_nil?(false)
-      default("last_30d")
-      public?(true)
+      allow_nil? false
+      default "last_30d"
+      public? true
     end
 
     attribute :mtr_history_page_size_default, :integer do
-      allow_nil?(false)
-      default(50)
-      public?(true)
-      constraints(min: 10, max: 200)
+      allow_nil? false
+      default 50
+      public? true
+      constraints min: 10, max: 200
     end
 
-    create_timestamp(:inserted_at)
-    update_timestamp(:updated_at)
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
   end
 
   @doc """

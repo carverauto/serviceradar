@@ -49,7 +49,7 @@ defmodule ServiceRadar.Identity.DeviceAuthorizationTest do
     end
 
     test "unique identities cover both lookups the controller depends on" do
-      identities = Info.identities(DeviceAuthorization) |> Enum.map(& &1.name)
+      identities = DeviceAuthorization |> Info.identities() |> Enum.map(& &1.name)
       assert :unique_user_code in identities
       assert :unique_device_code_hash in identities
     end
@@ -60,8 +60,7 @@ defmodule ServiceRadar.Identity.DeviceAuthorizationTest do
       now = DateTime.utc_now()
 
       changeset =
-        DeviceAuthorization
-        |> Ash.Changeset.for_create(:create, %{
+        Ash.Changeset.for_create(DeviceAuthorization, :create, %{
           attrs: %{
             device_code_hash: String.duplicate("a", 64),
             user_code: "WDJB-MJHT",

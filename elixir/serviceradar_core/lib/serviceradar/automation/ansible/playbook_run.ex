@@ -113,7 +113,11 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRun do
     read :active_for_controller do
       description "Non-terminal runs for a controller — drives RunPulseWorker tick batching"
       argument :controller_id, :uuid, allow_nil?: false
-      filter expr(controller_id == ^arg(:controller_id) and state in [:pending, :launching, :running])
+
+      filter expr(
+               controller_id == ^arg(:controller_id) and state in [:pending, :launching, :running]
+             )
+
       prepare build(select: @public_read_fields)
     end
 

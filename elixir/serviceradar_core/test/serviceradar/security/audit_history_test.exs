@@ -2,17 +2,16 @@ defmodule ServiceRadar.Security.AuditHistoryTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Security.AuditHistory
+  alias ServiceRadar.Security.AuthLockout
 
   describe "resources/0" do
     test "returns the configured allow-list when set" do
       previous = Application.get_env(:serviceradar_core, AuditHistory, [])
 
       try do
-        Application.put_env(:serviceradar_core, AuditHistory,
-          resources: [ServiceRadar.Security.AuthLockout]
-        )
+        Application.put_env(:serviceradar_core, AuditHistory, resources: [AuthLockout])
 
-        assert AuditHistory.resources() == [ServiceRadar.Security.AuthLockout]
+        assert AuditHistory.resources() == [AuthLockout]
       after
         Application.put_env(:serviceradar_core, AuditHistory, previous)
       end
@@ -26,7 +25,7 @@ defmodule ServiceRadar.Security.AuditHistoryTest do
 
         defaults = AuditHistory.resources()
         assert is_list(defaults)
-        assert ServiceRadar.Security.AuthLockout in defaults
+        assert AuthLockout in defaults
         assert ServiceRadar.Credentials.NetworkCredentialSecret in defaults
       after
         Application.put_env(:serviceradar_core, AuditHistory, previous)
@@ -64,7 +63,7 @@ defmodule ServiceRadar.Security.AuditHistoryTest do
 
   defp build_version(action_inputs) do
     %{
-      resource: ServiceRadar.Security.AuthLockout,
+      resource: AuthLockout,
       version: %{
         version_action_inputs: action_inputs,
         version_inserted_at: DateTime.utc_now()

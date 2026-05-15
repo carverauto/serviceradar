@@ -124,7 +124,16 @@ defmodule ServiceRadar.Observability.MtrGraph do
     end
   end
 
-  defp edge_upsert_cypher(from_hop, to_hop, from_label, from_id, to_label, to_id, agent_id, observed_at) do
+  defp edge_upsert_cypher(
+         from_hop,
+         to_hop,
+         from_label,
+         from_id,
+         to_label,
+         to_id,
+         agent_id,
+         observed_at
+       ) do
     from_asn = hop_asn(from_hop)
     to_asn = hop_asn(to_hop)
     from_hop_no = hop_int(from_hop, "hop_number", 0)

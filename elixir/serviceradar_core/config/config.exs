@@ -50,12 +50,6 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
-config :serviceradar_core, :object_store_retention,
-  enabled?: false,
-  dry_run?: true,
-  agent_release_keep_latest: 5,
-  datasvc_timeout_ms: 30_000
-
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
@@ -66,6 +60,31 @@ config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWork
 
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker, []
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore, []
+
+# Cluster-aware rate limiter buckets. Per-route configuration; the plug
+# resolves a bucket name from its opts and falls back to :default_bucket.
+config :serviceradar_core, ServiceRadar.Security.RateLimiter,
+  default_bucket: [limit: 60, window_seconds: 60],
+  buckets: %{
+    auth_local: [limit: 5, window_seconds: 60],
+    auth_password_reset: [limit: 5, window_seconds: 300],
+    auth_oidc_callback: [limit: 30, window_seconds: 60],
+    auth_saml_callback: [limit: 30, window_seconds: 60],
+    cli_device_auth: [limit: 30, window_seconds: 60],
+    dashboard_publish: [limit: 10, window_seconds: 60],
+    dashboard_publish_admin: [limit: 30, window_seconds: 60],
+    cli_token_poll: [limit: 60, window_seconds: 60],
+    plugin_upload: [limit: 10, window_seconds: 60],
+    oauth_password_grant: [limit: 10, window_seconds: 60],
+    oauth_client_credentials: [limit: 20, window_seconds: 60],
+    api_default: [limit: 120, window_seconds: 60]
+  }
+
+config :serviceradar_core, :object_store_retention,
+  enabled?: false,
+  dry_run?: true,
+  agent_release_keep_latest: 5,
+  datasvc_timeout_ms: 30_000
 
 # Plugin blob storage download configuration (used to generate signed download URLs)
 config :serviceradar_core, :plugin_storage,
@@ -163,34 +182,14 @@ config :spark,
     ]
   ]
 
-# Import environment specific config
-
-# Disable Swoosh API client (not needed for Local adapter)
-config :swoosh, :api_client, false
-
-# Cluster-aware rate limiter buckets. Per-route configuration; the plug
-# resolves a bucket name from its opts and falls back to :default_bucket.
-config :serviceradar_core, ServiceRadar.Security.RateLimiter,
-  default_bucket: [limit: 60, window_seconds: 60],
-  buckets: %{
-    auth_local: [limit: 5, window_seconds: 60],
-    auth_password_reset: [limit: 5, window_seconds: 300],
-    auth_oidc_callback: [limit: 30, window_seconds: 60],
-    auth_saml_callback: [limit: 30, window_seconds: 60],
-    cli_device_auth: [limit: 30, window_seconds: 60],
-    dashboard_publish: [limit: 10, window_seconds: 60],
-    dashboard_publish_admin: [limit: 30, window_seconds: 60],
-    cli_token_poll: [limit: 60, window_seconds: 60],
-    plugin_upload: [limit: 10, window_seconds: 60],
-    oauth_password_grant: [limit: 10, window_seconds: 60],
-    oauth_client_credentials: [limit: 20, window_seconds: 60],
-    api_default: [limit: 120, window_seconds: 60]
-  }
-
 # Settings → Audit → History allow-list. Sets which AshPaperTrail-
 # enabled resources surface on the cross-resource history page.
+
+# Import environment specific config
 # The module defaults to the full list of AshPaperTrail-enabled
 # resources; uncomment + edit to scope tighter or to exclude a
+
+# Disable Swoosh API client (not needed for Local adapter)
 # high-write-volume resource (e.g. PlaybookRun during a busy
 # ansible run).
 #
@@ -200,5 +199,7 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
 #     ServiceRadar.Credentials.NetworkCredentialRule,
 #     ServiceRadar.Security.AuthLockout
 #   ]
+
+config :swoosh, :api_client, false
 
 import_config "#{config_env()}.exs"

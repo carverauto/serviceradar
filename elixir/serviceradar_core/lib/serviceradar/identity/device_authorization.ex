@@ -94,7 +94,8 @@ defmodule ServiceRadar.Identity.DeviceAuthorization do
       change fn changeset, _context ->
         attrs = Ash.Changeset.get_argument(changeset, :attrs) || %{}
 
-        Enum.reduce(attrs, changeset, fn {key, value}, acc ->
+        attrs
+        |> Enum.reduce(changeset, fn {key, value}, acc ->
           Ash.Changeset.change_attribute(acc, key, value)
         end)
         |> Ash.Changeset.change_attribute(:status, :pending)

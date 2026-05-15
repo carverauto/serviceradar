@@ -15,6 +15,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookSchedule do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "ansible.schedules.view"}
@@ -203,7 +204,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookSchedule do
     attribute :last_evaluation_outcome, :atom do
       allow_nil? true
       public? true
-      constraints one_of: [:fired, :skipped_overlap, :skipped_disabled, :skipped_ineligible_targets, :error]
+
+      constraints one_of: [
+                    :fired,
+                    :skipped_overlap,
+                    :skipped_disabled,
+                    :skipped_ineligible_targets,
+                    :error
+                  ]
     end
 
     attribute :metadata, :map do
@@ -224,14 +232,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookSchedule do
       source_attribute :playbook_id
     end
 
-    belongs_to :last_run, ServiceRadar.Automation.Ansible.PlaybookRun do
+    belongs_to :last_run, PlaybookRun do
       attribute_writable? true
       public? true
       define_attribute? false
       source_attribute :last_run_id
     end
 
-    has_many :runs, ServiceRadar.Automation.Ansible.PlaybookRun do
+    has_many :runs, PlaybookRun do
       destination_attribute :schedule_id
     end
   end
