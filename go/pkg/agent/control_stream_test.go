@@ -338,6 +338,16 @@ func TestRemoteAccessRDPCapabilityRequiresConfigAndHelper(t *testing.T) {
 	if err := os.WriteFile(adapterPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
+	readyAdapterPath := filepath.Join(dir, "ready-"+remoteaccess.DefaultRDPAdapterBinary)
+	readyScript := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--capabilities\" ]; then\n" +
+		"  echo '{\"schema\":\"serviceradar.rdp.helper.capabilities.v1\",\"protocol\":\"rdp\",\"helper_protocol_version\":1,\"ironrdp_backend_linked\":true,\"connector_ready\":true}'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(readyAdapterPath, []byte(readyScript), 0o755); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
 
 	cases := []struct {
 		name string
@@ -348,7 +358,8 @@ func TestRemoteAccessRDPCapabilityRequiresConfigAndHelper(t *testing.T) {
 		{name: "default disabled", cfg: &ServerConfig{RemoteAccessRDPAdapterPath: adapterPath}},
 		{name: "explicit disabled", cfg: &ServerConfig{RemoteAccessRDPEnabled: &disabled, RemoteAccessRDPAdapterPath: adapterPath}},
 		{name: "enabled missing helper", cfg: &ServerConfig{RemoteAccessRDPEnabled: &enabled, RemoteAccessRDPAdapterPath: filepath.Join(dir, "missing")}},
-		{name: "enabled executable helper", cfg: &ServerConfig{RemoteAccessRDPEnabled: &enabled, RemoteAccessRDPAdapterPath: adapterPath}, want: true},
+		{name: "enabled executable helper without ready connector", cfg: &ServerConfig{RemoteAccessRDPEnabled: &enabled, RemoteAccessRDPAdapterPath: adapterPath}},
+		{name: "enabled ready helper", cfg: &ServerConfig{RemoteAccessRDPEnabled: &enabled, RemoteAccessRDPAdapterPath: readyAdapterPath}, want: true},
 	}
 	for _, tc := range cases {
 		if got := remoteAccessRDPCapabilityEnabled(tc.cfg); got != tc.want {

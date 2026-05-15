@@ -17,6 +17,7 @@
 package remoteaccess
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -50,4 +51,50 @@ func TestResolveRDPAdapterPath(t *testing.T) {
 	if _, err := ResolveRDPAdapterPath(filepath.Join(dir, "missing")); !errors.Is(err, ErrDesktopAdapterUnavailable) {
 		t.Fatalf("missing adapter error = %v, want %v", err, ErrDesktopAdapterUnavailable)
 	}
+}
+
+func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	readyPath := writeRDPAdapterProbeScript(t, dir, "ready", true)
+	resolved, capabilities, err := ProbeRDPAdapterCapabilities(context.Background(), readyPath)
+	if err != nil {
+		t.Fatalf("ProbeRDPAdapterCapabilities returned error: %v", err)
+	}
+	if resolved != readyPath || !capabilities.ConnectorReady || !capabilities.IronRDPBackendLinked {
+		t.Fatalf("probe result resolved=%q capabilities=%#v", resolved, capabilities)
+	}
+	if !RDPAdapterReady(readyPath) {
+		t.Fatal("RDPAdapterReady returned false for ready helper")
+	}
+
+	notReadyPath := writeRDPAdapterProbeScript(t, dir, "not-ready", false)
+	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), notReadyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) {
+		t.Fatalf("not-ready helper error = %v, want %v", err, ErrDesktopAdapterUnavailable)
+	}
+	if RDPAdapterReady(notReadyPath) {
+		t.Fatal("RDPAdapterReady returned true for not-ready helper")
+	}
+}
+
+func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, ready bool) string {
+	tb.Helper()
+
+	path := filepath.Join(dir, name)
+	readyValue := "false"
+	if ready {
+		readyValue = "true"
+	}
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--capabilities\" ]; then\n" +
+		"  echo '{\"schema\":\"serviceradar.rdp.helper.capabilities.v1\",\"protocol\":\"rdp\",\"helper_protocol_version\":1,\"ironrdp_backend_linked\":true,\"connector_ready\":" + readyValue + "}'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 0\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		tb.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	return path
 }

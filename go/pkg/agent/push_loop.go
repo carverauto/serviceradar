@@ -3242,5 +3242,5 @@ func remoteAccessRDPCapabilityEnabled(cfg *ServerConfig) bool {
 		return false
 	}
 
-	return remoteaccess.RDPAdapterBinaryAvailable(cfg.RemoteAccessRDPAdapterPath)
+	return remoteaccess.RDPAdapterReady(cfg.RemoteAccessRDPAdapterPath)
 }

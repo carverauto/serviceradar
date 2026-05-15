@@ -12,6 +12,10 @@ pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBacken
 pub use backend_ironrdp::IronRdpBackend;
 pub use protocol::{parse_open_payload, OpenPayload};
 
+pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
+pub const HELPER_CAPABILITIES_SCHEMA: &str = "serviceradar.rdp.helper.capabilities.v1";
+pub const HELPER_PROTOCOL_VERSION: u32 = 1;
+
 const HEADER_LEN: usize = 5;
 const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
 
@@ -96,6 +100,23 @@ where
     let mut backend = UnavailableBackend;
 
     run_stdio_with_backend(reader, writer, &mut backend)
+}
+
+pub fn write_capabilities<W>(writer: &mut W) -> io::Result<()>
+where
+    W: Write,
+{
+    let ironrdp_backend_linked = cfg!(feature = "ironrdp-backend");
+    let connector_ready = false;
+
+    writeln!(
+        writer,
+        "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":{},\"connector_ready\":{}}}",
+        HELPER_CAPABILITIES_SCHEMA,
+        HELPER_PROTOCOL_VERSION,
+        ironrdp_backend_linked,
+        connector_ready
+    )
 }
 
 pub fn run_stdio_with_backend<R, W, B>(
@@ -288,6 +309,19 @@ mod tests {
 
             Ok(())
         }
+    }
+
+    #[test]
+    fn write_capabilities_reports_connector_not_ready() {
+        let mut output = Vec::new();
+
+        write_capabilities(&mut output).expect("write capabilities");
+
+        let payload = String::from_utf8(output).expect("utf8 capabilities");
+        assert!(payload.contains(HELPER_CAPABILITIES_SCHEMA));
+        assert!(payload.contains("\"protocol\":\"rdp\""));
+        assert!(payload.contains("\"helper_protocol_version\":1"));
+        assert!(payload.contains("\"connector_ready\":false"));
     }
 
     #[test]
