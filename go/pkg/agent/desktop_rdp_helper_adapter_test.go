@@ -382,6 +382,9 @@ func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for forwarded media frame")
 	}
+	if !allZeroBytes(encoded) {
+		t.Fatalf("forwarded helper media payload was not cleared: %q", string(encoded))
+	}
 }
 
 func TestDesktopRDPHelperAdapterRejectsTrailingHelperMediaPayload(t *testing.T) {
@@ -464,6 +467,45 @@ func TestDesktopRDPHelperAdapterRejectsMismatchedHelperMediaSession(t *testing.T
 	}
 	if !allZeroBytes(payload) {
 		t.Fatalf("mismatched helper media payload was not cleared: %q", string(payload))
+	}
+}
+
+func TestDesktopRDPHelperAdapterClearsHelperMediaPayloadOnSendError(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{err: errDesktopRDPHelperClosed}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	frame := remoteaccess.DesktopMediaFrame{
+		SessionBindingID: "desktop-session-1",
+		MediaSessionID:   "media-session-1",
+		Sequence:         3,
+		Width:            640,
+		Height:           480,
+		PayloadFamily:    remoteaccess.DesktopMediaPayloadDirtyRect,
+		Encoding:         "raw_rgba",
+		Payload:          []byte{1, 2, 3, 4},
+	}
+	payload, err := remoteaccess.EncodeDesktopMediaFrame(frame, testDesktopRDPHelperTarget().Screen)
+	if err != nil {
+		t.Fatalf("EncodeDesktopMediaFrame returned error: %v", err)
+	}
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageMediaFrame, Payload: payload}
+
+	select {
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		if !errors.Is(err, errDesktopRDPHelperClosed) {
+			t.Fatalf("helper media send error = %v, want %v", err, errDesktopRDPHelperClosed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper media send error")
+	}
+	if !allZeroBytes(payload) {
+		t.Fatalf("failed helper media payload was not cleared: %q", string(payload))
 	}
 }
 

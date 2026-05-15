@@ -139,6 +139,7 @@
 - [x] 3.3.17 Decode, normalize, cap, and clear helper-to-agent terminal close/error metadata before session teardown.
 - [x] 3.3.18 Drop agent-side credential grant material on helper resolve/start failures and other early adapter-open returns.
 - [x] 3.3.19 Reject helper-to-agent close payloads with trailing JSON or garbage while still clearing the raw payload buffer.
+- [x] 3.3.20 Clear raw helper-to-agent SRDP media payload buffers after successful forwarding and media-sender failures.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -217,6 +218,7 @@
 - [x] 5.2.40 Add focused Go tests proving desktop media acknowledgement close reasons are normalized before helper IPC.
 - [x] 5.2.41 Add focused Rust helper tests proving terminal reasons are normalized before backend delivery while raw IPC payloads are still cleared.
 - [x] 5.2.42 Add focused Go tests proving helper media frames with mismatched desktop session bindings are rejected, cleared, and not forwarded.
+- [x] 5.2.43 Add focused Go tests proving helper media payload buffers are cleared after successful forwarding and media-sender failures.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

@@ -338,10 +338,12 @@ func (s *desktopRDPHelperSession) readLoop() {
 				return
 			}
 			if err := s.mediaSender.SendDesktopMediaFrame(context.Background(), mediaFrame); err != nil {
+				clearBytes(frame.Payload)
 				s.failReadLoop(err)
 
 				return
 			}
+			clearBytes(frame.Payload)
 		case desktopRDPHelperMessageClose:
 			if _, err := parseAndClearDesktopRDPHelperClosePayload(frame.Payload); err != nil {
 				s.failReadLoop(err)
