@@ -862,8 +862,10 @@ mod tests {
         let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
         let lower = sql.to_lowercase();
 
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
         assert!(
-            lower.contains("ip::inet") && lower.contains("<<="),
+            lower.contains("<<="),
             "expected CIDR inet containment, got: {sql}"
         );
 
@@ -880,8 +882,10 @@ mod tests {
         let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
         let lower = sql.to_lowercase();
 
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
         assert!(
-            lower.contains("ip::inet >=") && lower.contains("ip::inet <="),
+            lower.contains(">= $1::inet") && lower.contains("<= $2::inet"),
             "expected IP range inet comparison, got: {sql}"
         );
 
@@ -891,6 +895,23 @@ mod tests {
         assert!(params
             .iter()
             .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.50") }));
+    }
+
+    #[test]
+    fn devices_vendor_filter_default_order_uses_safe_ip_cast() {
+        let query = r#"in:devices vendor_name:"Axis Communications""#;
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("vendor_name"));
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
+        assert!(
+            !lower.contains("nullif(ip, '')::inet"),
+            "default device ordering must not cast raw comma-separated ip values: {sql}"
+        );
     }
 
     #[test]
