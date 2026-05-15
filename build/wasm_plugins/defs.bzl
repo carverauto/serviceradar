@@ -16,7 +16,7 @@ def declare_wasm_targets(build_targets, plugin_bundles):
         cmd_parts = [
             "$(location :build_wasm_binary.sh)",
             "--go-bin",
-            "$(location @go_sdk//:bin/go)",
+            "$(location @tinygo_compatible_go_sdk//:bin/go)",
             "--tinygo",
             "$(location @tinygo_host//:tinygo_bin)",
             "--main-go",
@@ -41,8 +41,8 @@ def declare_wasm_targets(build_targets, plugin_bundles):
             ],
             tools = [
                 ":build_wasm_binary.sh",
-                "@go_sdk//:bin/go",
-                "@go_sdk//:files",
+                "@tinygo_compatible_go_sdk//:bin/go",
+                "@tinygo_compatible_go_sdk//:files",
                 "@tinygo_host//:tinygo_bin",
             ],
             visibility = ["//visibility:public"],
