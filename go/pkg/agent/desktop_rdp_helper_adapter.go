@@ -72,6 +72,10 @@ func (a desktopRDPHelperAdapter) Open(
 	ctx context.Context,
 	req remoteaccess.DesktopAdapterOpenRequest,
 ) (remoteaccess.DesktopAdapterSession, error) {
+	if req.CredentialGrant != nil {
+		defer req.CredentialGrant.DropSensitive()
+	}
+
 	if req.MediaSender == nil {
 		return nil, fmt.Errorf("%w: missing media sender", remoteaccess.ErrInvalidDesktopTarget)
 	}
@@ -106,9 +110,6 @@ func (a desktopRDPHelperAdapter) Open(
 		Target:          req.Target,
 		CredentialGrant: req.CredentialGrant,
 	})
-	if req.CredentialGrant != nil {
-		req.CredentialGrant.DropSensitive()
-	}
 	if err != nil {
 		_ = transport.Close(ctx)
 

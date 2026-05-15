@@ -89,6 +89,41 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 	}
 }
 
+func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *testing.T) {
+	t.Parallel()
+
+	grant := &remoteaccess.DesktopCredentialGrant{
+		Mode:      remoteaccess.DesktopCredentialModeMemoryUser,
+		Username:  "alice@example.com",
+		Password:  "secret",
+		SessionID: "desktop-session-1",
+		TargetID:  "target-1",
+		RouteID:   "agent-1",
+	}
+	startErr := errors.New("helper start failed")
+
+	_, err := (desktopRDPHelperAdapter{
+		HelperPath: "helper",
+		Start: func(context.Context, string) (desktopRDPHelperTransport, error) {
+			return nil, startErr
+		},
+	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
+		SessionID:        "desktop-session-1",
+		LocalAgentID:     "agent-1",
+		CurrentGatewayID: "gateway-1",
+		StartUnix:        1_778_000_000,
+		Target:           testDesktopRDPHelperTarget(),
+		CredentialGrant:  grant,
+		MediaSender:      &fakeDesktopRDPHelperMediaSender{},
+	})
+	if !errors.Is(err, startErr) {
+		t.Fatalf("Open error = %v, want %v", err, startErr)
+	}
+	if grant.Username != "" || grant.Password != "" || grant.CredentialSecretRef != "" {
+		t.Fatalf("credential grant was retained after helper start failure: %#v", grant)
+	}
+}
+
 func TestDesktopRDPHelperAdapterRoutesInputAndClose(t *testing.T) {
 	t.Parallel()
 
