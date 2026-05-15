@@ -127,6 +127,7 @@
 - [x] 3.3.16 Normalize and cap agent-to-helper close reasons before IPC so close metadata cannot exceed the helper validation budget.
 - [x] 3.3.17 Decode, normalize, cap, and clear helper-to-agent terminal close/error metadata before session teardown.
 - [x] 3.3.18 Drop agent-side credential grant material on helper resolve/start failures and other early adapter-open returns.
+- [x] 3.3.19 Reject helper-to-agent close payloads with trailing JSON or garbage while still clearing the raw payload buffer.
 - [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -200,6 +201,7 @@
 - [x] 5.2.35 Add focused Go tests proving screen update frames cannot be sent on the agent-to-helper input/control channel.
 - [x] 5.2.36 Add focused Go tests proving disconnect control-frame reasons are normalized and capped before IPC serialization.
 - [x] 5.2.37 Add focused Go tests proving helper start failures still clear adapter-open credential grant material.
+- [x] 5.2.38 Add focused Go tests proving helper close payloads with trailing data are rejected and cleared.
 - [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

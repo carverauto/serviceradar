@@ -569,6 +569,31 @@ func TestDesktopRDPHelperAdapterRejectsInvalidHelperClosePayload(t *testing.T) {
 	}
 }
 
+func TestDesktopRDPHelperAdapterRejectsTrailingHelperClosePayload(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	session, err := openTestDesktopRDPHelperSession(t, transport, &fakeDesktopRDPHelperMediaSender{})
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+
+	payload := []byte(`{"reason":"helper closed"}{"reason":"secret"}`)
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageClose, Payload: payload}
+
+	select {
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		if !errors.Is(err, errDesktopRDPHelperInvalidFrame) {
+			t.Fatalf("helper close error = %v, want %v", err, errDesktopRDPHelperInvalidFrame)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for helper close error")
+	}
+	if !allZeroBytes(payload) {
+		t.Fatalf("trailing helper close payload was not cleared: %q", string(payload))
+	}
+}
+
 func TestDesktopRDPHelperAdapterNormalizesAndClearsHelperErrorPayload(t *testing.T) {
 	t.Parallel()
 

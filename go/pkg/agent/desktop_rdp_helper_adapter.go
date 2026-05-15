@@ -380,6 +380,10 @@ func parseAndClearDesktopRDPHelperClosePayload(payload []byte) (desktopRDPHelper
 	if err := decoder.Decode(&closePayload); err != nil {
 		return desktopRDPHelperClosePayload{}, fmt.Errorf("%w: decode helper close payload", errDesktopRDPHelperInvalidFrame)
 	}
+	var extra struct{}
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return desktopRDPHelperClosePayload{}, fmt.Errorf("%w: trailing helper close payload", errDesktopRDPHelperInvalidFrame)
+	}
 	closePayload.Reason = normalizeDesktopRDPHelperCloseReason(closePayload.Reason)
 
 	return closePayload, nil
