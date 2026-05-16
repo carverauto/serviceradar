@@ -27,6 +27,13 @@ enum TlsTrustSource {
     RegisteredCaBundle(String),
 }
 
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct ConnectorUpgradeBoundaryProbe {
+    requires_security_upgrade: bool,
+    requires_credssp_after_upgrade: bool,
+}
+
 struct MemoryUserCredential {
     domain: Option<Zeroizing<String>>,
     username: Zeroizing<String>,
@@ -162,6 +169,46 @@ fn decode_initial_connection_request_for_probe(
     .0;
 
     Ok(request)
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn drive_connector_to_upgrade_boundary_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+    selected_protocol: ironrdp_pdu::nego::SecurityProtocol,
+) -> Result<ConnectorUpgradeBoundaryProbe, BackendError> {
+    let config = build_connector_config_for_probe(plan, credential);
+    let mut connector =
+        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+    let mut initial = ironrdp_core::WriteBuf::new();
+    ironrdp_connector::Sequence::step_no_input(&mut connector, &mut initial)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    let server_confirm = encode_server_confirm_for_probe(selected_protocol)?;
+    let mut output = ironrdp_core::WriteBuf::new();
+    ironrdp_connector::Sequence::step(&mut connector, &server_confirm, &mut output)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    let requires_security_upgrade = connector.should_perform_security_upgrade();
+    connector.mark_security_upgrade_as_done();
+
+    Ok(ConnectorUpgradeBoundaryProbe {
+        requires_security_upgrade,
+        requires_credssp_after_upgrade: connector.should_perform_credssp(),
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn encode_server_confirm_for_probe(
+    selected_protocol: ironrdp_pdu::nego::SecurityProtocol,
+) -> Result<Vec<u8>, BackendError> {
+    ironrdp_core::encode_vec(&ironrdp_pdu::x224::X224(
+        ironrdp_pdu::nego::ConnectionConfirm::Response {
+            flags: ironrdp_pdu::nego::ResponseFlags::empty(),
+            protocol: selected_protocol,
+        },
+    ))
+    .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
 }
 
 fn is_memory_user_grant(grant: &DesktopCredentialGrant) -> bool {
@@ -443,5 +490,54 @@ mod tests {
         assert!(!request
             .protocol
             .intersects(ironrdp_pdu::nego::SecurityProtocol::SSL));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_hybrid_confirm_reaches_tls_then_credssp_boundary() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        for protocol in [
+            ironrdp_pdu::nego::SecurityProtocol::HYBRID,
+            ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX,
+        ] {
+            let boundary =
+                drive_connector_to_upgrade_boundary_for_probe(&plan, &credential, protocol)
+                    .expect("upgrade boundary");
+
+            assert!(boundary.requires_security_upgrade);
+            assert!(boundary.requires_credssp_after_upgrade);
+        }
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_rejects_tls_only_server_confirm() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let err = drive_connector_to_upgrade_boundary_for_probe(
+            &plan,
+            &credential,
+            ironrdp_pdu::nego::SecurityProtocol::SSL,
+        )
+        .expect_err("tls-only confirm rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 }
