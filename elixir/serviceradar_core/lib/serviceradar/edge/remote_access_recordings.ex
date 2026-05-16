@@ -9,8 +9,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
-  alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecording
+  alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
 
@@ -194,6 +194,13 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       "target_kind" => string_value(session, "target_kind"),
       "target_host" => string_value(session, "target_host"),
       "target_port" => nonnegative_int(value(session, "target_port")),
+      "credential_custody_mode" => string_value(session, "credential_custody_mode"),
+      "credential_rule_id" => string_value(session, "credential_rule_id"),
+      "rbac_decision" => string_value(session, "rbac_decision"),
+      "approval_id" => string_value(session, "approval_id"),
+      "idle_timeout_seconds" => nonnegative_int(value(session, "idle_timeout_seconds")),
+      "absolute_timeout_seconds" => nonnegative_int(value(session, "absolute_timeout_seconds")),
+      "desktop_policy" => desktop_policy_manifest(session),
       "storage_backend" => storage.backend,
       "storage_bucket" => storage.bucket,
       "object_key" => storage.object_key,
@@ -204,6 +211,31 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     |> Map.merge(extra)
     |> reject_blank()
     |> CredentialRedactor.redact()
+  end
+
+  defp desktop_policy_manifest(session) do
+    metadata =
+      session
+      |> value("metadata")
+      |> normalize_policy()
+
+    %{}
+    |> maybe_put("tls", first_policy(metadata, ["target_tls", "tls_policy", "tls"]))
+    |> maybe_put("nla", first_policy(metadata, ["nla", "nla_policy"]))
+    |> maybe_put("screen", first_policy(metadata, ["screen_policy", "screen"]))
+    |> maybe_put("redirection", first_policy(metadata, ["redirection_policy", "redirection"]))
+    |> maybe_put("approval", first_policy(metadata, ["approval_policy", "approval"]))
+    |> reject_blank()
+  end
+
+  defp first_policy(metadata, keys) do
+    Enum.find_value(keys, fn key ->
+      case value(metadata, key) do
+        value when is_map(value) -> value
+        value when value in [nil, "", %{}] -> nil
+        value -> value
+      end
+    end)
   end
 
   defp storage_config(policy, session_id) do
@@ -262,7 +294,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     metadata = event_metadata(attrs, payload)
     payload_decision = payload_decision(policy, stream, payload)
 
-    %{
+    reject_nil(%{
       recording_id: recording.id,
       session_id: recording.session_id,
       sequence: positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts),
@@ -276,8 +308,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       redaction_reason: payload_decision.reason,
       metadata: metadata,
       retention_expires_at: recording.retention_expires_at
-    }
-    |> reject_nil()
+    })
   end
 
   defp event_stream(attrs) do
@@ -365,7 +396,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     |> payload_binary()
     |> case do
       nil -> nil
-      binary -> :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
+      binary -> :sha256 |> :crypto.hash(binary) |> Base.encode16(case: :lower)
     end
   end
 
@@ -445,7 +476,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     redacted_payload(
       redacted,
       changed?,
-      if(changed?, do: "credential_redaction", else: nil)
+      if(changed?, do: "credential_redaction")
     )
   end
 
@@ -693,6 +724,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp format_datetime(nil), do: nil
   defp format_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp format_datetime(value), do: value
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, value) when value == %{}, do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp reject_blank(map) do
     map

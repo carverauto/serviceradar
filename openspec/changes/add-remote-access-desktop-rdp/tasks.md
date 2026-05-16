@@ -173,6 +173,7 @@
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
+- [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
 - [x] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
 
 ## 5. Validation And Demo
@@ -191,6 +192,7 @@
 - [x] 5.1.12 Add focused Go tests proving desktop lifecycle audit metadata uses fixed event types and omits secrets.
 - [x] 5.1.13 Add Phoenix controller tests proving existing RDP sessions use the RDP permission for show/close authorization.
 - [x] 5.1.14 Add Phoenix controller, LiveView, and navigation tests proving RDP-only users can view RDP recording metadata/events but not SSH recordings.
+- [x] 5.1.15 Add focused core and LiveView tests proving RDP recording manifests and views expose safe desktop policy posture metadata without credential or payload persistence.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

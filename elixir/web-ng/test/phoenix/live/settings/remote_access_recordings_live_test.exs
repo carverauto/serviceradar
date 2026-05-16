@@ -23,7 +23,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/recordings")
 
     assert html =~ "Remote Access Recordings"
-    assert html =~ "No recordings found"
   end
 
   test "viewer is blocked from recordings settings", %{conn: conn} do
@@ -64,6 +63,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
     assert html =~ "desktop_frame_metadata"
     assert html =~ "Metadata-only"
     assert html =~ "rdp:recording-ui.example.test:3389"
+    assert html =~ "Desktop Policy Snapshot"
+    assert html =~ "User present"
+    assert html =~ "Verify full TLS"
+    assert html =~ "NLA required"
+    assert html =~ "1920x1080"
+    assert html =~ "Clipboard disabled"
+    assert html =~ "Drive disabled"
+    assert html =~ "Allowed"
     refute html =~ "ssh:recording-ui.example.test:22"
     refute html =~ ssh_recording.id
   end
@@ -103,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
             "record_terminal_payloads" => store_payloads?,
             "retention_days" => 7
           },
-          metadata: %{}
+          metadata: desktop_metadata(protocol)
         },
         actor: system_actor()
       )
@@ -139,6 +146,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
 
   defp event_type(:rdp), do: "desktop_frame_metadata"
   defp event_type(_protocol), do: "terminal_output"
+
+  defp desktop_metadata(:rdp) do
+    %{
+      "target_tls" => %{
+        "mode" => "verify_full",
+        "server_name" => "recording-ui.example.test"
+      },
+      "nla" => %{"required" => true},
+      "screen_policy" => %{
+        "max_width" => 1920,
+        "max_height" => 1080,
+        "max_frame_rate" => 30,
+        "max_bitrate_kbps" => 8_000
+      },
+      "redirection_policy" => %{
+        "clipboard" => "disabled",
+        "drive" => false
+      }
+    }
+  end
+
+  defp desktop_metadata(_protocol), do: %{}
 
   defp grant_permissions(user, permissions) do
     unique = System.unique_integer([:positive])

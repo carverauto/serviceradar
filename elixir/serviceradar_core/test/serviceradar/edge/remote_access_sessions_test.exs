@@ -677,6 +677,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert recording.object_key == "edge/sessions/#{session.id}/recording.jsonl"
     assert recording.policy["private_key"] == "REDACTED"
     assert recording.manifest["raw_terminal_payloads_stored"] == false
+    assert recording.manifest["credential_custody_mode"] == "user_present"
+    assert recording.manifest["rbac_decision"] == "allowed"
+    assert recording.manifest["idle_timeout_seconds"] == 900
+    assert recording.manifest["absolute_timeout_seconds"] == 3600
     assert recording.retention_expires_at
     assert DateTime.after?(recording.retention_expires_at, DateTime.utc_now())
     refute inspect(recording) =~ "OPENSSH PRIVATE KEY"

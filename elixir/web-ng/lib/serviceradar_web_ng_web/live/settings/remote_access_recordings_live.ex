@@ -171,6 +171,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
           <div class="mt-1 text-sm">{content_label(@recording.manifest)}</div>
         </div>
       </div>
+
+      <div :if={desktop_recording?(@recording)} class="mt-4">
+        <div class="text-xs font-semibold uppercase text-base-content/60">
+          Desktop Policy Snapshot
+        </div>
+        <dl class="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <.summary_item
+            :for={item <- desktop_policy_items(@recording)}
+            label={item.label}
+            value={item.value}
+          />
+        </dl>
+      </div>
     </section>
     """
   end
@@ -340,6 +353,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   defp recording_protocol(_recording), do: "ssh"
 
+  defp desktop_recording?(%RemoteAccessRecording{} = recording) do
+    recording_protocol(recording) in ["rdp", "desktop"]
+  end
+
   defp selected?(%RemoteAccessRecording{id: id}, %RemoteAccessRecording{id: id}), do: true
   defp selected?(_selected, _recording), do: false
 
@@ -363,6 +380,151 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   end
 
   defp content_label(_manifest), do: "Metadata-only"
+
+  defp desktop_policy_items(%RemoteAccessRecording{manifest: manifest}) when is_map(manifest) do
+    policy = policy_value(manifest, "desktop_policy") || %{}
+    tls = policy_value(policy, "tls") || %{}
+    nla = policy_value(policy, "nla") || %{}
+    screen = policy_value(policy, "screen") || %{}
+    redirection = policy_value(policy, "redirection") || %{}
+    approval = policy_value(policy, "approval") || %{}
+
+    Enum.reject(
+      [
+        %{label: "Route", value: route_label(manifest)},
+        %{label: "Credential", value: display_label(policy_value(manifest, "credential_custody_mode"))},
+        %{label: "TLS/NLA", value: tls_nla_label(tls, nla)},
+        %{label: "Screen quota", value: screen_quota_label(screen)},
+        %{label: "Redirection", value: redirection_label(redirection)},
+        %{label: "Approval", value: approval_label(manifest, approval)},
+        %{label: "Recording", value: recording_policy_label(manifest)}
+      ],
+      &blank?(&1.value)
+    )
+  end
+
+  defp desktop_policy_items(_recording), do: []
+
+  defp route_label(manifest) do
+    join_present([policy_value(manifest, "agent_id"), policy_value(manifest, "gateway_id")], " / ")
+  end
+
+  defp tls_nla_label(tls, nla) do
+    join_present(
+      [tls_mode_label(tls), nla_label(nla), policy_value(tls, "server_name") || policy_value(tls, "tls_server_name")],
+      " · "
+    )
+  end
+
+  defp tls_mode_label(tls) do
+    mode =
+      policy_value(tls, "mode") ||
+        policy_value(tls, "certificate_trust_mode") ||
+        policy_value(tls, "trust_mode")
+
+    if blank?(mode), do: nil, else: "#{display_label(mode)} TLS"
+  end
+
+  defp nla_label(nla) do
+    cond do
+      truthy?(policy_value(nla, "required")) or truthy?(policy_value(nla, "enabled")) ->
+        "NLA required"
+
+      policy_value(nla, "required") in [false, "false", "no", "0", 0] ->
+        "NLA not required"
+
+      true ->
+        nil
+    end
+  end
+
+  defp screen_quota_label(screen) do
+    resolution =
+      case {policy_value(screen, "max_width"), policy_value(screen, "max_height")} do
+        {width, height} when not is_nil(width) and not is_nil(height) -> "#{width}x#{height}"
+        _other -> nil
+      end
+
+    join_present(
+      [
+        resolution,
+        numeric_suffix(policy_value(screen, "max_frame_rate"), "fps"),
+        numeric_suffix(policy_value(screen, "max_bitrate_kbps"), "kbps"),
+        numeric_suffix(policy_value(screen, "color_depth"), "bit")
+      ],
+      " · "
+    )
+  end
+
+  defp redirection_label(redirection) when is_map(redirection) do
+    redirection
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.flat_map(fn {key, value} -> redirection_feature_label(key, value) end)
+    |> Enum.take(4)
+    |> join_present(" · ")
+  end
+
+  defp redirection_label(_redirection), do: nil
+
+  defp redirection_feature_label(key, value) do
+    feature = key |> to_string() |> String.replace("_", " ")
+
+    cond do
+      truthy?(value) -> ["#{String.capitalize(feature)} enabled"]
+      value in [false, "false", "disabled", "deny", "none", "no", "0", 0] -> ["#{String.capitalize(feature)} disabled"]
+      is_binary(value) and String.trim(value) != "" -> ["#{String.capitalize(feature)} #{display_label(value)}"]
+      true -> []
+    end
+  end
+
+  defp approval_label(manifest, approval) do
+    join_present(
+      [
+        manifest |> policy_value("rbac_decision") |> display_label(),
+        if(policy_value(manifest, "approval_id"), do: "Approval #{short_id(policy_value(manifest, "approval_id"))}"),
+        if(truthy?(policy_value(approval, "required")), do: "Approval required")
+      ],
+      " · "
+    )
+  end
+
+  defp recording_policy_label(manifest) do
+    join_present([manifest |> policy_value("recording_mode") |> display_label(), content_label(manifest)], " · ")
+  end
+
+  defp policy_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, safe_existing_atom(key))
+  end
+
+  defp policy_value(_map, _key), do: nil
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp display_label(nil), do: nil
+
+  defp display_label(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp numeric_suffix(nil, _suffix), do: nil
+  defp numeric_suffix("", _suffix), do: nil
+  defp numeric_suffix(value, suffix), do: "#{value} #{suffix}"
+
+  defp join_present(values, separator) do
+    values
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(separator)
+  end
+
+  defp truthy?(value) when value in [true, "true", "required", "yes", "1", 1], do: true
+  defp truthy?(_value), do: false
 
   defp short_id(nil), do: "-"
   defp short_id(id), do: id |> to_string() |> String.slice(0, 8)
