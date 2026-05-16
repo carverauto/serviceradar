@@ -276,9 +276,11 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 		Capability:            releaseCapabilityRemoteAccessRDP,
 		HelperProtocolVersion: "srdp-helper-v1",
 		DeploymentRequirements: map[string]interface{}{
-			releaseRequirementHelper:         releaseRDPHelperBinary,
-			releaseRequirementReadinessProbe: releaseRDPHelperReadinessProbe,
-			releaseRequirementConnectorReady: true,
+			releaseRequirementHelper:        releaseRDPHelperBinary,
+			releaseRequirementInstallPath:   releaseRDPHelperInstallPath,
+			releaseRequirementHelperCapArg:  releaseRDPHelperReadinessProbe,
+			releaseRequirementRequiresProbe: true,
+			releaseRequirementHelperReady:   true,
 		},
 	}
 
@@ -319,15 +321,33 @@ func TestStageAgentReleaseRejectsRDPCapabilityWithoutReadinessMetadata(t *testin
 			},
 		},
 		{
+			name: "missing install path",
+			mutate: func(artifact *releaseArtifactPayload) {
+				delete(artifact.DeploymentRequirements, releaseRequirementInstallPath)
+			},
+		},
+		{
 			name: "missing readiness probe",
 			mutate: func(artifact *releaseArtifactPayload) {
-				delete(artifact.DeploymentRequirements, releaseRequirementReadinessProbe)
+				delete(artifact.DeploymentRequirements, releaseRequirementHelperCapArg)
+			},
+		},
+		{
+			name: "readiness probe not required",
+			mutate: func(artifact *releaseArtifactPayload) {
+				artifact.DeploymentRequirements[releaseRequirementRequiresProbe] = false
 			},
 		},
 		{
 			name: "missing connector readiness",
 			mutate: func(artifact *releaseArtifactPayload) {
-				delete(artifact.DeploymentRequirements, releaseRequirementConnectorReady)
+				delete(artifact.DeploymentRequirements, releaseRequirementHelperReady)
+			},
+		},
+		{
+			name: "connector not ready without experimental phase",
+			mutate: func(artifact *releaseArtifactPayload) {
+				artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 			},
 		},
 	}
@@ -359,7 +379,8 @@ func TestStageAgentReleaseRejectsHelperInstallWhenRDPConnectorNotReady(t *testin
 	defer server.Close()
 
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
-	artifact.DeploymentRequirements[releaseRequirementConnectorReady] = false
+	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
+	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
 	payload := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
 		Enabled:    true,
@@ -381,7 +402,8 @@ func TestStageAgentReleaseAcceptsRDPArtifactMarkedConnectorNotReadyWithoutHelper
 	defer server.Close()
 
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
-	artifact.DeploymentRequirements[releaseRequirementConnectorReady] = false
+	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
+	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
 	payload := signedReleasePayload(t, binaryData, artifact)
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
@@ -403,11 +425,14 @@ func validRDPReleaseArtifact(url, digest string) releaseArtifactPayload {
 		HelperProtocolVersion: "srdp-helper-v1",
 		CompatibleAgentVersions: map[string]string{
 			"min": "1.1.0",
+			"max": "1.2.x",
 		},
 		DeploymentRequirements: map[string]interface{}{
-			releaseRequirementHelper:         releaseRDPHelperBinary,
-			releaseRequirementReadinessProbe: releaseRDPHelperReadinessProbe,
-			releaseRequirementConnectorReady: true,
+			releaseRequirementHelper:        releaseRDPHelperBinary,
+			releaseRequirementInstallPath:   releaseRDPHelperInstallPath,
+			releaseRequirementHelperCapArg:  releaseRDPHelperReadinessProbe,
+			releaseRequirementRequiresProbe: true,
+			releaseRequirementHelperReady:   true,
 		},
 	}
 }

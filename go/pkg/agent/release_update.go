@@ -55,11 +55,17 @@ const (
 	releasePublicKeyEnv                    = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 	releaseCapabilityRemoteAccessRDP       = "remote_access.rdp"
 	releaseRDPHelperBinary                 = "serviceradar-rdp-adapter"
+	releaseRDPHelperInstallPath            = "/usr/local/bin/serviceradar-rdp-adapter"
 	releaseRDPHelperReadinessProbe         = "--capabilities"
 	releaseRequirementHelper               = "helper"
-	releaseRequirementReadinessProbe       = "readiness_probe"
-	releaseRequirementConnectorReady       = "connector_ready"
+	releaseRequirementInstallPath          = "install_path"
+	releaseRequirementHelperCapArg         = "helper_capabilities_arg"
+	releaseRequirementRequiresProbe        = "requires_helper_readiness_probe"
+	releaseRequirementHelperReady          = "helper_connector_ready"
+	releaseRequirementReleasePhase         = "release_phase"
+	releaseReleasePhaseExperimental        = "experimental"
 	releaseCompatibleAgentMin              = "min"
+	releaseCompatibleAgentMax              = "max"
 )
 
 var (
@@ -342,6 +348,9 @@ func validateRDPHelperArtifactReadiness(artifact releaseArtifactPayload) (bool, 
 	if strings.TrimSpace(artifact.CompatibleAgentVersions[releaseCompatibleAgentMin]) == "" {
 		return false, errReleaseHelperReadinessMissing
 	}
+	if strings.TrimSpace(artifact.CompatibleAgentVersions[releaseCompatibleAgentMax]) == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
 	if releaseDeploymentRequirementString(
 		artifact.DeploymentRequirements,
 		releaseRequirementHelper,
@@ -350,15 +359,34 @@ func validateRDPHelperArtifactReadiness(artifact releaseArtifactPayload) (bool, 
 	}
 	if releaseDeploymentRequirementString(
 		artifact.DeploymentRequirements,
-		releaseRequirementReadinessProbe,
+		releaseRequirementInstallPath,
+	) != releaseRDPHelperInstallPath {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelperCapArg,
 	) != releaseRDPHelperReadinessProbe {
+		return false, errReleaseHelperReadinessMissing
+	}
+	requiresProbe, ok := releaseDeploymentRequirementBool(
+		artifact.DeploymentRequirements,
+		releaseRequirementRequiresProbe,
+	)
+	if !ok || !requiresProbe {
 		return false, errReleaseHelperReadinessMissing
 	}
 	connectorReady, ok := releaseDeploymentRequirementBool(
 		artifact.DeploymentRequirements,
-		releaseRequirementConnectorReady,
+		releaseRequirementHelperReady,
 	)
 	if !ok {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if !connectorReady && releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementReleasePhase,
+	) != releaseReleasePhaseExperimental {
 		return false, errReleaseHelperReadinessMissing
 	}
 
