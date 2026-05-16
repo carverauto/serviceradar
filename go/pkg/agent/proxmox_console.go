@@ -44,6 +44,7 @@ var (
 	errProxmoxConsoleBridgeUnavailable = errors.New("proxmox console PTY bridge unavailable")
 	errProxmoxConsoleSessionExists     = errors.New("console session is already active")
 	errProxmoxConsoleSessionNotActive  = errors.New("console session is not active")
+	errProxmoxConsoleFrameMismatch     = errors.New("desktop console frame type mismatch")
 )
 
 type proxmoxConsoleSender interface {
@@ -57,16 +58,23 @@ type proxmoxConsolePTY interface {
 type proxmoxConsoleOpener func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error)
 
 type proxmoxConsoleManager struct {
-	opener     proxmoxConsoleOpener
-	manager    *remoteaccess.Manager
-	sshOptions remoteaccess.SSHOpenOptions
-	sshMu      sync.Mutex
-	sshConfig  map[string]remoteaccess.SSHConfig
-	uploadMu   sync.Mutex
-	uploads    map[string]*fileTransferUpload
-	sftpDialer remoteaccess.SFTPDialer
-	agentID    string
-	gatewayID  string
+	opener          proxmoxConsoleOpener
+	manager         *remoteaccess.Manager
+	sshOptions      remoteaccess.SSHOpenOptions
+	sshMu           sync.Mutex
+	sshConfig       map[string]remoteaccess.SSHConfig
+	desktopMu       sync.Mutex
+	desktopSessions map[string]desktopConsoleSession
+	uploadMu        sync.Mutex
+	uploads         map[string]*fileTransferUpload
+	sftpDialer      remoteaccess.SFTPDialer
+	agentID         string
+	gatewayID       string
+}
+
+type desktopConsoleSession struct {
+	target  remoteaccess.DesktopTarget
+	session remoteaccess.DesktopAdapterSession
 }
 
 func newProxmoxConsoleManager(log logger.Logger) *proxmoxConsoleManager {
@@ -79,11 +87,12 @@ func newProxmoxConsoleManagerWithAgentID(agentID string, log logger.Logger) *pro
 
 func newProxmoxConsoleManagerWithRoute(agentID string, gatewayID string, _ logger.Logger) *proxmoxConsoleManager {
 	manager := &proxmoxConsoleManager{
-		agentID:    agentID,
-		gatewayID:  gatewayID,
-		sshConfig:  make(map[string]remoteaccess.SSHConfig),
-		uploads:    make(map[string]*fileTransferUpload),
-		sftpDialer: nil,
+		agentID:         agentID,
+		gatewayID:       gatewayID,
+		sshConfig:       make(map[string]remoteaccess.SSHConfig),
+		desktopSessions: make(map[string]desktopConsoleSession),
+		uploads:         make(map[string]*fileTransferUpload),
+		sftpDialer:      nil,
 		opener: func(context.Context, *proto.ConsoleFrame) (proxmoxConsolePTY, error) {
 			return nil, errProxmoxConsoleBridgeUnavailable
 		},
@@ -117,6 +126,18 @@ func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.Co
 	var remoteSender remoteaccess.Sender
 	if sender != nil {
 		remoteSender = proxmoxConsoleRemoteSender{sender: sender}
+	}
+
+	if frame.GetFrameType() == consoleFrameTypeClose && m.hasDesktopSession(frame.GetSessionId()) {
+		m.closeDesktopSession(ctx, frame.GetSessionId(), frame.GetReason(), remoteSender)
+
+		return
+	}
+
+	if isDesktopConsoleFrameType(frame.GetFrameType()) {
+		m.handleDesktopConsoleFrame(ctx, frame, remoteSender)
+
+		return
 	}
 
 	m.manager.HandleFrame(ctx, m.proxmoxConsoleRemoteFrame(frame), remoteSender)
@@ -184,6 +205,116 @@ func (m *proxmoxConsoleManager) deleteSSHConfig(sessionID string) {
 	m.sshMu.Lock()
 	defer m.sshMu.Unlock()
 	delete(m.sshConfig, sessionID)
+}
+
+func (m *proxmoxConsoleManager) registerDesktopSession(
+	sessionID string,
+	target remoteaccess.DesktopTarget,
+	session remoteaccess.DesktopAdapterSession,
+) {
+	if m == nil || sessionID == "" || session == nil {
+		return
+	}
+
+	m.desktopMu.Lock()
+	defer m.desktopMu.Unlock()
+	if m.desktopSessions == nil {
+		m.desktopSessions = make(map[string]desktopConsoleSession)
+	}
+	m.desktopSessions[sessionID] = desktopConsoleSession{
+		target:  target,
+		session: session,
+	}
+}
+
+func (m *proxmoxConsoleManager) getDesktopSession(sessionID string) (desktopConsoleSession, bool) {
+	if m == nil || sessionID == "" {
+		return desktopConsoleSession{}, false
+	}
+
+	m.desktopMu.Lock()
+	defer m.desktopMu.Unlock()
+	session, ok := m.desktopSessions[sessionID]
+
+	return session, ok
+}
+
+func (m *proxmoxConsoleManager) hasDesktopSession(sessionID string) bool {
+	_, ok := m.getDesktopSession(sessionID)
+
+	return ok
+}
+
+func (m *proxmoxConsoleManager) deleteDesktopSession(sessionID string) {
+	if m == nil || sessionID == "" {
+		return
+	}
+
+	m.desktopMu.Lock()
+	defer m.desktopMu.Unlock()
+	delete(m.desktopSessions, sessionID)
+}
+
+func (m *proxmoxConsoleManager) handleDesktopConsoleFrame(
+	ctx context.Context,
+	frame *proto.ConsoleFrame,
+	sender remoteaccess.Sender,
+) {
+	desktopSession, ok := m.getDesktopSession(frame.GetSessionId())
+	if !ok {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), errProxmoxConsoleSessionNotActive.Error())
+
+		return
+	}
+
+	desktopFrame, err := remoteaccess.DecodeDesktopFramePayloadForSessionWithPolicy(
+		frame.GetData(),
+		desktopSession.target.Screen,
+		desktopSession.target.Redirection,
+		frame.GetSessionId(),
+	)
+	if err != nil {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), err.Error())
+
+		return
+	}
+	if desktopFrame.FrameType != frame.GetFrameType() {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), errProxmoxConsoleFrameMismatch.Error())
+
+		return
+	}
+
+	if err := desktopSession.session.SendDesktopFrame(ctx, desktopFrame); err != nil {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), err.Error())
+	}
+}
+
+func (m *proxmoxConsoleManager) closeDesktopSession(
+	ctx context.Context,
+	sessionID string,
+	reason string,
+	sender remoteaccess.Sender,
+) {
+	desktopSession, ok := m.getDesktopSession(sessionID)
+	if !ok {
+		sendProxmoxConsoleRemoteError(sender, sessionID, errProxmoxConsoleSessionNotActive.Error())
+
+		return
+	}
+
+	m.deleteDesktopSession(sessionID)
+	if err := desktopSession.session.Close(ctx, reason); err != nil {
+		sendProxmoxConsoleRemoteError(sender, sessionID, err.Error())
+
+		return
+	}
+	if sender != nil {
+		_ = sender.SendFrame(remoteaccess.Frame{
+			SessionID: sessionID,
+			FrameType: consoleFrameTypeClose,
+			Reason:    reason,
+		})
+	}
 }
 
 type remoteAccessTrackedPTY struct {
@@ -296,6 +427,31 @@ func proxmoxConsoleErrorReason(err error) string {
 	default:
 		return "console session failed"
 	}
+}
+
+func isDesktopConsoleFrameType(frameType string) bool {
+	switch frameType {
+	case remoteaccess.DesktopFrameTypeInput,
+		remoteaccess.DesktopFrameTypeResize,
+		remoteaccess.DesktopFrameTypeClipboard,
+		remoteaccess.DesktopFrameTypeQuality,
+		remoteaccess.DesktopFrameTypeDisconnect:
+		return true
+	default:
+		return false
+	}
+}
+
+func sendProxmoxConsoleRemoteError(sender remoteaccess.Sender, sessionID string, reason string) {
+	if sender == nil {
+		return
+	}
+
+	_ = sender.SendFrame(remoteaccess.Frame{
+		SessionID: sessionID,
+		FrameType: consoleFrameTypeError,
+		Reason:    reason,
+	})
 }
 
 func consoleControlFrame(

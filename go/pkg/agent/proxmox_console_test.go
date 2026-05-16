@@ -29,7 +29,12 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const fakeProxmoxConsoleCommand = "whoami\r"
+const (
+	fakeProxmoxConsoleCommand = "whoami\r"
+	desktopConsoleSessionID   = "desktop-session-1"
+	desktopConsoleTargetID    = "rdp-target-1"
+	desktopConsoleAgentID     = "agent-1"
+)
 
 var errFakeProxmoxConsolePTYReadFailed = errors.New("pty read failed")
 
@@ -85,6 +90,33 @@ type fakeProxmoxConsolePTY struct {
 	resizes chan [2]uint32
 	closed  chan struct{}
 	once    sync.Once
+}
+
+type fakeDesktopAdapterSession struct {
+	frames chan remoteaccess.DesktopFrame
+	closes chan string
+}
+
+func newFakeDesktopAdapterSession() *fakeDesktopAdapterSession {
+	return &fakeDesktopAdapterSession{
+		frames: make(chan remoteaccess.DesktopFrame, 4),
+		closes: make(chan string, 4),
+	}
+}
+
+func (f *fakeDesktopAdapterSession) SendDesktopFrame(
+	_ context.Context,
+	frame remoteaccess.DesktopFrame,
+) error {
+	f.frames <- frame
+
+	return nil
+}
+
+func (f *fakeDesktopAdapterSession) Close(_ context.Context, reason string) error {
+	f.closes <- reason
+
+	return nil
 }
 
 func newFakeProxmoxConsolePTY() *fakeProxmoxConsolePTY {
@@ -431,4 +463,198 @@ func TestProxmoxConsoleManagerFailsClosedWhenRequiredEnhancedRecordingUnavailabl
 	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable.Error()) {
 		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable)
 	}
+}
+
+func TestProxmoxConsoleManagerRoutesDesktopControlFrame(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	adapterSession := newFakeDesktopAdapterSession()
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	manager.registerDesktopSession(desktopConsoleSessionID, target, adapterSession)
+	sender := newFakeProxmoxConsoleSender()
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Input: &remoteaccess.DesktopInputEvent{
+			Kind: remoteaccess.DesktopInputKindPointer,
+			X:    640,
+			Y:    360,
+		},
+	})
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Data:      payload,
+	}, sender)
+
+	select {
+	case got := <-adapterSession.frames:
+		if got.FrameType != remoteaccess.DesktopFrameTypeInput ||
+			got.Input == nil ||
+			got.Input.Kind != remoteaccess.DesktopInputKindPointer ||
+			got.Input.X != 640 ||
+			got.Input.Y != 360 {
+			t.Fatalf("desktop frame = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for desktop adapter frame")
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsDesktopControlWithoutActiveSession(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	sender := newFakeProxmoxConsoleSender()
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeResize,
+		Width:     800,
+		Height:    600,
+	})
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeResize,
+		Data:      payload,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if errorFrame.GetReason() != errProxmoxConsoleSessionNotActive.Error() {
+		t.Fatalf("inactive desktop reason = %q", errorFrame.GetReason())
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsDesktopControlFrameTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	adapterSession := newFakeDesktopAdapterSession()
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	manager.registerDesktopSession(desktopConsoleSessionID, target, adapterSession)
+	sender := newFakeProxmoxConsoleSender()
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeResize,
+		Width:     800,
+		Height:    600,
+	})
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Data:      payload,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if errorFrame.GetReason() != errProxmoxConsoleFrameMismatch.Error() {
+		t.Fatalf("mismatched desktop reason = %q", errorFrame.GetReason())
+	}
+
+	select {
+	case got := <-adapterSession.frames:
+		t.Fatalf("unexpected desktop frame = %#v", got)
+	default:
+	}
+}
+
+func TestProxmoxConsoleManagerClosesDesktopSession(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	adapterSession := newFakeDesktopAdapterSession()
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	manager.registerDesktopSession(desktopConsoleSessionID, target, adapterSession)
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: consoleFrameTypeClose,
+		Reason:    "operator closed desktop",
+	}, sender)
+
+	select {
+	case got := <-adapterSession.closes:
+		if got != "operator closed desktop" {
+			t.Fatalf("desktop close reason = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for desktop adapter close")
+	}
+
+	closeFrame := sender.nextFrame(t, consoleFrameTypeClose)
+	if closeFrame.GetReason() != "operator closed desktop" {
+		t.Fatalf("close frame reason = %q", closeFrame.GetReason())
+	}
+
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeQuality,
+		Quality: &remoteaccess.DesktopQuality{
+			MaxFrameRate: 24,
+			MaxBitrate:   4_000_000,
+			Width:        800,
+			Height:       600,
+		},
+	})
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeQuality,
+		Data:      payload,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if errorFrame.GetReason() != errProxmoxConsoleSessionNotActive.Error() {
+		t.Fatalf("post-close desktop reason = %q", errorFrame.GetReason())
+	}
+}
+
+func testDesktopConsoleTarget(t *testing.T) remoteaccess.DesktopTarget {
+	t.Helper()
+
+	target, err := remoteaccess.NormalizeDesktopTarget(remoteaccess.DesktopTarget{
+		TargetID: desktopConsoleTargetID,
+		Route: remoteaccess.DesktopRoute{
+			SelectedAgentID: desktopConsoleAgentID,
+		},
+		Upstream: remoteaccess.DesktopUpstream{
+			Host: "rdp.example",
+		},
+		Credential: remoteaccess.DesktopCredentialPolicy{
+			Mode: remoteaccess.DesktopCredentialModeMemoryUser,
+		},
+		Screen: remoteaccess.DesktopScreenPolicy{
+			MaxWidth:   1280,
+			MaxHeight:  720,
+			FrameRate:  30,
+			BitrateBPS: 8_000_000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeDesktopTarget returned error: %v", err)
+	}
+
+	return target
+}
+
+func encodeDesktopConsoleFrame(
+	t *testing.T,
+	target remoteaccess.DesktopTarget,
+	frame remoteaccess.DesktopFrame,
+) []byte {
+	t.Helper()
+
+	payload, err := remoteaccess.EncodeDesktopFramePayloadWithPolicy(frame, target.Screen, target.Redirection)
+	if err != nil {
+		t.Fatalf("EncodeDesktopFramePayloadWithPolicy returned error: %v", err)
+	}
+
+	return payload
 }
