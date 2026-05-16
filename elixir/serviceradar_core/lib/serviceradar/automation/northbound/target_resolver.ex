@@ -135,13 +135,21 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
       "if_alias" => interface.if_alias,
       "if_phys_address" => interface.if_phys_address,
       "ip_addresses" => interface.ip_addresses || [],
-      "if_admin_status" => interface.if_admin_status,
-      "if_oper_status" => interface.if_oper_status,
+      "if_admin_status" => interface_status_name(interface.if_admin_status),
+      "if_admin_status_id" => interface.if_admin_status,
+      "if_oper_status" => interface_status_name(interface.if_oper_status),
+      "if_oper_status_id" => interface.if_oper_status,
       "if_type_name" => interface.if_type_name,
       "interface_kind" => interface.interface_kind,
       "classifications" => interface.classifications || []
     }
   end
+
+  defp interface_status_name(1), do: "up"
+  defp interface_status_name(2), do: "down"
+  defp interface_status_name(3), do: "testing"
+  defp interface_status_name(nil), do: nil
+  defp interface_status_name(value), do: to_string(value)
 
   defp fetch(map, key) do
     Map.get(map, key) || Map.get(map, to_string(key))
