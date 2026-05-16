@@ -15,6 +15,7 @@
 - [x] 1.4.10 Add a review-only pre-TLS credential exposure test proving the initial X.224 request includes the mstshash username cookie but not the cleartext password.
 - [x] 1.4.11 Add review-only negotiation branch tests proving HYBRID is accepted into the TLS/CredSSP boundary and standard RDP security is rejected.
 - [x] 1.4.12 Add a review-only connector plan proving the registered upstream endpoint and effective TLS server name are derived from target policy before IronRDP config construction.
+- [x] 1.4.13 Re-validate the published IronRDP connector root-lockfile conflict against the real helper feature and keep connector/CredSSP dependencies isolated from the root workspace.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
