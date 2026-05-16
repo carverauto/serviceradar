@@ -215,6 +215,10 @@ pub fn connector_dependency_is_linked() -> bool {
     desktop_size.width == 1024 && desktop_size.height == 768
 }
 
+pub fn active_stage_dependency_is_linked() -> bool {
+    std::mem::size_of::<ironrdp_session::ActiveStageOutput>() > 0
+}
+
 pub fn parse_service_radar_open_request(
     payload: &[u8],
 ) -> Result<ServiceRadarOpenRequest, &'static str> {
@@ -733,6 +737,11 @@ mod tests {
     #[test]
     fn links_connector_without_root_workspace_lockfile() {
         assert!(crate::connector_dependency_is_linked());
+    }
+
+    #[test]
+    fn links_active_stage_without_root_workspace_lockfile() {
+        assert!(crate::active_stage_dependency_is_linked());
     }
 
     #[test]

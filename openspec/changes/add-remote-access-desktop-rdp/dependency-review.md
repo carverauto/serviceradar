@@ -74,6 +74,8 @@ ServiceRadar active-stage import requirements:
 - Map browser keyboard, pointer, focus, and resize input through ServiceRadar's typed desktop control frames before encoding IronRDP input PDUs.
 - Keep clipboard, drive, printer, audio, smart-card, file-copy, and arbitrary dynamic virtual channel handling disabled until each feature has explicit policy, audit, and tests.
 
+Validation on 2026-05-16: adding `ironrdp-session = 0.8.0` to the isolated connector probe workspace locked 9 additional packages: `bitvec`, `funty`, `ironrdp-displaycontrol`, `ironrdp-dvc`, `ironrdp-graphics`, `ironrdp-session`, `radium`, `wyz`, and `yuv`. The root ServiceRadar `Cargo.lock` was unchanged. The probe links `ironrdp_session::ActiveStageOutput` only; it does not yet instantiate `ActiveStage`, process server frames, or advertise helper readiness.
+
 ## Implementation Boundary
 The ServiceRadar adapter must own:
 
