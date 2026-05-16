@@ -1,3 +1,21 @@
+# ServiceRadar v1.2.63
+
+Northbound action integrations, sample Wasm action provider, RBAC fixes, and CI hardening.
+
+## Whats New
+
+**1.2.63**
+- Added the northbound action integration foundation for device, interface, and event-driven remediation workflows, including action providers, descriptors, invocation tracking, redaction policy, event handlers, and history views.
+- Added device and interface launch UI flows that discover available plugin-backed actions and collect action inputs through the northbound action contract.
+- Added a sample northbound Wasm plugin and SDK fixture coverage so device and interface action providers can be tested against a simulated external API workflow.
+- Adapted Ansible task launches to the northbound action model and fixed launch gating so unavailable integrations do not present runnable actions.
+- Fixed northbound provider, descriptor, invocation, invocation-target, and interface-target Ash reads so relationship loads and status transitions remain atomic under the Elixir quality contract.
+- Fixed RBAC launch authorization for persisted LiveView scopes by refreshing real-user permissions before northbound action checks.
+- Fixed RBAC role-profile deletion by clearing assigned users before custom profiles are destroyed and setting the database foreign key to `ON DELETE SET NULL`.
+- Fixed Elixir quality checks for projects that depend on `serviceradar_srql` by force-compiling the SRQL NIF before Boundary/xref introspection.
+- Fixed plugin runtime lint failures by replacing dynamic Go errors with static wrapped errors.
+- Restored the audit settings app shell theme and repaired sweep TCP availability and agent registry views.
+
 # ServiceRadar v1.2.62
 
 Device ingest, inventory UI, Elixir quality, and NATS platform update.
