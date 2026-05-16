@@ -76,6 +76,11 @@ pushd "${project}" >/dev/null
 
 run mix deps.get
 run mix deps.compile
+
+if grep -q "{:serviceradar_srql" mix.exs; then
+  run mix deps.compile serviceradar_srql --force
+fi
+
 run mix format --check-formatted
 
 if [[ "${skip_warnings_as_errors}" == "true" ]]; then
