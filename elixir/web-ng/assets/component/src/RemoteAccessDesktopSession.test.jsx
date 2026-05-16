@@ -70,6 +70,8 @@ describe("RemoteAccessDesktopSession", () => {
 
     expect(html).toContain("RDP session")
     expect(html).toContain("Finance desktop")
+    expect(html).toContain("Remote desktop display")
+    expect(html).toContain("0 tile updates")
     expect(html).toContain("agent-1 / gateway-1")
     expect(html).toContain("User Present")
     expect(html).toContain("1920x1080 / 30 fps")

@@ -180,6 +180,7 @@
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
 - [x] 4.2.5 Add the first browser RDP session shell hook/component that consumes WebRTC session metadata and visible policy posture without exposing credential material.
 - [x] 4.2.6 Add tested browser RDP session shell behavior for WebRTC readiness, visible posture, hook prop parsing, and cleanup without retaining credential material.
+- [x] 4.2.7 Add the first browser canvas-backed render drain for queued desktop tile frames, with visible renderer counters and session-change cleanup.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
 - [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
@@ -334,6 +335,7 @@
 - [x] 5.7.13 Add browser renderer-state tests for bounded render queues, stale-frame coalescing, and critical-frame preservation.
 - [x] 5.7.14 Add browser renderer-state tests proving stale-frame coalescing does not cross media-session bindings.
 - [x] 5.7.15 Add browser renderer-state tests for WebGPU queue-compatible tile uploads without copying payload bytes.
+- [x] 5.7.16 Add browser renderer-runtime tests proving queued tile frames drain into a canvas-compatible surface with bounded per-tick work and metadata-only frames do not enter the pixel upload path.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

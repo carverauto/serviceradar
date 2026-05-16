@@ -1,9 +1,11 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react"
 
 import {createDesktopRenderQueue, desktopPolicyStatusItems, normalizeDesktopPolicySnapshot} from "../../js/lib/remote_desktop/renderer_state.js"
+import {drainDesktopRenderQueue} from "../../js/lib/remote_desktop/renderer_runtime.js"
 import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_client.js"
 
 const DEFAULT_QUEUE_MAX_FRAMES = 12
+const DEFAULT_RENDER_DRAIN_FRAMES = 4
 
 function createRemoteDesktopWebRTCClient(options) {
   return new RemoteDesktopWebRTCClient(options)
@@ -32,12 +34,15 @@ export function Component({
   const policySnapshot = session?.desktop_policy_snapshot || {}
   const policy = useMemo(() => normalizeDesktopPolicySnapshot(policySnapshot), [policySnapshot])
   const statusItems = useMemo(() => desktopPolicyStatusItems(policySnapshot), [policySnapshot])
+  const sessionIdentity = sessionValue(session, "id", sessionValue(session, "session_id", ""))
   const renderQueueRef = useRef(createDesktopRenderQueue({maxFrames: queueMaxFrames}))
+  const canvasRef = useRef(null)
   const clientRef = useRef(null)
   const [connectionStatus, setConnectionStatus] = useState(autoConnect ? "pending" : "idle")
   const [viewerSessionId, setViewerSessionId] = useState("")
   const [frameCount, setFrameCount] = useState(0)
   const [droppedFrameCount, setDroppedFrameCount] = useState(0)
+  const [rendererStats, setRendererStats] = useState({framesApplied: 0, tilesApplied: 0, lastSequence: null})
   const [lastError, setLastError] = useState("")
 
   const closeClient = useCallback((reason = "desktop viewer closed") => {
@@ -56,6 +61,7 @@ export function Component({
     setViewerSessionId("")
     setFrameCount(0)
     setDroppedFrameCount(0)
+    setRendererStats({framesApplied: 0, tilesApplied: 0, lastSequence: null})
     renderQueueRef.current.clear()
 
     const client = clientFactory({
@@ -105,12 +111,75 @@ export function Component({
   }, [closeClient])
 
   useEffect(() => {
+    closeClient("desktop session changed")
+    renderQueueRef.current.clear()
+    setViewerSessionId("")
+    setFrameCount(0)
+    setDroppedFrameCount(0)
+    setRendererStats({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+    setLastError("")
+    setConnectionStatus(autoConnect ? "pending" : "idle")
+  }, [autoConnect, closeClient, sessionIdentity])
+
+  useEffect(() => {
     if (autoConnect && webrtcReady(session) && !clientRef.current) {
       void connect()
     }
   }, [autoConnect, connect, session])
 
   useEffect(() => () => closeClient("desktop viewer unmounted"), [closeClient])
+
+  useEffect(() => {
+    if (!session) {
+      return undefined
+    }
+
+    const scheduleFrame = (callback) => (
+      typeof globalThis.requestAnimationFrame === "function"
+        ? globalThis.requestAnimationFrame(callback)
+        : globalThis.setTimeout(callback, 16)
+    )
+    const cancelFrame = (handle) => {
+      if (typeof globalThis.cancelAnimationFrame === "function") {
+        globalThis.cancelAnimationFrame(handle)
+      } else {
+        globalThis.clearTimeout(handle)
+      }
+    }
+    let frameHandle = null
+    let stopped = false
+
+    const tick = () => {
+      if (stopped) {
+        return
+      }
+
+      const context = canvasRef.current?.getContext?.("2d", {alpha: false})
+      const result = drainDesktopRenderQueue(renderQueueRef.current, {
+        context,
+        maxFrames: DEFAULT_RENDER_DRAIN_FRAMES,
+      })
+
+      if (result.frames > 0) {
+        setRendererStats((stats) => ({
+          framesApplied: stats.framesApplied + result.frames,
+          tilesApplied: stats.tilesApplied + result.uploads,
+          lastSequence: result.lastSequence ?? stats.lastSequence,
+        }))
+      }
+
+      frameHandle = scheduleFrame(tick)
+    }
+
+    frameHandle = scheduleFrame(tick)
+
+    return () => {
+      stopped = true
+      if (frameHandle !== null) {
+        cancelFrame(frameHandle)
+      }
+    }
+  }, [session])
 
   if (!session) {
     return (
@@ -132,12 +201,28 @@ export function Component({
         </header>
 
         <div className="flex min-h-0 flex-1 items-center justify-center bg-black">
-          <div className="flex aspect-video w-full max-w-6xl items-center justify-center border border-white/10 bg-neutral-950 text-center">
-            <div className="space-y-2 px-4">
-              <div className="text-sm font-medium">No video yet</div>
-              <div className="text-xs text-neutral-content/60">
-                {webrtcReady(session) ? "Waiting for frames." : "Media unavailable."}
+          <div className="relative flex aspect-video w-full max-w-6xl items-center justify-center overflow-hidden border border-white/10 bg-neutral-950 text-center">
+            <canvas
+              aria-label="Remote desktop display"
+              className="h-full w-full object-contain"
+              ref={canvasRef}
+            />
+            {rendererStats.framesApplied === 0 ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="space-y-2 px-4">
+                  <div className="text-sm font-medium">No video yet</div>
+                  <div className="text-xs text-neutral-content/60">
+                    {webrtcReady(session) ? "Waiting for frames." : "Media unavailable."}
+                  </div>
+                </div>
               </div>
+            ) : null}
+            <div className="absolute bottom-3 left-3 rounded bg-black/70 px-2 py-1 text-xs text-white/70">
+              {rendererStats.tilesApplied} tile updates
+            </div>
+            <div className="sr-only" aria-live="polite">
+              {rendererStats.framesApplied} rendered frames
+              {rendererStats.lastSequence === null ? "" : ` through sequence ${rendererStats.lastSequence}`}
             </div>
           </div>
         </div>
