@@ -13,6 +13,7 @@ import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_clie
 
 const DEFAULT_QUEUE_MAX_FRAMES = 12
 const DEFAULT_RENDER_DRAIN_FRAMES = 4
+const EMPTY_RENDERER_STATS = {framesApplied: 0, tilesApplied: 0, lastSequence: null}
 
 function createRemoteDesktopWebRTCClient(options) {
   return new RemoteDesktopWebRTCClient(options)
@@ -29,6 +30,18 @@ function sessionStatus(session) {
 
 function webrtcReady(session) {
   return session?.desktop_webrtc_enabled === true && Boolean(session?.desktop_webrtc_signaling_path)
+}
+
+function queueState(queue) {
+  return queue?.state?.() || {decodeQueueSize: 0, maxDecodeQueueSize: 0}
+}
+
+function queueDepthLabel(queueStats) {
+  return `${queueStats.decodeQueueSize}/${queueStats.maxDecodeQueueSize} queued`
+}
+
+function sequenceLabel(sequence) {
+  return sequence === null || sequence === undefined ? "No frames" : String(sequence)
 }
 
 export function Component({
@@ -49,7 +62,8 @@ export function Component({
   const [viewerSessionId, setViewerSessionId] = useState("")
   const [frameCount, setFrameCount] = useState(0)
   const [droppedFrameCount, setDroppedFrameCount] = useState(0)
-  const [rendererStats, setRendererStats] = useState({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+  const [rendererStats, setRendererStats] = useState(EMPTY_RENDERER_STATS)
+  const [queueStats, setQueueStats] = useState(() => queueState(renderQueueRef.current))
   const [controlFrameCount, setControlFrameCount] = useState(0)
   const [lastError, setLastError] = useState("")
 
@@ -69,9 +83,10 @@ export function Component({
     setViewerSessionId("")
     setFrameCount(0)
     setDroppedFrameCount(0)
-    setRendererStats({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+    setRendererStats(EMPTY_RENDERER_STATS)
     setControlFrameCount(0)
     renderQueueRef.current.clear()
+    setQueueStats(queueState(renderQueueRef.current))
 
     const client = clientFactory({
       signalingPath: session.desktop_webrtc_signaling_path,
@@ -88,9 +103,11 @@ export function Component({
         if (droppedCount > 0) {
           setDroppedFrameCount((count) => count + droppedCount)
         }
+        setQueueStats(queueState(renderQueueRef.current))
       },
       onFrameDropped() {
         setDroppedFrameCount((count) => count + 1)
+        setQueueStats(queueState(renderQueueRef.current))
       },
       onClose(label) {
         setConnectionStatus(`closed:${label}`)
@@ -125,7 +142,8 @@ export function Component({
     setViewerSessionId("")
     setFrameCount(0)
     setDroppedFrameCount(0)
-    setRendererStats({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+    setRendererStats(EMPTY_RENDERER_STATS)
+    setQueueStats(queueState(renderQueueRef.current))
     setControlFrameCount(0)
     setLastError("")
     setConnectionStatus(autoConnect ? "pending" : "idle")
@@ -218,6 +236,7 @@ export function Component({
           tilesApplied: stats.tilesApplied + result.uploads,
           lastSequence: result.lastSequence ?? stats.lastSequence,
         }))
+        setQueueStats(queueState(renderQueueRef.current))
       }
 
       frameHandle = scheduleFrame(tick)
@@ -315,6 +334,14 @@ export function Component({
           <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
             <span className="text-xs uppercase tracking-wide text-base-content/50">Frames</span>
             <span className="font-medium">{frameCount} accepted / {droppedFrameCount} dropped</span>
+          </div>
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+            <span className="text-xs uppercase tracking-wide text-base-content/50">Backpressure</span>
+            <span className="font-medium">{queueDepthLabel(queueStats)}</span>
+          </div>
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+            <span className="text-xs uppercase tracking-wide text-base-content/50">Sequence</span>
+            <span className="font-medium">{sequenceLabel(rendererStats.lastSequence)}</span>
           </div>
           <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
             <span className="text-xs uppercase tracking-wide text-base-content/50">Input</span>
