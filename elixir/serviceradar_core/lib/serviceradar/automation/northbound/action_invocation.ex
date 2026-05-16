@@ -81,6 +81,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_recent, action: :recent
+    define :list_by_target, action: :by_target, args: [:target_kind, :target_id]
     define :create_invocation, action: :create
     define :record_dispatch, action: :record_dispatch
     define :record_running, action: :record_running
@@ -111,6 +112,39 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
 
     read :recent do
       prepare build(
+                sort: [inserted_at: :desc],
+                select: [:id, :inserted_at, :updated_at | @fields]
+              )
+    end
+
+    read :by_target do
+      argument :target_kind, :string, allow_nil?: false
+      argument :target_id, :string, allow_nil?: false
+
+      filter expr(
+               fragment(
+                 """
+                 EXISTS (
+                   SELECT 1
+                   FROM unnest(?) AS target
+                   WHERE target->>'kind' = ?
+                     AND (
+                       target->>'device_uid' = ?
+                       OR target->>'interface_uid' = ?
+                       OR target->>'event_id' = ?
+                     )
+                 )
+                 """,
+                 target_snapshots,
+                 ^arg(:target_kind),
+                 ^arg(:target_id),
+                 ^arg(:target_id),
+                 ^arg(:target_id)
+               )
+             )
+
+      prepare build(
+                load: [:provider, :descriptor],
                 sort: [inserted_at: :desc],
                 select: [:id, :inserted_at, :updated_at | @fields]
               )
@@ -178,7 +212,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :recent], @view_check)
+    action_with_permission([:read, :by_id, :recent, :by_target], @view_check)
     action_with_permission([:create], @launch_check)
     action_with_permission([:record_canceled], @cancel_check)
     # Dispatch/running/success/failure/suppression are system driven.
