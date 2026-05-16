@@ -30,6 +30,7 @@
 - [x] 2.2.5 Index core-elx desktop WebRTC viewer sessions by signaling PID so Membrane signaling events avoid linear session scans.
 - [x] 2.2.6 Add a browser-facing authorized RDP desktop target listing API with feature flag gating, RDP RBAC enforcement, provider/static-config source seam, and secret-stripped policy posture.
 - [x] 2.2.7 Add RDP session creation through registered desktop target IDs only, rejecting browser-supplied host, port, route, credential, and policy overrides.
+- [x] 2.2.8 Route browser WebRTC desktop control frames through core-elx with viewer/session binding, separate from media acknowledgements, without retaining key/button tokens in manager state.
 - [x] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
 - [x] 2.3.1 Reject desktop clipboard frames unless an explicit redirection policy enables clipboard access.
 - [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
@@ -181,6 +182,7 @@
 - [x] 4.2.5 Add the first browser RDP session shell hook/component that consumes WebRTC session metadata and visible policy posture without exposing credential material.
 - [x] 4.2.6 Add tested browser RDP session shell behavior for WebRTC readiness, visible posture, hook prop parsing, and cleanup without retaining credential material.
 - [x] 4.2.7 Add the first browser canvas-backed render drain for queued desktop tile frames, with visible renderer counters and session-change cleanup.
+- [x] 4.2.8 Add browser keyboard, pointer, focus, and resize control-frame emission over the WebRTC control channel using the agent-side desktop frame schema.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
 - [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
@@ -319,6 +321,7 @@
 - [x] 5.6.50 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session lease expires.
 - [x] 5.6.51 Add focused Elixir tests proving desktop media frame counter mutations reject mismatched media-ingest bindings without changing counters.
 - [x] 5.6.52 Add focused Go tests proving long-running desktop media bursts exhaust credit and recover only after browser acknowledgements.
+- [x] 5.6.53 Add focused core-elx tests proving browser desktop control frames route through the DataChannel provider, signaling manager, and media session manager with viewer/session binding.
 - [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
@@ -336,6 +339,7 @@
 - [x] 5.7.14 Add browser renderer-state tests proving stale-frame coalescing does not cross media-session bindings.
 - [x] 5.7.15 Add browser renderer-state tests for WebGPU queue-compatible tile uploads without copying payload bytes.
 - [x] 5.7.16 Add browser renderer-runtime tests proving queued tile frames drain into a canvas-compatible surface with bounded per-tick work and metadata-only frames do not enter the pixel upload path.
+- [x] 5.7.17 Add browser control-frame tests proving keyboard, pointer, focus, resize, oversized-token rejection, and WebRTC control-channel send behavior match the Go desktop frame contract.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

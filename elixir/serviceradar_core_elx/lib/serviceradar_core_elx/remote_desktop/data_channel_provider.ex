@@ -162,17 +162,33 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   end
 
   defp route_control_message(data, state) when is_binary(data) do
-    with {:ok, %{"type" => @ack_message_type} = ack} <- Jason.decode(data) do
-      state.signaling_manager.apply_media_ack(
-        state.session_id,
-        state.viewer_session_id,
-        ack,
-        state.signaling_manager_opts
-      )
+    with {:ok, message} when is_map(message) <- Jason.decode(data) do
+      route_decoded_control_message(message, state)
     end
   end
 
   defp route_control_message(_data, _state), do: :ignore
+
+  defp route_decoded_control_message(%{"type" => @ack_message_type} = ack, state) do
+    state.signaling_manager.apply_media_ack(
+      state.session_id,
+      state.viewer_session_id,
+      ack,
+      state.signaling_manager_opts
+    )
+  end
+
+  defp route_decoded_control_message(%{"frame_type" => frame_type} = frame, state)
+       when frame_type in ["desktop.input", "desktop.resize", "desktop.quality", "desktop.disconnect"] do
+    state.signaling_manager.apply_control_frame(
+      state.session_id,
+      state.viewer_session_id,
+      frame,
+      state.signaling_manager_opts
+    )
+  end
+
+  defp route_decoded_control_message(_message, _state), do: :ignore
 
   defp set_channel_open(%{media_ref: ref} = state, ref, open?), do: %{state | media_open?: open?}
   defp set_channel_open(%{control_ref: ref} = state, ref, open?), do: %{state | control_open?: open?}

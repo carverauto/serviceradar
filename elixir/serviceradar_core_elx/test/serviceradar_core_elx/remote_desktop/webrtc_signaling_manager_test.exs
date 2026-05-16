@@ -77,6 +77,12 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
       Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_media_ack_result, {:ok, %{}})
     end
 
+    def apply_browser_control(session_id, viewer_session_id, frame, opts) do
+      send(test_pid(), {:apply_browser_control, session_id, viewer_session_id, frame, opts})
+
+      Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_control_result, {:ok, %{}})
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
     end
@@ -85,6 +91,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
   setup do
     previous_fetch_result = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_fetch_result)
     previous_media_ack_result = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_media_ack_result)
+    previous_control_result = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_control_result)
     previous_test_pid = Application.get_env(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid)
 
     Application.put_env(:serviceradar_core_elx, :remote_desktop_webrtc_test_pid, self())
@@ -92,6 +99,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
     on_exit(fn ->
       restore_env(:remote_desktop_webrtc_fetch_result, previous_fetch_result)
       restore_env(:remote_desktop_webrtc_media_ack_result, previous_media_ack_result)
+      restore_env(:remote_desktop_webrtc_control_result, previous_control_result)
       restore_env(:remote_desktop_webrtc_test_pid, previous_test_pid)
     end)
 
@@ -191,6 +199,39 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
                %{"media_session_id" => "media-1", "last_accepted_seq" => 3},
                server: server_name
              )
+  end
+
+  test "routes browser desktop control frames through the configured media manager" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+    control_result = {:ok, %{control_frame_count: 1, last_control_frame: %{"frame_type" => "desktop.input"}}}
+
+    Application.put_env(:serviceradar_core_elx, :remote_desktop_webrtc_control_result, control_result)
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name, session_tracker: SessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name)
+
+    frame = %{
+      "session_id" => session_id,
+      "protocol" => "rdp",
+      "frame_type" => "desktop.input",
+      "input" => %{"kind" => "focus", "focused" => true}
+    }
+
+    assert {:ok,
+            %{
+              viewer_session_id: ^viewer_session_id,
+              control_state: %{control_frame_count: 1, last_control_frame: %{"frame_type" => "desktop.input"}}
+            }} =
+             WebRTCSignalingManager.apply_control_frame(session_id, viewer_session_id, frame, server: server_name)
+
+    assert_receive {:apply_browser_control, ^session_id, ^viewer_session_id, ^frame, opts}
+    refute Keyword.has_key?(opts, :server)
   end
 
   test "rejects browser media acknowledgements for unknown viewers" do

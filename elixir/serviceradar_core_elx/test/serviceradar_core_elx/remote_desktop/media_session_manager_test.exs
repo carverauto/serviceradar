@@ -189,6 +189,90 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
              )
   end
 
+  test "accepts session-bound browser control frames from attached viewers" do
+    server = unique_server_name()
+    start_supervised!({MediaSessionManager, name: server})
+
+    assert :ok =
+             MediaSessionManager.add_webrtc_viewer("desktop-manager-control-1", "viewer-1", %{pid: self()},
+               server: server,
+               offer_provider: OfferProviderStub,
+               transport: "webrtc_desktop_media"
+             )
+
+    frame = %{
+      "session_id" => "desktop-manager-control-1",
+      "protocol" => "rdp",
+      "frame_type" => "desktop.input",
+      "input" => %{"kind" => "pointer", "x" => 100, "y" => 120, "button" => "left", "down" => true}
+    }
+
+    safe_frame = %{
+      "session_id" => "desktop-manager-control-1",
+      "protocol" => "rdp",
+      "frame_type" => "desktop.input",
+      "input" => %{"kind" => "pointer", "x" => 100, "y" => 120, "down" => true}
+    }
+
+    assert {:ok,
+            %{
+              control_frame_count: 1,
+              last_control_frame: ^safe_frame
+            }} =
+             MediaSessionManager.apply_browser_control("desktop-manager-control-1", "viewer-1", frame, server: server)
+
+    assert %{
+             control_frame_count: 1,
+             last_control_frame: ^safe_frame
+           } = MediaSessionManager.fetch_session("desktop-manager-control-1", server: server)
+  end
+
+  test "rejects browser control frames with wrong viewer, session, or shape" do
+    server = unique_server_name()
+    start_supervised!({MediaSessionManager, name: server})
+
+    assert :ok =
+             MediaSessionManager.add_webrtc_viewer("desktop-manager-control-reject-1", "viewer-1", %{pid: self()},
+               server: server,
+               offer_provider: OfferProviderStub,
+               transport: "webrtc_desktop_media"
+             )
+
+    valid_frame = %{
+      "session_id" => "desktop-manager-control-reject-1",
+      "protocol" => "rdp",
+      "frame_type" => "desktop.input",
+      "input" => %{"kind" => "focus", "focused" => true}
+    }
+
+    assert {:error, :viewer_session_not_found} =
+             MediaSessionManager.apply_browser_control(
+               "desktop-manager-control-reject-1",
+               "viewer-missing",
+               valid_frame,
+               server: server
+             )
+
+    assert {:error, :invalid_control_frame} =
+             MediaSessionManager.apply_browser_control(
+               "desktop-manager-control-reject-1",
+               "viewer-1",
+               %{valid_frame | "session_id" => "other-session"},
+               server: server
+             )
+
+    assert {:error, :invalid_control_frame} =
+             MediaSessionManager.apply_browser_control(
+               "desktop-manager-control-reject-1",
+               "viewer-1",
+               %{valid_frame | "input" => %{"kind" => "clipboard"}},
+               server: server
+             )
+
+    assert %{control_frame_count: 0, last_control_frame: nil} =
+             MediaSessionManager.fetch_session("desktop-manager-control-reject-1", server: server)
+  end
+
   defp session(desktop_session_id) do
     %{
       desktop_session_id: desktop_session_id,

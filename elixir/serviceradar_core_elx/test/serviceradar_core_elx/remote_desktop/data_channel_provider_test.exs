@@ -87,6 +87,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
       {:ok, %{pending_credit_bytes: Map.get(ack, "credit_bytes", 0)}}
     end
 
+    def apply_control_frame(session_id, viewer_session_id, frame, opts) do
+      send(test_pid(), {:apply_control_frame, session_id, viewer_session_id, frame, opts})
+      {:ok, %{control_frame_count: 1, last_control_frame: frame}}
+    end
+
     defp test_pid do
       Application.fetch_env!(:serviceradar_core_elx, :remote_desktop_data_channel_provider_test_pid)
     end
@@ -203,6 +208,35 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
     send(provider_pid, {:ex_webrtc, pc, {:data, control_ref, Jason.encode!(ack)}})
 
     assert_receive {:apply_media_ack, "desktop-3", "viewer-3", ^ack, [server: :webrtc_manager_test]}
+  end
+
+  test "routes browser desktop control frames to the signaling manager", ctx do
+    signaling = new_signaling()
+
+    assert :ok =
+             DataChannelProvider.add_webrtc_viewer("desktop-4", "viewer-4", signaling,
+               registry: ctx.registry,
+               supervisor: ctx.supervisor,
+               peer_connection: PeerConnectionStub,
+               signaling_manager: SignalingManagerStub,
+               signaling_manager_opts: [server: :webrtc_manager_test]
+             )
+
+    assert_receive {:pc_started, pc, _opts}
+    assert_receive {:pc_create_data_channel, ^pc, "desktop-media", _media_ref, _opts}
+    assert_receive {:pc_create_data_channel, ^pc, "desktop-control", control_ref, _opts}
+    {:ok, provider_pid} = lookup(ctx.registry, "desktop-4", "viewer-4")
+
+    frame = %{
+      "session_id" => "desktop-4",
+      "protocol" => "rdp",
+      "frame_type" => "desktop.input",
+      "input" => %{"kind" => "key", "key" => "Enter", "down" => true}
+    }
+
+    send(provider_pid, {:ex_webrtc, pc, {:data, control_ref, Jason.encode!(frame)}})
+
+    assert_receive {:apply_control_frame, "desktop-4", "viewer-4", ^frame, [server: :webrtc_manager_test]}
   end
 
   defp new_signaling do

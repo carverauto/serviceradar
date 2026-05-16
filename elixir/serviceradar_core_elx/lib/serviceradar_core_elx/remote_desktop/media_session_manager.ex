@@ -40,6 +40,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     GenServer.call(server_name(opts), {:apply_browser_ack, session_id, viewer_session_id, ack})
   end
 
+  def apply_browser_control(session_id, viewer_session_id, frame, opts \\ [])
+      when is_binary(session_id) and is_binary(viewer_session_id) and is_map(frame) do
+    GenServer.call(server_name(opts), {:apply_browser_control, session_id, viewer_session_id, frame})
+  end
+
   def fetch_session(session_id, opts \\ []) when is_binary(session_id) do
     GenServer.call(server_name(opts), {:fetch_session, session_id})
   end
@@ -147,6 +152,33 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     end
   end
 
+  def handle_call({:apply_browser_control, session_id, viewer_session_id, frame}, _from, state) do
+    case Map.get(state.sessions, session_id) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      %{viewers: viewers} = session ->
+        cond do
+          not Map.has_key?(viewers, viewer_session_id) ->
+            {:reply, {:error, :viewer_session_not_found}, state}
+
+          not valid_control_frame?(session_id, frame) ->
+            {:reply, {:error, :invalid_control_frame}, state}
+
+          true ->
+            updated =
+              session
+              |> Map.update!(:control_frame_count, &(&1 + 1))
+              |> Map.put(:last_control_frame, safe_control_frame(frame))
+              |> Map.put(:updated_at_unix, now_unix())
+
+            emit_browser_control_event(updated, viewer_session_id, frame)
+
+            {:reply, {:ok, sanitize_session(updated)}, put_in(state, [:sessions, session_id], updated)}
+        end
+    end
+  end
+
   def handle_call({:fetch_session, session_id}, _from, state) do
     {:reply, sanitize_session(Map.get(state.sessions, session_id)), state}
   end
@@ -200,6 +232,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       quality_level: nil,
       close_reason: nil,
       last_frame: nil,
+      last_control_frame: nil,
+      control_frame_count: 0,
       created_at_unix: now,
       updated_at_unix: now
     }
@@ -296,6 +330,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       quality_level: session.quality_level,
       close_reason: session.close_reason,
       last_frame: session.last_frame,
+      last_control_frame: session.last_control_frame,
+      control_frame_count: session.control_frame_count,
       created_at_unix: session.created_at_unix,
       updated_at_unix: session.updated_at_unix
     }
@@ -348,6 +384,50 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       }
     )
   end
+
+  defp emit_browser_control_event(session, viewer_session_id, frame) do
+    :telemetry.execute(
+      [:serviceradar, :desktop_media, :browser, :control],
+      %{control_frame_count: session.control_frame_count},
+      %{
+        session_id: session.session_id,
+        viewer_session_id: viewer_session_id,
+        frame_type: string_value(frame, "frame_type"),
+        input_kind: input_kind(frame)
+      }
+    )
+  end
+
+  defp valid_control_frame?(session_id, frame) do
+    string_value(frame, "session_id") == session_id and
+      string_value(frame, "protocol") in ["rdp", "desktop"] and
+      valid_control_frame_type?(string_value(frame, "frame_type"), frame)
+  end
+
+  defp valid_control_frame_type?("desktop.input", frame), do: input_kind(frame) in ["key", "pointer", "focus"]
+
+  defp valid_control_frame_type?("desktop.resize", frame) do
+    uint_value(frame, "width") > 0 and uint_value(frame, "height") > 0
+  end
+
+  defp valid_control_frame_type?("desktop.quality", frame), do: is_map(Map.get(frame, "quality"))
+  defp valid_control_frame_type?("desktop.disconnect", _frame), do: true
+  defp valid_control_frame_type?(_frame_type, _frame), do: false
+
+  defp safe_control_frame(frame) do
+    frame
+    |> Map.take(["session_id", "protocol", "frame_type", "width", "height", "input", "quality", "reason"])
+    |> drop_sensitive_control_fields()
+  end
+
+  defp drop_sensitive_control_fields(%{"input" => input} = frame) when is_map(input) do
+    Map.put(frame, "input", Map.take(input, ["kind", "down", "x", "y", "focused"]))
+  end
+
+  defp drop_sensitive_control_fields(frame), do: frame
+
+  defp input_kind(%{"input" => input}) when is_map(input), do: string_value(input, "kind")
+  defp input_kind(_frame), do: nil
 
   defp forward_frame_to_viewers(viewers, _session_id, _frame) when map_size(viewers) == 0, do: :ok
 
@@ -444,6 +524,20 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     |> Map.get(atom_key, Map.get(ack, string_key, ""))
     |> to_string()
     |> String.trim()
+  end
+
+  defp string_value(map, key) when is_map(map) do
+    map
+    |> Map.get(key, "")
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp uint_value(map, key) when is_map(map) do
+    case Map.get(map, key, 0) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> 0
+    end
   end
 
   defp max_browser_ack_credit_bytes do

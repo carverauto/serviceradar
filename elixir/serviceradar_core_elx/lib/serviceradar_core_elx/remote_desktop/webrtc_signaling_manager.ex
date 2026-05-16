@@ -40,6 +40,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
     GenServer.call(server_name(opts), {:apply_media_ack, session_id, viewer_session_id, ack, opts})
   end
 
+  def apply_control_frame(session_id, viewer_session_id, frame, opts \\ [])
+      when is_binary(session_id) and is_binary(viewer_session_id) and is_map(frame) do
+    GenServer.call(server_name(opts), {:apply_control_frame, session_id, viewer_session_id, frame, opts})
+  end
+
   def close_session(session_id, viewer_session_id, opts \\ [])
       when is_binary(session_id) and is_binary(viewer_session_id) do
     GenServer.call(server_name(opts), {:close_session, session_id, viewer_session_id, opts})
@@ -187,6 +192,34 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
               updated
               |> session_response()
               |> Map.put(:media_ack_state, media_state)
+
+            {:reply, {:ok, response}, put_session(state, updated)}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+
+      {:error, :viewer_session_not_found} = error ->
+        {:reply, error, state}
+    end
+  end
+
+  def handle_call({:apply_control_frame, session_id, viewer_session_id, frame, opts}, _from, state) do
+    case fetch_session(state, session_id, viewer_session_id) do
+      {:ok, session} ->
+        case media_manager(state).apply_browser_control(
+               session_id,
+               viewer_session_id,
+               frame,
+               Keyword.delete(opts, :server)
+             ) do
+          {:ok, control_state} ->
+            updated = refresh_session(session, state.session_ttl_ms)
+
+            response =
+              updated
+              |> session_response()
+              |> Map.put(:control_state, control_state)
 
             {:reply, {:ok, response}, put_session(state, updated)}
 

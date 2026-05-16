@@ -1,5 +1,12 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react"
 
+import {
+  buildDesktopFocusFrame,
+  buildDesktopKeyFrame,
+  buildDesktopPointerFrame,
+  buildDesktopResizeFrame,
+  sendDesktopControlFrame,
+} from "../../js/lib/remote_desktop/control_frame.js"
 import {createDesktopRenderQueue, desktopPolicyStatusItems, normalizeDesktopPolicySnapshot} from "../../js/lib/remote_desktop/renderer_state.js"
 import {drainDesktopRenderQueue} from "../../js/lib/remote_desktop/renderer_runtime.js"
 import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_client.js"
@@ -43,6 +50,7 @@ export function Component({
   const [frameCount, setFrameCount] = useState(0)
   const [droppedFrameCount, setDroppedFrameCount] = useState(0)
   const [rendererStats, setRendererStats] = useState({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+  const [controlFrameCount, setControlFrameCount] = useState(0)
   const [lastError, setLastError] = useState("")
 
   const closeClient = useCallback((reason = "desktop viewer closed") => {
@@ -62,6 +70,7 @@ export function Component({
     setFrameCount(0)
     setDroppedFrameCount(0)
     setRendererStats({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+    setControlFrameCount(0)
     renderQueueRef.current.clear()
 
     const client = clientFactory({
@@ -117,9 +126,48 @@ export function Component({
     setFrameCount(0)
     setDroppedFrameCount(0)
     setRendererStats({framesApplied: 0, tilesApplied: 0, lastSequence: null})
+    setControlFrameCount(0)
     setLastError("")
     setConnectionStatus(autoConnect ? "pending" : "idle")
   }, [autoConnect, closeClient, sessionIdentity])
+
+  const sendControlFrame = useCallback((frame) => {
+    if (sendDesktopControlFrame(clientRef.current, frame)) {
+      setControlFrameCount((count) => count + 1)
+      return true
+    }
+
+    return false
+  }, [])
+
+  const handleCanvasFocus = useCallback(() => {
+    sendControlFrame(buildDesktopFocusFrame(session, true))
+  }, [sendControlFrame, session])
+
+  const handleCanvasBlur = useCallback(() => {
+    sendControlFrame(buildDesktopFocusFrame(session, false))
+  }, [sendControlFrame, session])
+
+  const handleCanvasKey = useCallback((event, down) => {
+    if (sendControlFrame(buildDesktopKeyFrame(session, {key: event.key, down}))) {
+      event.preventDefault()
+    }
+  }, [sendControlFrame, session])
+
+  const handlePointer = useCallback((event, down) => {
+    if (down) {
+      canvasRef.current?.focus?.()
+    }
+
+    if (sendControlFrame(buildDesktopPointerFrame(session, event, canvasRef.current, {down}))) {
+      event.preventDefault()
+    }
+  }, [sendControlFrame, session])
+
+  const sendResizeFrame = useCallback(() => {
+    const canvas = canvasRef.current
+    sendControlFrame(buildDesktopResizeFrame(session, {width: canvas?.width, height: canvas?.height}))
+  }, [sendControlFrame, session])
 
   useEffect(() => {
     if (autoConnect && webrtcReady(session) && !clientRef.current) {
@@ -161,6 +209,10 @@ export function Component({
       })
 
       if (result.frames > 0) {
+        if (result.resized) {
+          sendResizeFrame()
+        }
+
         setRendererStats((stats) => ({
           framesApplied: stats.framesApplied + result.frames,
           tilesApplied: stats.tilesApplied + result.uploads,
@@ -179,7 +231,7 @@ export function Component({
         cancelFrame(frameHandle)
       }
     }
-  }, [session])
+  }, [sendResizeFrame, session])
 
   if (!session) {
     return (
@@ -205,7 +257,15 @@ export function Component({
             <canvas
               aria-label="Remote desktop display"
               className="h-full w-full object-contain"
+              onBlur={handleCanvasBlur}
+              onFocus={handleCanvasFocus}
+              onKeyDown={(event) => handleCanvasKey(event, true)}
+              onKeyUp={(event) => handleCanvasKey(event, false)}
+              onPointerDown={(event) => handlePointer(event, true)}
+              onPointerMove={(event) => handlePointer(event, false)}
+              onPointerUp={(event) => handlePointer(event, false)}
               ref={canvasRef}
+              tabIndex={0}
             />
             {rendererStats.framesApplied === 0 ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -255,6 +315,10 @@ export function Component({
           <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
             <span className="text-xs uppercase tracking-wide text-base-content/50">Frames</span>
             <span className="font-medium">{frameCount} accepted / {droppedFrameCount} dropped</span>
+          </div>
+          <div className="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+            <span className="text-xs uppercase tracking-wide text-base-content/50">Input</span>
+            <span className="font-medium">{controlFrameCount} control frames</span>
           </div>
         </div>
 
