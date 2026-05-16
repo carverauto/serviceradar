@@ -8,6 +8,7 @@ import {
 } from "./media_frame"
 import {
   applyCanvasTileFrame,
+  applyWebGPUTileFrame,
   createDirtyTileMask,
   createDesktopRenderQueue,
   desktopMetadataAttachment,
@@ -129,6 +130,37 @@ describe("remote desktop renderer state helpers", () => {
       })
     ).toBe(0)
     expect(calls).toEqual([])
+  })
+
+  it("applies tile frames through a WebGPU queue-compatible harness", () => {
+    const writes = []
+    const texture = {label: "desktop-texture"}
+    const frame = parseDesktopMediaFrame(
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba",
+        metadata: {
+          tiles: [{x: 64, y: 128, width: 64, height: 1, payloadOffset: 16, payloadLength: 256, bytesPerRow: 256}],
+        },
+        payload: new Uint8Array(512),
+      })
+    )
+
+    const applied = applyWebGPUTileFrame(frame, {
+      writeTexture(destination, source, layout, size) {
+        writes.push({destination, source, layout, size})
+      },
+    }, texture)
+
+    expect(applied).toBe(1)
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({
+      destination: {texture, origin: {x: 64, y: 128, z: 0}},
+      layout: {bytesPerRow: 256, rowsPerImage: 1},
+      size: {width: 64, height: 1, depthOrArrayLayers: 1},
+    })
+    expect(writes[0].source.buffer).toBe(frame.payload.buffer)
+    expect(writes[0].source.byteOffset).toBe(frame.payload.byteOffset + 16)
   })
 
   it("keeps Arrow IPC metadata attachments separate from screen-pixel upload paths", () => {

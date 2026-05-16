@@ -255,6 +255,35 @@ export function applyCanvasTileFrame(frame, context, createImageData = defaultIm
   return uploads.length
 }
 
+export function applyWebGPUTileFrame(frame, queue, texture) {
+  if (!queue || typeof queue.writeTexture !== "function" || !texture) {
+    return 0
+  }
+
+  const uploads = desktopFrameUploadPlan(frame)
+
+  for (const upload of uploads) {
+    queue.writeTexture(
+      {
+        texture,
+        origin: {x: upload.x, y: upload.y, z: 0},
+      },
+      upload.source,
+      {
+        bytesPerRow: upload.bytesPerRow,
+        rowsPerImage: upload.height,
+      },
+      {
+        width: upload.width,
+        height: upload.height,
+        depthOrArrayLayers: 1,
+      }
+    )
+  }
+
+  return uploads.length
+}
+
 function defaultImageDataFactory(bytes, width, height) {
   return new globalThis.ImageData(
     new Uint8ClampedArray(bytes.buffer, bytes.byteOffset, bytes.byteLength),

@@ -167,6 +167,7 @@
 - [ ] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
 - [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
 - [x] 4.2.1.2 Add the server-side web-ng WebRTC signaling facade/controller contract for `webrtc_desktop_media`.
+- [x] 4.2.1.3 Add a browser WebGPU queue adapter for dirty-region/tile upload descriptors.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
@@ -308,6 +309,7 @@
 - [x] 5.7.12 Add browser renderer-state tests proving Arrow IPC attachments stay metadata-only and cannot enter screen-pixel upload paths.
 - [x] 5.7.13 Add browser renderer-state tests for bounded render queues, stale-frame coalescing, and critical-frame preservation.
 - [x] 5.7.14 Add browser renderer-state tests proving stale-frame coalescing does not cross media-session bindings.
+- [x] 5.7.15 Add browser renderer-state tests for WebGPU queue-compatible tile uploads without copying payload bytes.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
