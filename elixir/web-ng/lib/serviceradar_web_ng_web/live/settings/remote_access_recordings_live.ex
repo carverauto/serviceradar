@@ -157,6 +157,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
         <.summary_item label="Input bytes" value={@recording.input_bytes} />
         <.summary_item label="Output bytes" value={@recording.output_bytes} />
         <.summary_item label="Retention" value={format_datetime(@recording.retention_expires_at)} />
+        <.summary_item label="Started" value={format_datetime(@recording.started_at)} />
+        <.summary_item label="Completed" value={format_datetime(@recording.completed_at)} />
+        <.summary_item label="Failure" value={@recording.failure_reason || "-"} />
       </dl>
 
       <div class="mt-4 grid gap-3 lg:grid-cols-2">
