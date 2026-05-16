@@ -190,7 +190,20 @@ pub struct ConnectorPlan {
     pub upstream_host: String,
     pub upstream_port: u16,
     pub tls_server_name: String,
+    pub tls_upgrade: TlsUpgradePlan,
     pub connector_config: ironrdp_connector::Config,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct TlsUpgradePlan {
+    pub server_name: String,
+    pub trust_source: TlsTrustSource,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum TlsTrustSource {
+    SystemRoots,
+    RegisteredCaBundle(String),
 }
 
 pub fn connector_dependency_is_linked() -> bool {
@@ -262,14 +275,44 @@ pub fn build_connector_plan(
 
     let upstream_host = request.target.upstream.host.trim().to_owned();
     let upstream_port = request.target.upstream.port;
-    let tls_server_name = effective_tls_server_name(&request)?;
+    let tls_upgrade = build_tls_upgrade_plan(&request)?;
+    let tls_server_name = tls_upgrade.server_name.clone();
     let connector_config = build_connector_config(request)?;
 
     Ok(ConnectorPlan {
         upstream_host,
         upstream_port,
         tls_server_name,
+        tls_upgrade,
         connector_config,
+    })
+}
+
+pub fn build_tls_upgrade_plan(
+    request: &ServiceRadarOpenRequest,
+) -> Result<TlsUpgradePlan, &'static str> {
+    let server_name = effective_tls_server_name(request)?;
+    let trust_source = match request.target.tls.mode.as_str() {
+        "system" => TlsTrustSource::SystemRoots,
+        "verify" if request.target.tls.ca_bundle_id.trim().is_empty() => {
+            TlsTrustSource::SystemRoots
+        }
+        "verify" => {
+            TlsTrustSource::RegisteredCaBundle(request.target.tls.ca_bundle_id.trim().to_owned())
+        }
+        "pinned_ca" => {
+            let ca_bundle_id = request.target.tls.ca_bundle_id.trim();
+            if ca_bundle_id.is_empty() {
+                return Err("tls ca bundle is required");
+            }
+            TlsTrustSource::RegisteredCaBundle(ca_bundle_id.to_owned())
+        }
+        _ => return Err("tls verification mode is unsupported"),
+    };
+
+    Ok(TlsUpgradePlan {
+        server_name,
+        trust_source,
     })
 }
 
@@ -737,6 +780,55 @@ mod tests {
 
         assert_eq!(plan.upstream_host, "rdp.internal.example");
         assert_eq!(plan.tls_server_name, "rdp.internal.example");
+    }
+
+    #[test]
+    fn tls_upgrade_plan_uses_system_roots_by_default() {
+        let request = open_request("EXAMPLE\\alice", "required");
+        let plan = crate::build_tls_upgrade_plan(&request).expect("tls plan");
+
+        assert_eq!(
+            plan,
+            TlsUpgradePlan {
+                server_name: "win.example".to_owned(),
+                trust_source: TlsTrustSource::SystemRoots,
+            }
+        );
+    }
+
+    #[test]
+    fn tls_upgrade_plan_uses_registered_ca_bundle_for_verify_mode() {
+        let mut request = open_request("EXAMPLE\\alice", "required");
+        request.target.tls.ca_bundle_id = "ca-bundle-1".to_owned();
+        let plan = crate::build_tls_upgrade_plan(&request).expect("tls plan");
+
+        assert_eq!(
+            plan,
+            TlsUpgradePlan {
+                server_name: "win.example".to_owned(),
+                trust_source: TlsTrustSource::RegisteredCaBundle("ca-bundle-1".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn tls_upgrade_plan_requires_registered_ca_for_pinned_ca_mode() {
+        let mut request = open_request("EXAMPLE\\alice", "required");
+        request.target.tls.mode = "pinned_ca".to_owned();
+
+        let err = crate::build_tls_upgrade_plan(&request).unwrap_err();
+
+        assert_eq!(err, "tls ca bundle is required");
+    }
+
+    #[test]
+    fn tls_upgrade_plan_rejects_insecure_modes() {
+        let mut request = open_request("EXAMPLE\\alice", "required");
+        request.target.tls.mode = "insecure".to_owned();
+
+        let err = crate::build_tls_upgrade_plan(&request).unwrap_err();
+
+        assert_eq!(err, "tls verification mode is unsupported");
     }
 
     #[test]

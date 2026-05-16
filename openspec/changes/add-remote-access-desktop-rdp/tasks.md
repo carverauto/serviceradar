@@ -20,6 +20,7 @@
 - [x] 1.4.15 Add a review-only `ironrdp-blocking` connect-begin probe proving ServiceRadar-shaped requests can reuse the upstream connector loop through the TLS upgrade boundary.
 - [x] 1.4.16 Add a review-only TLS peer certificate public-key extraction probe proving the CredSSP binding input can be derived after verified TLS upgrade.
 - [x] 1.4.17 Add a review-only `ironrdp-blocking` connect-finalize probe proving the post-TLS boundary enters CredSSP and writes no cleartext password before server input.
+- [x] 1.4.18 Add a review-only TLS upgrade policy probe proving system roots, registered CA bundles, and pinned CA modes are selected explicitly while insecure modes fail closed.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
