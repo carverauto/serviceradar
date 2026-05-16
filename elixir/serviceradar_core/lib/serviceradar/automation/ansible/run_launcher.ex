@@ -177,7 +177,7 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
 
   defp create_targets(run, devices, actor) do
     Enum.each(devices, fn device ->
-      ref = device.ansible_inventory_ref || %{}
+      ref = ansible_inventory_ref(device)
 
       _ =
         PlaybookRunTarget.create_target(
@@ -247,12 +247,26 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   defp blank?(s) when is_binary(s), do: String.trim(s) == ""
   defp blank?(_), do: false
 
-  defp device_ansible_managed?(%{ansible_managed: true}), do: true
-  defp device_ansible_managed?(_), do: false
+  defp device_ansible_managed?(device) do
+    ref = ansible_inventory_ref(device)
+
+    Map.get(device, :ansible_managed) == true or
+      Map.get(device, "ansible_managed") == true or
+      Map.get(ref, "managed") == true or
+      Map.get(ref, :managed) == true
+  end
 
   defp device_controller_id(device) do
-    ref = Map.get(device, :ansible_inventory_ref) || %{}
+    ref = ansible_inventory_ref(device)
     Map.get(ref, "controller_id") || Map.get(ref, :controller_id)
+  end
+
+  defp ansible_inventory_ref(device) when is_map(device) do
+    Map.get(device, :ansible_inventory_ref) ||
+      Map.get(device, "ansible_inventory_ref") ||
+      get_in(Map.get(device, :metadata) || %{}, ["ansible_inventory_ref"]) ||
+      get_in(Map.get(device, "metadata") || %{}, ["ansible_inventory_ref"]) ||
+      %{}
   end
 
   defp host_name_string(nil), do: nil
