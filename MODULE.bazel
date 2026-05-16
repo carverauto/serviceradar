@@ -630,6 +630,17 @@ use_repo(
     "rust_crates",
 )
 
+rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+rdp_connector_crates.from_cargo(
+    name = "rdp_connector_crates",
+    cargo_lockfile = "//rust/rdp-connector-probe:Cargo.lock",
+    manifests = ["//rust/rdp-connector-probe:Cargo.toml"],
+)
+use_repo(
+    rdp_connector_crates,
+    "rdp_connector_crates",
+)
+
 # --- Node.js toolchain -------------------------------------------------------
 NODE_VERSION = "20.18.1"
 

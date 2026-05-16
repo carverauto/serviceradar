@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+rust_library(
+    name = "rdp_connector_probe_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_rdp_connector_probe",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    deps = [
+        "@rdp_connector_crates//:ironrdp-connector",
+        "@rdp_connector_crates//:ironrdp-core",
+        "@rdp_connector_crates//:ironrdp-pdu",
+        "@rdp_connector_crates//:serde",
+        "@rdp_connector_crates//:serde_json",
+    ],
+)
+
+rust_test(
+    name = "rdp_connector_probe_test",
+    crate = ":rdp_connector_probe_lib",
+)
