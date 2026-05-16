@@ -322,6 +322,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/host-keys/:id/trust", RemoteAccessHostKeyController, :trust)
     post("/remote-access/host-keys/:id/revoke", RemoteAccessHostKeyController, :revoke)
     post("/remote-access/host-keys/:id/rotate", RemoteAccessHostKeyController, :rotate)
+    get("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :index)
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)

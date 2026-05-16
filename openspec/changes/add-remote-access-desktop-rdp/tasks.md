@@ -28,6 +28,7 @@
 - [x] 2.2.3 Include desktop WebRTC transport, signaling path, and ICE server metadata on RDP remote-access session responses.
 - [x] 2.2.4 Add a supervised core-elx desktop WebRTC signaling owner behind the web-ng ERTS RPC facade.
 - [x] 2.2.5 Index core-elx desktop WebRTC viewer sessions by signaling PID so Membrane signaling events avoid linear session scans.
+- [x] 2.2.6 Add a browser-facing authorized RDP desktop target listing API with feature flag gating, RDP RBAC enforcement, provider/static-config source seam, and secret-stripped policy posture.
 - [x] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
 - [x] 2.3.1 Reject desktop clipboard frames unless an explicit redirection policy enables clipboard access.
 - [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
@@ -198,6 +199,7 @@
 - [x] 5.1.15 Add focused core and LiveView tests proving RDP recording manifests and views expose safe desktop policy posture metadata without credential or payload persistence.
 - [x] 5.1.16 Add a focused Phoenix controller test proving RDP session responses expose sanitized desktop policy posture without leaking nested credential material.
 - [x] 5.1.17 Add focused browser renderer-state tests proving RDP policy snapshot status items are stable and do not retain secret-shaped fields.
+- [x] 5.1.18 Add focused Phoenix controller tests proving authorized RDP desktop target listing is feature-gated, uses RDP permissions, supports a provider/static source seam, and strips secret-shaped fields.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.
