@@ -369,16 +369,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           {:noreply, put_flash(socket, :error, "A device with this IP address already exists.")}
 
         {:error, {:hostname_resolution_failed, hostname, reason}} ->
-          Logger.warning(
-            "Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}"
-          )
+          Logger.warning("Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}")
 
-          {:noreply,
-           put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
+          {:noreply, put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
 
         {:error, :missing_device_address} ->
-          {:noreply,
-           put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
+          {:noreply, put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -1047,7 +1043,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       scope = socket.assigns.current_scope
 
       start_async(socket, :northbound_device_actions, fn ->
-        NorthboundCatalog.eligible_device_actions(scope)
+        northbound_catalog_module().eligible_device_actions(scope)
       end)
     else
       socket
@@ -1121,7 +1117,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp create_northbound_invocation(socket, action, targets, input_values) do
     descriptor_id = Map.get(action, :descriptor_id)
 
-    NorthboundInvocationService.create_and_dispatch(
+    northbound_invocation_service_module().create_and_dispatch(
       %{
         descriptor_id: descriptor_id,
         targets: targets,
@@ -1144,6 +1140,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: nil
+
+  defp northbound_catalog_module do
+    Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
+  end
+
+  defp northbound_invocation_service_module do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      NorthboundInvocationService
+    )
+  end
 
   defp parse_tag_entry(entry) do
     case String.split(entry, "=", parts: 2) do
@@ -3039,8 +3047,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       present_text?(device_row_value(row, "agent_id", :agent_id))
   end
 
-  defp agent_list(row) when is_map(row),
-    do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
 
   defp has_agent_list?(items) do
     items
@@ -3529,8 +3536,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp format_create_error(error), do: inspect(error)
 
-  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}),
-    do: "#{field}: #{msg}"
+  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
 
   defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
 

@@ -36,7 +36,7 @@
 ## 6. Validation
 
 - [x] 6.1 Add unit tests for descriptor validation, eligibility filtering, RBAC, redaction, and target resolution.
-- [ ] 6.2 Add LiveView tests for disabled action buttons, device launches, interface launches, and schema-driven forms.
+- [x] 6.2 Add LiveView tests for disabled action buttons, device launches, interface launches, and schema-driven forms.
 - [ ] 6.3 Add integration tests for a fixture Wasm action provider.
 - [x] 6.4 Run `openspec validate add-northbound-action-integrations --strict`.
 - [ ] 6.5 Run applicable Elixir, Go, and SDK quality checks before implementation PRs are merged.
