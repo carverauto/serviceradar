@@ -14,6 +14,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
     deployment_requirements
   )
   @artifact_object_list_metadata_fields ~w(signatures sbom)
+  @rdp_capabilities MapSet.new(["remote_access.rdp", "remote_access.desktop"])
+  @rdp_deployment_required_strings ~w(helper install_path helper_capabilities_arg)
 
   @type field_error :: %{field: atom(), message: String.t()}
 
@@ -141,6 +143,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
     |> validate_artifact_string_metadata(artifact, index, "helper_protocol_version")
     |> validate_artifact_object_metadata(artifact, index)
     |> validate_artifact_object_list_metadata(artifact, index)
+    |> validate_rdp_artifact_metadata(artifact, index)
   end
 
   defp validate_artifact(errors, _artifact, index) do
@@ -238,6 +241,151 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
           ]
       end
     end)
+  end
+
+  defp validate_rdp_artifact_metadata(errors, artifact, index) do
+    if rdp_artifact?(artifact) do
+      errors
+      |> require_rdp_string(artifact, index, "helper_protocol_version")
+      |> validate_rdp_version_range(artifact, index)
+      |> validate_rdp_deployment_requirements(artifact, index)
+    else
+      errors
+    end
+  end
+
+  defp require_rdp_string(errors, artifact, index, field) do
+    if non_empty_string?(Map.get(artifact, field)) do
+      errors
+    else
+      [
+        %{
+          field: :manifest,
+          message: "release artifact #{index} RDP capability requires #{field}"
+        }
+        | errors
+      ]
+    end
+  end
+
+  defp validate_rdp_version_range(errors, artifact, index) do
+    case Map.get(artifact, "compatible_agent_versions") do
+      %{"min" => min, "max" => max} when is_binary(min) and is_binary(max) ->
+        if normalize_string(min) != "" and normalize_string(max) != "" do
+          errors
+        else
+          rdp_version_range_error(errors, index)
+        end
+
+      _ ->
+        rdp_version_range_error(errors, index)
+    end
+  end
+
+  defp rdp_version_range_error(errors, index) do
+    [
+      %{
+        field: :manifest,
+        message:
+          "release artifact #{index} RDP capability requires compatible_agent_versions.min and max"
+      }
+      | errors
+    ]
+  end
+
+  defp validate_rdp_deployment_requirements(errors, artifact, index) do
+    case Map.get(artifact, "deployment_requirements") do
+      %{} = requirements ->
+        errors
+        |> validate_rdp_deployment_required_strings(requirements, index)
+        |> validate_rdp_helper_connector_ready(requirements, index)
+        |> validate_rdp_readiness_probe(requirements, index)
+        |> validate_rdp_experimental_readiness(requirements, index)
+
+      _ ->
+        [
+          %{
+            field: :manifest,
+            message: "release artifact #{index} RDP capability requires deployment_requirements"
+          }
+          | errors
+        ]
+    end
+  end
+
+  defp validate_rdp_deployment_required_strings(errors, requirements, index) do
+    Enum.reduce(@rdp_deployment_required_strings, errors, fn field, acc ->
+      if non_empty_string?(Map.get(requirements, field)) do
+        acc
+      else
+        [
+          %{
+            field: :manifest,
+            message: "release artifact #{index} RDP deployment_requirements requires #{field}"
+          }
+          | acc
+        ]
+      end
+    end)
+  end
+
+  defp validate_rdp_helper_connector_ready(errors, requirements, index) do
+    case Map.get(requirements, "helper_connector_ready") do
+      value when is_boolean(value) ->
+        errors
+
+      _ ->
+        [
+          %{
+            field: :manifest,
+            message:
+              "release artifact #{index} RDP deployment_requirements.helper_connector_ready must be boolean"
+          }
+          | errors
+        ]
+    end
+  end
+
+  defp validate_rdp_readiness_probe(errors, requirements, index) do
+    if Map.get(requirements, "requires_helper_readiness_probe") do
+      errors
+    else
+      [
+        %{
+          field: :manifest,
+          message:
+            "release artifact #{index} RDP deployment_requirements.requires_helper_readiness_probe must be true"
+        }
+        | errors
+      ]
+    end
+  end
+
+  defp validate_rdp_experimental_readiness(errors, requirements, index) do
+    if Map.get(requirements, "helper_connector_ready") == false and
+         normalize_string(Map.get(requirements, "release_phase")) != "experimental" do
+      [
+        %{
+          field: :manifest,
+          message:
+            "release artifact #{index} RDP deployment_requirements.release_phase must be experimental while helper_connector_ready is false"
+        }
+        | errors
+      ]
+    else
+      errors
+    end
+  end
+
+  defp rdp_artifact?(artifact) do
+    artifact
+    |> Map.get("capabilities", [])
+    |> case do
+      capabilities when is_list(capabilities) -> capabilities
+      _ -> []
+    end
+    |> Enum.map(&normalize_string/1)
+    |> Enum.any?(&MapSet.member?(@rdp_capabilities, &1))
   end
 
   defp validate_manifest_signature(manifest, signature) do

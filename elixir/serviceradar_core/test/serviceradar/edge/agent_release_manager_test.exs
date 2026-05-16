@@ -154,7 +154,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
           "compatible_agent_versions" => %{"min" => "1.1.0", "max" => "1.2.x"},
           "deployment_requirements" => %{
             "helper" => "serviceradar-rdp-adapter",
-            "install_path" => "/usr/local/bin/serviceradar-rdp-adapter"
+            "install_path" => "/usr/local/bin/serviceradar-rdp-adapter",
+            "helper_capabilities_arg" => "--capabilities",
+            "helper_connector_ready" => false,
+            "requires_helper_readiness_probe" => true,
+            "release_phase" => "experimental"
           }
         }
       )
@@ -181,7 +185,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
              "compatible_agent_versions" => %{"min" => "1.1.0", "max" => "1.2.x"},
              "deployment_requirements" => %{
                "helper" => "serviceradar-rdp-adapter",
-               "install_path" => "/usr/local/bin/serviceradar-rdp-adapter"
+               "install_path" => "/usr/local/bin/serviceradar-rdp-adapter",
+               "helper_capabilities_arg" => "--capabilities",
+               "helper_connector_ready" => false,
+               "requires_helper_readiness_probe" => true,
+               "release_phase" => "experimental"
              }
            }
   end
@@ -782,6 +790,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
       }
       |> maybe_put_capabilities(Keyword.get(opts, :capabilities, []))
       |> Map.merge(Keyword.get(opts, :artifact, %{}))
+      |> maybe_put_rdp_metadata(version)
 
     manifest = %{
       "version" => version,
@@ -799,6 +808,33 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
   defp maybe_put_capabilities(artifact, capabilities),
     do: Map.put(artifact, "capabilities", capabilities)
+
+  defp maybe_put_rdp_metadata(%{"capabilities" => capabilities} = artifact, version)
+       when is_list(capabilities) do
+    if "remote_access.rdp" in capabilities or "remote_access.desktop" in capabilities do
+      deployment_requirements =
+        Map.merge(
+          %{
+            "helper" => "serviceradar-rdp-adapter",
+            "install_path" => "/usr/local/bin/serviceradar-rdp-adapter",
+            "helper_capabilities_arg" => "--capabilities",
+            "helper_connector_ready" => false,
+            "requires_helper_readiness_probe" => true,
+            "release_phase" => "experimental"
+          },
+          Map.get(artifact, "deployment_requirements", %{})
+        )
+
+      artifact
+      |> Map.put_new("helper_protocol_version", "srdp-helper-v1")
+      |> Map.put_new("compatible_agent_versions", %{"min" => version, "max" => version})
+      |> Map.put("deployment_requirements", deployment_requirements)
+    else
+      artifact
+    end
+  end
+
+  defp maybe_put_rdp_metadata(artifact, _version), do: artifact
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)

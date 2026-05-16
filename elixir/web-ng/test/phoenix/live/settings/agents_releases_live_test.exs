@@ -1657,11 +1657,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
           "os" => "linux",
           "arch" => "amd64",
           "format" => "tar.gz",
-          "entrypoint" => "serviceradar-agent-rdp",
+          "entrypoint" => "serviceradar-agent",
           "capabilities" => ["agent", "remote_access.rdp"],
+          "helper_protocol_version" => "srdp-helper-v1",
+          "compatible_agent_versions" => %{"min" => version, "max" => version},
           "url" =>
             "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v#{version}/serviceradar-agent-rdp-linux-amd64.tar.gz",
-          "sha256" => String.duplicate("b", 64)
+          "sha256" => String.duplicate("b", 64),
+          "deployment_requirements" => %{
+            "helper" => "serviceradar-rdp-adapter",
+            "install_path" => "/usr/local/bin/serviceradar-rdp-adapter",
+            "helper_capabilities_arg" => "--capabilities",
+            "helper_connector_ready" => false,
+            "requires_helper_readiness_probe" => true,
+            "release_phase" => "experimental"
+          }
         }
       ]
     }
