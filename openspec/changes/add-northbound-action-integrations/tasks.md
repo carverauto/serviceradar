@@ -28,10 +28,10 @@
 
 ## 5. Event Handlers
 
-- [ ] 5.1 Add event handler resources with matcher, resolver, action reference, input template, dedupe, cooldown, and approval mode.
-- [ ] 5.2 Implement event-to-target resolution for device and interface context.
-- [ ] 5.3 Dispatch approved handler invocations through the same action invocation path as user launches.
-- [ ] 5.4 Emit normalized events for handler suppression, approval, execution, success, and failure.
+- [x] 5.1 Add event handler resources with matcher, resolver, action reference, input template, dedupe, cooldown, and approval mode.
+- [x] 5.2 Implement event-to-target resolution for device and interface context.
+- [x] 5.3 Dispatch approved handler invocations through the same action invocation path as user launches.
+- [x] 5.4 Emit normalized events for handler suppression, approval, execution, success, and failure.
 
 ## 6. Validation
 

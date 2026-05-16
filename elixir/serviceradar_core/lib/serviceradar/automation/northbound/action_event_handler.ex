@@ -122,6 +122,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionEventHandler do
     end
 
     update :record_triggered do
+      accept [:metadata]
       change set_attribute(:last_triggered_at, &DateTime.utc_now/0)
     end
   end
