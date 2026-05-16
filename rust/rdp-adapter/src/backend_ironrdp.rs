@@ -80,6 +80,49 @@ impl RdpBackend for IronRdpBackend {
     }
 }
 
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_connector_config_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> ironrdp_connector::Config {
+    let (domain, username) = credential.connector_identity();
+
+    ironrdp_connector::Config {
+        desktop_size: ironrdp_connector::DesktopSize {
+            width: plan.desktop_width,
+            height: plan.desktop_height,
+        },
+        desktop_scale_factor: 0,
+        enable_tls: false,
+        enable_credssp: true,
+        credentials: ironrdp_connector::Credentials::UsernamePassword {
+            username: username.to_owned(),
+            password: credential.password.value.as_str().to_owned(),
+        },
+        domain: domain.map(str::to_owned),
+        client_build: 1,
+        client_name: "serviceradar".to_owned(),
+        keyboard_type: ironrdp_pdu::gcc::KeyboardType::IbmEnhanced,
+        keyboard_subtype: 0,
+        keyboard_functional_keys_count: 12,
+        keyboard_layout: 0,
+        ime_file_name: String::new(),
+        bitmap: None,
+        dig_product_id: String::new(),
+        client_dir: "C:\\Windows\\System32\\mstscax.dll".to_owned(),
+        platform: ironrdp_pdu::rdp::capability_sets::MajorPlatformType::UNIX,
+        hardware_id: None,
+        request_data: None,
+        autologon: false,
+        enable_audio_playback: false,
+        performance_flags: ironrdp_pdu::rdp::client_info::PerformanceFlags::default(),
+        license_cache: None,
+        timezone_info: ironrdp_pdu::rdp::client_info::TimezoneInfo::default(),
+        enable_server_pointer: false,
+        pointer_software_rendering: false,
+    }
+}
+
 fn is_memory_user_grant(grant: &DesktopCredentialGrant) -> bool {
     grant.mode == "memory_user"
         && !grant.username.trim().is_empty()
@@ -244,5 +287,35 @@ mod tests {
         assert!(!format!("{credential:?}").contains("EXAMPLE"));
         assert!(!format!("{credential:?}").contains("alice"));
         assert!(!format!("{credential:?}").contains("secret"));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_builds_config_from_validated_open_payload() {
+        let raw = valid_open_payload()
+            .replace(r#""username":"alice""#, r#""username":"EXAMPLE\\alice""#)
+            .replace(
+                r#""allowed_principals":["alice"]"#,
+                r#""allowed_principals":["EXAMPLE\\alice"]"#,
+            );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let config = build_connector_config_for_probe(&plan, &credential);
+
+        assert_eq!(config.desktop_size.width, 1920);
+        assert_eq!(config.desktop_size.height, 1080);
+        assert!(!config.enable_tls);
+        assert!(config.enable_credssp);
+        assert_eq!(config.domain.as_deref(), Some("EXAMPLE"));
+        let ironrdp_connector::Credentials::UsernamePassword { username, .. } = config.credentials;
+        assert_eq!(username, "alice");
     }
 }
