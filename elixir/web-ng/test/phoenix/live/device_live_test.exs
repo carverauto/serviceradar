@@ -638,6 +638,81 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "SNMP Description"
   end
 
+  test "renders curated device metadata without dumping internal keys", %{conn: conn} do
+    uid = "test-device-curated-metadata-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 12,
+        hostname: "metadata-host",
+        ip: "192.168.1.20",
+        metadata: %{
+          "integration_type" => "armis",
+          "source_device_id" => "42",
+          "sync_service_id" => "agent-dusk01",
+          "controller_name" => "Dusk UniFi",
+          "controller_url" => "https://unifi.example.local",
+          "device_role" => "gateway",
+          "bridge_port_count" => 8,
+          "category" => "OT",
+          "risk_score" => "72",
+          "source_tags" => "managed,ot",
+          "boundary_names" => "All OT Boundaries",
+          "serial_numbers" => "SN-123",
+          "purdue_level" => "2.5",
+          "visibility" => "Full",
+          "site" => %{"name" => "Plant 7"},
+          "network_interfaces" => [%{"name" => "eth0"}, %{"name" => "eth1"}],
+          "netbox_device_id" => "nb-123",
+          "tenant_name" => "Manufacturing",
+          "rack_name" => "MDF-A",
+          "asset_tag" => "asset-7799",
+          "classification_source" => "unifi",
+          "classification_confidence" => 0.94,
+          "classification_reason" => "matched UniFi gateway role",
+          "alt_ip:10.0.0.1" => true,
+          "alt_ip:192.168.10.1" => true,
+          "alt_mac:0eea1432d277" => true,
+          "_alias_last_seen_at" => "2026-05-16T18:00:00Z",
+          "debug_unifi_payload" => %{"raw" => "payload"},
+          "device_id" => "raw-integration-id"
+        },
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "Dusk UniFi", 10_000)
+
+    assert html =~ "Metadata"
+    assert html =~ "UniFi"
+    assert html =~ "Armis"
+    assert html =~ "NetBox"
+    assert html =~ "Integration Details"
+    assert html =~ "Dusk UniFi"
+    assert html =~ "gateway"
+    assert html =~ "All OT Boundaries"
+    assert html =~ "SN-123"
+    assert html =~ "Plant 7"
+    assert html =~ "2 items"
+    assert html =~ "nb-123"
+    assert html =~ "Manufacturing"
+    assert html =~ "MDF-A"
+    assert html =~ "asset-7799"
+    assert html =~ "matched UniFi gateway role"
+    assert html =~ "10.0.0.1"
+    assert html =~ "192.168.10.1"
+    assert html =~ "0eea1432d277"
+
+    refute html =~ "Additional metadata keys"
+    refute html =~ "_alias_last_seen_at"
+    refute html =~ "debug_unifi_payload"
+    refute html =~ "raw-integration-id"
+  end
+
   test "marks SNMP fallback-derived classification in list and details views", %{conn: conn} do
     uid = "test-device-snmp-fallback-#{System.unique_integer([:positive])}"
 
