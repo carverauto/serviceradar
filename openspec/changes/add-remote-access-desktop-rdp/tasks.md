@@ -179,6 +179,7 @@
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
 - [x] 4.2.5 Add the first browser RDP session shell hook/component that consumes WebRTC session metadata and visible policy posture without exposing credential material.
+- [x] 4.2.6 Add tested browser RDP session shell behavior for WebRTC readiness, visible posture, hook prop parsing, and cleanup without retaining credential material.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
 - [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
@@ -208,6 +209,7 @@
 - [x] 5.1.20 Add a focused Phoenix controller test proving authorized RDP target listing reads persisted registered desktop targets by default without exposing secret-shaped metadata.
 - [x] 5.1.21 Add focused Phoenix controller tests proving RDP target admin APIs require `settings.edge.manage`, normalize target policy inputs, persist updates, toggle enabled state, and reject invalid target ports.
 - [x] 5.1.22 Add focused LiveView tests proving RDP target settings routes are feature-gated, require `settings.edge.manage`, create targets, and toggle enabled state.
+- [x] 5.1.23 Add focused browser component and LiveView hook tests for the RDP session shell policy posture, WebRTC availability state, prop parsing, and unmount cleanup.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

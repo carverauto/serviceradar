@@ -5,6 +5,10 @@ import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_clie
 
 const DEFAULT_QUEUE_MAX_FRAMES = 12
 
+function createRemoteDesktopWebRTCClient(options) {
+  return new RemoteDesktopWebRTCClient(options)
+}
+
 function sessionValue(session, key, fallback = "") {
   const value = session?.[key]
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback
@@ -23,6 +27,7 @@ export function Component({
   title = "RDP remote access",
   queueMaxFrames = DEFAULT_QUEUE_MAX_FRAMES,
   autoConnect = false,
+  clientFactory = createRemoteDesktopWebRTCClient,
 }) {
   const policySnapshot = session?.desktop_policy_snapshot || {}
   const policy = useMemo(() => normalizeDesktopPolicySnapshot(policySnapshot), [policySnapshot])
@@ -48,8 +53,12 @@ export function Component({
 
     setLastError("")
     setConnectionStatus("connecting")
+    setViewerSessionId("")
+    setFrameCount(0)
+    setDroppedFrameCount(0)
+    renderQueueRef.current.clear()
 
-    const client = new RemoteDesktopWebRTCClient({
+    const client = clientFactory({
       signalingPath: session.desktop_webrtc_signaling_path,
       iceServers: session.desktop_webrtc_ice_servers || [],
       mediaQueueState: () => renderQueueRef.current.state(),
@@ -83,11 +92,12 @@ export function Component({
       setViewerSessionId(viewer.viewerSessionId || "")
       setConnectionStatus("connected")
     } catch (error) {
+      client.close?.("desktop viewer connect failed")
       clientRef.current = null
       setLastError(error?.message || "Unable to start desktop media session")
       setConnectionStatus("error")
     }
-  }, [session])
+  }, [clientFactory, session])
 
   const disconnect = useCallback(() => {
     closeClient("operator closed desktop viewer")
@@ -169,7 +179,7 @@ export function Component({
 
         <div className="mt-auto flex gap-2 p-4">
           <button className="btn btn-primary btn-sm flex-1" type="button" disabled={!webrtcReady(session) || Boolean(clientRef.current)} onClick={connect}>
-            Connect
+            {connectionStatus === "connecting" ? "Connecting" : "Connect"}
           </button>
           <button className="btn btn-outline btn-sm flex-1" type="button" disabled={!clientRef.current} onClick={disconnect}>
             Disconnect
