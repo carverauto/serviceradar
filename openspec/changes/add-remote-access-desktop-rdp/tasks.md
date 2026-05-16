@@ -152,6 +152,7 @@
 - [x] 3.2.29 Add a Bazel-only adapter initial-negotiation probe proving the mapped IronRDP connector config advertises NLA/CredSSP without plain TLS fallback while runtime readiness stays disabled.
 - [x] 3.2.30 Add a Bazel-only adapter server-confirm probe proving HYBRID/HYBRID_EX confirms reach the TLS upgrade then CredSSP boundary and TLS-only confirms are rejected.
 - [x] 3.2.31 Add a Bazel-only adapter `ironrdp-blocking` connect-begin probe proving the mapped config can reuse the upstream blocking connector loop through the TLS upgrade boundary without pre-TLS password exposure.
+- [x] 3.2.32 Add a Bazel-only adapter `ironrdp-blocking` connect-finalize probe proving the mapped config enters CredSSP after TLS upgrade without cleartext password exposure before server input.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -289,6 +290,7 @@
 - [x] 5.2.48 Add a Bazel-only adapter initial-negotiation probe test proving the mapped IronRDP config emits an X.224 request that advertises CredSSP/NLA and omits plain TLS fallback.
 - [x] 5.2.49 Add a Bazel-only adapter server-confirm probe test proving HYBRID/HYBRID_EX confirms require TLS upgrade and CredSSP while TLS-only downgrade is rejected.
 - [x] 5.2.50 Add a Bazel-only adapter `ironrdp-blocking` connect-begin probe test proving upstream blocking connect writes no cleartext password before the TLS upgrade boundary.
+- [x] 5.2.51 Add a Bazel-only adapter `ironrdp-blocking` connect-finalize probe test proving CredSSP writes begin after TLS upgrade while cleartext passwords are absent before server input.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

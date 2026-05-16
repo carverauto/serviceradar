@@ -46,6 +46,14 @@ struct BlockingConnectBeginProbe {
     written_bytes: Vec<u8>,
 }
 
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct BlockingConnectFinalizeProbe {
+    wrote_credssp_bytes: bool,
+    contains_cleartext_password: bool,
+    written_bytes: Vec<u8>,
+}
+
 struct MemoryUserCredential {
     domain: Option<Zeroizing<String>>,
     username: Zeroizing<String>,
@@ -250,6 +258,71 @@ fn drive_blocking_connect_begin_for_probe(
         ),
         written_bytes: stream.writes,
     })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn drive_blocking_connect_finalize_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<BlockingConnectFinalizeProbe, BackendError> {
+    let config = build_connector_config_for_probe(plan, credential);
+    let server_confirm =
+        encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
+    let mut connector =
+        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+    let mut framed = ironrdp_blocking::Framed::new(ScriptedStream::new(vec![server_confirm]));
+    let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let (_stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
+    let mut upgraded_framed = ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new()));
+    let mut network_client = RejectingNetworkClient;
+    let finalize = ironrdp_blocking::connect_finalize(
+        upgraded,
+        connector,
+        &mut upgraded_framed,
+        &mut network_client,
+        plan.tls_server_name.clone().into(),
+        vec![1, 2, 3],
+        None,
+    );
+    if finalize.is_ok() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    let (stream, leftover) = upgraded_framed.into_inner();
+    if !leftover.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    Ok(BlockingConnectFinalizeProbe {
+        wrote_credssp_bytes: !stream.writes.is_empty(),
+        contains_cleartext_password: bytes_contain_secret(
+            &stream.writes,
+            credential.password.value.as_str().as_bytes(),
+        ),
+        written_bytes: stream.writes,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+struct RejectingNetworkClient;
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl ironrdp_connector::sspi::network_client::NetworkClient for RejectingNetworkClient {
+    fn send(
+        &self,
+        _request: &ironrdp_connector::sspi::generator::NetworkRequest,
+    ) -> ironrdp_connector::sspi::Result<Vec<u8>> {
+        Err(ironrdp_connector::sspi::Error::new(
+            ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+            "network client is disabled in adapter connector probe",
+        ))
+    }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -654,6 +727,27 @@ mod tests {
             .expect("blocking connect begin");
 
         assert!(probe.requires_security_upgrade);
+        assert!(!probe.contains_cleartext_password);
+        assert!(!probe.written_bytes.is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_blocking_connect_finalize_writes_credssp_without_password() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let probe = drive_blocking_connect_finalize_for_probe(&plan, &credential)
+            .expect("blocking connect finalize");
+
+        assert!(probe.wrote_credssp_bytes);
         assert!(!probe.contains_cleartext_password);
         assert!(!probe.written_bytes.is_empty());
     }
