@@ -1,7 +1,11 @@
 use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
 #[cfg(serviceradar_rdp_connector_link_probe)]
-use crate::protocol::DesktopFrame;
+use crate::media_frame::{
+    encode_desktop_media_frame, DesktopMediaFrame, DesktopMediaPayloadFamily,
+};
 use crate::protocol::{DesktopCredentialGrant, OpenPayload};
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use crate::protocol::{DesktopFrame, DesktopScreenPolicy};
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use std::collections::VecDeque;
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -18,6 +22,8 @@ const TLS_MODE_VERIFY: &str = "verify";
 const TLS_MODE_SYSTEM: &str = "system";
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const UNSUPPORTED_INPUT_EVENT: &str = "IronRDP input event is unsupported";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const INVALID_GRAPHICS_UPDATE: &str = "IronRDP graphics update is invalid";
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -594,6 +600,55 @@ fn summarize_active_stage_outputs_for_probe(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn encode_graphics_update_for_probe(
+    session_binding_id: &str,
+    media_session_id: &str,
+    sequence: u64,
+    timestamp_unix_nano: i64,
+    image: &ironrdp_session::image::DecodedImage,
+    rect: &ironrdp_pdu::geometry::InclusiveRectangle,
+    policy: &DesktopScreenPolicy,
+) -> Result<Vec<u8>, BackendError> {
+    if image.pixel_format() != ironrdp_graphics::image_processing::PixelFormat::RgbA32
+        || rect.left > rect.right
+        || rect.top > rect.bottom
+        || rect.right >= image.width()
+        || rect.bottom >= image.height()
+    {
+        return Err(BackendError::Unsupported(INVALID_GRAPHICS_UPDATE));
+    }
+
+    let payload = image.data_for_rect(rect);
+    let rect_width = u32::from(rect.right - rect.left + 1);
+    let rect_height = u32::from(rect.bottom - rect.top + 1);
+    let metadata = format!(
+        r#"{{"dirtyRects":[{{"x":{},"y":{},"width":{},"height":{},"payloadOffset":0,"payloadLength":{},"bytesPerRow":{}}}],"pixelFormat":"rgba"}}"#,
+        rect.left,
+        rect.top,
+        rect_width,
+        rect_height,
+        payload.len(),
+        image.stride()
+    );
+    let frame = DesktopMediaFrame {
+        session_binding_id,
+        media_session_id,
+        sequence,
+        timestamp_unix_nano,
+        width: u32::from(image.width()),
+        height: u32::from(image.height()),
+        payload_family: DesktopMediaPayloadFamily::DirtyRect,
+        encoding: "rgba",
+        metadata: metadata.as_bytes(),
+        payload,
+        flags: 0,
+    };
+
+    encode_desktop_media_frame(&frame, policy)
+        .map_err(|_| BackendError::Unsupported(INVALID_GRAPHICS_UPDATE))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 struct RejectingNetworkClient;
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1106,6 +1161,102 @@ mod tests {
         assert_eq!(probe.response_frames, 1);
         assert!(probe.response_bytes > 0);
         assert_eq!(probe.graphics_updates, 0);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_encodes_graphics_update_as_srdp_dirty_rect_frame() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let image = ironrdp_session::image::DecodedImage::new(
+            ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+            800,
+            600,
+        );
+        let rect = ironrdp_pdu::geometry::InclusiveRectangle {
+            left: 4,
+            top: 6,
+            right: 7,
+            bottom: 8,
+        };
+
+        let encoded = encode_graphics_update_for_probe(
+            "session-1",
+            "media-1",
+            99,
+            1234,
+            &image,
+            &rect,
+            &payload.target.screen,
+        )
+        .expect("graphics update encoded");
+
+        assert_eq!(&encoded[0..4], b"SRDP");
+        assert_eq!(encoded[4], 1);
+        assert_eq!(encoded[6], 2);
+        assert_eq!(u64::from_be_bytes(encoded[8..16].try_into().unwrap()), 99);
+        assert_eq!(
+            i64::from_be_bytes(encoded[16..24].try_into().unwrap()),
+            1234
+        );
+        assert_eq!(u32::from_be_bytes(encoded[24..28].try_into().unwrap()), 800);
+        assert_eq!(u32::from_be_bytes(encoded[28..32].try_into().unwrap()), 600);
+
+        let metadata_len = u32::from_be_bytes(encoded[32..36].try_into().unwrap()) as usize;
+        let payload_len = u32::from_be_bytes(encoded[36..40].try_into().unwrap()) as usize;
+        let encoding_len = u16::from_be_bytes(encoded[40..42].try_into().unwrap()) as usize;
+        let session_len = u16::from_be_bytes(encoded[42..44].try_into().unwrap()) as usize;
+        let media_len = u16::from_be_bytes(encoded[44..46].try_into().unwrap()) as usize;
+        let metadata_offset = 48 + session_len + media_len + encoding_len;
+        let metadata =
+            std::str::from_utf8(&encoded[metadata_offset..metadata_offset + metadata_len])
+                .expect("metadata utf8");
+
+        assert_eq!(&encoded[48..48 + session_len], b"session-1");
+        assert_eq!(
+            &encoded[48 + session_len..48 + session_len + media_len],
+            b"media-1"
+        );
+        assert_eq!(
+            &encoded[48 + session_len + media_len..metadata_offset],
+            b"rgba"
+        );
+        assert!(metadata.contains(r#""dirtyRects":[{"x":4,"y":6,"width":4,"height":3"#));
+        assert!(metadata.contains(r#""payloadOffset":0"#));
+        assert!(metadata.contains(r#""payloadLength":6416"#));
+        assert!(metadata.contains(r#""bytesPerRow":3200"#));
+        assert!(metadata.contains(r#""pixelFormat":"rgba""#));
+        assert_eq!(payload_len, 6416);
+        assert_eq!(encoded.len(), metadata_offset + metadata_len + payload_len);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_rejects_invalid_graphics_update_rectangles() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let image = ironrdp_session::image::DecodedImage::new(
+            ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+            800,
+            600,
+        );
+        let rect = ironrdp_pdu::geometry::InclusiveRectangle {
+            left: 4,
+            top: 6,
+            right: 801,
+            bottom: 8,
+        };
+
+        let err = encode_graphics_update_for_probe(
+            "session-1",
+            "media-1",
+            99,
+            1234,
+            &image,
+            &rect,
+            &payload.target.screen,
+        )
+        .expect_err("invalid graphics rect rejected");
+
+        assert_eq!(err, BackendError::Unsupported(INVALID_GRAPHICS_UPDATE));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
