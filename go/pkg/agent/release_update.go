@@ -54,6 +54,12 @@ const (
 	releaseArtifactMaxBytes          int64 = 256 * 1024 * 1024
 	releasePublicKeyEnv                    = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
 	releaseCapabilityRemoteAccessRDP       = "remote_access.rdp"
+	releaseRDPHelperBinary                 = "serviceradar-rdp-adapter"
+	releaseRDPHelperReadinessProbe         = "--capabilities"
+	releaseRequirementHelper               = "helper"
+	releaseRequirementReadinessProbe       = "readiness_probe"
+	releaseRequirementConnectorReady       = "connector_ready"
+	releaseCompatibleAgentMin              = "min"
 )
 
 var (
@@ -80,6 +86,8 @@ var (
 	errReleaseGatewaySecurityRequired = errors.New("gateway security configuration is required for release download")
 	errReleaseGatewayCAAppendFailed   = errors.New("failed to append gateway CA certificate")
 	errReleaseHelperCapabilityMissing = errors.New("release helper install requires signed artifact capability")
+	errReleaseHelperReadinessMissing  = errors.New("release helper install requires signed readiness metadata")
+	errReleaseHelperConnectorNotReady = errors.New("release helper install requires connector-ready artifact")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -296,6 +304,15 @@ func validateReleaseHelperInstall(payload releaseUpdatePayload) error {
 	if !releaseArtifactHasCapability(payload.Artifact, capability) {
 		return fmt.Errorf("%w: %s", errReleaseHelperCapabilityMissing, capability)
 	}
+	if capability == releaseCapabilityRemoteAccessRDP {
+		connectorReady, err := validateRDPHelperArtifactReadiness(payload.Artifact)
+		if err != nil {
+			return err
+		}
+		if !connectorReady {
+			return errReleaseHelperConnectorNotReady
+		}
+	}
 
 	return nil
 }
@@ -310,7 +327,78 @@ func validateSignedArtifact(manifest map[string]interface{}, artifact releaseArt
 	if !manifestContainsArtifact(manifest, artifact) {
 		return errReleaseArtifactNotSigned
 	}
+	if releaseArtifactHasCapability(artifact, releaseCapabilityRemoteAccessRDP) {
+		if _, err := validateRDPHelperArtifactReadiness(artifact); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateRDPHelperArtifactReadiness(artifact releaseArtifactPayload) (bool, error) {
+	if strings.TrimSpace(artifact.HelperProtocolVersion) == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if strings.TrimSpace(artifact.CompatibleAgentVersions[releaseCompatibleAgentMin]) == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelper,
+	) != releaseRDPHelperBinary {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementReadinessProbe,
+	) != releaseRDPHelperReadinessProbe {
+		return false, errReleaseHelperReadinessMissing
+	}
+	connectorReady, ok := releaseDeploymentRequirementBool(
+		artifact.DeploymentRequirements,
+		releaseRequirementConnectorReady,
+	)
+	if !ok {
+		return false, errReleaseHelperReadinessMissing
+	}
+
+	return connectorReady, nil
+}
+
+func releaseDeploymentRequirementString(requirements map[string]interface{}, key string) string {
+	value, ok := requirements[key]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func releaseDeploymentRequirementBool(requirements map[string]interface{}, key string) (bool, bool) {
+	value, ok := requirements[key]
+	if !ok {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		normalized := strings.TrimSpace(typed)
+		switch {
+		case strings.EqualFold(normalized, "true"):
+			return true, true
+		case strings.EqualFold(normalized, "false"):
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
 }
 
 func validateReleaseArtifactURL(rawURL string) error {

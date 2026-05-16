@@ -269,26 +269,16 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	server := newArtifactServer(t, binaryData)
 	defer server.Close()
 
-	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
-		URL:                   server.URL + "/serviceradar-agent-rdp",
-		SHA256:                digestHex(binaryData),
-		OS:                    runtime.GOOS,
-		Arch:                  runtime.GOARCH,
-		Capabilities:          []string{"agent", releaseCapabilityRemoteAccessRDP},
-		HelperProtocolVersion: "srdp-helper-v1",
-		CompatibleAgentVersions: map[string]string{
-			"min": "1.1.0",
-		},
-		DeploymentRequirements: map[string]interface{}{
-			"helper": "serviceradar-rdp-adapter",
-		},
-	})
+	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
+	payload := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
 		Enabled:               true,
 		Capability:            releaseCapabilityRemoteAccessRDP,
 		HelperProtocolVersion: "srdp-helper-v1",
 		DeploymentRequirements: map[string]interface{}{
-			"helper": "serviceradar-rdp-adapter",
+			releaseRequirementHelper:         releaseRDPHelperBinary,
+			releaseRequirementReadinessProbe: releaseRDPHelperReadinessProbe,
+			releaseRequirementConnectorReady: true,
 		},
 	}
 
@@ -298,6 +288,127 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected helper-capable artifact to stage, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseRejectsRDPCapabilityWithoutReadinessMetadata(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	tests := []struct {
+		name   string
+		mutate func(*releaseArtifactPayload)
+	}{
+		{
+			name: "missing helper protocol",
+			mutate: func(artifact *releaseArtifactPayload) {
+				artifact.HelperProtocolVersion = ""
+			},
+		},
+		{
+			name: "missing compatible agent range",
+			mutate: func(artifact *releaseArtifactPayload) {
+				artifact.CompatibleAgentVersions = nil
+			},
+		},
+		{
+			name: "missing helper binary",
+			mutate: func(artifact *releaseArtifactPayload) {
+				delete(artifact.DeploymentRequirements, releaseRequirementHelper)
+			},
+		},
+		{
+			name: "missing readiness probe",
+			mutate: func(artifact *releaseArtifactPayload) {
+				delete(artifact.DeploymentRequirements, releaseRequirementReadinessProbe)
+			},
+		},
+		{
+			name: "missing connector readiness",
+			mutate: func(artifact *releaseArtifactPayload) {
+				delete(artifact.DeploymentRequirements, releaseRequirementConnectorReady)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
+			tt.mutate(&artifact)
+			payload := signedReleasePayload(t, binaryData, artifact)
+			payload.HelperInstall = &releaseHelperInstall{
+				Enabled:    true,
+				Capability: releaseCapabilityRemoteAccessRDP,
+			}
+
+			_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+				RuntimeRoot: t.TempDir(),
+				HTTPClient:  server.Client(),
+			})
+			if !errors.Is(err, errReleaseHelperReadinessMissing) {
+				t.Fatalf("expected errReleaseHelperReadinessMissing, got %v", err)
+			}
+		})
+	}
+}
+
+func TestStageAgentReleaseRejectsHelperInstallWhenRDPConnectorNotReady(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
+	artifact.DeploymentRequirements[releaseRequirementConnectorReady] = false
+	payload := signedReleasePayload(t, binaryData, artifact)
+	payload.HelperInstall = &releaseHelperInstall{
+		Enabled:    true,
+		Capability: releaseCapabilityRemoteAccessRDP,
+	}
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if !errors.Is(err, errReleaseHelperConnectorNotReady) {
+		t.Fatalf("expected errReleaseHelperConnectorNotReady, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseAcceptsRDPArtifactMarkedConnectorNotReadyWithoutHelperInstall(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
+	artifact.DeploymentRequirements[releaseRequirementConnectorReady] = false
+	payload := signedReleasePayload(t, binaryData, artifact)
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if err != nil {
+		t.Fatalf("expected connector-not-ready metadata to be accepted without helper install, got %v", err)
+	}
+}
+
+func validRDPReleaseArtifact(url, digest string) releaseArtifactPayload {
+	return releaseArtifactPayload{
+		URL:                   url,
+		SHA256:                digest,
+		OS:                    runtime.GOOS,
+		Arch:                  runtime.GOARCH,
+		Capabilities:          []string{"agent", releaseCapabilityRemoteAccessRDP},
+		HelperProtocolVersion: "srdp-helper-v1",
+		CompatibleAgentVersions: map[string]string{
+			"min": "1.1.0",
+		},
+		DeploymentRequirements: map[string]interface{}{
+			releaseRequirementHelper:         releaseRDPHelperBinary,
+			releaseRequirementReadinessProbe: releaseRDPHelperReadinessProbe,
+			releaseRequirementConnectorReady: true,
+		},
 	}
 }
 
