@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
   posture; credential material is never returned.
   """
 
+  alias ServiceRadar.Edge.RemoteAccessDesktopTarget
+
   @secret_keys ~w(
     access_key
     api_key
@@ -56,8 +58,17 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
     Application.get_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
   end
 
-  defp load_targets(nil, _scope, _opts) do
-    {:ok, Application.get_env(:serviceradar_web_ng, :remote_access_desktop_targets, [])}
+  defp load_targets(nil, scope, _opts) do
+    case Application.get_env(:serviceradar_web_ng, :remote_access_desktop_targets) do
+      targets when is_list(targets) ->
+        {:ok, targets}
+
+      _unset ->
+        case RemoteAccessDesktopTarget.list_enabled(scope: scope) do
+          {:ok, targets} -> {:ok, Enum.map(targets, &resource_target_attrs/1)}
+          {:error, error} -> {:error, error}
+        end
+    end
   end
 
   defp load_targets(provider, scope, opts) when is_function(provider, 2), do: provider.(scope, opts)
@@ -82,6 +93,27 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
   end
 
   defp normalize_targets(_targets), do: []
+
+  defp resource_target_attrs(%RemoteAccessDesktopTarget{} = target) do
+    %{
+      id: target.id,
+      label: target.name,
+      device_uid: target.device_uid,
+      target_kind: target.target_kind,
+      target_host: target.target_host,
+      target_port: target.target_port,
+      agent_id: target.agent_id,
+      gateway_id: target.gateway_id,
+      credential_custody_mode: target.credential_custody_mode,
+      approval_required: target.approval_required,
+      target_tls: target.target_tls,
+      nla: target.nla,
+      screen_policy: target.screen_policy,
+      redirection_policy: target.redirection_policy,
+      recording_policy: target.recording_policy,
+      metadata: Map.put(target.metadata || %{}, "allowed_principals", target.allowed_principals || [])
+    }
+  end
 
   defp normalize_target(target) when is_map(target) do
     with {:ok, target_id} <- string_field(target, ["id", :id, "target_id", :target_id]),

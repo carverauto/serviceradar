@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0]
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.RemoteAccessDesktopTarget
   alias ServiceRadarWebNG.Auth.Guardian
 
   setup %{conn: conn} do
@@ -110,6 +112,44 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
     body = json_response(conn, 200)
 
     assert [%{"id" => "target-1", "target_port" => 3389, "protocol" => "rdp"}] = body["data"]
+  end
+
+  test "lists persisted registered targets when no provider or static config is configured", %{conn: conn} do
+    Application.delete_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
+    Application.delete_env(:serviceradar_web_ng, :remote_access_desktop_targets)
+
+    target_name = "Finance Desktop #{System.unique_integer([:positive])}"
+
+    assert {:ok, target} =
+             RemoteAccessDesktopTarget.create_target(
+               %{
+                 name: target_name,
+                 device_uid: "windows-resource-1",
+                 target_host: "win-resource-1.example.com",
+                 target_port: 3389,
+                 agent_id: "agent-resource-1",
+                 gateway_id: "gateway-resource-1",
+                 credential_custody_mode: :user_present,
+                 target_tls: %{"mode" => "verify_ca"},
+                 nla: %{"required" => true},
+                 redirection_policy: %{"clipboard" => "disabled"},
+                 metadata: %{"private_key" => "must-not-return", "safe" => "kept"}
+               },
+               actor: SystemActor.system(:remote_access_desktop_target_test)
+             )
+
+    assert target.metadata == %{"private_key" => "REDACTED", "safe" => "kept"}
+
+    conn = get(conn, ~p"/api/remote-access/desktop-targets")
+    body = json_response(conn, 200)
+
+    listed = Enum.find(body["data"], &(Map.get(&1, "id") == target.id))
+    assert listed["label"] == target_name
+    assert listed["device_uid"] == "windows-resource-1"
+    assert listed["target_host"] == "win-resource-1.example.com"
+    assert listed["route"] == %{"agent_id" => "agent-resource-1", "gateway_id" => "gateway-resource-1"}
+    assert listed["metadata"] == %{"safe" => "kept"}
+    refute conn.resp_body =~ "must-not-return"
   end
 
   test "returns 404 when RDP desktop access is disabled", %{conn: conn} do

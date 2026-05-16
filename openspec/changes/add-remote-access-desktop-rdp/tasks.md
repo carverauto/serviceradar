@@ -167,6 +167,7 @@
 
 ## 4. Operator And User Experience
 - [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
+- [x] 4.1.1 Add a durable Ash/Postgres registered RDP desktop target resource with route, credential custody, TLS/NLA, screen, redirection, recording, approval, and metadata fields.
 - [ ] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
 - [ ] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
 - [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
@@ -202,6 +203,7 @@
 - [x] 5.1.17 Add focused browser renderer-state tests proving RDP policy snapshot status items are stable and do not retain secret-shaped fields.
 - [x] 5.1.18 Add focused Phoenix controller tests proving authorized RDP desktop target listing is feature-gated, uses RDP permissions, supports a provider/static source seam, and strips secret-shaped fields.
 - [x] 5.1.19 Add focused Phoenix controller tests proving RDP session creation is feature-gated, uses RDP permissions, binds to authorized desktop targets, and rejects browser-selected target overrides.
+- [x] 5.1.20 Add a focused Phoenix controller test proving authorized RDP target listing reads persisted registered desktop targets by default without exposing secret-shaped metadata.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.
