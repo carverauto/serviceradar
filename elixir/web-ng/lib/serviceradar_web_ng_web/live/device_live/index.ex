@@ -369,12 +369,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           {:noreply, put_flash(socket, :error, "A device with this IP address already exists.")}
 
         {:error, {:hostname_resolution_failed, hostname, reason}} ->
-          Logger.warning("Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}")
+          Logger.warning(
+            "Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}"
+          )
 
-          {:noreply, put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
+          {:noreply,
+           put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
 
         {:error, :missing_device_address} ->
-          {:noreply, put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
+          {:noreply,
+           put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -508,7 +512,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_event("launch_northbound_action", %{"action" => params}, socket) do
-    with {:ok, action} <- selected_northbound_action(params, socket.assigns.northbound_device_actions),
+    with {:ok, action} <-
+           selected_northbound_action(params, socket.assigns.northbound_device_actions),
          {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
          {:ok, targets} <- selected_device_action_targets(socket),
          {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
@@ -527,7 +532,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         {:noreply,
          socket
          |> assign(:northbound_action_form, to_form(params, as: :action))
-         |> assign(:northbound_action_error, NorthboundActionForm.format_launch_error(reason, "device"))}
+         |> assign(
+           :northbound_action_error,
+           NorthboundActionForm.format_launch_error(reason, "device")
+         )}
     end
   end
 
@@ -1126,7 +1134,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp create_northbound_invocation(socket, action, targets, input_values) do
     descriptor_id = Map.get(action, :descriptor_id)
 
-    NorthboundInvocationService.create_invocation(
+    NorthboundInvocationService.create_and_dispatch(
       %{
         descriptor_id: descriptor_id,
         targets: targets,
@@ -1197,10 +1205,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
     run_task_title =
       cond do
-        assigns.northbound_device_actions_loading -> "Checking configured task integrations"
-        assigns.northbound_device_actions == [] -> "No launchable task integrations are configured"
-        selected_count == 0 -> "Select at least one device"
-        true -> "Run task for selected devices"
+        assigns.northbound_device_actions_loading ->
+          "Checking configured task integrations"
+
+        assigns.northbound_device_actions == [] ->
+          "No launchable task integrations are configured"
+
+        selected_count == 0 ->
+          "Select at least one device"
+
+        true ->
+          "Run task for selected devices"
       end
 
     assigns =
@@ -3033,10 +3048,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp latency_ms(_), do: 0.0
 
   defp agent_device_row?(row) when is_map(row) do
-    has_agent_list?(agent_list(row)) or present_text?(device_row_value(row, "agent_id", :agent_id))
+    has_agent_list?(agent_list(row)) or
+      present_text?(device_row_value(row, "agent_id", :agent_id))
   end
 
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+  defp agent_list(row) when is_map(row),
+    do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
 
   defp has_agent_list?(items) do
     items
@@ -3525,7 +3542,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp format_create_error(error), do: inspect(error)
 
-  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
+  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}),
+    do: "#{field}: #{msg}"
 
   defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
 

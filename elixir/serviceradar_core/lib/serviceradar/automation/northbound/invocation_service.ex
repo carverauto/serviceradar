@@ -2,16 +2,16 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   @moduledoc """
   Creates provider-neutral northbound action invocations.
 
-  This service is intentionally provider-agnostic. It validates descriptor and
-  provider state, resolves immutable target snapshots, persists the invocation,
-  and creates per-target rows. Dispatch is layered on top of the returned
-  invocation in later provider-specific adapters.
+  This service validates descriptor and provider state, resolves immutable
+  target snapshots, persists the invocation, creates per-target rows, and can
+  hand the invocation to the provider dispatcher.
   """
 
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
+  alias ServiceRadar.Automation.Northbound.Dispatcher
   alias ServiceRadar.Automation.Northbound.TargetResolver
 
   require Ash.Query
@@ -38,6 +38,18 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   end
 
   def create_invocation(_attrs, _opts), do: {:error, :invalid_attributes}
+
+  @spec create_and_dispatch(launch_attrs(), keyword()) ::
+          {:ok, ActionInvocation.t()} | {:error, term()}
+  def create_and_dispatch(attrs, opts \\ [])
+
+  def create_and_dispatch(attrs, opts) when is_map(attrs) do
+    with {:ok, invocation} <- create_invocation(attrs, opts) do
+      Dispatcher.dispatch_invocation(invocation, opts)
+    end
+  end
+
+  def create_and_dispatch(_attrs, _opts), do: {:error, :invalid_attributes}
 
   defp fetch_descriptor(id, actor) do
     ActionDescriptor

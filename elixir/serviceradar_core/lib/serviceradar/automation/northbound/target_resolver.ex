@@ -126,6 +126,8 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
       "device_name" => device.name,
       "device_hostname" => device.hostname,
       "device_ip" => device.ip,
+      "device_agent_id" => device.agent_id,
+      "device_gateway_id" => device.gateway_id,
       "interface_uid" => interface.interface_uid,
       "if_index" => interface.if_index,
       "if_name" => interface.if_name,

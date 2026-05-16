@@ -83,6 +83,7 @@ var (
 	errDownloadTooLarge                   = errors.New("download too large")
 	errContentHashMismatch                = errors.New("content hash mismatch")
 	errInvalidPath                        = errors.New("invalid path")
+	errPluginAssignmentNotFound           = errors.New("plugin assignment not found")
 	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
 	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
 	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
@@ -216,6 +217,7 @@ type pluginExecutionMode string
 const (
 	pluginExecutionModeScheduled pluginExecutionMode = "scheduled"
 	pluginExecutionModeStreaming pluginExecutionMode = "streaming"
+	pluginExecutionModeAction    pluginExecutionMode = "action"
 )
 
 type pluginCameraMediaOpenRequest struct {
@@ -840,6 +842,22 @@ func (m *PluginManager) lookupStreamingAssignment(assignmentID string) (*pluginA
 	return assignment, ok
 }
 
+func (m *PluginManager) lookupRunnerAssignment(assignmentID string) (*pluginAssignment, bool) {
+	if m == nil {
+		return nil, false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	runner, ok := m.runners[strings.TrimSpace(assignmentID)]
+	if !ok || runner == nil || runner.assignment == nil {
+		return nil, false
+	}
+
+	return runner.assignment, true
+}
+
 // DrainResults returns up to max pending results.
 func (m *PluginManager) DrainResults(max int) []PluginResult {
 	if m == nil || max <= 0 {
@@ -964,6 +982,52 @@ func (r *pluginRunner) runOnce(ctx context.Context) {
 	}
 
 	r.manager.recordExecution(true)
+}
+
+// RunAction executes a configured non-streaming plugin assignment on demand for
+// a northbound action command. The plugin receives its normal assignment config
+// plus an action_invocation envelope from the command payload.
+func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invocationPayload json.RawMessage, timeout time.Duration) ([]byte, error) {
+	if m == nil {
+		return nil, errPluginAssignmentNotFound
+	}
+
+	assignment, ok := m.lookupRunnerAssignment(assignmentID)
+	if !ok {
+		return nil, fmt.Errorf("%w %q", errPluginAssignmentNotFound, strings.TrimSpace(assignmentID))
+	}
+
+	if timeout <= 0 {
+		timeout = assignment.Timeout
+	}
+	if timeout <= 0 {
+		timeout = pluginDefaultTimeout
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if !m.acquireSlot() {
+		m.recordExecution(false)
+		return nil, errors.New("admission denied: max concurrent reached")
+	}
+	defer m.releaseSlot()
+
+	wasm, err := m.loadWasm(runCtx, assignment)
+	if err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
+	configJSON, err := buildActionPluginConfig(assignment.ParamsJSON, invocationPayload)
+	if err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
+	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON)
+	m.recordExecution(err == nil)
+	return result, err
 }
 
 type pluginAssignment struct {
@@ -1420,6 +1484,80 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 	return nil
 }
 
+func (m *PluginManager) executeActionWithWasm(
+	ctx context.Context,
+	assignment *pluginAssignment,
+	wasm []byte,
+	configJSON []byte,
+) ([]byte, error) {
+	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
+	runtimeCfg := wazero.NewRuntimeConfig()
+	if memPages > 0 {
+		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
+	}
+
+	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
+	defer func() {
+		_ = runtime.Close(ctx)
+	}()
+
+	exec := newPluginExecution(m, assignment)
+	exec.mode = pluginExecutionModeAction
+	exec.configJSON = configJSON
+	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
+		return nil, err
+	}
+
+	wasi, err := wasi_snapshot_preview1.Instantiate(ctx, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("instantiate wasi: %w", err)
+	}
+	defer func() {
+		_ = wasi.Close(ctx)
+	}()
+
+	modConfig := wazero.NewModuleConfig().
+		WithName(assignment.AssignmentID).
+		WithSysWalltime().
+		WithSysNanotime().
+		WithSysNanosleep().
+		WithStartFunctions()
+
+	module, err := runtime.InstantiateWithConfig(ctx, wasm, modConfig)
+	if err != nil {
+		return nil, fmt.Errorf("instantiate module: %w", err)
+	}
+	defer func() {
+		_ = module.Close(ctx)
+	}()
+
+	entrypoint := module.ExportedFunction(assignment.Entrypoint)
+	if entrypoint == nil {
+		return nil, fmt.Errorf("%w: %s", errEntrypointNotFound, assignment.Entrypoint)
+	}
+
+	if _, err := entrypoint.Call(ctx); err != nil {
+		switch {
+		case isExitCodeZero(err):
+		case exec.hasSubmitted():
+			m.logger.Warn().
+				Err(err).
+				Str("assignment_id", assignment.AssignmentID).
+				Msg("Plugin action exited after submitting result")
+		default:
+			return nil, fmt.Errorf("entrypoint failed: %w", err)
+		}
+	}
+
+	exec.closeAll()
+
+	if !exec.hasSubmitted() {
+		return nil, errors.New("no result submitted")
+	}
+
+	return exec.capturedActionResult(), nil
+}
+
 func (m *PluginManager) executeStreamingWithWasm(
 	ctx context.Context,
 	assignment *pluginAssignment,
@@ -1734,6 +1872,7 @@ type pluginExecution struct {
 	assignment    *pluginAssignment
 	mode          pluginExecutionMode
 	configJSON    []byte
+	actionResult  []byte
 	mediaBridge   *pluginCameraMediaBridge
 	consoleBridge *pluginProxmoxConsoleBridge
 	mu            sync.Mutex
@@ -1894,6 +2033,12 @@ func (e *pluginExecution) hostSubmitResult(_ context.Context, mod api.Module, pt
 	}
 	if len(payload) > pluginMaxPayloadBytes {
 		return pluginErrTooLarge
+	}
+
+	if e.mode == pluginExecutionModeAction {
+		e.captureActionResult(payload)
+		e.markSubmitted()
+		return pluginErrOK
 	}
 
 	e.manager.enqueueResult(PluginResult{
@@ -2727,6 +2872,18 @@ func (e *pluginExecution) markSubmitted() {
 	e.submitted = true
 }
 
+func (e *pluginExecution) captureActionResult(payload []byte) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.actionResult = append(e.actionResult[:0], payload...)
+}
+
+func (e *pluginExecution) capturedActionResult() []byte {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]byte(nil), e.actionResult...)
+}
+
 func newPluginCameraRelayStream(cancel context.CancelFunc) *pluginCameraRelayStream {
 	return &pluginCameraRelayStream{
 		cancel: cancel,
@@ -2944,6 +3101,38 @@ func (e *pluginExecution) hasSubmitted() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return e.submitted
+}
+
+func buildActionPluginConfig(baseConfig []byte, invocationPayload json.RawMessage) ([]byte, error) {
+	var actionPayload any = map[string]any{}
+	if len(bytes.TrimSpace(invocationPayload)) > 0 {
+		if err := json.Unmarshal(invocationPayload, &actionPayload); err != nil {
+			return nil, fmt.Errorf("decode action payload: %w", err)
+		}
+	}
+
+	config := map[string]any{
+		"action_invocation": actionPayload,
+	}
+
+	if len(bytes.TrimSpace(baseConfig)) == 0 {
+		return json.Marshal(config)
+	}
+
+	var base map[string]any
+	if err := json.Unmarshal(baseConfig, &base); err == nil {
+		for key, value := range base {
+			if key == "action_invocation" {
+				config["plugin_config"] = map[string]any{"action_invocation": value}
+				continue
+			}
+			config[key] = value
+		}
+		return json.Marshal(config)
+	}
+
+	config["plugin_config_base64"] = base64.StdEncoding.EncodeToString(baseConfig)
+	return json.Marshal(config)
 }
 
 func readMemory(mod api.Module, ptr, size uint32) ([]byte, bool) {
