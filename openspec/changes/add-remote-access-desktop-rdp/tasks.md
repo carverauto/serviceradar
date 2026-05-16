@@ -322,6 +322,7 @@
 - [x] 5.2.66 Add Bazel-only adapter probe coverage proving the active-stage session harness implements the helper `RdpBackendSession` contract for input, media drain, acknowledgements, and graceful close.
 - [x] 5.2.67 Add focused Rust helper tests proving backend media queued during open is emitted before the helper waits for browser input.
 - [x] 5.2.68 Add Bazel-only adapter probe coverage for a future network-read path that feeds server RDP frames into IronRDP active-stage processing and fails closed on malformed PDUs.
+- [x] 5.2.69 Add Bazel-only adapter probe coverage for reading one framed server RDP PDU from `ironrdp-blocking::Framed` and failing closed before active-stage processing on malformed network input.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

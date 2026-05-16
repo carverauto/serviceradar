@@ -564,6 +564,19 @@ fn encode_active_stage_desktop_input_for_probe(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn read_active_stage_server_frame_for_probe<S: Read, W: Write>(
+    framed: &mut ironrdp_blocking::Framed<S>,
+    session: &mut ActiveStageSessionProbe<W>,
+    timestamp_unix_nano: i64,
+) -> Result<ActiveStageOutputProbe, BackendError> {
+    let (action, frame) = framed
+        .read_pdu()
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    session.server_frame(action, &frame, timestamp_unix_nano)
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 fn copy_screen_policy_for_probe(policy: &DesktopScreenPolicy) -> DesktopScreenPolicy {
     DesktopScreenPolicy {
         max_width: policy.max_width,
@@ -1519,6 +1532,37 @@ mod tests {
         let err = session
             .server_frame(ironrdp_pdu::Action::X224, b"not-a-valid-pdu", 1234)
             .expect_err("malformed server frame rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+        assert!(session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_server_read_loop_rejects_malformed_pdu_before_active_stage() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let mut session = ActiveStageSessionProbe::new(
+            &plan,
+            &credential,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+        let mut framed =
+            ironrdp_blocking::Framed::new(ScriptedStream::new(vec![b"not-a-pdu".to_vec()]));
+
+        let err = read_active_stage_server_frame_for_probe(&mut framed, &mut session, 1234)
+            .expect_err("malformed pdu rejected");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
         assert!(session.upstream_ref().is_empty());
