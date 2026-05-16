@@ -197,7 +197,7 @@ func TestDesktopFramePayloadPolicyAwareHelpersGateClipboard(t *testing.T) {
 		t.Fatalf("decoded clipboard frame = %#v", got)
 	}
 
-	_, err = DecodeDesktopFramePayloadForSessionWithPolicy(data, policy, redirection, "other-session")
+	_, err = DecodeDesktopFramePayloadForSessionWithPolicy(data, policy, redirection, remoteAccessTestOtherSessionID)
 	if !errors.Is(err, ErrInvalidDesktopFrame) {
 		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}
@@ -266,7 +266,7 @@ func TestDecodeDesktopFramePayloadForSessionRejectsMismatchedSession(t *testing.
 	if _, err := DecodeDesktopFramePayloadForSession(data, policy, fakeRemoteSessionID); err != nil {
 		t.Fatalf("DecodeDesktopFramePayloadForSession returned error: %v", err)
 	}
-	if _, err := DecodeDesktopFramePayloadForSession(data, policy, "other-session"); !errors.Is(err, ErrInvalidDesktopFrame) {
+	if _, err := DecodeDesktopFramePayloadForSession(data, policy, remoteAccessTestOtherSessionID); !errors.Is(err, ErrInvalidDesktopFrame) {
 		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}
 }

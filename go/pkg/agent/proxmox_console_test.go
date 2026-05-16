@@ -558,7 +558,7 @@ func TestProxmoxConsoleManagerOpensRDPDesktopSessionWithMediaGateway(t *testing.
 	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
 		SessionId: desktopConsoleSessionID,
 		FrameType: consoleFrameTypeOpen,
-		Data:      encodeDesktopOpenPayload(t, target),
+		Data:      encodeDesktopOpenPayloadWithGrant(t, target, testDesktopConsoleCredentialGrant()),
 	}, sender)
 
 	ready := sender.nextFrame(t, consoleFrameTypeReady)
@@ -609,12 +609,46 @@ func TestProxmoxConsoleManagerRejectsRDPDesktopOpenWithoutMediaBinding(t *testin
 	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
 		SessionId: desktopConsoleSessionID,
 		FrameType: consoleFrameTypeOpen,
-		Data:      encodeDesktopOpenPayload(t, target),
+		Data:      encodeDesktopOpenPayloadWithGrant(t, target, testDesktopConsoleCredentialGrant()),
 	}, sender)
 
 	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
 	if !strings.Contains(errorFrame.GetReason(), errDesktopMediaGatewayRequired.Error()) {
 		t.Fatalf("desktop open reason = %q", errorFrame.GetReason())
+	}
+	if adapter.request.SessionID != "" {
+		t.Fatalf("adapter should not have been called: %#v", adapter.request)
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsRDPDesktopOpenWithoutCredentialGrant(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	target.Route.SelectedGateway = desktopConsoleGatewayID
+	gateway := &fakeDesktopMediaGateway{}
+	adapter := &fakeDesktopRDPAdapter{}
+	manager := newProxmoxConsoleManagerWithRoute(
+		desktopConsoleAgentID,
+		desktopConsoleGatewayID,
+		createTestLogger(),
+	)
+	manager.desktopGateway = gateway
+	manager.desktopAdapter = adapter
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: consoleFrameTypeOpen,
+		Data:      encodeDesktopOpenPayload(t, target),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), "desktop credential grant required") {
+		t.Fatalf("desktop open reason = %q", errorFrame.GetReason())
+	}
+	if gateway.openReq != nil {
+		t.Fatalf("media gateway should not have been opened: %#v", gateway.openReq)
 	}
 	if adapter.request.SessionID != "" {
 		t.Fatalf("adapter should not have been called: %#v", adapter.request)
@@ -779,6 +813,16 @@ func encodeDesktopConsoleFrame(
 func encodeDesktopOpenPayload(t *testing.T, target remoteaccess.DesktopTarget) []byte {
 	t.Helper()
 
+	return encodeDesktopOpenPayloadWithGrant(t, target, nil)
+}
+
+func encodeDesktopOpenPayloadWithGrant(
+	t *testing.T,
+	target remoteaccess.DesktopTarget,
+	grant *remoteaccess.DesktopCredentialGrant,
+) []byte {
+	t.Helper()
+
 	payload, err := json.Marshal(remoteaccess.DesktopOpenPayload{
 		Schema: "serviceradar.desktop.open.v1",
 		Metadata: map[string]string{
@@ -787,11 +831,23 @@ func encodeDesktopOpenPayload(t *testing.T, target remoteaccess.DesktopTarget) [
 			"lease_token":      desktopConsoleLeaseToken,
 			"encoding_hint":    "srdp",
 		},
-		Target: target,
+		Target:          target,
+		CredentialGrant: grant,
 	})
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 
 	return payload
+}
+
+func testDesktopConsoleCredentialGrant() *remoteaccess.DesktopCredentialGrant {
+	return &remoteaccess.DesktopCredentialGrant{
+		Mode:      remoteaccess.DesktopCredentialModeMemoryUser,
+		Username:  "alice",
+		Password:  "secret",
+		SessionID: desktopConsoleSessionID,
+		TargetID:  desktopConsoleTargetID,
+		RouteID:   desktopConsoleAgentID,
+	}
 }

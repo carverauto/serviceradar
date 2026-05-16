@@ -39,6 +39,11 @@ const (
 	testDesktopMediaLease     = "lease-1"
 )
 
+var (
+	errFakeDesktopMediaStreamUnavailable = errors.New("stream unavailable")
+	errFakeDesktopMediaCloseFailed       = errors.New("close failed")
+)
+
 func TestDesktopMediaGatewaySenderOpensAndSendsFrames(t *testing.T) {
 	t.Parallel()
 
@@ -365,10 +370,9 @@ func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenMediaIngestMissing(t 
 func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *testing.T) {
 	t.Parallel()
 
-	streamErr := errors.New("stream unavailable")
 	gateway := &fakeDesktopMediaGateway{
 		openResp:  acceptedDesktopMediaOpenResponse(),
-		streamErr: streamErr,
+		streamErr: errFakeDesktopMediaStreamUnavailable,
 	}
 
 	_, err := newDesktopMediaGatewaySender(
@@ -377,8 +381,8 @@ func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamOpenFails(t *te
 		testDesktopMediaGatewaySenderConfig(),
 		nil,
 	)
-	if !errors.Is(err, streamErr) {
-		t.Fatalf("stream open error = %v, want %v", err, streamErr)
+	if !errors.Is(err, errFakeDesktopMediaStreamUnavailable) {
+		t.Fatalf("stream open error = %v, want %v", err, errFakeDesktopMediaStreamUnavailable)
 	}
 	if gateway.closeCount != 1 {
 		t.Fatalf("gateway close count = %d, want 1", gateway.closeCount)
@@ -421,12 +425,10 @@ func TestDesktopMediaGatewaySenderClosesAcceptedSessionWhenStreamIsNil(t *testin
 func TestDesktopMediaGatewaySenderReturnsCleanupErrorWhenAcceptedSessionCloseFails(t *testing.T) {
 	t.Parallel()
 
-	streamErr := errors.New("stream unavailable")
-	closeErr := errors.New("close failed")
 	gateway := &fakeDesktopMediaGateway{
 		openResp:  acceptedDesktopMediaOpenResponse(),
-		streamErr: streamErr,
-		closeErr:  closeErr,
+		streamErr: errFakeDesktopMediaStreamUnavailable,
+		closeErr:  errFakeDesktopMediaCloseFailed,
 	}
 
 	_, err := newDesktopMediaGatewaySender(
@@ -435,7 +437,7 @@ func TestDesktopMediaGatewaySenderReturnsCleanupErrorWhenAcceptedSessionCloseFai
 		testDesktopMediaGatewaySenderConfig(),
 		nil,
 	)
-	if !errors.Is(err, streamErr) || !errors.Is(err, closeErr) {
+	if !errors.Is(err, errFakeDesktopMediaStreamUnavailable) || !errors.Is(err, errFakeDesktopMediaCloseFailed) {
 		t.Fatalf("stream cleanup error = %v, want stream and close errors", err)
 	}
 	if gateway.closeCount != 1 {

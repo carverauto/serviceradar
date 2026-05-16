@@ -100,7 +100,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 	grant := &DesktopCredentialGrant{
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice@example.com",
-		Password:  "secret",
+		Password:  desktopTestPassword,
 		SessionID: fakeRemoteSessionID,
 		TargetID:  desktopTestTargetID,
 		RouteID:   desktopTestAgentID,
@@ -109,7 +109,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 	adapter := &desktopAdapterStub{}
 	runtime := DesktopAdapterRuntime{
 		LocalAgentID:     desktopTestAgentID,
-		CurrentGatewayID: "gateway-1",
+		CurrentGatewayID: remoteAccessTestGatewayID,
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		Adapter:          adapter,
 	}
@@ -123,7 +123,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 	}
 	if adapter.request.SessionID != fakeRemoteSessionID ||
 		adapter.request.LocalAgentID != desktopTestAgentID ||
-		adapter.request.CurrentGatewayID != "gateway-1" ||
+		adapter.request.CurrentGatewayID != remoteAccessTestGatewayID ||
 		adapter.request.Target.TLS.NLAMode != DesktopDefaultNLAPolicy ||
 		adapter.request.Target.TLS.Mode != DesktopTLSModePinnedCA {
 		t.Fatalf("adapter request = %#v", adapter.request)
@@ -133,7 +133,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 		adapter.request.CredentialGrant.Password != "" {
 		t.Fatalf("credential grant was retained after open: %#v", adapter.request.CredentialGrant)
 	}
-	if adapter.observedUsername != "alice@example.com" || adapter.observedPassword != "secret" {
+	if adapter.observedUsername != "alice@example.com" || adapter.observedPassword != desktopTestPassword {
 		t.Fatalf("adapter did not receive memory-only credential during open")
 	}
 }
@@ -146,8 +146,8 @@ func TestDesktopAdapterRuntimeRejectsMismatchedCredentialSession(t *testing.T) {
 	grant := &DesktopCredentialGrant{
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice@example.com",
-		Password:  "secret",
-		SessionID: "other-session",
+		Password:  desktopTestPassword,
+		SessionID: remoteAccessTestOtherSessionID,
 		TargetID:  desktopTestTargetID,
 		RouteID:   desktopTestAgentID,
 	}
@@ -155,12 +155,32 @@ func TestDesktopAdapterRuntimeRejectsMismatchedCredentialSession(t *testing.T) {
 
 	_, err := (DesktopAdapterRuntime{
 		LocalAgentID:     desktopTestAgentID,
-		CurrentGatewayID: "gateway-1",
+		CurrentGatewayID: remoteAccessTestGatewayID,
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		Adapter:          adapter,
 	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), &desktopMediaSenderStub{})
 	if !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("mismatched session error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+	if adapter.request.SessionID != "" {
+		t.Fatalf("adapter should not have been called: %#v", adapter.request)
+	}
+}
+
+func TestDesktopAdapterRuntimeRejectsMissingCredentialGrant(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	adapter := &desktopAdapterStub{}
+
+	_, err := (DesktopAdapterRuntime{
+		LocalAgentID:     desktopTestAgentID,
+		CurrentGatewayID: remoteAccessTestGatewayID,
+		NowUnix:          func() int64 { return 1_778_000_000 },
+		Adapter:          adapter,
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), &desktopMediaSenderStub{})
+	if !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing grant error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
 	if adapter.request.SessionID != "" {
 		t.Fatalf("adapter should not have been called: %#v", adapter.request)
@@ -174,14 +194,15 @@ func TestDesktopAdapterRuntimeGuardsInputFrames(t *testing.T) {
 	target.Screen.MaxWidth = 1024
 	target.Screen.MaxHeight = 768
 	innerSession := &recordingDesktopAdapterSessionStub{}
+	grant := validDesktopMemoryGrant(fakeRemoteSessionID)
 
 	session, err := (DesktopAdapterRuntime{
 		LocalAgentID:     desktopTestAgentID,
-		CurrentGatewayID: "gateway-1",
+		CurrentGatewayID: remoteAccessTestGatewayID,
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		NowUnixNano:      func() int64 { return 1_778_000_000_000_000_000 },
 		Adapter:          &desktopAdapterStub{session: innerSession},
-	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), &desktopMediaSenderStub{})
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), &desktopMediaSenderStub{})
 	if err != nil {
 		t.Fatalf("OpenRDP returned error: %v", err)
 	}
@@ -217,13 +238,14 @@ func TestDesktopAdapterRuntimeGuardsMediaFrames(t *testing.T) {
 	target.Screen.MaxHeight = 768
 	adapter := &desktopAdapterStub{}
 	mediaSender := &desktopMediaSenderStub{}
+	grant := validDesktopMemoryGrant(fakeRemoteSessionID)
 
 	_, err := (DesktopAdapterRuntime{
 		LocalAgentID:     desktopTestAgentID,
-		CurrentGatewayID: "gateway-1",
+		CurrentGatewayID: remoteAccessTestGatewayID,
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		Adapter:          adapter,
-	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), mediaSender)
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), mediaSender)
 	if err != nil {
 		t.Fatalf("OpenRDP returned error: %v", err)
 	}
@@ -262,12 +284,13 @@ func TestDesktopAdapterRuntimeGuardsMediaAcks(t *testing.T) {
 	target := validDesktopTarget()
 	adapter := &desktopAdapterStub{}
 	mediaSender := &desktopMediaAckSenderStub{}
+	grant := validDesktopMemoryGrant(fakeRemoteSessionID)
 	session, err := (DesktopAdapterRuntime{
 		LocalAgentID:     desktopTestAgentID,
-		CurrentGatewayID: "gateway-1",
+		CurrentGatewayID: remoteAccessTestGatewayID,
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		Adapter:          adapter,
-	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), mediaSender)
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), mediaSender)
 	if err != nil {
 		t.Fatalf("OpenRDP returned error: %v", err)
 	}
@@ -301,7 +324,7 @@ func TestDesktopAdapterRuntimeGuardsMediaAcks(t *testing.T) {
 	}
 
 	invalidAck := validAck
-	invalidAck.SessionBindingID = "other-session"
+	invalidAck.SessionBindingID = remoteAccessTestOtherSessionID
 	if err := mediaSender.handler(context.Background(), invalidAck); !errors.Is(err, ErrInvalidDesktopMediaAck) {
 		t.Fatalf("invalid ack error = %v, want %v", err, ErrInvalidDesktopMediaAck)
 	}
@@ -326,14 +349,15 @@ func TestDesktopAdapterRuntimeStopsFramesAfterClose(t *testing.T) {
 	innerSession := &recordingDesktopAdapterSessionStub{}
 	adapter := &desktopAdapterStub{session: innerSession}
 	mediaSender := &desktopMediaSenderStub{}
+	grant := validDesktopMemoryGrant(fakeRemoteSessionID)
 
 	session, err := (DesktopAdapterRuntime{
 		LocalAgentID:     desktopTestAgentID,
-		CurrentGatewayID: "gateway-1",
+		CurrentGatewayID: remoteAccessTestGatewayID,
 		NowUnix:          func() int64 { return 1_778_000_000 },
 		NowUnixNano:      func() int64 { return 1_778_000_000_000_000_000 },
 		Adapter:          adapter,
-	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, nil), mediaSender)
+	}).OpenRDP(context.Background(), desktopOpenFrame(t, target, grant), mediaSender)
 	if err != nil {
 		t.Fatalf("OpenRDP returned error: %v", err)
 	}
@@ -384,7 +408,7 @@ func TestDesktopAdapterRuntimeOpenRDPFailsClosed(t *testing.T) {
 	t.Parallel()
 
 	target := validDesktopTarget()
-	frame := desktopOpenFrame(t, target, nil)
+	frame := desktopOpenFrame(t, target, validDesktopMemoryGrant(fakeRemoteSessionID))
 
 	if _, err := (DesktopAdapterRuntime{
 		LocalAgentID: desktopTestAgentID,
@@ -435,7 +459,7 @@ func desktopOpenFrame(t *testing.T, target DesktopTarget, grant *DesktopCredenti
 	t.Helper()
 
 	if target.Route.SelectedGateway == "" {
-		target.Route.SelectedGateway = "gateway-1"
+		target.Route.SelectedGateway = remoteAccessTestGatewayID
 	}
 
 	data, err := json.Marshal(DesktopOpenPayload{

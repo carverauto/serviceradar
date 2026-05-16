@@ -110,7 +110,7 @@ func TestNormalizeDesktopTargetRejectsUntrustedOrUnsafePolicy(t *testing.T) {
 			name: "brokered secret without approval",
 			mutate: func(target *DesktopTarget) {
 				target.Credential.Mode = DesktopCredentialModeBrokeredSecret
-				target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+				target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 				target.ApprovalRequired = false
 			},
 		},
@@ -147,14 +147,14 @@ func TestDecodeDesktopOpenPayloadValidatesTargetAndGrantBinding(t *testing.T) {
 
 	target := validDesktopTarget()
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
-	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 	target.ApprovalRequired = true
 
 	payload := DesktopOpenPayload{
 		Target: target,
 		CredentialGrant: &DesktopCredentialGrant{
 			Mode:                DesktopCredentialModeBrokeredSecret,
-			CredentialSecretRef: "secretref:rdp/admin",
+			CredentialSecretRef: desktopTestBrokeredSecret,
 			ActorID:             "user-1",
 			SessionID:           "session-1",
 			TargetID:            desktopTestTargetID,
@@ -192,14 +192,14 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 
 	target := validDesktopTarget()
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
-	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 	target.ApprovalRequired = true
 
 	payload := DesktopOpenPayload{
 		Target: target,
 		CredentialGrant: &DesktopCredentialGrant{
 			Mode:                DesktopCredentialModeBrokeredSecret,
-			CredentialSecretRef: "secretref:rdp/admin",
+			CredentialSecretRef: desktopTestBrokeredSecret,
 			ActorID:             "user-1",
 			SessionID:           fakeRemoteSessionID,
 			TargetID:            desktopTestTargetID,
@@ -231,7 +231,7 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 		t.Fatalf("route mismatch error = %v, want %v", err, ErrDesktopRouteLost)
 	}
 
-	payload.CredentialGrant.SessionID = "other-session"
+	payload.CredentialGrant.SessionID = remoteAccessTestOtherSessionID
 	data, err = json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
@@ -246,21 +246,21 @@ func TestValidateDesktopRouteBindingDetectsRouteLoss(t *testing.T) {
 	t.Parallel()
 
 	target := validDesktopTarget()
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 
-	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, "gateway-1"); err != nil {
+	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, remoteAccessTestGatewayID); err != nil {
 		t.Fatalf("ValidateDesktopRouteBinding returned error: %v", err)
 	}
 	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, ""); err != nil {
 		t.Fatalf("ValidateDesktopRouteBinding without gateway returned error: %v", err)
 	}
-	if err := ValidateDesktopRouteBinding(target, "agent-2", "gateway-1"); !errors.Is(err, ErrDesktopRouteLost) {
+	if err := ValidateDesktopRouteBinding(target, "agent-2", remoteAccessTestGatewayID); !errors.Is(err, ErrDesktopRouteLost) {
 		t.Fatalf("agent route-loss error = %v, want %v", err, ErrDesktopRouteLost)
 	}
 	if err := ValidateDesktopRouteBinding(target, desktopTestAgentID, "gateway-2"); !errors.Is(err, ErrDesktopRouteLost) {
 		t.Fatalf("gateway route-loss error = %v, want %v", err, ErrDesktopRouteLost)
 	}
-	if err := ValidateDesktopRouteBinding(target, "", "gateway-1"); !errors.Is(err, ErrInvalidDesktopTarget) {
+	if err := ValidateDesktopRouteBinding(target, "", remoteAccessTestGatewayID); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("missing local agent error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
 }

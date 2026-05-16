@@ -679,7 +679,7 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 			"protocol":        ProtocolSSH,
 			"session_id":      fakeRemoteSessionID,
 			"agent_id":        "agent-1",
-			"gateway_id":      "gateway-1",
+			"gateway_id":      remoteAccessTestGatewayID,
 			"credential_mode": "ssh_certificate",
 			"target": map[string]any{
 				"host": "router.example",

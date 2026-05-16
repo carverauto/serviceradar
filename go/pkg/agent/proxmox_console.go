@@ -321,6 +321,13 @@ func (m *proxmoxConsoleManager) handleDesktopOpenFrame(
 
 		return
 	}
+	grant, err := remoteaccess.ValidateDesktopOpenCredentialGrant(payload, frame.GetSessionId(), time.Now().Unix())
+	if err != nil {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), err.Error())
+
+		return
+	}
+	payload.CredentialGrant = grant
 
 	mediaSender, err := newDesktopMediaGatewaySender(
 		ctx,

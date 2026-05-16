@@ -362,6 +362,11 @@ func (s *desktopRDPHelperSession) readLoop() {
 			s.failReadLoop(fmt.Errorf("%w: %s", remoteaccess.ErrDesktopAdapterUnavailable, message))
 
 			return
+		case desktopRDPHelperMessageOpen, desktopRDPHelperMessageInput, desktopRDPHelperMessageAck:
+			clearBytes(frame.Payload)
+			s.failReadLoop(fmt.Errorf("%w: unexpected helper frame", errDesktopRDPHelperInvalidFrame))
+
+			return
 		default:
 			s.failReadLoop(fmt.Errorf("%w: unexpected helper frame", errDesktopRDPHelperInvalidFrame))
 

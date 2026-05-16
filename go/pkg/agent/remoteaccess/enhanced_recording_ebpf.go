@@ -33,6 +33,7 @@ const (
 	enhancedBPFProbeNetwork  = "network_connect"
 	enhancedBPFCollectorName = "serviceradar_agent_ebpf"
 	enhancedMetadataTrue     = "true"
+	enhancedMetadataFalse    = "false"
 	enhancedMetadataRedacted = "REDACTED"
 )
 

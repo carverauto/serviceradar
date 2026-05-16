@@ -33,6 +33,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 )
 
+var errFakeDesktopRDPHelperStartFailed = errors.New("helper start failed")
+
 func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T) {
 	t.Parallel()
 
@@ -100,12 +102,10 @@ func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *test
 		TargetID:  "target-1",
 		RouteID:   "agent-1",
 	}
-	startErr := errors.New("helper start failed")
-
 	_, err := (desktopRDPHelperAdapter{
 		HelperPath: "helper",
 		Start: func(context.Context, string) (desktopRDPHelperTransport, error) {
-			return nil, startErr
+			return nil, errFakeDesktopRDPHelperStartFailed
 		},
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
@@ -116,8 +116,8 @@ func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *test
 		CredentialGrant:  grant,
 		MediaSender:      &fakeDesktopRDPHelperMediaSender{},
 	})
-	if !errors.Is(err, startErr) {
-		t.Fatalf("Open error = %v, want %v", err, startErr)
+	if !errors.Is(err, errFakeDesktopRDPHelperStartFailed) {
+		t.Fatalf("Open error = %v, want %v", err, errFakeDesktopRDPHelperStartFailed)
 	}
 	if grant.Username != "" || grant.Password != "" || grant.CredentialSecretRef != "" {
 		t.Fatalf("credential grant was retained after helper start failure: %#v", grant)

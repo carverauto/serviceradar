@@ -159,7 +159,7 @@ func enhancedSessionFromFrame(frame Frame, policy EnhancedRecordingPolicy) Enhan
 
 	target := stringifyTarget(payload.Target)
 	targetExecutionMode := firstNonEmpty(payload.TargetExecMode, payload.Metadata["target_execution_mode"], target["execution_mode"])
-	if payload.ManagedTarget || target["managed_target"] == "true" {
+	if payload.ManagedTarget || target["managed_target"] == enhancedMetadataTrue {
 		targetExecutionMode = EnhancedExecutionManagedTarget
 	}
 
@@ -259,7 +259,7 @@ func stringifyTarget(target map[string]any) map[string]string {
 			if typed {
 				out[key] = enhancedMetadataTrue
 			} else {
-				out[key] = "false"
+				out[key] = enhancedMetadataFalse
 			}
 		}
 	}

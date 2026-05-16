@@ -29,7 +29,7 @@ import (
 )
 
 func TestPlatformEnhancedRecordingAvailableRequiresExplicitEBPFProfile(t *testing.T) {
-	t.Setenv(envAgentEBPFEnabled, "false")
+	t.Setenv(envAgentEBPFEnabled, enhancedMetadataFalse)
 
 	if PlatformEnhancedRecordingAvailable() {
 		t.Fatal("PlatformEnhancedRecordingAvailable() = true without explicit BPF enablement")
@@ -42,7 +42,7 @@ func TestPlatformEnhancedRecordingAvailableRequiresExplicitEBPFProfile(t *testin
 }
 
 func TestLinuxBPFRemoteAccessRuntimeReadsEnvironment(t *testing.T) {
-	t.Setenv(envAgentEBPFEnabled, "true")
+	t.Setenv(envAgentEBPFEnabled, enhancedMetadataTrue)
 	t.Setenv(envAgentEBPFBPFFSPath, "/tmp/bpffs")
 	t.Setenv(envAgentEBPFBTFPath, "/tmp/btf/vmlinux")
 	t.Setenv(envAgentEBPFCgroupPath, "/tmp/cgroup")

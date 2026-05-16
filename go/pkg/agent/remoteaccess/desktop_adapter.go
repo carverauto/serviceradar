@@ -115,20 +115,13 @@ func (r DesktopAdapterRuntime) OpenRDP(
 
 		return nil, err
 	}
-	if payload.CredentialGrant != nil {
-		grant, err := NormalizeDesktopCredentialGrantAt(*payload.CredentialGrant, payload.Target, nowUnix)
-		if err != nil {
-			cleanupDesktopOpenPayload(&payload)
+	grant, err := ValidateDesktopOpenCredentialGrant(payload, frame.SessionID, nowUnix)
+	if err != nil {
+		cleanupDesktopOpenPayload(&payload)
 
-			return nil, err
-		}
-		if grant.SessionID != frame.SessionID {
-			cleanupDesktopOpenPayload(&payload)
-
-			return nil, fmt.Errorf("%w: credential grant session mismatch", ErrInvalidDesktopTarget)
-		}
-		payload.CredentialGrant = &grant
+		return nil, err
 	}
+	payload.CredentialGrant = grant
 	if mediaSender == nil {
 		cleanupDesktopOpenPayload(&payload)
 

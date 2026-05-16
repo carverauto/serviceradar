@@ -61,7 +61,7 @@ func TestDesktopRDPHelperFrameRejectsInvalidInput(t *testing.T) {
 	binary.BigEndian.PutUint32(header[0:4], 9)
 	header[4] = byte(desktopRDPHelperMessageMediaFrame)
 	oversized.Write(header[:])
-	oversized.Write([]byte("12345678"))
+	oversized.WriteString("12345678")
 	if _, err := readDesktopRDPHelperFrame(&oversized, 8); !errors.Is(err, errDesktopRDPHelperFrameTooLarge) {
 		t.Fatalf("oversized read error = %v, want %v", err, errDesktopRDPHelperFrameTooLarge)
 	}

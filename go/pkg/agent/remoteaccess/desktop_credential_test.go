@@ -26,12 +26,12 @@ func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing
 
 	target := validDesktopTarget()
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
-	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 	target.ApprovalRequired = true
 
 	validGrant := DesktopCredentialGrant{
 		Mode:                DesktopCredentialModeBrokeredSecret,
-		CredentialSecretRef: "secretref:rdp/admin",
+		CredentialSecretRef: desktopTestBrokeredSecret,
 		ActorID:             "user-1",
 		SessionID:           "session-1",
 		TargetID:            desktopTestTargetID,
@@ -121,7 +121,7 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 	grant := DesktopCredentialGrant{
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice",
-		Password:  "secret",
+		Password:  desktopTestPassword,
 		SessionID: "session-1",
 		TargetID:  desktopTestTargetID,
 	}
@@ -152,9 +152,81 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 	}
 
 	grant.Username = "mallory"
-	grant.Password = "secret"
+	grant.Password = desktopTestPassword
 	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("disallowed principal error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+}
+
+func TestValidateDesktopOpenCredentialGrantRequiresGrantForSecretModes(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	if _, err := ValidateDesktopOpenCredentialGrant(
+		DesktopOpenPayload{Target: target},
+		"session-1",
+		1_778_000_000,
+	); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing memory grant error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+
+	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
+	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
+	target.ApprovalRequired = true
+	if _, err := ValidateDesktopOpenCredentialGrant(
+		DesktopOpenPayload{Target: target},
+		"session-1",
+		1_778_000_000,
+	); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing brokered grant error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+}
+
+func TestValidateDesktopOpenCredentialGrantAllowsGrantlessNonSecretModes(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Credential.Mode = DesktopCredentialModeDomainDelegation
+
+	grant, err := ValidateDesktopOpenCredentialGrant(
+		DesktopOpenPayload{Target: target},
+		"session-1",
+		1_778_000_000,
+	)
+	if err != nil {
+		t.Fatalf("ValidateDesktopOpenCredentialGrant returned error: %v", err)
+	}
+	if grant != nil {
+		t.Fatalf("grant = %#v, want nil", grant)
+	}
+}
+
+func TestValidateDesktopOpenCredentialGrantNormalizesAndBindsSession(t *testing.T) {
+	t.Parallel()
+
+	target := validDesktopTarget()
+	target.Credential.AllowedPrincipals = []string{"alice"}
+	grant := validDesktopMemoryGrant("session-1")
+	payload := DesktopOpenPayload{
+		Target:          target,
+		CredentialGrant: grant,
+	}
+
+	got, err := ValidateDesktopOpenCredentialGrant(payload, "session-1", 1_778_000_000)
+	if err != nil {
+		t.Fatalf("ValidateDesktopOpenCredentialGrant returned error: %v", err)
+	}
+	if got == nil || got.Username != "alice" || got.TargetID != desktopTestTargetID {
+		t.Fatalf("grant = %#v", got)
+	}
+
+	grant.SessionID = remoteAccessTestOtherSessionID
+	if _, err := ValidateDesktopOpenCredentialGrant(
+		payload,
+		"session-1",
+		1_778_000_000,
+	); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("mismatched session error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
 }
 
@@ -164,8 +236,8 @@ func TestDesktopCredentialGrantDropSensitive(t *testing.T) {
 	grant := DesktopCredentialGrant{
 		Mode:                DesktopCredentialModeMemoryUser,
 		Username:            "alice",
-		Password:            "secret",
-		CredentialSecretRef: "secretref:rdp/admin",
+		Password:            desktopTestPassword,
+		CredentialSecretRef: desktopTestBrokeredSecret,
 		ActorID:             "user-1",
 		SessionID:           "session-1",
 		TargetID:            desktopTestTargetID,

@@ -90,13 +90,13 @@ func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, linked, ready b
 	tb.Helper()
 
 	path := filepath.Join(dir, name)
-	linkedValue := "false"
+	linkedValue := enhancedMetadataFalse
 	if linked {
-		linkedValue = "true"
+		linkedValue = enhancedMetadataTrue
 	}
-	readyValue := "false"
+	readyValue := enhancedMetadataFalse
 	if ready {
-		readyValue = "true"
+		readyValue = enhancedMetadataTrue
 	}
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"--capabilities\" ]; then\n" +

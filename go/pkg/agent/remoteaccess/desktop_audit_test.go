@@ -28,13 +28,13 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 
 	target := validDesktopTarget()
 	target.DeviceUID = "device-1"
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.TLS.Mode = DesktopTLSModePinnedCA
 	target.TLS.CABundleID = "ca-bundle-1"
 	target.TLS.NLAMode = DesktopNLAModeRequired
 	target.TLS.ServerName = "windows.internal"
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
-	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 	target.ApprovalRequired = true
 	target.Redirection.ClipboardMode = DesktopClipboardModeTextToBrowser
 	target.Recording = DesktopRecordingPolicy{MetadataEnabled: true}
@@ -47,7 +47,7 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 			Mode:                DesktopCredentialModeBrokeredSecret,
 			Username:            "administrator",
 			Password:            "secret-password",
-			CredentialSecretRef: "secretref:rdp/admin",
+			CredentialSecretRef: desktopTestBrokeredSecret,
 			ActorID:             "user-1",
 			SessionID:           fakeRemoteSessionID,
 			TargetID:            desktopTestTargetID,
@@ -60,14 +60,14 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	if metadata["protocol"] != ProtocolRDP ||
 		metadata["target_id"] != desktopTestTargetID ||
 		metadata["selected_agent_id"] != desktopTestAgentID ||
-		metadata["selected_gateway_id"] != "gateway-1" ||
+		metadata["selected_gateway_id"] != remoteAccessTestGatewayID ||
 		metadata["credential_mode"] != DesktopCredentialModeBrokeredSecret ||
 		metadata["tls_mode"] != DesktopTLSModePinnedCA ||
 		metadata["nla_mode"] != DesktopNLAModeRequired ||
 		metadata["redirection_clipboard_mode"] != DesktopClipboardModeTextToBrowser ||
-		metadata["recording_metadata_enabled"] != "true" ||
+		metadata["recording_metadata_enabled"] != enhancedMetadataTrue ||
 		metadata["credential_grant_expires_unix"] != "4102444800" ||
-		metadata["credential_grant_actor_bound"] != "true" {
+		metadata["credential_grant_actor_bound"] != enhancedMetadataTrue {
 		t.Fatalf("desktop audit metadata = %#v", metadata)
 	}
 
@@ -77,7 +77,7 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"secret-password",
-		"secretref:rdp/admin",
+		desktopTestBrokeredSecret,
 		"administrator",
 		"target-secret",
 		"payload-secret",
@@ -93,11 +93,11 @@ func TestDesktopLifecycleAuditMetadataUsesFixedEventsAndOmitsSecrets(t *testing.
 
 	target := validDesktopTarget()
 	target.DeviceUID = "device-1"
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.TLS.Mode = DesktopTLSModePinnedCA
 	target.TLS.CABundleID = "ca-bundle-1"
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
-	target.Credential.CredentialSecretRef = "secretref:rdp/admin"
+	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 	target.ApprovalRequired = true
 	target.Metadata = map[string]string{"secret": "target-secret"}
 
@@ -108,7 +108,7 @@ func TestDesktopLifecycleAuditMetadataUsesFixedEventsAndOmitsSecrets(t *testing.
 			Mode:                DesktopCredentialModeBrokeredSecret,
 			Username:            "administrator",
 			Password:            "secret-password",
-			CredentialSecretRef: "secretref:rdp/admin",
+			CredentialSecretRef: desktopTestBrokeredSecret,
 			ActorID:             "user-1",
 			SessionID:           fakeRemoteSessionID,
 			TargetID:            desktopTestTargetID,
@@ -128,7 +128,7 @@ func TestDesktopLifecycleAuditMetadataUsesFixedEventsAndOmitsSecrets(t *testing.
 	}
 	if metadata["event_type"] != DesktopLifecycleEventReady ||
 		metadata["event_timestamp_unix"] != "1778000000" ||
-		metadata["event_outcome_truncated"] != "true" ||
+		metadata["event_outcome_truncated"] != enhancedMetadataTrue ||
 		metadata["credential_mode"] != DesktopCredentialModeBrokeredSecret ||
 		metadata["tls_mode"] != DesktopTLSModePinnedCA ||
 		metadata["selected_agent_id"] != desktopTestAgentID {
@@ -146,7 +146,7 @@ func TestDesktopLifecycleAuditMetadataUsesFixedEventsAndOmitsSecrets(t *testing.
 	}
 	for _, forbidden := range []string{
 		"secret-password",
-		"secretref:rdp/admin",
+		desktopTestBrokeredSecret,
 		"administrator",
 		"target-secret",
 		"payload-secret",
@@ -234,7 +234,7 @@ func TestDesktopTerminationAuditMetadataCapsAndNormalizesReason(t *testing.T) {
 	metadata := DesktopTerminationAuditMetadata(frame)
 	if metadata["session_id"] != fakeRemoteSessionID ||
 		metadata["frame_type"] != DesktopFrameTypeDisconnect ||
-		metadata["termination_reason_truncated"] != "true" {
+		metadata["termination_reason_truncated"] != enhancedMetadataTrue {
 		t.Fatalf("termination metadata = %#v", metadata)
 	}
 	if strings.Contains(metadata["termination_reason"], "\n") ||

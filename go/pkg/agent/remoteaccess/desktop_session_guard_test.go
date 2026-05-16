@@ -25,7 +25,7 @@ func TestDesktopSessionGuardComposesRouteLifetimePolicyAndQuota(t *testing.T) {
 	t.Parallel()
 
 	target := validDesktopTarget()
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.Screen = DesktopScreenPolicy{
 		MaxWidth:    1280,
 		MaxHeight:   720,
@@ -55,14 +55,14 @@ func TestDesktopSessionGuardComposesRouteLifetimePolicyAndQuota(t *testing.T) {
 		Height:    720,
 		Data:      []byte{0x01},
 	}
-	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 101, 1); err != nil {
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, remoteAccessTestGatewayID, 101, 1); err != nil {
 		t.Fatalf("ValidateFrame returned error: %v", err)
 	}
 	if guard.LastActivityUnix() != 101 {
 		t.Fatalf("LastActivityUnix = %d, want 101", guard.LastActivityUnix())
 	}
 
-	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 102, 2); !errors.Is(err, ErrDesktopQuotaExceeded) {
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, remoteAccessTestGatewayID, 102, 2); !errors.Is(err, ErrDesktopQuotaExceeded) {
 		t.Fatalf("quota error = %v, want %v", err, ErrDesktopQuotaExceeded)
 	}
 
@@ -73,7 +73,7 @@ func TestDesktopSessionGuardComposesRouteLifetimePolicyAndQuota(t *testing.T) {
 		Direction: DesktopClipboardDirectionToRemote,
 		Data:      []byte("text"),
 	}
-	if err := guard.ValidateFrame(clipboard, desktopTestAgentID, "gateway-1", 103, 3); err != nil {
+	if err := guard.ValidateFrame(clipboard, desktopTestAgentID, remoteAccessTestGatewayID, 103, 3); err != nil {
 		t.Fatalf("clipboard frame returned error: %v", err)
 	}
 }
@@ -82,7 +82,7 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 	t.Parallel()
 
 	target := validDesktopTarget()
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.Screen = DesktopScreenPolicy{
 		MaxWidth:    1280,
 		MaxHeight:   720,
@@ -103,8 +103,8 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 	if err != nil {
 		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
 	}
-	frame.SessionID = "other-session"
-	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 101, 1); !errors.Is(err, ErrInvalidDesktopFrame) {
+	frame.SessionID = remoteAccessTestOtherSessionID
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, remoteAccessTestGatewayID, 101, 1); !errors.Is(err, ErrInvalidDesktopFrame) {
 		t.Fatalf("session mismatch error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}
 
@@ -113,7 +113,7 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
 	}
 	frame.SessionID = fakeRemoteSessionID
-	if err := guard.ValidateFrame(frame, "agent-2", "gateway-1", 101, 1); !errors.Is(err, ErrDesktopRouteLost) {
+	if err := guard.ValidateFrame(frame, "agent-2", remoteAccessTestGatewayID, 101, 1); !errors.Is(err, ErrDesktopRouteLost) {
 		t.Fatalf("route-loss error = %v, want %v", err, ErrDesktopRouteLost)
 	}
 
@@ -121,7 +121,7 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 	if err != nil {
 		t.Fatalf("NewDesktopSessionGuard returned error: %v", err)
 	}
-	if err := guard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 110, 1); !errors.Is(err, ErrDesktopSessionExpired) {
+	if err := guard.ValidateFrame(frame, desktopTestAgentID, remoteAccessTestGatewayID, 110, 1); !errors.Is(err, ErrDesktopSessionExpired) {
 		t.Fatalf("idle-expired error = %v, want %v", err, ErrDesktopSessionExpired)
 	}
 
@@ -130,7 +130,7 @@ func TestDesktopSessionGuardRejectsSessionRouteAndLifetimeViolations(t *testing.
 	}
 
 	var nilGuard *DesktopSessionGuard
-	if err := nilGuard.ValidateFrame(frame, desktopTestAgentID, "gateway-1", 101, 1); !errors.Is(err, ErrInvalidDesktopFrame) {
+	if err := nilGuard.ValidateFrame(frame, desktopTestAgentID, remoteAccessTestGatewayID, 101, 1); !errors.Is(err, ErrInvalidDesktopFrame) {
 		t.Fatalf("nil guard error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}
 }
@@ -139,7 +139,7 @@ func TestDesktopSessionGuardAppliesMediaAckAfterGuardValidation(t *testing.T) {
 	t.Parallel()
 
 	target := validDesktopTarget()
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.Screen = DesktopScreenPolicy{
 		MaxWidth:    1280,
 		MaxHeight:   720,
@@ -169,7 +169,7 @@ func TestDesktopSessionGuardAppliesMediaAckAfterGuardValidation(t *testing.T) {
 		ack,
 		desktopMediaTestMediaSessionID,
 		desktopTestAgentID,
-		"gateway-1",
+		remoteAccessTestGatewayID,
 		101,
 	); err != nil {
 		t.Fatalf("ApplyMediaAck returned error: %v", err)
@@ -187,7 +187,7 @@ func TestDesktopSessionGuardAppliesMediaAckAfterGuardValidation(t *testing.T) {
 		ack,
 		desktopMediaTestMediaSessionID,
 		"agent-2",
-		"gateway-1",
+		remoteAccessTestGatewayID,
 		102,
 	); !errors.Is(err, ErrDesktopRouteLost) {
 		t.Fatalf("route-loss error = %v, want %v", err, ErrDesktopRouteLost)
@@ -205,7 +205,7 @@ func TestDesktopSessionGuardAppliesMediaAckAfterGuardValidation(t *testing.T) {
 		ack,
 		desktopMediaTestMediaSessionID,
 		desktopTestAgentID,
-		"gateway-1",
+		remoteAccessTestGatewayID,
 		102,
 	); !errors.Is(err, ErrInvalidDesktopMediaAck) {
 		t.Fatalf("replay error = %v, want %v", err, ErrInvalidDesktopMediaAck)
@@ -222,7 +222,7 @@ func TestDesktopSessionGuardApplyMediaAckRejectsMissingWindow(t *testing.T) {
 	t.Parallel()
 
 	target := validDesktopTarget()
-	target.Route.SelectedGateway = "gateway-1"
+	target.Route.SelectedGateway = remoteAccessTestGatewayID
 
 	guard, err := NewDesktopSessionGuard(desktopMediaTestSessionID, target, 100)
 	if err != nil {
@@ -239,7 +239,7 @@ func TestDesktopSessionGuardApplyMediaAckRejectsMissingWindow(t *testing.T) {
 		},
 		desktopMediaTestMediaSessionID,
 		desktopTestAgentID,
-		"gateway-1",
+		remoteAccessTestGatewayID,
 		101,
 	)
 	if !errors.Is(err, ErrInvalidDesktopMediaAck) {
@@ -301,7 +301,7 @@ func TestDesktopSessionGuardBindsContentRecordingToTargetPolicy(t *testing.T) {
 		t.Fatalf("clipboard recording with policy returned error: %v", err)
 	}
 
-	update.SessionID = "other-session"
+	update.SessionID = remoteAccessTestOtherSessionID
 	if err := guard.ValidateContentRecording(update); !errors.Is(err, ErrInvalidDesktopFrame) {
 		t.Fatalf("session mismatch recording error = %v, want %v", err, ErrInvalidDesktopFrame)
 	}

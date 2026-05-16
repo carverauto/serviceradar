@@ -40,7 +40,7 @@ func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) 
 		SessionID:             enhancedTestSessionID,
 		Protocol:              ProtocolSSH,
 		AgentID:               enhancedTestAgentID,
-		GatewayID:             "gateway-1",
+		GatewayID:             remoteAccessTestGatewayID,
 		Target:                map[string]string{"host": enhancedTestRouterHost, "port": "22"},
 		CredentialCustodyMode: SSHCredentialModeSSHCertificate,
 		Policy: EnhancedRecordingPolicy{

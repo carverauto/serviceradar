@@ -358,7 +358,7 @@ func (source *LinuxProcEnhancedEventSource) emitLoss(
 		DroppedEvents:     state.dropped,
 		Metadata: map[string]string{
 			"source":      "linux_procfs",
-			"bpf":         "false",
+			"bpf":         enhancedMetadataFalse,
 			"policy_mode": session.Policy.Mode,
 		},
 	}

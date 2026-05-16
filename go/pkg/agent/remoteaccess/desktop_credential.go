@@ -28,6 +28,44 @@ func NormalizeDesktopCredentialGrant(
 	return NormalizeDesktopCredentialGrantAt(grant, target, nowUnix())
 }
 
+// ValidateDesktopOpenCredentialGrant normalizes a desktop open-frame credential
+// grant and enforces session binding for credential modes that carry secrets.
+func ValidateDesktopOpenCredentialGrant(
+	payload DesktopOpenPayload,
+	sessionID string,
+	nowUnix int64,
+) (*DesktopCredentialGrant, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if desktopCredentialModeRequiresGrant(payload.Target.Credential.Mode) && payload.CredentialGrant == nil {
+		return nil, fmt.Errorf("%w: desktop credential grant required", ErrInvalidDesktopTarget)
+	}
+	if payload.CredentialGrant == nil {
+		return nil, nil
+	}
+
+	grant, err := NormalizeDesktopCredentialGrantAt(*payload.CredentialGrant, payload.Target, nowUnix)
+	if err != nil {
+		return nil, err
+	}
+	if grant.SessionID != "" && grant.SessionID != sessionID {
+		return nil, fmt.Errorf("%w: credential grant session mismatch", ErrInvalidDesktopTarget)
+	}
+	if desktopCredentialModeRequiresGrant(payload.Target.Credential.Mode) && grant.SessionID == "" {
+		return nil, fmt.Errorf("%w: credential grant requires session binding", ErrInvalidDesktopTarget)
+	}
+
+	return &grant, nil
+}
+
+func desktopCredentialModeRequiresGrant(mode string) bool {
+	switch strings.TrimSpace(mode) {
+	case DesktopCredentialModeMemoryUser, DesktopCredentialModeBrokeredSecret:
+		return true
+	default:
+		return false
+	}
+}
+
 // NormalizeDesktopCredentialGrantAt validates a desktop credential grant at a
 // caller-provided Unix timestamp. Tests and adapters with trusted clocks can
 // use this to make brokered-secret TTL decisions explicit.

@@ -17,10 +17,14 @@
 package remoteaccess
 
 const (
-	desktopTestTargetID    = "rdp-target-1"
-	desktopTestAgentID     = "agent-1"
-	desktopTestHost        = "windows.internal"
-	desktopTestExpiresUnix = 4_102_444_800
+	desktopTestTargetID            = "rdp-target-1"
+	desktopTestAgentID             = "agent-1"
+	remoteAccessTestGatewayID      = "gateway-1"
+	desktopTestHost                = "windows.internal"
+	desktopTestPassword            = "secret"
+	desktopTestBrokeredSecret      = "secretref:rdp/admin"
+	remoteAccessTestOtherSessionID = "other-session"
+	desktopTestExpiresUnix         = 4_102_444_800
 )
 
 func validDesktopTarget() DesktopTarget {
@@ -40,5 +44,16 @@ func validDesktopTarget() DesktopTarget {
 		Credential: DesktopCredentialPolicy{
 			Mode: DesktopCredentialModeMemoryUser,
 		},
+	}
+}
+
+func validDesktopMemoryGrant(sessionID string) *DesktopCredentialGrant {
+	return &DesktopCredentialGrant{
+		Mode:      DesktopCredentialModeMemoryUser,
+		Username:  "alice",
+		Password:  desktopTestPassword,
+		SessionID: sessionID,
+		TargetID:  desktopTestTargetID,
+		RouteID:   desktopTestAgentID,
 	}
 }
