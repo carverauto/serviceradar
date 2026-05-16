@@ -14,10 +14,10 @@
 
 ## 3. SDK Updates
 
-- [ ] 3.1 Update `~/src/serviceradar-sdk/go` with action descriptor builders, invocation context decoding, input validation helpers, and result helpers.
-- [ ] 3.2 Update `~/src/serviceradar-sdk-rust` with equivalent action descriptor, invocation, and result APIs.
-- [ ] 3.3 Add shared fixture documents for descriptors, invocation payloads, and result payloads.
-- [ ] 3.4 Add SDK compatibility tests that prove old check/discovery plugins still build and run.
+- [x] 3.1 Update `~/src/serviceradar-sdk-go` with action descriptor builders, invocation context decoding, input validation helpers, and result helpers.
+- [x] 3.2 Update `~/src/serviceradar-sdk-rust` with equivalent action descriptor, invocation, and result APIs.
+- [x] 3.3 Add shared fixture documents for descriptors, invocation payloads, and result payloads.
+- [x] 3.4 Add SDK compatibility tests that prove old check/discovery plugins still build and run.
 
 ## 4. UI
 
