@@ -451,6 +451,25 @@ pub fn drive_blocking_connect_begin_to_tls_upgrade(
     })
 }
 
+pub fn extract_credssp_server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, &'static str> {
+    use x509_cert::der::Decode as _;
+
+    let cert = x509_cert::Certificate::from_der(cert_der)
+        .map_err(|_| "tls peer certificate decode failed")?;
+    let public_key = cert
+        .tbs_certificate
+        .subject_public_key_info
+        .subject_public_key
+        .as_bytes()
+        .ok_or("tls peer certificate public key is unaligned")?;
+
+    if public_key.is_empty() {
+        return Err("tls peer certificate public key is empty");
+    }
+
+    Ok(public_key.to_vec())
+}
+
 struct ScriptedStream {
     reads: VecDeque<Vec<u8>>,
     read_offset: usize,
@@ -593,6 +612,7 @@ impl ServiceRadarOpenRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use ironrdp_connector::Credentials;
 
     #[test]
@@ -721,6 +741,22 @@ mod tests {
         assert!(boundary.requires_security_upgrade);
         assert!(!boundary.contains_cleartext_password);
         assert_eq!(&boundary.written_bytes[..2], &[0x03, 0x00]);
+    }
+
+    #[test]
+    fn extracts_tls_server_public_key_for_credssp_binding() {
+        let public_key = crate::extract_credssp_server_public_key(&fixture_server_cert_der())
+            .expect("server public key");
+
+        assert_eq!(public_key.len(), 270);
+        assert_eq!(&public_key[..2], &[0x30, 0x82]);
+    }
+
+    #[test]
+    fn rejects_invalid_tls_server_certificate_for_credssp_binding() {
+        let err = crate::extract_credssp_server_public_key(b"not a certificate").unwrap_err();
+
+        assert_eq!(err, "tls peer certificate decode failed");
     }
 
     #[test]
@@ -866,5 +902,13 @@ mod tests {
             "credential_grant":{"mode":"memory_user","username":"alice","password":"secret","session_id":"session-1","target_id":"target-1","route_id":"agent-1"}
         }"#
         .to_owned()
+    }
+
+    fn fixture_server_cert_der() -> Vec<u8> {
+        STANDARD
+            .decode(
+                "MIIDDTCCAfWgAwIBAgIUFaHwQBAFyvmfso6OPbcQ+2/fVSUwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAwwLd2luLmV4YW1wbGUwHhcNMjYwNTE2MTYzNzQ3WhcNMjYwNTE3MTYzNzQ3WjAWMRQwEgYDVQQDDAt3aW4uZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALbcS3SPVJlbV5AwbziMjXX0Z5CXcOIMt67zeIzoh6hmiAou1IIVZ14FrWStQj4kJNcAwdYQWtZcjM0ya6Hx3fd/M4H3FIatWkrlZcwDtxPeMHxoLzJ0mP/yLdacyvjfKqQDn8f0JEd4KY5dN1eD/OFBGF+XuQyIBsAom6SFuo7uZA4+HmC01P5ac0zAyJKOVDpgdBWa9FYn+YszqAwjrRau1m4A8K5BgRPDBs1FQwjGhRGePEuRgOKsHdBGq/PJ1Iw4mES4pwStTgGvFHJnIPxxZHX0WHiDZnbNx+K+HJh0eaWEjYUazuQtvsyllNM6KmZIHb/bgcZ0VTRQZ87l9lUCAwEAAaNTMFEwHQYDVR0OBBYEFOEi76jfCExGDeYivuwXNMm6uGnAMB8GA1UdIwQYMBaAFOEi76jfCExGDeYivuwXNMm6uGnAMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAI6IdjMvys+AEAoeZ31Lo0IbMsM4EChsvXwpE9BZ5zuPEtRwxoxLwVKrhfjkQjuX6CWFcMlWPvUqKU4t8G3b6/5ym67vJqYkLXgF5UG5Aj7AuiLIY6j8zBcZ4dFsx7hheXZC4em5e6D16eDgATWEBKf/kfbmnX8EET5gkqolAjYI4D1M3gT5yJrulhNmfXThW5A2Vvn70AhsrhMylogKRejaMOelRi1XA0AAXkZ53JWNTCJLJtRg/6PAeyT6nJwpTZi1iKJs0gRTv2TAnUFKeVfDV1CE63YM8953dq+xwqmrTmyZabWJb6yAXEepIUPMscB2UcHKFAqgWZ+4herSzfY=",
+            )
+            .expect("fixture certificate")
     }
 }

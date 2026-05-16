@@ -20,10 +20,14 @@ rust_library(
         "@rdp_connector_crates//:ironrdp-pdu",
         "@rdp_connector_crates//:serde",
         "@rdp_connector_crates//:serde_json",
+        "@rdp_connector_crates//:x509-cert",
     ],
 )
 
 rust_test(
     name = "rdp_connector_probe_test",
     crate = ":rdp_connector_probe_lib",
+    deps = [
+        "@rdp_connector_crates//:base64",
+    ],
 )
