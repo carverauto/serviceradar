@@ -187,8 +187,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   defp result_status(payload), do: normalize_status(map_get(payload, :status, nil), :unknown)
 
   defp normalize_status(status, _fallback)
-       when status in [:succeeded, :failed, :skipped, :suppressed],
-       do: status
+       when status in [:succeeded, :failed, :skipped, :suppressed], do: status
 
   defp normalize_status(status, fallback) when is_binary(status) do
     case status |> String.trim() |> String.downcase() do
