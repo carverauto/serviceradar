@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.64
+
+Agent plugin config fallback, release rollout recovery, and northbound sample hardening.
+
+## Whats New
+
+**1.2.64**
+- Added a backward-compatible agent plugin config fallback so plugin assignments are also embedded in `config_json`, allowing agents to recover assignments even when typed plugin config is absent from the config response.
+- Fixed the agent plugin manager config path to load assignments and engine limits from the new JSON fallback and added coverage for download credentials, runtime params, and engine limit parsing.
+- Fixed release rollout reconciliation so agents that restart or reconnect after a dispatched release command can still advance from dispatched/in-flight states instead of remaining stuck.
+- Added cleanup handling for expired release commands so stalled attempts surface terminal state instead of lingering indefinitely.
+- Hardened the sample northbound Wasm plugin so scheduled checks report a valid ServiceRadar status and interface actions tolerate numeric interface status fields.
+- Fixed RBAC launch authorization and profile deletion edge cases discovered while validating northbound device and interface actions in demo.
+
 # ServiceRadar v1.2.63
 
 Northbound action integrations, sample Wasm action provider, RBAC fixes, and CI hardening.
