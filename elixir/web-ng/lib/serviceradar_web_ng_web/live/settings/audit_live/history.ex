@@ -218,107 +218,107 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
         </header>
 
         <%= if @can_view? do %>
-        <form phx-change="filter" class="flex flex-wrap items-end gap-3">
-          <label class="text-sm">
-            <span class="mb-1 block text-base-content/70">Resource</span>
-            <select name="resource" class="ui-select">
-              <option value="">All resources</option>
-              <%= for {label, value} <- @resource_options do %>
-                <option value={value} selected={value == @resource_filter}>{label}</option>
-              <% end %>
-            </select>
-          </label>
+          <form phx-change="filter" class="flex flex-wrap items-end gap-3">
+            <label class="text-sm">
+              <span class="mb-1 block text-base-content/70">Resource</span>
+              <select name="resource" class="ui-select">
+                <option value="">All resources</option>
+                <%= for {label, value} <- @resource_options do %>
+                  <option value={value} selected={value == @resource_filter}>{label}</option>
+                <% end %>
+              </select>
+            </label>
 
-          <label class="text-sm">
-            <span class="mb-1 block text-base-content/70">Action</span>
-            <select name="action" class="ui-select">
-              <option value="">All actions</option>
-              <%= for action <- @action_types do %>
-                <option value={action} selected={action == @action_filter}>{action}</option>
-              <% end %>
-            </select>
-          </label>
+            <label class="text-sm">
+              <span class="mb-1 block text-base-content/70">Action</span>
+              <select name="action" class="ui-select">
+                <option value="">All actions</option>
+                <%= for action <- @action_types do %>
+                  <option value={action} selected={action == @action_filter}>{action}</option>
+                <% end %>
+              </select>
+            </label>
 
-          <label class="text-sm">
-            <span class="mb-1 block text-base-content/70">Actor</span>
-            <input
-              type="text"
-              name="actor"
-              value={@actor_filter || ""}
-              placeholder="email or id"
-              class="ui-input"
-            />
-          </label>
+            <label class="text-sm">
+              <span class="mb-1 block text-base-content/70">Actor</span>
+              <input
+                type="text"
+                name="actor"
+                value={@actor_filter || ""}
+                placeholder="email or id"
+                class="ui-input"
+              />
+            </label>
 
-          <button type="button" class="ui-button" phx-click="clear-filters">Clear</button>
-        </form>
+            <button type="button" class="ui-button" phx-click="clear-filters">Clear</button>
+          </form>
 
-        <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
-          <table class="min-w-full text-sm text-base-content">
-            <thead class="bg-base-200/70 text-base-content/70">
-              <tr>
-                <th class="px-4 py-2 text-left">When</th>
-                <th class="px-4 py-2 text-left">Resource</th>
-                <th class="px-4 py-2 text-left">Action</th>
-                <th class="px-4 py-2 text-left">Actor</th>
-                <th class="px-4 py-2 text-left">Source row</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-base-200">
-              <%= for entry <- @versions do %>
-                <tr
-                  class="cursor-pointer hover:bg-base-200/40"
-                  phx-click="select-version"
-                  phx-value-resource={to_string(entry.resource)}
-                  phx-value-id={entry.version.id}
-                >
-                  <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
-                    {format_dt(entry.version.version_inserted_at)}
-                  </td>
-                  <td class="px-4 py-2">{resource_label(entry.resource)}</td>
-                  <td class="px-4 py-2">{entry.version.version_action_type}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{extract_actor(entry.version)}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{entry.version.version_source_id}</td>
-                </tr>
-              <% end %>
-              <%= if Enum.empty?(@versions) do %>
+          <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
+            <table class="min-w-full text-sm text-base-content">
+              <thead class="bg-base-200/70 text-base-content/70">
                 <tr>
-                  <td colspan="5" class="px-4 py-8 text-center text-base-content/60">
-                    No version history for the current filters.
-                  </td>
+                  <th class="px-4 py-2 text-left">When</th>
+                  <th class="px-4 py-2 text-left">Resource</th>
+                  <th class="px-4 py-2 text-left">Action</th>
+                  <th class="px-4 py-2 text-left">Actor</th>
+                  <th class="px-4 py-2 text-left">Source row</th>
                 </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-
-        <%= if @selected_version do %>
-          <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
-            <div class="flex items-center justify-between">
-              <h2 class="font-semibold">
-                {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(
-                  @selected_version.version.version_inserted_at
-                )}
-              </h2>
-              <button type="button" class="ui-button" phx-click="close-version">Close</button>
-            </div>
-
-            <div>
-              <h3 class="mb-1 text-sm text-base-content/70">Changes</h3>
-              <pre class="overflow-x-auto rounded bg-base-200/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
-            </div>
-
-            <div>
-              <h3 class="mb-1 text-sm text-base-content/70">Action inputs</h3>
-              <pre class="overflow-x-auto rounded bg-base-200/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
-            </div>
+              </thead>
+              <tbody class="divide-y divide-base-200">
+                <%= for entry <- @versions do %>
+                  <tr
+                    class="cursor-pointer hover:bg-base-200/40"
+                    phx-click="select-version"
+                    phx-value-resource={to_string(entry.resource)}
+                    phx-value-id={entry.version.id}
+                  >
+                    <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
+                      {format_dt(entry.version.version_inserted_at)}
+                    </td>
+                    <td class="px-4 py-2">{resource_label(entry.resource)}</td>
+                    <td class="px-4 py-2">{entry.version.version_action_type}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{extract_actor(entry.version)}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{entry.version.version_source_id}</td>
+                  </tr>
+                <% end %>
+                <%= if Enum.empty?(@versions) do %>
+                  <tr>
+                    <td colspan="5" class="px-4 py-8 text-center text-base-content/60">
+                      No version history for the current filters.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
           </div>
+
+          <%= if @selected_version do %>
+            <div class="space-y-3 rounded-lg border border-base-200 bg-base-100 p-4">
+              <div class="flex items-center justify-between">
+                <h2 class="font-semibold">
+                  {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(
+                    @selected_version.version.version_inserted_at
+                  )}
+                </h2>
+                <button type="button" class="ui-button" phx-click="close-version">Close</button>
+              </div>
+
+              <div>
+                <h3 class="mb-1 text-sm text-base-content/70">Changes</h3>
+                <pre class="overflow-x-auto rounded bg-base-200/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
+              </div>
+
+              <div>
+                <h3 class="mb-1 text-sm text-base-content/70">Action inputs</h3>
+                <pre class="overflow-x-auto rounded bg-base-200/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
+              </div>
+            </div>
+          <% end %>
+        <% else %>
+          <p class="text-sm text-error">
+            You need <code>settings.audit.view</code> to see version history.
+          </p>
         <% end %>
-      <% else %>
-        <p class="text-sm text-error">
-          You need <code>settings.audit.view</code> to see version history.
-        </p>
-      <% end %>
       </SettingsComponents.settings_shell>
     </Layouts.app>
     """

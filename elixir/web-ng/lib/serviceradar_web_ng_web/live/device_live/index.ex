@@ -3,15 +3,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ash.Expr
+  import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Changes.Required
+  alias Ash.Error.Forbidden
   alias Ash.Error.Invalid
-  alias ServiceRadar.Automation.Ansible.Playbook
+  alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
+  alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
+  alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RuntimeLimits
   alias ServiceRadarWebNG.TenantUsage
@@ -74,10 +78,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)
+     |> assign(:northbound_device_actions, [])
+     |> assign(:northbound_device_actions_loading, connected?(socket))
+     |> assign(:show_northbound_action_modal, false)
+     |> assign(:northbound_action_form, to_form(%{}, as: :action))
+     |> assign(:northbound_action_error, nil)
+     |> assign(:northbound_launch_action, nil)
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:show_bulk_delete_modal, false)
-     |> assign(:ansible_launch_available, false)
-     |> assign(:ansible_launch_available_loading, connected?(socket))
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
      |> assign(:breakdown_modal, nil)
      |> assign(:breakdown_search, "")
@@ -95,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        max_file_size: 5_000_000
      )
      |> SRQLPage.init("devices", default_limit: @default_limit)
-     |> start_ansible_launch_availability_task()}
+     |> maybe_load_northbound_device_actions()}
   end
 
   @impl true
@@ -199,20 +207,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, socket}
   end
 
-  def handle_async(:ansible_launch_available, {:ok, available?}, socket) do
+  def handle_async(:northbound_device_actions, {:ok, actions}, socket) when is_list(actions) do
     {:noreply,
      socket
-     |> assign(:ansible_launch_available, available?)
-     |> assign(:ansible_launch_available_loading, false)}
+     |> assign(:northbound_device_actions, actions)
+     |> assign(:northbound_device_actions_loading, false)}
   end
 
-  def handle_async(:ansible_launch_available, {:exit, reason}, socket) do
-    Logger.warning("Ansible launch availability check failed: #{inspect(reason)}")
+  def handle_async(:northbound_device_actions, {:exit, reason}, socket) do
+    Logger.warning("Failed to load northbound device actions: #{inspect(reason)}")
 
     {:noreply,
      socket
-     |> assign(:ansible_launch_available, false)
-     |> assign(:ansible_launch_available_loading, false)}
+     |> assign(:northbound_device_actions, [])
+     |> assign(:northbound_device_actions_loading, false)}
   end
 
   @impl true
@@ -354,7 +362,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           {:noreply, put_flash(socket, :error, format_device_error(error))}
 
-        {:error, %Ash.Error.Forbidden{}} ->
+        {:error, %Forbidden{}} ->
           {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
 
         {:error, :already_exists} ->
@@ -454,23 +462,67 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("run_task_for_selection", _params, socket) do
     cond do
-      not RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") ->
-        {:noreply, put_flash(socket, :error, "You are not authorized to launch Ansible runs.")}
-
-      not socket.assigns.ansible_launch_available ->
-        {:noreply, put_flash(socket, :error, "No launchable Ansible playbooks are configured.")}
+      not can_launch_northbound_actions?(socket.assigns.current_scope) ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to launch tasks.")}
 
       MapSet.size(socket.assigns.selected_devices) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
 
-      true ->
-        uids =
-          socket.assigns.selected_devices
-          |> MapSet.to_list()
-          |> Enum.uniq()
-          |> Enum.join(",")
+      socket.assigns.northbound_device_actions == [] ->
+        {:noreply, put_flash(socket, :error, "No launchable task integrations are configured.")}
 
-        {:noreply, push_navigate(socket, to: ~p"/ansible/launch?devices=#{uids}")}
+      true ->
+        {:noreply,
+         socket.assigns.northbound_device_actions
+         |> preferred_device_action()
+         |> then(&open_northbound_action_modal(socket, &1))}
+    end
+  end
+
+  def handle_event("close_northbound_action_modal", _params, socket) do
+    {:noreply, close_northbound_action_modal(socket)}
+  end
+
+  def handle_event("northbound_action_change", %{"action" => params}, socket) do
+    action =
+      params
+      |> Map.get("action_id")
+      |> find_launchable_northbound_action(socket.assigns.northbound_device_actions)
+
+    params = NorthboundActionForm.ensure_params(params, action)
+
+    {:noreply,
+     socket
+     |> assign(:northbound_launch_action, action)
+     |> assign(:northbound_action_form, to_form(params, as: :action))
+     |> assign(:northbound_action_error, nil)}
+  end
+
+  def handle_event("launch_northbound_action", %{"action" => params}, socket) do
+    with {:ok, action} <-
+           selected_northbound_action(params, socket.assigns.northbound_device_actions),
+         {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
+         {:ok, targets} <- selected_device_action_targets(socket),
+         {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
+      {:noreply,
+       socket
+       |> close_northbound_action_modal()
+       |> assign(:selected_devices, MapSet.new())
+       |> assign(:select_all_matching, false)
+       |> assign(:total_matching_count, nil)
+       |> put_flash(
+         :info,
+         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} device(s)."
+       )}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:northbound_action_form, to_form(params, as: :action))
+         |> assign(
+           :northbound_action_error,
+           NorthboundActionForm.format_launch_error(reason, "device")
+         )}
     end
   end
 
@@ -691,28 +743,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       srql = srql_module()
       load_device_stats(srql, scope)
     end)
-  end
-
-  defp start_ansible_launch_availability_task(socket) do
-    if connected?(socket) and RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") do
-      start_async(socket, :ansible_launch_available, &ansible_launch_available?/0)
-    else
-      assign(socket, :ansible_launch_available_loading, false)
-    end
-  end
-
-  defp ansible_launch_available? do
-    actor = ServiceRadar.Actors.SystemActor.system(:device_live_index)
-
-    query =
-      Playbook
-      |> Ash.Query.filter(not is_nil(awx_job_template_id))
-      |> Ash.Query.limit(1)
-
-    case Ash.read(query, actor: actor) do
-      {:ok, [_ | _]} -> true
-      _ -> false
-    end
   end
 
   defp clear_task_ref(socket, key, ref) do
@@ -1008,6 +1038,121 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp parse_bulk_tags(_), do: %{}
 
+  defp maybe_load_northbound_device_actions(socket) do
+    if connected?(socket) do
+      scope = socket.assigns.current_scope
+
+      start_async(socket, :northbound_device_actions, fn ->
+        northbound_catalog_module().eligible_device_actions(scope)
+      end)
+    else
+      socket
+    end
+  end
+
+  defp can_launch_northbound_actions?(scope) do
+    RBAC.can?(scope, "northbound.actions.launch") or RBAC.can?(scope, "ansible.runs.launch")
+  end
+
+  defp preferred_device_action(actions) do
+    List.first(actions)
+  end
+
+  defp launchable_northbound_actions(actions) when is_list(actions), do: actions
+
+  defp launchable_northbound_actions(_actions), do: []
+
+  defp open_northbound_action_modal(socket, nil) do
+    put_flash(socket, :error, "No launchable task integration was selected.")
+  end
+
+  defp open_northbound_action_modal(socket, action) do
+    params = NorthboundActionForm.default_params(action)
+
+    socket
+    |> assign(:show_northbound_action_modal, true)
+    |> assign(:northbound_launch_action, action)
+    |> assign(:northbound_action_form, to_form(params, as: :action))
+    |> assign(:northbound_action_error, nil)
+  end
+
+  defp close_northbound_action_modal(socket) do
+    socket
+    |> assign(:show_northbound_action_modal, false)
+    |> assign(:northbound_launch_action, nil)
+    |> assign(:northbound_action_form, to_form(%{}, as: :action))
+    |> assign(:northbound_action_error, nil)
+  end
+
+  defp selected_northbound_action(params, actions) do
+    params
+    |> Map.get("action_id")
+    |> find_launchable_northbound_action(actions)
+    |> case do
+      nil -> {:error, :action_not_found}
+      action -> {:ok, action}
+    end
+  end
+
+  defp find_launchable_northbound_action(id, actions) when is_binary(id) do
+    actions
+    |> launchable_northbound_actions()
+    |> Enum.find(&(&1.id == id))
+  end
+
+  defp find_launchable_northbound_action(_id, actions) do
+    actions |> launchable_northbound_actions() |> List.first()
+  end
+
+  defp selected_device_action_targets(socket) do
+    targets =
+      socket.assigns.selected_devices
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.map(&%{kind: "device", device_uid: &1})
+
+    if targets == [], do: {:error, :targets_required}, else: {:ok, targets}
+  end
+
+  defp create_northbound_invocation(socket, action, targets, input_values) do
+    descriptor_id = Map.get(action, :descriptor_id)
+
+    northbound_invocation_service_module().create_and_dispatch(
+      %{
+        descriptor_id: descriptor_id,
+        targets: targets,
+        input_values: input_values,
+        source: :user,
+        metadata: %{
+          "ui_surface" => "devices",
+          "selected_target_count" => length(targets)
+        }
+      },
+      actor: scope_actor(socket.assigns.current_scope)
+    )
+  end
+
+  defp scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    user
+    |> Map.take([:id, :email, :role, :role_profile_id])
+    |> Map.put(:permissions, permissions)
+  end
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
+
+  defp northbound_catalog_module do
+    Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
+  end
+
+  defp northbound_invocation_service_module do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      NorthboundInvocationService
+    )
+  end
+
   defp parse_tag_entry(entry) do
     case String.split(entry, "=", parts: 2) do
       [key, value] -> normalize_tag_entry(key, value)
@@ -1049,12 +1194,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         selected_count
       end
 
+    run_task_disabled? =
+      assigns.northbound_device_actions_loading or assigns.northbound_device_actions == [] or
+        selected_count == 0
+
+    run_task_title =
+      cond do
+        assigns.northbound_device_actions_loading ->
+          "Checking configured task integrations"
+
+        assigns.northbound_device_actions == [] ->
+          "No launchable task integrations are configured"
+
+        selected_count == 0 ->
+          "Select at least one device"
+
+        true ->
+          "Run task for selected devices"
+      end
+
     assigns =
       assigns
       |> assign(:pagination, pagination)
       |> assign(:selected_count, selected_count)
       |> assign(:effective_count, effective_count)
       |> assign(:all_selected, all_selected)
+      |> assign(:run_task_disabled?, run_task_disabled?)
+      |> assign(:run_task_title, run_task_title)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
@@ -1184,22 +1350,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
           <div class="flex items-center gap-2">
             <.ui_button
-              :if={RBAC.can?(@current_scope, "ansible.runs.launch")}
+              :if={can_launch_northbound_actions?(@current_scope)}
               variant="primary"
               size="sm"
               phx-click="run_task_for_selection"
-              disabled={not @ansible_launch_available}
-              title={
-                if @ansible_launch_available do
-                  "Launch a configured job for the selected devices"
-                else
-                  "No launchable Ansible playbooks are configured"
-                end
-              }
+              disabled={@run_task_disabled?}
+              title={@run_task_title}
             >
               <.icon name="hero-play" class="size-4" />
-              <span :if={@ansible_launch_available_loading}>Checking jobs…</span>
-              <span :if={not @ansible_launch_available_loading}>Run Task</span>
+              {if @northbound_device_actions_loading, do: "Checking jobs...", else: "Run Task"}
             </.ui_button>
             <.ui_button
               :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
@@ -1439,6 +1598,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
+      />
+
+      <.northbound_action_modal
+        :if={@show_northbound_action_modal}
+        id="northbound_action_modal"
+        title="Run Task"
+        subtitle={"#{@effective_count} selected device(s)"}
+        form={@northbound_action_form}
+        actions={launchable_northbound_actions(@northbound_device_actions)}
+        action={@northbound_launch_action}
+        error={@northbound_action_error}
+        close_event="close_northbound_action_modal"
+        change_event="northbound_action_change"
+        submit_event="launch_northbound_action"
       />
 
       <.breakdown_modal
@@ -2870,7 +3043,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp latency_ms(_), do: 0.0
 
   defp agent_device_row?(row) when is_map(row) do
-    has_agent_list?(agent_list(row)) or present_text?(device_row_value(row, "agent_id", :agent_id))
+    has_agent_list?(agent_list(row)) or
+      present_text?(device_row_value(row, "agent_id", :agent_id))
   end
 
   defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []

@@ -169,7 +169,7 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
         requested_extra_vars: intent[:extra_vars] || %{},
         requested_by_actor_id: intent[:requested_by_actor_id],
         host_limit: nil,
-        metadata: %{}
+        metadata: run_metadata(intent)
       },
       actor: actor
     )
@@ -215,17 +215,30 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   defp launch_source(_), do: :on_demand
 
   defp launch_context(controller, run, intent) do
-    base = %{
-      "playbook_run_id" => run.id,
-      "controller_id" => controller.id,
-      "verb" => "awx.launch_job"
-    }
+    base =
+      maybe_put_context(
+        %{
+          "playbook_run_id" => run.id,
+          "controller_id" => controller.id,
+          "verb" => "awx.launch_job"
+        },
+        "northbound_invocation_id",
+        intent[:northbound_invocation_id]
+      )
 
     case intent[:schedule_id] do
       id when is_binary(id) -> Map.put(base, "schedule_id", id)
       _ -> base
     end
   end
+
+  defp run_metadata(intent) do
+    maybe_put_context(%{}, "northbound_invocation_id", intent[:northbound_invocation_id])
+  end
+
+  defp maybe_put_context(map, _key, nil), do: map
+  defp maybe_put_context(map, _key, ""), do: map
+  defp maybe_put_context(map, key, value), do: Map.put(map, key, value)
 
   ## Helpers ------------------------------------------------------------------
 

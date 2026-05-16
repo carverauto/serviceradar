@@ -117,3 +117,14 @@ go_test(
         "@org_uber_go_mock//gomock",
     ],
 )
+
+go_test(
+    name = "plugin_runtime_action_test",
+    srcs = ["plugin_runtime_action_test.go"],
+    data = ["//build/wasm_plugins:hello_wasm_wasm"],
+    embed = [":agent"],
+    deps = [
+        "//go/pkg/logger",
+        "//proto",
+    ],
+)

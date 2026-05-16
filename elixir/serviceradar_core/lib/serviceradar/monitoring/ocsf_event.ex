@@ -11,7 +11,11 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Northbound.EventHandlerRunner
+  alias ServiceRadar.Changes.AfterAction
   alias ServiceRadar.Types.Jsonb
+
+  require Logger
 
   @event_fields [
     :time,
@@ -65,6 +69,10 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
           changeset
         end
       end
+
+      change fn changeset, _context ->
+        AfterAction.after_action(changeset, &dispatch_northbound_event_handlers/1)
+      end
     end
   end
 
@@ -78,6 +86,28 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
 
   changes do
   end
+
+  defp dispatch_northbound_event_handlers(event) do
+    if !northbound_handler_event?(event) do
+      {:ok, _results} = EventHandlerRunner.handle_event(event)
+      :ok
+    end
+  rescue
+    exception ->
+      Logger.warning("Failed to run northbound event handlers",
+        event_id: Map.get(event, :id),
+        reason: Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      :ok
+  end
+
+  defp northbound_handler_event?(%{metadata: %{} = metadata}) do
+    Map.get(metadata, "event_family") == "northbound_action_handler" ||
+      Map.get(metadata, :event_family) == "northbound_action_handler"
+  end
+
+  defp northbound_handler_event?(_event), do: false
 
   attributes do
     attribute :id, :uuid do

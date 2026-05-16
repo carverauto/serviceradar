@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Camera.Source, as: CameraSource
@@ -18,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+  alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
@@ -49,16 +51,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
-  test "disables selected-device run task action when no Ansible playbooks are launchable", %{
-    conn: conn
-  } do
+  test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
     uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
       %{
         uid: uid,
         type_id: 0,
-        hostname: "test-run-task-disabled",
+        hostname: "run-task-disabled-host",
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
@@ -68,14 +68,115 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
 
     view
-    |> element("input[phx-value-uid='#{uid}']")
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
     |> render_click()
 
-    html = render(view)
+    html = render_until(view, "No launchable task integrations are configured")
 
-    assert html =~ "No launchable Ansible playbooks are configured"
-    assert html =~ "disabled"
     assert html =~ "Run Task"
+    assert html =~ "disabled"
+  end
+
+  test "launches selected devices through northbound action modal", %{conn: conn} do
+    action = northbound_action(:device)
+    with_northbound_stubs(device_actions: [action])
+
+    uid = "test-device-run-task-launch-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "run-task-launch-host",
+        ip: "192.0.2.55",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+    assert_receive {:northbound_device_actions, _scope}, 1_000
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
+    |> render_click()
+
+    html =
+      view
+      |> element("button[phx-click='run_task_for_selection']")
+      |> render_click()
+
+    assert html =~ "Disable Switch Port"
+    assert html =~ "Change ticket or operator reason"
+
+    view
+    |> form("#northbound_action_modal-form", %{
+      "action" => %{
+        "action_id" => action.id,
+        "input" => %{"reason" => "maintenance window"}
+      }
+    })
+    |> render_submit()
+
+    assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
+
+    assert attrs.descriptor_id == action.descriptor_id
+    assert attrs.targets == [%{kind: "device", device_uid: uid}]
+    assert attrs.input_values == %{"reason" => "maintenance window"}
+    assert attrs.metadata["ui_surface"] == "devices"
+    assert opts[:actor].email
+  end
+
+  test "northbound action modal renders schema-driven input controls" do
+    action =
+      northbound_action(:device,
+        input_schema: %{
+          "type" => "object",
+          "required" => ["reason"],
+          "properties" => %{
+            "reason" => %{
+              "type" => "string",
+              "title" => "Reason",
+              "description" => "Change ticket or operator reason",
+              "x-order" => 1
+            },
+            "mode" => %{
+              "type" => "string",
+              "enum" => ["audit", "enforce"],
+              "default" => "audit",
+              "x-order" => 2
+            },
+            "dry_run" => %{"type" => "boolean", "default" => true, "x-order" => 3},
+            "limit" => %{"type" => "integer", "default" => 10, "x-order" => 4},
+            "extra_vars" => %{"type" => "object", "x-order" => 5}
+          }
+        }
+      )
+
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_modal/1,
+        id: "northbound_action_modal",
+        title: "Run Task",
+        subtitle: "Create a task invocation",
+        form: to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
+        actions: [action],
+        action: action,
+        error: nil,
+        close_event: "close",
+        change_event: "change",
+        submit_event: "submit"
+      )
+
+    assert html =~ ~s(name="action[input][reason]")
+    assert html =~ "Change ticket or operator reason"
+    assert html =~ ~s(name="action[input][mode]")
+    assert html =~ ~s(<option value="audit" selected)
+    assert html =~ ~s(type="checkbox")
+    assert html =~ ~s(name="action[input][dry_run]")
+    assert html =~ ~s(type="number")
+    assert html =~ ~s(name="action[input][limit]")
+    assert html =~ ~s(name="action[input][extra_vars]")
   end
 
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
@@ -1073,6 +1174,57 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert has_element?(view, "input[type=checkbox]")
     end
 
+    test "launches selected interfaces through northbound action modal", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      action = northbound_action(:interface)
+      with_northbound_stubs(interface_actions: [action])
+      insert_test_interfaces!(device_uid)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
+      |> render_click()
+
+      assert_receive {:northbound_interface_actions, _scope}, 1_000
+
+      interface_uid = "#{device_uid}-eth0"
+
+      view
+      |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{interface_uid}']")
+      |> render_click()
+
+      html =
+        view
+        |> element("button[phx-click='run_task_for_interface_selection']")
+        |> render_click()
+
+      assert html =~ "Disable Switch Port"
+
+      view
+      |> form("#northbound_interface_action_modal-form", %{
+        "action" => %{
+          "action_id" => action.id,
+          "input" => %{"reason" => "port remediation"}
+        }
+      })
+      |> render_submit()
+
+      assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
+
+      assert attrs.descriptor_id == action.descriptor_id
+
+      assert attrs.targets == [
+               %{kind: "interface", device_uid: device_uid, interface_uid: interface_uid}
+             ]
+
+      assert attrs.input_values == %{"reason" => "port remediation"}
+      assert attrs.metadata["ui_surface"] == "device_interfaces"
+      assert opts[:actor].email
+    end
+
     test "can toggle interface favorite", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -1682,6 +1834,86 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     %{source: source, profile: profile}
   end
 
+  defp with_northbound_stubs(opts) do
+    previous_catalog = Application.get_env(:serviceradar_web_ng, :northbound_catalog_module)
+
+    previous_invocation_service =
+      Application.get_env(:serviceradar_web_ng, :northbound_invocation_service_module)
+
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid)
+    previous_device_actions = Application.get_env(:serviceradar_web_ng, :northbound_device_actions)
+
+    previous_interface_actions =
+      Application.get_env(:serviceradar_web_ng, :northbound_interface_actions)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_catalog_module,
+      __MODULE__.NorthboundCatalogStub
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      __MODULE__.NorthboundInvocationServiceStub
+    )
+
+    Application.put_env(:serviceradar_web_ng, :northbound_action_test_pid, self())
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_device_actions,
+      Keyword.get(opts, :device_actions, [])
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_interface_actions,
+      Keyword.get(opts, :interface_actions, [])
+    )
+
+    on_exit(fn ->
+      restore_env(:northbound_catalog_module, previous_catalog)
+      restore_env(:northbound_invocation_service_module, previous_invocation_service)
+      restore_env(:northbound_action_test_pid, previous_test_pid)
+      restore_env(:northbound_device_actions, previous_device_actions)
+      restore_env(:northbound_interface_actions, previous_interface_actions)
+    end)
+  end
+
+  defp northbound_action(scope, opts \\ []) do
+    scope = to_string(scope)
+
+    %{
+      id: "northbound:#{scope}:disable-port",
+      descriptor_id: northbound_descriptor_id(scope),
+      label: "Disable Switch Port",
+      description: "Calls an external NMS to disable a selected target.",
+      provider_type: "wasm_plugin",
+      provider_name: "Network Automation",
+      scope: scope,
+      destination: nil,
+      input_schema:
+        Keyword.get(opts, :input_schema, %{
+          "type" => "object",
+          "required" => ["reason"],
+          "properties" => %{
+            "reason" => %{
+              "type" => "string",
+              "title" => "Reason",
+              "description" => "Change ticket or operator reason"
+            }
+          }
+        }),
+      safety_classification: Keyword.get(opts, :safety_classification, "destructive"),
+      requires_confirmation: Keyword.get(opts, :requires_confirmation, true),
+      timeout_seconds: Keyword.get(opts, :timeout_seconds, 120)
+    }
+  end
+
+  defp northbound_descriptor_id("device"), do: "018f2fd1-f0ff-7cf0-9dc0-000000000101"
+  defp northbound_descriptor_id(_scope), do: "018f2fd1-f0ff-7cf0-9dc0-000000000202"
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
@@ -1995,5 +2227,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
+  end
+
+  defmodule NorthboundCatalogStub do
+    @moduledoc false
+
+    def eligible_device_actions(scope) do
+      notify({:northbound_device_actions, scope})
+      Application.get_env(:serviceradar_web_ng, :northbound_device_actions, [])
+    end
+
+    def eligible_interface_actions(scope) do
+      notify({:northbound_interface_actions, scope})
+      Application.get_env(:serviceradar_web_ng, :northbound_interface_actions, [])
+    end
+
+    defp notify(message) do
+      if pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid) do
+        send(pid, message)
+      end
+    end
+  end
+
+  defmodule NorthboundInvocationServiceStub do
+    @moduledoc false
+
+    def create_and_dispatch(attrs, opts) do
+      if pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid) do
+        send(pid, {:northbound_create_and_dispatch, attrs, opts})
+      end
+
+      {:ok, %{id: "018f2fd1-f0ff-7cf0-9dc0-000000000999"}}
+    end
   end
 end

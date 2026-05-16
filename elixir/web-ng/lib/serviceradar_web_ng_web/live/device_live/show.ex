@@ -4,11 +4,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   import Bitwise
   import ServiceRadarWebNGWeb.FlowStatComponents
+
+  import ServiceRadarWebNGWeb.NorthboundActionComponents,
+    only: [northbound_action_history: 1, northbound_action_modal: 1]
+
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1, srql_sparkline: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Invalid
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
+  alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
+  alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.RelayTermination
@@ -36,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.SysmonProfiles.SysmonProfile
+  alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
@@ -129,6 +137,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      # Interface selection state
      |> assign(:selected_interfaces, MapSet.new())
      |> assign(:favorited_interfaces, MapSet.new())
+     |> assign(:northbound_interface_actions, [])
+     |> assign(:northbound_interface_actions_loading, false)
+     |> assign(:northbound_interface_actions_loaded, false)
+     |> assign(:show_northbound_interface_action_modal, false)
+     |> assign(:northbound_interface_action_form, to_form(%{}, as: :action))
+     |> assign(:northbound_interface_action_error, nil)
+     |> assign(:northbound_interface_launch_action, nil)
+     |> assign(:northbound_device_history, [])
+     |> assign(:northbound_device_history_error, nil)
      |> assign(:show_interfaces_bulk_edit, false)
      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
      # Interface metrics for favorited interfaces
@@ -408,6 +425,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
+  def handle_async(:northbound_interface_actions, {:ok, actions}, socket) when is_list(actions) do
+    {:noreply,
+     socket
+     |> assign(:northbound_interface_actions, actions)
+     |> assign(:northbound_interface_actions_loading, false)
+     |> assign(:northbound_interface_actions_loaded, true)}
+  end
+
+  def handle_async(:northbound_interface_actions, {:exit, reason}, socket) do
+    Logger.warning("Failed to load northbound interface actions: #{inspect(reason)}")
+
+    {:noreply,
+     socket
+     |> assign(:northbound_interface_actions, [])
+     |> assign(:northbound_interface_actions_loading, false)
+     |> assign(:northbound_interface_actions_loaded, true)}
+  end
+
   defp apply_device_details_assigns(socket, assigns) do
     socket
     |> assign(assigns)
@@ -552,6 +587,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     uid == socket.assigns.device_uid and limit == socket.assigns.limit
   end
 
+  defp maybe_load_northbound_interface_actions(socket) do
+    cond do
+      not connected?(socket) ->
+        socket
+
+      Map.get(socket.assigns, :northbound_interface_actions_loading) == true ->
+        socket
+
+      Map.get(socket.assigns, :northbound_interface_actions_loaded) == true ->
+        socket
+
+      true ->
+        scope = socket.assigns.current_scope
+
+        socket
+        |> assign(:northbound_interface_actions_loading, true)
+        |> start_async(:northbound_interface_actions, fn ->
+          northbound_catalog_module().eligible_interface_actions(scope)
+        end)
+    end
+  end
+
   defp handle_same_device_params(socket, uid, limit, requested_tab, cursor) do
     active_tab =
       resolve_active_tab(
@@ -580,7 +637,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply,
      socket
      |> assign(:active_tab, active_tab)
-     |> assign(:srql, srql)}
+     |> assign(:srql, srql)
+     |> maybe_load_northbound_interface_actions()}
   end
 
   defp maybe_reload_flows_for_active_tab(socket, "flows", uid, cursor) do
@@ -952,6 +1010,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
 
+    {northbound_device_history, northbound_device_history_error} =
+      Map.get(parallel_results, :northbound_history, {[], nil})
+
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       agent_availability: Map.get(parallel_results, :agent_availability, []),
@@ -976,6 +1037,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       interface_metrics: interface_metrics,
       ip_aliases: ip_aliases,
       ip_alias_error: ip_alias_error,
+      northbound_device_history: northbound_device_history,
+      northbound_device_history_error: northbound_device_history_error,
       has_ifaces: has_ifaces,
       has_flows: has_flows,
       has_logs: has_logs,
@@ -1015,7 +1078,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         load_sweep_results(socket.assigns.current_scope, device_ip)
       end),
       timed_device_task(:mapper, fn -> load_mapper_jobs_for_device(scope, device_row) end),
-      timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end)
+      timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end),
+      timed_device_task(:northbound_history, fn -> load_northbound_device_history(scope, uid) end)
     ]
 
     base_tasks
@@ -1663,6 +1727,68 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, assign(socket, :selected_interfaces, MapSet.new())}
   end
 
+  def handle_event("run_task_for_interface_selection", _params, socket) do
+    cond do
+      not can_launch_northbound_actions?(socket.assigns.current_scope) ->
+        {:noreply, put_flash(socket, :error, "You are not authorized to launch tasks.")}
+
+      MapSet.size(socket.assigns.selected_interfaces) == 0 ->
+        {:noreply, put_flash(socket, :error, "Select at least one interface before Run Task.")}
+
+      socket.assigns.northbound_interface_actions == [] ->
+        {:noreply, put_flash(socket, :error, "No launchable interface task integrations are configured.")}
+
+      true ->
+        action = List.first(socket.assigns.northbound_interface_actions)
+        {:noreply, open_northbound_interface_action_modal(socket, action)}
+    end
+  end
+
+  def handle_event("close_northbound_interface_action_modal", _params, socket) do
+    {:noreply, close_northbound_interface_action_modal(socket)}
+  end
+
+  def handle_event("northbound_interface_action_change", %{"action" => params}, socket) do
+    action =
+      params
+      |> Map.get("action_id")
+      |> find_northbound_action(socket.assigns.northbound_interface_actions)
+
+    params = NorthboundActionForm.ensure_params(params, action)
+
+    {:noreply,
+     socket
+     |> assign(:northbound_interface_launch_action, action)
+     |> assign(:northbound_interface_action_form, to_form(params, as: :action))
+     |> assign(:northbound_interface_action_error, nil)}
+  end
+
+  def handle_event("launch_northbound_interface_action", %{"action" => params}, socket) do
+    with {:ok, action} <-
+           selected_northbound_action(params, socket.assigns.northbound_interface_actions),
+         {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
+         {:ok, targets} <- selected_interface_action_targets(socket),
+         {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
+      {:noreply,
+       socket
+       |> close_northbound_interface_action_modal()
+       |> assign(:selected_interfaces, MapSet.new())
+       |> put_flash(
+         :info,
+         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} interface(s)."
+       )}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:northbound_interface_action_form, to_form(params, as: :action))
+         |> assign(
+           :northbound_interface_action_error,
+           NorthboundActionForm.format_launch_error(reason, "interface")
+         )}
+    end
+  end
+
   def handle_event("open_interfaces_bulk_edit", _params, socket) do
     {:noreply, assign(socket, :show_interfaces_bulk_edit, true)}
   end
@@ -1997,6 +2123,98 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  defp can_launch_northbound_actions?(scope) do
+    RBAC.can?(scope, "northbound.actions.launch")
+  end
+
+  defp open_northbound_interface_action_modal(socket, nil) do
+    put_flash(socket, :error, "No launchable interface task integration was selected.")
+  end
+
+  defp open_northbound_interface_action_modal(socket, action) do
+    params = NorthboundActionForm.default_params(action)
+
+    socket
+    |> assign(:show_northbound_interface_action_modal, true)
+    |> assign(:northbound_interface_launch_action, action)
+    |> assign(:northbound_interface_action_form, to_form(params, as: :action))
+    |> assign(:northbound_interface_action_error, nil)
+  end
+
+  defp close_northbound_interface_action_modal(socket) do
+    socket
+    |> assign(:show_northbound_interface_action_modal, false)
+    |> assign(:northbound_interface_launch_action, nil)
+    |> assign(:northbound_interface_action_form, to_form(%{}, as: :action))
+    |> assign(:northbound_interface_action_error, nil)
+  end
+
+  defp selected_northbound_action(params, actions) do
+    params
+    |> Map.get("action_id")
+    |> find_northbound_action(actions)
+    |> case do
+      nil -> {:error, :action_not_found}
+      action -> {:ok, action}
+    end
+  end
+
+  defp find_northbound_action(id, actions) when is_binary(id) and is_list(actions) do
+    Enum.find(actions, &(&1.id == id))
+  end
+
+  defp find_northbound_action(_id, actions) when is_list(actions), do: List.first(actions)
+  defp find_northbound_action(_id, _actions), do: nil
+
+  defp selected_interface_action_targets(socket) do
+    device_uid = socket.assigns.device_uid
+
+    targets =
+      socket.assigns.selected_interfaces
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.map(&%{kind: "interface", device_uid: device_uid, interface_uid: &1})
+
+    if targets == [], do: {:error, :targets_required}, else: {:ok, targets}
+  end
+
+  defp create_northbound_invocation(socket, action, targets, input_values) do
+    northbound_invocation_service_module().create_and_dispatch(
+      %{
+        descriptor_id: Map.get(action, :descriptor_id),
+        targets: targets,
+        input_values: input_values,
+        source: :user,
+        metadata: %{
+          "ui_surface" => "device_interfaces",
+          "selected_target_count" => length(targets)
+        }
+      },
+      actor: northbound_scope_actor(socket.assigns.current_scope)
+    )
+  end
+
+  defp northbound_scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    user
+    |> Map.take([:id, :email, :role, :role_profile_id])
+    |> Map.put(:permissions, permissions)
+  end
+
+  defp northbound_scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp northbound_scope_actor(_scope), do: nil
+
+  defp northbound_catalog_module do
+    Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
+  end
+
+  defp northbound_invocation_service_module do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      NorthboundInvocationService
+    )
+  end
 
   defp validate_device_ip(device_ip) when is_binary(device_ip) and device_ip != "", do: :ok
   defp validate_device_ip(_), do: {:error, "No device IP available for MTR"}
@@ -3061,6 +3279,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Ash.Query.filter(query, state in [:detected, :confirmed, :updated])
   end
 
+  defp load_northbound_device_history(nil, _device_uid), do: {[], nil}
+  defp load_northbound_device_history(_scope, nil), do: {[], nil}
+
+  defp load_northbound_device_history(scope, device_uid) do
+    if RBAC.can?(scope, "northbound.actions.view") do
+      case NorthboundHistory.list_for_device(device_uid, scope: scope, limit: 10) do
+        {:ok, entries} ->
+          {entries, nil}
+
+        {:error, reason} ->
+          Logger.warning("Failed to load northbound device action history: #{inspect(reason)}")
+          {[], "Failed to load task history."}
+      end
+    else
+      {[], nil}
+    end
+  end
+
   @impl true
   def render(assigns) do
     device_row = List.first(Enum.filter(assigns.results, &is_map/1))
@@ -3073,6 +3309,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
+      |> assign(
+        :can_view_northbound_history,
+        RBAC.can?(assigns.current_scope, "northbound.actions.view")
+      )
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
@@ -3798,6 +4038,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 error={@ip_alias_error}
               />
 
+              <.northbound_action_history
+                :if={@can_view_northbound_history}
+                title="Task History"
+                subtitle="Recent actions for this device and its interfaces"
+                entries={@northbound_device_history}
+                error={@northbound_device_history_error}
+                empty_message="No task invocations have been recorded for this device yet."
+              />
+
               <%= for section <- @metric_sections_to_render do %>
                 <div class="rounded-xl border border-base-200 bg-base-100">
                   <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
@@ -3894,6 +4143,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               interface_metrics={@interface_metrics}
               discovery_job={@discovery_job}
               interface_metrics_layout={@interface_metrics_layout}
+              northbound_actions={@northbound_interface_actions}
+              northbound_actions_loading={@northbound_interface_actions_loading}
+              can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
             />
           </div>
           
@@ -4341,6 +4593,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         :if={@show_interfaces_bulk_edit}
         form={@interfaces_bulk_edit_form}
         selected_count={MapSet.size(@selected_interfaces)}
+      />
+
+      <.northbound_action_modal
+        :if={@show_northbound_interface_action_modal}
+        id="northbound_interface_action_modal"
+        title="Run Interface Task"
+        subtitle={"#{MapSet.size(@selected_interfaces)} selected interface(s)"}
+        form={@northbound_interface_action_form}
+        actions={@northbound_interface_actions}
+        action={@northbound_interface_launch_action}
+        error={@northbound_interface_action_error}
+        close_event="close_northbound_interface_action_modal"
+        change_event="northbound_interface_action_change"
+        submit_event="launch_northbound_interface_action"
       />
     </Layouts.app>
     """
@@ -5022,7 +5288,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
-  attr :fields, :list, required: true
+  attr(:fields, :list, required: true)
 
   defp discovery_metadata_card(assigns) do
     ~H"""
@@ -5127,10 +5393,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp clean_display_value(value), do: value |> to_string() |> String.slice(0, 160)
 
-  attr :camera_sources, :list, default: []
-  attr :inventory_error, :string, default: nil
-  attr :active_session, :any, default: nil
-  attr :last_session, :any, default: nil
+  attr(:camera_sources, :list, default: [])
+  attr(:inventory_error, :string, default: nil)
+  attr(:active_session, :any, default: nil)
+  attr(:last_session, :any, default: nil)
 
   defp camera_streams_section(assigns) do
     sources = normalize_camera_sources_for_display(assigns.camera_sources)
@@ -5404,9 +5670,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr(:interface_metrics, :map, default: nil)
   attr(:discovery_job, :any, default: nil)
   attr(:interface_metrics_layout, :string, default: "two")
+  attr(:northbound_actions, :list, default: [])
+  attr(:northbound_actions_loading, :boolean, default: false)
+  attr(:can_launch_northbound, :boolean, default: false)
 
   defp interfaces_tab_content(assigns) do
     selected_count = MapSet.size(assigns.selected_interfaces)
+
+    run_task_disabled? =
+      assigns.northbound_actions_loading or assigns.northbound_actions == [] or
+        selected_count == 0
+
+    run_task_title =
+      cond do
+        assigns.northbound_actions_loading ->
+          "Checking configured task integrations"
+
+        assigns.northbound_actions == [] ->
+          "No launchable interface task integrations are configured"
+
+        selected_count == 0 ->
+          "Select at least one interface"
+
+        true ->
+          "Run task for selected interfaces"
+      end
 
     all_uids =
       assigns.interfaces
@@ -5421,6 +5709,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       assigns
       |> assign(:selected_count, selected_count)
       |> assign(:all_selected, all_selected)
+      |> assign(:run_task_disabled?, run_task_disabled?)
+      |> assign(:run_task_title, run_task_title)
 
     ~H"""
     <%!-- Interface Metrics Visualization for Favorited Interfaces --%>
@@ -5490,9 +5780,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 Clear
               </button>
               <button
+                :if={@can_launch_northbound}
+                type="button"
+                phx-click="run_task_for_interface_selection"
+                class="btn btn-xs btn-primary"
+                disabled={@run_task_disabled?}
+                title={@run_task_title}
+              >
+                <.icon name="hero-play" class="size-3" />
+                {if @northbound_actions_loading, do: "Checking jobs...", else: "Run Task"}
+              </button>
+              <button
                 type="button"
                 phx-click="open_interfaces_bulk_edit"
-                class="btn btn-xs btn-primary"
+                class="btn btn-xs btn-outline"
               >
                 <.icon name="hero-pencil-square" class="size-3" /> Bulk Edit
               </button>

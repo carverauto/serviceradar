@@ -37,6 +37,11 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   actions do
     defaults [:read, :destroy]
 
+    read :by_package do
+      argument :plugin_package_id, :uuid, allow_nil?: false
+      filter expr(plugin_package_id == ^arg(:plugin_package_id) and enabled == true)
+    end
+
     read :by_agent do
       argument :agent_uid, :string, allow_nil?: false
       filter expr(agent_uid == ^arg(:agent_uid))

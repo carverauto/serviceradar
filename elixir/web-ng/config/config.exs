@@ -8,6 +8,7 @@
 import Config
 
 alias ServiceRadar.Automation.Ansible
+alias ServiceRadar.Automation.Northbound
 
 config :adbc, :drivers, [:postgresql]
 
@@ -131,6 +132,7 @@ config :serviceradar_core,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
+    Northbound,
     Ansible,
     ServiceRadar.Security
   ]
@@ -283,6 +285,7 @@ config :serviceradar_web_ng,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
+    Northbound,
     Ansible,
     ServiceRadar.Security
   ]
