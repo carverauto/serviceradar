@@ -17,6 +17,7 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
   alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -100,7 +101,8 @@ defmodule ServiceRadar.Edge.AgentCommandCleanupWorker do
 
   defp expire_command(command, actor) do
     case AgentCommand.expire(command, actor: actor) do
-      {:ok, _} ->
+      {:ok, expired} ->
+        AgentReleaseManager.handle_command_expired(expired, actor: actor)
         :ok
 
       {:error, reason} ->

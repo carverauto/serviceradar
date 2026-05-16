@@ -31,6 +31,12 @@ defmodule ServiceRadarWebNG.RBAC do
       RBAC.has_permission?(user, permission, fresh?: true)
   end
 
+  def can?(%Scope{user: user, permissions: %MapSet{} = permissions}, permission)
+      when not is_nil(user) and is_binary(permission) do
+    MapSet.member?(permissions, permission) ||
+      RBAC.has_permission?(user, permission, fresh?: true)
+  end
+
   def can?(%Scope{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
     MapSet.member?(permissions, permission)
   end

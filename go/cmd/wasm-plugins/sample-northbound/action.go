@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -132,6 +133,23 @@ func decodePluginConfig(hostConfig *sdk.ActionHostConfig) Config {
 	if hostConfig != nil {
 		_ = hostConfig.DecodePluginConfig(&cfg)
 	}
+
+	return normalizeConfig(cfg)
+}
+
+func decodePluginConfigMap(raw map[string]any) Config {
+	cfg := defaultConfig()
+	if len(raw) > 0 {
+		data, err := json.Marshal(raw)
+		if err == nil {
+			_ = json.Unmarshal(data, &cfg)
+		}
+	}
+
+	return normalizeConfig(cfg)
+}
+
+func normalizeConfig(cfg Config) Config {
 	if cfg.InventoryPrefix == "" {
 		cfg.InventoryPrefix = "nms"
 	}
@@ -145,6 +163,98 @@ func decodePluginConfig(hostConfig *sdk.ActionHostConfig) Config {
 		cfg.InterfaceDefaultVLAN = 100
 	}
 	return cfg
+}
+
+func normalizeActionInvocationConfig(raw map[string]any) map[string]any {
+	invocation, ok := raw["action_invocation"].(map[string]any)
+	if !ok {
+		return raw
+	}
+
+	targets, ok := invocation["targets"].([]any)
+	if !ok {
+		return raw
+	}
+
+	for _, targetValue := range targets {
+		target, ok := targetValue.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		normalizeInterfaceStatusField(target, "if_admin_status", "if_admin_status_id")
+		normalizeInterfaceStatusField(target, "if_oper_status", "if_oper_status_id")
+	}
+
+	return raw
+}
+
+func normalizeInterfaceStatusField(target map[string]any, statusKey, idKey string) {
+	value, ok := target[statusKey]
+	if !ok || value == nil {
+		return
+	}
+
+	switch typed := value.(type) {
+	case string:
+		if normalized := interfaceStatusName(typed); normalized != "" {
+			target[statusKey] = normalized
+		}
+	case float64:
+		target[statusKey] = interfaceStatusName(fmt.Sprintf("%.0f", typed))
+		if _, ok := target[idKey]; !ok {
+			target[idKey] = int(typed)
+		}
+	case int:
+		target[statusKey] = interfaceStatusName(fmt.Sprintf("%d", typed))
+		if _, ok := target[idKey]; !ok {
+			target[idKey] = typed
+		}
+	case json.Number:
+		target[statusKey] = interfaceStatusName(typed.String())
+		if _, ok := target[idKey]; !ok {
+			target[idKey] = typed.String()
+		}
+	}
+}
+
+func interfaceStatusName(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "1":
+		return "up"
+	case "2":
+		return "down"
+	case "3":
+		return "testing"
+	case "up", "down", "testing", "unknown", "dormant", "notpresent", "lowerlayerdown":
+		return strings.TrimSpace(value)
+	default:
+		return strings.TrimSpace(value)
+	}
+}
+
+func serviceCheckResult(cfg Config) *sdk.Result {
+	details := map[string]any{
+		"api_base_url":           cfg.APIBaseURL,
+		"inventory_prefix":       cfg.InventoryPrefix,
+		"default_policy_state":   cfg.DefaultPolicyState,
+		"simulated_latency_ms":   cfg.SimulatedLatencyMS,
+		"interface_default_vlan": cfg.InterfaceDefaultVLAN,
+		"actions": []string{
+			deviceLookupAction,
+			interfaceAuditAction,
+		},
+	}
+
+	data, err := json.Marshal(details)
+	if err != nil {
+		data = []byte(`{}`)
+	}
+
+	return sdk.Ok("sample northbound NMS ready").
+		WithDetails(string(data)).
+		WithLabel("plugin_mode", "northbound_actions").
+		WithLabel("integration", "sample-nms")
 }
 
 func externalInventoryID(cfg Config, target sdk.ActionTargetSnapshot) string {

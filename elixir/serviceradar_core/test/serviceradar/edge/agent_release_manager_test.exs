@@ -5,11 +5,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentTracker
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseRollout
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -258,6 +260,80 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
 
     target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
     assert target.status == :dispatched
+  end
+
+  test "reconcile_agent retries a release command that was sent but never acknowledged", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    assert_receive {:send_command, first_command, _context}, 1_000
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    assert target.status == :dispatched
+    assert target.command_id == first_command.command_id
+
+    Repo.query!(
+      "UPDATE platform.agent_commands SET sent_at = NOW() - INTERVAL '2 minutes' WHERE command_id = $1::uuid",
+      [Ecto.UUID.dump!(target.command_id)]
+    )
+
+    assert :ok = AgentReleaseManager.reconcile_agent(agent_id)
+
+    assert_receive {:send_command, second_command, _context}, 1_000
+    assert second_command.command_type == "agent.update_release"
+    refute second_command.command_id == first_command.command_id
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :dispatched
+    assert target.command_id == second_command.command_id
+  end
+
+  test "handle_command_expired marks an inflight release target failed", %{
+    actor: actor,
+    agent_id: agent_id,
+    release: release
+  } do
+    {_pid, _metadata} = start_control_session(agent_id, self())
+
+    {:ok, rollout} =
+      AgentReleaseManager.create_rollout(%{
+        release_id: release.id,
+        agent_ids: [agent_id],
+        batch_size: 1
+      })
+
+    target =
+      AgentReleaseTarget
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(expr(agent_id == ^agent_id and rollout_id == ^rollout.id))
+      |> Ash.read_one!(actor: actor)
+
+    command = AgentCommand.get_by_id!(target.command_id, actor: actor)
+
+    assert :ok = AgentReleaseManager.handle_command_expired(command, actor: actor)
+
+    target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
+    assert target.status == :failed
+    assert target.last_error == "command_expired"
+
+    updated_agent = Agent.get_by_uid!(agent_id, actor: actor)
+    assert updated_agent.release_rollout_state == :failed
+    assert updated_agent.last_update_error == "command_expired"
   end
 
   test "create_rollout rejects unsupported platform cohorts before any targets are created", %{

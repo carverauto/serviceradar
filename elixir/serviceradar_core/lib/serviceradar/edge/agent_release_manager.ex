@@ -8,6 +8,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentRuntimeMetadata
+  alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.AgentRelease
   alias ServiceRadar.Edge.AgentReleaseRollout
@@ -19,6 +20,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   require Ash.Query
 
   @release_command_type "agent.update_release"
+  @release_ack_timeout_seconds 60
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
   @terminal_statuses [:healthy, :failed, :rolled_back, :canceled]
   @known_progress_statuses %{
@@ -175,6 +177,35 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
 
   def handle_command_result(_data, _opts), do: :ok
 
+  def handle_command_expired(command, opts \\ [])
+
+  def handle_command_expired(%AgentCommand{command_type: @release_command_type} = command, opts) do
+    actor = actor_opts(opts, :agent_release_manager_expire)
+
+    case AgentReleaseTarget.get_by_command_id(command.id, actor: actor) do
+      {:ok, %AgentReleaseTarget{status: status} = target} when status in @inflight_statuses ->
+        _ =
+          mark_target_status(
+            target,
+            :failed,
+            %{
+              last_status_message: "release command expired before the agent reported a result",
+              last_error: "command_expired"
+            },
+            actor
+          )
+
+        maybe_complete_rollout(target.rollout_id, actor)
+        maybe_dispatch_rollout(target.rollout_id, actor: actor)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  def handle_command_expired(_command, _opts), do: :ok
+
   def maybe_dispatch_rollout(rollout_id, opts \\ []) do
     actor = actor_from_opts(opts, :agent_release_manager_dispatch)
 
@@ -228,9 +259,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   end
 
   defp reconcile_agent_targets(agent_id, agent, actor) do
-    agent_id
-    |> active_targets_for_agent(actor)
-    |> Enum.each(&reconcile_target(&1, agent, actor))
+    targets = active_targets_for_agent(agent_id, actor)
+
+    if targets == [] do
+      reconcile_stale_terminal_release_state(agent, actor)
+    else
+      Enum.each(targets, &reconcile_target(&1, agent, actor))
+    end
   end
 
   defp reconcile_target(target, agent, actor) do
@@ -250,8 +285,66 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
       maybe_complete_rollout(target.rollout_id, actor)
       :ok
     else
-      maybe_dispatch_rollout(target.rollout_id, actor: actor)
+      case retry_unacknowledged_release_command(target, actor) do
+        {:retried, _target} ->
+          :ok
+
+        :no_retry ->
+          maybe_dispatch_rollout(target.rollout_id, actor: actor)
+      end
     end
+  end
+
+  defp retry_unacknowledged_release_command(
+         %AgentReleaseTarget{status: status, command_id: command_id} = target,
+         actor
+       )
+       when status in @inflight_statuses and not is_nil(command_id) do
+    if release_command_unacknowledged_timed_out?(command_id, actor) do
+      case mark_target_status(
+             target,
+             :pending,
+             %{
+               command_id: nil,
+               progress_percent: 0,
+               last_status_message: "release command was not acknowledged; retrying dispatch",
+               last_error: "command_ack_timeout"
+             },
+             actor
+           ) do
+        {:ok, updated_target} ->
+          maybe_dispatch_rollout(updated_target.rollout_id, actor: actor)
+          {:retried, updated_target}
+
+        _ ->
+          :no_retry
+      end
+    else
+      :no_retry
+    end
+  end
+
+  defp retry_unacknowledged_release_command(_target, _actor), do: :no_retry
+
+  defp release_command_unacknowledged_timed_out?(command_id, actor) do
+    case AgentCommand.get_by_id(command_id, actor: actor) do
+      {:ok,
+       %AgentCommand{
+         status: :sent,
+         sent_at: %DateTime{} = sent_at,
+         acknowledged_at: nil
+       }} ->
+        DateTime.diff(DateTime.utc_now(), sent_at, :second) >= release_ack_timeout_seconds()
+
+      _ ->
+        false
+    end
+  end
+
+  defp release_ack_timeout_seconds do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:release_ack_timeout_seconds, @release_ack_timeout_seconds)
   end
 
   defp create_targets(rollout, release, agent_ids, actor) do
@@ -589,6 +682,60 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
     |> Ash.read!(actor: actor)
   end
 
+  defp reconcile_stale_terminal_release_state(%Agent{} = agent, actor) do
+    agent = AgentRuntimeMetadata.hydrate_agent(agent)
+
+    with current_version when is_binary(current_version) <- agent.version,
+         desired_version when is_binary(desired_version) <- agent.desired_version,
+         true <- agent.release_rollout_state in @terminal_statuses,
+         true <- release_version_at_least?(current_version, desired_version) do
+      _ =
+        agent
+        |> Ash.Changeset.for_update(:update_release_status, %{
+          desired_version: current_version,
+          release_rollout_state: :healthy,
+          last_update_at: DateTime.utc_now(),
+          last_update_error: nil
+        })
+        |> Ash.update(actor: actor)
+    end
+
+    :ok
+  end
+
+  defp release_version_at_least?(current_version, desired_version) do
+    case {parse_release_version(current_version), parse_release_version(desired_version)} do
+      {{:ok, current}, {:ok, desired}} -> current >= desired
+      _ -> String.trim(current_version) == String.trim(desired_version)
+    end
+  end
+
+  defp parse_release_version(version) when is_binary(version) do
+    normalized =
+      version
+      |> String.trim()
+      |> String.trim_leading("v")
+      |> String.split("-", parts: 2)
+      |> List.first()
+      |> String.split(".")
+
+    case normalized do
+      [major, minor, patch] ->
+        with {major, ""} <- Integer.parse(major),
+             {minor, ""} <- Integer.parse(minor),
+             {patch, ""} <- Integer.parse(patch) do
+          {:ok, {major, minor, patch}}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_release_version(_version), do: :error
+
   defp rollout_targets(rollout_id, actor) do
     AgentReleaseTarget
     |> Ash.Query.for_read(:read, %{}, actor: actor)
@@ -815,6 +962,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   defp compact_map(map) when is_map(map) do
     map
     |> Enum.reject(fn
+      {key, nil} when key in [:command_id, :last_error] -> false
       {_key, nil} -> true
       {_key, ""} -> true
       {_key, %{} = value} -> map_size(value) == 0

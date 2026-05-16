@@ -99,6 +99,35 @@ func TestInterfaceAuditAction(t *testing.T) {
 	}
 }
 
+func TestNormalizeActionInvocationConfigConvertsNumericInterfaceStatuses(t *testing.T) {
+	raw := map[string]any{
+		"action_invocation": map[string]any{
+			"targets": []any{
+				map[string]any{
+					"if_admin_status": float64(1),
+					"if_oper_status":  float64(2),
+				},
+			},
+		},
+	}
+
+	normalized := normalizeActionInvocationConfig(raw)
+	target := normalized["action_invocation"].(map[string]any)["targets"].([]any)[0].(map[string]any)
+
+	if target["if_admin_status"] != "up" {
+		t.Fatalf("admin status = %v", target["if_admin_status"])
+	}
+	if target["if_oper_status"] != "down" {
+		t.Fatalf("oper status = %v", target["if_oper_status"])
+	}
+	if target["if_admin_status_id"] != 1 {
+		t.Fatalf("admin status id = %v", target["if_admin_status_id"])
+	}
+	if target["if_oper_status_id"] != 2 {
+		t.Fatalf("oper status id = %v", target["if_oper_status_id"])
+	}
+}
+
 func TestUnsupportedAction(t *testing.T) {
 	hostConfig := mustParseActionConfig(t, `{
 		"action_invocation": {
@@ -114,6 +143,33 @@ func TestUnsupportedAction(t *testing.T) {
 	}
 	if result.ErrorClass != "unsupported_action" {
 		t.Fatalf("error class = %q", result.ErrorClass)
+	}
+}
+
+func TestServiceCheckResultUsesPluginResultStatus(t *testing.T) {
+	result := serviceCheckResult(defaultConfig())
+
+	if result.Status != sdk.StatusOK {
+		t.Fatalf("status = %s", result.Status)
+	}
+	if result.Summary != "sample northbound NMS ready" {
+		t.Fatalf("summary = %q", result.Summary)
+	}
+
+	payload, err := result.Serialize()
+	if err != nil {
+		t.Fatalf("serialize result: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if decoded["status"] != string(sdk.StatusOK) {
+		t.Fatalf("status = %v", decoded["status"])
+	}
+	if decoded["summary"] != "sample northbound NMS ready" {
+		t.Fatalf("summary = %v", decoded["summary"])
 	}
 }
 
