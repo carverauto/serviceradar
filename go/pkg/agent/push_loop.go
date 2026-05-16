@@ -326,6 +326,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
 	remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
+	remoteConsoleManager.desktopGateway = desktopMediaGatewayFromClient(gateway)
+	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPath: remoteAccessRDPAdapterPath(server)}
 	remoteConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (remoteConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {
@@ -362,6 +364,47 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		cameraRelayManager:   cameraRelayManager,
 		remoteConsoleManager: remoteConsoleManager,
 	}
+}
+
+type gatewayDesktopMediaClient struct {
+	gateway *agentgateway.GatewayClient
+}
+
+func desktopMediaGatewayFromClient(gateway *agentgateway.GatewayClient) desktopMediaGateway {
+	if gateway == nil {
+		return nil
+	}
+
+	return gatewayDesktopMediaClient{gateway: gateway}
+}
+
+func (g gatewayDesktopMediaClient) OpenDesktopMediaSession(
+	ctx context.Context,
+	req *proto.OpenDesktopMediaSessionRequest,
+) (*proto.OpenDesktopMediaSessionResponse, error) {
+	return g.gateway.OpenDesktopMediaSession(ctx, req)
+}
+
+func (g gatewayDesktopMediaClient) StreamDesktopMedia(ctx context.Context) (desktopMediaStream, error) {
+	return g.gateway.StreamDesktopMedia(ctx)
+}
+
+func (g gatewayDesktopMediaClient) CloseDesktopMediaSession(
+	ctx context.Context,
+	req *proto.CloseDesktopMediaSessionRequest,
+) (*proto.CloseDesktopMediaSessionResponse, error) {
+	return g.gateway.CloseDesktopMediaSession(ctx, req)
+}
+
+func remoteAccessRDPAdapterPath(server *Server) string {
+	if server == nil || server.config == nil {
+		return ""
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return strings.TrimSpace(server.config.RemoteAccessRDPAdapterPath)
 }
 
 func remoteAccessKnownHostsFile(server *Server) string {

@@ -683,6 +683,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
             session_id: session_id(session),
             agent_id: selected_agent_id,
             gateway_id: string_value(session, "gateway_id"),
+            metadata: desktop_media_metadata(session, target_id, selected_agent_id),
             target: %{
               target_id: target_id,
               display_name: string_value(session_metadata, "target_display_name"),
@@ -720,6 +721,22 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       string_value(session, "device_uid") ||
       string_value(target, "device_uid") ||
       string_value(target, "host")
+  end
+
+  defp desktop_media_metadata(session, target_id, selected_agent_id) do
+    reject_blank_map(%{
+      media_session_id: "desktop-media-" <> session_id(session),
+      route_id: selected_agent_id,
+      target_id: target_id,
+      lease_token: desktop_media_lease_token(),
+      encoding_hint: "srdp"
+    })
+  end
+
+  defp desktop_media_lease_token do
+    16
+    |> :crypto.strong_rand_bytes()
+    |> Base.encode16(case: :lower)
   end
 
   defp desktop_tls_policy(session_metadata) do

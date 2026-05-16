@@ -65,6 +65,8 @@ type proxmoxConsoleManager struct {
 	sshConfig       map[string]remoteaccess.SSHConfig
 	desktopMu       sync.Mutex
 	desktopSessions map[string]desktopConsoleSession
+	desktopGateway  desktopMediaGateway
+	desktopAdapter  remoteaccess.DesktopRDPAdapter
 	uploadMu        sync.Mutex
 	uploads         map[string]*fileTransferUpload
 	sftpDialer      remoteaccess.SFTPDialer
@@ -75,6 +77,7 @@ type proxmoxConsoleManager struct {
 type desktopConsoleSession struct {
 	target  remoteaccess.DesktopTarget
 	session remoteaccess.DesktopAdapterSession
+	media   *desktopMediaGatewaySender
 }
 
 func newProxmoxConsoleManager(log logger.Logger) *proxmoxConsoleManager {
@@ -126,6 +129,12 @@ func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.Co
 	var remoteSender remoteaccess.Sender
 	if sender != nil {
 		remoteSender = proxmoxConsoleRemoteSender{sender: sender}
+	}
+
+	if frame.GetFrameType() == consoleFrameTypeOpen && isDesktopProtocol(consoleFrameProtocol(frame)) {
+		m.handleDesktopOpenFrame(ctx, frame, remoteSender)
+
+		return
 	}
 
 	if frame.GetFrameType() == consoleFrameTypeClose && m.hasDesktopSession(frame.GetSessionId()) {
@@ -212,6 +221,15 @@ func (m *proxmoxConsoleManager) registerDesktopSession(
 	target remoteaccess.DesktopTarget,
 	session remoteaccess.DesktopAdapterSession,
 ) {
+	m.registerDesktopSessionWithMedia(sessionID, target, session, nil)
+}
+
+func (m *proxmoxConsoleManager) registerDesktopSessionWithMedia(
+	sessionID string,
+	target remoteaccess.DesktopTarget,
+	session remoteaccess.DesktopAdapterSession,
+	media *desktopMediaGatewaySender,
+) {
 	if m == nil || sessionID == "" || session == nil {
 		return
 	}
@@ -224,6 +242,7 @@ func (m *proxmoxConsoleManager) registerDesktopSession(
 	m.desktopSessions[sessionID] = desktopConsoleSession{
 		target:  target,
 		session: session,
+		media:   media,
 	}
 }
 
@@ -289,6 +308,49 @@ func (m *proxmoxConsoleManager) handleDesktopConsoleFrame(
 	}
 }
 
+func (m *proxmoxConsoleManager) handleDesktopOpenFrame(
+	ctx context.Context,
+	frame *proto.ConsoleFrame,
+	sender remoteaccess.Sender,
+) {
+	remoteFrame := m.proxmoxConsoleRemoteFrame(frame)
+
+	payload, err := remoteaccess.DecodeDesktopOpenFrameForAgent(remoteFrame, m.agentID)
+	if err != nil {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), err.Error())
+
+		return
+	}
+
+	mediaSender, err := newDesktopMediaGatewaySender(
+		ctx,
+		m.desktopGateway,
+		desktopMediaGatewaySenderConfigFromOpenPayload(frame.GetSessionId(), m.agentID, m.gatewayID, payload),
+		nil,
+	)
+	if err != nil {
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), err.Error())
+
+		return
+	}
+
+	session, err := (remoteaccess.DesktopAdapterRuntime{
+		LocalAgentID:     m.agentID,
+		CurrentGatewayID: m.gatewayID,
+		Adapter:          m.desktopAdapter,
+	}).OpenRDP(ctx, remoteFrame, mediaSender)
+	if err != nil {
+		_ = mediaSender.Close(ctx, "desktop adapter open failed")
+		sendProxmoxConsoleRemoteError(sender, frame.GetSessionId(), err.Error())
+
+		return
+	}
+
+	m.registerDesktopSessionWithMedia(frame.GetSessionId(), payload.Target, session, mediaSender)
+	m.watchDesktopSession(frame.GetSessionId(), session, sender)
+	sendProxmoxConsoleReady(sender, frame.GetSessionId(), desktopReadyPayload(mediaSender))
+}
+
 func (m *proxmoxConsoleManager) closeDesktopSession(
 	ctx context.Context,
 	sessionID string,
@@ -303,7 +365,10 @@ func (m *proxmoxConsoleManager) closeDesktopSession(
 	}
 
 	m.deleteDesktopSession(sessionID)
-	if err := desktopSession.session.Close(ctx, reason); err != nil {
+	if err := errors.Join(
+		desktopSession.session.Close(ctx, reason),
+		closeDesktopConsoleMediaSender(ctx, desktopSession.media, reason),
+	); err != nil {
 		sendProxmoxConsoleRemoteError(sender, sessionID, err.Error())
 
 		return
@@ -315,6 +380,25 @@ func (m *proxmoxConsoleManager) closeDesktopSession(
 			Reason:    reason,
 		})
 	}
+}
+
+func (m *proxmoxConsoleManager) watchDesktopSession(
+	sessionID string,
+	session remoteaccess.DesktopAdapterSession,
+	sender remoteaccess.Sender,
+) {
+	errSource, ok := session.(interface{ Err() <-chan error })
+	if !ok || errSource.Err() == nil {
+		return
+	}
+
+	go func() {
+		if err, ok := <-errSource.Err(); ok && err != nil {
+			m.deleteDesktopSession(sessionID)
+			sendProxmoxConsoleRemoteError(sender, sessionID, err.Error())
+			sendProxmoxConsoleClose(sender, sessionID, "desktop adapter closed")
+		}
+	}()
 }
 
 type remoteAccessTrackedPTY struct {
@@ -391,12 +475,21 @@ func consoleFrameProtocol(frame *proto.ConsoleFrame) string {
 
 	var payload struct {
 		Protocol string `json:"protocol"`
+		Target   struct {
+			Protocol string `json:"protocol"`
+		} `json:"target"`
 	}
 	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
 		return protocolProxmoxConsole
 	}
+	if payload.Protocol == "" {
+		payload.Protocol = payload.Target.Protocol
+	}
 	if payload.Protocol == remoteaccess.ProtocolSSH {
 		return remoteaccess.ProtocolSSH
+	}
+	if isDesktopProtocol(payload.Protocol) {
+		return payload.Protocol
 	}
 
 	return protocolProxmoxConsole
@@ -440,6 +533,86 @@ func isDesktopConsoleFrameType(frameType string) bool {
 	default:
 		return false
 	}
+}
+
+func isDesktopProtocol(protocol string) bool {
+	return protocol == remoteaccess.ProtocolRDP || protocol == remoteaccess.ProtocolDesktop
+}
+
+func desktopMediaGatewaySenderConfigFromOpenPayload(
+	sessionID string,
+	agentID string,
+	gatewayID string,
+	payload remoteaccess.DesktopOpenPayload,
+) desktopMediaGatewaySenderConfig {
+	metadata := payload.Metadata
+
+	return desktopMediaGatewaySenderConfig{
+		DesktopSessionID: sessionID,
+		MediaSessionID:   metadata["media_session_id"],
+		AgentID:          agentID,
+		GatewayID:        gatewayID,
+		TargetID:         payload.Target.TargetID,
+		RouteID:          metadataValue(metadata, "route_id", payload.Target.Route.SelectedAgentID),
+		LeaseToken:       metadata["lease_token"],
+		EncodingHint:     metadata["encoding_hint"],
+	}
+}
+
+func metadataValue(metadata map[string]string, key string, fallback string) string {
+	if metadata == nil || metadata[key] == "" {
+		return fallback
+	}
+
+	return metadata[key]
+}
+
+func desktopReadyPayload(sender *desktopMediaGatewaySender) []byte {
+	if sender == nil {
+		return nil
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"media_session_id": sender.mediaID,
+		"max_chunk_bytes":  sender.maxChunkBytes,
+	})
+	if err != nil {
+		return nil
+	}
+
+	return payload
+}
+
+func closeDesktopConsoleMediaSender(ctx context.Context, sender *desktopMediaGatewaySender, reason string) error {
+	if sender == nil {
+		return nil
+	}
+
+	return sender.Close(ctx, reason)
+}
+
+func sendProxmoxConsoleReady(sender remoteaccess.Sender, sessionID string, data []byte) {
+	if sender == nil {
+		return
+	}
+
+	_ = sender.SendFrame(remoteaccess.Frame{
+		SessionID: sessionID,
+		FrameType: consoleFrameTypeReady,
+		Data:      data,
+	})
+}
+
+func sendProxmoxConsoleClose(sender remoteaccess.Sender, sessionID string, reason string) {
+	if sender == nil {
+		return
+	}
+
+	_ = sender.SendFrame(remoteaccess.Frame{
+		SessionID: sessionID,
+		FrameType: consoleFrameTypeClose,
+		Reason:    reason,
+	})
 }
 
 func sendProxmoxConsoleRemoteError(sender remoteaccess.Sender, sessionID string, reason string) {

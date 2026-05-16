@@ -544,6 +544,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert decoded["session_id"] == "session-1"
     assert decoded["agent_id"] == "agent-1"
     assert decoded["gateway_id"] == "gateway-1"
+    assert decoded["metadata"]["media_session_id"] == "desktop-media-session-1"
+    assert decoded["metadata"]["route_id"] == "agent-1"
+    assert decoded["metadata"]["target_id"] == "desktop-target-1"
+    assert decoded["metadata"]["encoding_hint"] == "srdp"
+    assert is_binary(decoded["metadata"]["lease_token"])
+    assert byte_size(decoded["metadata"]["lease_token"]) == 32
 
     target = decoded["target"]
     assert target["target_id"] == "desktop-target-1"
