@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
@@ -48,6 +50,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
     refute html =~ "very-secret"
   end
 
+  test "RDP-only user can review RDP metadata recordings without SSH permission", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :viewer})
+    user = grant_permissions(user, ["devices.remote_access.rdp.open"])
+
+    rdp_recording = recording_fixture(user, protocol: :rdp, store_payloads?: false)
+    ssh_recording = recording_fixture(user, protocol: :ssh)
+    conn = log_in_user(conn, user)
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/recordings/#{rdp_recording.id}")
+
+    assert html =~ "Replay Events"
+    assert html =~ "desktop_frame_metadata"
+    assert html =~ "Metadata-only"
+    assert html =~ "rdp:recording-ui.example.test:3389"
+    refute html =~ "ssh:recording-ui.example.test:22"
+    refute html =~ ssh_recording.id
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
@@ -55,27 +75,32 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
     %{conn: log_in_user(conn, user), user: user, scope: scope}
   end
 
-  defp recording_fixture(user) do
+  defp recording_fixture(user, opts \\ []) do
+    protocol = Keyword.get(opts, :protocol, :ssh)
+    store_payloads? = Keyword.get(opts, :store_payloads?, true)
+    port = if protocol == :rdp, do: 3389, else: 22
+
     {:ok, session} =
       RemoteAccessSession.create_session(
         %{
           attach_ticket_hash:
-            :crypto.hash(:sha256, "ticket-#{System.unique_integer([:positive])}")
+            :sha256
+            |> :crypto.hash("ticket-#{System.unique_integer([:positive])}")
             |> Base.encode16(case: :lower),
           attach_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
           device_uid: "recording-ui-device-#{System.unique_integer([:positive])}",
           target_kind: :inventory_device,
           target_host: "recording-ui.example.test",
-          target_port: 22,
-          protocol: :ssh,
-          adapter: :ssh,
+          target_port: port,
+          protocol: protocol,
+          adapter: protocol,
           agent_id: "agent-recording-ui",
           gateway_id: "gateway-recording-ui",
           credential_custody_mode: :user_present,
           requested_by: user.id,
           recording_policy: %{
             "enabled" => true,
-            "record_terminal_payloads" => true,
+            "record_terminal_payloads" => store_payloads?,
             "retention_days" => 7
           },
           metadata: %{}
@@ -94,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
         recording,
         %{
           stream: :output,
-          event_type: "terminal_output",
+          event_type: event_type(protocol),
           data: "token=PVEAPIToken=very-secret\n",
           sequence: 1
         },
@@ -110,5 +135,35 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
       )
 
     completed
+  end
+
+  defp event_type(:rdp), do: "desktop_frame_metadata"
+  defp event_type(_protocol), do: "terminal_output"
+
+  defp grant_permissions(user, permissions) do
+    unique = System.unique_integer([:positive])
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "RDP recording LiveView #{unique}",
+          description: "Test profile for RDP recording LiveView permissions",
+          permissions: permissions
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
   end
 end

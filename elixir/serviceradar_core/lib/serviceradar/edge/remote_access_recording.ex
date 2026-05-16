@@ -15,8 +15,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @remote_access_permission "devices.remote_access.ssh.open"
-  @remote_access_check {ActorHasPermission, permission: @remote_access_permission}
+  @remote_access_ssh_permission "devices.remote_access.ssh.open"
+  @remote_access_rdp_permission "devices.remote_access.rdp.open"
+  @remote_access_ssh_check {ActorHasPermission, permission: @remote_access_ssh_permission}
+  @remote_access_rdp_check {ActorHasPermission, permission: @remote_access_rdp_permission}
 
   @create_fields [
     :session_id,
@@ -98,7 +100,11 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@remote_access_check)
+
+    policy action_type(:read) do
+      authorize_if @remote_access_ssh_check
+      authorize_if @remote_access_rdp_check
+    end
 
     policy action_type([:create, :update, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)

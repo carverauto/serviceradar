@@ -34,4 +34,10 @@ defmodule ServiceRadarWebNG.RBAC do
   end
 
   def can?(_, _), do: false
+
+  def can_any?(scope, permissions) when is_list(permissions) do
+    Enum.any?(permissions, &can?(scope, &1))
+  end
+
+  def can_any?(_scope, _permissions), do: false
 end

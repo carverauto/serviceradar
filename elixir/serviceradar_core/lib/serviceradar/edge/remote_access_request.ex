@@ -16,9 +16,11 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @open_permission "devices.remote_access.ssh.open"
+  @ssh_open_permission "devices.remote_access.ssh.open"
+  @rdp_open_permission "devices.remote_access.rdp.open"
   @review_permission "devices.remote_access.requests.review"
-  @open_check {ActorHasPermission, permission: @open_permission}
+  @ssh_open_check {ActorHasPermission, permission: @ssh_open_permission}
+  @rdp_open_check {ActorHasPermission, permission: @rdp_open_permission}
   @review_check {ActorHasPermission, permission: @review_permission}
 
   @create_fields [
@@ -118,11 +120,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
     system_bypass()
 
     policy action_type(:read) do
-      authorize_if @open_check
+      authorize_if @ssh_open_check
+      authorize_if @rdp_open_check
       authorize_if @review_check
     end
 
-    action_type_with_permission(:create, @open_check)
+    action_type_with_permission(:create, @ssh_open_check)
     action_with_permission([:approve, :deny], @review_check)
 
     policy action([:expire, :bind_session]) do

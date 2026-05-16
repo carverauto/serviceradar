@@ -16,8 +16,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @remote_access_permission "devices.remote_access.ssh.open"
-  @remote_access_check {ActorHasPermission, permission: @remote_access_permission}
+  @remote_access_ssh_permission "devices.remote_access.ssh.open"
+  @remote_access_rdp_permission "devices.remote_access.rdp.open"
+  @remote_access_ssh_check {ActorHasPermission, permission: @remote_access_ssh_permission}
+  @remote_access_rdp_check {ActorHasPermission, permission: @remote_access_rdp_permission}
 
   @create_fields [
     :attach_ticket_hash,
@@ -162,8 +164,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@remote_access_check)
-    action_type_with_permission(:create, @remote_access_check)
+
+    policy action_type(:read) do
+      authorize_if @remote_access_ssh_check
+      authorize_if @remote_access_rdp_check
+    end
+
+    action_type_with_permission(:create, @remote_access_ssh_check)
 
     policy action_type([:update, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)

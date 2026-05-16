@@ -13,16 +13,19 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
 
   action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
-  @open_permission "devices.remote_access.ssh.open"
+  @ssh_open_permission "devices.remote_access.ssh.open"
+  @rdp_open_permission "devices.remote_access.rdp.open"
+  @view_permissions [@ssh_open_permission, @rdp_open_permission]
   @export_permission "devices.remote_access.recordings.export"
 
   def show(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @open_permission),
-         {:ok, recording} <- fetch_recording(id, conn) do
+         :ok <- require_any_permission(conn, @view_permissions),
+         {:ok, recording} <- fetch_recording(id, conn),
+         :ok <- require_recording_view_permission(conn, recording) do
       json(conn, %{data: recording_json(recording)})
     else
-      {:error, :forbidden} -> forbidden(conn, @open_permission)
+      {:error, :forbidden} -> forbidden(conn, "remote access")
       {:error, :not_found} -> not_found(conn)
       {:error, :invalid_id} -> invalid_request(conn, "id must be a valid UUID")
       {:error, other} -> {:error, other}
@@ -31,12 +34,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
 
   def events(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @open_permission),
+         :ok <- require_any_permission(conn, @view_permissions),
          {:ok, recording} <- fetch_recording(id, conn),
+         :ok <- require_recording_view_permission(conn, recording),
          {:ok, events} <- RemoteAccessRecordings.list_events(recording, scope: get_scope(conn)) do
       json(conn, %{data: Enum.map(events, &event_json/1)})
     else
-      {:error, :forbidden} -> forbidden(conn, @open_permission)
+      {:error, :forbidden} -> forbidden(conn, "remote access")
       {:error, :not_found} -> not_found(conn)
       {:error, :invalid_id} -> invalid_request(conn, "id must be a valid UUID")
       {:error, other} -> {:error, other}
@@ -47,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @export_permission),
          {:ok, recording} <- fetch_recording(id, conn),
+         :ok <- require_recording_view_permission(conn, recording),
          {:ok, export} <-
            RemoteAccessRecordings.export(recording,
              scope: get_scope(conn),
@@ -164,4 +169,26 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
     scope = conn.assigns[:current_scope]
     if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
   end
+
+  defp require_any_permission(conn, permissions) when is_list(permissions) do
+    scope = conn.assigns[:current_scope]
+    if RBAC.can_any?(scope, permissions), do: :ok, else: {:error, :forbidden}
+  end
+
+  defp require_recording_view_permission(conn, %RemoteAccessRecording{} = recording) do
+    require_permission(conn, permission_for_recording(recording))
+  end
+
+  defp permission_for_recording(%RemoteAccessRecording{} = recording) do
+    case recording_protocol(recording) do
+      "rdp" -> @rdp_open_permission
+      _protocol -> @ssh_open_permission
+    end
+  end
+
+  defp recording_protocol(%RemoteAccessRecording{manifest: manifest}) when is_map(manifest) do
+    manifest["protocol"] || manifest[:protocol]
+  end
+
+  defp recording_protocol(_recording), do: "ssh"
 end

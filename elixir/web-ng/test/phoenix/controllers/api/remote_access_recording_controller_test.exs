@@ -1,0 +1,139 @@
+defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
+  use ServiceRadarWebNGWeb.ConnCase, async: false
+  use ServiceRadarWebNG.AshTestHelpers
+
+  alias ServiceRadar.Edge.RemoteAccessRecording
+  alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNG.Auth.Guardian
+
+  defmodule AuditSink do
+    @moduledoc false
+    def write_async(_opts), do: :ok
+  end
+
+  setup %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :viewer})
+    user = grant_permissions(user, ["devices.remote_access.rdp.open"])
+    {:ok, token, _claims} = Guardian.create_access_token(user)
+
+    %{conn: Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}"), user: user}
+  end
+
+  test "RDP-only user can read RDP recording metadata", %{conn: conn, user: user} do
+    recording = recording_fixture(user, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}")
+
+    body = json_response(conn, 200)
+    assert body["data"]["manifest"]["protocol"] == "rdp"
+    assert body["data"]["manifest"]["target_port"] == 3389
+  end
+
+  test "RDP-only user can read RDP recording events", %{conn: conn, user: user} do
+    recording = recording_fixture(user, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/events")
+
+    body = json_response(conn, 200)
+    assert [%{"event_type" => "desktop_frame_metadata", "payload_redacted" => true}] = body["data"]
+    refute inspect(body) =~ "very-secret"
+  end
+
+  test "RDP-only user cannot read SSH recording metadata", %{conn: conn, user: user} do
+    recording = recording_fixture(user, :ssh)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}")
+
+    assert %{"error" => "forbidden"} = json_response(conn, 403)
+  end
+
+  defp recording_fixture(user, protocol) do
+    port = if protocol == :rdp, do: 3389, else: 22
+
+    {:ok, session} =
+      RemoteAccessSession.create_session(
+        %{
+          attach_ticket_hash:
+            :sha256
+            |> :crypto.hash("ticket-#{System.unique_integer([:positive])}")
+            |> Base.encode16(case: :lower),
+          attach_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          device_uid: "recording-api-device-#{System.unique_integer([:positive])}",
+          target_kind: :inventory_device,
+          target_host: "recording-api.example.test",
+          target_port: port,
+          protocol: protocol,
+          adapter: protocol,
+          agent_id: "agent-recording-api",
+          gateway_id: "gateway-recording-api",
+          credential_custody_mode: :user_present,
+          requested_by: user.id,
+          recording_policy: %{"enabled" => true, "retention_days" => 7},
+          metadata: %{}
+        },
+        actor: system_actor()
+      )
+
+    {:ok, recording} =
+      RemoteAccessRecordings.ensure_for_session(session,
+        audit_writer: AuditSink,
+        audit_actor: system_actor()
+      )
+
+    {:ok, _event} =
+      RemoteAccessRecordings.record_event(
+        recording,
+        %{
+          stream: :output,
+          event_type: event_type(protocol),
+          data: "token=PVEAPIToken=very-secret\n",
+          sequence: 1
+        },
+        actor: system_actor()
+      )
+
+    {:ok, %RemoteAccessRecording{} = completed} =
+      RemoteAccessRecordings.complete(
+        recording,
+        %{input_bytes: 0, output_bytes: 31, event_count: 1},
+        audit_writer: AuditSink,
+        audit_actor: system_actor()
+      )
+
+    completed
+  end
+
+  defp event_type(:rdp), do: "desktop_frame_metadata"
+  defp event_type(_protocol), do: "terminal_output"
+
+  defp grant_permissions(user, permissions) do
+    unique = System.unique_integer([:positive])
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "RDP recording API #{unique}",
+          description: "Test profile for RDP recording API permissions",
+          permissions: permissions
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
+  end
+end

@@ -119,9 +119,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     RBAC.can?(current_scope, "settings.networks.manage") or
       RBAC.can?(current_scope, "settings.snmp_profiles.manage") or
       RBAC.can?(current_scope, "settings.credentials.manage") or
-      (FeatureFlags.remote_access_ssh_enabled?() and
-         (RBAC.can?(current_scope, "settings.remote_access_host_keys.manage") or
-            RBAC.can?(current_scope, "devices.remote_access.ssh.open")))
+      remote_access_discovery_tab_visible?(current_scope)
   end
 
   defp can_networks_tab?(current_scope) do
@@ -377,7 +375,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             label: "Recordings",
             navigate: ~p"/settings/networks/recordings",
             active: String.starts_with?(path, "/settings/networks/recordings"),
-            requires_remote_access_ssh?: true
+            requires_remote_access_recordings?: true
           },
           %{
             label: "SNMP",
@@ -442,6 +440,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       show_discovery_tab?(Map.delete(tab, :requires_remote_access_ssh?), scope)
   end
 
+  defp show_discovery_tab?(%{requires_remote_access_recordings?: true} = tab, scope) do
+    remote_access_recordings_enabled?() and
+      show_discovery_tab?(Map.delete(tab, :requires_remote_access_recordings?), scope)
+  end
+
   defp show_discovery_tab?(%{label: label}, scope), do: show_discovery_tab?(label, scope)
 
   defp show_discovery_tab?(_label, nil), do: true
@@ -452,11 +455,30 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         "SNMP" -> "settings.snmp_profiles.manage"
         "Credential Rules" -> "settings.credentials.manage"
         "Host Keys" -> "settings.remote_access_host_keys.manage"
-        "Recordings" -> "devices.remote_access.ssh.open"
+        "Recordings" -> remote_access_recording_permissions()
         _ -> "settings.networks.manage"
       end
 
-    RBAC.can?(scope, permission)
+    case permission do
+      permissions when is_list(permissions) -> RBAC.can_any?(scope, permissions)
+      permission -> RBAC.can?(scope, permission)
+    end
+  end
+
+  defp remote_access_discovery_tab_visible?(current_scope) do
+    (FeatureFlags.remote_access_ssh_enabled?() and
+       (RBAC.can?(current_scope, "settings.remote_access_host_keys.manage") or
+          RBAC.can?(current_scope, "devices.remote_access.ssh.open"))) or
+      (FeatureFlags.remote_access_desktop_rdp_enabled?() and
+         RBAC.can?(current_scope, "devices.remote_access.rdp.open"))
+  end
+
+  defp remote_access_recordings_enabled? do
+    FeatureFlags.remote_access_ssh_enabled?() or FeatureFlags.remote_access_desktop_rdp_enabled?()
+  end
+
+  defp remote_access_recording_permissions do
+    ["devices.remote_access.ssh.open", "devices.remote_access.rdp.open"]
   end
 
   # Agents section sub-navigation
