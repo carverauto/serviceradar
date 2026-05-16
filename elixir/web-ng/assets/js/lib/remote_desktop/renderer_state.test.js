@@ -214,6 +214,22 @@ describe("remote desktop renderer state helpers", () => {
     expect(result.dropped).toEqual([first])
     expect(queue.snapshot().map((frame) => frame.sequence)).toEqual([2, 3])
   })
+
+  it("does not coalesce stale renderer frames across media bindings", () => {
+    const queue = createDesktopRenderQueue({maxFrames: 2})
+    const first = rendererFrame({sequence: 1, mediaSessionId: "media-a"})
+    const second = rendererFrame({sequence: 2, mediaSessionId: "media-b"})
+    const otherBinding = rendererFrame({sequence: 3, mediaSessionId: "media-c"})
+
+    queue.push(first)
+    queue.push(second)
+
+    const result = queue.push(otherBinding)
+
+    expect(result).toMatchObject({accepted: false, coalesced: false})
+    expect(result.dropped).toEqual([otherBinding])
+    expect(queue.snapshot().map((frame) => frame.mediaSessionId)).toEqual(["media-a", "media-b"])
+  })
 })
 
 function rendererFrame({

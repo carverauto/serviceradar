@@ -384,3 +384,62 @@ func TestDesktopMediaCreditWindowAllowsEOFWithoutCredit(t *testing.T) {
 		t.Fatalf("Consume EOF returned error: %v", err)
 	}
 }
+
+func TestDesktopMediaCreditWindowExhaustsLongRunningBurstAndRecoversWithAcks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		initialCredit = 32
+		maxChunk      = 8
+	)
+	const burstFrames = uint64(initialCredit / maxChunk)
+
+	window, err := NewDesktopMediaCreditWindow(initialCredit, maxChunk)
+	if err != nil {
+		t.Fatalf("NewDesktopMediaCreditWindow returned error: %v", err)
+	}
+
+	frame := DesktopMediaFrame{Payload: make([]byte, maxChunk)}
+
+	for seq := uint64(1); seq <= burstFrames; seq++ {
+		frame.Sequence = seq
+		if !window.CanSend(frame) {
+			t.Fatalf("CanSend returned false for burst frame %d", seq)
+		}
+		if err := window.Consume(frame); err != nil {
+			t.Fatalf("Consume burst frame %d returned error: %v", seq, err)
+		}
+	}
+	if window.RemainingBytes() != 0 {
+		t.Fatalf("RemainingBytes after burst = %d, want 0", window.RemainingBytes())
+	}
+	if window.CanSend(frame) {
+		t.Fatalf("CanSend returned true after credit exhaustion")
+	}
+	if err := window.Consume(frame); !errors.Is(err, ErrDesktopMediaNoCredit) {
+		t.Fatalf("Consume exhausted frame error = %v, want %v", err, ErrDesktopMediaNoCredit)
+	}
+
+	ack := DesktopMediaAck{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		LastAcceptedSeq:  burstFrames,
+		CreditBytes:      maxChunk * 2,
+	}
+	if err := window.ApplyAck(ack, desktopMediaTestSessionID, desktopMediaTestMediaSessionID); err != nil {
+		t.Fatalf("ApplyAck returned error: %v", err)
+	}
+	if window.RemainingBytes() != maxChunk*2 {
+		t.Fatalf("RemainingBytes after ack = %d, want %d", window.RemainingBytes(), maxChunk*2)
+	}
+
+	for seq := burstFrames + 1; seq <= burstFrames+2; seq++ {
+		frame.Sequence = seq
+		if err := window.Consume(frame); err != nil {
+			t.Fatalf("Consume recovered burst frame %d returned error: %v", seq, err)
+		}
+	}
+	if window.RemainingBytes() != 0 {
+		t.Fatalf("RemainingBytes after recovered burst = %d, want 0", window.RemainingBytes())
+	}
+}

@@ -292,6 +292,7 @@
 - [x] 5.6.49 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session starts closing.
 - [x] 5.6.50 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session lease expires.
 - [x] 5.6.51 Add focused Elixir tests proving desktop media frame counter mutations reject mismatched media-ingest bindings without changing counters.
+- [x] 5.6.52 Add focused Go tests proving long-running desktop media bursts exhaust credit and recover only after browser acknowledgements.
 - [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
@@ -306,6 +307,7 @@
 - [x] 5.7.11 Add browser renderer-state tests for dirty tile masks, no-copy tile upload planning, Canvas harness application, and metadata-only frame handling.
 - [x] 5.7.12 Add browser renderer-state tests proving Arrow IPC attachments stay metadata-only and cannot enter screen-pixel upload paths.
 - [x] 5.7.13 Add browser renderer-state tests for bounded render queues, stale-frame coalescing, and critical-frame preservation.
+- [x] 5.7.14 Add browser renderer-state tests proving stale-frame coalescing does not cross media-session bindings.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
