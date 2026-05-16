@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Northbound.Changes.RedactTargetResult
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "northbound.actions.view"}
@@ -58,10 +59,13 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :started_at,
         :completed_at
       ]
+
+      change RedactTargetResult
     end
 
     update :record_result do
       accept [:status, :result, :external_correlation_id, :started_at, :completed_at]
+      change RedactTargetResult
     end
   end
 

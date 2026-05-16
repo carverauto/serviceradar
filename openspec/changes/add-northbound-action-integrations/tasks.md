@@ -3,7 +3,7 @@
 - [x] 1.1 Inventory existing Ansible launch resources, device action UI, plugin manifest fields, and Wasm host functions that can be reused.
 - [x] 1.2 Define Ash resources for providers, descriptors, invocations, invocation targets, and event handlers.
 - [x] 1.3 Add migrations under `elixir/serviceradar_core/priv/repo/migrations/` using the `platform` schema only.
-- [ ] 1.4 Define redaction and retention policy for action inputs and results.
+- [x] 1.4 Define redaction and retention policy for action inputs and results.
 
 ## 2. Provider and Runtime Contract
 

@@ -9,6 +9,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
     extensions: [AshStateMachine, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Automation.Northbound.Changes.RedactInvocationInput
+  alias ServiceRadar.Automation.Northbound.Changes.RedactInvocationResult
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "northbound.actions.view"}
@@ -130,6 +132,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
         :redacted_input_values,
         :metadata
       ]
+
+      change RedactInvocationInput
     end
 
     update :record_dispatch do
@@ -143,24 +147,28 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
 
     update :record_succeeded do
       accept [:result_summary, :external_correlation_id]
+      change RedactInvocationResult
       change set_attribute(:completed_at, &DateTime.utc_now/0)
       change transition_state(:succeeded)
     end
 
     update :record_failed do
       accept [:result_summary, :external_correlation_id, :error_class, :error_message]
+      change RedactInvocationResult
       change set_attribute(:completed_at, &DateTime.utc_now/0)
       change transition_state(:failed)
     end
 
     update :record_canceled do
       accept [:result_summary]
+      change RedactInvocationResult
       change set_attribute(:completed_at, &DateTime.utc_now/0)
       change transition_state(:canceled)
     end
 
     update :record_suppressed do
       accept [:result_summary, :error_class, :error_message]
+      change RedactInvocationResult
       change set_attribute(:completed_at, &DateTime.utc_now/0)
       change transition_state(:suppressed)
     end

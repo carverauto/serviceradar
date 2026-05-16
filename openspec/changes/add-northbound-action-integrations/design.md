@@ -82,6 +82,8 @@ Event handlers reuse the same invocation path but add guardrails:
 - Credentials are referenced through the credential broker and are never returned to the browser.
 - Wasm providers still run under package approval, signature verification, resource limits, host-function allowlists, and agent sandboxing.
 - All invocations produce audit records with actor, targets, input hashes or redacted inputs, provider, action ID, and result.
+- Invocation inputs are split into private `input_values` for dispatch and public `redacted_input_values` for UI/audit. Redaction uses descriptor schema hints (`writeOnly`, `sensitive`, `x-sensitive`, `x-serviceradar-sensitive`, `x-serviceradar-redact`, and sensitive `format` values) plus conservative key-name matching for tokens, passwords, credentials, authorization headers, cookies, and private keys.
+- Result summaries and per-target provider results are stored only after the same redaction pass. Invocation metadata stores deterministic input/result hashes and the redaction policy version so operators can correlate executions without exposing secrets.
 
 ## Compatibility
 
