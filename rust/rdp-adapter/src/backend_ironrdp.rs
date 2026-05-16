@@ -7,14 +7,24 @@ const CONNECTOR_NOT_IMPLEMENTED: &str =
 const MEMORY_USER_REQUIRED: &str =
     "IronRDP backend currently requires a memory-user credential grant";
 const INVALID_CONNECTION_PLAN: &str = "IronRDP connection plan is invalid";
+const TLS_MODE_PINNED_CA: &str = "pinned_ca";
+const TLS_MODE_VERIFY: &str = "verify";
+const TLS_MODE_SYSTEM: &str = "system";
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
     upstream_host: String,
     upstream_port: u16,
     tls_server_name: String,
+    tls_trust_source: TlsTrustSource,
     desktop_width: u16,
     desktop_height: u16,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum TlsTrustSource {
+    SystemRoots,
+    RegisteredCaBundle(String),
 }
 
 struct MemoryUserCredential {
@@ -139,6 +149,7 @@ fn build_nonsecret_connection_plan(
     } else {
         tls_server_name
     };
+    let tls_trust_source = build_tls_trust_source(request)?;
     let upstream_port = u16::try_from(request.target.upstream.port)
         .map_err(|_| BackendError::Unsupported(INVALID_CONNECTION_PLAN))?;
     let desktop_width = u16::try_from(request.target.screen.max_width)
@@ -154,9 +165,25 @@ fn build_nonsecret_connection_plan(
         upstream_host: upstream_host.to_owned(),
         upstream_port,
         tls_server_name: effective_tls_server_name.to_owned(),
+        tls_trust_source,
         desktop_width,
         desktop_height,
     })
+}
+
+fn build_tls_trust_source(request: &OpenPayload) -> Result<TlsTrustSource, BackendError> {
+    let ca_bundle_id = request.target.tls.ca_bundle_id.trim();
+
+    match request.target.tls.mode.as_str() {
+        TLS_MODE_SYSTEM => Ok(TlsTrustSource::SystemRoots),
+        TLS_MODE_VERIFY if ca_bundle_id.is_empty() => Ok(TlsTrustSource::SystemRoots),
+        TLS_MODE_VERIFY => Ok(TlsTrustSource::RegisteredCaBundle(ca_bundle_id.to_owned())),
+        TLS_MODE_PINNED_CA if ca_bundle_id.is_empty() => {
+            Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN))
+        }
+        TLS_MODE_PINNED_CA => Ok(TlsTrustSource::RegisteredCaBundle(ca_bundle_id.to_owned())),
+        _ => Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN)),
+    }
 }
 
 fn build_memory_user_credential(
@@ -222,6 +249,7 @@ mod tests {
                 upstream_host: "win.example".to_owned(),
                 upstream_port: 3389,
                 tls_server_name: "win.example".to_owned(),
+                tls_trust_source: TlsTrustSource::SystemRoots,
                 desktop_width: 1920,
                 desktop_height: 1080,
             }
@@ -239,6 +267,48 @@ mod tests {
 
         assert_eq!(plan.upstream_host, "win.example");
         assert_eq!(plan.tls_server_name, "win.example");
+    }
+
+    #[test]
+    fn nonsecret_connection_plan_uses_registered_ca_bundle_for_verify_mode() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","ca_bundle_id":"ca-rdp-prod","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+        assert_eq!(
+            plan.tls_trust_source,
+            TlsTrustSource::RegisteredCaBundle("ca-rdp-prod".to_owned())
+        );
+    }
+
+    #[test]
+    fn nonsecret_connection_plan_requires_registered_ca_bundle_for_pinned_ca() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"pinned_ca","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+        let err = build_nonsecret_connection_plan(&payload).expect_err("pinned CA rejected");
+
+        assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    #[test]
+    fn nonsecret_connection_plan_uses_registered_ca_bundle_for_pinned_ca() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"pinned_ca","ca_bundle_id":"ca-rdp-prod","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+        assert_eq!(
+            plan.tls_trust_source,
+            TlsTrustSource::RegisteredCaBundle("ca-rdp-prod".to_owned())
+        );
     }
 
     #[test]

@@ -148,6 +148,7 @@
 - [x] 3.2.25 Send RDP broker open frames as desktop open payloads containing the registered target policy snapshot instead of SSH-shaped open data.
 - [x] 3.2.26 Wire agent-side RDP open frames into the desktop media gateway sender, RDP helper adapter runtime, ready response, and active desktop session registry.
 - [x] 3.2.27 Add a Bazel-only adapter connector-config probe proving validated ServiceRadar open payloads can map to IronRDP connector config through the isolated connector crate universe while runtime readiness stays disabled.
+- [x] 3.2.28 Add explicit adapter-side TLS trust-source planning for system roots, registered CA bundles, and pinned CA bundle requirements before connector code can consume a target policy.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -281,6 +282,7 @@
 - [x] 5.2.44 Add a feature-enabled Bazel test target for the reviewed IronRDP-linked helper backend checks.
 - [x] 5.2.45 Add a Bazel-only adapter connector-link probe test target that links `ironrdp-connector`, `ironrdp-blocking`, and `zeroize` from the isolated connector crate universe.
 - [x] 5.2.46 Add a Bazel-only adapter connector-config probe test proving ServiceRadar target policy, screen limits, domain-qualified username, and NLA-required posture map into IronRDP connector config.
+- [x] 5.2.47 Add focused Rust helper tests proving adapter TLS trust planning defaults to system roots, uses registered CA bundles, and rejects `pinned_ca` without a CA bundle.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
