@@ -1,4 +1,6 @@
 use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use crate::protocol::DesktopFrame;
 use crate::protocol::{DesktopCredentialGrant, OpenPayload};
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use std::collections::VecDeque;
@@ -14,6 +16,8 @@ const INVALID_CONNECTION_PLAN: &str = "IronRDP connection plan is invalid";
 const TLS_MODE_PINNED_CA: &str = "pinned_ca";
 const TLS_MODE_VERIFY: &str = "verify";
 const TLS_MODE_SYSTEM: &str = "system";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const UNSUPPORTED_INPUT_EVENT: &str = "IronRDP input event is unsupported";
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -365,25 +369,164 @@ fn encode_active_stage_keyboard_input_for_probe(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
 ) -> Result<ActiveStageInputProbe, BackendError> {
+    let frame = DesktopFrame {
+        session_id: "session-1".to_owned(),
+        protocol: "rdp".to_owned(),
+        frame_type: "desktop.input".to_owned(),
+        width: 0,
+        height: 0,
+        input: Some(crate::protocol::DesktopInputEvent {
+            kind: "key".to_owned(),
+            key: "Enter".to_owned(),
+            down: true,
+            button: String::new(),
+            x: 0,
+            y: 0,
+            focused: false,
+        }),
+        quality: None,
+        reason: String::new(),
+        timestamp: 0,
+        metadata: Default::default(),
+    };
+
+    encode_active_stage_desktop_input_for_probe(plan, credential, &frame)
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn encode_active_stage_desktop_input_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+    frame: &DesktopFrame,
+) -> Result<ActiveStageInputProbe, BackendError> {
     let (mut active_stage, desktop_size) = build_active_stage_for_probe(plan, credential);
     let mut image = ironrdp_session::image::DecodedImage::new(
         ironrdp_graphics::image_processing::PixelFormat::RgbA32,
         desktop_size.width,
         desktop_size.height,
     );
+    let events = map_desktop_input_events_for_probe(frame)?;
     let outputs = active_stage
-        .process_fastpath_input(
-            &mut image,
-            &[
-                ironrdp_pdu::input::fast_path::FastPathInputEvent::KeyboardEvent(
-                    ironrdp_pdu::input::fast_path::KeyboardFlags::empty(),
-                    0x1e,
-                ),
-            ],
-        )
+        .process_fastpath_input(&mut image, &events)
         .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
 
     Ok(summarize_active_stage_outputs_for_probe(outputs))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn map_desktop_input_events_for_probe(
+    frame: &DesktopFrame,
+) -> Result<Vec<ironrdp_pdu::input::fast_path::FastPathInputEvent>, BackendError> {
+    let Some(input) = frame.input.as_ref() else {
+        return Err(BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT));
+    };
+
+    match input.kind.as_str() {
+        "key" => {
+            let scancode = browser_key_to_set1_scancode_for_probe(&input.key)
+                .ok_or(BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT))?;
+            let mut flags = ironrdp_pdu::input::fast_path::KeyboardFlags::empty();
+            if !input.down {
+                flags |= ironrdp_pdu::input::fast_path::KeyboardFlags::RELEASE;
+            }
+
+            Ok(vec![
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::KeyboardEvent(flags, scancode),
+            ])
+        }
+        "pointer" => {
+            let mut flags = ironrdp_pdu::input::mouse::PointerFlags::MOVE;
+            match input.button.as_str() {
+                "" => {}
+                "left" => flags |= ironrdp_pdu::input::mouse::PointerFlags::LEFT_BUTTON,
+                "middle" => {
+                    flags |= ironrdp_pdu::input::mouse::PointerFlags::MIDDLE_BUTTON_OR_WHEEL;
+                }
+                "right" => flags |= ironrdp_pdu::input::mouse::PointerFlags::RIGHT_BUTTON,
+                _ => return Err(BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT)),
+            }
+            if input.down && !input.button.is_empty() {
+                flags |= ironrdp_pdu::input::mouse::PointerFlags::DOWN;
+            }
+
+            let x = u16::try_from(input.x)
+                .map_err(|_| BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT))?;
+            let y = u16::try_from(input.y)
+                .map_err(|_| BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT))?;
+
+            Ok(vec![
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::MouseEvent(
+                    ironrdp_pdu::input::MousePdu {
+                        flags,
+                        number_of_wheel_rotation_units: 0,
+                        x_position: x,
+                        y_position: y,
+                    },
+                ),
+            ])
+        }
+        "focus" => Ok(Vec::new()),
+        _ => Err(BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT)),
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn browser_key_to_set1_scancode_for_probe(key: &str) -> Option<u8> {
+    Some(match key {
+        "Escape" => 0x01,
+        "1" => 0x02,
+        "2" => 0x03,
+        "3" => 0x04,
+        "4" => 0x05,
+        "5" => 0x06,
+        "6" => 0x07,
+        "7" => 0x08,
+        "8" => 0x09,
+        "9" => 0x0a,
+        "0" => 0x0b,
+        "-" => 0x0c,
+        "=" => 0x0d,
+        "Backspace" => 0x0e,
+        "Tab" => 0x0f,
+        "q" | "Q" => 0x10,
+        "w" | "W" => 0x11,
+        "e" | "E" => 0x12,
+        "r" | "R" => 0x13,
+        "t" | "T" => 0x14,
+        "y" | "Y" => 0x15,
+        "u" | "U" => 0x16,
+        "i" | "I" => 0x17,
+        "o" | "O" => 0x18,
+        "p" | "P" => 0x19,
+        "[" => 0x1a,
+        "]" => 0x1b,
+        "Enter" => 0x1c,
+        "a" | "A" => 0x1e,
+        "s" | "S" => 0x1f,
+        "d" | "D" => 0x20,
+        "f" | "F" => 0x21,
+        "g" | "G" => 0x22,
+        "h" | "H" => 0x23,
+        "j" | "J" => 0x24,
+        "k" | "K" => 0x25,
+        "l" | "L" => 0x26,
+        ";" => 0x27,
+        "'" => 0x28,
+        "`" => 0x29,
+        "\\" => 0x2b,
+        "z" | "Z" => 0x2c,
+        "x" | "X" => 0x2d,
+        "c" | "C" => 0x2e,
+        "v" | "V" => 0x2f,
+        "b" | "B" => 0x30,
+        "n" | "N" => 0x31,
+        "m" | "M" => 0x32,
+        "," => 0x33,
+        "." => 0x34,
+        "/" => 0x35,
+        " " | "Space" => 0x39,
+        _ => return None,
+    })
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -963,6 +1106,151 @@ mod tests {
         assert_eq!(probe.response_frames, 1);
         assert!(probe.response_bytes > 0);
         assert_eq!(probe.graphics_updates, 0);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_maps_browser_key_input_to_rdp_scancode_events() {
+        let events = map_desktop_input_events_for_probe(&desktop_key_frame("Enter", true))
+            .expect("key down event");
+
+        assert_eq!(
+            events,
+            vec![
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::KeyboardEvent(
+                    ironrdp_pdu::input::fast_path::KeyboardFlags::empty(),
+                    0x1c,
+                ),
+            ]
+        );
+
+        let events = map_desktop_input_events_for_probe(&desktop_key_frame("Enter", false))
+            .expect("key up event");
+
+        assert_eq!(
+            events,
+            vec![
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::KeyboardEvent(
+                    ironrdp_pdu::input::fast_path::KeyboardFlags::RELEASE,
+                    0x1c,
+                ),
+            ]
+        );
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_maps_browser_pointer_input_to_rdp_mouse_events() {
+        let events =
+            map_desktop_input_events_for_probe(&desktop_pointer_frame("left", true, 100, 200))
+                .expect("pointer event");
+
+        assert_eq!(
+            events,
+            vec![
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::MouseEvent(
+                    ironrdp_pdu::input::MousePdu {
+                        flags: ironrdp_pdu::input::mouse::PointerFlags::MOVE
+                            | ironrdp_pdu::input::mouse::PointerFlags::LEFT_BUTTON
+                            | ironrdp_pdu::input::mouse::PointerFlags::DOWN,
+                        number_of_wheel_rotation_units: 0,
+                        x_position: 100,
+                        y_position: 200,
+                    },
+                ),
+            ]
+        );
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_rejects_unsupported_browser_input_tokens() {
+        let err = map_desktop_input_events_for_probe(&desktop_key_frame("F13", true))
+            .expect_err("unsupported key rejected");
+
+        assert_eq!(err, BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT));
+
+        let err =
+            map_desktop_input_events_for_probe(&desktop_pointer_frame("side", true, 100, 200))
+                .expect_err("unsupported pointer button rejected");
+
+        assert_eq!(err, BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_focus_input_does_not_emit_rdp_events() {
+        let events = map_desktop_input_events_for_probe(&DesktopFrame {
+            session_id: "session-1".to_owned(),
+            protocol: "rdp".to_owned(),
+            frame_type: "desktop.input".to_owned(),
+            width: 0,
+            height: 0,
+            input: Some(crate::protocol::DesktopInputEvent {
+                kind: "focus".to_owned(),
+                key: String::new(),
+                down: false,
+                button: String::new(),
+                x: 0,
+                y: 0,
+                focused: true,
+            }),
+            quality: None,
+            reason: String::new(),
+            timestamp: 0,
+            metadata: Default::default(),
+        })
+        .expect("focus event");
+
+        assert!(events.is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn desktop_key_frame(key: &str, down: bool) -> DesktopFrame {
+        DesktopFrame {
+            session_id: "session-1".to_owned(),
+            protocol: "rdp".to_owned(),
+            frame_type: "desktop.input".to_owned(),
+            width: 0,
+            height: 0,
+            input: Some(crate::protocol::DesktopInputEvent {
+                kind: "key".to_owned(),
+                key: key.to_owned(),
+                down,
+                button: String::new(),
+                x: 0,
+                y: 0,
+                focused: false,
+            }),
+            quality: None,
+            reason: String::new(),
+            timestamp: 0,
+            metadata: Default::default(),
+        }
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn desktop_pointer_frame(button: &str, down: bool, x: u32, y: u32) -> DesktopFrame {
+        DesktopFrame {
+            session_id: "session-1".to_owned(),
+            protocol: "rdp".to_owned(),
+            frame_type: "desktop.input".to_owned(),
+            width: 0,
+            height: 0,
+            input: Some(crate::protocol::DesktopInputEvent {
+                kind: "pointer".to_owned(),
+                key: String::new(),
+                down,
+                button: button.to_owned(),
+                x,
+                y,
+                focused: false,
+            }),
+            quality: None,
+            reason: String::new(),
+            timestamp: 0,
+            metadata: Default::default(),
+        }
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
