@@ -54,6 +54,19 @@ struct BlockingConnectFinalizeProbe {
     written_bytes: Vec<u8>,
 }
 
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct VerifiedTlsPeerPublicKeyForProbe {
+    bytes: Vec<u8>,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl VerifiedTlsPeerPublicKeyForProbe {
+    fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
 struct MemoryUserCredential {
     domain: Option<Zeroizing<String>>,
     username: Zeroizing<String>,
@@ -264,8 +277,9 @@ fn drive_blocking_connect_begin_for_probe(
 fn drive_blocking_connect_finalize_for_probe(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
-    server_public_key: Vec<u8>,
+    server_public_key: VerifiedTlsPeerPublicKeyForProbe,
 ) -> Result<BlockingConnectFinalizeProbe, BackendError> {
+    let server_public_key = server_public_key.into_bytes();
     if server_public_key.is_empty() {
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
@@ -315,7 +329,9 @@ fn drive_blocking_connect_finalize_for_probe(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn extract_credssp_server_public_key_for_probe(cert_der: &[u8]) -> Result<Vec<u8>, BackendError> {
+fn derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
+    cert_der: &[u8],
+) -> Result<VerifiedTlsPeerPublicKeyForProbe, BackendError> {
     use x509_cert::der::Decode as _;
 
     let cert = x509_cert::Certificate::from_der(cert_der)
@@ -331,7 +347,9 @@ fn extract_credssp_server_public_key_for_probe(cert_der: &[u8]) -> Result<Vec<u8
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 
-    Ok(public_key.to_vec())
+    Ok(VerifiedTlsPeerPublicKeyForProbe {
+        bytes: public_key.to_vec(),
+    })
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -769,9 +787,10 @@ mod tests {
         )
         .expect("credential");
 
-        let server_public_key =
-            extract_credssp_server_public_key_for_probe(&fixture_server_cert_der())
-                .expect("server public key");
+        let server_public_key = derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
+            &fixture_server_cert_der(),
+        )
+        .expect("server public key");
         let probe =
             drive_blocking_connect_finalize_for_probe(&plan, &credential, server_public_key)
                 .expect("blocking connect finalize");
@@ -794,8 +813,12 @@ mod tests {
         )
         .expect("credential");
 
-        let err = drive_blocking_connect_finalize_for_probe(&plan, &credential, Vec::new())
-            .expect_err("empty public key rejected");
+        let err = drive_blocking_connect_finalize_for_probe(
+            &plan,
+            &credential,
+            VerifiedTlsPeerPublicKeyForProbe { bytes: Vec::new() },
+        )
+        .expect_err("empty public key rejected");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
@@ -803,8 +826,11 @@ mod tests {
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_extracts_tls_public_key_for_credssp_binding() {
-        let public_key = extract_credssp_server_public_key_for_probe(&fixture_server_cert_der())
-            .expect("server public key");
+        let public_key = derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
+            &fixture_server_cert_der(),
+        )
+        .expect("server public key")
+        .into_bytes();
 
         assert_eq!(public_key.len(), 270);
         assert_eq!(&public_key[..2], &[0x30, 0x82]);
@@ -813,8 +839,9 @@ mod tests {
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_rejects_invalid_tls_certificate_for_public_key_binding() {
-        let err = extract_credssp_server_public_key_for_probe(b"not a certificate")
-            .expect_err("invalid cert rejected");
+        let err =
+            derive_credssp_server_public_key_from_verified_tls_peer_for_probe(b"not a certificate")
+                .expect_err("invalid cert rejected");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
