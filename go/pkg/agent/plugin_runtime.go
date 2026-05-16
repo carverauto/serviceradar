@@ -84,6 +84,8 @@ var (
 	errContentHashMismatch                = errors.New("content hash mismatch")
 	errInvalidPath                        = errors.New("invalid path")
 	errPluginAssignmentNotFound           = errors.New("plugin assignment not found")
+	errPluginAdmissionDenied              = errors.New("admission denied: max concurrent reached")
+	errPluginActionResultMissing          = errors.New("no result submitted")
 	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
 	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
 	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
@@ -1009,7 +1011,7 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 
 	if !m.acquireSlot() {
 		m.recordExecution(false)
-		return nil, errors.New("admission denied: max concurrent reached")
+		return nil, errPluginAdmissionDenied
 	}
 	defer m.releaseSlot()
 
@@ -1552,7 +1554,7 @@ func (m *PluginManager) executeActionWithWasm(
 	exec.closeAll()
 
 	if !exec.hasSubmitted() {
-		return nil, errors.New("no result submitted")
+		return nil, errPluginActionResultMissing
 	}
 
 	return exec.capturedActionResult(), nil
