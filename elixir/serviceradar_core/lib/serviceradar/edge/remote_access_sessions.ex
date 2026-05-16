@@ -478,6 +478,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp allowed_custody_modes(:ssh), do: [:ssh_certificate, :user_present, :centrally_brokered]
   defp allowed_custody_modes(:proxmox_console), do: [:provider_ticket]
+  defp allowed_custody_modes(:rdp), do: [:user_present, :centrally_brokered, :none]
+  defp allowed_custody_modes(:desktop), do: [:user_present, :centrally_brokered, :none]
   defp allowed_custody_modes(_protocol), do: [:none, :centrally_brokered]
 
   defp to_known_atom(value, allowed) do

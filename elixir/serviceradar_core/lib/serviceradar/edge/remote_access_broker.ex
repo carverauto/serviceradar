@@ -508,10 +508,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> case do
       {:ok, decoded} when is_map(decoded) ->
         %{
-          protocol: Map.get(decoded, "protocol"),
-          credential_mode: Map.get(decoded, "credential_mode"),
-          agent_id: Map.get(decoded, "agent_id"),
-          gateway_id: Map.get(decoded, "gateway_id"),
+          protocol: Map.get(decoded, "protocol") || get_in(decoded, ["target", "protocol"]),
+          credential_mode:
+            Map.get(decoded, "credential_mode") ||
+              get_in(decoded, ["target", "credential", "mode"]),
+          agent_id:
+            Map.get(decoded, "agent_id") ||
+              get_in(decoded, ["target", "route", "selected_agent_id"]),
+          gateway_id:
+            Map.get(decoded, "gateway_id") ||
+              get_in(decoded, ["target", "route", "selected_gateway_id"]),
           target: Map.get(decoded, "target"),
           terminal_type: Map.get(decoded, "terminal_type"),
           ssh_host_key_policy: Map.get(decoded, "ssh_host_key_policy"),
@@ -600,6 +606,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   defp open_frame_data(session, opts) do
+    protocol = string_option(session, opts, "protocol", @default_protocol)
+
+    if protocol in ["rdp", "desktop"] do
+      rdp_open_frame_data(session, opts, protocol)
+    else
+      ssh_open_frame_data(session, opts, protocol)
+    end
+  end
+
+  defp ssh_open_frame_data(session, opts, protocol) do
     session_metadata = metadata(session)
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
@@ -617,7 +633,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
       data =
         %{
-          protocol: string_option(session, opts, "protocol", @default_protocol),
+          protocol: protocol,
           session_id: session_id(session),
           agent_id: agent_id(session),
           gateway_id: value(session, "gateway_id"),
@@ -638,6 +654,196 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
       {:ok, data}
     end
+  end
+
+  defp rdp_open_frame_data(session, opts, protocol) do
+    session_metadata = metadata(session)
+    opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
+    target = target(session, opts_metadata, session_metadata)
+    target_id = desktop_target_id(session, target, session_metadata)
+    upstream_host = string_value(target, "host")
+    upstream_port = positive_int(map_value(target, "port")) || 3389
+    selected_agent_id = agent_id(session)
+
+    cond do
+      blank?(target_id) ->
+        {:error, :desktop_target_id_required}
+
+      blank?(upstream_host) ->
+        {:error, :desktop_target_host_required}
+
+      blank?(selected_agent_id) ->
+        {:error, :desktop_selected_agent_required}
+
+      true ->
+        payload =
+          %{
+            schema: "serviceradar.desktop.open.v1",
+            protocol: protocol,
+            session_id: session_id(session),
+            agent_id: selected_agent_id,
+            gateway_id: string_value(session, "gateway_id"),
+            target: %{
+              target_id: target_id,
+              display_name: string_value(session_metadata, "target_display_name"),
+              device_uid:
+                string_value(session, "device_uid") || string_value(target, "device_uid"),
+              protocol: "rdp",
+              route: %{
+                selected_agent_id: selected_agent_id,
+                selected_gateway_id: string_value(session, "gateway_id")
+              },
+              upstream: %{
+                host: upstream_host,
+                port: upstream_port
+              },
+              tls: desktop_tls_policy(session_metadata),
+              credential: desktop_credential_policy(session, session_metadata),
+              screen: desktop_screen_policy(session_metadata),
+              redirection: desktop_redirection_policy(session_metadata),
+              approval_required: truthy?(value(session, "approval_required")),
+              recording: desktop_recording_policy(session),
+              metadata: desktop_target_metadata(session_metadata)
+            },
+            credential_grant: desktop_credential_grant(opts_metadata, session_metadata)
+          }
+          |> reject_blank_map()
+          |> Jason.encode!()
+
+        {:ok, payload}
+    end
+  end
+
+  defp desktop_target_id(session, target, session_metadata) do
+    string_value(session_metadata, "desktop_target_id") ||
+      string_value(target, "id") ||
+      string_value(session, "device_uid") ||
+      string_value(target, "device_uid") ||
+      string_value(target, "host")
+  end
+
+  defp desktop_tls_policy(session_metadata) do
+    tls = session_metadata |> map_value("target_tls") |> normalize_metadata()
+    nla = session_metadata |> map_value("nla") |> normalize_metadata()
+
+    reject_blank_map(%{
+      mode: desktop_tls_mode(string_value(tls, "mode")),
+      nla_mode: if(truthy?(Map.get(nla, "required", true)), do: "required", else: "disabled"),
+      server_name: string_value(tls, "server_name") || string_value(tls, "server")
+    })
+  end
+
+  defp desktop_tls_mode("skip_verify"), do: "insecure"
+  defp desktop_tls_mode("insecure"), do: "insecure"
+  defp desktop_tls_mode("system"), do: "system"
+  defp desktop_tls_mode("tofu"), do: "tofu"
+  defp desktop_tls_mode("pinned_ca"), do: "pinned_ca"
+  defp desktop_tls_mode(_mode), do: "verify"
+
+  defp desktop_credential_policy(session, session_metadata) do
+    custody =
+      string_value(session, "credential_custody_mode") ||
+        string_value(session_metadata, "credential_custody_mode") ||
+        @default_credential_mode
+
+    metadata = session_metadata |> map_value("metadata") |> normalize_metadata()
+
+    reject_blank_map(%{
+      mode: desktop_credential_mode(custody),
+      allowed_principals: list_value(metadata, "allowed_principals"),
+      credential_secret_ref: desktop_credential_secret_ref(session, session_metadata, custody)
+    })
+  end
+
+  defp desktop_credential_mode("domain_delegation"), do: "domain_delegation"
+  defp desktop_credential_mode("smart_card"), do: "smart_card"
+  defp desktop_credential_mode("centrally_brokered"), do: "brokered_secret"
+  defp desktop_credential_mode(_custody), do: "memory_user"
+
+  defp desktop_credential_secret_ref(session, session_metadata, "centrally_brokered") do
+    string_value(session_metadata, "credential_secret_ref") ||
+      string_value(session, "credential_secret_ref") ||
+      case string_value(session, "credential_rule_id") do
+        nil -> nil
+        credential_rule_id -> "credential_rule:" <> credential_rule_id
+      end
+  end
+
+  defp desktop_credential_secret_ref(_session, _session_metadata, _custody), do: nil
+
+  defp desktop_screen_policy(session_metadata) do
+    policy = session_metadata |> map_value("screen_policy") |> normalize_metadata()
+    bitrate_bps = positive_int(map_value(policy, "bitrate_bps"))
+    bitrate_kbps = positive_int(map_value(policy, "bitrate_kbps"))
+
+    reject_blank_map(%{
+      max_width: positive_int(map_value(policy, "max_width")),
+      max_height: positive_int(map_value(policy, "max_height")),
+      frame_rate: positive_int(map_value(policy, "frame_rate")),
+      bitrate_bps: bitrate_bps || (bitrate_kbps && bitrate_kbps * 1000),
+      idle_seconds: positive_int(map_value(policy, "idle_seconds")),
+      ttl_seconds: positive_int(map_value(policy, "ttl_seconds"))
+    })
+  end
+
+  defp desktop_redirection_policy(session_metadata) do
+    policy = session_metadata |> map_value("redirection_policy") |> normalize_metadata()
+
+    reject_blank_map(%{
+      clipboard_mode: desktop_clipboard_mode(string_value(policy, "clipboard")),
+      drive: truthy?(Map.get(policy, "drive")),
+      printer: truthy?(Map.get(policy, "printer")),
+      audio: truthy?(Map.get(policy, "audio")),
+      smart_card: truthy?(Map.get(policy, "smart_card")),
+      file_copy: truthy?(Map.get(policy, "file_copy"))
+    })
+  end
+
+  defp desktop_clipboard_mode("local_to_remote"), do: "text_to_remote"
+  defp desktop_clipboard_mode("remote_to_local"), do: "text_to_browser"
+  defp desktop_clipboard_mode("bidirectional"), do: "text_bidirectional"
+  defp desktop_clipboard_mode("text_to_remote"), do: "text_to_remote"
+  defp desktop_clipboard_mode("text_to_browser"), do: "text_to_browser"
+  defp desktop_clipboard_mode("text_bidirectional"), do: "text_bidirectional"
+  defp desktop_clipboard_mode(_mode), do: "disabled"
+
+  defp desktop_recording_policy(session) do
+    policy = policy_option(session, [], "recording_policy") || %{}
+
+    screen_enabled =
+      string_value(policy, "mode") == "screen_content" ||
+        truthy?(Map.get(policy, "screen_enabled"))
+
+    reject_blank_map(%{
+      metadata_enabled: true,
+      screen_enabled: screen_enabled,
+      clipboard_enabled: truthy?(Map.get(policy, "clipboard_enabled")),
+      file_enabled: truthy?(Map.get(policy, "file_enabled")),
+      audio_enabled: truthy?(Map.get(policy, "audio_enabled"))
+    })
+  end
+
+  defp desktop_target_metadata(session_metadata) do
+    session_metadata
+    |> Map.drop([
+      "credential_grant",
+      "credential_secret_ref",
+      "nla",
+      "redirection_policy",
+      "screen_policy",
+      "ssh",
+      "target_tls"
+    ])
+    |> CredentialRedactor.redact()
+    |> reject_blank_map()
+  end
+
+  defp desktop_credential_grant(opts_metadata, session_metadata) do
+    opts_metadata
+    |> map_value("credential_grant")
+    |> fallback(map_value(session_metadata, "credential_grant"))
+    |> normalize_metadata()
+    |> non_empty_map()
   end
 
   defp ssh_certificate_envelope(_session, opts, opts_metadata, _session_metadata) do
@@ -919,8 +1125,30 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp non_empty_map(%{} = map) when map_size(map) == 0, do: nil
   defp non_empty_map(%{} = map), do: map
 
+  defp reject_blank_map(map) when is_map(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> blank?(value) or value == false end)
+    |> Map.new()
+  end
+
+  defp truthy?(value) when value in [true, "true", "1", 1, "yes", "on"], do: true
+  defp truthy?(_value), do: false
+
+  defp list_value(container, key) do
+    case map_value(container, key) do
+      values when is_list(values) ->
+        values
+        |> Enum.map(&string_or_nil/1)
+        |> Enum.reject(&is_nil/1)
+
+      _value ->
+        nil
+    end
+  end
+
   defp blank?(value) when value in [nil, "", 0], do: true
   defp blank?(value) when is_map(value), do: map_size(value) == 0
+  defp blank?(value) when is_list(value), do: value == []
   defp blank?(_value), do: false
 
   defp stringify_map(map) do

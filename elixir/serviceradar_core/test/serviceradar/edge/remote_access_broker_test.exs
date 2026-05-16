@@ -498,6 +498,79 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute inspect(control_audit) =~ "Enter"
   end
 
+  test "sends rdp open frames with desktop target policy snapshot" do
+    session =
+      session_fixture()
+      |> Map.merge(%{
+        protocol: :rdp,
+        target_host: "win-01.example.com",
+        target_port: 3389,
+        device_uid: "device-1",
+        credential_custody_mode: :user_present,
+        recording_policy: %{"mode" => "metadata_only"}
+      })
+      |> put_in([:metadata, "protocol"], "rdp")
+      |> put_in([:metadata, "desktop_target_id"], "desktop-target-1")
+      |> put_in([:metadata, "target_display_name"], "Windows 01")
+      |> put_in([:metadata, "target_tls"], %{
+        "mode" => "verify_ca",
+        "server_name" => "win-01.example.com"
+      })
+      |> put_in([:metadata, "nla"], %{"required" => true})
+      |> put_in([:metadata, "screen_policy"], %{
+        "max_width" => 1600,
+        "max_height" => 900,
+        "frame_rate" => 30,
+        "bitrate_kbps" => 6000
+      })
+      |> put_in([:metadata, "redirection_policy"], %{"clipboard" => "local_to_remote"})
+      |> put_in([:metadata, "metadata"], %{"allowed_principals" => ["alice@example.com"]})
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open", data: data}, _opts}
+
+    decoded = Jason.decode!(data)
+    assert decoded["schema"] == "serviceradar.desktop.open.v1"
+    assert decoded["protocol"] == "rdp"
+    assert decoded["session_id"] == "session-1"
+    assert decoded["agent_id"] == "agent-1"
+    assert decoded["gateway_id"] == "gateway-1"
+
+    target = decoded["target"]
+    assert target["target_id"] == "desktop-target-1"
+    assert target["display_name"] == "Windows 01"
+    assert target["device_uid"] == "device-1"
+    assert target["protocol"] == "rdp"
+    assert target["route"]["selected_agent_id"] == "agent-1"
+    assert target["route"]["selected_gateway_id"] == "gateway-1"
+    assert target["upstream"] == %{"host" => "win-01.example.com", "port" => 3389}
+
+    assert target["tls"] == %{
+             "mode" => "verify",
+             "nla_mode" => "required",
+             "server_name" => "win-01.example.com"
+           }
+
+    assert target["credential"] == %{
+             "mode" => "memory_user",
+             "allowed_principals" => ["alice@example.com"]
+           }
+
+    assert target["screen"]["bitrate_bps"] == 6_000_000
+    assert target["redirection"]["clipboard_mode"] == "text_to_remote"
+    assert target["recording"] == %{"metadata_enabled" => true}
+    refute Map.has_key?(target["metadata"], "target_tls")
+  end
+
   test "recording hook receives only policy-gated counters and lifecycle state" do
     session =
       Map.put(session_fixture(), :recording_policy, %{

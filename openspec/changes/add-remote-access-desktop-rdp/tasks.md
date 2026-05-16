@@ -137,6 +137,7 @@
 - [x] 3.2.22 Normalize desktop media acknowledgement close reasons before agent-to-helper IPC serialization.
 - [x] 3.2.23 Normalize helper-side media acknowledgement, disconnect, and close reasons before backend delivery.
 - [x] 3.2.24 Reject helper-to-agent SRDP media frames whose desktop session binding does not match the active adapter session.
+- [x] 3.2.25 Send RDP broker open frames as desktop open payloads containing the registered target policy snapshot instead of SSH-shaped open data.
 - [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -328,6 +329,7 @@
 - [x] 5.6.54 Add focused core-elx tests proving browser desktop control frames can be forwarded to a configured route layer with full input details while manager state only stores sanitized metadata and remains unchanged on forwarder failure.
 - [x] 5.6.55 Add focused Elixir tests proving core-elx forwards browser desktop control frames to an active broker and the broker sends typed desktop control frames over the selected agent route without auditing input tokens.
 - [x] 5.6.56 Add focused Go tests proving agent-side typed desktop control frames reach active desktop adapter sessions and fail closed without an active session or with mismatched frame types.
+- [x] 5.6.57 Add focused Elixir tests proving RDP broker open frames carry desktop target route, TLS/NLA, screen, credential, redirection, and recording policy for the selected agent.
 - [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
