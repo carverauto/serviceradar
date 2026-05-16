@@ -87,7 +87,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     defaults [:destroy]
 
     read :read do
-      prepare build(select: [:id, :inserted_at, :updated_at | @fields])
+      primary? true
     end
 
     read :by_id do
