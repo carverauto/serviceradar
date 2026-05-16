@@ -93,10 +93,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
 
   actions do
     read :read do
-      prepare build(
-                load: [:provider, :descriptor],
-                select: [:id, :inserted_at, :updated_at | @fields]
-              )
+      primary? true
     end
 
     read :by_id do
