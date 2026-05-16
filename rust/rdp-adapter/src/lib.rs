@@ -3,6 +3,7 @@ mod backend;
 mod backend_ironrdp;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 mod connector_link_probe;
+mod media_frame;
 mod process_hardening;
 mod protocol;
 
