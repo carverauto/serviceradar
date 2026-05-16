@@ -49,6 +49,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "disables selected-device run task action when no Ansible playbooks are launchable", %{
+    conn: conn
+  } do
+    uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "test-run-task-disabled",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+
+    view
+    |> element("input[phx-value-uid='#{uid}']")
+    |> render_click()
+
+    html = render(view)
+
+    assert html =~ "No launchable Ansible playbooks are configured"
+    assert html =~ "disabled"
+    assert html =~ "Run Task"
+  end
+
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
     uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
 
