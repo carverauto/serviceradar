@@ -26,7 +26,7 @@
 - [x] 2.2.3 Include desktop WebRTC transport, signaling path, and ICE server metadata on RDP remote-access session responses.
 - [x] 2.2.4 Add a supervised core-elx desktop WebRTC signaling owner behind the web-ng ERTS RPC facade.
 - [x] 2.2.5 Index core-elx desktop WebRTC viewer sessions by signaling PID so Membrane signaling events avoid linear session scans.
-- [ ] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
+- [x] 2.3 Add policy enforcement for frame rate, bitrate, resolution, idle timeout, session TTL, redirection features, clipboard direction, and content-recording mode.
 - [x] 2.3.1 Reject desktop clipboard frames unless an explicit redirection policy enables clipboard access.
 - [x] 2.3.2 Add policy-aware desktop frame encode/decode helpers so redirection gates apply consistently.
 - [x] 2.3.3 Enforce desktop clipboard frame direction against the configured clipboard redirection mode.
@@ -35,17 +35,17 @@
 - [x] 2.3.6 Add adapter-facing desktop idle timeout and session TTL enforcement.
 - [x] 2.3.7 Bound desktop quality-control requests to the per-session screen policy.
 - [x] 2.3.8 Bind desktop content-recording checks to the adapter-facing session guard target policy.
-- [ ] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
+- [x] 2.4 Add audit/recording metadata events for session lifecycle, credential mode, target TLS/NLA posture, frame statistics, redirection decisions, and termination reason.
 - [x] 2.4.1 Add safe agent-side desktop audit metadata for route, target, TLS, credential mode, policy, redirection, recording, and grant binding posture.
 - [x] 2.4.2 Add safe desktop frame audit metadata for frame statistics and redirection decisions without retaining frame payload contents.
 - [x] 2.4.3 Add capped, normalized desktop termination audit metadata without retaining frame payload contents.
 - [x] 2.4.4 Add fixed-type desktop lifecycle audit metadata for open, ready, close, error, and revocation events.
 
 ## 3. Agent Route And RDP Adapter
-- [ ] 3.1 Add typed desktop control frames to the agent-gateway control route and a dedicated desktop media stream for screen updates, without reusing terminal byte frames blindly.
-- [ ] 3.1.1 Reuse the camera media relay architecture where practical: agent gRPC, gateway admission/session tracking, ERTS RPC forwarding, core-elx/web-ng ingress, chunk limits, heartbeat, and close semantics.
-- [ ] 3.1.2 Add desktop-specific bidirectional credits/acks, quality downgrade, pause/resume, and browser backpressure handling before advertising `remote_access.rdp`.
-- [ ] 3.1.3 Model desktop media flow control on a channel-window pattern: initial credit, max chunk size, window adjustment, EOF, close, and stale-frame coalescing/drop behavior.
+- [x] 3.1 Add typed desktop control frames to the agent-gateway control route and a dedicated desktop media stream for screen updates, without reusing terminal byte frames blindly.
+- [x] 3.1.1 Reuse the camera media relay architecture where practical: agent gRPC, gateway admission/session tracking, ERTS RPC forwarding, core-elx/web-ng ingress, chunk limits, heartbeat, and close semantics.
+- [x] 3.1.2 Add desktop-specific bidirectional credits/acks, quality downgrade, pause/resume, and browser backpressure handling before advertising `remote_access.rdp`.
+- [x] 3.1.3 Model desktop media flow control on a channel-window pattern: initial credit, max chunk size, window adjustment, EOF, close, and stale-frame coalescing/drop behavior.
 - [x] 3.1.4 Add the Go-side SRDP binary desktop media frame envelope, ack validation, and credit-window helper that matches the browser parser contract.
 - [x] 3.1.5 Add browser-side desktop media acknowledgements over the WebRTC control DataChannel with session/media binding and fresh credit.
 - [x] 3.1.6 Add the Go-side browser control-message decoder for desktop media acknowledgements.
@@ -150,7 +150,7 @@
 - [x] 3.3.18 Drop agent-side credential grant material on helper resolve/start failures and other early adapter-open returns.
 - [x] 3.3.19 Reject helper-to-agent close payloads with trailing JSON or garbage while still clearing the raw payload buffer.
 - [x] 3.3.20 Clear raw helper-to-agent SRDP media payload buffers after successful forwarding and media-sender failures.
-- [ ] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
+- [x] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
 - [x] 3.4.3 Add desktop idle timeout and session TTL validation for adapter close behavior.
@@ -230,7 +230,7 @@
 - [x] 5.2.41 Add focused Rust helper tests proving terminal reasons are normalized before backend delivery while raw IPC payloads are still cleared.
 - [x] 5.2.42 Add focused Go tests proving helper media frames with mismatched desktop session bindings are rejected, cleared, and not forwarded.
 - [x] 5.2.43 Add focused Go tests proving helper media payload buffers are cleared after successful forwarding and media-sender failures.
-- [ ] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
+- [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
 - [x] 5.3.3 Add focused Go tests for desktop update frame-rate and bitrate quota enforcement.
@@ -240,7 +240,7 @@
 - [x] 5.3.7 Add focused Go tests for adapter-facing desktop session guard behavior.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
-- [ ] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
+- [x] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.
 - [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
 - [x] 5.6.3 Add focused Go tests proving desktop media split-frame encoding reuses header buffers and avoids metadata/payload copies.
