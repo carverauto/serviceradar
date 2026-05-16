@@ -372,6 +372,12 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             requires_remote_access_ssh?: true
           },
           %{
+            label: "Desktop Targets",
+            navigate: ~p"/settings/networks/desktop-targets",
+            active: String.starts_with?(path, "/settings/networks/desktop-targets"),
+            requires_remote_access_rdp?: true
+          },
+          %{
             label: "Recordings",
             navigate: ~p"/settings/networks/recordings",
             active: String.starts_with?(path, "/settings/networks/recordings"),
@@ -417,6 +423,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
       not String.starts_with?(path, "/settings/networks/credentials") and
       not String.starts_with?(path, "/settings/networks/host-keys") and
+      not String.starts_with?(path, "/settings/networks/desktop-targets") and
       not String.starts_with?(path, "/settings/networks/recordings") and
       not String.starts_with?(path, "/settings/snmp")
   end
@@ -440,6 +447,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       show_discovery_tab?(Map.delete(tab, :requires_remote_access_ssh?), scope)
   end
 
+  defp show_discovery_tab?(%{requires_remote_access_rdp?: true} = tab, scope) do
+    FeatureFlags.remote_access_desktop_rdp_enabled?() and
+      show_discovery_tab?(Map.delete(tab, :requires_remote_access_rdp?), scope)
+  end
+
   defp show_discovery_tab?(%{requires_remote_access_recordings?: true} = tab, scope) do
     remote_access_recordings_enabled?() and
       show_discovery_tab?(Map.delete(tab, :requires_remote_access_recordings?), scope)
@@ -455,6 +467,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         "SNMP" -> "settings.snmp_profiles.manage"
         "Credential Rules" -> "settings.credentials.manage"
         "Host Keys" -> "settings.remote_access_host_keys.manage"
+        "Desktop Targets" -> "settings.edge.manage"
         "Recordings" -> remote_access_recording_permissions()
         _ -> "settings.networks.manage"
       end
@@ -470,7 +483,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
        (RBAC.can?(current_scope, "settings.remote_access_host_keys.manage") or
           RBAC.can?(current_scope, "devices.remote_access.ssh.open"))) or
       (FeatureFlags.remote_access_desktop_rdp_enabled?() and
-         RBAC.can?(current_scope, "devices.remote_access.rdp.open"))
+         (RBAC.can?(current_scope, "settings.edge.manage") or
+            RBAC.can?(current_scope, "devices.remote_access.rdp.open")))
   end
 
   defp remote_access_recordings_enabled? do
