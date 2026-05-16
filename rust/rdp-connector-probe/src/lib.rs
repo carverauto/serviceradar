@@ -177,6 +177,14 @@ pub struct BlockingConnectBeginProbe {
     pub written_bytes: Vec<u8>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct BlockingConnectFinalizeProbe {
+    pub after_upgrade_state: &'static str,
+    pub wrote_credssp_bytes: bool,
+    pub contains_cleartext_password: bool,
+    pub written_bytes: Vec<u8>,
+}
+
 #[derive(Debug)]
 pub struct ConnectorPlan {
     pub upstream_host: String,
@@ -451,6 +459,56 @@ pub fn drive_blocking_connect_begin_to_tls_upgrade(
     })
 }
 
+pub fn drive_blocking_connect_finalize_until_server_input(
+    request: ServiceRadarOpenRequest,
+    server_public_key: Vec<u8>,
+) -> Result<BlockingConnectFinalizeProbe, &'static str> {
+    if server_public_key.is_empty() {
+        return Err("server public key is required");
+    }
+
+    let password = request.credential_grant.password.clone();
+    let plan = build_connector_plan(request)?;
+    let server_confirm = encode_server_confirm(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
+    let mut connector = ironrdp_connector::ClientConnector::new(plan.connector_config, CLIENT_ADDR);
+    let mut framed = ironrdp_blocking::Framed::new(ScriptedStream::new(vec![server_confirm]));
+    let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
+        .map_err(|_| "blocking connect begin failed")?;
+    let (_initial_stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err("blocking connect begin left unread bytes");
+    }
+
+    let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
+    let after_upgrade_state = connector_state_name(&connector);
+    let mut upgraded_framed = ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new()));
+    let mut network_client = RejectingNetworkClient;
+    let finalize = ironrdp_blocking::connect_finalize(
+        upgraded,
+        connector,
+        &mut upgraded_framed,
+        &mut network_client,
+        plan.tls_server_name.into(),
+        server_public_key,
+        None,
+    );
+    if finalize.is_ok() {
+        return Err("blocking connect finalize unexpectedly completed");
+    }
+
+    let (stream, leftover) = upgraded_framed.into_inner();
+    if !leftover.is_empty() {
+        return Err("blocking connect finalize left unread bytes");
+    }
+
+    Ok(BlockingConnectFinalizeProbe {
+        after_upgrade_state,
+        wrote_credssp_bytes: !stream.writes.is_empty(),
+        contains_cleartext_password: bytes_contain_secret(&stream.writes, password.as_bytes()),
+        written_bytes: stream.writes,
+    })
+}
+
 pub fn extract_credssp_server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, &'static str> {
     use x509_cert::der::Decode as _;
 
@@ -468,6 +526,20 @@ pub fn extract_credssp_server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, &'s
     }
 
     Ok(public_key.to_vec())
+}
+
+struct RejectingNetworkClient;
+
+impl ironrdp_connector::sspi::network_client::NetworkClient for RejectingNetworkClient {
+    fn send(
+        &self,
+        _request: &ironrdp_connector::sspi::generator::NetworkRequest,
+    ) -> ironrdp_connector::sspi::Result<Vec<u8>> {
+        Err(ironrdp_connector::sspi::Error::new(
+            ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+            "network client is disabled in connector probe",
+        ))
+    }
 }
 
 struct ScriptedStream {
@@ -757,6 +829,26 @@ mod tests {
         let err = crate::extract_credssp_server_public_key(b"not a certificate").unwrap_err();
 
         assert_eq!(err, "tls peer certificate decode failed");
+    }
+
+    #[test]
+    fn blocking_connect_finalize_writes_credssp_without_cleartext_password() {
+        let server_public_key =
+            crate::extract_credssp_server_public_key(&fixture_server_cert_der())
+                .expect("server public key");
+        let finalize = crate::drive_blocking_connect_finalize_until_server_input(
+            open_request("EXAMPLE\\alice", "required"),
+            server_public_key,
+        )
+        .expect("finalize probe");
+
+        assert_eq!(finalize.after_upgrade_state, "Credssp");
+        assert!(finalize.wrote_credssp_bytes);
+        assert!(!finalize.contains_cleartext_password);
+        assert!(!finalize
+            .written_bytes
+            .windows(b"secret".len())
+            .any(|window| window == b"secret"));
     }
 
     #[test]
