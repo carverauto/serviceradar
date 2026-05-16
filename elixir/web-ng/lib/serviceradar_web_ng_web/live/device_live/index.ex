@@ -476,19 +476,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         {:noreply, put_flash(socket, :error, "No launchable task integrations are configured.")}
 
       true ->
-        case preferred_device_action(socket.assigns.northbound_device_actions) do
-          %{id: "ansible:run_playbook"} ->
-            uids =
-              socket.assigns.selected_devices
-              |> MapSet.to_list()
-              |> Enum.uniq()
-              |> Enum.join(",")
-
-            {:noreply, push_navigate(socket, to: ~p"/ansible/launch?devices=#{uids}")}
-
-          action ->
-            {:noreply, open_northbound_action_modal(socket, action)}
-        end
+        {:noreply,
+         socket.assigns.northbound_device_actions
+         |> preferred_device_action()
+         |> then(&open_northbound_action_modal(socket, &1))}
     end
   end
 
@@ -1068,14 +1059,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp preferred_device_action(actions) do
-    Enum.find(actions, &(&1.id != "ansible:run_playbook")) ||
-      Enum.find(actions, &(&1.id == "ansible:run_playbook")) ||
-      List.first(actions)
+    List.first(actions)
   end
 
-  defp launchable_northbound_actions(actions) when is_list(actions) do
-    Enum.reject(actions, &(&1.id == "ansible:run_playbook"))
-  end
+  defp launchable_northbound_actions(actions) when is_list(actions), do: actions
 
   defp launchable_northbound_actions(_actions), do: []
 

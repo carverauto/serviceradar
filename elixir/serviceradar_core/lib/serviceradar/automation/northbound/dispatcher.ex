@@ -4,6 +4,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Ansible.RunLauncher
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Edge.AgentCommandBus
@@ -24,11 +25,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
 
     with {:ok, invocation} <- load_invocation(invocation.id, system_actor),
          :ok <- validate_dispatchable(invocation),
-         {:ok, assignment} <- resolve_plugin_assignment(invocation, system_actor),
-         {:ok, command} <- dispatch_to_assignment(invocation, assignment, opts, system_actor),
-         {:ok, invocation} <-
-           mark_invocation_dispatched(invocation, command, assignment, system_actor),
-         :ok <- mark_targets_running(invocation, system_actor) do
+         {:ok, invocation} <- dispatch_by_provider(invocation, opts, system_actor) do
       {:ok, invocation}
     else
       {:error, reason} ->
@@ -61,6 +58,44 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   defp validate_dispatchable(%ActionInvocation{state: state}),
     do: {:error, {:not_dispatchable, state}}
 
+  defp dispatch_by_provider(
+         %ActionInvocation{provider: %{provider_type: :wasm_plugin}} = invocation,
+         opts,
+         actor
+       ) do
+    with {:ok, assignment} <- resolve_plugin_assignment(invocation, actor),
+         {:ok, command} <- dispatch_to_assignment(invocation, assignment, opts, actor),
+         {:ok, invocation} <- mark_invocation_dispatched(invocation, command, assignment, actor),
+         :ok <- mark_targets_running(invocation, actor) do
+      {:ok, invocation}
+    end
+  end
+
+  defp dispatch_by_provider(
+         %ActionInvocation{provider: %{provider_type: :ansible}} = invocation,
+         _opts,
+         actor
+       ) do
+    with {:ok, playbook_id} <- ansible_playbook_id(invocation),
+         {:ok, device_uids} <- ansible_device_uids(invocation),
+         {:ok, run} <- launch_ansible_run(invocation, playbook_id, device_uids, actor),
+         {:ok, invocation} <- mark_ansible_dispatched(invocation, run, actor),
+         {:ok, invocation} <- mark_invocation_running(invocation, actor),
+         :ok <- mark_targets_running(invocation, actor) do
+      {:ok, invocation}
+    end
+  end
+
+  defp dispatch_by_provider(
+         %ActionInvocation{provider: %{provider_type: provider_type}},
+         _opts,
+         _actor
+       ) do
+    {:error, {:unsupported_provider_type, provider_type}}
+  end
+
+  defp dispatch_by_provider(_invocation, _opts, _actor), do: {:error, :provider_not_loaded}
+
   defp resolve_plugin_assignment(%ActionInvocation{provider: provider} = invocation, actor) do
     with :ok <- validate_wasm_provider(provider),
          {:ok, assignments} <- list_package_assignments(provider.plugin_package_id, actor) do
@@ -76,6 +111,49 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     do: {:error, {:unsupported_provider_type, provider_type}}
 
   defp validate_wasm_provider(_provider), do: {:error, :provider_not_loaded}
+
+  defp ansible_playbook_id(%ActionInvocation{descriptor: %{metadata: metadata}}) do
+    case map_get(metadata, "playbook_id") do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:error, :missing_ansible_playbook_id}
+    end
+  end
+
+  defp ansible_device_uids(%ActionInvocation{target_snapshots: snapshots})
+       when is_list(snapshots) do
+    uids =
+      snapshots
+      |> Enum.map(&map_get(&1, "device_uid"))
+      |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+      |> Enum.uniq()
+
+    if uids == [], do: {:error, :targets_required}, else: {:ok, uids}
+  end
+
+  defp ansible_device_uids(_invocation), do: {:error, :targets_required}
+
+  defp launch_ansible_run(invocation, playbook_id, device_uids, actor) do
+    RunLauncher.launch(
+      %{
+        playbook_id: playbook_id,
+        device_uids: device_uids,
+        extra_vars: ansible_extra_vars(invocation),
+        requested_by_actor_id: invocation.requested_by_actor_id,
+        northbound_invocation_id: invocation.id
+      },
+      actor: actor
+    )
+  end
+
+  defp ansible_extra_vars(%ActionInvocation{input_values: input_values})
+       when is_map(input_values) do
+    case map_get(input_values, "extra_vars") do
+      %{} = extra_vars -> extra_vars
+      _ -> %{}
+    end
+  end
+
+  defp ansible_extra_vars(_invocation), do: %{}
 
   defp list_package_assignments(plugin_package_id, actor) do
     PluginAssignment
@@ -163,6 +241,23 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       })
 
     ActionInvocation.record_dispatch(invocation, %{metadata: metadata}, actor: actor)
+  end
+
+  defp mark_ansible_dispatched(invocation, run, actor) do
+    metadata =
+      invocation.metadata
+      |> normalize_map()
+      |> Map.merge(%{
+        "ansible_playbook_run_id" => run.id,
+        "ansible_controller_id" => run.controller_id,
+        "ansible_awx_job_id" => run.awx_job_id
+      })
+
+    ActionInvocation.record_dispatch(invocation, %{metadata: metadata}, actor: actor)
+  end
+
+  defp mark_invocation_running(invocation, actor) do
+    ActionInvocation.record_running(invocation, actor: actor)
   end
 
   defp mark_targets_running(invocation, actor) do

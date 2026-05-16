@@ -8,8 +8,8 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
   the shared invocation model.
   """
 
-  alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
+  alias ServiceRadar.Automation.Northbound.AnsibleActionSync
 
   require Ash.Query
 
@@ -30,7 +30,9 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
 
   @spec eligible_device_actions(term()) :: [action_summary()]
   def eligible_device_actions(scope) do
-    descriptor_actions(scope, "device") ++ ansible_device_actions(scope)
+    _ = AnsibleActionSync.sync_launchable_playbooks()
+
+    descriptor_actions(scope, "device")
   end
 
   @spec eligible_interface_actions(term()) :: [action_summary()]
@@ -81,41 +83,5 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       requires_confirmation: descriptor.requires_confirmation,
       timeout_seconds: descriptor.timeout_seconds
     }
-  end
-
-  defp ansible_device_actions(scope) do
-    if launchable_ansible_playbook_count(scope) > 0 do
-      [
-        %{
-          id: "ansible:run_playbook",
-          descriptor_id: nil,
-          label: "Run Ansible Playbook",
-          description: nil,
-          provider_type: "ansible",
-          provider_name: "Ansible",
-          scope: "device",
-          destination: "/ansible/launch",
-          input_schema: %{},
-          safety_classification: "standard",
-          requires_confirmation: false,
-          timeout_seconds: 60
-        }
-      ]
-    else
-      []
-    end
-  end
-
-  defp launchable_ansible_playbook_count(scope) do
-    Playbook
-    |> Ash.Query.for_read(:read, %{})
-    |> Ash.Query.filter(not is_nil(awx_job_template_id))
-    |> Ash.count(scope: scope)
-    |> case do
-      {:ok, count} -> count
-      {:error, _reason} -> 0
-    end
-  rescue
-    _ -> 0
   end
 end

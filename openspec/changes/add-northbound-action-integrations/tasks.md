@@ -10,7 +10,7 @@
 - [x] 2.1 Extend plugin manifest validation to accept versioned action descriptors.
 - [x] 2.2 Add action descriptor approval review alongside existing plugin capability approval.
 - [x] 2.3 Implement action invocation dispatch for approved Wasm providers through the agent-routed command path.
-- [ ] 2.4 Adapt Ansible/AWX launch as a northbound action provider without removing the existing Ansible run history.
+- [x] 2.4 Adapt Ansible/AWX launch as a northbound action provider without removing the existing Ansible run history.
 
 ## 3. SDK Updates
 
