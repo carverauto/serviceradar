@@ -704,6 +704,52 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
     end
+
+    test "returns a sanitized desktop policy snapshot for RDP sessions", %{conn: conn, user: user} do
+      session_id = Ecto.UUID.generate()
+      credential_rule_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok,
+         rdp_session(session_id,
+           credential_rule_id: credential_rule_id,
+           metadata: %{
+             "target_display_name" => "Finance jump desktop",
+             "target_tls" => %{"mode" => "verify_ca", "password" => "must-not-return"},
+             "nla_policy" => %{"required" => true, "private_key" => "must-not-return"},
+             "screen_policy" => %{"max_frame_rate" => 30, "max_width" => 1920, "max_height" => 1080},
+             "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"},
+             "approval_policy" => %{"required" => true, "token" => "must-not-return"}
+           },
+           recording_policy: %{"mode" => "metadata", "secret" => "must-not-return"},
+           enhanced_recording_policy: %{"enabled" => false, "private_key" => "must-not-return"}
+         )}
+      )
+
+      conn = get(conn, ~p"/api/remote-access/sessions/#{session_id}")
+
+      body = json_response(conn, 200)
+      snapshot = body["data"]["desktop_policy_snapshot"]
+
+      assert snapshot["target"]["display_name"] == "Finance jump desktop"
+      assert snapshot["target"]["device_uid"] == "windows-1"
+      assert snapshot["route"] == %{"agent_id" => "agent-1", "gateway_id" => "gateway-1"}
+      assert snapshot["credential"]["custody_mode"] == "user_present"
+      assert snapshot["credential"]["brokered_rule_bound"] == true
+      assert snapshot["authorization"]["rbac_decision"] == "allowed"
+      assert snapshot["timeouts"]["idle_timeout_seconds"] == 900
+      assert snapshot["desktop"]["target_tls"] == %{"mode" => "verify_ca"}
+      assert snapshot["desktop"]["nla"] == %{"required" => true}
+      assert snapshot["desktop"]["screen_policy"]["max_frame_rate"] == 30
+      assert snapshot["desktop"]["redirection_policy"] == %{"clipboard" => "disabled", "drive" => "disabled"}
+      assert snapshot["desktop"]["approval_policy"] == %{"required" => true}
+      assert snapshot["recording"]["policy"] == %{"mode" => "metadata"}
+      assert snapshot["recording"]["enhanced_policy"] == %{"enabled" => false}
+      refute inspect(body) =~ "must-not-return"
+    end
   end
 
   defp rdp_session(session_id, attrs \\ []) do

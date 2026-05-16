@@ -46,6 +46,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     token
   )
   @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
+  @desktop_policy_metadata_fields [
+    {"target_tls", ~w(target_tls tls_policy tls)},
+    {"nla", ~w(nla nla_policy)},
+    {"screen_policy", ~w(screen_policy screen)},
+    {"redirection_policy", ~w(redirection_policy redirection)},
+    {"approval_policy", ~w(approval_policy approval)}
+  ]
 
   def create(conn, params) do
     with :ok <- require_remote_access_ssh_enabled(),
@@ -475,9 +482,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp normalize_metadata(value) when is_map(value), do: value
   defp normalize_metadata(_value), do: %{}
 
-  defp metadata_value(map, "ssh_host_key_policy") do
-    Map.get(map, "ssh_host_key_policy") || Map.get(map, :ssh_host_key_policy)
+  defp metadata_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) ||
+      case safe_existing_atom(key) do
+        nil -> nil
+        atom_key -> Map.get(map, atom_key)
+      end
   end
+
+  defp metadata_value(_map, _key), do: nil
 
   defp drop_metadata_key(map, "ssh_host_key_policy") do
     map
@@ -562,7 +575,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
     data =
       if format_value(session.protocol) == "rdp" do
-        Map.merge(data, RemoteDesktopWebRTC.metadata(session))
+        data
+        |> Map.merge(RemoteDesktopWebRTC.metadata(session))
+        |> Map.put(:desktop_policy_snapshot, desktop_policy_snapshot(session))
       else
         data
       end
@@ -573,6 +588,107 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp format_value(value) when is_atom(value), do: Atom.to_string(value)
   defp format_value(value), do: value
+
+  defp desktop_policy_snapshot(%RemoteAccessSession{} = session) do
+    metadata = normalize_metadata(session.metadata)
+
+    reject_empty(%{
+      target:
+        reject_empty(%{
+          device_uid: session.device_uid,
+          target_kind: format_value(session.target_kind),
+          protocol: format_value(session.protocol),
+          display_name: metadata_value(metadata, "target_display_name") || session.device_uid
+        }),
+      route: reject_empty(%{agent_id: session.agent_id, gateway_id: session.gateway_id}),
+      credential:
+        reject_empty(%{
+          custody_mode: format_value(session.credential_custody_mode),
+          brokered_rule_bound: not is_nil(session.credential_rule_id)
+        }),
+      authorization:
+        reject_empty(%{rbac_decision: format_value(session.rbac_decision), approval_id: session.approval_id}),
+      timeouts:
+        reject_empty(%{
+          idle_timeout_seconds: session.idle_timeout_seconds,
+          absolute_timeout_seconds: session.absolute_timeout_seconds
+        }),
+      desktop: desktop_policy_metadata(metadata),
+      recording: recording_policy_snapshot(session)
+    })
+  end
+
+  defp desktop_policy_metadata(metadata) do
+    @desktop_policy_metadata_fields
+    |> Enum.reduce(%{}, fn {snapshot_key, metadata_keys}, acc ->
+      case metadata |> first_metadata_value(metadata_keys) |> sanitize_snapshot_value() |> reject_empty() do
+        nil -> acc
+        value -> Map.put(acc, snapshot_key, value)
+      end
+    end)
+    |> reject_empty()
+  end
+
+  defp first_metadata_value(metadata, keys) do
+    Enum.find_value(keys, &metadata_value(metadata, &1))
+  end
+
+  defp recording_policy_snapshot(%RemoteAccessSession{} = session) do
+    reject_empty(%{
+      policy: session.recording_policy |> sanitize_snapshot_value() |> reject_empty(),
+      enhanced_policy: session.enhanced_recording_policy |> sanitize_snapshot_value() |> reject_empty()
+    })
+  end
+
+  defp sanitize_snapshot_value(%{} = value) do
+    Enum.reduce(value, %{}, fn {key, nested_value}, acc ->
+      if sensitive_metadata_key?(key) do
+        acc
+      else
+        sanitized_value = sanitize_snapshot_value(nested_value)
+
+        case reject_empty(sanitized_value) do
+          nil -> acc
+          safe_value -> Map.put(acc, snapshot_key(key), safe_value)
+        end
+      end
+    end)
+  end
+
+  defp sanitize_snapshot_value(value) when is_list(value), do: Enum.map(value, &sanitize_snapshot_value/1)
+  defp sanitize_snapshot_value(value), do: value
+
+  defp sensitive_metadata_key?(key) when is_atom(key), do: key |> Atom.to_string() |> sensitive_metadata_key?()
+
+  defp sensitive_metadata_key?(key) when is_binary(key) do
+    normalized = String.downcase(key)
+
+    normalized in @client_controlled_metadata_denylist or
+      Enum.any?(@client_controlled_metadata_suffixes, &String.ends_with?(normalized, &1))
+  end
+
+  defp sensitive_metadata_key?(_key), do: false
+
+  defp snapshot_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp snapshot_key(key) when is_binary(key), do: key
+  defp snapshot_key(key), do: to_string(key)
+
+  defp reject_empty(%{} = map) do
+    map
+    |> Enum.reject(fn {_key, value} -> empty_snapshot_value?(value) end)
+    |> Map.new()
+    |> case do
+      empty when map_size(empty) == 0 -> nil
+      present -> present
+    end
+  end
+
+  defp reject_empty(value), do: value
+
+  defp empty_snapshot_value?(nil), do: true
+  defp empty_snapshot_value?(%{} = map), do: map_size(map) == 0
+  defp empty_snapshot_value?([]), do: true
+  defp empty_snapshot_value?(_value), do: false
 
   defp format_reason(:missing_agent_scope), do: "target has no selected edge agent for remote-access routing"
   defp format_reason(:missing_remote_access_target), do: "target host could not be resolved for remote access"
