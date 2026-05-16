@@ -4837,13 +4837,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def metadata_summary_section(assigns) do
     groups = metadata_summary_groups(assigns.device_row)
-    additional_keys = additional_metadata_keys(assigns.device_row, groups)
 
     assigns =
       assigns
       |> assign(:metadata_groups, groups)
-      |> assign(:additional_metadata_keys, additional_keys)
-      |> assign(:has_metadata_summary, groups != [] or additional_keys != [])
+      |> assign(:has_metadata_summary, groups != [])
 
     ~H"""
     <div :if={@has_metadata_summary} class="rounded-xl border border-base-200 bg-base-100">
@@ -4878,24 +4876,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 mono={item.mono}
               />
             </div>
-          </div>
-        </div>
-
-        <div :if={@additional_metadata_keys != []} class="space-y-2">
-          <div class="text-xs font-semibold text-base-content/50">
-            Additional metadata keys
-          </div>
-          <div class="flex flex-wrap gap-1.5">
-            <span
-              :for={key <- Enum.take(@additional_metadata_keys, 24)}
-              class="badge badge-ghost badge-sm font-mono"
-              title={key}
-            >
-              {key}
-            </span>
-            <span :if={length(@additional_metadata_keys) > 24} class="badge badge-ghost badge-sm">
-              +{length(@additional_metadata_keys) - 24} more
-            </span>
           </div>
         </div>
       </div>
@@ -4934,15 +4914,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           metadata_item("Query label", metadata_lookup(metadata, "query_label")),
           metadata_item("Sync service", metadata_lookup(metadata, "sync_service_id"), mono: true),
           metadata_item("Sync run", metadata_lookup(metadata, "sync_run_id"), mono: true),
-          metadata_item("Total devices", metadata_lookup(metadata, "sync_total_devices"))
+          metadata_item("Total devices", metadata_lookup(metadata, "sync_total_devices")),
+          metadata_item("Source device ID", metadata_first_value(metadata, ["source_device_id", "integration_id"]),
+            mono: true
+          )
+        ]),
+        metadata_group("UniFi", "hero-wifi", [
+          metadata_item("Controller", metadata_lookup(metadata, "controller_name")),
+          metadata_item("Controller URL", metadata_lookup(metadata, "controller_url"), mono: true),
+          metadata_item("Role", metadata_lookup(metadata, "device_role")),
+          metadata_item("Bridge ports", metadata_lookup(metadata, "bridge_port_count"))
+        ]),
+        metadata_group("Classification", "hero-tag", [
+          metadata_item("Source", metadata_lookup(metadata, "classification_source")),
+          metadata_item("Confidence", metadata_lookup(metadata, "classification_confidence")),
+          metadata_item("Reason", metadata_lookup(metadata, "classification_reason")),
+          metadata_item("Rule", metadata_lookup(metadata, "classification_rule_id"), mono: true)
+        ]),
+        metadata_group("Aliases", "hero-arrows-right-left", [
+          metadata_item("IP addresses", metadata_aliases(metadata, "alt_ip")),
+          metadata_item("MAC addresses", metadata_aliases(metadata, "alt_mac"), mono: true)
         ]),
         metadata_group("Armis", "hero-shield-check", [
-          metadata_item("Device ID", metadata_lookup(metadata, "armis_device_id"), mono: true),
-          metadata_item("Type", metadata_lookup(metadata, "armis_type")),
-          metadata_item("Category", metadata_lookup(metadata, "armis_category")),
-          metadata_item("Boundaries", metadata_lookup(metadata, "armis_boundaries")),
-          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
-          metadata_item("Tags", metadata_lookup(metadata, "armis_tags"))
+          metadata_item(
+            "Device ID",
+            metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]), mono: true),
+          metadata_item("Type", metadata_first_value(metadata, ["armis_type", "device_type", "type"])),
+          metadata_item("Category", metadata_first_value(metadata, ["armis_category", "category"])),
+          metadata_item("Boundaries", metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])),
+          metadata_item("Risk level", metadata_first_value(metadata, ["armis_risk_level", "risk_score"])),
+          metadata_item("Tags", metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])),
+          metadata_item("Visibility", metadata_first_value(metadata, ["armis_visibility", "visibility"])),
+          metadata_item("Purdue level", metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])),
+          metadata_item(
+            "Serial numbers",
+            metadata_first_value(metadata, ["armis_serial_numbers", "serial_numbers", "serial_number"])
+          )
+        ]),
+        metadata_group("NetBox", "hero-server-stack", [
+          metadata_item("Device ID", metadata_lookup(metadata, "netbox_device_id"), mono: true),
+          metadata_item(
+            "Site",
+            summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
+          ),
+          metadata_item(
+            "Tenant",
+            summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
+          ),
+          metadata_item("Role", metadata_first_value(metadata, ["device_role", "role", "device_role_name"])),
+          metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
+          metadata_item("Platform", metadata_first_value(metadata, ["platform", "platform_name"])),
+          metadata_item("Rack", summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))),
+          metadata_item(
+            "Location",
+            summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
+          ),
+          metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "source_tags", "tags"]))
         ]),
         metadata_group("Inventory", "hero-identification", [
           metadata_item("Manufacturer", metadata_lookup(metadata, "manufacturer")),
@@ -4955,7 +4982,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           metadata_item("Available count", metadata_lookup(metadata, "scan_available_count")),
           metadata_item("Unavailable count", metadata_lookup(metadata, "scan_unavailable_count")),
           metadata_item("Availability", metadata_lookup(metadata, "scan_availability_percent"))
-        ])
+        ]),
+        metadata_integration_details_group(metadata)
       ],
       &(&1.items == [])
     )
@@ -4974,6 +5002,128 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp metadata_lookup(metadata, key) when is_map(metadata) do
     Map.get(metadata, key)
   end
+
+  defp metadata_integration_details_group(metadata) when is_map(metadata) do
+    items =
+      metadata
+      |> Enum.sort_by(fn {key, _value} -> key |> to_string() |> String.downcase() end)
+      |> Enum.reject(fn {key, _value} -> metadata_detail_hidden_key?(to_string(key)) end)
+      |> Enum.reject(fn {key, _value} -> metadata_detail_curated_key?(to_string(key)) end)
+      |> Enum.flat_map(fn {key, value} ->
+        if metadata_present?(value) do
+          [metadata_item(format_label(to_string(key)), value, mono: metadata_detail_mono_key?(to_string(key)))]
+        else
+          []
+        end
+      end)
+
+    metadata_group("Integration Details", "hero-list-bullet", items)
+  end
+
+  defp metadata_integration_details_group(_metadata), do: metadata_group("Integration Details", "hero-list-bullet", [])
+
+  defp metadata_detail_hidden_key?(key) do
+    String.starts_with?(key, "_") or
+      String.starts_with?(key, "debug_") or
+      String.starts_with?(key, "raw_") or
+      key in ["debug_unifi_payload", "device_id"] or
+      String.starts_with?(key, "scan_available_ip_") or
+      String.starts_with?(key, "scan_unavailable_ip_") or
+      String.starts_with?(key, "alt_ip:") or
+      String.starts_with?(key, "alt_mac:")
+  end
+
+  defp metadata_detail_curated_key?(key) do
+    key in metadata_curated_keys()
+  end
+
+  defp metadata_detail_mono_key?(key) do
+    String.ends_with?(key, "_id") or
+      String.ends_with?(key, "_url") or
+      String.contains?(key, "uuid") or
+      key in ["source_device_id", "integration_id", "netbox_device_id"]
+  end
+
+  defp metadata_curated_keys do
+    ~w(
+      account
+      armis_boundary_names
+      armis_category
+      armis_device_id
+      armis_risk_level
+      armis_serial_numbers
+      armis_tags
+      armis_type
+      armis_visibility
+      boundary_names
+      bridge_port_count
+      category
+      classification_confidence
+      classification_reason
+      classification_rule_id
+      classification_source
+      controller_name
+      controller_url
+      device_role
+      device_role_name
+      device_status
+      device_type
+      identity_source
+      identity_state
+      integration_id
+      integration_type
+      location
+      location_name
+      manufacturer
+      model
+      netbox_device_id
+      netbox_tags
+      operating_system
+      platform
+      platform_name
+      purdue_level
+      query_label
+      rack
+      rack_name
+      risk_score
+      role
+      scan_availability_percent
+      scan_available_count
+      scan_available_ips
+      scan_unavailable_count
+      scan_unavailable_ips
+      serial_number
+      serial_numbers
+      site
+      site_name
+      site_slug
+      source_device_id
+      source_tags
+      status
+      sync_run_id
+      sync_service_id
+      sync_total_devices
+      tags
+      tenant
+      tenant_name
+      type
+      visibility
+    )
+  end
+
+  defp metadata_aliases(metadata, prefix) when is_map(metadata) and is_binary(prefix) do
+    marker = prefix <> ":"
+
+    metadata
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&String.starts_with?(&1, marker))
+    |> Enum.map(&String.replace_prefix(&1, marker, ""))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.sort()
+  end
+
+  defp metadata_aliases(_metadata, _prefix), do: []
 
   defp metadata_present?(nil), do: false
   defp metadata_present?(""), do: false
@@ -5008,50 +5158,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_metadata_value(value) when is_map(value), do: "#{map_size(value)} fields"
   defp format_metadata_value(value), do: value |> to_string() |> String.slice(0, 160)
-
-  defp additional_metadata_keys(row, groups) do
-    shown_keys =
-      groups
-      |> metadata_summary_keys()
-      |> MapSet.new()
-
-    row
-    |> row_metadata()
-    |> Map.keys()
-    |> Enum.map(&to_string/1)
-    |> Enum.reject(fn key ->
-      MapSet.member?(shown_keys, key) or
-        String.starts_with?(key, "scan_available_ip_") or
-        String.starts_with?(key, "scan_unavailable_ip_")
-    end)
-    |> Enum.sort()
-  end
-
-  defp metadata_summary_keys(_groups) do
-    ~w(
-      armis_boundaries
-      armis_category
-      armis_device_id
-      armis_risk_level
-      armis_tags
-      armis_type
-      identity_source
-      identity_state
-      integration_type
-      manufacturer
-      model
-      operating_system
-      query_label
-      scan_availability_percent
-      scan_available_count
-      scan_available_ips
-      scan_unavailable_count
-      scan_unavailable_ips
-      sync_run_id
-      sync_service_id
-      sync_total_devices
-    )
-  end
 
   # ---------------------------------------------------------------------------
   # OCSF Information Section (OS, Hardware, Network, Compliance)
