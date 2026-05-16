@@ -34,6 +34,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_remote_access_desktop_rdp_enabled =
       Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
 
+    previous_remote_access_desktop_target_provider =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
+
+    previous_remote_access_desktop_targets =
+      Application.get_env(:serviceradar_web_ng, :remote_access_desktop_targets)
+
     previous_remote_access_desktop_webrtc_ice_servers =
       Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_ice_servers)
 
@@ -72,6 +78,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       restore_env(:remote_access_session_manager_test_pid, previous_test_pid)
       restore_env(:remote_access_ssh_enabled, previous_remote_access_ssh_enabled)
       restore_env(:remote_access_desktop_rdp_enabled, previous_remote_access_desktop_rdp_enabled)
+      restore_env(:remote_access_desktop_target_provider, previous_remote_access_desktop_target_provider)
+      restore_env(:remote_access_desktop_targets, previous_remote_access_desktop_targets)
       restore_env(:remote_access_desktop_webrtc_ice_servers, previous_remote_access_desktop_webrtc_ice_servers)
       restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
       restore_env(:remote_access_target_host_override_enabled, previous_target_host_override)
@@ -165,7 +173,149 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.target_kind == "inventory_device"
     end
 
-    test "rejects non-SSH protocols on the public SSH endpoint", %{conn: conn} do
+    test "creates an RDP session from an authorized desktop target without browser host overrides", %{
+      conn: conn,
+      user: user
+    } do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_targets, [
+        %{
+          id: "desktop-target-1",
+          label: "Finance Desktop",
+          device_uid: "windows-1",
+          target_host: "win-1.example.com",
+          target_port: 3389,
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          credential_custody_mode: "user_present",
+          approval_required: true,
+          target_tls: %{"mode" => "verify_ca", "password" => "must-not-forward"},
+          nla: %{"required" => true},
+          screen_policy: %{"max_width" => 1920, "max_height" => 1080},
+          redirection_policy: %{"clipboard" => "disabled", "drive" => "disabled"},
+          recording_policy: %{"mode" => "metadata_only"},
+          metadata: %{"environment" => "prod", "secret" => "must-not-forward"}
+        }
+      ])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        {:ok,
+         %{
+           session:
+             rdp_session(session_id,
+               metadata: %{
+                 "target_tls" => %{"mode" => "verify_ca"},
+                 "nla" => %{"required" => true},
+                 "screen_policy" => %{"max_width" => 1920, "max_height" => 1080},
+                 "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+               },
+               recording_policy: %{"mode" => "metadata_only"}
+             ),
+           ticket: "srra_rdp_ticket"
+         }}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1",
+          "metadata" => %{
+            "client_trace_id" => "trace-1",
+            "target_tls" => %{"mode" => "skip_verify"},
+            "password" => "must-not-forward"
+          }
+        })
+
+      body = json_response(conn, 201)
+
+      assert body["data"]["id"] == session_id
+      assert body["data"]["protocol"] == "rdp"
+      assert body["data"]["target_port"] == 3389
+      assert body["data"]["ticket"] == "srra_rdp_ticket"
+      assert body["data"]["desktop_policy_snapshot"]["desktop"]["target_tls"] == %{"mode" => "verify_ca"}
+      refute inspect(body) =~ "must-not-forward"
+
+      assert_receive {:open_remote_access_session, "windows-1", request, opts}
+      assert request.protocol == "rdp"
+      assert request.adapter == "rdp"
+      assert request.target_kind == "inventory_device"
+      assert request.target_host == "win-1.example.com"
+      assert request.target_port == 3389
+      assert request.agent_id == "agent-1"
+      assert request.gateway_id == "gateway-1"
+      assert request.credential_custody_mode == "user_present"
+      assert request.approval_required == true
+      assert request.metadata["desktop_target_id"] == "desktop-target-1"
+      assert request.metadata["target_display_name"] == "Finance Desktop"
+      assert request.metadata["target_tls"] == %{"mode" => "verify_ca"}
+      assert request.metadata["nla"] == %{"required" => true}
+      assert request.metadata["screen_policy"] == %{"max_width" => 1920, "max_height" => 1080}
+      assert request.metadata["redirection_policy"] == %{"clipboard" => "disabled", "drive" => "disabled"}
+      assert request.metadata["environment"] == "prod"
+      assert request.metadata["client_trace_id"] == "trace-1"
+      refute Map.has_key?(request.metadata, "password")
+      refute Map.has_key?(request.metadata, "secret")
+      assert request.recording_policy == %{"mode" => "metadata_only"}
+      assert match?(%Scope{}, opts[:scope])
+    end
+
+    test "returns not found for RDP create when desktop access is disabled", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, false)
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1"
+        })
+
+      body = json_response(conn, 404)
+      assert body["error"] == "not_found"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
+    test "requires RDP permission before creating RDP sessions", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.remote_access.ssh.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1"
+        })
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
+    test "rejects browser-selected RDP target host and port overrides", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "protocol" => "rdp",
+          "desktop_target_id" => "desktop-target-1",
+          "target_host" => "browser.example.com",
+          "target_port" => 3390
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "target_host"
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
+    test "rejects RDP create without a registered desktop target", %{conn: conn, user: user} do
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+      Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
           "device_uid" => "linux-1",
@@ -174,7 +324,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
-      assert body["message"] =~ "protocol"
+      assert body["message"] =~ "desktop_target_id"
     end
 
     test "rejects non-SSH adapters on the public SSH endpoint", %{conn: conn} do

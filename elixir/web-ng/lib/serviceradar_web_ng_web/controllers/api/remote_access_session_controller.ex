@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.RemoteAccessDesktopTargets
   alias ServiceRadarWebNG.RemoteDesktopWebRTC
   alias ServiceRadarWebNGWeb.FeatureFlags
 
@@ -55,6 +56,24 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   ]
 
   def create(conn, params) do
+    case requested_create_protocol(params) do
+      "rdp" -> create_rdp(conn, params)
+      _protocol -> create_ssh(conn, params)
+    end
+  end
+
+  defp requested_create_protocol(params) when is_map(params) do
+    normalize_optional_string(Map.get(params, "protocol")) ||
+      if normalize_optional_string(Map.get(params, "desktop_target_id") || Map.get(params, "target_id")) do
+        "rdp"
+      else
+        "ssh"
+      end
+  end
+
+  defp requested_create_protocol(_params), do: "ssh"
+
+  defp create_ssh(conn, params) do
     with :ok <- require_remote_access_ssh_enabled(),
          :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @remote_access_ssh_permission),
@@ -124,6 +143,96 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
              :unsupported_remote_access_target,
              :unsupported_credential_custody_mode,
              :ssh_principal_policy_required,
+             :credential_rule_required,
+             :credential_rule_not_found,
+             :credential_rule_disabled,
+             :credential_rule_protocol_mismatch,
+             :credential_rule_purpose_mismatch,
+             :credential_rule_scope_mismatch
+           ] ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{error: "remote_access_session_unavailable", message: format_reason(reason)})
+
+      {:error, other} ->
+        {:error, other}
+    end
+  end
+
+  defp create_rdp(conn, params) do
+    with :ok <- require_remote_access_desktop_rdp_enabled(),
+         :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @remote_access_rdp_permission),
+         {:ok, request} <- normalize_rdp_create_request(params, get_scope(conn)),
+         {:ok, %{session: %RemoteAccessSession{} = session, ticket: ticket}} <-
+           remote_access_session_manager().request_open(request.device_uid, request, scope: get_scope(conn)) do
+      conn
+      |> put_status(:created)
+      |> json(%{data: session_json(session, ticket)})
+    else
+      {:error, :invalid_request, message} ->
+        conn
+        |> put_status(:bad_request)
+        |> json(%{error: "invalid_request", message: message})
+
+      {:error, :remote_access_desktop_rdp_disabled} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "not_found", message: "RDP remote access is not enabled"})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden", message: "RDP remote access permission is required"})
+
+      {:error, :remote_access_desktop_target_not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_desktop_target_not_found", message: "RDP desktop target was not found"})
+
+      {:error, :approval_required} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "approval_required", message: "Remote access approval is required"})
+
+      {:error, :approval_denied} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "approval_denied", message: "Remote access approval was denied"})
+
+      {:error, reason}
+      when reason in [
+             :approval_pending,
+             :approval_not_found,
+             :approval_expired,
+             :approval_consumed,
+             :approval_scope_mismatch
+           ] ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: Atom.to_string(reason), message: format_reason(reason)})
+
+      {:error, :approval_checker_required} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{
+          error: "approval_checker_required",
+          message: "Remote access approval must be verified before a session can start"
+        })
+
+      {:error, reason} when reason in [:device_not_found, :not_found] ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access target was not found"})
+
+      {:error, reason}
+      when reason in [
+             :missing_agent_scope,
+             :missing_remote_access_target,
+             :unsupported_remote_access_protocol,
+             :unsupported_remote_access_adapter,
+             :unsupported_remote_access_target,
+             :unsupported_credential_custody_mode,
              :credential_rule_required,
              :credential_rule_not_found,
              :credential_rule_disabled,
@@ -262,6 +371,94 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   end
 
   defp normalize_create_request(_params), do: {:error, :invalid_request, "request body is required"}
+
+  defp normalize_rdp_create_request(params, scope) when is_map(params) do
+    metadata = normalize_metadata(Map.get(params, "metadata"))
+
+    with {:ok, desktop_target_id} <-
+           normalize_required_string(
+             Map.get(params, "desktop_target_id") || Map.get(params, "target_id"),
+             "desktop_target_id"
+           ),
+         :ok <- validate_optional_string_value(Map.get(params, "protocol"), "rdp", "protocol"),
+         :ok <- validate_optional_string_value(Map.get(params, "adapter"), "rdp", "adapter"),
+         :ok <- validate_rdp_browser_policy_selection(params),
+         {:ok, target} <- RemoteAccessDesktopTargets.get_authorized(scope, desktop_target_id),
+         {:ok, device_uid} <- target_required_string(target, "device_uid"),
+         {:ok, target_host} <- target_required_string(target, "target_host"),
+         {:ok, target_port} <- target_required_integer(target, "target_port"),
+         {:ok, approval_id} <- normalize_optional_uuid(Map.get(params, "approval_id"), "approval_id") do
+      desktop_policy = Map.get(target, "desktop_policy", %{})
+
+      {:ok,
+       %{
+         device_uid: device_uid,
+         protocol: "rdp",
+         adapter: "rdp",
+         target_kind: Map.get(target, "target_kind", "inventory_device"),
+         target_host: target_host,
+         target_port: target_port,
+         agent_id: get_in(target, ["route", "agent_id"]),
+         gateway_id: get_in(target, ["route", "gateway_id"]),
+         credential_custody_mode: Map.get(target, "credential_custody_mode", "user_present"),
+         credential_rule_id: nil,
+         approval_required: Map.get(target, "approval_required"),
+         approval_id: approval_id,
+         cols: nil,
+         rows: nil,
+         metadata: rdp_target_metadata(desktop_target_id, target, desktop_policy, metadata),
+         recording_policy: Map.get(target, "recording_policy", %{}),
+         enhanced_recording_policy: %{}
+       }}
+    end
+  end
+
+  defp normalize_rdp_create_request(_params, _scope), do: {:error, :invalid_request, "request body is required"}
+
+  defp validate_rdp_browser_policy_selection(params) do
+    with :ok <- validate_browser_route_selection(params),
+         :ok <- reject_browser_supplied_policy(Map.get(params, "recording_policy"), "recording_policy"),
+         :ok <- reject_browser_supplied_policy(Map.get(params, "enhanced_recording_policy"), "enhanced_recording_policy"),
+         :ok <- validate_browser_credential_rule_selection(params),
+         :ok <- reject_browser_supplied_value(Map.get(params, "credential_custody_mode"), "credential_custody_mode"),
+         :ok <- reject_browser_supplied_value(Map.get(params, "target_host"), "target_host") do
+      reject_browser_supplied_value(Map.get(params, "target_port"), "target_port")
+    end
+  end
+
+  defp reject_browser_supplied_value(nil, _field_name), do: :ok
+  defp reject_browser_supplied_value("", _field_name), do: :ok
+
+  defp reject_browser_supplied_value(_value, field_name),
+    do: {:error, :invalid_request, "#{field_name} is selected by remote-access policy"}
+
+  defp target_required_string(target, key) do
+    case Map.get(target, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, :invalid_request, "desktop target #{key} is required"}
+    end
+  end
+
+  defp target_required_integer(target, key) do
+    case Map.get(target, key) do
+      value when is_integer(value) -> {:ok, value}
+      _value -> {:error, :invalid_request, "desktop target #{key} is required"}
+    end
+  end
+
+  defp rdp_target_metadata(desktop_target_id, target, desktop_policy, browser_metadata) do
+    target_metadata = Map.get(target, "metadata", %{})
+
+    target_metadata
+    |> Map.merge(drop_client_controlled_metadata(browser_metadata))
+    |> Map.put("desktop_target_id", desktop_target_id)
+    |> put_optional("target_display_name", Map.get(target, "label"))
+    |> put_optional("target_tls", Map.get(desktop_policy, "target_tls"))
+    |> put_optional("nla", Map.get(desktop_policy, "nla"))
+    |> put_optional("screen_policy", Map.get(desktop_policy, "screen_policy"))
+    |> put_optional("redirection_policy", Map.get(desktop_policy, "redirection_policy"))
+    |> put_optional("approval_policy", Map.get(desktop_policy, "approval_policy"))
+  end
 
   defp validate_public_ssh_request(params) do
     with :ok <- validate_optional_string_value(Map.get(params, "protocol"), "ssh", "protocol"),
@@ -738,6 +935,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       :ok
     else
       {:error, :remote_access_ssh_disabled}
+    end
+  end
+
+  defp require_remote_access_desktop_rdp_enabled do
+    if FeatureFlags.remote_access_desktop_rdp_enabled?() do
+      :ok
+    else
+      {:error, :remote_access_desktop_rdp_disabled}
     end
   end
 

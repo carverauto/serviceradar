@@ -42,6 +42,16 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
     end
   end
 
+  @spec get_authorized(term(), String.t(), keyword()) :: {:ok, target()} | {:error, term()}
+  def get_authorized(scope, target_id, opts \\ []) when is_binary(target_id) do
+    with {:ok, targets} <- list_authorized(scope, opts) do
+      case Enum.find(targets, &(Map.get(&1, "id") == target_id)) do
+        nil -> {:error, :remote_access_desktop_target_not_found}
+        target -> {:ok, target}
+      end
+    end
+  end
+
   defp configured_provider do
     Application.get_env(:serviceradar_web_ng, :remote_access_desktop_target_provider)
   end
