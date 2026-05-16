@@ -149,7 +149,7 @@
 - [x] 3.2.26 Wire agent-side RDP open frames into the desktop media gateway sender, RDP helper adapter runtime, ready response, and active desktop session registry.
 - [x] 3.2.27 Add a Bazel-only adapter connector-config probe proving validated ServiceRadar open payloads can map to IronRDP connector config through the isolated connector crate universe while runtime readiness stays disabled.
 - [x] 3.2.28 Add explicit adapter-side TLS trust-source planning for system roots, registered CA bundles, and pinned CA bundle requirements before connector code can consume a target policy.
-- [ ] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
+- [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
 - [x] 3.3.3 Reject expired brokered desktop credential grants before adapter use.
