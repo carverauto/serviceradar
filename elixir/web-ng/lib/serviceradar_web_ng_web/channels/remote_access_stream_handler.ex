@@ -253,8 +253,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp credential_broker_opts(session, message, state) do
     credential = normalize_map(Map.get(message, "credential"))
 
-    case {custody_mode(session), credential} do
-      {"ssh_certificate", credential} when map_size(credential) > 0 ->
+    case {custody_mode(session), protocol(session), credential} do
+      {"ssh_certificate", _protocol, credential} when map_size(credential) > 0 ->
         with :ok <- reject_controlled_credential_fields(credential),
              {:ok, credential} <- normalize_certificate_credential(credential),
              attrs = certificate_request_attrs(credential, session),
@@ -267,10 +267,21 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, grant.broker_opts}
         end
 
-      {"ssh_certificate", _credential} ->
+      {"ssh_certificate", _protocol, _credential} ->
         {:error, :session_credential_required}
 
-      {"user_present", credential} when map_size(credential) > 0 ->
+      {"user_present", "rdp", credential} when map_size(credential) > 0 ->
+        with :ok <- reject_controlled_credential_fields(credential),
+             {:ok, credential} <- normalize_rdp_user_present_credential(credential),
+             {:ok, grant} <- rdp_user_present_credential_grant(session, credential) do
+          {:ok,
+           [
+             metadata: %{"credential_grant" => grant},
+             credential_mode: "user_present"
+           ]}
+        end
+
+      {"user_present", _protocol, credential} when map_size(credential) > 0 ->
         with :ok <- reject_controlled_credential_fields(credential),
              {:ok, credential} <- normalize_user_present_credential(credential),
              attrs =
@@ -282,13 +293,13 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, grant.broker_opts}
         end
 
-      {"user_present", _credential} ->
+      {"user_present", _protocol, _credential} ->
         {:error, :session_credential_required}
 
-      {"centrally_brokered", credential} when map_size(credential) > 0 ->
+      {"centrally_brokered", _protocol, credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
 
-      {"centrally_brokered", _credential} ->
+      {"centrally_brokered", _protocol, _credential} ->
         with {:ok, grant} <-
                state.credential_grant_resolver.build_broker_grant(session,
                  scope: state.scope
@@ -296,11 +307,38 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, grant.broker_opts}
         end
 
-      {_mode, credential} when map_size(credential) > 0 ->
+      {_mode, _protocol, credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
 
-      {_mode, _credential} ->
+      {_mode, _protocol, _credential} ->
         {:ok, []}
+    end
+  end
+
+  defp normalize_rdp_user_present_credential(credential) do
+    with {:ok, username} <- bounded_string(credential, "username", @max_username_bytes),
+         {:ok, password} <- bounded_string(credential, "password", @max_password_bytes),
+         {:ok, nil} <- optional_bounded_string(credential, "private_key", @max_private_key_bytes),
+         {:ok, nil} <- optional_bounded_string(credential, "passphrase", @max_passphrase_bytes) do
+      {:ok, %{"username" => username, "password" => password}}
+    else
+      {:ok, _unsupported_secret} -> {:error, :credential_policy_denied}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp rdp_user_present_credential_grant(session, credential) do
+    with {:ok, target_id} <- required_metadata_string(session, "desktop_target_id"),
+         {:ok, route_id} <- required_session_string(session, :agent_id) do
+      {:ok,
+       %{
+         "mode" => "memory_user",
+         "username" => Map.fetch!(credential, "username"),
+         "password" => Map.fetch!(credential, "password"),
+         "session_id" => session.id,
+         "target_id" => target_id,
+         "route_id" => route_id
+       }}
     end
   end
 
@@ -461,6 +499,24 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp metadata_value(_session, _key), do: nil
+
+  defp required_metadata_string(session, key) do
+    case metadata_value(session, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, :invalid_request}
+    end
+  end
+
+  defp required_session_string(session, key) do
+    case Map.get(session, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, :invalid_request}
+    end
+  end
+
+  defp protocol(%{protocol: value}) when is_atom(value), do: Atom.to_string(value)
+  defp protocol(%{protocol: value}) when is_binary(value), do: value
+  defp protocol(_session), do: "ssh"
 
   defp string_value(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, safe_existing_atom(key)) do

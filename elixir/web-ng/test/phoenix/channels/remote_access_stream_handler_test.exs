@@ -14,12 +14,12 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       {:ok,
        %RemoteAccessSession{
          id: opts[:session_id],
-         device_uid: "linux-1",
+         device_uid: scope_value(opts, :device_uid, "linux-1"),
          target_kind: :inventory_device,
-         target_host: "10.0.0.10",
-         target_port: 22,
-         protocol: :ssh,
-         adapter: :ssh,
+         target_host: scope_value(opts, :target_host, "10.0.0.10"),
+         target_port: scope_value(opts, :target_port, 22),
+         protocol: scope_value(opts, :protocol, :ssh),
+         adapter: scope_value(opts, :adapter, :ssh),
          agent_id: "agent-1",
          gateway_id: "gateway-1",
          credential_rule_id: scope_value(opts, :credential_rule_id, nil),
@@ -229,6 +229,84 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert opts[:metadata]["ssh"]["passphrase"] == "session-passphrase"
 
     RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "user-present RDP attach passes a desktop credential grant to broker without echoing it" do
+    {:ok, state} =
+      init_state("session-rdp-user-present",
+        protocol: :rdp,
+        adapter: :rdp,
+        device_uid: "windows-1",
+        target_host: "win-1.example.com",
+        target_port: 3389,
+        credential_custody_mode: :user_present,
+        session_metadata: %{"desktop_target_id" => "desktop-target-1"}
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-rdp-user-present",
+        credential: %{
+          username: "EXAMPLE\\alice",
+          password: "rdp-session-password"
+        }
+      })
+
+    assert {:push, {:text, response}, attached} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "ready", "session_id" => "session-rdp-user-present"} = Jason.decode!(response)
+    refute response =~ "srra_test_ticket"
+    refute response =~ "rdp-session-password"
+
+    assert_receive {:broker_started, "session-rdp-user-present", opts}
+    assert opts[:credential_mode] == "user_present"
+
+    assert opts[:metadata]["credential_grant"] == %{
+             "mode" => "memory_user",
+             "username" => "EXAMPLE\\alice",
+             "password" => "rdp-session-password",
+             "session_id" => "session-rdp-user-present",
+             "target_id" => "desktop-target-1",
+             "route_id" => "agent-1"
+           }
+
+    refute Map.has_key?(opts[:metadata], "ssh")
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "user-present RDP attach rejects SSH-style private key credentials" do
+    {:ok, state} =
+      init_state("session-rdp-private-key",
+        protocol: :rdp,
+        adapter: :rdp,
+        credential_custody_mode: :user_present,
+        session_metadata: %{"desktop_target_id" => "desktop-target-1"}
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-rdp-private-key",
+        credential: %{
+          username: "alice",
+          password: "rdp-session-password",
+          private_key: "session-private-key"
+        }
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
+             Jason.decode!(response)
+
+    assert_receive {:fail_session, "session-rdp-private-key", :credential_policy_denied, _opts}
+    refute_receive {:broker_started, "session-rdp-private-key", _opts}
   end
 
   test "ssh certificate attach issues cert from server-side identity claims" do
@@ -714,6 +792,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
         test_pid: self(),
         credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :none),
         credential_rule_id: Keyword.get(opts, :credential_rule_id),
+        protocol: Keyword.get(opts, :protocol, :ssh),
+        adapter: Keyword.get(opts, :adapter, :ssh),
+        device_uid: Keyword.get(opts, :device_uid, "linux-1"),
+        target_host: Keyword.get(opts, :target_host, "10.0.0.10"),
+        target_port: Keyword.get(opts, :target_port, 22),
         identity_claims: Keyword.get(opts, :identity_claims, %{}),
         user:
           Keyword.get(opts, :user, %{

@@ -161,6 +161,7 @@
 - [x] 3.3.19 Reject helper-to-agent close payloads with trailing JSON or garbage while still clearing the raw payload buffer.
 - [x] 3.3.20 Clear raw helper-to-agent SRDP media payload buffers after successful forwarding and media-sender failures.
 - [x] 3.3.21 Reject RDP opens that require a credential grant before reserving desktop media or starting adapter/helper work.
+- [x] 3.3.22 Convert browser user-present RDP attach credentials into session/target/route-bound desktop memory-user grants instead of SSH-shaped metadata.
 - [x] 3.4 Add resize, keyboard, pointer, focus, backpressure, frame quota, bitrate quota, and route-loss behavior.
 - [x] 3.4.1 Bound desktop pointer coordinates and keyboard/button token sizes before adapter input handling.
 - [x] 3.4.2 Add a desktop update-frame quota window for adapter frame-rate and bitrate enforcement.
@@ -334,6 +335,7 @@
 - [x] 5.6.57 Add focused Elixir tests proving RDP broker open frames carry desktop target route, TLS/NLA, screen, credential, redirection, and recording policy for the selected agent.
 - [x] 5.6.58 Add focused Go tests proving RDP open frames reserve desktop media sessions, open the adapter runtime, emit media binding readiness, register active sessions, and fail closed before adapter open when media setup is missing.
 - [x] 5.6.59 Add focused Go tests proving RDP opens with secret-bearing credential modes fail closed before media reservation when the per-session grant is missing.
+- [x] 5.6.60 Add focused channel tests proving user-present RDP attach emits a desktop credential grant, does not echo secrets, and rejects SSH-style private-key credentials.
 - [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
