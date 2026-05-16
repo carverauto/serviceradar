@@ -14,6 +14,7 @@ resolver = "2"
 ironrdp-blocking = { version = "=0.8.0", default-features = false }
 ironrdp-connector = { version = "=0.8.0", default-features = false }
 ironrdp-core = { version = "=0.1.5", default-features = false, features = ["alloc"] }
+ironrdp-graphics = { version = "=0.7.0", default-features = false }
 ironrdp-pdu = { version = "=0.7.0", default-features = false, features = ["std"] }
 ironrdp-session = { version = "=0.8.0", default-features = false }
 serde = { version = "1", features = ["derive"] }

@@ -192,6 +192,13 @@ pub struct ActiveStageSmokeProbe {
     pub accepts_mouse_position_update: bool,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct ActiveStageInputProbe {
+    pub response_frames: usize,
+    pub response_bytes: usize,
+    pub graphics_updates: usize,
+}
+
 #[derive(Debug)]
 pub struct ConnectorPlan {
     pub upstream_host: String,
@@ -229,25 +236,7 @@ pub fn active_stage_dependency_is_linked() -> bool {
 pub fn build_active_stage_smoke(
     request: ServiceRadarOpenRequest,
 ) -> Result<ActiveStageSmokeProbe, &'static str> {
-    let plan = build_connector_plan(request)?;
-    let config = plan.connector_config;
-    let desktop_size = config.desktop_size;
-    let connector = ironrdp_connector::ClientConnector::new(config.clone(), CLIENT_ADDR);
-    let connection_activation =
-        ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
-            config, 1003, 1004,
-        );
-    let connection_result = ironrdp_connector::ConnectionResult {
-        io_channel_id: 1003,
-        user_channel_id: 1004,
-        static_channels: connector.static_channels,
-        desktop_size,
-        enable_server_pointer: false,
-        pointer_software_rendering: false,
-        connection_activation,
-    };
-
-    let mut active_stage = ironrdp_session::ActiveStage::new(connection_result);
+    let (mut active_stage, desktop_size) = build_active_stage_for_probe(request)?;
     active_stage.update_mouse_pos(10, 20);
 
     Ok(ActiveStageSmokeProbe {
@@ -255,6 +244,30 @@ pub fn build_active_stage_smoke(
         desktop_height: desktop_size.height,
         accepts_mouse_position_update: true,
     })
+}
+
+pub fn encode_active_stage_keyboard_input_smoke(
+    request: ServiceRadarOpenRequest,
+) -> Result<ActiveStageInputProbe, &'static str> {
+    let (mut active_stage, desktop_size) = build_active_stage_for_probe(request)?;
+    let mut image = ironrdp_session::image::DecodedImage::new(
+        ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+        desktop_size.width,
+        desktop_size.height,
+    );
+    let outputs = active_stage
+        .process_fastpath_input(
+            &mut image,
+            &[
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::KeyboardEvent(
+                    ironrdp_pdu::input::fast_path::KeyboardFlags::empty(),
+                    0x1e,
+                ),
+            ],
+        )
+        .map_err(|_| "active stage input encode failed")?;
+
+    Ok(summarize_active_stage_outputs(outputs))
 }
 
 pub fn parse_service_radar_open_request(
@@ -370,6 +383,65 @@ fn effective_tls_server_name(request: &ServiceRadarOpenRequest) -> Result<String
     }
 
     Ok(upstream_host.to_owned())
+}
+
+fn build_active_stage_for_probe(
+    request: ServiceRadarOpenRequest,
+) -> Result<(ironrdp_session::ActiveStage, ironrdp_connector::DesktopSize), &'static str> {
+    let plan = build_connector_plan(request)?;
+    let config = plan.connector_config;
+    let desktop_size = config.desktop_size;
+    let connector = ironrdp_connector::ClientConnector::new(config.clone(), CLIENT_ADDR);
+    let connection_activation =
+        ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
+            config, 1003, 1004,
+        );
+    let connection_result = ironrdp_connector::ConnectionResult {
+        io_channel_id: 1003,
+        user_channel_id: 1004,
+        static_channels: connector.static_channels,
+        desktop_size,
+        enable_server_pointer: false,
+        pointer_software_rendering: false,
+        connection_activation,
+    };
+
+    Ok((
+        ironrdp_session::ActiveStage::new(connection_result),
+        desktop_size,
+    ))
+}
+
+fn summarize_active_stage_outputs(
+    outputs: Vec<ironrdp_session::ActiveStageOutput>,
+) -> ActiveStageInputProbe {
+    let mut response_frames = 0;
+    let mut response_bytes = 0;
+    let mut graphics_updates = 0;
+
+    for output in outputs {
+        match output {
+            ironrdp_session::ActiveStageOutput::ResponseFrame(frame) => {
+                response_frames += 1;
+                response_bytes += frame.len();
+            }
+            ironrdp_session::ActiveStageOutput::GraphicsUpdate(_) => {
+                graphics_updates += 1;
+            }
+            ironrdp_session::ActiveStageOutput::PointerDefault
+            | ironrdp_session::ActiveStageOutput::PointerHidden
+            | ironrdp_session::ActiveStageOutput::PointerPosition { .. }
+            | ironrdp_session::ActiveStageOutput::PointerBitmap(_)
+            | ironrdp_session::ActiveStageOutput::Terminate(_)
+            | ironrdp_session::ActiveStageOutput::DeactivateAll(_) => {}
+        }
+    }
+
+    ActiveStageInputProbe {
+        response_frames,
+        response_bytes,
+        graphics_updates,
+    }
 }
 
 fn validate_service_radar_open_request(
@@ -790,6 +862,19 @@ mod tests {
         assert_eq!(probe.desktop_width, 1920);
         assert_eq!(probe.desktop_height, 1080);
         assert!(probe.accepts_mouse_position_update);
+    }
+
+    #[test]
+    fn active_stage_encodes_keyboard_input_response_frame() {
+        let probe = crate::encode_active_stage_keyboard_input_smoke(open_request(
+            "EXAMPLE\\alice",
+            "required",
+        ))
+        .expect("active stage input");
+
+        assert_eq!(probe.response_frames, 1);
+        assert!(probe.response_bytes > 0);
+        assert_eq!(probe.graphics_updates, 0);
     }
 
     #[test]
