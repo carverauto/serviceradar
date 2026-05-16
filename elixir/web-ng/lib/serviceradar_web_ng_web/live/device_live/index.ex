@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ash.Expr
+  import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Changes.InvalidAttribute
@@ -14,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
+  alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RuntimeLimits
   alias ServiceRadarWebNG.TenantUsage
@@ -496,7 +498,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       |> Map.get("action_id")
       |> find_launchable_northbound_action(socket.assigns.northbound_device_actions)
 
-    params = ensure_action_params(params, action)
+    params = NorthboundActionForm.ensure_params(params, action)
 
     {:noreply,
      socket
@@ -507,7 +509,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("launch_northbound_action", %{"action" => params}, socket) do
     with {:ok, action} <- selected_northbound_action(params, socket.assigns.northbound_device_actions),
-         {:ok, input_values} <- parse_northbound_input(action, params),
+         {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
          {:ok, targets} <- selected_device_action_targets(socket),
          {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
       {:noreply,
@@ -518,14 +520,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        |> assign(:total_matching_count, nil)
        |> put_flash(
          :info,
-         "Created task invocation #{short_id(invocation.id)} for #{length(targets)} device(s)."
+         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} device(s)."
        )}
     else
       {:error, reason} ->
         {:noreply,
          socket
          |> assign(:northbound_action_form, to_form(params, as: :action))
-         |> assign(:northbound_action_error, format_northbound_launch_error(reason))}
+         |> assign(:northbound_action_error, NorthboundActionForm.format_launch_error(reason, "device"))}
     end
   end
 
@@ -1074,7 +1076,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp open_northbound_action_modal(socket, action) do
-    params = default_northbound_action_params(action)
+    params = NorthboundActionForm.default_params(action)
 
     socket
     |> assign(:show_northbound_action_modal, true)
@@ -1089,28 +1091,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> assign(:northbound_launch_action, nil)
     |> assign(:northbound_action_form, to_form(%{}, as: :action))
     |> assign(:northbound_action_error, nil)
-  end
-
-  defp default_northbound_action_params(action) do
-    input =
-      action
-      |> action_schema_properties()
-      |> Enum.reduce(%{}, fn {name, schema}, acc ->
-        case schema_default(schema) do
-          nil -> acc
-          value -> Map.put(acc, name, stringify_form_value(value))
-        end
-      end)
-
-    %{"action_id" => action.id, "input" => input}
-  end
-
-  defp ensure_action_params(params, nil), do: params
-
-  defp ensure_action_params(params, action) do
-    params
-    |> Map.put("action_id", action.id)
-    |> Map.update("input", default_northbound_action_params(action)["input"], &normalize_input_params/1)
   end
 
   defp selected_northbound_action(params, actions) do
@@ -1131,87 +1111,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp find_launchable_northbound_action(_id, actions) do
     actions |> launchable_northbound_actions() |> List.first()
-  end
-
-  defp parse_northbound_input(action, params) do
-    input = params |> Map.get("input", %{}) |> normalize_input_params()
-    properties = action_schema_properties(action)
-    required = action_schema_required(action)
-
-    with :ok <- validate_required_northbound_input(required, input) do
-      cast_northbound_input(properties, input)
-    end
-  rescue
-    error ->
-      Logger.warning("Failed to parse northbound action input for #{inspect(Map.get(action, :id))}: #{inspect(error)}")
-
-      {:error, :invalid_input}
-  end
-
-  defp validate_required_northbound_input(required, input) do
-    missing =
-      Enum.find(required, fn key ->
-        key
-        |> then(&Map.get(input, &1))
-        |> blank_form_value?()
-      end)
-
-    if missing do
-      {:error, {:missing_required_input, missing}}
-    else
-      :ok
-    end
-  end
-
-  defp cast_northbound_input(properties, input) do
-    Enum.reduce_while(properties, {:ok, %{}}, fn {name, schema}, {:ok, acc} ->
-      raw = Map.get(input, name)
-
-      case cast_northbound_value(raw, schema) do
-        {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, value} -> {:cont, {:ok, Map.put(acc, name, value)}}
-        {:error, reason} -> {:halt, {:error, {reason, name}}}
-      end
-    end)
-  end
-
-  defp cast_northbound_value(raw, schema) do
-    type = schema_type(schema)
-
-    cond do
-      blank_form_value?(raw) ->
-        {:ok, nil}
-
-      type == "boolean" ->
-        {:ok, raw in [true, "true", "on", "1", 1]}
-
-      type == "integer" ->
-        raw |> to_string() |> Integer.parse() |> parse_numeric_value(:invalid_integer)
-
-      type == "number" ->
-        raw |> to_string() |> Float.parse() |> parse_numeric_value(:invalid_number)
-
-      type in ["object", "array"] ->
-        cast_json_form_value(raw, type)
-
-      true ->
-        {:ok, to_string(raw)}
-    end
-  end
-
-  defp parse_numeric_value({value, ""}, _error), do: {:ok, value}
-  defp parse_numeric_value({_value, _rest}, error), do: {:error, error}
-  defp parse_numeric_value(:error, error), do: {:error, error}
-
-  defp cast_json_form_value(value, _type) when is_map(value) or is_list(value), do: {:ok, value}
-
-  defp cast_json_form_value(value, type) do
-    case Jason.decode(to_string(value)) do
-      {:ok, decoded} when type == "object" and is_map(decoded) -> {:ok, decoded}
-      {:ok, decoded} when type == "array" and is_list(decoded) -> {:ok, decoded}
-      {:ok, _decoded} -> {:error, :invalid_json_type}
-      {:error, _error} -> {:error, :invalid_json}
-    end
   end
 
   defp selected_device_action_targets(socket) do
@@ -1250,150 +1149,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: nil
-
-  defp format_northbound_launch_error({:missing_required_input, field}) do
-    "#{humanize_field_name(field)} is required."
-  end
-
-  defp format_northbound_launch_error({:invalid_integer, field}) do
-    "#{humanize_field_name(field)} must be a whole number."
-  end
-
-  defp format_northbound_launch_error({:invalid_number, field}) do
-    "#{humanize_field_name(field)} must be a number."
-  end
-
-  defp format_northbound_launch_error({reason, field}) when reason in [:invalid_json, :invalid_json_type] do
-    "#{humanize_field_name(field)} must be valid JSON."
-  end
-
-  defp format_northbound_launch_error(:action_not_found), do: "Select a launchable task."
-  defp format_northbound_launch_error(:targets_required), do: "Select at least one device."
-  defp format_northbound_launch_error(:descriptor_not_found), do: "The selected task no longer exists."
-  defp format_northbound_launch_error(:descriptor_disabled), do: "The selected task is disabled."
-
-  defp format_northbound_launch_error({:provider_not_active, _status}) do
-    "The selected task integration is not active."
-  end
-
-  defp format_northbound_launch_error(%Forbidden{}), do: "You are not authorized to launch tasks."
-
-  defp format_northbound_launch_error(reason) do
-    Logger.warning("Northbound task launch failed: #{inspect(reason)}")
-    "Failed to create task invocation."
-  end
-
-  defp short_id(id) when is_binary(id), do: String.slice(id, 0, 8)
-  defp short_id(_id), do: "created"
-
-  defp action_schema_properties(%{input_schema: schema}), do: schema_properties(schema)
-  defp action_schema_properties(_action), do: []
-
-  defp schema_properties(schema) when is_map(schema) do
-    schema
-    |> fetch_schema_value("properties")
-    |> case do
-      %{} = properties ->
-        properties
-        |> Enum.map(fn {name, schema} -> {to_string(name), normalize_schema(schema)} end)
-        |> Enum.sort_by(fn {name, schema} ->
-          {schema_order(schema), String.downcase(humanize_field_name(name))}
-        end)
-
-      _ ->
-        []
-    end
-  end
-
-  defp schema_properties(_schema), do: []
-
-  defp action_schema_required(%{input_schema: schema}) when is_map(schema) do
-    schema
-    |> fetch_schema_value("required")
-    |> case do
-      values when is_list(values) -> MapSet.new(Enum.map(values, &to_string/1))
-      _ -> MapSet.new()
-    end
-  end
-
-  defp action_schema_required(_action), do: MapSet.new()
-
-  defp normalize_schema(%{} = schema), do: schema
-  defp normalize_schema(_schema), do: %{}
-
-  defp fetch_schema_value(schema, "properties") when is_map(schema),
-    do: Map.get(schema, "properties") || Map.get(schema, :properties)
-
-  defp fetch_schema_value(schema, "required") when is_map(schema),
-    do: Map.get(schema, "required") || Map.get(schema, :required)
-
-  defp fetch_schema_value(schema, "default") when is_map(schema),
-    do: Map.get(schema, "default") || Map.get(schema, :default)
-
-  defp fetch_schema_value(schema, "type") when is_map(schema), do: Map.get(schema, "type") || Map.get(schema, :type)
-
-  defp fetch_schema_value(schema, "x-order") when is_map(schema),
-    do: Map.get(schema, "x-order") || Map.get(schema, :"x-order")
-
-  defp fetch_schema_value(schema, "order") when is_map(schema), do: Map.get(schema, "order") || Map.get(schema, :order)
-
-  defp fetch_schema_value(schema, "enum") when is_map(schema), do: Map.get(schema, "enum") || Map.get(schema, :enum)
-
-  defp fetch_schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
-
-  defp fetch_schema_value(schema, "description") when is_map(schema),
-    do: Map.get(schema, "description") || Map.get(schema, :description)
-
-  defp fetch_schema_value(_schema, _key), do: nil
-
-  defp schema_default(schema) do
-    fetch_schema_value(schema, "default")
-  end
-
-  defp schema_type(schema) do
-    case fetch_schema_value(schema, "type") do
-      value when is_binary(value) -> value
-      values when is_list(values) -> values |> Enum.find(&(&1 != "null")) |> to_string()
-      _ -> "string"
-    end
-  end
-
-  defp schema_order(schema) do
-    case fetch_schema_value(schema, "x-order") || fetch_schema_value(schema, "order") do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> value |> Integer.parse() |> elem_or_default(0)
-      _ -> 0
-    end
-  end
-
-  defp elem_or_default({value, _rest}, _default), do: value
-  defp elem_or_default(:error, default), do: default
-
-  defp normalize_input_params(%{} = params), do: params
-  defp normalize_input_params(_params), do: %{}
-
-  defp blank_form_value?(nil), do: true
-  defp blank_form_value?(value) when is_binary(value), do: String.trim(value) == ""
-  defp blank_form_value?(_value), do: false
-
-  defp stringify_form_value(value) when is_binary(value), do: value
-  defp stringify_form_value(value) when is_boolean(value), do: to_string(value)
-  defp stringify_form_value(value) when is_number(value), do: to_string(value)
-
-  defp stringify_form_value(value) when is_map(value) or is_list(value) do
-    Jason.encode!(value)
-  end
-
-  defp stringify_form_value(value), do: to_string(value)
-
-  defp humanize_field_name(name) do
-    name
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.replace("-", " ")
-    |> String.split(" ", trim: true)
-    |> Enum.map_join(" ", &String.capitalize/1)
-  end
 
   defp parse_tag_entry(entry) do
     case String.split(entry, "=", parts: 2) do
@@ -1837,11 +1592,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
       <.northbound_action_modal
         :if={@show_northbound_action_modal}
+        id="northbound_action_modal"
+        title="Run Task"
+        subtitle={"#{@effective_count} selected device(s)"}
         form={@northbound_action_form}
         actions={launchable_northbound_actions(@northbound_device_actions)}
         action={@northbound_launch_action}
-        selected_count={@effective_count}
         error={@northbound_action_error}
+        close_event="close_northbound_action_modal"
+        change_event="northbound_action_change"
+        submit_event="launch_northbound_action"
       />
 
       <.breakdown_modal
@@ -1850,200 +1610,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         search={@breakdown_search}
       />
     </Layouts.app>
-    """
-  end
-
-  attr(:form, :any, required: true)
-  attr(:actions, :list, required: true)
-  attr(:action, :map, default: nil)
-  attr(:selected_count, :integer, required: true)
-  attr(:error, :string, default: nil)
-
-  defp northbound_action_modal(assigns) do
-    action = assigns.action || List.first(assigns.actions)
-    properties = if action, do: action_schema_properties(action), else: []
-    required = if action, do: action_schema_required(action), else: MapSet.new()
-
-    assigns =
-      assigns
-      |> assign(:action, action)
-      |> assign(:properties, properties)
-      |> assign(:required, required)
-
-    ~H"""
-    <dialog id="northbound_action_modal" class="modal modal-open">
-      <div class="modal-box max-w-2xl">
-        <form method="dialog">
-          <button
-            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
-            phx-click="close_northbound_action_modal"
-          >
-            <.icon name="hero-x-mark" class="size-4" />
-          </button>
-        </form>
-
-        <div class="flex items-start gap-3">
-          <div class="rounded-lg bg-primary/10 p-2">
-            <.icon name="hero-play" class="size-5 text-primary" />
-          </div>
-          <div class="min-w-0 flex-1">
-            <h3 class="text-lg font-semibold text-base-content">Run Task</h3>
-            <p class="text-sm text-base-content/60">
-              {@selected_count} selected device(s)
-            </p>
-          </div>
-        </div>
-
-        <div :if={@error} role="alert" class="alert alert-error mt-4">
-          <.icon name="hero-exclamation-circle" class="size-5" />
-          <span class="text-sm">{@error}</span>
-        </div>
-
-        <.form
-          for={@form}
-          id="northbound-action-form"
-          phx-change="northbound_action_change"
-          phx-submit="launch_northbound_action"
-          class="mt-5 space-y-4"
-        >
-          <div class="form-control">
-            <label class="label">
-              <span class="label-text font-medium">Task</span>
-            </label>
-            <select name="action[action_id]" class="select select-bordered w-full">
-              <%= for option <- @actions do %>
-                <option value={option.id} selected={@action && option.id == @action.id}>
-                  {option.label}
-                </option>
-              <% end %>
-            </select>
-          </div>
-
-          <div :if={@action} class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              <span class="badge badge-ghost badge-sm">{@action.provider_name}</span>
-              <span class={safety_badge_class(@action.safety_classification)}>
-                {humanize_field_name(@action.safety_classification)}
-              </span>
-              <span :if={@action.requires_confirmation} class="badge badge-warning badge-sm">
-                Confirmation required
-              </span>
-              <span class="badge badge-ghost badge-sm">{@action.timeout_seconds}s timeout</span>
-            </div>
-            <p :if={present_text?(@action.description)} class="mt-2 text-sm text-base-content/70">
-              {@action.description}
-            </p>
-          </div>
-
-          <div :if={@properties != []} class="grid gap-4">
-            <%= for {name, schema} <- @properties do %>
-              <.northbound_action_field
-                form={@form}
-                name={name}
-                schema={schema}
-                required={MapSet.member?(@required, name)}
-              />
-            <% end %>
-          </div>
-
-          <div
-            :if={@properties == []}
-            class="rounded-lg border border-base-200 p-4 text-sm text-base-content/60"
-          >
-            This task does not require additional input.
-          </div>
-
-          <div class="modal-action">
-            <button
-              type="button"
-              class="btn btn-ghost"
-              phx-click="close_northbound_action_modal"
-            >
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary" disabled={is_nil(@action)}>
-              <.icon name="hero-play" class="size-4" /> Create Invocation
-            </button>
-          </div>
-        </.form>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button phx-click="close_northbound_action_modal">close</button>
-      </form>
-    </dialog>
-    """
-  end
-
-  attr(:form, :any, required: true)
-  attr(:name, :string, required: true)
-  attr(:schema, :map, required: true)
-  attr(:required, :boolean, default: false)
-
-  defp northbound_action_field(assigns) do
-    type = schema_type(assigns.schema)
-    enum_values = schema_enum(assigns.schema)
-
-    assigns =
-      assigns
-      |> assign(:type, type)
-      |> assign(:enum_values, enum_values)
-      |> assign(:value, northbound_form_value(assigns.form, assigns.name))
-      |> assign(:label, schema_title(assigns.name, assigns.schema))
-      |> assign(:description, schema_description(assigns.schema))
-      |> assign(:input_name, "action[input][#{assigns.name}]")
-
-    ~H"""
-    <div class="form-control">
-      <label class="label">
-        <span class="label-text font-medium">
-          {@label}
-          <span :if={@required} class="text-error">*</span>
-        </span>
-        <span :if={present_text?(@description)} class="label-text-alt text-base-content/50">
-          {@description}
-        </span>
-      </label>
-
-      <select
-        :if={@enum_values != []}
-        name={@input_name}
-        class="select select-bordered w-full"
-        required={@required}
-      >
-        <option value="">Select...</option>
-        <%= for option <- @enum_values do %>
-          <option value={option} selected={to_string(@value || "") == option}>{option}</option>
-        <% end %>
-      </select>
-
-      <div :if={@enum_values == [] and @type == "boolean"} class="flex items-center gap-2">
-        <input type="hidden" name={@input_name} value="false" />
-        <input
-          type="checkbox"
-          name={@input_name}
-          value="true"
-          checked={@value in [true, "true", "on", "1", 1]}
-          class="toggle toggle-primary"
-        />
-      </div>
-
-      <textarea
-        :if={@enum_values == [] and @type in ["object", "array"]}
-        name={@input_name}
-        class="textarea textarea-bordered min-h-28 w-full font-mono text-xs"
-        required={@required}
-        placeholder={if @type == "array", do: "[]", else: "{}"}
-      >{json_textarea_value(@value, @type)}</textarea>
-
-      <input
-        :if={@enum_values == [] and @type not in ["boolean", "object", "array"]}
-        type={html_input_type(@type)}
-        name={@input_name}
-        value={@value}
-        class="input input-bordered w-full"
-        required={@required}
-      />
-    </div>
     """
   end
 
@@ -2770,53 +2336,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_stat_number(n) when is_integer(n), do: Integer.to_string(n)
   defp format_stat_number(n) when is_float(n), do: n |> trunc() |> format_stat_number()
   defp format_stat_number(_), do: "0"
-
-  defp safety_badge_class("destructive"), do: "badge badge-error badge-sm"
-  defp safety_badge_class("read_only"), do: "badge badge-info badge-sm"
-  defp safety_badge_class(_classification), do: "badge badge-primary badge-sm"
-
-  defp schema_enum(schema) do
-    schema
-    |> fetch_schema_value("enum")
-    |> case do
-      values when is_list(values) -> Enum.map(values, &to_string/1)
-      _ -> []
-    end
-  end
-
-  defp schema_title(name, schema) do
-    case fetch_schema_value(schema, "title") do
-      value when is_binary(value) and value != "" -> value
-      _ -> humanize_field_name(name)
-    end
-  end
-
-  defp schema_description(schema) do
-    case fetch_schema_value(schema, "description") do
-      value when is_binary(value) -> value
-      _ -> nil
-    end
-  end
-
-  defp northbound_form_value(form, name) do
-    input =
-      case form[:input].value do
-        %{} = value -> value
-        _ -> %{}
-      end
-
-    Map.get(input, name)
-  end
-
-  defp json_textarea_value(nil, "array"), do: "[]"
-  defp json_textarea_value(nil, _type), do: "{}"
-  defp json_textarea_value(value, _type) when is_binary(value), do: value
-  defp json_textarea_value(value, _type) when is_map(value) or is_list(value), do: Jason.encode!(value)
-  defp json_textarea_value(value, _type), do: to_string(value)
-
-  defp html_input_type("integer"), do: "number"
-  defp html_input_type("number"), do: "number"
-  defp html_input_type(_type), do: "text"
 
   defp add_stat_commas(str) do
     str

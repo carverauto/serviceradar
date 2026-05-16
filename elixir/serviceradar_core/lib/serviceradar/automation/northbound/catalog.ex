@@ -33,8 +33,16 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
     descriptor_actions(scope, "device") ++ ansible_device_actions(scope)
   end
 
+  @spec eligible_interface_actions(term()) :: [action_summary()]
+  def eligible_interface_actions(scope) do
+    descriptor_actions(scope, "interface")
+  end
+
   @spec launchable_device_actions?(term()) :: boolean()
   def launchable_device_actions?(scope), do: eligible_device_actions(scope) != []
+
+  @spec launchable_interface_actions?(term()) :: boolean()
+  def launchable_interface_actions?(scope), do: eligible_interface_actions(scope) != []
 
   defp descriptor_actions(scope, action_scope) do
     ActionDescriptor
