@@ -607,6 +607,8 @@ defmodule ServiceRadar.Automation.Northbound.EventHandlerRunner do
   defp comparable(value) when is_binary(value), do: String.downcase(value)
   defp comparable(value), do: value
 
+  defp normalize_string(nil), do: nil
+
   defp normalize_string(value) when is_binary(value) do
     value = String.trim(value)
     if value == "", do: nil, else: value

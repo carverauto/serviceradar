@@ -35,7 +35,7 @@
 
 ## 6. Validation
 
-- [ ] 6.1 Add unit tests for descriptor validation, eligibility filtering, RBAC, redaction, and target resolution.
+- [x] 6.1 Add unit tests for descriptor validation, eligibility filtering, RBAC, redaction, and target resolution.
 - [ ] 6.2 Add LiveView tests for disabled action buttons, device launches, interface launches, and schema-driven forms.
 - [ ] 6.3 Add integration tests for a fixture Wasm action provider.
 - [x] 6.4 Run `openspec validate add-northbound-action-integrations --strict`.

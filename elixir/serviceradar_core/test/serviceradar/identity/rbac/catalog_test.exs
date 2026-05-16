@@ -23,4 +23,29 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
       refute MapSet.member?(operator_permissions, permission)
     end
   end
+
+  test "northbound action permissions use least-privilege defaults" do
+    keys = Catalog.permission_keys()
+    admin_permissions = Catalog.permissions_for_role(:admin)
+    operator_permissions = Catalog.permissions_for_role(:operator)
+    viewer_permissions = Catalog.permissions_for_role(:viewer)
+
+    assert "northbound.actions.view" in keys
+    assert "northbound.actions.manage" in keys
+    assert "northbound.actions.launch" in keys
+    assert "northbound.actions.cancel" in keys
+    assert "northbound.event_handlers.manage" in keys
+
+    assert MapSet.member?(admin_permissions, "northbound.actions.manage")
+    assert MapSet.member?(admin_permissions, "northbound.event_handlers.manage")
+    refute MapSet.member?(operator_permissions, "northbound.actions.manage")
+    refute MapSet.member?(operator_permissions, "northbound.event_handlers.manage")
+
+    assert MapSet.member?(operator_permissions, "northbound.actions.launch")
+    assert MapSet.member?(operator_permissions, "northbound.actions.cancel")
+    refute MapSet.member?(viewer_permissions, "northbound.actions.launch")
+    refute MapSet.member?(viewer_permissions, "northbound.actions.cancel")
+
+    assert MapSet.member?(viewer_permissions, "northbound.actions.view")
+  end
 end

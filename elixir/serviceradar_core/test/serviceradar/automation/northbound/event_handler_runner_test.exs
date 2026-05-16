@@ -43,6 +43,52 @@ defmodule ServiceRadar.Automation.Northbound.EventHandlerRunnerTest do
     assert result.invocation_id == "inv-1"
   end
 
+  test "target resolver normalizes lists and infers device interface and event kinds" do
+    parent = self()
+
+    handler =
+      handler(%{
+        approval_mode: :automatic,
+        target_resolver: %{
+          "targets" => [
+            %{"device_uid" => "{{ metadata.device_uid }}"},
+            %{
+              "device_uid" => "{{ metadata.device_uid }}",
+              "interface_uid" => "{{ metadata.interface_uid }}"
+            },
+            %{"event_id" => "{{ event.id }}"},
+            %{"kind" => ""}
+          ]
+        }
+      })
+
+    assert {:ok, [result]} =
+             EventHandlerRunner.handle_event(event(),
+               handlers: [handler],
+               actor: @actor,
+               create_and_dispatch: fn attrs, _opts ->
+                 send(parent, {:target_attrs, attrs})
+                 {:ok, %{id: "inv-targets", state: :dispatching}}
+               end,
+               emit_event: fn _attrs, _actor -> :ok end
+             )
+
+    assert result.status == :dispatched
+    assert result.invocation_id == "inv-targets"
+
+    assert_received {:target_attrs, attrs}
+
+    assert attrs.targets == [
+             %{"kind" => "device", "device_uid" => "sr:device-1"},
+             %{
+               "kind" => "interface",
+               "device_uid" => "sr:device-1",
+               "interface_uid" => "if-1"
+             },
+             %{"kind" => "event", "event_id" => "event-1"}
+           ]
+  end
+
   test "manual handlers create a pending approval invocation without dispatching" do
     handler = handler(%{approval_mode: :manual})
 

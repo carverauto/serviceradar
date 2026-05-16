@@ -69,6 +69,27 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
              )
   end
 
+  test "rejects targets outside the descriptor scopes before resolving inventory", %{actor: actor} do
+    {:ok, provider} = create_provider(actor)
+    {:ok, descriptor} = create_descriptor(provider, actor, scopes: ["device"])
+
+    assert {:error, {:unsupported_target_scope, "interface"}} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [
+                   %{
+                     kind: :interface,
+                     device_uid: "sr:missing-device",
+                     interface_uid: "if-1"
+                   }
+                 ],
+                 input_values: %{}
+               },
+               actor: actor
+             )
+  end
+
   defp create_provider(actor, opts \\ []) do
     source_ref = "test:#{System.unique_integer([:positive])}"
 
@@ -97,7 +118,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
     end
   end
 
-  defp create_descriptor(provider, actor) do
+  defp create_descriptor(provider, actor, opts \\ []) do
     ActionDescriptor
     |> Ash.Changeset.for_create(
       :upsert,
@@ -106,7 +127,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
         action_id: "test.run",
         version: "1.0.0",
         label: "Run Test",
-        scopes: ["device"],
+        scopes: Keyword.get(opts, :scopes, ["device"]),
         required_context: ["device.ip"],
         input_schema: %{},
         safety_classification: :standard,
