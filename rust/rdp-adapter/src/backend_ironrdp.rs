@@ -133,6 +133,37 @@ fn build_connector_config_for_probe(
     }
 }
 
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_initial_connector_pdu_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<Vec<u8>, BackendError> {
+    let config = build_connector_config_for_probe(plan, credential);
+    let mut connector =
+        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+    let mut buffer = ironrdp_core::WriteBuf::new();
+    let written = ironrdp_connector::Sequence::step_no_input(&mut connector, &mut buffer)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let written_len = written
+        .size()
+        .ok_or(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    Ok(buffer.filled()[..written_len].to_vec())
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn decode_initial_connection_request_for_probe(
+    bytes: &[u8],
+) -> Result<ironrdp_pdu::nego::ConnectionRequest, BackendError> {
+    let request = ironrdp_core::decode::<
+        ironrdp_pdu::x224::X224<ironrdp_pdu::nego::ConnectionRequest>,
+    >(bytes)
+    .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?
+    .0;
+
+    Ok(request)
+}
+
 fn is_memory_user_grant(grant: &DesktopCredentialGrant) -> bool {
     grant.mode == "memory_user"
         && !grant.username.trim().is_empty()
@@ -387,5 +418,30 @@ mod tests {
         assert_eq!(config.domain.as_deref(), Some("EXAMPLE"));
         let ironrdp_connector::Credentials::UsernamePassword { username, .. } = config.credentials;
         assert_eq!(username, "alice");
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_initial_pdu_advertises_nla_without_tls_fallback() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let pdu = build_initial_connector_pdu_for_probe(&plan, &credential).expect("initial pdu");
+        let request = decode_initial_connection_request_for_probe(&pdu).expect("decoded pdu");
+
+        assert!(request.protocol.intersects(
+            ironrdp_pdu::nego::SecurityProtocol::HYBRID
+                | ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX
+        ));
+        assert!(!request
+            .protocol
+            .intersects(ironrdp_pdu::nego::SecurityProtocol::SSL));
     }
 }
