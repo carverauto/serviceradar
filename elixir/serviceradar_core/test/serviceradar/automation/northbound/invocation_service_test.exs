@@ -51,7 +51,33 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
     assert invocation.metadata["input_sha256"]
     assert [%{target_kind: :device, device_uid: device_uid}] = invocation.targets
     assert device_uid == device.uid
-    assert [%{"kind" => "device", "device_uid" => device_uid}] = invocation.target_snapshots
+    assert [%{"kind" => "device", "device_uid" => ^device_uid}] = invocation.target_snapshots
+  end
+
+  test "launch permission can create invocation target rows without admin role", %{actor: actor} do
+    {:ok, provider} = create_provider(actor)
+    {:ok, descriptor} = create_descriptor(provider, actor)
+    {:ok, device} = create_device(actor)
+
+    launch_actor = %{
+      id: Ash.UUID.generate(),
+      email: "northbound-launcher@serviceradar.local",
+      role: :viewer,
+      permissions: MapSet.new(["northbound.actions.view", "northbound.actions.launch"])
+    }
+
+    assert {:ok, invocation} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [%{kind: :device, device_uid: device.uid}],
+                 input_values: %{"reason" => "operator requested audit"}
+               },
+               actor: launch_actor
+             )
+
+    assert [%{target_kind: :device, device_uid: device_uid}] = invocation.targets
+    assert device_uid == device.uid
   end
 
   test "rejects inactive providers", %{actor: actor} do

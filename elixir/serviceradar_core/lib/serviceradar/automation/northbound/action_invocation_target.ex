@@ -12,6 +12,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "northbound.actions.view"}
+  @launch_check {ActorHasPermission, permission: "northbound.actions.launch"}
 
   postgres do
     table "northbound_action_invocation_targets"
@@ -100,7 +101,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
       @view_check
     )
 
-    # Mutations are driven by the action dispatcher/provider.
+    action_with_permission([:create], @launch_check)
+    # Result mutations are driven by the action dispatcher/provider.
   end
 
   attributes do
