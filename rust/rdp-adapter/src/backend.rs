@@ -13,6 +13,10 @@ pub trait RdpBackendSession {
     fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError>;
     fn ack(&mut self, ack: &DesktopMediaAck) -> Result<(), BackendError>;
     fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError>;
+
+    fn drain_media_frames(&mut self) -> Result<Vec<Vec<u8>>, BackendError> {
+        Ok(Vec::new())
+    }
 }
 
 #[derive(Default)]

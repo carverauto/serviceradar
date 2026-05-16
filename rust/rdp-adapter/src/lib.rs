@@ -29,6 +29,7 @@ const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
 
 const MSG_OPEN: u8 = 1;
 const MSG_INPUT: u8 = 2;
+const MSG_MEDIA_FRAME: u8 = 3;
 const MSG_ACK: u8 = 4;
 const MSG_CLOSE: u8 = 5;
 const MSG_ERROR: u8 = 6;
@@ -237,6 +238,7 @@ where
                     write_error_frame(writer, err.safe_message())?;
                     return Err(err.into());
                 }
+                drain_and_write_media_frames(writer, active.session.as_mut())?;
             }
             MSG_ACK => {
                 let Some(active) = active_session.as_mut() else {
@@ -255,6 +257,7 @@ where
                     write_error_frame(writer, err.safe_message())?;
                     return Err(err.into());
                 }
+                drain_and_write_media_frames(writer, active.session.as_mut())?;
             }
             MSG_CLOSE => {
                 let close = match parse_and_clear_close_payload(&mut frame.payload) {
@@ -279,6 +282,25 @@ where
                 return Err(ProtocolError::UnexpectedMessage(message_type));
             }
         }
+    }
+
+    Ok(())
+}
+
+fn drain_and_write_media_frames<W: Write>(
+    writer: &mut W,
+    session: &mut dyn RdpBackendSession,
+) -> Result<(), ProtocolError> {
+    let media_frames = match session.drain_media_frames() {
+        Ok(media_frames) => media_frames,
+        Err(err) => {
+            write_error_frame(writer, err.safe_message())?;
+            return Err(err.into());
+        }
+    };
+
+    for payload in media_frames {
+        write_frame(writer, MSG_MEDIA_FRAME, &payload)?;
     }
 
     Ok(())
@@ -392,6 +414,8 @@ mod tests {
         input_frames: Vec<DesktopFrame>,
         acks: Vec<DesktopMediaAck>,
         close_payloads: Vec<DesktopClosePayload>,
+        pending_media_frames: Vec<Vec<u8>>,
+        media_drain_error: Option<&'static str>,
     }
 
     impl RdpBackend for RecordingBackend {
@@ -437,6 +461,16 @@ mod tests {
             self.state.borrow_mut().close_payloads.push(payload.clone());
 
             Ok(())
+        }
+
+        fn drain_media_frames(&mut self) -> Result<Vec<Vec<u8>>, BackendError> {
+            let mut state = self.state.borrow_mut();
+
+            if let Some(message) = state.media_drain_error.take() {
+                return Err(BackendError::Unsupported(message));
+            }
+
+            Ok(std::mem::take(&mut state.pending_media_frames))
         }
     }
 
@@ -681,6 +715,85 @@ mod tests {
             }]
         );
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn run_stdio_emits_backend_media_frames_after_input() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        write_frame(&mut input, MSG_INPUT, valid_input_payload().as_bytes())
+            .expect("write input frame");
+
+        let state = Rc::new(RefCell::new(RecordingState {
+            pending_media_frames: vec![b"srdp-frame-1".to_vec(), b"srdp-frame-2".to_vec()],
+            ..RecordingState::default()
+        }));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect("session frames succeed");
+
+        let mut output = output.as_slice();
+        assert_eq!(
+            read_frame(&mut output).expect("read first media frame"),
+            Some(Frame {
+                message_type: MSG_MEDIA_FRAME,
+                payload: b"srdp-frame-1".to_vec(),
+            })
+        );
+        assert_eq!(
+            read_frame(&mut output).expect("read second media frame"),
+            Some(Frame {
+                message_type: MSG_MEDIA_FRAME,
+                payload: b"srdp-frame-2".to_vec(),
+            })
+        );
+        assert_eq!(read_frame(&mut output).expect("read eof"), None);
+    }
+
+    #[test]
+    fn run_stdio_writes_error_when_backend_media_drain_fails() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        write_frame(&mut input, MSG_INPUT, valid_input_payload().as_bytes())
+            .expect("write input frame");
+
+        let state = Rc::new(RefCell::new(RecordingState {
+            media_drain_error: Some("rdp media drain failed"),
+            ..RecordingState::default()
+        }));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect_err("media drain rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::Backend(BackendError::Unsupported("rdp media drain failed"))
+        ));
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"rdp media drain failed".to_vec(),
+            })
+        );
     }
 
     #[test]
