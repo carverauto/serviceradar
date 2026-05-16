@@ -4,15 +4,20 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
   import ServiceRadarWebNG.AshTestHelpers,
     only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
+  alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub
 
   setup %{conn: conn} do
     previous_manager = Application.get_env(:serviceradar_web_ng, :remote_access_session_manager)
+    previous_fetcher = Application.get_env(:serviceradar_web_ng, :remote_access_session_fetcher)
 
     previous_open_result =
       Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_open_result)
+
+    previous_fetch_result =
+      Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_fetch_result)
 
     previous_close_result =
       Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_close_result)
@@ -46,6 +51,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
     Application.put_env(
       :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      &RemoteAccessSessionManagerStub.get_by_id/2
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
       :remote_access_session_manager_test_pid,
       self()
     )
@@ -54,7 +65,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
     on_exit(fn ->
       restore_env(:remote_access_session_manager, previous_manager)
+      restore_env(:remote_access_session_fetcher, previous_fetcher)
       restore_env(:remote_access_session_manager_open_result, previous_open_result)
+      restore_env(:remote_access_session_manager_fetch_result, previous_fetch_result)
       restore_env(:remote_access_session_manager_close_result, previous_close_result)
       restore_env(:remote_access_session_manager_test_pid, previous_test_pid)
       restore_env(:remote_access_ssh_enabled, previous_remote_access_ssh_enabled)
@@ -70,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
     conn = Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
 
-    %{conn: conn}
+    %{conn: conn, user: user}
   end
 
   describe "POST /api/remote-access/sessions" do
@@ -598,28 +611,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
 
       Application.put_env(
         :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok, rdp_session(session_id)}
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
         :remote_access_session_manager_close_result,
-        {:ok,
-         %ServiceRadar.Edge.RemoteAccessSession{
-           id: session_id,
-           device_uid: "windows-1",
-           target_kind: :inventory_device,
-           target_host: "windows-1.example.com",
-           target_port: 3389,
-           protocol: :rdp,
-           adapter: :rdp,
-           agent_id: "agent-1",
-           gateway_id: "gateway-1",
-           credential_custody_mode: :user_present,
-           status: :closing,
-           rbac_decision: :allowed,
-           attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
-           idle_timeout_seconds: 900,
-           absolute_timeout_seconds: 3600,
-           close_reason: "operator_requested",
-           inserted_at: DateTime.utc_now(),
-           updated_at: DateTime.utc_now()
-         }}
+        {:ok, rdp_session(session_id, status: :closing, close_reason: "operator_requested")}
       )
 
       conn =
@@ -640,6 +639,103 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["data"]["desktop_webrtc_ice_servers"] == [%{"urls" => ["stun:stun.example.com:3478"]}]
       refute Map.has_key?(body["data"], "ticket")
     end
+
+    test "requires RDP permission before closing RDP sessions", %{conn: conn, user: user} do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.ssh.open"])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok, rdp_session(session_id)}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions/#{session_id}/close", %{
+          "reason" => "operator_requested"
+        })
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+      refute_receive {:close_remote_access_session, ^session_id, _opts}
+    end
+
+    test "allows RDP close with RDP permission without SSH permission", %{conn: conn, user: user} do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.rdp.open"])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok, rdp_session(session_id)}
+      )
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_close_result,
+        {:ok, rdp_session(session_id, status: :closing, close_reason: "operator_requested")}
+      )
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions/#{session_id}/close", %{
+          "reason" => "operator_requested"
+        })
+
+      body = json_response(conn, 200)
+      assert body["data"]["protocol"] == "rdp"
+      assert body["data"]["status"] == "closing"
+      assert_receive {:close_remote_access_session, ^session_id, _opts}
+    end
+  end
+
+  describe "GET /api/remote-access/sessions/:id" do
+    test "requires protocol-specific permission for RDP sessions", %{conn: conn, user: user} do
+      session_id = Ecto.UUID.generate()
+      put_test_permissions(user, ["devices.remote_access.ssh.open"])
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_fetch_result,
+        {:ok, rdp_session(session_id)}
+      )
+
+      conn = get(conn, ~p"/api/remote-access/sessions/#{session_id}")
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+    end
+  end
+
+  defp rdp_session(session_id, attrs \\ []) do
+    struct!(
+      RemoteAccessSession,
+      Keyword.merge(
+        [
+          id: session_id,
+          device_uid: "windows-1",
+          target_kind: :inventory_device,
+          target_host: "windows-1.example.com",
+          target_port: 3389,
+          protocol: :rdp,
+          adapter: :rdp,
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          credential_custody_mode: :user_present,
+          status: :active,
+          rbac_decision: :allowed,
+          attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+          idle_timeout_seconds: 900,
+          absolute_timeout_seconds: 3600,
+          inserted_at: DateTime.utc_now(),
+          updated_at: DateTime.utc_now()
+        ],
+        attrs
+      )
+    )
+  end
+
+  defp put_test_permissions(user, permissions) do
+    Process.put({:rbac_permissions, user.id}, MapSet.new(permissions))
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

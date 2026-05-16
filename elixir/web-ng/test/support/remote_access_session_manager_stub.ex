@@ -65,6 +65,35 @@ defmodule ServiceRadarWebNG.TestSupport.RemoteAccessSessionManagerStub do
     )
   end
 
+  def get_by_id(session_id, opts) do
+    send(test_pid(), {:fetch_remote_access_session, session_id, opts})
+
+    Application.get_env(
+      :serviceradar_web_ng,
+      :remote_access_session_manager_fetch_result,
+      {:ok,
+       %RemoteAccessSession{
+         id: session_id,
+         device_uid: "device-1",
+         target_kind: :inventory_device,
+         target_host: "device-1",
+         target_port: 22,
+         protocol: :ssh,
+         adapter: :ssh,
+         agent_id: "agent-1",
+         gateway_id: "gateway-1",
+         credential_custody_mode: :ssh_certificate,
+         status: :active,
+         rbac_decision: :allowed,
+         attach_expires_at: DateTime.add(DateTime.utc_now(), 60, :second),
+         idle_timeout_seconds: 900,
+         absolute_timeout_seconds: 3600,
+         inserted_at: DateTime.utc_now(),
+         updated_at: DateTime.utc_now()
+       }}
+    )
+  end
+
   defp test_pid do
     Application.get_env(:serviceradar_web_ng, :remote_access_session_manager_test_pid, self())
   end

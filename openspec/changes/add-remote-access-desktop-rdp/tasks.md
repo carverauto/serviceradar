@@ -20,6 +20,7 @@
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
 - [x] 2.1.1 Add the admin-only `devices.remote_access.rdp.open` RBAC catalog key for graphical desktop access.
 - [x] 2.1.2 Enforce selected-agent route membership and allowed desktop login principals in agent-side target/grant validation.
+- [x] 2.1.3 Require the RDP open permission, not the SSH open permission, before showing or closing existing RDP remote-access sessions.
 - [ ] 2.2 Add APIs for listing authorized desktop targets, creating sessions, exchanging graphical/control frames, toggling approved redirection features, and closing sessions.
 - [x] 2.2.1 Add web-ng WebRTC signaling endpoints for an existing RDP remote-access session: create offer, submit answer, add ICE candidates, and close viewer session.
 - [x] 2.2.2 Gate desktop WebRTC signaling behind `remote_access_desktop_rdp_enabled` and reject non-RDP remote-access sessions.
@@ -186,6 +187,7 @@
 - [x] 5.1.10 Add focused Go tests proving desktop screen and clipboard content recording is denied by default.
 - [x] 5.1.11 Add focused Go tests proving session guard content-recording checks use the target policy snapshot.
 - [x] 5.1.12 Add focused Go tests proving desktop lifecycle audit metadata uses fixed event types and omits secrets.
+- [x] 5.1.13 Add Phoenix controller tests proving existing RDP sessions use the RDP permission for show/close authorization.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
@@ -13,7 +14,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
-  @remote_access_permission "devices.remote_access.ssh.open"
+  @remote_access_ssh_permission "devices.remote_access.ssh.open"
+  @remote_access_rdp_permission "devices.remote_access.rdp.open"
   @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
   @browser_selectable_ssh_custody_modes ~w(ssh_certificate user_present)
   @min_target_port 1
@@ -48,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   def create(conn, params) do
     with :ok <- require_remote_access_ssh_enabled(),
          :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @remote_access_permission),
+         :ok <- require_permission(conn, @remote_access_ssh_permission),
          {:ok, request} <- normalize_create_request(params),
          {:ok, %{session: %RemoteAccessSession{} = session, ticket: ticket}} <-
            remote_access_session_manager().request_open(request.device_uid, request, scope: get_scope(conn)) do
@@ -133,10 +135,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   def show(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @remote_access_permission),
          {:ok, normalized_id} <- normalize_uuid(id, "id"),
          {:ok, %RemoteAccessSession{} = session} <-
-           RemoteAccessSession.get_by_id(normalized_id, scope: get_scope(conn)) do
+           remote_access_session_fetcher().(normalized_id, scope: get_scope(conn)),
+         :ok <- require_session_permission(conn, session) do
       json(conn, %{data: session_json(session)})
     else
       {:error, :invalid_request, message} ->
@@ -149,10 +151,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         |> put_status(:not_found)
         |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
 
-      {:error, %Ash.Error.Query.NotFound{}} ->
+      {:error, %NotFound{}} ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden", message: "Remote access permission is required"})
 
       {:error, other} ->
         {:error, other}
@@ -161,8 +168,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   def close(conn, %{"id" => id} = params) do
     with :ok <- require_authenticated(conn),
-         :ok <- require_permission(conn, @remote_access_permission),
          {:ok, normalized_id} <- normalize_uuid(id, "id"),
+         {:ok, %RemoteAccessSession{} = session} <-
+           remote_access_session_fetcher().(normalized_id, scope: get_scope(conn)),
+         :ok <- require_session_permission(conn, session),
          {:ok, %RemoteAccessSession{} = session} <-
            remote_access_session_manager().request_close(normalized_id,
              reason: normalize_optional_string(Map.get(params, "reason")),
@@ -179,6 +188,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
         conn
         |> put_status(:not_found)
         |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:ok, nil} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, %NotFound{}} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "remote_access_session_not_found", message: "remote access session was not found"})
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{error: "forbidden", message: "Remote access permission is required"})
 
       {:error, other} ->
         {:error, other}
@@ -583,6 +607,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     )
   end
 
+  defp remote_access_session_fetcher do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :remote_access_session_fetcher,
+      fn session_id, opts -> RemoteAccessSession.get_by_id(session_id, opts) end
+    )
+  end
+
   defp get_scope(conn), do: conn.assigns[:current_scope]
 
   defp require_remote_access_ssh_enabled do
@@ -603,5 +635,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   defp require_permission(conn, permission) when is_binary(permission) do
     scope = conn.assigns[:current_scope]
     if RBAC.can?(scope, permission), do: :ok, else: {:error, :forbidden}
+  end
+
+  defp require_session_permission(conn, %RemoteAccessSession{} = session) do
+    require_permission(conn, permission_for_session(session))
+  end
+
+  defp permission_for_session(%RemoteAccessSession{} = session) do
+    case format_value(session.protocol) do
+      "rdp" -> @remote_access_rdp_permission
+      _protocol -> @remote_access_ssh_permission
+    end
   end
 end
