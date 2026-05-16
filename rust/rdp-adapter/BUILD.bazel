@@ -51,3 +51,8 @@ rust_test(
     name = "rdp_adapter_test",
     crate = ":rdp_adapter_lib",
 )
+
+rust_test(
+    name = "rdp_adapter_ironrdp_test",
+    crate = ":rdp_adapter_ironrdp_lib",
+)

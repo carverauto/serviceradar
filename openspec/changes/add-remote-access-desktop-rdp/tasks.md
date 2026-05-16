@@ -270,6 +270,7 @@
 - [x] 5.2.41 Add focused Rust helper tests proving terminal reasons are normalized before backend delivery while raw IPC payloads are still cleared.
 - [x] 5.2.42 Add focused Go tests proving helper media frames with mismatched desktop session bindings are rejected, cleared, and not forwarded.
 - [x] 5.2.43 Add focused Go tests proving helper media payload buffers are cleared after successful forwarding and media-sender failures.
+- [x] 5.2.44 Add a feature-enabled Bazel test target for the reviewed IronRDP-linked helper backend checks.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
