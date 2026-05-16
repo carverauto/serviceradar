@@ -59,6 +59,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :list_by_provider, action: :by_provider, args: [:provider_id]
     define :list_enabled_for_scope, action: :enabled_for_scope, args: [:scope]
     define :upsert_descriptor, action: :upsert
     define :update_descriptor, action: :update
@@ -86,6 +87,13 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
       prepare build(load: [:provider], select: [:id, :inserted_at, :updated_at | @fields])
     end
 
+    read :by_provider do
+      argument :provider_id, :uuid, allow_nil?: false
+
+      filter expr(provider_id == ^arg(:provider_id))
+      prepare build(select: [:id, :inserted_at, :updated_at | @fields])
+    end
+
     create :upsert do
       upsert? true
       upsert_identity :unique_provider_action_version
@@ -101,7 +109,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :enabled_for_scope], @view_check)
+    action_with_permission([:read, :by_id, :enabled_for_scope, :by_provider], @view_check)
     action_type_with_permission([:create, :update, :destroy], @manage_check)
   end
 

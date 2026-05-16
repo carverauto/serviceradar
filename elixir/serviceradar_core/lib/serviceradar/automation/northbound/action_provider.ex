@@ -38,6 +38,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     repo ServiceRadar.Repo
     schema "platform"
 
+    identity_index_names unique_provider_source: "northbound_action_providers_type_source_uidx"
+
     references do
       reference :plugin_package, on_delete: :nilify
     end
@@ -69,6 +71,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
+    define :get_by_source, action: :by_source, args: [:provider_type, :source_ref]
+    define :get_by_plugin_package, action: :by_plugin_package, args: [:plugin_package_id]
     define :list_active, action: :active
     define :create_provider, action: :create
     define :update_provider, action: :update
@@ -95,6 +99,23 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
 
     read :active do
       filter expr(status == :active)
+      prepare build(select: [:id, :inserted_at, :updated_at | @fields])
+    end
+
+    read :by_source do
+      argument :provider_type, :atom, allow_nil?: false
+      argument :source_ref, :string, allow_nil?: false
+
+      get? true
+      filter expr(provider_type == ^arg(:provider_type) and source_ref == ^arg(:source_ref))
+      prepare build(select: [:id, :inserted_at, :updated_at | @fields])
+    end
+
+    read :by_plugin_package do
+      argument :plugin_package_id, :uuid, allow_nil?: false
+
+      get? true
+      filter expr(plugin_package_id == ^arg(:plugin_package_id))
       prepare build(select: [:id, :inserted_at, :updated_at | @fields])
     end
 
@@ -147,6 +168,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
 
     system_bypass()
     action_with_permission([:read, :by_id, :active], @view_check)
+    action_with_permission([:by_source, :by_plugin_package], @view_check)
     action_type_with_permission([:create, :update, :destroy], @manage_check)
 
     action_with_permission(
@@ -225,5 +247,9 @@ defmodule ServiceRadar.Automation.Northbound.ActionProvider do
     has_many :descriptors, ServiceRadar.Automation.Northbound.ActionDescriptor do
       destination_attribute :provider_id
     end
+  end
+
+  identities do
+    identity :unique_provider_source, [:provider_type, :source_ref]
   end
 end

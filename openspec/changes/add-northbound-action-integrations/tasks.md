@@ -8,7 +8,7 @@
 ## 2. Provider and Runtime Contract
 
 - [x] 2.1 Extend plugin manifest validation to accept versioned action descriptors.
-- [ ] 2.2 Add action descriptor approval review alongside existing plugin capability approval.
+- [x] 2.2 Add action descriptor approval review alongside existing plugin capability approval.
 - [ ] 2.3 Implement action invocation dispatch for approved Wasm providers through the agent-routed command path.
 - [ ] 2.4 Adapt Ansible/AWX launch as a northbound action provider without removing the existing Ansible run history.
 
@@ -38,5 +38,5 @@
 - [ ] 6.1 Add unit tests for descriptor validation, eligibility filtering, RBAC, redaction, and target resolution.
 - [ ] 6.2 Add LiveView tests for disabled action buttons, device launches, interface launches, and schema-driven forms.
 - [ ] 6.3 Add integration tests for a fixture Wasm action provider.
-- [ ] 6.4 Run `openspec validate add-northbound-action-integrations --strict`.
+- [x] 6.4 Run `openspec validate add-northbound-action-integrations --strict`.
 - [ ] 6.5 Run applicable Elixir, Go, and SDK quality checks before implementation PRs are merged.

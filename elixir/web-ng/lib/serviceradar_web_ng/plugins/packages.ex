@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   Context module for plugin packages and review workflow.
   """
 
+  alias ServiceRadar.Automation.Northbound.PluginActionSync
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.Plugin
@@ -102,6 +103,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       package
       |> Ash.Changeset.for_update(:approve, attrs)
       |> update_resource_with_opts(ash_opts)
+      |> sync_northbound_actions(:approved)
     end
   end
 
@@ -119,6 +121,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       package
       |> Ash.Changeset.for_update(:deny, attrs)
       |> update_resource_with_opts(ash_opts)
+      |> sync_northbound_actions(:disabled)
     end
   end
 
@@ -137,9 +140,9 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:revoke, attrs)
       |> update_resource_with_opts(ash_opts)
       |> case do
-        {:ok, updated} = result ->
+        {:ok, updated} ->
           ServiceStateRegistry.deactivate_for_package(updated)
-          result
+          sync_northbound_actions({:ok, updated}, :disabled)
 
         other ->
           other
@@ -161,6 +164,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       package
       |> Ash.Changeset.for_update(:restage, %{})
       |> update_resource_with_opts(ash_opts)
+      |> sync_northbound_actions(:disabled)
     end
   end
 
@@ -181,10 +185,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       case result do
         :ok ->
           ServiceStateRegistry.deactivate_for_package(package)
+          PluginActionSync.disable_package(package)
           :ok
 
         {:ok, _package} = ok ->
           ServiceStateRegistry.deactivate_for_package(package)
+          PluginActionSync.disable_package(package)
           ok
 
         other ->
@@ -559,6 +565,22 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp destroy_resource(changeset, nil), do: Ash.destroy(changeset)
   defp destroy_resource(changeset, scope), do: Ash.destroy(changeset, ash_opts(scope, nil))
+
+  defp sync_northbound_actions({:ok, %PluginPackage{} = package}, :approved) do
+    case PluginActionSync.sync_package(package) do
+      {:ok, _result} -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_northbound_actions({:ok, %PluginPackage{} = package}, :disabled) do
+    case PluginActionSync.disable_package(package) do
+      {:ok, _result} -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_northbound_actions(other, _mode), do: other
 
   defp maybe_put_actor(opts, nil), do: opts
   defp maybe_put_actor(opts, actor), do: Keyword.put(opts, :actor, actor)

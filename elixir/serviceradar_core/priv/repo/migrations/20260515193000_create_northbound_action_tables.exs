@@ -37,6 +37,14 @@ defmodule ServiceRadar.Repo.Migrations.CreateNorthboundActionTables do
     create(index(:northbound_action_providers, [:status], prefix: @prefix))
     create(index(:northbound_action_providers, [:provider_type], prefix: @prefix))
 
+    create(
+      unique_index(:northbound_action_providers, [:provider_type, :source_ref],
+        name: :northbound_action_providers_type_source_uidx,
+        prefix: @prefix,
+        where: "source_ref IS NOT NULL"
+      )
+    )
+
     create_version_table(:northbound_action_provider_versions, :northbound_action_providers)
 
     create table(:northbound_action_descriptors, primary_key: false, prefix: @prefix) do

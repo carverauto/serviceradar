@@ -1339,6 +1339,46 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <%= format_json_value(requested_resources(@package)) %>
     </pre>
             </div>
+
+            <div class="rounded-xl border border-base-200 p-4">
+              <div class="text-sm font-semibold">Northbound Actions</div>
+              <div class="mt-3 space-y-3">
+                <%= for action <- requested_actions(@package) do %>
+                  <div class="rounded-lg border border-base-200/70 bg-base-100/60 p-3">
+                    <div class="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div class="text-sm font-medium">
+                          {action_label(action)}
+                        </div>
+                        <div class="font-mono text-[11px] text-base-content/60">
+                          {action_id(action)} · v{action_version(action)}
+                        </div>
+                      </div>
+                      <div class="flex flex-wrap gap-1">
+                        <%= for scope <- action_scopes(action) do %>
+                          <.ui_badge size="xs" variant="ghost">{scope}</.ui_badge>
+                        <% end %>
+                      </div>
+                    </div>
+                    <p :if={action_description(action)} class="mt-2 text-xs text-base-content/70">
+                      {action_description(action)}
+                    </p>
+                    <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-base-content/60">
+                      <span>Safety: {action_safety(action)}</span>
+                      <span>Timeout: {action_timeout(action)}s</span>
+                      <span>
+                        Confirmation: {if action_requires_confirmation?(action),
+                          do: "required",
+                          else: "not required"}
+                      </span>
+                    </div>
+                  </div>
+                <% end %>
+                <%= if requested_actions(@package) == [] do %>
+                  <span class="text-xs text-base-content/50">None</span>
+                <% end %>
+              </div>
+            </div>
           </div>
 
           <div class="space-y-4">
@@ -2460,6 +2500,47 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     Map.get(package.manifest || %{}, "resources") || Map.get(package.manifest || %{}, :resources) ||
       %{}
   end
+
+  defp requested_actions(package) do
+    case Map.get(package.manifest || %{}, "actions") || Map.get(package.manifest || %{}, :actions) do
+      actions when is_list(actions) -> actions
+      _ -> []
+    end
+  end
+
+  defp action_id(action), do: action_value(action, "action_id") || "unknown"
+  defp action_label(action), do: action_value(action, "label") || action_id(action)
+  defp action_version(action), do: action_value(action, "version") || "1.0.0"
+  defp action_description(action), do: action_value(action, "description")
+  defp action_safety(action), do: action_value(action, "safety_classification") || "standard"
+  defp action_timeout(action), do: action_value(action, "timeout_seconds") || 60
+
+  defp action_requires_confirmation?(action) do
+    action_value(action, "requires_confirmation") in [true, "true", 1, "1"]
+  end
+
+  defp action_scopes(action) do
+    case action_value(action, "scopes") do
+      scopes when is_list(scopes) -> Enum.map(scopes, &to_string/1)
+      _ -> []
+    end
+  end
+
+  defp action_value(action, key) when is_map(action) do
+    Map.get(action, key) || Map.get(action, action_atom_key(key))
+  end
+
+  defp action_value(_action, _key), do: nil
+
+  defp action_atom_key("action_id"), do: :action_id
+  defp action_atom_key("label"), do: :label
+  defp action_atom_key("version"), do: :version
+  defp action_atom_key("description"), do: :description
+  defp action_atom_key("safety_classification"), do: :safety_classification
+  defp action_atom_key("timeout_seconds"), do: :timeout_seconds
+  defp action_atom_key("requires_confirmation"), do: :requires_confirmation
+  defp action_atom_key("scopes"), do: :scopes
+  defp action_atom_key(_key), do: nil
 
   defp default_assignment_form do
     %{
