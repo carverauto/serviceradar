@@ -30,15 +30,22 @@ defmodule ServiceRadar.Identity.RBAC do
   def permissions_for_user(%User{} = user, opts) do
     process_key = {:rbac_permissions, user.id}
 
-    # L1: Process dictionary (fastest)
-    case Process.get(process_key) do
-      %MapSet{} = permissions ->
-        permissions
+    if Keyword.get(opts, :fresh?, false) do
+      permissions = query_permissions(user, opts)
+      Cache.put(user.id, permissions)
+      Process.put(process_key, permissions)
+      permissions
+    else
+      # L1: Process dictionary (fastest)
+      case Process.get(process_key) do
+        %MapSet{} = permissions ->
+          permissions
 
-      nil ->
-        permissions = fetch_cached_or_query(user, opts)
-        Process.put(process_key, permissions)
-        permissions
+        nil ->
+          permissions = fetch_cached_or_query(user, opts)
+          Process.put(process_key, permissions)
+          permissions
+      end
     end
   end
 

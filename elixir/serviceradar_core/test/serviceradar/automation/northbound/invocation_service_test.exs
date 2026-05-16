@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
   alias ServiceRadar.Automation.Northbound.ActionProvider
   alias ServiceRadar.Automation.Northbound.InvocationService
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -90,6 +91,38 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
              )
   end
 
+  test "normalizes interface status IDs for action target snapshots", %{actor: actor} do
+    {:ok, provider} = create_provider(actor)
+    {:ok, descriptor} = create_descriptor(provider, actor, scopes: ["interface"])
+    {:ok, device} = create_device(actor)
+    {:ok, interface} = create_interface(actor, device.uid)
+
+    assert {:ok, invocation} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [
+                   %{
+                     kind: :interface,
+                     device_uid: device.uid,
+                     interface_uid: interface.interface_uid
+                   }
+                 ],
+                 input_values: %{}
+               },
+               actor: actor
+             )
+
+    assert [
+             %{
+               "if_admin_status" => "up",
+               "if_admin_status_id" => 1,
+               "if_oper_status" => "down",
+               "if_oper_status_id" => 2
+             }
+           ] = invocation.target_snapshots
+  end
+
   defp create_provider(actor, opts \\ []) do
     source_ref = "test:#{System.unique_integer([:positive])}"
 
@@ -146,7 +179,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
 
   defp create_device(actor) do
     uid = "sr:test-#{System.unique_integer([:positive])}"
-    now = DateTime.utc_now()
+    now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Device
     |> Ash.Changeset.for_create(
@@ -160,6 +193,29 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
         created_time: now,
         modified_time: now,
         discovery_sources: ["test"],
+        metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create(actor: actor, domain: ServiceRadar.Inventory)
+  end
+
+  defp create_interface(actor, device_uid) do
+    Interface
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        timestamp: DateTime.truncate(DateTime.utc_now(), :second),
+        device_id: device_uid,
+        interface_uid: "ifindex:#{System.unique_integer([:positive])}",
+        if_index: 17,
+        device_ip: "192.0.2.10",
+        if_name: "Gi1/0/17",
+        if_descr: "GigabitEthernet1/0/17",
+        if_admin_status: 1,
+        if_oper_status: 2,
+        if_type_name: "ethernetCsmacd",
+        interface_kind: "physical",
         metadata: %{}
       },
       actor: actor

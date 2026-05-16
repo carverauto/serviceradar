@@ -2196,6 +2196,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp northbound_scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    permissions = fresh_northbound_permissions(user, permissions)
+
     user
     |> Map.take([:id, :email, :role, :role_profile_id])
     |> Map.put(:permissions, permissions)
@@ -2203,6 +2205,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp northbound_scope_actor(%{user: user}) when not is_nil(user), do: user
   defp northbound_scope_actor(_scope), do: nil
+
+  defp fresh_northbound_permissions(%ServiceRadar.Identity.User{} = user, _permissions) do
+    ServiceRadar.Identity.RBAC.permissions_for_user(user, fresh?: true)
+  end
+
+  defp fresh_northbound_permissions(_user, permissions), do: permissions
 
   defp northbound_catalog_module do
     Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
