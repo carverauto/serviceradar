@@ -234,6 +234,50 @@ For release artifact details, see [Agent Release Management](./agent-release-man
 7. Start with metadata-only recording and all redirection disabled.
 8. Validate one private target before expanding the target set.
 
+## Demo Proof Path
+
+Use a private target that is reachable from the selected edge agent and not reachable directly from web-ng or the operator browser. The proof target can be either a Windows host with NLA enabled or a controlled lab host running an RDP test server such as xrdp. A Windows host is the production-representative path; xrdp is useful only for transport and renderer smoke tests.
+
+Before testing:
+
+- Confirm the selected agent can reach the target port:
+
+```bash
+nc -vz <rdp-target-host> 3389
+```
+
+- Confirm web-ng and operator workstations cannot reach the target directly. The browser session must only work through the ServiceRadar route.
+- Enable `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true`.
+- Deploy an RDP-capable signed agent artifact only to the selected edge agent.
+- Verify the helper readiness probe on that agent:
+
+```bash
+serviceradar-rdp-adapter --capabilities
+```
+
+The end-to-end proof requires `connector_ready: true`. Until then, the current experimental helper can validate policy, RBAC, target registration, signaling, media envelope handling, and fail-closed behavior, but it cannot complete a live RDP desktop connection.
+
+Register one target in **Settings > Networks > RDP Desktop Targets**:
+
+- Route: select the edge agent that can reach the target.
+- Upstream: set the private target host or IP and port `3389`.
+- TLS/NLA: keep NLA required. Use `verify` with the target certificate name and trust roots for Windows; use a lab-only trust mode only for an isolated xrdp smoke target.
+- Credential custody: start with `memory_user` so the user supplies their own domain or local account for one session.
+- Redirection: keep clipboard, drive, printer, audio, smart-card, and file-copy disabled.
+- Recording: keep metadata enabled and screen/clipboard/file/audio content disabled.
+- Screen policy: start with `1280x720`, 15 fps, and a conservative bitrate, then raise limits after backpressure counters stay healthy.
+
+Validation checklist:
+
+- A user without `devices.remote_access.rdp.open` cannot list or open the target.
+- A user with `devices.remote_access.rdp.open` can list only authorized RDP targets.
+- Browser session metadata shows the target, route, credential mode, TLS/NLA posture, recording mode, and redirection state without any credential material.
+- The agent advertises `remote_access.rdp` only after local config enables RDP and the helper readiness probe passes.
+- Desktop media counters advance only on the dedicated desktop media stream.
+- Browser backpressure updates return credit through the WebRTC control DataChannel and the agent slows or pauses when credit is exhausted.
+- Closing the browser session closes the helper process and clears the memory-user credential grant.
+- Recording/audit views show lifecycle and policy metadata without screen frames or clipboard payloads.
+
 ## Troubleshooting
 
 - RDP action hidden: verify `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true` in web-ng/core.

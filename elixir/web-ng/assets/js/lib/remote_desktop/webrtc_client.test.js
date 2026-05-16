@@ -568,6 +568,126 @@ describe("RemoteDesktopWebRTCClient", () => {
     ])
   })
 
+  it("pauses media when the bounded render queue reaches capacity", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-pressure-full",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-pressure-full/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckFrameInterval: 10,
+      mediaQueueState: () => ({decodeQueueSize: 12, maxDecodeQueueSize: 12}),
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-pressure-full",
+        mediaSessionId: "media-pressure-full",
+        sequence: 24,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2]),
+      })
+    )
+
+    expect(controlChannel.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-pressure-full",
+        media_session_id: "media-pressure-full",
+        last_accepted_seq: 24,
+        credit_bytes: 2,
+        quality_level: DESKTOP_MEDIA_QUALITY_LOW,
+        pause: true,
+      },
+    ])
+  })
+
+  it("uses post-enqueue queue state when deciding browser media backpressure", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-pressure-after-enqueue",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+
+    let queuedFrames = 11
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-pressure-after-enqueue/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaAckFrameInterval: 10,
+      mediaQueueState: () => ({decodeQueueSize: queuedFrames, maxDecodeQueueSize: 12}),
+      onFrame: () => {
+        queuedFrames += 1
+      },
+    })
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+
+    mediaChannel.emitMessage(
+      encodeDesktopMediaFrame({
+        sessionBindingId: "session-pressure-after-enqueue",
+        mediaSessionId: "media-pressure-after-enqueue",
+        sequence: 25,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba_zstd",
+        payload: new Uint8Array([1, 2]),
+      })
+    )
+
+    expect(controlChannel.sent.map((message) => JSON.parse(message))).toEqual([
+      {
+        type: DESKTOP_MEDIA_ACK_MESSAGE,
+        session_binding_id: "session-pressure-after-enqueue",
+        media_session_id: "media-pressure-after-enqueue",
+        last_accepted_seq: 25,
+        credit_bytes: 2,
+        quality_level: DESKTOP_MEDIA_QUALITY_LOW,
+        pause: true,
+      },
+    ])
+  })
+
   it("flushes pending media credit with a close reason before closing channels", async () => {
     const fetchMock = vi
       .fn()

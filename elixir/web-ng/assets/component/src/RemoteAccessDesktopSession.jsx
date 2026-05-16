@@ -8,7 +8,7 @@ import {
   sendDesktopControlFrame,
 } from "../../js/lib/remote_desktop/control_frame.js"
 import {createDesktopRenderQueue, desktopPolicyStatusItems, normalizeDesktopPolicySnapshot} from "../../js/lib/remote_desktop/renderer_state.js"
-import {drainDesktopRenderQueue} from "../../js/lib/remote_desktop/renderer_runtime.js"
+import {createCanvasDesktopRenderTarget, drainDesktopRenderQueue} from "../../js/lib/remote_desktop/renderer_runtime.js"
 import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_client.js"
 
 const DEFAULT_QUEUE_MAX_FRAMES = 12
@@ -56,6 +56,7 @@ export function Component({
   const statusItems = useMemo(() => desktopPolicyStatusItems(policySnapshot), [policySnapshot])
   const sessionIdentity = sessionValue(session, "id", sessionValue(session, "session_id", ""))
   const renderQueueRef = useRef(createDesktopRenderQueue({maxFrames: queueMaxFrames}))
+  const renderTargetRef = useRef({canvas: null, target: null})
   const canvasRef = useRef(null)
   const clientRef = useRef(null)
   const [connectionStatus, setConnectionStatus] = useState(autoConnect ? "pending" : "idle")
@@ -139,6 +140,7 @@ export function Component({
   useEffect(() => {
     closeClient("desktop session changed")
     renderQueueRef.current.clear()
+    renderTargetRef.current = {canvas: null, target: null}
     setViewerSessionId("")
     setFrameCount(0)
     setDroppedFrameCount(0)
@@ -187,6 +189,22 @@ export function Component({
     sendControlFrame(buildDesktopResizeFrame(session, {width: canvas?.width, height: canvas?.height}))
   }, [sendControlFrame, session])
 
+  const canvasRenderTarget = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) {
+      return null
+    }
+
+    if (renderTargetRef.current.canvas !== canvas) {
+      renderTargetRef.current = {
+        canvas,
+        target: createCanvasDesktopRenderTarget(canvas.getContext?.("2d", {alpha: false})),
+      }
+    }
+
+    return renderTargetRef.current.target
+  }, [])
+
   useEffect(() => {
     if (autoConnect && webrtcReady(session) && !clientRef.current) {
       void connect()
@@ -220,10 +238,9 @@ export function Component({
         return
       }
 
-      const context = canvasRef.current?.getContext?.("2d", {alpha: false})
       const result = drainDesktopRenderQueue(renderQueueRef.current, {
-        context,
         maxFrames: DEFAULT_RENDER_DRAIN_FRAMES,
+        renderTarget: canvasRenderTarget(),
       })
 
       if (result.frames > 0) {
@@ -250,7 +267,7 @@ export function Component({
         cancelFrame(frameHandle)
       }
     }
-  }, [sendResizeFrame, session])
+  }, [canvasRenderTarget, sendResizeFrame, session])
 
   if (!session) {
     return (

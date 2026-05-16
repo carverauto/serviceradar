@@ -243,7 +243,7 @@ export class RemoteDesktopWebRTCClient {
       }
 
       this.onFrame(frame)
-      this.queueMediaAck(frame, queueState)
+      this.queueMediaAck(frame, this.mediaQueueState())
 
       return
     }
@@ -408,7 +408,7 @@ export class RemoteDesktopWebRTCClient {
       return null
     }
 
-    if (!this.mediaBackpressurePaused && decodeQueueSize > maxDecodeQueueSize) {
+    if (!this.mediaBackpressurePaused && decodeQueueSize >= maxDecodeQueueSize) {
       this.mediaBackpressurePaused = true
       return {
         pause: true,

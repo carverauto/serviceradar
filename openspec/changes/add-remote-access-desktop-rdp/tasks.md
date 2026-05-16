@@ -76,6 +76,8 @@
 - [x] 3.1.14 Keep browser desktop media acknowledgements binding-aware when pending acks cannot flush immediately.
 - [x] 3.1.15 Avoid full reused-header zeroing in the Go desktop media frame hot path while still resetting reserved bytes.
 - [x] 3.1.16 Piggyback browser pause/resume and quality hints on desktop media acknowledgements when renderer queues cross backpressure thresholds.
+- [x] 3.1.16.1 Treat a bounded browser render queue at capacity as backpressured so pause/quality-downshift acknowledgements can fire before the queue exceeds its hard cap.
+- [x] 3.1.16.2 Base browser media pause acknowledgements on post-enqueue renderer queue state so the frame that fills the bounded queue triggers backpressure immediately.
 - [x] 3.1.17 Preserve desktop media ack pause/resume, quality, and close hints in the Go sender credit window without granting duplicate credit.
 - [x] 3.1.18 Reject unsupported desktop media ack quality levels before adapter code consumes sender flow-control state.
 - [x] 3.1.19 Stop normal Go desktop media sends after a close ack while still allowing EOF delivery.
@@ -211,6 +213,9 @@
 - [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
 - [x] 4.2.1.2 Add the server-side web-ng WebRTC signaling facade/controller contract for `webrtc_desktop_media`.
 - [x] 4.2.1.3 Add a browser WebGPU queue adapter for dirty-region/tile upload descriptors.
+- [x] 4.2.1.4 Route the browser render drain through WebGPU tile uploads when a queue/texture is available, keeping Canvas2D as the local harness fallback.
+- [x] 4.2.1.5 Add a browser renderer-target boundary so Canvas2D, WebGPU, and future WASM/GPU compositor paths share one hot-path frame application seam.
+- [x] 4.2.1.6 Cache the browser session renderer target so the animation loop does not reacquire the Canvas2D context on every tick.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
@@ -332,6 +337,7 @@
 - [x] 5.3.6 Add focused Go tests for desktop quality-control requests above session policy.
 - [x] 5.3.7 Add focused Go tests for adapter-facing desktop session guard behavior.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
+- [x] 5.4.1 Add an operator demo proof path for a private Windows/xrdp target reachable only from the selected edge agent, with readiness, policy, media, backpressure, cleanup, and audit checks.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [x] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.
@@ -413,6 +419,8 @@
 - [x] 5.7.15 Add browser renderer-state tests for WebGPU queue-compatible tile uploads without copying payload bytes.
 - [x] 5.7.16 Add browser renderer-runtime tests proving queued tile frames drain into a canvas-compatible surface with bounded per-tick work and metadata-only frames do not enter the pixel upload path.
 - [x] 5.7.17 Add browser control-frame tests proving keyboard, pointer, focus, resize, oversized-token rejection, and WebRTC control-channel send behavior match the Go desktop frame contract.
+- [x] 5.7.18 Add browser renderer-runtime tests proving WebGPU tile uploads are preferred over Canvas2D and reuse frame payload buffers without copying.
+- [x] 5.7.19 Add browser renderer-runtime tests for the renderer-target hot-path boundary and Canvas2D/WebGPU target adapters.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

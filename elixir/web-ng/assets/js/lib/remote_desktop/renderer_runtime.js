@@ -1,4 +1,4 @@
-import {applyCanvasTileFrame} from "./renderer_state"
+import {applyCanvasTileFrame, applyWebGPUTileFrame} from "./renderer_state"
 
 const DEFAULT_MAX_DRAIN_FRAMES = 4
 
@@ -26,7 +26,10 @@ function resizeCanvasForFrame(canvas, frame) {
 export function drainDesktopRenderQueue(queue, {
   context = null,
   createImageData,
+  gpuQueue = null,
   maxFrames = DEFAULT_MAX_DRAIN_FRAMES,
+  renderTarget = null,
+  texture = null,
 } = {}) {
   if (!queue || typeof queue.shift !== "function") {
     return {frames: 0, uploads: 0, lastSequence: null, resized: false}
@@ -47,9 +50,60 @@ export function drainDesktopRenderQueue(queue, {
 
     frames += 1
     lastSequence = frame.sequence ?? lastSequence
-    resized = resizeCanvasForFrame(context?.canvas, frame) || resized
-    uploads += applyCanvasTileFrame(frame, context, createImageData)
+    resized = resizeRenderTargetForFrame(renderTarget, context, frame) || resized
+    uploads += applyDesktopFrame(frame, renderTarget, context, createImageData, gpuQueue, texture)
   }
 
   return {frames, uploads, lastSequence, resized}
+}
+
+function resizeRenderTargetForFrame(renderTarget, context, frame) {
+  if (renderTarget && typeof renderTarget.resizeForFrame === "function") {
+    return renderTarget.resizeForFrame(frame)
+  }
+
+  return resizeCanvasForFrame(context?.canvas, frame)
+}
+
+function applyDesktopFrame(frame, renderTarget, context, createImageData, gpuQueue, texture) {
+  if (renderTarget && typeof renderTarget.applyFrame === "function") {
+    return renderTarget.applyFrame(frame)
+  }
+
+  if (gpuQueue && texture) {
+    return applyWebGPUTileFrame(frame, gpuQueue, texture)
+  }
+
+  return applyCanvasTileFrame(frame, context, createImageData)
+}
+
+export function createCanvasDesktopRenderTarget(context, {
+  createImageData,
+} = {}) {
+  return {
+    canvas: context?.canvas || null,
+    kind: "canvas2d",
+    resizeForFrame(frame) {
+      return resizeCanvasForFrame(context?.canvas, frame)
+    },
+    applyFrame(frame) {
+      return applyCanvasTileFrame(frame, context, createImageData)
+    },
+  }
+}
+
+export function createWebGPUDesktopTileRenderTarget({
+  gpuQueue,
+  texture,
+} = {}) {
+  if (!gpuQueue || !texture) {
+    return null
+  }
+
+  return {
+    kind: "webgpu",
+    applyFrame(frame) {
+      return applyWebGPUTileFrame(frame, gpuQueue, texture)
+    },
+  }
 }
