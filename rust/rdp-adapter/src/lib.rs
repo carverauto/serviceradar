@@ -212,6 +212,9 @@ where
                             screen_policy,
                             session,
                         });
+                        if let Some(active) = active_session.as_mut() {
+                            drain_and_write_media_frames(writer, active.session.as_mut())?;
+                        }
                     }
                     Err(err) => {
                         write_error_frame(writer, err.safe_message())?;
@@ -758,6 +761,37 @@ mod tests {
             })
         );
         assert_eq!(read_frame(&mut output).expect("read eof"), None);
+    }
+
+    #[test]
+    fn run_stdio_emits_backend_media_frames_after_open() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+
+        let state = Rc::new(RefCell::new(RecordingState {
+            pending_media_frames: vec![b"initial-srdp-frame".to_vec()],
+            ..RecordingState::default()
+        }));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect("open emits initial media");
+
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read initial media frame"),
+            Some(Frame {
+                message_type: MSG_MEDIA_FRAME,
+                payload: b"initial-srdp-frame".to_vec(),
+            })
+        );
     }
 
     #[test]

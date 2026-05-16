@@ -320,6 +320,7 @@
 - [x] 5.2.64 Add Bazel-only adapter probe coverage proving the active-stage session harness routes browser input to upstream RDP bytes and rejects unsupported input without side effects.
 - [x] 5.2.65 Add Bazel-only coverage for the connector-linked experimental helper artifact so optional packaging compiles the isolated connector crate universe without changing the root Rust lockfile.
 - [x] 5.2.66 Add Bazel-only adapter probe coverage proving the active-stage session harness implements the helper `RdpBackendSession` contract for input, media drain, acknowledgements, and graceful close.
+- [x] 5.2.67 Add focused Rust helper tests proving backend media queued during open is emitted before the helper waits for browser input.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
