@@ -272,16 +272,11 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
 	payload := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
-		Enabled:               true,
-		Capability:            releaseCapabilityRemoteAccessRDP,
-		HelperProtocolVersion: "srdp-helper-v1",
-		DeploymentRequirements: map[string]interface{}{
-			releaseRequirementHelper:        releaseRDPHelperBinary,
-			releaseRequirementInstallPath:   releaseRDPHelperInstallPath,
-			releaseRequirementHelperCapArg:  releaseRDPHelperReadinessProbe,
-			releaseRequirementRequiresProbe: true,
-			releaseRequirementHelperReady:   true,
-		},
+		Enabled:                 true,
+		Capability:              releaseCapabilityRemoteAccessRDP,
+		HelperProtocolVersion:   artifact.HelperProtocolVersion,
+		CompatibleAgentVersions: artifact.CompatibleAgentVersions,
+		DeploymentRequirements:  artifact.DeploymentRequirements,
 	}
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
@@ -290,6 +285,71 @@ func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected helper-capable artifact to stage, got %v", err)
+	}
+}
+
+func TestStageAgentReleaseRejectsRDPHelperInstallMetadataMismatch(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	tests := []struct {
+		name   string
+		mutate func(*releaseHelperInstall)
+	}{
+		{
+			name: "helper protocol differs",
+			mutate: func(helper *releaseHelperInstall) {
+				helper.HelperProtocolVersion = "other-helper-protocol"
+			},
+		},
+		{
+			name: "compatible agent range missing",
+			mutate: func(helper *releaseHelperInstall) {
+				helper.CompatibleAgentVersions = nil
+			},
+		},
+		{
+			name: "compatible agent range differs",
+			mutate: func(helper *releaseHelperInstall) {
+				helper.CompatibleAgentVersions[releaseCompatibleAgentMax] = "9.x"
+			},
+		},
+		{
+			name: "helper install path differs",
+			mutate: func(helper *releaseHelperInstall) {
+				helper.DeploymentRequirements[releaseRequirementInstallPath] = "/tmp/serviceradar-rdp-adapter"
+			},
+		},
+		{
+			name: "helper readiness flag differs",
+			mutate: func(helper *releaseHelperInstall) {
+				helper.DeploymentRequirements[releaseRequirementRequiresProbe] = false
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
+			payload := signedReleasePayload(t, binaryData, artifact)
+			payload.HelperInstall = &releaseHelperInstall{
+				Enabled:                 true,
+				Capability:              releaseCapabilityRemoteAccessRDP,
+				HelperProtocolVersion:   artifact.HelperProtocolVersion,
+				CompatibleAgentVersions: cloneStringMap(artifact.CompatibleAgentVersions),
+				DeploymentRequirements:  cloneInterfaceMap(artifact.DeploymentRequirements),
+			}
+			tt.mutate(payload.HelperInstall)
+
+			_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+				RuntimeRoot: t.TempDir(),
+				HTTPClient:  server.Client(),
+			})
+			if !errors.Is(err, errReleaseHelperReadinessMissing) {
+				t.Fatalf("expected errReleaseHelperReadinessMissing, got %v", err)
+			}
+		})
 	}
 }
 
@@ -435,6 +495,30 @@ func validRDPReleaseArtifact(url, digest string) releaseArtifactPayload {
 			releaseRequirementHelperReady:   true,
 		},
 	}
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+
+	return cloned
+}
+
+func cloneInterfaceMap(values map[string]interface{}) map[string]interface{} {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+
+	return cloned
 }
 
 func TestStageAgentReleaseAllowsSameOriginHTTPSRedirects(t *testing.T) {

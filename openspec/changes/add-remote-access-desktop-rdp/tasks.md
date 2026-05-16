@@ -203,7 +203,7 @@
 - [x] 4.4 Add operator docs for registering RDP targets, configuring credential modes, target TLS/NLA trust, redirection controls, and session recording policy.
 
 ## 5. Validation And Demo
-- [ ] 5.1 Add unit tests for resource normalization, override rejection, RBAC, approval, redirection gates, quota enforcement, and audit records.
+- [x] 5.1 Add unit tests for resource normalization, override rejection, RBAC, approval, redirection gates, quota enforcement, and audit records.
 - [x] 5.1.1 Add RBAC catalog tests for RDP open permission and Phoenix controller tests for desktop WebRTC signaling gates.
 - [x] 5.1.2 Add core-elx tests for desktop WebRTC signaling lifecycle, missing sessions, unsupported protocols, answers, candidates, and expiry.
 - [x] 5.1.3 Add focused Go tests for desktop clipboard redirection denial by default and explicit policy opt-in.
@@ -229,7 +229,7 @@
 - [x] 5.1.23 Add focused browser component and LiveView hook tests for the RDP session shell policy posture, WebRTC availability state, prop parsing, and unmount cleanup.
 - [x] 5.1.24 Add focused browser component tests proving the RDP session shell renders backpressure queue state without exposing secret-shaped policy fields.
 - [x] 5.1.25 Add focused browser renderer-state and component tests proving RDP TLS/NLA transport posture is visible without exposing secret-shaped policy fields.
-- [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
+- [x] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.
 - [x] 5.2.3 Add focused Go tests for brokered desktop credential grant expiry.
@@ -376,6 +376,7 @@
 - [x] 6.2.1 Mark fail-closed RDP helper artifacts as experimental and connector-not-ready in deployment requirements until the helper readiness probe can pass.
 - [x] 6.2.2 Reject imported/manual RDP release manifests unless they declare helper protocol, compatible agent range, helper install metadata, readiness probe, and connector-readiness state.
 - [x] 6.2.3 Enforce signed RDP helper readiness metadata during agent-side managed release staging before accepting optional helper installs.
+- [x] 6.2.4 Reject RDP helper install commands whose helper protocol, compatible agent range, or deployment requirements diverge from the signed artifact metadata.
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
 - [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.

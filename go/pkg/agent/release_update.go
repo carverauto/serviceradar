@@ -318,6 +318,23 @@ func validateReleaseHelperInstall(payload releaseUpdatePayload) error {
 		if !connectorReady {
 			return errReleaseHelperConnectorNotReady
 		}
+		if err := validateRDPHelperInstallMatchesArtifact(*payload.HelperInstall, payload.Artifact); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateRDPHelperInstallMatchesArtifact(helper releaseHelperInstall, artifact releaseArtifactPayload) error {
+	if helper.HelperProtocolVersion != artifact.HelperProtocolVersion {
+		return errReleaseHelperReadinessMissing
+	}
+	if canonicalArtifactValue(helper.CompatibleAgentVersions) != canonicalArtifactValue(artifact.CompatibleAgentVersions) {
+		return errReleaseHelperReadinessMissing
+	}
+	if canonicalArtifactValue(helper.DeploymentRequirements) != canonicalArtifactValue(artifact.DeploymentRequirements) {
+		return errReleaseHelperReadinessMissing
 	}
 
 	return nil
