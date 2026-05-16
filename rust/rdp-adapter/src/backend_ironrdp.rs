@@ -74,6 +74,16 @@ struct ActiveStageInputProbe {
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
+struct ActiveStageOutputProbe {
+    rdp_response_frames: usize,
+    rdp_response_bytes: usize,
+    queued_media_frames: usize,
+    queued_media_bytes: usize,
+    terminal_outputs: usize,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
 struct VerifiedTlsPeerPublicKeyForProbe {
     bytes: Vec<u8>,
 }
@@ -597,6 +607,67 @@ fn summarize_active_stage_outputs_for_probe(
         response_bytes,
         graphics_updates,
     }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[allow(clippy::too_many_arguments)]
+fn handle_active_stage_outputs_for_probe<W: Write>(
+    outputs: Vec<ironrdp_session::ActiveStageOutput>,
+    upstream: &mut W,
+    media_queue: &mut VecDeque<Vec<u8>>,
+    image: &ironrdp_session::image::DecodedImage,
+    policy: &DesktopScreenPolicy,
+    session_binding_id: &str,
+    media_session_id: &str,
+    next_sequence: &mut u64,
+    timestamp_unix_nano: i64,
+) -> Result<ActiveStageOutputProbe, BackendError> {
+    let mut probe = ActiveStageOutputProbe {
+        rdp_response_frames: 0,
+        rdp_response_bytes: 0,
+        queued_media_frames: 0,
+        queued_media_bytes: 0,
+        terminal_outputs: 0,
+    };
+
+    for output in outputs {
+        match output {
+            ironrdp_session::ActiveStageOutput::ResponseFrame(frame) => {
+                upstream
+                    .write_all(&frame)
+                    .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+                probe.rdp_response_frames += 1;
+                probe.rdp_response_bytes += frame.len();
+            }
+            ironrdp_session::ActiveStageOutput::GraphicsUpdate(rect) => {
+                let media_frame = encode_graphics_update_for_probe(
+                    session_binding_id,
+                    media_session_id,
+                    *next_sequence,
+                    timestamp_unix_nano,
+                    image,
+                    &rect,
+                    policy,
+                )?;
+                *next_sequence = next_sequence
+                    .checked_add(1)
+                    .ok_or(BackendError::Unsupported(INVALID_GRAPHICS_UPDATE))?;
+                probe.queued_media_frames += 1;
+                probe.queued_media_bytes += media_frame.len();
+                media_queue.push_back(media_frame);
+            }
+            ironrdp_session::ActiveStageOutput::Terminate(_)
+            | ironrdp_session::ActiveStageOutput::DeactivateAll(_) => {
+                probe.terminal_outputs += 1;
+            }
+            ironrdp_session::ActiveStageOutput::PointerDefault
+            | ironrdp_session::ActiveStageOutput::PointerHidden
+            | ironrdp_session::ActiveStageOutput::PointerPosition { .. }
+            | ironrdp_session::ActiveStageOutput::PointerBitmap(_) => {}
+        }
+    }
+
+    Ok(probe)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1261,6 +1332,96 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
+    fn connector_probe_routes_active_stage_outputs_to_upstream_and_media_queue() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let image = ironrdp_session::image::DecodedImage::new(
+            ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+            800,
+            600,
+        );
+        let rect = ironrdp_pdu::geometry::InclusiveRectangle {
+            left: 4,
+            top: 6,
+            right: 7,
+            bottom: 8,
+        };
+        let mut upstream = Vec::new();
+        let mut media_queue = VecDeque::new();
+        let mut next_sequence = 7;
+
+        let probe = handle_active_stage_outputs_for_probe(
+            vec![
+                ironrdp_session::ActiveStageOutput::ResponseFrame(vec![0xaa, 0xbb]),
+                ironrdp_session::ActiveStageOutput::GraphicsUpdate(rect),
+                ironrdp_session::ActiveStageOutput::PointerHidden,
+            ],
+            &mut upstream,
+            &mut media_queue,
+            &image,
+            &payload.target.screen,
+            "session-1",
+            "media-1",
+            &mut next_sequence,
+            1234,
+        )
+        .expect("active stage outputs routed");
+
+        assert_eq!(upstream, vec![0xaa, 0xbb]);
+        assert_eq!(next_sequence, 8);
+        assert_eq!(media_queue.len(), 1);
+        assert_eq!(
+            probe,
+            ActiveStageOutputProbe {
+                rdp_response_frames: 1,
+                rdp_response_bytes: 2,
+                queued_media_frames: 1,
+                queued_media_bytes: media_queue.front().expect("media frame").len(),
+                terminal_outputs: 0,
+            }
+        );
+
+        let media = media_queue.pop_front().expect("queued media");
+        assert_eq!(&media[0..4], b"SRDP");
+        assert_eq!(u64::from_be_bytes(media[8..16].try_into().unwrap()), 7);
+        assert_eq!(u32::from_be_bytes(media[24..28].try_into().unwrap()), 800);
+        assert_eq!(u32::from_be_bytes(media[28..32].try_into().unwrap()), 600);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_rejects_active_stage_response_write_failures() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let image = ironrdp_session::image::DecodedImage::new(
+            ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+            800,
+            600,
+        );
+        let mut upstream = FailingWriter;
+        let mut media_queue = VecDeque::new();
+        let mut next_sequence = 7;
+
+        let err = handle_active_stage_outputs_for_probe(
+            vec![ironrdp_session::ActiveStageOutput::ResponseFrame(vec![
+                0xaa, 0xbb,
+            ])],
+            &mut upstream,
+            &mut media_queue,
+            &image,
+            &payload.target.screen,
+            "session-1",
+            "media-1",
+            &mut next_sequence,
+            1234,
+        )
+        .expect_err("write failure rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+        assert!(media_queue.is_empty());
+        assert_eq!(next_sequence, 7);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
     fn connector_probe_maps_browser_key_input_to_rdp_scancode_events() {
         let events = map_desktop_input_events_for_probe(&desktop_key_frame("Enter", true))
             .expect("key down event");
@@ -1401,6 +1562,20 @@ mod tests {
             reason: String::new(),
             timestamp: 0,
             metadata: Default::default(),
+        }
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    struct FailingWriter;
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(io::ErrorKind::BrokenPipe, "closed"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
         }
     }
 
