@@ -20,13 +20,13 @@
 - [x] 1.4.15 Add a review-only `ironrdp-blocking` connect-begin probe proving ServiceRadar-shaped requests can reuse the upstream connector loop through the TLS upgrade boundary.
 
 ## 2. Policy, RBAC, And API
-- [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
+- [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
 - [x] 2.1.1 Add the admin-only `devices.remote_access.rdp.open` RBAC catalog key for graphical desktop access.
 - [x] 2.1.2 Enforce selected-agent route membership and allowed desktop login principals in agent-side target/grant validation.
 - [x] 2.1.3 Require the RDP open permission, not the SSH open permission, before showing or closing existing RDP remote-access sessions.
 - [x] 2.1.4 Require the RDP open permission, not the SSH open permission, before showing RDP recording metadata and replay events.
 - [x] 2.1.5 Add RDP approval-request coverage that binds approved access to the selected target host/port, agent route, credential mode, and desktop policy metadata before session creation.
-- [ ] 2.2 Add APIs for listing authorized desktop targets, creating sessions, exchanging graphical/control frames, toggling approved redirection features, and closing sessions.
+- [x] 2.2 Add APIs for listing authorized desktop targets, creating sessions, exchanging graphical/control frames, toggling approved redirection features, and closing sessions.
 - [x] 2.2.1 Add web-ng WebRTC signaling endpoints for an existing RDP remote-access session: create offer, submit answer, add ICE candidates, and close viewer session.
 - [x] 2.2.2 Gate desktop WebRTC signaling behind `remote_access_desktop_rdp_enabled` and reject non-RDP remote-access sessions.
 - [x] 2.2.3 Include desktop WebRTC transport, signaling path, and ICE server metadata on RDP remote-access session responses.
@@ -178,7 +178,7 @@
 - [x] 3.4.9 Release the adapter guard lock before forwarding accepted input/media frames so concrete adapter callbacks cannot deadlock the policy guard.
 
 ## 4. Operator And User Experience
-- [ ] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
+- [x] 4.1 Add web-ng target administration for desktop/RDP targets and redirection policy fields.
 - [x] 4.1.1 Add a durable Ash/Postgres registered RDP desktop target resource with route, credential custody, TLS/NLA, screen, redirection, recording, approval, and metadata fields.
 - [x] 4.1.2 Add a `settings.edge.manage`-gated admin API for listing, creating, updating, enabling, and disabling registered RDP desktop targets without exposing plaintext credential-shaped fields.
 - [x] 4.1.3 Add a `settings.edge.manage`-gated settings LiveView for listing, creating, editing, enabling, and disabling RDP desktop targets with route, TLS/NLA, screen, clipboard redirection, recording, and allowed-principal controls.
@@ -196,7 +196,7 @@
 - [x] 4.2.8 Add browser keyboard, pointer, focus, and resize control-frame emission over the WebRTC control channel using the agent-side desktop frame schema.
 - [x] 4.2.9 Show browser-side desktop backpressure state, render queue budget, dropped-frame count, and last rendered sequence in the RDP session shell.
 - [x] 4.2.10 Show browser-visible RDP TLS/NLA transport posture in the desktop session shell without exposing credential material.
-- [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
+- [x] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
 - [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
 - [x] 4.3.3 Show recording lifecycle status, started/completed timestamps, retention, and failure reason alongside desktop policy metadata without exposing screen or clipboard payloads.
