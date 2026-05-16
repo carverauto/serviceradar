@@ -310,6 +310,26 @@ fn drive_blocking_connect_finalize_for_probe(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn extract_credssp_server_public_key_for_probe(cert_der: &[u8]) -> Result<Vec<u8>, BackendError> {
+    use x509_cert::der::Decode as _;
+
+    let cert = x509_cert::Certificate::from_der(cert_der)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let public_key = cert
+        .tbs_certificate
+        .subject_public_key_info
+        .subject_public_key
+        .as_bytes()
+        .ok_or(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    if public_key.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    Ok(public_key.to_vec())
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 struct RejectingNetworkClient;
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -750,5 +770,35 @@ mod tests {
         assert!(probe.wrote_credssp_bytes);
         assert!(!probe.contains_cleartext_password);
         assert!(!probe.written_bytes.is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_extracts_tls_public_key_for_credssp_binding() {
+        let public_key = extract_credssp_server_public_key_for_probe(&fixture_server_cert_der())
+            .expect("server public key");
+
+        assert_eq!(public_key.len(), 270);
+        assert_eq!(&public_key[..2], &[0x30, 0x82]);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_rejects_invalid_tls_certificate_for_public_key_binding() {
+        let err = extract_credssp_server_public_key_for_probe(b"not a certificate")
+            .expect_err("invalid cert rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn fixture_server_cert_der() -> Vec<u8> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        STANDARD
+            .decode(
+                "MIIDDTCCAfWgAwIBAgIUFaHwQBAFyvmfso6OPbcQ+2/fVSUwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAwwLd2luLmV4YW1wbGUwHhcNMjYwNTE2MTYzNzQ3WhcNMjYwNTE3MTYzNzQ3WjAWMRQwEgYDVQQDDAt3aW4uZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALbcS3SPVJlbV5AwbziMjXX0Z5CXcOIMt67zeIzoh6hmiAou1IIVZ14FrWStQj4kJNcAwdYQWtZcjM0ya6Hx3fd/M4H3FIatWkrlZcwDtxPeMHxoLzJ0mP/yLdacyvjfKqQDn8f0JEd4KY5dN1eD/OFBGF+XuQyIBsAom6SFuo7uZA4+HmC01P5ac0zAyJKOVDpgdBWa9FYn+YszqAwjrRau1m4A8K5BgRPDBs1FQwjGhRGePEuRgOKsHdBGq/PJ1Iw4mES4pwStTgGvFHJnIPxxZHX0WHiDZnbNx+K+HJh0eaWEjYUazuQtvsyllNM6KmZIHb/bgcZ0VTRQZ87l9lUCAwEAAaNTMFEwHQYDVR0OBBYEFOEi76jfCExGDeYivuwXNMm6uGnAMB8GA1UdIwQYMBaAFOEi76jfCExGDeYivuwXNMm6uGnAMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAI6IdjMvys+AEAoeZ31Lo0IbMsM4EChsvXwpE9BZ5zuPEtRwxoxLwVKrhfjkQjuX6CWFcMlWPvUqKU4t8G3b6/5ym67vJqYkLXgF5UG5Aj7AuiLIY6j8zBcZ4dFsx7hheXZC4em5e6D16eDgATWEBKf/kfbmnX8EET5gkqolAjYI4D1M3gT5yJrulhNmfXThW5A2Vvn70AhsrhMylogKRejaMOelRi1XA0AAXkZ53JWNTCJLJtRg/6PAeyT6nJwpTZi1iKJs0gRTv2TAnUFKeVfDV1CE63YM8953dq+xwqmrTmyZabWJb6yAXEepIUPMscB2UcHKFAqgWZ+4herSzfY=",
+            )
+            .expect("fixture certificate")
     }
 }

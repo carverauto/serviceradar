@@ -40,12 +40,14 @@ rust_library(
     crate_features = ["ironrdp-backend"],
     rustc_flags = ["--cfg=serviceradar_rdp_connector_link_probe"],
     deps = [
+        "@rdp_connector_crates//:base64",
         "@rdp_connector_crates//:ironrdp-blocking",
         "@rdp_connector_crates//:ironrdp-connector",
         "@rdp_connector_crates//:ironrdp-core",
         "@rdp_connector_crates//:ironrdp-pdu",
         "@rdp_connector_crates//:serde",
         "@rdp_connector_crates//:serde_json",
+        "@rdp_connector_crates//:x509-cert",
         "@rdp_connector_crates//:zeroize",
     ],
 )
