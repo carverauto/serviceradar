@@ -1,0 +1,90 @@
+id: sample-northbound-nms
+name: Sample Northbound NMS
+version: 0.1.0
+description: >
+  Demonstrates ServiceRadar northbound action plugins with deterministic
+  simulated device and interface API calls.
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+resources:
+  requested_memory_mb: 32
+  requested_cpu_ms: 2000
+  max_open_connections: 0
+actions:
+  - action_id: sample.device.lookup
+    version: 1.0.0
+    label: Sample Device Lookup
+    description: Query a simulated external NMS for selected device facts.
+    scopes:
+      - device
+    required_context:
+      - device.uid
+      - device.ip
+    timeout_seconds: 30
+    safety_classification: read_only
+    requires_confirmation: false
+    result_schema_version: serviceradar.northbound_action_result.v1
+    input_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        query_mode:
+          type: string
+          title: Query mode
+          enum:
+            - summary
+            - full
+          default: summary
+          x-order: 1
+        include_neighbors:
+          type: boolean
+          title: Include neighbors
+          default: false
+          x-order: 2
+        reason:
+          type: string
+          title: Reason
+          description: Change ticket or operator reason.
+          x-order: 3
+  - action_id: sample.interface.audit
+    version: 1.0.0
+    label: Sample Interface Audit
+    description: Query or simulate a remediation call for selected interfaces.
+    scopes:
+      - interface
+    required_context:
+      - device.ip
+      - interface.name
+    timeout_seconds: 30
+    safety_classification: standard
+    requires_confirmation: true
+    result_schema_version: serviceradar.northbound_action_result.v1
+    input_schema:
+      type: object
+      additionalProperties: false
+      required:
+        - operation
+      properties:
+        operation:
+          type: string
+          title: Operation
+          enum:
+            - audit
+            - validate
+            - simulate_remediation
+          default: audit
+          x-order: 1
+        dry_run:
+          type: boolean
+          title: Dry run
+          default: true
+          x-order: 2
+        change_ticket:
+          type: string
+          title: Change ticket
+          x-order: 3
