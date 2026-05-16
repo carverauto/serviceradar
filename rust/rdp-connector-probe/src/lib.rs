@@ -185,6 +185,13 @@ pub struct BlockingConnectFinalizeProbe {
     pub written_bytes: Vec<u8>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub struct ActiveStageSmokeProbe {
+    pub desktop_width: u16,
+    pub desktop_height: u16,
+    pub accepts_mouse_position_update: bool,
+}
+
 #[derive(Debug)]
 pub struct ConnectorPlan {
     pub upstream_host: String,
@@ -217,6 +224,37 @@ pub fn connector_dependency_is_linked() -> bool {
 
 pub fn active_stage_dependency_is_linked() -> bool {
     std::mem::size_of::<ironrdp_session::ActiveStageOutput>() > 0
+}
+
+pub fn build_active_stage_smoke(
+    request: ServiceRadarOpenRequest,
+) -> Result<ActiveStageSmokeProbe, &'static str> {
+    let plan = build_connector_plan(request)?;
+    let config = plan.connector_config;
+    let desktop_size = config.desktop_size;
+    let connector = ironrdp_connector::ClientConnector::new(config.clone(), CLIENT_ADDR);
+    let connection_activation =
+        ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
+            config, 1003, 1004,
+        );
+    let connection_result = ironrdp_connector::ConnectionResult {
+        io_channel_id: 1003,
+        user_channel_id: 1004,
+        static_channels: connector.static_channels,
+        desktop_size,
+        enable_server_pointer: false,
+        pointer_software_rendering: false,
+        connection_activation,
+    };
+
+    let mut active_stage = ironrdp_session::ActiveStage::new(connection_result);
+    active_stage.update_mouse_pos(10, 20);
+
+    Ok(ActiveStageSmokeProbe {
+        desktop_width: desktop_size.width,
+        desktop_height: desktop_size.height,
+        accepts_mouse_position_update: true,
+    })
 }
 
 pub fn parse_service_radar_open_request(
@@ -742,6 +780,16 @@ mod tests {
     #[test]
     fn links_active_stage_without_root_workspace_lockfile() {
         assert!(crate::active_stage_dependency_is_linked());
+    }
+
+    #[test]
+    fn builds_active_stage_from_service_radar_connector_plan() {
+        let probe = crate::build_active_stage_smoke(open_request("EXAMPLE\\alice", "required"))
+            .expect("active stage smoke");
+
+        assert_eq!(probe.desktop_width, 1920);
+        assert_eq!(probe.desktop_height, 1080);
+        assert!(probe.accepts_mouse_position_update);
     }
 
     #[test]

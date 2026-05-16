@@ -24,6 +24,7 @@
 - [x] 1.4.19 Add a Bazel-only adapter connector-link probe proving the future production helper can compile adapter code against the isolated IronRDP connector crate universe without using the root Rust lockfile.
 - [x] 1.4.20 Record the IronRDP active-stage import gate, including `ironrdp-session`, its protocol/render dependencies, disabled UI/client stacks, and ServiceRadar-owned SRDP mapping requirements.
 - [x] 1.4.21 Add `ironrdp-session` to the isolated connector probe workspace so active-stage dependencies are reviewed without perturbing the root Rust workspace.
+- [x] 1.4.22 Add an isolated active-stage construction probe proving a ServiceRadar-derived connector plan can initialize IronRDP session state without importing upstream UI/client stacks.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
@@ -300,6 +301,7 @@
 - [x] 5.2.53 Add a Bazel-only adapter connect-finalize probe test proving CredSSP finalization uses certificate-derived public-key bytes and rejects empty binding input.
 - [x] 5.2.54 Add Bazel-only adapter probe coverage for typed verified TLS peer public-key material at the CredSSP finalization boundary.
 - [x] 5.2.55 Add isolated connector-probe coverage proving `ironrdp-session::ActiveStageOutput` links without adding active-stage dependencies to the root Rust lockfile.
+- [x] 5.2.56 Add isolated connector-probe coverage proving an `ironrdp-session::ActiveStage` can be constructed from ServiceRadar-mapped connection state and accept a mouse-position update.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
