@@ -23,7 +23,10 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
   def add_webrtc_viewer(session_id, viewer_session_id, signaling, opts \\ [])
       when is_binary(session_id) and is_binary(viewer_session_id) do
-    GenServer.call(server_name(opts), {:add_webrtc_viewer, session_id, viewer_session_id, signaling, opts})
+    GenServer.call(
+      server_name(opts),
+      {:add_webrtc_viewer, session_id, viewer_session_id, signaling, opts}
+    )
   end
 
   def remove_webrtc_viewer(session_id, viewer_session_id, opts \\ [])
@@ -31,8 +34,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     GenServer.call(server_name(opts), {:remove_webrtc_viewer, session_id, viewer_session_id})
   end
 
-  def forward_frame(session_id, %Desktopmedia.DesktopMediaFrameChunk{} = frame, opts \\ []) when is_binary(session_id) do
-    GenServer.call(server_name(opts), {:forward_frame, session_id, frame, opts}, Keyword.get(opts, :timeout, 15_000))
+  def forward_frame(session_id, %Desktopmedia.DesktopMediaFrameChunk{} = frame, opts \\ [])
+      when is_binary(session_id) do
+    GenServer.call(
+      server_name(opts),
+      {:forward_frame, session_id, frame, opts},
+      Keyword.get(opts, :timeout, 15_000)
+    )
   end
 
   def apply_browser_ack(session_id, viewer_session_id, ack, opts \\ [])
@@ -42,7 +50,10 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
   def apply_browser_control(session_id, viewer_session_id, frame, opts \\ [])
       when is_binary(session_id) and is_binary(viewer_session_id) and is_map(frame) do
-    GenServer.call(server_name(opts), {:apply_browser_control, session_id, viewer_session_id, frame})
+    GenServer.call(
+      server_name(opts),
+      {:apply_browser_control, session_id, viewer_session_id, frame}
+    )
   end
 
   def fetch_session(session_id, opts \\ []) when is_binary(session_id) do
@@ -54,12 +65,28 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   end
 
   @impl true
-  def init(_opts) do
-    {:ok, %{sessions: %{}}}
+  def init(opts) do
+    control_forwarder =
+      Keyword.get(
+        opts,
+        :control_forwarder,
+        Application.get_env(:serviceradar_core_elx, :remote_desktop_control_forwarder)
+      )
+
+    {:ok,
+     %{
+       sessions: %{},
+       control_forwarder: control_forwarder,
+       control_forwarder_opts: Keyword.get(opts, :control_forwarder_opts, [])
+     }}
   end
 
   @impl true
-  def handle_call({:add_webrtc_viewer, session_id, viewer_session_id, signaling, opts}, _from, state) do
+  def handle_call(
+        {:add_webrtc_viewer, session_id, viewer_session_id, signaling, opts},
+        _from,
+        state
+      ) do
     with {:ok, provider} <- resolve_offer_provider(opts),
          :ok <- provider.add_webrtc_viewer(session_id, viewer_session_id, signaling, opts) do
       session = Map.get(state.sessions, session_id, new_session(session_id))
@@ -166,15 +193,22 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
             {:reply, {:error, :invalid_control_frame}, state}
 
           true ->
-            updated =
-              session
-              |> Map.update!(:control_frame_count, &(&1 + 1))
-              |> Map.put(:last_control_frame, safe_control_frame(frame))
-              |> Map.put(:updated_at_unix, now_unix())
+            case forward_browser_control(state, session, viewer_session_id, frame) do
+              :ok ->
+                updated =
+                  session
+                  |> Map.update!(:control_frame_count, &(&1 + 1))
+                  |> Map.put(:last_control_frame, safe_control_frame(frame))
+                  |> Map.put(:updated_at_unix, now_unix())
 
-            emit_browser_control_event(updated, viewer_session_id, frame)
+                emit_browser_control_event(updated, viewer_session_id, frame)
 
-            {:reply, {:ok, sanitize_session(updated)}, put_in(state, [:sessions, session_id], updated)}
+                {:reply, {:ok, sanitize_session(updated)},
+                 put_in(state, [:sessions, session_id], updated)}
+
+              {:error, reason} ->
+                {:reply, {:error, reason}, state}
+            end
         end
     end
   end
@@ -183,8 +217,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     {:reply, sanitize_session(Map.get(state.sessions, session_id)), state}
   end
 
-  def handle_call(:reset, _from, _state) do
-    {:reply, :ok, %{sessions: %{}}}
+  def handle_call(:reset, _from, state) do
+    {:reply, :ok, %{state | sessions: %{}}}
   end
 
   defp resolve_offer_provider(opts) do
@@ -193,7 +227,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
         Keyword.has_key?(opts, :offer_provider) ->
           Keyword.fetch!(opts, :offer_provider)
 
-        configured = Application.get_env(:serviceradar_core_elx, :remote_desktop_media_offer_provider) ->
+        configured =
+            Application.get_env(:serviceradar_core_elx, :remote_desktop_media_offer_provider) ->
           configured
 
         true ->
@@ -279,7 +314,10 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
         updated =
           session
-          |> Map.put(:last_accepted_sequence, max(session.last_accepted_sequence, accepted_sequence))
+          |> Map.put(
+            :last_accepted_sequence,
+            max(session.last_accepted_sequence, accepted_sequence)
+          )
           |> Map.update!(:pending_credit_bytes, &(&1 + credit_bytes))
           |> maybe_put(:quality_level, ack_quality_level(ack))
           |> maybe_put(:close_reason, ack_close_reason(ack))
@@ -288,7 +326,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
         emit_browser_ack_event(updated, viewer_session_id, ack, credit_bytes)
 
-        {:reply, {:ok, sanitize_session(updated)}, put_in(state, [:sessions, session.session_id], updated)}
+        {:reply, {:ok, sanitize_session(updated)},
+         put_in(state, [:sessions, session.session_id], updated)}
     end
   end
 
@@ -404,7 +443,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       valid_control_frame_type?(string_value(frame, "frame_type"), frame)
   end
 
-  defp valid_control_frame_type?("desktop.input", frame), do: input_kind(frame) in ["key", "pointer", "focus"]
+  defp valid_control_frame_type?("desktop.input", frame),
+    do: input_kind(frame) in ["key", "pointer", "focus"]
 
   defp valid_control_frame_type?("desktop.resize", frame) do
     uint_value(frame, "width") > 0 and uint_value(frame, "height") > 0
@@ -414,9 +454,59 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   defp valid_control_frame_type?("desktop.disconnect", _frame), do: true
   defp valid_control_frame_type?(_frame_type, _frame), do: false
 
+  defp forward_browser_control(
+         %{control_forwarder: forwarder, control_forwarder_opts: opts},
+         session,
+         viewer_session_id,
+         frame
+       ) do
+    case resolve_control_forwarder(forwarder) do
+      {:ok, nil} ->
+        :ok
+
+      {:ok, module} ->
+        session
+        |> sanitize_session()
+        |> module.forward_browser_control(viewer_session_id, frame, opts)
+        |> normalize_control_forward_result()
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp resolve_control_forwarder(forwarder) when forwarder in [nil, false], do: {:ok, nil}
+
+  defp resolve_control_forwarder(forwarder) when is_atom(forwarder) do
+    if Code.ensure_loaded?(forwarder) and
+         function_exported?(forwarder, :forward_browser_control, 4) do
+      {:ok, forwarder}
+    else
+      {:error, {:invalid_control_forwarder, forwarder}}
+    end
+  end
+
+  defp resolve_control_forwarder(forwarder), do: {:error, {:invalid_control_forwarder, forwarder}}
+
+  defp normalize_control_forward_result(:ok), do: :ok
+  defp normalize_control_forward_result({:ok, _result}), do: :ok
+  defp normalize_control_forward_result({:error, reason}), do: {:error, reason}
+
+  defp normalize_control_forward_result(other),
+    do: {:error, {:invalid_control_forward_result, other}}
+
   defp safe_control_frame(frame) do
     frame
-    |> Map.take(["session_id", "protocol", "frame_type", "width", "height", "input", "quality", "reason"])
+    |> Map.take([
+      "session_id",
+      "protocol",
+      "frame_type",
+      "width",
+      "height",
+      "input",
+      "quality",
+      "reason"
+    ])
     |> drop_sensitive_control_fields()
   end
 
@@ -454,7 +544,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   end
 
   defp remove_provider_viewer(
-         %{offer_provider: provider, offer_provider_opts: opts, viewer_session_id: viewer_session_id},
+         %{
+           offer_provider: provider,
+           offer_provider_opts: opts,
+           viewer_session_id: viewer_session_id
+         },
          session_id
        ) do
     if function_exported?(provider, :remove_webrtc_viewer, 3) do
@@ -541,7 +635,10 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   end
 
   defp max_browser_ack_credit_bytes do
-    case Application.get_env(:serviceradar_core_elx, :remote_desktop_media_max_browser_ack_credit_bytes) do
+    case Application.get_env(
+           :serviceradar_core_elx,
+           :remote_desktop_media_max_browser_ack_credit_bytes
+         ) do
       value when is_integer(value) and value > 0 -> value
       _other -> @default_max_browser_ack_credit_bytes
     end
@@ -554,7 +651,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   defp signaling_pid(%{pid: pid}) when is_pid(pid), do: pid
   defp signaling_pid(_signaling), do: nil
 
-  defp frame_byte_count(frame), do: byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
+  defp frame_byte_count(frame),
+    do: byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value
   defp normalize_uint(_value), do: 0
