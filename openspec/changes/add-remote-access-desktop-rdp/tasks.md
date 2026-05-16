@@ -294,7 +294,7 @@
 - [x] 5.6.50 Add focused Elixir tests proving desktop media frame, heartbeat, and acknowledgement mutations stop after the session lease expires.
 - [x] 5.6.51 Add focused Elixir tests proving desktop media frame counter mutations reject mismatched media-ingest bindings without changing counters.
 - [x] 5.6.52 Add focused Go tests proving long-running desktop media bursts exhaust credit and recover only after browser acknowledgements.
-- [ ] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
+- [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.
 - [x] 5.7.3 Add browser WebRTC client tests for stale-frame drop behavior, critical-frame preservation, and ack credit after drops.
