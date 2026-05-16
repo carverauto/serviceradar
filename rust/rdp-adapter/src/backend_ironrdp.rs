@@ -1,5 +1,9 @@
 use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
 use crate::protocol::{DesktopCredentialGrant, OpenPayload};
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use std::collections::VecDeque;
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use std::io::{self, Read, Write};
 use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
@@ -32,6 +36,14 @@ enum TlsTrustSource {
 struct ConnectorUpgradeBoundaryProbe {
     requires_security_upgrade: bool,
     requires_credssp_after_upgrade: bool,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct BlockingConnectBeginProbe {
+    requires_security_upgrade: bool,
+    contains_cleartext_password: bool,
+    written_bytes: Vec<u8>,
 }
 
 struct MemoryUserCredential {
@@ -209,6 +221,90 @@ fn encode_server_confirm_for_probe(
         },
     ))
     .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn drive_blocking_connect_begin_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<BlockingConnectBeginProbe, BackendError> {
+    let config = build_connector_config_for_probe(plan, credential);
+    let server_confirm =
+        encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
+    let mut connector =
+        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+    let mut framed = ironrdp_blocking::Framed::new(ScriptedStream::new(vec![server_confirm]));
+
+    let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let (stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    Ok(BlockingConnectBeginProbe {
+        requires_security_upgrade: should_upgrade,
+        contains_cleartext_password: bytes_contain_secret(
+            &stream.writes,
+            credential.password.value.as_str().as_bytes(),
+        ),
+        written_bytes: stream.writes,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+struct ScriptedStream {
+    reads: VecDeque<Vec<u8>>,
+    read_offset: usize,
+    writes: Vec<u8>,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl ScriptedStream {
+    fn new(reads: Vec<Vec<u8>>) -> Self {
+        Self {
+            reads: reads.into(),
+            read_offset: 0,
+            writes: Vec::new(),
+        }
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl Read for ScriptedStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(front) = self.reads.front() else {
+            return Ok(0);
+        };
+        let remaining = &front[self.read_offset..];
+        let len = remaining.len().min(buf.len());
+        buf[..len].copy_from_slice(&remaining[..len]);
+        self.read_offset += len;
+        if self.read_offset == front.len() {
+            self.reads.pop_front();
+            self.read_offset = 0;
+        }
+
+        Ok(len)
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl Write for ScriptedStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.writes.extend_from_slice(buf);
+
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn bytes_contain_secret(bytes: &[u8], secret: &[u8]) -> bool {
+    !secret.is_empty() && bytes.windows(secret.len()).any(|window| window == secret)
 }
 
 fn is_memory_user_grant(grant: &DesktopCredentialGrant) -> bool {
@@ -539,5 +635,26 @@ mod tests {
         .expect_err("tls-only confirm rejected");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_blocking_connect_begin_reuses_upstream_loop_without_password() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let probe = drive_blocking_connect_begin_for_probe(&plan, &credential)
+            .expect("blocking connect begin");
+
+        assert!(probe.requires_security_upgrade);
+        assert!(!probe.contains_cleartext_password);
+        assert!(!probe.written_bytes.is_empty());
     }
 }
