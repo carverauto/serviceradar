@@ -56,6 +56,24 @@ ServiceRadar connector import requirements:
 - Treat `sspi`/CredSSP and `picky`/PKI as security-sensitive dependencies: run focused dependency review, record crypto provider features, and add an integration test against a controlled RDP server before advertising `remote_access.rdp`.
 - Keep the Go agent as the credential, route, policy, audit, and flow-control owner. The Rust connector loop may receive only a session-scoped open payload over local IPC and must drop credential material on any open, auth, TLS, route, or process failure.
 
+## Active Stage Import Gate
+After `ironrdp-blocking::connect_finalize` returns an `ironrdp-connector::ConnectionResult`, the upstream path for the live desktop loop is `ironrdp-session::ActiveStage`, not `ironrdp-client`, `ironrdp-client-glutin`, `ironrdp-web`, or Teleport's desktop wrapper.
+
+Observed active-stage crate surface from the pinned IronRDP checkout:
+
+- `ironrdp-session = 0.8.0` is `MIT OR Apache-2.0`.
+- `ironrdp-session` depends on `ironrdp-bulk`, `ironrdp-connector`, `ironrdp-core`, `ironrdp-displaycontrol`, `ironrdp-dvc`, `ironrdp-error`, `ironrdp-graphics`, `ironrdp-pdu`, `ironrdp-svc`, and `tracing`.
+- `ActiveStage::process` can emit response frames, graphics update rectangles, pointer updates, termination, deactivation, and multitransport requests. The ServiceRadar helper must map only approved graphics and input behavior into SRDP media/control frames.
+- Do not import `ironrdp-client`, `ironrdp-client-glutin`, `ironrdp-web`, audio/clipboard/drive/printer stacks, or UI renderer crates for the helper active-stage slice.
+- Treat multitransport, display-control resize, dynamic virtual channels, and pointer rendering as policy-gated follow-ups. They must not bypass the existing route, recording, redirection, and media backpressure contracts.
+
+ServiceRadar active-stage import requirements:
+
+- Add `ironrdp-session` only to the isolated optional helper dependency graph first, with the exact crate list and lockfile impact recorded before any production-ready artifact advertises `remote_access.rdp`.
+- Map IronRDP active-stage graphics outputs to ServiceRadar-owned SRDP media frames; do not pass upstream frame payloads directly to the browser without the existing session guard, quota, and recording checks.
+- Map browser keyboard, pointer, focus, and resize input through ServiceRadar's typed desktop control frames before encoding IronRDP input PDUs.
+- Keep clipboard, drive, printer, audio, smart-card, file-copy, and arbitrary dynamic virtual channel handling disabled until each feature has explicit policy, audit, and tests.
+
 ## Implementation Boundary
 The ServiceRadar adapter must own:
 

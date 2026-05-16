@@ -22,6 +22,7 @@
 - [x] 1.4.17 Add a review-only `ironrdp-blocking` connect-finalize probe proving the post-TLS boundary enters CredSSP and writes no cleartext password before server input.
 - [x] 1.4.18 Add a review-only TLS upgrade policy probe proving system roots, registered CA bundles, and pinned CA modes are selected explicitly while insecure modes fail closed.
 - [x] 1.4.19 Add a Bazel-only adapter connector-link probe proving the future production helper can compile adapter code against the isolated IronRDP connector crate universe without using the root Rust lockfile.
+- [x] 1.4.20 Record the IronRDP active-stage import gate, including `ironrdp-session`, its protocol/render dependencies, disabled UI/client stacks, and ServiceRadar-owned SRDP mapping requirements.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
