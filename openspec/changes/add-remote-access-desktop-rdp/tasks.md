@@ -377,6 +377,7 @@
 - [x] 6.2.2 Reject imported/manual RDP release manifests unless they declare helper protocol, compatible agent range, helper install metadata, readiness probe, and connector-readiness state.
 - [x] 6.2.3 Enforce signed RDP helper readiness metadata during agent-side managed release staging before accepting optional helper installs.
 - [x] 6.2.4 Reject RDP helper install commands whose helper protocol, compatible agent range, or deployment requirements diverge from the signed artifact metadata.
+- [x] 6.2.5 Reject helper install commands for unsupported/non-RDP artifact capabilities so base agent artifacts cannot bypass RDP readiness checks.
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
 - [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.

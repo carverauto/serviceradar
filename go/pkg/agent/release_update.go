@@ -307,20 +307,21 @@ func validateReleaseHelperInstall(payload releaseUpdatePayload) error {
 	if capability == "" {
 		capability = releaseCapabilityRemoteAccessRDP
 	}
+	if capability != releaseCapabilityRemoteAccessRDP {
+		return fmt.Errorf("%w: %s", errReleaseHelperCapabilityMissing, capability)
+	}
 	if !releaseArtifactHasCapability(payload.Artifact, capability) {
 		return fmt.Errorf("%w: %s", errReleaseHelperCapabilityMissing, capability)
 	}
-	if capability == releaseCapabilityRemoteAccessRDP {
-		connectorReady, err := validateRDPHelperArtifactReadiness(payload.Artifact)
-		if err != nil {
-			return err
-		}
-		if !connectorReady {
-			return errReleaseHelperConnectorNotReady
-		}
-		if err := validateRDPHelperInstallMatchesArtifact(*payload.HelperInstall, payload.Artifact); err != nil {
-			return err
-		}
+	connectorReady, err := validateRDPHelperArtifactReadiness(payload.Artifact)
+	if err != nil {
+		return err
+	}
+	if !connectorReady {
+		return errReleaseHelperConnectorNotReady
+	}
+	if err := validateRDPHelperInstallMatchesArtifact(*payload.HelperInstall, payload.Artifact); err != nil {
+		return err
 	}
 
 	return nil

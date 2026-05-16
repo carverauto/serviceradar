@@ -264,6 +264,32 @@ func TestStageAgentReleaseRejectsHelperInstallWithoutRDPCapability(t *testing.T)
 	}
 }
 
+func TestStageAgentReleaseRejectsHelperInstallForUnsupportedCapability(t *testing.T) {
+	binaryData := []byte("binary")
+	server := newArtifactServer(t, binaryData)
+	defer server.Close()
+
+	payload := signedReleasePayload(t, binaryData, releaseArtifactPayload{
+		URL:          server.URL + "/serviceradar-agent",
+		SHA256:       digestHex(binaryData),
+		OS:           runtime.GOOS,
+		Arch:         runtime.GOARCH,
+		Capabilities: []string{"agent"},
+	})
+	payload.HelperInstall = &releaseHelperInstall{
+		Enabled:    true,
+		Capability: "agent",
+	}
+
+	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
+		RuntimeRoot: t.TempDir(),
+		HTTPClient:  server.Client(),
+	})
+	if !errors.Is(err, errReleaseHelperCapabilityMissing) {
+		t.Fatalf("expected errReleaseHelperCapabilityMissing, got %v", err)
+	}
+}
+
 func TestStageAgentReleaseAcceptsHelperInstallWithRDPCapability(t *testing.T) {
 	binaryData := []byte("binary")
 	server := newArtifactServer(t, binaryData)
