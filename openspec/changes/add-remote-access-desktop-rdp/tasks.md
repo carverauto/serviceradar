@@ -160,6 +160,7 @@
 - [x] 3.2.33 Add a Bazel-only adapter TLS peer-certificate public-key extraction probe proving CredSSP binding input can be derived from verified certificate bytes inside the isolated connector crate universe.
 - [x] 3.2.34 Bind the Bazel-only adapter `ironrdp-blocking` connect-finalize probe to certificate-derived CredSSP public-key bytes instead of placeholder binding input.
 - [x] 3.2.35 Type the Bazel-only adapter CredSSP binding input as verified TLS peer public-key material so future connector code does not pass arbitrary byte vectors across the TLS/CredSSP boundary.
+- [x] 3.2.36 Add a Bazel-only adapter active-stage input probe proving validated helper policy can encode keyboard input into an RDP response frame while runtime readiness stays disabled.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -304,6 +305,7 @@
 - [x] 5.2.55 Add isolated connector-probe coverage proving `ironrdp-session::ActiveStageOutput` links without adding active-stage dependencies to the root Rust lockfile.
 - [x] 5.2.56 Add isolated connector-probe coverage proving an `ironrdp-session::ActiveStage` can be constructed from ServiceRadar-mapped connection state and accept a mouse-position update.
 - [x] 5.2.57 Add isolated connector-probe coverage proving active-stage keyboard input encoding emits an RDP response frame without producing graphics updates.
+- [x] 5.2.58 Add Bazel-only adapter probe coverage proving active-stage keyboard input encoding works from the adapter's validated target policy and memory-user credential boundary.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

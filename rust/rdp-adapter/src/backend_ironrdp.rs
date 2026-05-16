@@ -56,6 +56,14 @@ struct BlockingConnectFinalizeProbe {
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
+struct ActiveStageInputProbe {
+    response_frames: usize,
+    response_bytes: usize,
+    graphics_updates: usize,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
 struct VerifiedTlsPeerPublicKeyForProbe {
     bytes: Vec<u8>,
 }
@@ -350,6 +358,96 @@ fn derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
     Ok(VerifiedTlsPeerPublicKeyForProbe {
         bytes: public_key.to_vec(),
     })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn encode_active_stage_keyboard_input_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<ActiveStageInputProbe, BackendError> {
+    let (mut active_stage, desktop_size) = build_active_stage_for_probe(plan, credential);
+    let mut image = ironrdp_session::image::DecodedImage::new(
+        ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+        desktop_size.width,
+        desktop_size.height,
+    );
+    let outputs = active_stage
+        .process_fastpath_input(
+            &mut image,
+            &[
+                ironrdp_pdu::input::fast_path::FastPathInputEvent::KeyboardEvent(
+                    ironrdp_pdu::input::fast_path::KeyboardFlags::empty(),
+                    0x1e,
+                ),
+            ],
+        )
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    Ok(summarize_active_stage_outputs_for_probe(outputs))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_active_stage_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> (ironrdp_session::ActiveStage, ironrdp_connector::DesktopSize) {
+    let config = build_connector_config_for_probe(plan, credential);
+    let desktop_size = config.desktop_size;
+    let connector = ironrdp_connector::ClientConnector::new(
+        config.clone(),
+        "127.0.0.1:0".parse().expect("loopback"),
+    );
+    let connection_activation =
+        ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
+            config, 1003, 1004,
+        );
+    let connection_result = ironrdp_connector::ConnectionResult {
+        io_channel_id: 1003,
+        user_channel_id: 1004,
+        static_channels: connector.static_channels,
+        desktop_size,
+        enable_server_pointer: false,
+        pointer_software_rendering: false,
+        connection_activation,
+    };
+
+    (
+        ironrdp_session::ActiveStage::new(connection_result),
+        desktop_size,
+    )
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn summarize_active_stage_outputs_for_probe(
+    outputs: Vec<ironrdp_session::ActiveStageOutput>,
+) -> ActiveStageInputProbe {
+    let mut response_frames = 0;
+    let mut response_bytes = 0;
+    let mut graphics_updates = 0;
+
+    for output in outputs {
+        match output {
+            ironrdp_session::ActiveStageOutput::ResponseFrame(frame) => {
+                response_frames += 1;
+                response_bytes += frame.len();
+            }
+            ironrdp_session::ActiveStageOutput::GraphicsUpdate(_) => {
+                graphics_updates += 1;
+            }
+            ironrdp_session::ActiveStageOutput::PointerDefault
+            | ironrdp_session::ActiveStageOutput::PointerHidden
+            | ironrdp_session::ActiveStageOutput::PointerPosition { .. }
+            | ironrdp_session::ActiveStageOutput::PointerBitmap(_)
+            | ironrdp_session::ActiveStageOutput::Terminate(_)
+            | ironrdp_session::ActiveStageOutput::DeactivateAll(_) => {}
+        }
+    }
+
+    ActiveStageInputProbe {
+        response_frames,
+        response_bytes,
+        graphics_updates,
+    }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -844,6 +942,27 @@ mod tests {
                 .expect_err("invalid cert rejected");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_active_stage_encodes_keyboard_input_response_frame() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let probe = encode_active_stage_keyboard_input_for_probe(&plan, &credential)
+            .expect("active stage input");
+
+        assert_eq!(probe.response_frames, 1);
+        assert!(probe.response_bytes > 0);
+        assert_eq!(probe.graphics_updates, 0);
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
