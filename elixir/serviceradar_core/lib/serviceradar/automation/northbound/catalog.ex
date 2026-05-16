@@ -15,10 +15,17 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
 
   @type action_summary :: %{
           id: String.t(),
+          descriptor_id: String.t() | nil,
           label: String.t(),
+          description: String.t() | nil,
           provider_type: String.t(),
+          provider_name: String.t() | nil,
           scope: String.t(),
-          destination: String.t() | nil
+          destination: String.t() | nil,
+          input_schema: map(),
+          safety_classification: String.t(),
+          requires_confirmation: boolean(),
+          timeout_seconds: pos_integer()
         }
 
   @spec eligible_device_actions(term()) :: [action_summary()]
@@ -54,10 +61,17 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
 
     %{
       id: "northbound:#{descriptor.id}",
+      descriptor_id: descriptor.id,
       label: descriptor.label,
+      description: descriptor.description,
       provider_type: to_string(provider.provider_type),
+      provider_name: provider.name,
       scope: action_scope,
-      destination: nil
+      destination: nil,
+      input_schema: descriptor.input_schema || %{},
+      safety_classification: to_string(descriptor.safety_classification),
+      requires_confirmation: descriptor.requires_confirmation,
+      timeout_seconds: descriptor.timeout_seconds
     }
   end
 
@@ -66,10 +80,17 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       [
         %{
           id: "ansible:run_playbook",
+          descriptor_id: nil,
           label: "Run Ansible Playbook",
+          description: nil,
           provider_type: "ansible",
+          provider_name: "Ansible",
           scope: "device",
-          destination: "/ansible/launch"
+          destination: "/ansible/launch",
+          input_schema: %{},
+          safety_classification: "standard",
+          requires_confirmation: false,
+          timeout_seconds: 60
         }
       ]
     else
