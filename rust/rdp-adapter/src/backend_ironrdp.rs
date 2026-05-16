@@ -3,6 +3,8 @@ use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
 use crate::media_frame::{
     encode_desktop_media_frame, DesktopMediaFrame, DesktopMediaPayloadFamily,
 };
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use crate::protocol::DesktopClosePayload;
 use crate::protocol::{DesktopCredentialGrant, OpenPayload};
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use crate::protocol::{DesktopFrame, DesktopScreenPolicy};
@@ -143,12 +145,50 @@ impl<W: Write> ActiveStageSessionProbe<W> {
         )
     }
 
+    fn graceful_shutdown(&mut self) -> Result<ActiveStageOutputProbe, BackendError> {
+        let outputs = self
+            .active_stage
+            .graceful_shutdown()
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+        handle_active_stage_outputs_for_probe(
+            outputs,
+            &mut self.upstream,
+            &mut self.media_queue,
+            &self.image,
+            &self.policy,
+            &self.session_binding_id,
+            &self.media_session_id,
+            &mut self.next_sequence,
+            0,
+        )
+    }
+
     fn drain_media_frames(&mut self) -> Vec<Vec<u8>> {
         self.media_queue.drain(..).collect()
     }
 
     fn upstream_ref(&self) -> &W {
         &self.upstream
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<W: Write> RdpBackendSession for ActiveStageSessionProbe<W> {
+    fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError> {
+        ActiveStageSessionProbe::input(self, frame).map(|_| ())
+    }
+
+    fn ack(&mut self, _ack: &crate::protocol::DesktopMediaAck) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn close(&mut self, _payload: &DesktopClosePayload) -> Result<(), BackendError> {
+        ActiveStageSessionProbe::graceful_shutdown(self).map(|_| ())
+    }
+
+    fn drain_media_frames(&mut self) -> Result<Vec<Vec<u8>>, BackendError> {
+        Ok(ActiveStageSessionProbe::drain_media_frames(self))
     }
 }
 
@@ -1377,6 +1417,58 @@ mod tests {
         assert_eq!(err, BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT));
         assert!(session.upstream_ref().is_empty());
         assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_active_stage_session_implements_backend_session_contract() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let mut session = ActiveStageSessionProbe::new(
+            &plan,
+            &credential,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+
+        {
+            let session_trait: &mut dyn RdpBackendSession = &mut session;
+            session_trait
+                .input(&desktop_key_frame("Enter", true))
+                .expect("input routed through trait");
+            session_trait
+                .ack(&crate::protocol::DesktopMediaAck {
+                    session_binding_id: "session-1".to_owned(),
+                    media_session_id: "media-1".to_owned(),
+                    last_accepted_seq: 0,
+                    credit_bytes: 4096,
+                    quality_level: String::new(),
+                    pause: false,
+                    resume: false,
+                    close_reason: String::new(),
+                })
+                .expect("ack accepted through trait");
+            assert!(session_trait
+                .drain_media_frames()
+                .expect("drain through trait")
+                .is_empty());
+            session_trait
+                .close(&DesktopClosePayload {
+                    reason: "done".to_owned(),
+                })
+                .expect("graceful close through trait");
+        }
+
+        assert!(!session.upstream_ref().is_empty());
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
