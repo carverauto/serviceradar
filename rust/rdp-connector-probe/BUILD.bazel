@@ -14,6 +14,7 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2021",
     deps = [
+        "@rdp_connector_crates//:ironrdp-blocking",
         "@rdp_connector_crates//:ironrdp-connector",
         "@rdp_connector_crates//:ironrdp-core",
         "@rdp_connector_crates//:ironrdp-pdu",

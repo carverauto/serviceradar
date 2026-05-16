@@ -17,6 +17,7 @@
 - [x] 1.4.12 Add a review-only connector plan proving the registered upstream endpoint and effective TLS server name are derived from target policy before IronRDP config construction.
 - [x] 1.4.13 Re-validate the published IronRDP connector root-lockfile conflict against the real helper feature and keep connector/CredSSP dependencies isolated from the root workspace.
 - [x] 1.4.14 Add an isolated Bazel crate-universe target for the IronRDP connector probe so connector/CredSSP tests do not use the root Rust lockfile.
+- [x] 1.4.15 Add a review-only `ironrdp-blocking` connect-begin probe proving ServiceRadar-shaped requests can reuse the upstream connector loop through the TLS upgrade boundary.
 
 ## 2. Policy, RBAC, And API
 - [ ] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.

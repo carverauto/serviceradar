@@ -1,5 +1,6 @@
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
+use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 const OPEN_SCHEMA: &str = "serviceradar.rdp.helper.open.v1";
@@ -165,6 +166,15 @@ pub struct ConnectorUpgradeBoundary {
     pub requires_security_upgrade: bool,
     pub after_upgrade_state: &'static str,
     pub requires_credssp: bool,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct BlockingConnectBeginProbe {
+    pub before_state: &'static str,
+    pub after_state: &'static str,
+    pub requires_security_upgrade: bool,
+    pub contains_cleartext_password: bool,
+    pub written_bytes: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -412,6 +422,81 @@ pub fn drive_connector_to_credssp_boundary(
     drive_connector_with_server_protocol(request, ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
 }
 
+pub fn drive_blocking_connect_begin_to_tls_upgrade(
+    request: ServiceRadarOpenRequest,
+) -> Result<BlockingConnectBeginProbe, &'static str> {
+    let password = request.credential_grant.password.clone();
+    let config = build_connector_config(request)?;
+    let server_confirm = encode_server_confirm(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
+    let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
+    let before_state = connector_state_name(&connector);
+    let mut framed = ironrdp_blocking::Framed::new(ScriptedStream::new(vec![server_confirm]));
+
+    ironrdp_blocking::connect_begin(&mut framed, &mut connector)
+        .map_err(|_| "blocking connect begin failed")?;
+
+    let after_state = connector_state_name(&connector);
+    let requires_security_upgrade = connector.should_perform_security_upgrade();
+    let (stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err("blocking connect begin left unread bytes");
+    }
+
+    Ok(BlockingConnectBeginProbe {
+        before_state,
+        after_state,
+        requires_security_upgrade,
+        contains_cleartext_password: bytes_contain_secret(&stream.writes, password.as_bytes()),
+        written_bytes: stream.writes,
+    })
+}
+
+struct ScriptedStream {
+    reads: VecDeque<Vec<u8>>,
+    read_offset: usize,
+    writes: Vec<u8>,
+}
+
+impl ScriptedStream {
+    fn new(reads: Vec<Vec<u8>>) -> Self {
+        Self {
+            reads: reads.into(),
+            read_offset: 0,
+            writes: Vec::new(),
+        }
+    }
+}
+
+impl Read for ScriptedStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let Some(front) = self.reads.front() else {
+            return Ok(0);
+        };
+        let remaining = &front[self.read_offset..];
+        let len = remaining.len().min(buf.len());
+        buf[..len].copy_from_slice(&remaining[..len]);
+        self.read_offset += len;
+        if self.read_offset == front.len() {
+            self.reads.pop_front();
+            self.read_offset = 0;
+        }
+
+        Ok(len)
+    }
+}
+
+impl Write for ScriptedStream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.writes.extend_from_slice(buf);
+
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 fn drive_connector_with_server_protocol(
     request: ServiceRadarOpenRequest,
     selected_protocol: ironrdp_pdu::nego::SecurityProtocol,
@@ -621,6 +706,21 @@ mod tests {
         assert!(boundary.requires_security_upgrade);
         assert_eq!(boundary.after_upgrade_state, "Credssp");
         assert!(boundary.requires_credssp);
+    }
+
+    #[test]
+    fn blocking_connect_begin_wrapper_reaches_tls_upgrade_boundary() {
+        let boundary = crate::drive_blocking_connect_begin_to_tls_upgrade(open_request(
+            "EXAMPLE\\alice",
+            "required",
+        ))
+        .expect("boundary");
+
+        assert_eq!(boundary.before_state, "ConnectionInitiationSendRequest");
+        assert_eq!(boundary.after_state, "EnhancedSecurityUpgrade");
+        assert!(boundary.requires_security_upgrade);
+        assert!(!boundary.contains_cleartext_password);
+        assert_eq!(&boundary.written_bytes[..2], &[0x03, 0x00]);
     }
 
     #[test]
