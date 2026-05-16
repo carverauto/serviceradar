@@ -44,6 +44,61 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
     end
   end
 
+  @spec list_managed(term()) :: {:ok, [RemoteAccessDesktopTarget.t()]} | {:error, term()}
+  def list_managed(scope) do
+    RemoteAccessDesktopTarget
+    |> Ash.Query.for_read(:list, %{}, scope: scope)
+    |> Ash.read(scope: scope)
+  end
+
+  @spec get_managed(term(), String.t()) :: {:ok, RemoteAccessDesktopTarget.t() | nil} | {:error, term()}
+  def get_managed(scope, id) when is_binary(id) do
+    RemoteAccessDesktopTarget
+    |> Ash.Query.for_read(:by_id, %{id: id}, scope: scope)
+    |> Ash.read_one(scope: scope)
+  end
+
+  @spec create_managed(term(), map()) :: {:ok, RemoteAccessDesktopTarget.t()} | {:error, term()}
+  def create_managed(scope, attrs) when is_map(attrs) do
+    with {:ok, target} <-
+           RemoteAccessDesktopTarget
+           |> Ash.Changeset.for_create(:create, attrs)
+           |> Ash.create(scope: scope) do
+      get_managed(scope, target.id)
+    end
+  end
+
+  @spec update_managed(term(), RemoteAccessDesktopTarget.t(), map()) ::
+          {:ok, RemoteAccessDesktopTarget.t()} | {:error, term()}
+  def update_managed(scope, %RemoteAccessDesktopTarget{} = target, attrs) when is_map(attrs) do
+    with {:ok, target} <-
+           target
+           |> Ash.Changeset.for_update(:update, attrs)
+           |> Ash.update(scope: scope) do
+      get_managed(scope, target.id)
+    end
+  end
+
+  @spec set_managed_enabled(term(), RemoteAccessDesktopTarget.t(), boolean()) ::
+          {:ok, RemoteAccessDesktopTarget.t()} | {:error, term()}
+  def set_managed_enabled(scope, %RemoteAccessDesktopTarget{} = target, true) do
+    with {:ok, target} <-
+           target
+           |> Ash.Changeset.for_update(:enable, %{})
+           |> Ash.update(scope: scope) do
+      get_managed(scope, target.id)
+    end
+  end
+
+  def set_managed_enabled(scope, %RemoteAccessDesktopTarget{} = target, false) do
+    with {:ok, target} <-
+           target
+           |> Ash.Changeset.for_update(:disable, %{})
+           |> Ash.update(scope: scope) do
+      get_managed(scope, target.id)
+    end
+  end
+
   @spec get_authorized(term(), String.t(), keyword()) :: {:ok, target()} | {:error, term()}
   def get_authorized(scope, target_id, opts \\ []) when is_binary(target_id) do
     with {:ok, targets} <- list_authorized(scope, opts) do

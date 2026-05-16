@@ -33,8 +33,8 @@ defmodule ServiceRadar.Edge.Changes.RedactDesktopTargetPolicy do
 
   defp redacted_payload(changeset) do
     Enum.reduce(@fields, %{}, fn field, payload ->
-      case Ash.Changeset.get_attribute(changeset, field) do
-        value when is_map(value) or is_list(value) ->
+      case Map.fetch(changeset.attributes, field) do
+        {:ok, value} when is_map(value) or is_list(value) ->
           Map.put(payload, field, CredentialRedactor.redact(value))
 
         _other ->

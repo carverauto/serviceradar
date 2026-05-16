@@ -81,6 +81,10 @@ defmodule ServiceRadar.Edge.RemoteAccessDesktopTarget do
       prepare build(sort: [name: :asc, inserted_at: :asc])
     end
 
+    read :list do
+      prepare build(sort: [name: :asc, inserted_at: :asc])
+    end
+
     create :create do
       accept @fields
       change RedactDesktopTargetPolicy
@@ -104,7 +108,12 @@ defmodule ServiceRadar.Edge.RemoteAccessDesktopTarget do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@rdp_open_check)
+
+    policy action_type(:read) do
+      authorize_if @rdp_open_check
+      authorize_if @manage_check
+    end
+
     action_type_with_permission([:create, :update], @manage_check)
     action_with_permission([:enable, :disable], @manage_check)
   end

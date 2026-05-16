@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import ServiceRadarWebNG.AshTestHelpers,
-    only: [admin_user_fixture: 0]
+    only: [admin_user_fixture: 0, viewer_user_fixture: 0]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.RemoteAccessDesktopTarget
@@ -178,6 +178,116 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessDesktopTargetControllerTest do
 
     assert body["error"] == "forbidden"
     refute_receive :unexpected_desktop_target_list
+  end
+
+  describe "admin target management" do
+    test "creates and lists registered targets without exposing plaintext credential material", %{conn: conn, user: user} do
+      put_test_permissions(user, ["settings.edge.manage"])
+
+      target_name = "Admin Desktop #{System.unique_integer([:positive])}"
+
+      conn =
+        post(conn, ~p"/api/admin/remote-access/desktop-targets", %{
+          "name" => target_name,
+          "description" => "Finance workstation",
+          "enabled" => "false",
+          "device_uid" => "windows-admin-1",
+          "target_host" => "win-admin-1.example.com",
+          "target_port" => "3389",
+          "agent_id" => "agent-admin-1",
+          "gateway_id" => "gateway-admin-1",
+          "credential_custody_mode" => "user_present",
+          "allowed_principals" => [" CARVER\\alice ", ""],
+          "target_tls" => %{"mode" => "verify_ca", "password" => "must-not-return"},
+          "nla" => %{"required" => true},
+          "screen_policy" => %{"max_width" => 1920, "max_height" => 1080},
+          "redirection_policy" => %{"clipboard" => "disabled"},
+          "recording_policy" => %{"mode" => "metadata_only"},
+          "metadata" => %{"private_key" => "must-not-return", "safe" => "kept"}
+        })
+
+      body = json_response(conn, 201)
+      target = body["data"]
+
+      assert target["name"] == target_name
+      assert target["enabled"] == false
+      assert target["device_uid"] == "windows-admin-1"
+      assert target["target_host"] == "win-admin-1.example.com"
+      assert target["target_port"] == 3389
+      assert target["allowed_principals"] == ["CARVER\\alice"]
+      assert target["target_tls"] == %{"mode" => "verify_ca", "password" => "REDACTED"}
+      assert target["metadata"] == %{"private_key" => "REDACTED", "safe" => "kept"}
+      refute conn.resp_body =~ "must-not-return"
+
+      conn = get(recycle(conn), ~p"/api/admin/remote-access/desktop-targets")
+      body = json_response(conn, 200)
+
+      assert Enum.any?(body["data"], &(Map.get(&1, "id") == target["id"]))
+    end
+
+    test "updates and disables registered targets", %{conn: conn, user: user} do
+      put_test_permissions(user, ["settings.edge.manage"])
+      target_name = "Patch Desktop #{System.unique_integer([:positive])}"
+
+      assert {:ok, target} =
+               RemoteAccessDesktopTarget.create_target(
+                 %{
+                   name: target_name,
+                   device_uid: "windows-patch-1",
+                   target_host: "win-patch-1.example.com",
+                   target_port: 3389,
+                   credential_custody_mode: :user_present
+                 },
+                 actor: SystemActor.system(:remote_access_desktop_target_admin_test)
+               )
+
+      conn =
+        patch(conn, ~p"/api/admin/remote-access/desktop-targets/#{target.id}", %{
+          "description" => "Updated desktop target",
+          "target_port" => 3390,
+          "redirection_policy" => %{"clipboard" => "local_to_remote"},
+          "approval_required" => true
+        })
+
+      body = json_response(conn, 200)
+      assert body["data"]["description"] == "Updated desktop target"
+      assert body["data"]["target_port"] == 3390
+      assert body["data"]["approval_required"] == true
+      assert body["data"]["redirection_policy"] == %{"clipboard" => "local_to_remote"}
+
+      conn = post(recycle(conn), ~p"/api/admin/remote-access/desktop-targets/#{target.id}/disable")
+      body = json_response(conn, 200)
+      assert body["data"]["enabled"] == false
+    end
+
+    test "rejects authenticated users without settings.edge.manage", %{conn: _conn} do
+      viewer = viewer_user_fixture()
+      put_test_permissions(viewer, ["devices.remote_access.rdp.open"])
+      {:ok, token, _claims} = Guardian.create_access_token(viewer)
+
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", "Bearer #{token}")
+        |> get(~p"/api/admin/remote-access/desktop-targets")
+
+      assert conn.status == 403
+    end
+
+    test "rejects invalid admin target parameters", %{conn: conn, user: user} do
+      put_test_permissions(user, ["settings.edge.manage"])
+
+      conn =
+        post(conn, ~p"/api/admin/remote-access/desktop-targets", %{
+          "name" => "Bad Port",
+          "device_uid" => "windows-bad-port",
+          "target_host" => "win-bad-port.example.com",
+          "target_port" => 70_000
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "target_port"
+    end
   end
 
   defp put_test_permissions(user, permissions) do

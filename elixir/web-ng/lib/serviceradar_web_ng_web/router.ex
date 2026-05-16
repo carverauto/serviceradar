@@ -408,6 +408,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     patch("/camera-analysis-workers/:id", CameraAnalysisWorkerController, :update)
     post("/camera-analysis-workers/:id/enable", CameraAnalysisWorkerController, :enable)
     post("/camera-analysis-workers/:id/disable", CameraAnalysisWorkerController, :disable)
+    get("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :admin_index)
+    post("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :admin_create)
+    get("/remote-access/desktop-targets/:id", RemoteAccessDesktopTargetController, :admin_show)
+    patch("/remote-access/desktop-targets/:id", RemoteAccessDesktopTargetController, :admin_update)
+    post("/remote-access/desktop-targets/:id/enable", RemoteAccessDesktopTargetController, :admin_enable)
+    post("/remote-access/desktop-targets/:id/disable", RemoteAccessDesktopTargetController, :admin_disable)
 
     post("/topology/route-analysis", TopologyController, :route_analysis)
   end
