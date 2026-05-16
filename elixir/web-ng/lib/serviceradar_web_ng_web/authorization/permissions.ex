@@ -8,6 +8,10 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
   alias ServiceRadar.Automation.Ansible.PlaybookRepository, as: AnsibleRepository
   alias ServiceRadar.Automation.Ansible.PlaybookRun, as: AnsibleRun
   alias ServiceRadar.Automation.Ansible.PlaybookSchedule, as: AnsibleSchedule
+  alias ServiceRadar.Automation.Northbound.ActionDescriptor, as: NorthboundActionDescriptor
+  alias ServiceRadar.Automation.Northbound.ActionEventHandler, as: NorthboundActionEventHandler
+  alias ServiceRadar.Automation.Northbound.ActionInvocation, as: NorthboundActionInvocation
+  alias ServiceRadar.Automation.Northbound.ActionProvider, as: NorthboundActionProvider
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RBAC, as: RBACCore
@@ -63,6 +67,27 @@ defmodule ServiceRadarWebNGWeb.Authorization.Permissions do
 
       "ansible.schedules.manage" ->
         all(permissions, AnsibleSchedule)
+
+      "northbound.actions.view" ->
+        permissions
+        |> read(NorthboundActionProvider)
+        |> read(NorthboundActionDescriptor)
+        |> read(NorthboundActionInvocation)
+        |> read(NorthboundActionEventHandler)
+
+      "northbound.actions.manage" ->
+        permissions
+        |> all(NorthboundActionProvider)
+        |> all(NorthboundActionDescriptor)
+
+      "northbound.actions.launch" ->
+        create(permissions, NorthboundActionInvocation)
+
+      "northbound.actions.cancel" ->
+        update(permissions, NorthboundActionInvocation)
+
+      "northbound.event_handlers.manage" ->
+        all(permissions, NorthboundActionEventHandler)
 
       _ ->
         permissions

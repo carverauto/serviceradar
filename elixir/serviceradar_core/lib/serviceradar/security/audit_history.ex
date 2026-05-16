@@ -31,6 +31,10 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.Automation.Ansible.PlaybookRun,
     ServiceRadar.Automation.Ansible.PlaybookSchedule,
     ServiceRadar.Automation.Ansible.PlaybookRepository,
+    ServiceRadar.Automation.Northbound.ActionProvider,
+    ServiceRadar.Automation.Northbound.ActionDescriptor,
+    ServiceRadar.Automation.Northbound.ActionInvocation,
+    ServiceRadar.Automation.Northbound.ActionEventHandler,
     ServiceRadar.Security.AuthLockout
   ]
 

@@ -49,6 +49,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
+    uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "run-task-disabled-host",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
+    |> render_click()
+
+    html = render_until(view, "No launchable task integrations are configured")
+
+    assert html =~ "Run Task"
+    assert html =~ "disabled"
+  end
+
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
     uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
 

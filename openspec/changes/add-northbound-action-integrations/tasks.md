@@ -1,13 +1,13 @@
 ## 1. Discovery and Schema
 
-- [ ] 1.1 Inventory existing Ansible launch resources, device action UI, plugin manifest fields, and Wasm host functions that can be reused.
-- [ ] 1.2 Define Ash resources for providers, descriptors, invocations, invocation targets, and event handlers.
-- [ ] 1.3 Add migrations under `elixir/serviceradar_core/priv/repo/migrations/` using the `platform` schema only.
+- [x] 1.1 Inventory existing Ansible launch resources, device action UI, plugin manifest fields, and Wasm host functions that can be reused.
+- [x] 1.2 Define Ash resources for providers, descriptors, invocations, invocation targets, and event handlers.
+- [x] 1.3 Add migrations under `elixir/serviceradar_core/priv/repo/migrations/` using the `platform` schema only.
 - [ ] 1.4 Define redaction and retention policy for action inputs and results.
 
 ## 2. Provider and Runtime Contract
 
-- [ ] 2.1 Extend plugin manifest validation to accept versioned action descriptors.
+- [x] 2.1 Extend plugin manifest validation to accept versioned action descriptors.
 - [ ] 2.2 Add action descriptor approval review alongside existing plugin capability approval.
 - [ ] 2.3 Implement action invocation dispatch for approved Wasm providers through the agent-routed command path.
 - [ ] 2.4 Adapt Ansible/AWX launch as a northbound action provider without removing the existing Ansible run history.
@@ -21,7 +21,7 @@
 
 ## 4. UI
 
-- [ ] 4.1 Replace Ansible-specific "Run Task" launch gating with provider-neutral eligibility checks.
+- [x] 4.1 Replace Ansible-specific "Run Task" launch gating with provider-neutral eligibility checks.
 - [ ] 4.2 Add a reusable device/interface action modal rendered from the descriptor schema subset.
 - [ ] 4.3 Add interface selection action entry points.
 - [ ] 4.4 Add action invocation history and per-target results in device and interface details without integration-specific panels.

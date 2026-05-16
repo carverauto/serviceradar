@@ -452,6 +452,45 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
       ]
     },
     %{
+      section: "northbound",
+      label: "Northbound Actions",
+      permissions: [
+        %{
+          key: "northbound.actions.view",
+          label: "View northbound actions",
+          description: "View configured action providers, descriptors, invocations, and history.",
+          default_roles: @all_roles
+        },
+        %{
+          key: "northbound.actions.manage",
+          label: "Manage northbound action providers",
+          description:
+            "Register, approve, disable, and update provider-neutral northbound action providers and descriptors.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "northbound.actions.launch",
+          label: "Launch northbound actions",
+          description:
+            "Launch approved provider-neutral actions against selected devices or interfaces.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "northbound.actions.cancel",
+          label: "Cancel northbound actions",
+          description: "Cancel in-progress provider-neutral action invocations.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "northbound.event_handlers.manage",
+          label: "Manage northbound event handlers",
+          description:
+            "Create, approve, enable, disable, and tune event handlers that invoke northbound actions.",
+          default_roles: @admin_roles
+        }
+      ]
+    },
+    %{
       section: "networks",
       label: "Network Ops",
       permissions: [
