@@ -11,6 +11,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.Changes.ClearRoleProfileAssignments
   alias ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
   alias ServiceRadar.Identity.Changes.InvalidateRbacCache
   alias ServiceRadar.Identity.Validations.PermissionKeys
@@ -77,6 +78,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
     destroy :destroy do
       change DisallowSystemProfileEdit
+      change ClearRoleProfileAssignments
       change InvalidateRbacCache
     end
   end

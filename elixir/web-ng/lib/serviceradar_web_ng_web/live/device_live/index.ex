@@ -1133,6 +1133,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    permissions = fresh_permissions(user, permissions)
+
     user
     |> Map.take([:id, :email, :role, :role_profile_id])
     |> Map.put(:permissions, permissions)
@@ -1140,6 +1142,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: nil
+
+  defp fresh_permissions(%ServiceRadar.Identity.User{} = user, _permissions) do
+    ServiceRadar.Identity.RBAC.permissions_for_user(user, fresh?: true)
+  end
+
+  defp fresh_permissions(_user, permissions), do: permissions
 
   defp northbound_catalog_module do
     Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
