@@ -31,6 +31,25 @@ rust_library(
     ],
 )
 
+rust_library(
+    name = "rdp_adapter_connector_link_probe_lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate_name = "serviceradar_rdp_adapter",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    crate_features = ["ironrdp-backend"],
+    rustc_flags = ["--cfg=serviceradar_rdp_connector_link_probe"],
+    deps = [
+        "@rdp_connector_crates//:ironrdp-blocking",
+        "@rdp_connector_crates//:ironrdp-connector",
+        "@rdp_connector_crates//:ironrdp-core",
+        "@rdp_connector_crates//:ironrdp-pdu",
+        "@rdp_connector_crates//:serde",
+        "@rdp_connector_crates//:serde_json",
+        "@rdp_connector_crates//:zeroize",
+    ],
+)
+
 rust_binary(
     name = "rdp_adapter",
     srcs = ["src/main.rs"],
@@ -55,4 +74,9 @@ rust_test(
 rust_test(
     name = "rdp_adapter_ironrdp_test",
     crate = ":rdp_adapter_ironrdp_lib",
+)
+
+rust_test(
+    name = "rdp_adapter_connector_link_probe_test",
+    crate = ":rdp_adapter_connector_link_probe_lib",
 )

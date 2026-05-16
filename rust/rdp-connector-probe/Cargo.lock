@@ -1992,6 +1992,7 @@ dependencies = [
  "serde",
  "serde_json",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]

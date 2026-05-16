@@ -21,6 +21,7 @@
 - [x] 1.4.16 Add a review-only TLS peer certificate public-key extraction probe proving the CredSSP binding input can be derived after verified TLS upgrade.
 - [x] 1.4.17 Add a review-only `ironrdp-blocking` connect-finalize probe proving the post-TLS boundary enters CredSSP and writes no cleartext password before server input.
 - [x] 1.4.18 Add a review-only TLS upgrade policy probe proving system roots, registered CA bundles, and pinned CA modes are selected explicitly while insecure modes fail closed.
+- [x] 1.4.19 Add a Bazel-only adapter connector-link probe proving the future production helper can compile adapter code against the isolated IronRDP connector crate universe without using the root Rust lockfile.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
@@ -277,6 +278,7 @@
 - [x] 5.2.42 Add focused Go tests proving helper media frames with mismatched desktop session bindings are rejected, cleared, and not forwarded.
 - [x] 5.2.43 Add focused Go tests proving helper media payload buffers are cleared after successful forwarding and media-sender failures.
 - [x] 5.2.44 Add a feature-enabled Bazel test target for the reviewed IronRDP-linked helper backend checks.
+- [x] 5.2.45 Add a Bazel-only adapter connector-link probe test target that links `ironrdp-connector`, `ironrdp-blocking`, and `zeroize` from the isolated connector crate universe.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

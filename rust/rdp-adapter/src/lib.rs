@@ -1,6 +1,8 @@
 mod backend;
 #[cfg(feature = "ironrdp-backend")]
 mod backend_ironrdp;
+#[cfg(serviceradar_rdp_connector_link_probe)]
+mod connector_link_probe;
 mod process_hardening;
 mod protocol;
 
@@ -11,6 +13,8 @@ use std::io::{self, ErrorKind, Read, Write};
 pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
+#[cfg(serviceradar_rdp_connector_link_probe)]
+pub use connector_link_probe::connector_link_probe_capabilities;
 pub use protocol::{
     parse_open_payload, DesktopClosePayload, DesktopFrame, DesktopMediaAck, OpenPayload,
 };
