@@ -35,7 +35,9 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
   actions do
     defaults [:destroy]
 
-    read :read
+    read :read do
+      primary? true
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
