@@ -164,6 +164,30 @@ impl<W: Write> ActiveStageSessionProbe<W> {
         )
     }
 
+    fn server_frame(
+        &mut self,
+        action: ironrdp_pdu::Action,
+        frame: &[u8],
+        timestamp_unix_nano: i64,
+    ) -> Result<ActiveStageOutputProbe, BackendError> {
+        let outputs = self
+            .active_stage
+            .process(&mut self.image, action, frame)
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+        handle_active_stage_outputs_for_probe(
+            outputs,
+            &mut self.upstream,
+            &mut self.media_queue,
+            &self.image,
+            &self.policy,
+            &self.session_binding_id,
+            &self.media_session_id,
+            &mut self.next_sequence,
+            timestamp_unix_nano,
+        )
+    }
+
     fn drain_media_frames(&mut self) -> Vec<Vec<u8>> {
         self.media_queue.drain(..).collect()
     }
@@ -1469,6 +1493,36 @@ mod tests {
         }
 
         assert!(!session.upstream_ref().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_active_stage_session_rejects_malformed_server_frames() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let mut session = ActiveStageSessionProbe::new(
+            &plan,
+            &credential,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+
+        let err = session
+            .server_frame(ironrdp_pdu::Action::X224, b"not-a-valid-pdu", 1234)
+            .expect_err("malformed server frame rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+        assert!(session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
