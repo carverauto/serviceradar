@@ -264,7 +264,12 @@ fn drive_blocking_connect_begin_for_probe(
 fn drive_blocking_connect_finalize_for_probe(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
+    server_public_key: Vec<u8>,
 ) -> Result<BlockingConnectFinalizeProbe, BackendError> {
+    if server_public_key.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
     let config = build_connector_config_for_probe(plan, credential);
     let server_confirm =
         encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
@@ -287,7 +292,7 @@ fn drive_blocking_connect_finalize_for_probe(
         &mut upgraded_framed,
         &mut network_client,
         plan.tls_server_name.clone().into(),
-        vec![1, 2, 3],
+        server_public_key,
         None,
     );
     if finalize.is_ok() {
@@ -764,12 +769,35 @@ mod tests {
         )
         .expect("credential");
 
-        let probe = drive_blocking_connect_finalize_for_probe(&plan, &credential)
-            .expect("blocking connect finalize");
+        let server_public_key =
+            extract_credssp_server_public_key_for_probe(&fixture_server_cert_der())
+                .expect("server public key");
+        let probe =
+            drive_blocking_connect_finalize_for_probe(&plan, &credential, server_public_key)
+                .expect("blocking connect finalize");
 
         assert!(probe.wrote_credssp_bytes);
         assert!(!probe.contains_cleartext_password);
         assert!(!probe.written_bytes.is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_blocking_connect_finalize_rejects_empty_public_key() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let err = drive_blocking_connect_finalize_for_probe(&plan, &credential, Vec::new())
+            .expect_err("empty public key rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
