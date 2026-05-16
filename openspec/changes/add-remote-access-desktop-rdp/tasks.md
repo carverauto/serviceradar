@@ -110,6 +110,7 @@
 - [x] 3.1.60 Reject frame, heartbeat, and acknowledgement mutations after the desktop media session lease expires.
 - [x] 3.1.61 Reject desktop media frame counter mutations with mismatched media-ingest bindings.
 - [x] 3.1.62 Add a core-elx browser desktop control forwarder seam so keyboard, pointer, focus, resize, quality, and disconnect frames can leave the WebRTC media manager without retaining input tokens in manager state.
+- [x] 3.1.63 Route core-elx browser desktop control frames to the active remote-access broker so low-rate RDP input can use the selected agent control route.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
@@ -324,6 +325,7 @@
 - [x] 5.6.52 Add focused Go tests proving long-running desktop media bursts exhaust credit and recover only after browser acknowledgements.
 - [x] 5.6.53 Add focused core-elx tests proving browser desktop control frames route through the DataChannel provider, signaling manager, and media session manager with viewer/session binding.
 - [x] 5.6.54 Add focused core-elx tests proving browser desktop control frames can be forwarded to a configured route layer with full input details while manager state only stores sanitized metadata and remains unchanged on forwarder failure.
+- [x] 5.6.55 Add focused Elixir tests proving core-elx forwards browser desktop control frames to an active broker and the broker sends typed desktop control frames over the selected agent route without auditing input tokens.
 - [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

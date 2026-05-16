@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.RemoteAccessBrokerRegistry
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.Edge.RemoteAccessRecordings
@@ -20,6 +21,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
+  @callback send_desktop_control(pid(), map()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
   @callback close(pid(), term()) :: :ok
@@ -34,6 +36,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     file_transfer_data
     file_transfer_outcome
     file_transfer_error
+  )
+  @desktop_control_frame_types ~w(
+    desktop.input
+    desktop.resize
+    desktop.quality
+    desktop.disconnect
   )
 
   def child_spec({session, owner, opts}) do
@@ -50,6 +58,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
     GenServer.call(pid, {:send_input, data})
+  end
+
+  def send_desktop_control(pid, frame) when is_pid(pid) and is_map(frame) do
+    GenServer.call(pid, {:send_desktop_control, frame})
   end
 
   def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
@@ -76,6 +88,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       required_gateway_node: Keyword.get(opts, :required_gateway_node),
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
+      broker_registry: Keyword.get(opts, :broker_registry, RemoteAccessBrokerRegistry),
       file_transfers: Keyword.get(opts, :file_transfers, RemoteAccessFileTransfers),
       lifecycle: Keyword.get(opts, :lifecycle, lifecycle_for(session)),
       recordings: Keyword.get(opts, :recordings, RemoteAccessRecordings),
@@ -92,15 +105,23 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       {:ok, data} ->
         case send_frame(state, "open", data, cols, rows, nil) do
           :ok ->
-            lifecycle(state, :mark_opening)
+            case register_broker(state) do
+              :ok ->
+                lifecycle(state, :mark_opening)
 
-            write_audit(
-              state,
-              :remote_access_session_opened,
-              open_audit_details(data, cols, rows)
-            )
+                write_audit(
+                  state,
+                  :remote_access_session_opened,
+                  open_audit_details(data, cols, rows)
+                )
 
-            {:ok, start_recording(state)}
+                {:ok, start_recording(state)}
+
+              {:error, reason} ->
+                lifecycle(state, :fail_session, [reason])
+                write_audit(state, :remote_access_session_failed, failure_details(reason))
+                {:stop, reason}
+            end
 
           {:error, reason} ->
             lifecycle(state, :fail_session, [reason])
@@ -121,6 +142,18 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     write_audit(state, :remote_access_session_input, %{input_bytes: byte_size(data)})
     state = if result == :ok, do: count_recording_input(state, data), else: state
     {:reply, result, state}
+  end
+
+  def handle_call({:send_desktop_control, frame}, _from, state) do
+    case desktop_control_payload(state, frame) do
+      {:ok, frame_type, data, audit_details} ->
+        result = send_frame(state, frame_type, data, nil, nil, nil)
+        write_audit(state, :remote_access_desktop_control, audit_details)
+        {:reply, result, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
   end
 
   def handle_call({:send_file_transfer_data, payload}, _from, state) do
@@ -216,6 +249,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @impl true
   def terminate(reason, %{closed?: false} = state) do
+    unregister_broker(state)
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
 
     if reason in [:normal, :shutdown] do
@@ -229,7 +263,30 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(_reason, state) do
+    unregister_broker(state)
+    :ok
+  end
+
+  defp register_broker(state) do
+    state.broker_registry.register(session_id(state.session), %{
+      agent_id: agent_id(state.session),
+      gateway_id: value(state.session, "gateway_id"),
+      protocol:
+        string_value(metadata(state.session), "protocol") ||
+          string_value(state.session, "protocol") ||
+          @default_protocol
+    })
+  end
+
+  defp unregister_broker(%{broker_registry: registry, session: session}) do
+    _ = registry.unregister(session_id(session))
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
   defp start_recording(state) do
     case state.recordings.ensure_for_session(state.session, recording_opts(state)) do
@@ -313,6 +370,38 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     })
 
     update_in(state.recording_stats.event_count, &(&1 + 1))
+  end
+
+  defp desktop_control_payload(state, frame) do
+    frame = stringify_nested(frame)
+    frame_type = string_value(frame, "frame_type")
+
+    cond do
+      frame_type not in @desktop_control_frame_types ->
+        {:error, :invalid_desktop_control_frame}
+
+      string_value(frame, "session_id") != session_id(state.session) ->
+        {:error, :desktop_control_session_mismatch}
+
+      string_value(frame, "protocol") not in ["rdp", "desktop"] ->
+        {:error, :invalid_desktop_control_protocol}
+
+      true ->
+        {:ok, frame_type, Jason.encode!(frame), desktop_control_audit_details(frame)}
+    end
+  end
+
+  defp desktop_control_audit_details(frame) do
+    %{
+      frame_type: string_value(frame, "frame_type"),
+      protocol: string_value(frame, "protocol"),
+      width: positive_int(value(frame, "width")),
+      height: positive_int(value(frame, "height")),
+      input_kind: frame |> map_value("input") |> string_value("kind"),
+      reason_present: not blank?(string_value(frame, "reason"))
+    }
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
   end
 
   defp record_replay_event(%{recording: nil}, _attrs), do: :ok
