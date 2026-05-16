@@ -83,6 +83,76 @@ struct ActiveStageOutputProbe {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct ActiveStageSessionProbe<W: Write> {
+    active_stage: ironrdp_session::ActiveStage,
+    image: ironrdp_session::image::DecodedImage,
+    upstream: W,
+    media_queue: VecDeque<Vec<u8>>,
+    policy: DesktopScreenPolicy,
+    session_binding_id: String,
+    media_session_id: String,
+    next_sequence: u64,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<W: Write> ActiveStageSessionProbe<W> {
+    fn new(
+        plan: &NonSecretConnectionPlan,
+        credential: &MemoryUserCredential,
+        upstream: W,
+        policy: &DesktopScreenPolicy,
+        session_binding_id: String,
+        media_session_id: String,
+    ) -> Self {
+        let (active_stage, desktop_size) = build_active_stage_for_probe(plan, credential);
+        let image = ironrdp_session::image::DecodedImage::new(
+            ironrdp_graphics::image_processing::PixelFormat::RgbA32,
+            desktop_size.width,
+            desktop_size.height,
+        );
+
+        Self {
+            active_stage,
+            image,
+            upstream,
+            media_queue: VecDeque::new(),
+            policy: copy_screen_policy_for_probe(policy),
+            session_binding_id,
+            media_session_id,
+            next_sequence: 0,
+        }
+    }
+
+    fn input(&mut self, frame: &DesktopFrame) -> Result<ActiveStageOutputProbe, BackendError> {
+        let events = map_desktop_input_events_for_probe(frame)?;
+        let outputs = self
+            .active_stage
+            .process_fastpath_input(&mut self.image, &events)
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+        handle_active_stage_outputs_for_probe(
+            outputs,
+            &mut self.upstream,
+            &mut self.media_queue,
+            &self.image,
+            &self.policy,
+            &self.session_binding_id,
+            &self.media_session_id,
+            &mut self.next_sequence,
+            frame.timestamp,
+        )
+    }
+
+    fn drain_media_frames(&mut self) -> Vec<Vec<u8>> {
+        self.media_queue.drain(..).collect()
+    }
+
+    fn upstream_ref(&self) -> &W {
+        &self.upstream
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
 struct VerifiedTlsPeerPublicKeyForProbe {
     bytes: Vec<u8>,
@@ -427,6 +497,19 @@ fn encode_active_stage_desktop_input_for_probe(
         .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
 
     Ok(summarize_active_stage_outputs_for_probe(outputs))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn copy_screen_policy_for_probe(policy: &DesktopScreenPolicy) -> DesktopScreenPolicy {
+    DesktopScreenPolicy {
+        max_width: policy.max_width,
+        max_height: policy.max_height,
+        color_depth: policy.color_depth,
+        frame_rate: policy.frame_rate,
+        bitrate_bps: policy.bitrate_bps,
+        idle_seconds: policy.idle_seconds,
+        ttl_seconds: policy.ttl_seconds,
+    }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1232,6 +1315,68 @@ mod tests {
         assert_eq!(probe.response_frames, 1);
         assert!(probe.response_bytes > 0);
         assert_eq!(probe.graphics_updates, 0);
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_active_stage_session_routes_browser_input_to_upstream() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let mut session = ActiveStageSessionProbe::new(
+            &plan,
+            &credential,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+
+        let probe = session
+            .input(&desktop_key_frame("Enter", true))
+            .expect("input routed");
+
+        assert_eq!(probe.rdp_response_frames, 1);
+        assert!(probe.rdp_response_bytes > 0);
+        assert_eq!(probe.queued_media_frames, 0);
+        assert_eq!(session.upstream_ref().len(), probe.rdp_response_bytes);
+        assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_active_stage_session_rejects_unsupported_browser_input() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let mut session = ActiveStageSessionProbe::new(
+            &plan,
+            &credential,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+
+        let err = session
+            .input(&desktop_key_frame("F13", true))
+            .expect_err("unsupported input rejected");
+
+        assert_eq!(err, BackendError::Unsupported(UNSUPPORTED_INPUT_EVENT));
+        assert!(session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]

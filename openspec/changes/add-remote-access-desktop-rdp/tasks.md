@@ -166,6 +166,7 @@
 - [x] 3.2.39 Add a Rust helper SRDP media-frame encoder matching the Go/browser binary envelope for future IronRDP graphics output.
 - [x] 3.2.40 Add Bazel-only adapter graphics-output translation from IronRDP active-stage dirty rectangles into SRDP dirty-rect media frames.
 - [x] 3.2.41 Add Bazel-only adapter active-stage output routing so RDP response frames go upstream and SRDP media frames queue for helper IPC drain.
+- [x] 3.2.42 Add a Bazel-only active-stage session harness that accepts ServiceRadar browser input, drives IronRDP input processing, writes upstream response bytes, and exposes media drain semantics.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -316,6 +317,7 @@
 - [x] 5.2.61 Add focused Rust helper tests proving SRDP media-frame headers, field ordering, flags, payload families, and policy bounds match the Go/browser envelope.
 - [x] 5.2.62 Add Bazel-only adapter probe coverage proving IronRDP graphics updates become SRDP dirty-rect frames with browser upload metadata and invalid rectangles fail closed.
 - [x] 5.2.63 Add Bazel-only adapter probe coverage proving active-stage response frames write to the RDP stream, graphics output queues SRDP media, and write failures fail closed.
+- [x] 5.2.64 Add Bazel-only adapter probe coverage proving the active-stage session harness routes browser input to upstream RDP bytes and rejects unsupported input without side effects.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
