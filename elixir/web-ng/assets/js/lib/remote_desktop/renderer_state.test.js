@@ -11,12 +11,114 @@ import {
   applyWebGPUTileFrame,
   createDirtyTileMask,
   createDesktopRenderQueue,
+  desktopPolicyStatusItems,
   desktopMetadataAttachment,
   desktopFrameUploadPlan,
   dirtyTileMaskHas,
+  normalizeDesktopPolicySnapshot,
 } from "./renderer_state"
 
 describe("remote desktop renderer state helpers", () => {
+  it("normalizes sanitized desktop policy snapshots for renderer status display", () => {
+    const snapshot = {
+      target: {
+        display_name: "Finance jump desktop",
+        device_uid: "windows-1",
+        protocol: "rdp",
+      },
+      route: {
+        agent_id: "agent-1",
+        gateway_id: "gateway-1",
+      },
+      credential: {
+        custody_mode: "user_present",
+        brokered_rule_bound: false,
+      },
+      authorization: {
+        rbac_decision: "allowed",
+      },
+      desktop: {
+        target_tls: {
+          mode: "verify_ca",
+          password: "must-not-survive",
+        },
+        nla: {
+          required: "true",
+          private_key: "must-not-survive",
+        },
+        screen_policy: {
+          max_width: 1920,
+          max_height: 1080,
+          max_frame_rate: 30,
+        },
+        redirection_policy: {
+          clipboard: "disabled",
+          drive: "disabled",
+          audio: "enabled",
+        },
+        approval_policy: {
+          required: true,
+          token: "must-not-survive",
+        },
+      },
+      recording: {
+        policy: {
+          mode: "metadata",
+          secret: "must-not-survive",
+        },
+      },
+      timeouts: {
+        idle_timeout_seconds: 900,
+        absolute_timeout_seconds: 3600,
+      },
+    }
+
+    const policy = normalizeDesktopPolicySnapshot(snapshot)
+
+    expect(policy.target).toMatchObject({
+      label: "Finance jump desktop",
+      deviceUid: "windows-1",
+      protocol: "rdp",
+    })
+    expect(policy.route.label).toBe("agent-1 / gateway-1")
+    expect(policy.credential.custodyMode).toBe("user_present")
+    expect(policy.transport).toMatchObject({tlsMode: "verify_ca", nlaRequired: true})
+    expect(policy.screen).toMatchObject({maxWidth: 1920, maxHeight: 1080, maxFrameRate: 30})
+    expect(policy.redirection).toMatchObject({
+      clipboard: "disabled",
+      drive: "disabled",
+      audio: "enabled",
+    })
+    expect(policy.authorization.approvalRequired).toBe(true)
+    expect(policy.recording.mode).toBe("metadata")
+    expect(policy.timeouts).toMatchObject({idleTimeoutSeconds: 900, absoluteTimeoutSeconds: 3600})
+    expect(JSON.stringify(policy)).not.toContain("must-not-survive")
+  })
+
+  it("builds stable desktop policy status items for the session shell", () => {
+    const items = desktopPolicyStatusItems({
+      target: {device_uid: "windows-1"},
+      route: {agent_id: "agent-1"},
+      credential: {custody_mode: "user_present"},
+      authorization: {rbac_decision: "allowed"},
+      desktop: {
+        screen_policy: {max_width: 1280, max_height: 720, max_frame_rate: 15},
+        redirection_policy: {clipboard: "disabled", drive: "disabled"},
+      },
+      recording: {policy: {mode: "metadata"}},
+    })
+
+    expect(items).toEqual([
+      {key: "target", label: "Target", value: "windows-1"},
+      {key: "route", label: "Route", value: "agent-1"},
+      {key: "credential", label: "Credential", value: "User Present"},
+      {key: "redirection", label: "Redirection", value: "Disabled"},
+      {key: "quota", label: "Quota", value: "1280x720 / 15 fps"},
+      {key: "approval", label: "Approval", value: "Allowed"},
+      {key: "recording", label: "Recording", value: "Metadata"},
+    ])
+  })
+
   it("builds a dirty tile mask for changed rectangles", () => {
     const mask = createDirtyTileMask(
       {width: 256, height: 128, tileSize: 64},

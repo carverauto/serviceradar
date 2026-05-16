@@ -172,6 +172,7 @@
 - [x] 4.2.1.3 Add a browser WebGPU queue adapter for dirty-region/tile upload descriptors.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
+- [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
 - [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
@@ -195,6 +196,7 @@
 - [x] 5.1.14 Add Phoenix controller, LiveView, and navigation tests proving RDP-only users can view RDP recording metadata/events but not SSH recordings.
 - [x] 5.1.15 Add focused core and LiveView tests proving RDP recording manifests and views expose safe desktop policy posture metadata without credential or payload persistence.
 - [x] 5.1.16 Add a focused Phoenix controller test proving RDP session responses expose sanitized desktop policy posture without leaking nested credential material.
+- [x] 5.1.17 Add focused browser renderer-state tests proving RDP policy snapshot status items are stable and do not retain secret-shaped fields.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

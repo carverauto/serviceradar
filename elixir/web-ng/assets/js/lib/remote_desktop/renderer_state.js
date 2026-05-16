@@ -9,6 +9,18 @@ const DEFAULT_TILE_SIZE = 64
 const DEFAULT_RENDER_QUEUE_MAX_FRAMES = 12
 const ARROW_IPC_FORMAT = "arrow_ipc"
 const METADATA_ATTACHMENT_ROLES = new Set(["metadata", "stats", "audit_stats", "overlay", "frame_manifest"])
+const SENSITIVE_POLICY_KEYS = new Set([
+  "certificate_envelope",
+  "credentials",
+  "passphrase",
+  "password",
+  "private_key",
+  "secret",
+  "secret_payload",
+  "ticket",
+  "token",
+])
+const SENSITIVE_POLICY_SUFFIXES = ["_credential", "_password", "_secret", "_ticket", "_token"]
 
 function positiveInteger(value, fallback = 0) {
   return Number.isInteger(value) && value > 0 ? value : fallback
@@ -20,6 +32,102 @@ function clamp(value, min, max) {
 
 function setMaskBit(words, index) {
   words[index >>> 5] |= 1 << (index & 31)
+}
+
+export function normalizeDesktopPolicySnapshot(snapshot = {}) {
+  const safeSnapshot = scrubDesktopPolicyValue(snapshot) || {}
+  const target = safeObject(safeSnapshot.target)
+  const route = safeObject(safeSnapshot.route)
+  const credential = safeObject(safeSnapshot.credential)
+  const authorization = safeObject(safeSnapshot.authorization)
+  const timeouts = safeObject(safeSnapshot.timeouts)
+  const desktop = safeObject(safeSnapshot.desktop)
+  const recording = safeObject(safeSnapshot.recording)
+  const targetTLS = safeObject(desktop.target_tls)
+  const nla = safeObject(desktop.nla)
+  const screenPolicy = safeObject(desktop.screen_policy)
+  const redirectionPolicy = safeObject(desktop.redirection_policy)
+  const approvalPolicy = safeObject(desktop.approval_policy)
+  const recordingPolicy = safeObject(recording.policy)
+  const enhancedRecordingPolicy = safeObject(recording.enhanced_policy)
+
+  return {
+    target: {
+      label: stringValue(target.display_name) || stringValue(target.device_uid) || "Remote desktop",
+      deviceUid: stringValue(target.device_uid),
+      targetKind: stringValue(target.target_kind),
+      protocol: stringValue(target.protocol) || "rdp",
+    },
+    route: {
+      agentId: stringValue(route.agent_id),
+      gatewayId: stringValue(route.gateway_id),
+      label: routeLabel(route),
+    },
+    credential: {
+      custodyMode: stringValue(credential.custody_mode) || "unknown",
+      brokeredRuleBound: credential.brokered_rule_bound === true,
+    },
+    authorization: {
+      rbacDecision: stringValue(authorization.rbac_decision) || "unknown",
+      approvalId: stringValue(authorization.approval_id),
+      approvalRequired: booleanValue(approvalPolicy.required),
+    },
+    transport: {
+      tlsMode: stringValue(targetTLS.mode) || stringValue(targetTLS.trust_mode) || stringValue(targetTLS.policy),
+      nlaRequired: booleanValue(nla.required),
+    },
+    screen: {
+      maxWidth: integerValue(screenPolicy.max_width || screenPolicy.maxWidth),
+      maxHeight: integerValue(screenPolicy.max_height || screenPolicy.maxHeight),
+      maxFrameRate: integerValue(screenPolicy.max_frame_rate || screenPolicy.maxFrameRate),
+      maxBitrateBps: integerValue(screenPolicy.max_bitrate_bps || screenPolicy.maxBitrateBps),
+    },
+    redirection: {
+      clipboard: policyValue(redirectionPolicy.clipboard),
+      drive: policyValue(redirectionPolicy.drive),
+      printer: policyValue(redirectionPolicy.printer),
+      audio: policyValue(redirectionPolicy.audio),
+      smartCard: policyValue(redirectionPolicy.smart_card || redirectionPolicy.smartCard),
+    },
+    recording: {
+      mode: stringValue(recordingPolicy.mode) || "metadata",
+      enhancedEnabled: enhancedRecordingPolicy.enabled === true,
+    },
+    timeouts: {
+      idleTimeoutSeconds: integerValue(timeouts.idle_timeout_seconds || timeouts.idleTimeoutSeconds),
+      absoluteTimeoutSeconds: integerValue(timeouts.absolute_timeout_seconds || timeouts.absoluteTimeoutSeconds),
+    },
+  }
+}
+
+export function desktopPolicyStatusItems(snapshot = {}) {
+  const policy = normalizeDesktopPolicySnapshot(snapshot)
+
+  return [
+    {key: "target", label: "Target", value: policy.target.label},
+    {key: "route", label: "Route", value: policy.route.label},
+    {key: "credential", label: "Credential", value: displayPolicyValue(policy.credential.custodyMode)},
+    {
+      key: "redirection",
+      label: "Redirection",
+      value: redirectionLabel(policy.redirection),
+    },
+    {
+      key: "quota",
+      label: "Quota",
+      value: screenQuotaLabel(policy.screen),
+    },
+    {
+      key: "approval",
+      label: "Approval",
+      value: approvalLabel(policy.authorization),
+    },
+    {
+      key: "recording",
+      label: "Recording",
+      value: displayPolicyValue(policy.recording.mode),
+    },
+  ]
 }
 
 export function createDirtyTileMask({width = 0, height = 0, tileSize = DEFAULT_TILE_SIZE} = {}, dirtyRects = []) {
@@ -211,6 +319,122 @@ function normalizeMetadataFormat(value) {
 
 function isArrowIPCFormat(value) {
   return normalizeMetadataFormat(value).replaceAll("-", "_") === ARROW_IPC_FORMAT
+}
+
+function scrubDesktopPolicyValue(value) {
+  if (Array.isArray(value)) {
+    return value.map(scrubDesktopPolicyValue)
+  }
+
+  if (!value || typeof value !== "object") {
+    return value
+  }
+
+  return Object.entries(value).reduce((acc, [key, nestedValue]) => {
+    if (sensitivePolicyKey(key)) {
+      return acc
+    }
+
+    const scrubbed = scrubDesktopPolicyValue(nestedValue)
+
+    if (!emptyPolicyValue(scrubbed)) {
+      acc[key] = scrubbed
+    }
+
+    return acc
+  }, {})
+}
+
+function sensitivePolicyKey(key) {
+  const normalized = String(key || "").toLowerCase()
+  return SENSITIVE_POLICY_KEYS.has(normalized) || SENSITIVE_POLICY_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+}
+
+function emptyPolicyValue(value) {
+  return value == null || (Array.isArray(value) && value.length === 0) || (isPlainObject(value) && Object.keys(value).length === 0)
+}
+
+function safeObject(value) {
+  return isPlainObject(value) ? value : {}
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value))
+}
+
+function stringValue(value) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null
+}
+
+function integerValue(value) {
+  return Number.isInteger(value) && value > 0 ? value : null
+}
+
+function booleanValue(value) {
+  if (value === true || value === false) {
+    return value
+  }
+
+  if (typeof value !== "string") {
+    return false
+  }
+
+  return ["1", "true", "yes", "on", "required", "enabled"].includes(value.trim().toLowerCase())
+}
+
+function policyValue(value) {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim().toLowerCase()
+  }
+
+  if (value === true) {
+    return "enabled"
+  }
+
+  return "disabled"
+}
+
+function routeLabel(route) {
+  return [stringValue(route.agent_id), stringValue(route.gateway_id)].filter(Boolean).join(" / ") || "Policy selected route"
+}
+
+function redirectionLabel(redirection) {
+  const enabled = Object.entries(redirection)
+    .filter(([, value]) => value !== "disabled" && value !== "deny" && value !== "denied")
+    .map(([key]) => displayPolicyValue(key))
+
+  return enabled.length > 0 ? enabled.join(", ") : "Disabled"
+}
+
+function screenQuotaLabel(screen) {
+  const dimensions =
+    screen.maxWidth && screen.maxHeight
+      ? `${screen.maxWidth}x${screen.maxHeight}`
+      : null
+  const frameRate = screen.maxFrameRate ? `${screen.maxFrameRate} fps` : null
+  const bitrate = screen.maxBitrateBps ? `${screen.maxBitrateBps} bps` : null
+
+  return [dimensions, frameRate, bitrate].filter(Boolean).join(" / ") || "Policy default"
+}
+
+function approvalLabel(authorization) {
+  if (authorization.approvalRequired || authorization.approvalId) {
+    return authorization.approvalId ? "Approved" : "Approval required"
+  }
+
+  return displayPolicyValue(authorization.rbacDecision)
+}
+
+function displayPolicyValue(value) {
+  const normalized = stringValue(value)
+
+  if (!normalized) {
+    return "Unknown"
+  }
+
+  return normalized
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function uploadDescriptor(region, payload, defaultTileSize) {
