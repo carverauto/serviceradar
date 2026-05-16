@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.65
+
+Northbound launch authorization and device integration metadata display fixes.
+
+## Whats New
+
+**1.2.65**
+- Fixed northbound task launches so users with `northbound.actions.launch` can create the per-target invocation rows required for device and interface actions.
+- Reworked device details metadata so collected integration data from Armis, NetBox, UniFi, and other sources is shown as readable label/value sections instead of raw metadata key badges.
+- Added a fallback Integration Details section for non-debug integration metadata so newly collected fields remain visible without leaking internal `_alias_*`, `debug_*`, or raw implementation keys.
+
 # ServiceRadar v1.2.64
 
 Agent plugin config fallback, release rollout recovery, and northbound sample hardening.
