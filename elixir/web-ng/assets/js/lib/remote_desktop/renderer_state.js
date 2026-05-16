@@ -113,6 +113,11 @@ export function desktopPolicyStatusItems(snapshot = {}) {
       value: redirectionLabel(policy.redirection),
     },
     {
+      key: "transport",
+      label: "Transport",
+      value: transportLabel(policy.transport),
+    },
+    {
       key: "quota",
       label: "Quota",
       value: screenQuotaLabel(policy.screen),
@@ -404,6 +409,13 @@ function redirectionLabel(redirection) {
     .map(([key]) => displayPolicyValue(key))
 
   return enabled.length > 0 ? enabled.join(", ") : "Disabled"
+}
+
+function transportLabel(transport) {
+  const tls = displayPolicyValue(transport.tlsMode)
+  const nla = transport.nlaRequired ? "NLA Required" : "NLA Not Required"
+
+  return [tls === "Unknown" ? null : tls, nla].filter(Boolean).join(" / ")
 }
 
 function screenQuotaLabel(screen) {

@@ -192,6 +192,7 @@
 - [x] 4.2.7 Add the first browser canvas-backed render drain for queued desktop tile frames, with visible renderer counters and session-change cleanup.
 - [x] 4.2.8 Add browser keyboard, pointer, focus, and resize control-frame emission over the WebRTC control channel using the agent-side desktop frame schema.
 - [x] 4.2.9 Show browser-side desktop backpressure state, render queue budget, dropped-frame count, and last rendered sequence in the RDP session shell.
+- [x] 4.2.10 Show browser-visible RDP TLS/NLA transport posture in the desktop session shell without exposing credential material.
 - [ ] 4.3 Add recording/audit views for desktop session lifecycle and metadata without screen frames, clipboard content, file content, or audio by default.
 - [x] 4.3.1 Allow RDP-authorized operators to review RDP metadata-only recordings while hiding SSH recordings from RDP-only users.
 - [x] 4.3.2 Show RDP recording metadata snapshots for route, credential custody, target TLS/NLA posture, screen quotas, redirection policy, approval state, and recording mode without exposing desktop payloads.
@@ -223,6 +224,7 @@
 - [x] 5.1.22 Add focused LiveView tests proving RDP target settings routes are feature-gated, require `settings.edge.manage`, create targets, and toggle enabled state.
 - [x] 5.1.23 Add focused browser component and LiveView hook tests for the RDP session shell policy posture, WebRTC availability state, prop parsing, and unmount cleanup.
 - [x] 5.1.24 Add focused browser component tests proving the RDP session shell renders backpressure queue state without exposing secret-shaped policy fields.
+- [x] 5.1.25 Add focused browser renderer-state and component tests proving RDP TLS/NLA transport posture is visible without exposing secret-shaped policy fields.
 - [ ] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

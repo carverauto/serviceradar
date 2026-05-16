@@ -74,6 +74,7 @@ describe("RemoteAccessDesktopSession", () => {
     expect(html).toContain("0 tile updates")
     expect(html).toContain("agent-1 / gateway-1")
     expect(html).toContain("User Present")
+    expect(html).toContain("Verify Ca / NLA Required")
     expect(html).toContain("1920x1080 / 30 fps")
     expect(html).toContain("0/12 queued")
     expect(html).toContain("No frames")

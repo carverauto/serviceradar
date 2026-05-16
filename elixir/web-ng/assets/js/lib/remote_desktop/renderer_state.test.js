@@ -102,6 +102,8 @@ describe("remote desktop renderer state helpers", () => {
       credential: {custody_mode: "user_present"},
       authorization: {rbac_decision: "allowed"},
       desktop: {
+        target_tls: {mode: "verify_ca"},
+        nla: {required: true},
         screen_policy: {max_width: 1280, max_height: 720, max_frame_rate: 15},
         redirection_policy: {clipboard: "disabled", drive: "disabled"},
       },
@@ -113,6 +115,7 @@ describe("remote desktop renderer state helpers", () => {
       {key: "route", label: "Route", value: "agent-1"},
       {key: "credential", label: "Credential", value: "User Present"},
       {key: "redirection", label: "Redirection", value: "Disabled"},
+      {key: "transport", label: "Transport", value: "Verify Ca / NLA Required"},
       {key: "quota", label: "Quota", value: "1280x720 / 15 fps"},
       {key: "approval", label: "Approval", value: "Allowed"},
       {key: "recording", label: "Recording", value: "Metadata"},
