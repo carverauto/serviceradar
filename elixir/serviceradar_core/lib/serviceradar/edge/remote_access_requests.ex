@@ -34,6 +34,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     :provider_ticket,
     :none
   ]
+  @approval_metadata_scope_keys [
+    "desktop_target_id",
+    "route_policy",
+    "redirection_policy",
+    "recording_policy",
+    "screen_policy",
+    "tls_policy",
+    "target"
+  ]
 
   @type request_attrs :: %{
           optional(:requested_by) => String.t(),
@@ -291,7 +300,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     do: truthy?(Map.get(policy || %{}, "allow_self_approval"))
 
   defp ensure_matches_context(request, context) do
+    with :ok <- ensure_scope_fields_match(request, context) do
+      ensure_metadata_scope_matches(request, context)
+    end
+  end
+
+  defp ensure_scope_fields_match(request, context) do
     expected = %{
+      requested_by: request.requested_by,
       device_uid: request.device_uid,
       target_kind: request.target_kind,
       target_host: request.target_host,
@@ -310,6 +326,20 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
 
         is_nil(expected_value) or is_nil(context_value) or
           normalize_context_value(key, context_value) == expected_value
+      end)
+
+    if mismatches == [], do: :ok, else: {:error, :approval_scope_mismatch}
+  end
+
+  defp ensure_metadata_scope_matches(request, context) do
+    expected_metadata = sanitized_map(request.metadata)
+    context_metadata = context |> value(:metadata) |> sanitized_map()
+
+    mismatches =
+      Enum.reject(@approval_metadata_scope_keys, fn key ->
+        expected_value = Map.get(expected_metadata, key)
+
+        is_nil(expected_value) or Map.get(context_metadata, key) == expected_value
       end)
 
     if mismatches == [], do: :ok, else: {:error, :approval_scope_mismatch}
@@ -375,6 +405,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     if value == "", do: nil, else: value
   end
 
+  defp blank_to_nil(nil), do: nil
   defp blank_to_nil(value) when is_atom(value), do: Atom.to_string(value)
   defp blank_to_nil(_value), do: nil
 

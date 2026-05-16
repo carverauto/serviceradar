@@ -518,6 +518,155 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
   end
 
+  test "RDP approvals are scoped to the selected desktop target and agent route" do
+    uid = unique_uid("rdp-approval")
+    insert_device!(uid, agent_id: "agent-rdp-approval", gateway_id: "gateway-rdp-approval")
+
+    requester_id = insert_user!("rdp-requester")
+    reviewer_id = insert_user!("rdp-reviewer")
+    requester_actor = %{id: requester_id, role: :system, email: "rdp-requester@example.test"}
+
+    request_attrs = %{
+      requested_by: requester_id,
+      device_uid: uid,
+      target_kind: :inventory_device,
+      target_host: "winhost.example.test",
+      target_port: 3389,
+      protocol: :rdp,
+      adapter: :rdp,
+      agent_id: "agent-rdp-approval",
+      gateway_id: "gateway-rdp-approval",
+      credential_custody_mode: :user_present,
+      reason: "desktop maintenance",
+      ttl_seconds: 600,
+      metadata: %{
+        "desktop_target_id" => "desktop-target-rdp-1",
+        "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+        "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+      }
+    }
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(request_attrs,
+               actor: requester_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_request_audit}
+    assert create_request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "rdp-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approve_request_audit}
+    assert approve_request_audit[:action] == :remote_access_request_approved
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :rdp,
+                 adapter: :rdp,
+                 target_host: "winhost.example.test",
+                 target_port: 3389,
+                 credential_custody_mode: :user_present,
+                 approval_required: true,
+                 approval_id: approved.id,
+                 metadata: %{
+                   "desktop_target_id" => "desktop-target-rdp-1",
+                   "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+                   "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+                 }
+               },
+               actor: requester_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.protocol == :rdp
+    assert session.adapter == :rdp
+    assert session.approval_id == approved.id
+    assert session.target_host == "winhost.example.test"
+    assert session.target_port == 3389
+    assert session.agent_id == "agent-rdp-approval"
+    assert session.gateway_id == "gateway-rdp-approval"
+    assert session.metadata["desktop_target_id"] == "desktop-target-rdp-1"
+    assert session.metadata["route_policy"] == %{"gateway_id" => "gateway-rdp-approval"}
+
+    assert session.metadata["redirection_policy"] == %{
+             "clipboard" => "disabled",
+             "drive" => "disabled"
+           }
+
+    assert_receive {:remote_access_audit, consume_request_audit}
+    assert consume_request_audit[:action] == :remote_access_request_consumed
+    assert_receive {:remote_access_audit, create_session_audit}
+    assert create_session_audit[:action] == :remote_access_session_create
+
+    assert {:ok, consumed} = RemoteAccessRequests.get(approved.id, actor: @system_actor)
+    assert consumed.status == :consumed
+    assert consumed.session_id == session.id
+
+    assert {:ok, mismatched_request} =
+             RemoteAccessRequests.create(
+               %{
+                 request_attrs
+                 | metadata: %{
+                     "desktop_target_id" => "desktop-target-rdp-1",
+                     "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+                     "redirection_policy" => %{"clipboard" => "enabled", "drive" => "disabled"}
+                   }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_mismatch_request_audit}
+    assert create_mismatch_request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, mismatched_approved} =
+             RemoteAccessRequests.approve(mismatched_request,
+               actor: %{id: reviewer_id, role: :system, email: "rdp-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approve_mismatch_request_audit}
+    assert approve_mismatch_request_audit[:action] == :remote_access_request_approved
+
+    assert {:error, :approval_scope_mismatch} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :rdp,
+                 adapter: :rdp,
+                 target_host: "winhost.example.test",
+                 target_port: 3389,
+                 credential_custody_mode: :user_present,
+                 approval_required: true,
+                 approval_id: mismatched_approved.id,
+                 metadata: %{
+                   "desktop_target_id" => "desktop-target-rdp-1",
+                   "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+                   "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+                 }
+               },
+               actor: requester_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "approval_scope_mismatch"
+
+    assert {:ok, still_approved} =
+             RemoteAccessRequests.get(mismatched_approved.id, actor: @system_actor)
+
+    assert still_approved.status == :approved
+    assert is_nil(still_approved.session_id)
+  end
+
   test "approval checker can deny a supplied approval id" do
     uid = unique_uid("approval-denied")
     insert_device!(uid, agent_id: "agent-denied", gateway_id: "gateway-denied")

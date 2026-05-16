@@ -520,7 +520,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
         credential_custody_mode: custody_mode,
         target_kind: value(request, :target_kind),
         credential_rule_id: blank_to_nil(value(request, :credential_rule_id)),
-        requested_by: requested_by(opts)
+        requested_by: requested_by(opts),
+        metadata: request |> value(:metadata) |> sanitized_map()
       }
 
       case run_approval_checker(context, opts) do

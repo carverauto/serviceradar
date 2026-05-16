@@ -22,6 +22,7 @@
 - [x] 2.1.2 Enforce selected-agent route membership and allowed desktop login principals in agent-side target/grant validation.
 - [x] 2.1.3 Require the RDP open permission, not the SSH open permission, before showing or closing existing RDP remote-access sessions.
 - [x] 2.1.4 Require the RDP open permission, not the SSH open permission, before showing RDP recording metadata and replay events.
+- [x] 2.1.5 Add RDP approval-request coverage that binds approved access to the selected target host/port, agent route, credential mode, and desktop policy metadata before session creation.
 - [ ] 2.2 Add APIs for listing authorized desktop targets, creating sessions, exchanging graphical/control frames, toggling approved redirection features, and closing sessions.
 - [x] 2.2.1 Add web-ng WebRTC signaling endpoints for an existing RDP remote-access session: create offer, submit answer, add ICE candidates, and close viewer session.
 - [x] 2.2.2 Gate desktop WebRTC signaling behind `remote_access_desktop_rdp_enabled` and reject non-RDP remote-access sessions.
