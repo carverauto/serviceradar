@@ -318,6 +318,7 @@
 - [x] 5.2.62 Add Bazel-only adapter probe coverage proving IronRDP graphics updates become SRDP dirty-rect frames with browser upload metadata and invalid rectangles fail closed.
 - [x] 5.2.63 Add Bazel-only adapter probe coverage proving active-stage response frames write to the RDP stream, graphics output queues SRDP media, and write failures fail closed.
 - [x] 5.2.64 Add Bazel-only adapter probe coverage proving the active-stage session harness routes browser input to upstream RDP bytes and rejects unsupported input without side effects.
+- [x] 5.2.65 Add Bazel-only coverage for the connector-linked experimental helper artifact so optional packaging compiles the isolated connector crate universe without changing the root Rust lockfile.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
@@ -414,7 +415,8 @@
   - [x] Add release-publisher support for an explicit optional RDP-enabled runtime bundle artifact that is omitted from default releases.
   - [x] Add a separate `serviceradar-rdp-adapter` helper binary target and RDP-enabled runtime archive that are omitted from base agent installs.
   - [x] Add a separate fail-closed `rdp_adapter_ironrdp` Bazel target that links reviewed IronRDP core/PDU crates without changing the default agent or runtime bundle.
-  - [x] Package the optional RDP runtime archive with `rdp_adapter_ironrdp` rather than the base helper target while still requiring the helper readiness probe before runtime advertisement.
+  - [x] Package the optional RDP runtime archive with an IronRDP-enabled helper target rather than the base helper target while still requiring the helper readiness probe before runtime advertisement.
+  - [x] Add a connector-linked experimental helper target backed by the isolated connector crate universe and package it in the optional RDP runtime archive while it still reports `connector_ready: false`.
   - [ ] Link the reviewed IronRDP backend into the helper target before advertising the optional artifact as production-ready.
 - [x] 6.2 Add Forgejo release metadata fields for artifact capabilities, helper protocol version, compatibility range, checksums, signatures, SBOM/license review, and deployment requirements.
 - [x] 6.2.1 Mark fail-closed RDP helper artifacts as experimental and connector-not-ready in deployment requirements until the helper readiness probe can pass.
