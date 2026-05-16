@@ -127,6 +127,91 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     """
   end
 
+  attr(:entries, :list, required: true)
+  attr(:title, :string, default: "Task History")
+  attr(:subtitle, :string, default: nil)
+  attr(:empty_message, :string, default: "No task invocations have been recorded yet.")
+  attr(:error, :string, default: nil)
+
+  def northbound_action_history(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="flex items-start justify-between gap-3 border-b border-base-200 px-4 py-3">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-clock" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">{@title}</span>
+          </div>
+          <p :if={ActionForm.present_text?(@subtitle)} class="mt-1 text-xs text-base-content/60">
+            {@subtitle}
+          </p>
+        </div>
+        <span :if={@entries != []} class="badge badge-ghost badge-sm">{length(@entries)}</span>
+      </div>
+
+      <div :if={ActionForm.present_text?(@error)} class="px-4 py-3 text-sm text-error">
+        {@error}
+      </div>
+
+      <div
+        :if={@entries == [] and not ActionForm.present_text?(@error)}
+        class="px-4 py-6 text-sm text-base-content/60"
+      >
+        {@empty_message}
+      </div>
+
+      <div :if={@entries != []} class="divide-y divide-base-200">
+        <div :for={entry <- @entries} class="px-4 py-3">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div class="min-w-0 space-y-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium">{Map.get(entry, :action_label) || "Action"}</span>
+                <span
+                  :if={ActionForm.present_text?(Map.get(entry, :provider_name))}
+                  class="badge badge-ghost badge-sm"
+                >
+                  {Map.get(entry, :provider_name)}
+                </span>
+                <span class={action_state_badge_class(Map.get(entry, :state))}>
+                  {action_state_label(Map.get(entry, :state))}
+                </span>
+                <span class={target_status_badge_class(Map.get(entry, :target_status))}>
+                  {target_status_label(Map.get(entry, :target_status))}
+                </span>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-base-content/60">
+                <span class="font-mono">{ActionForm.short_id(Map.get(entry, :invocation_id))}</span>
+                <span>{format_history_timestamp(Map.get(entry, :inserted_at))}</span>
+                <span>{history_target_label(entry)}</span>
+              </div>
+
+              <p
+                :if={ActionForm.present_text?(history_summary(entry))}
+                class="text-sm text-base-content/70"
+              >
+                {history_summary(entry)}
+              </p>
+            </div>
+
+            <div class="flex max-w-full flex-wrap justify-start gap-1 lg:max-w-sm lg:justify-end">
+              <span
+                :for={chip <- history_input_chips(entry)}
+                class="badge badge-outline badge-sm max-w-full truncate"
+              >
+                {chip}
+              </span>
+              <span :if={history_input_more_count(entry) > 0} class="badge badge-ghost badge-sm">
+                +{history_input_more_count(entry)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   attr(:form, :any, required: true)
   attr(:name, :string, required: true)
   attr(:schema, :map, required: true)
@@ -199,4 +284,129 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     </div>
     """
   end
+
+  defp action_state_badge_class(:succeeded), do: "badge badge-success badge-sm"
+  defp action_state_badge_class(:failed), do: "badge badge-error badge-sm"
+  defp action_state_badge_class(:canceled), do: "badge badge-warning badge-sm"
+  defp action_state_badge_class(:suppressed), do: "badge badge-warning badge-sm"
+  defp action_state_badge_class(:running), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:dispatching), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(_state), do: "badge badge-ghost badge-sm"
+
+  defp target_status_badge_class(:succeeded), do: "badge badge-success badge-sm"
+  defp target_status_badge_class(:failed), do: "badge badge-error badge-sm"
+  defp target_status_badge_class(:skipped), do: "badge badge-warning badge-sm"
+  defp target_status_badge_class(:suppressed), do: "badge badge-warning badge-sm"
+  defp target_status_badge_class(:running), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(_status), do: "badge badge-ghost badge-sm"
+
+  defp action_state_label(nil), do: "Pending"
+  defp action_state_label(state), do: ActionForm.humanize(state)
+
+  defp target_status_label(nil), do: "Target Pending"
+  defp target_status_label(status), do: "Target #{ActionForm.humanize(status)}"
+
+  defp history_target_label(entry) do
+    case {Map.get(entry, :target_kind), Map.get(entry, :interface_uid), Map.get(entry, :device_uid)} do
+      {:interface, interface_uid, _device_uid} when is_binary(interface_uid) ->
+        "Interface #{ActionForm.short_id(interface_uid)}"
+
+      {"interface", interface_uid, _device_uid} when is_binary(interface_uid) ->
+        "Interface #{ActionForm.short_id(interface_uid)}"
+
+      {_kind, _interface_uid, device_uid} when is_binary(device_uid) ->
+        "Device #{ActionForm.short_id(device_uid)}"
+
+      _ ->
+        "Target"
+    end
+  end
+
+  defp history_summary(entry) do
+    Enum.find(
+      [
+        Map.get(entry, :error_message),
+        summary_value(Map.get(entry, :target_result)),
+        summary_value(Map.get(entry, :result_summary)),
+        Map.get(entry, :external_correlation_id)
+      ],
+      &ActionForm.present_text?/1
+    )
+  end
+
+  defp summary_value(%{} = map) do
+    Enum.find_value(
+      [
+        {"message", :message},
+        {"summary", :summary},
+        {"status", :status},
+        {"detail", :detail},
+        {"result", :result}
+      ],
+      fn {string_key, atom_key} ->
+        case Map.get(map, string_key) || Map.get(map, atom_key) do
+          value when is_binary(value) -> value
+          value when is_atom(value) -> Atom.to_string(value)
+          value when is_number(value) -> to_string(value)
+          _ -> nil
+        end
+      end
+    )
+  end
+
+  defp summary_value(_value), do: nil
+
+  defp history_input_chips(entry) do
+    entry
+    |> Map.get(:redacted_input_values, %{})
+    |> input_chips()
+    |> Enum.take(3)
+  end
+
+  defp history_input_more_count(entry) do
+    entry
+    |> Map.get(:redacted_input_values, %{})
+    |> input_chips()
+    |> length()
+    |> Kernel.-(3)
+    |> max(0)
+  end
+
+  defp input_chips(%{} = values) do
+    values
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.map(fn {key, value} -> "#{ActionForm.humanize(key)}: #{compact_value(value)}" end)
+  end
+
+  defp input_chips(_values), do: []
+
+  defp compact_value(nil), do: "—"
+  defp compact_value(value) when is_binary(value), do: String.slice(value, 0, 48)
+  defp compact_value(value) when is_boolean(value), do: if(value, do: "Yes", else: "No")
+  defp compact_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp compact_value(value) when is_number(value), do: to_string(value)
+  defp compact_value(%{} = value), do: "#{map_size(value)} fields"
+  defp compact_value(value) when is_list(value), do: "#{length(value)} values"
+  defp compact_value(value), do: value |> to_string() |> String.slice(0, 48)
+
+  defp format_history_timestamp(nil), do: "—"
+
+  defp format_history_timestamp(%DateTime{} = datetime) do
+    Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_history_timestamp(%NaiveDateTime{} = datetime) do
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> format_history_timestamp()
+  end
+
+  defp format_history_timestamp(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> format_history_timestamp(datetime)
+      _ -> value
+    end
+  end
+
+  defp format_history_timestamp(_value), do: "—"
 end

@@ -4,13 +4,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   import Bitwise
   import ServiceRadarWebNGWeb.FlowStatComponents
-  import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
+
+  import ServiceRadarWebNGWeb.NorthboundActionComponents,
+    only: [northbound_action_history: 1, northbound_action_modal: 1]
+
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_results_table: 1, srql_sparkline: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Invalid
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
+  alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Camera.RelayPlayback
   alias ServiceRadar.Camera.RelaySession
@@ -140,6 +144,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:northbound_interface_action_form, to_form(%{}, as: :action))
      |> assign(:northbound_interface_action_error, nil)
      |> assign(:northbound_interface_launch_action, nil)
+     |> assign(:northbound_device_history, [])
+     |> assign(:northbound_device_history_error, nil)
      |> assign(:show_interfaces_bulk_edit, false)
      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
      # Interface metrics for favorited interfaces
@@ -1004,6 +1010,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {ip_aliases, ip_alias_error} = Map.get(parallel_results, :aliases, {[], nil})
 
+    {northbound_device_history, northbound_device_history_error} =
+      Map.get(parallel_results, :northbound_history, {[], nil})
+
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       agent_availability: Map.get(parallel_results, :agent_availability, []),
@@ -1028,6 +1037,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       interface_metrics: interface_metrics,
       ip_aliases: ip_aliases,
       ip_alias_error: ip_alias_error,
+      northbound_device_history: northbound_device_history,
+      northbound_device_history_error: northbound_device_history_error,
       has_ifaces: has_ifaces,
       has_flows: has_flows,
       has_logs: has_logs,
@@ -1067,7 +1078,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         load_sweep_results(socket.assigns.current_scope, device_ip)
       end),
       timed_device_task(:mapper, fn -> load_mapper_jobs_for_device(scope, device_row) end),
-      timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end)
+      timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end),
+      timed_device_task(:northbound_history, fn -> load_northbound_device_history(scope, uid) end)
     ]
 
     base_tasks
@@ -3251,6 +3263,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Ash.Query.filter(query, state in [:detected, :confirmed, :updated])
   end
 
+  defp load_northbound_device_history(nil, _device_uid), do: {[], nil}
+  defp load_northbound_device_history(_scope, nil), do: {[], nil}
+
+  defp load_northbound_device_history(scope, device_uid) do
+    if RBAC.can?(scope, "northbound.actions.view") do
+      case NorthboundHistory.list_for_device(device_uid, scope: scope, limit: 10) do
+        {:ok, entries} ->
+          {entries, nil}
+
+        {:error, reason} ->
+          Logger.warning("Failed to load northbound device action history: #{inspect(reason)}")
+          {[], "Failed to load task history."}
+      end
+    else
+      {[], nil}
+    end
+  end
+
   @impl true
   def render(assigns) do
     device_row = List.first(Enum.filter(assigns.results, &is_map/1))
@@ -3263,6 +3293,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
+      |> assign(:can_view_northbound_history, RBAC.can?(assigns.current_scope, "northbound.actions.view"))
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
@@ -3986,6 +4017,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 aliases={@ip_aliases}
                 show_stale={@show_stale_aliases}
                 error={@ip_alias_error}
+              />
+
+              <.northbound_action_history
+                :if={@can_view_northbound_history}
+                title="Task History"
+                subtitle="Recent actions for this device and its interfaces"
+                entries={@northbound_device_history}
+                error={@northbound_device_history_error}
+                empty_message="No task invocations have been recorded for this device yet."
               />
 
               <%= for section <- @metric_sections_to_render do %>

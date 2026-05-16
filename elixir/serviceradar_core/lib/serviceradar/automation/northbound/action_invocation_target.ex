@@ -26,6 +26,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_for_invocation, action: :for_invocation, args: [:invocation_id]
+    define :list_for_device, action: :for_device, args: [:device_uid]
+    define :list_for_interface, action: :for_interface, args: [:device_uid, :interface_uid]
     define :create_target, action: :create
     define :record_result, action: :record_result
   end
@@ -44,6 +46,23 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     read :for_invocation do
       argument :invocation_id, :uuid, allow_nil?: false
       filter expr(invocation_id == ^arg(:invocation_id))
+    end
+
+    read :for_device do
+      argument :device_uid, :string, allow_nil?: false
+
+      filter expr(device_uid == ^arg(:device_uid))
+
+      prepare build(sort: [inserted_at: :desc])
+    end
+
+    read :for_interface do
+      argument :device_uid, :string, allow_nil?: false
+      argument :interface_uid, :string, allow_nil?: false
+
+      filter expr(device_uid == ^arg(:device_uid) and interface_uid == ^arg(:interface_uid))
+
+      prepare build(sort: [inserted_at: :desc])
     end
 
     create :create do
@@ -73,7 +92,12 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_with_permission([:read, :by_id, :for_invocation], @view_check)
+
+    action_with_permission(
+      [:read, :by_id, :for_invocation, :for_device, :for_interface],
+      @view_check
+    )
+
     # Mutations are driven by the action dispatcher/provider.
   end
 

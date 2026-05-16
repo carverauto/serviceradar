@@ -24,7 +24,7 @@
 - [x] 4.1 Replace Ansible-specific "Run Task" launch gating with provider-neutral eligibility checks.
 - [x] 4.2 Add a reusable device action modal rendered from the descriptor schema subset.
 - [x] 4.3 Add interface selection action entry points.
-- [ ] 4.4 Add action invocation history and per-target results in device and interface details without integration-specific panels.
+- [x] 4.4 Add action invocation history and per-target results in device and interface details without integration-specific panels.
 
 ## 5. Event Handlers
 
