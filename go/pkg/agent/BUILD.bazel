@@ -121,7 +121,10 @@ go_test(
 go_test(
     name = "plugin_runtime_action_test",
     srcs = ["plugin_runtime_action_test.go"],
-    data = ["//build/wasm_plugins:hello_wasm_wasm"],
+    data = [
+        "//build/wasm_plugins:hello_wasm_wasm",
+        "//build/wasm_plugins:sample_northbound_wasm",
+    ],
     embed = [":agent"],
     deps = [
         "//go/pkg/logger",
