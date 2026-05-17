@@ -23,8 +23,8 @@
 - [x] 4.1 Clean up device details metadata cards: group SNMP, Armis, UniFi, MikroTik, Proxmox, NetBox, and discovery metadata into source-specific sections.
 - [x] 4.2 Remove redundant aliases/opaque "other metadata" summaries when the same data is already shown in richer tables.
 - [x] 4.3 Render uptime and timestamps as readable dates/durations.
-- [ ] 4.4 Add Armis risk score visual treatment and display active/in-service state consistently.
-- [ ] 4.5 Ensure Armis-enriched device type/category populate canonical OCSF type fields when stronger local evidence is absent.
+- [x] 4.4 Add Armis risk score visual treatment and display active/in-service state consistently.
+- [x] 4.5 Ensure Armis-enriched device type/category populate canonical OCSF type fields when stronger local evidence is absent.
 - [x] 4.6 Make the device Logs tab run a bounded SRQL/device-log query and show an immediate zero-row empty state when no logs exist.
 - [x] 4.7 Fix Agent Availability card source labeling so recent per-agent sweep history is reflected rather than showing fallback/no-data.
 

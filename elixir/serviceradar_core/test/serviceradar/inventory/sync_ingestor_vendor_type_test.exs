@@ -333,8 +333,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       "metadata" => %{
         "integration_id" => "armis-tablet-#{System.unique_integer([:positive])}",
         "integration_type" => "armis",
-        "type" => "Tablet",
-        "category" => "Mobile Device",
+        "armis_type" => "Tablet",
+        "armis_category" => "Mobile Device",
         "brand" => "D-Link"
       }
     }
@@ -345,6 +345,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.type == "Tablet"
     assert device.type_id == 4
     assert device.vendor_name == "D-Link"
+    assert device.metadata["armis_category"] == "Mobile Device"
   end
 
   test "does not re-enable devices manually marked unmanaged", %{actor: actor} do

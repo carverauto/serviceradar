@@ -743,6 +743,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           "type" => "Tablet",
           "category" => "OT",
           "risk_score" => "7",
+          "is_active" => false,
           "source_tags" => "managed,ot",
           "boundary_names" => "All OT Boundaries",
           "serial_numbers" => "SN-123",
@@ -791,6 +792,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "All OT Boundaries"
     assert html =~ "Risk Score"
     assert html =~ "7 / 10"
+    assert html =~ "In Service"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
     assert html =~ "2 items"

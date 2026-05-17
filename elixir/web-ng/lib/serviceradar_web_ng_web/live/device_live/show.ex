@@ -5290,6 +5290,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         :if={@has_compliance}
         risk_level={@risk_level}
         risk_score={@risk_score}
+        is_active={@is_active}
         is_managed={@is_managed}
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
@@ -5318,11 +5319,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
+    is_active = device_active_state(assigns.device_row, metadata)
     discovery_metadata_fields = discovery_metadata_fields(metadata)
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
-    has_compliance = compliance_present?(risk_level, risk_score, is_managed, is_compliant)
+    has_compliance = compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant)
     has_discovery_metadata = discovery_metadata_fields != []
     has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
@@ -5331,6 +5333,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:hw_info, hw_info)
     |> assign(:risk_level, risk_level)
     |> assign(:risk_score, risk_score)
+    |> assign(:is_active, is_active)
     |> assign(:is_managed, is_managed)
     |> assign(:is_compliant, is_compliant)
     |> assign(:is_trusted, is_trusted)
@@ -5344,9 +5347,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp map_present?(value), do: is_map(value) and map_size(value) > 0
 
-  defp compliance_present?(risk_level, risk_score, is_managed, is_compliant) do
-    not is_nil(risk_level) or not is_nil(risk_score) or not is_nil(is_managed) or not is_nil(is_compliant)
+  defp compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant) do
+    not is_nil(risk_level) or not is_nil(risk_score) or not is_nil(is_active) or
+      not is_nil(is_managed) or not is_nil(is_compliant)
   end
+
+  defp device_active_state(row, metadata) when is_map(row) do
+    row
+    |> Map.get("is_active")
+    |> normalize_bool()
+    |> case do
+      nil ->
+        metadata
+        |> metadata_first_value(["armis_is_active", "is_active", "active", "in_service"])
+        |> normalize_bool()
+
+      value ->
+        value
+    end
+  end
+
+  defp device_active_state(_row, metadata) do
+    metadata
+    |> metadata_first_value(["armis_is_active", "is_active", "active", "in_service"])
+    |> normalize_bool()
+  end
+
+  defp normalize_bool(value) when is_boolean(value), do: value
+  defp normalize_bool(1), do: true
+  defp normalize_bool(0), do: false
+
+  defp normalize_bool(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      value when value in ["true", "yes", "y", "1", "active", "in_service", "in-service"] -> true
+      value when value in ["false", "no", "n", "0", "inactive", "out_of_service", "out-of-service"] -> false
+      _ -> nil
+    end
+  end
+
+  defp normalize_bool(_), do: nil
 
   attr(:os, :map, required: true)
 
@@ -5455,6 +5494,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:risk_level, :string, default: nil)
   attr(:risk_score, :any, default: nil)
+  attr(:is_active, :boolean, default: nil)
   attr(:is_managed, :boolean, default: nil)
   attr(:is_compliant, :boolean, default: nil)
   attr(:is_trusted, :boolean, default: nil)
@@ -5474,6 +5514,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={@risk_level} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Risk Level:</span>
             <.risk_badge level={@risk_level} />
+          </div>
+          <div :if={not is_nil(@is_active)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">In Service:</span>
+            <.bool_badge value={@is_active} />
           </div>
           <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Managed:</span>
