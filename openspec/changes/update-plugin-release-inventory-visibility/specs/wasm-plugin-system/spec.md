@@ -30,3 +30,13 @@ Every assigned Wasm plugin that performs a scheduled or health-producing check S
 - **WHEN** an operator opens `/services`
 - **THEN** the plugin service appears as stale or unknown
 - **AND** the UI exposes enough context to distinguish missing execution data from an unassigned plugin
+
+### Requirement: Plugin result statuses are normalized before ingestion
+The Wasm plugin result path SHALL accept statuses emitted by the official SDKs and first-party sample plugins, including explicit failure states, and SHALL normalize them into the canonical service status model before ingestion. A plugin-reported failure SHALL be shown as a failed or unknown service state with error details, not rejected as an invalid plugin result solely because the status token is `failed`.
+
+#### Scenario: Sample plugin reports failed status
+- **GIVEN** a first-party sample plugin emits a plugin result with status `failed`
+- **WHEN** the agent/gateway ingests the result
+- **THEN** the status is normalized to the canonical failed service state
+- **AND** `/services` shows the plugin check as failed with the plugin error details
+- **AND** the result is not rejected with `plugin status invalid`

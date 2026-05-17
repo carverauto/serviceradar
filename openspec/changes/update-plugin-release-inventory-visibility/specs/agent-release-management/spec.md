@@ -40,3 +40,32 @@ The release-management UI SHALL present bounded recent inventory: the latest fiv
 - **WHEN** the release publisher uploads release assets
 - **THEN** the release includes the managed agent runtime archive plus `serviceradar-agent-release-manifest.json` and `serviceradar-agent-release-manifest.sig`
 - **AND** the release-management UI can import that release without any manual asset backfill
+
+### Requirement: Rollout progress is persisted per agent
+The system SHALL persist per-agent rollout state transitions and error details so operators can audit rollout progress and diagnose failures. Transient dispatch or acknowledgement timeouts SHALL be preserved as diagnostic events, but later verified activation success SHALL supersede stale in-flight/error display for the same rollout target.
+
+#### Scenario: Operator inspects rollout state
+- **GIVEN** a rollout has targeted multiple agents
+- **WHEN** an operator queries rollout progress
+- **THEN** each targeted agent shows its current rollout state
+- **AND** timestamps and last error details are available for failed or rolled-back targets
+
+#### Scenario: Ack timeout is superseded by activation success
+- **GIVEN** an agent target records `command_ack_timeout` after dispatch
+- **AND** the agent restarts and later reports the requested version as activated
+- **WHEN** rollout progress is recalculated
+- **THEN** the target transitions to Healthy
+- **AND** the stale ack-timeout is retained only as diagnostic history
+- **AND** the current Last Error display is cleared
+
+## ADDED Requirements
+### Requirement: Agent release detail derives desired version from active intent
+Agent details SHALL derive desired version from current rollout intent or current policy, not from stale historical failed attempts. Historical failed attempts SHALL remain visible in recent rollout attempts but SHALL NOT make an agent that is already running a newer release appear to desire an obsolete version.
+
+#### Scenario: Stale failed attempt does not override current version
+- **GIVEN** an agent is currently running version `1.2.63`
+- **AND** the agent has an old failed rollout attempt for desired version `1.2.10`
+- **WHEN** an operator opens agent details
+- **THEN** the Current Version shows `1.2.63`
+- **AND** the Desired Version does not show `1.2.10` unless that version is still the active rollout intent
+- **AND** the old failed `1.2.10` attempt remains visible only in Recent Rollout Attempts
