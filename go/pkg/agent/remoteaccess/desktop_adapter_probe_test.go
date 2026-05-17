@@ -19,6 +19,7 @@ package remoteaccess
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -88,6 +89,27 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 	}
 	if RDPAdapterReady(notReadyPath) {
 		t.Fatal("RDPAdapterReady returned true for not-ready helper")
+	}
+}
+
+func TestProbeRDPAdapterCapabilitiesRejectsOversizedOutput(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "oversized")
+	script := "#!/bin/sh\n" +
+		"i=0\n" +
+		"while [ \"$i\" -lt " + fmt.Sprint(rdpAdapterMaxCapabilitiesJSON+1) + " ]; do\n" +
+		"  printf x\n" +
+		"  i=$((i + 1))\n" +
+		"done\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), path); !errors.Is(err, ErrDesktopAdapterUnavailable) ||
+		!strings.Contains(err.Error(), "capability output too large") {
+		t.Fatalf("oversized capabilities error = %v, want %v", err, ErrDesktopAdapterUnavailable)
 	}
 }
 
