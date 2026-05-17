@@ -38,6 +38,10 @@ const INVALID_GRAPHICS_UPDATE: &str = "IronRDP graphics update is invalid";
 const MAX_DIAL_HOST_LEN: usize = 253;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const DEFAULT_CONNECTOR_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const DEFAULT_KDC_PORT: u16 = 88;
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const MAX_KDC_RESPONSE_BYTES: u32 = 64 * 1024;
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -1650,6 +1654,112 @@ impl ironrdp_connector::sspi::network_client::NetworkClient for RejectingNetwork
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct ServiceRadarKdcNetworkClient {
+    timeout: Duration,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl Default for ServiceRadarKdcNetworkClient {
+    fn default() -> Self {
+        Self {
+            timeout: DEFAULT_CONNECTOR_TIMEOUT,
+        }
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl ironrdp_connector::sspi::network_client::NetworkClient for ServiceRadarKdcNetworkClient {
+    fn send(
+        &self,
+        request: &ironrdp_connector::sspi::generator::NetworkRequest,
+    ) -> ironrdp_connector::sspi::Result<Vec<u8>> {
+        match request.protocol {
+            ironrdp_connector::sspi::network_client::NetworkProtocol::Tcp => self.send_tcp(request),
+            _ => Err(ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                "only TCP Kerberos network requests are supported",
+            )),
+        }
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl ServiceRadarKdcNetworkClient {
+    fn send_tcp(
+        &self,
+        request: &ironrdp_connector::sspi::generator::NetworkRequest,
+    ) -> ironrdp_connector::sspi::Result<Vec<u8>> {
+        use std::io::{Read as _, Write as _};
+
+        let host = request.url.host_str().ok_or_else(|| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                "Kerberos request is missing host",
+            )
+        })?;
+        let port = request.url.port().unwrap_or(DEFAULT_KDC_PORT);
+        let endpoint = match host.parse::<IpAddr>() {
+            Ok(IpAddr::V6(_)) => format!("[{host}]:{port}"),
+            _ => format!("{host}:{port}"),
+        };
+        let mut stream = TcpStream::connect(endpoint).map_err(|err| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                format!("Kerberos TCP connection failed: {err}"),
+            )
+        })?;
+        stream.set_read_timeout(Some(self.timeout)).map_err(|err| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                format!("Kerberos TCP read timeout setup failed: {err}"),
+            )
+        })?;
+        stream
+            .set_write_timeout(Some(self.timeout))
+            .map_err(|err| {
+                ironrdp_connector::sspi::Error::new(
+                    ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                    format!("Kerberos TCP write timeout setup failed: {err}"),
+                )
+            })?;
+        stream.write_all(&request.data).map_err(|err| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                format!("Kerberos TCP send failed: {err}"),
+            )
+        })?;
+
+        let mut length_bytes = [0_u8; 4];
+        stream.read_exact(&mut length_bytes).map_err(|err| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                format!("Kerberos TCP response length read failed: {err}"),
+            )
+        })?;
+        let response_len = u32::from_be_bytes(length_bytes);
+        if response_len > MAX_KDC_RESPONSE_BYTES {
+            return Err(ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                "Kerberos TCP response exceeded maximum size",
+            ));
+        }
+
+        let mut response = vec![0_u8; response_len as usize + length_bytes.len()];
+        response[..length_bytes.len()].copy_from_slice(&length_bytes);
+        stream
+            .read_exact(&mut response[length_bytes.len()..])
+            .map_err(|err| {
+                ironrdp_connector::sspi::Error::new(
+                    ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                    format!("Kerberos TCP response read failed: {err}"),
+                )
+            })?;
+
+        Ok(response)
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 struct ScriptedStream {
     reads: VecDeque<Vec<u8>>,
     read_offset: usize,
@@ -2303,6 +2413,98 @@ mod tests {
             &capture.tls_plaintext,
             credential.password.value.as_str().as_bytes(),
         ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_kdc_network_client_tcp_round_trip_is_bounded() {
+        use ironrdp_connector::sspi::network_client::NetworkClient as _;
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accepted connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("read timeout");
+            let mut request = [0_u8; 14];
+            stream.read_exact(&mut request).expect("KDC request");
+            stream
+                .write_all(&3_u32.to_be_bytes())
+                .expect("KDC response length");
+            stream.write_all(b"kdc").expect("KDC response body");
+
+            request.to_vec()
+        });
+        let client = ServiceRadarKdcNetworkClient {
+            timeout: Duration::from_secs(1),
+        };
+        let request = ironrdp_connector::sspi::generator::NetworkRequest {
+            protocol: ironrdp_connector::sspi::network_client::NetworkProtocol::Tcp,
+            url: format!("tcp://{}", listener_addr).parse().expect("url"),
+            data: b"kerberos-token".to_vec(),
+        };
+
+        let response = client.send(&request).expect("KDC response");
+        let captured_request = server.join().expect("server thread");
+
+        assert_eq!(captured_request, b"kerberos-token");
+        assert_eq!(&response[..4], &3_u32.to_be_bytes());
+        assert_eq!(&response[4..], b"kdc");
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_kdc_network_client_rejects_unsupported_protocol() {
+        use ironrdp_connector::sspi::network_client::NetworkClient as _;
+
+        let client = ServiceRadarKdcNetworkClient {
+            timeout: Duration::from_secs(1),
+        };
+        let request = ironrdp_connector::sspi::generator::NetworkRequest {
+            protocol: ironrdp_connector::sspi::network_client::NetworkProtocol::Udp,
+            url: "udp://127.0.0.1:88".parse().expect("url"),
+            data: b"kerberos-token".to_vec(),
+        };
+
+        client
+            .send(&request)
+            .expect_err("unsupported KDC protocol rejected");
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_kdc_network_client_rejects_oversized_response() {
+        use ironrdp_connector::sspi::network_client::NetworkClient as _;
+        use std::io::{Read as _, Write as _};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accepted connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("read timeout");
+            let mut request = [0_u8; 14];
+            stream.read_exact(&mut request).expect("KDC request");
+            stream
+                .write_all(&(MAX_KDC_RESPONSE_BYTES + 1).to_be_bytes())
+                .expect("oversized KDC response length");
+        });
+        let client = ServiceRadarKdcNetworkClient {
+            timeout: Duration::from_secs(1),
+        };
+        let request = ironrdp_connector::sspi::generator::NetworkRequest {
+            protocol: ironrdp_connector::sspi::network_client::NetworkProtocol::Tcp,
+            url: format!("tcp://{}", listener_addr).parse().expect("url"),
+            data: b"kerberos-token".to_vec(),
+        };
+
+        client
+            .send(&request)
+            .expect_err("oversized KDC response rejected");
+        server.join().expect("server thread");
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
