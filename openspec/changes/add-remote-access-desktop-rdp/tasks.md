@@ -186,7 +186,7 @@
 - [x] 3.2.51 Reject `pinned_ca` RDP target policy before adapter/backend execution unless the trusted target snapshot includes a registered CA bundle ID.
 - [x] 3.2.52 Carry bounded registered RDP CA bundle PEM material in trusted agent/helper open payloads so verified TLS can be built without agent-local trust registry state.
 - [x] 3.2.53 Bind adapter-side verified Rustls client-config construction to the non-secret connection plan's selected TLS trust source.
-- [x] 3.2.54 Add explicit helper capability not-ready reasons so operators can distinguish an unlinked backend from an incomplete connector loop.
+- [x] 3.2.54 Add explicit helper capability not-ready reasons so operators can distinguish an unlinked backend from an IronRDP-linked helper awaiting live auth/media/demo validation.
 - [x] 3.2.55 Run the connector-linked helper's runtime open path through verified TLS trust and connector-config input preflight before returning connector-not-ready.
 - [x] 3.2.56 Build and carry real Rustls client configs with resumption disabled from the selected TLS trust source for the future connector upgrade path.
 - [x] 3.2.57 Add a connector-linked connect-begin handoff that owns the framed stream, connector state, verified TLS config, and server name before TLS upgrade while runtime readiness stays disabled.
@@ -204,13 +204,13 @@
 - [x] 3.2.69 Apply the selected connector TCP timeout to connected stream reads and writes so later TLS/CredSSP phases fail closed instead of hanging on unresponsive endpoints.
 - [x] 3.2.70 Drive the connector-linked verified TLS handoff into the CredSSP finalization boundary over a real Rustls stream while preserving fail-closed behavior and password redaction.
 - [x] 3.2.71 Add an experimental connector-open boundary that owns TCP dial, NLA negotiation, verified Rustls upgrade, and CredSSP-ready handoff behind the optional connector artifact while runtime readiness remains disabled.
-- [x] 3.2.72 Add an open-shaped experimental connector path that performs validated request/credential parsing and reaches the verified CredSSP-ready handoff before the runtime readiness gate rejects the session.
+- [x] 3.2.72 Add an open-shaped experimental connector path that performs validated request/credential parsing and reaches the verified CredSSP-ready handoff while runtime readiness remains disabled.
 - [x] 3.2.73 Add a ServiceRadar-owned bounded TCP-only SSPI/Kerberos network client for future CredSSP finalization instead of importing Teleport's AGPL network-client implementation.
 - [x] 3.2.74 Wire the ServiceRadar-owned bounded KDC client into the experimental CredSSP finalization boundary while preserving connector-not-ready runtime posture.
 - [x] 3.2.75 Carry trusted target Kerberos/KDC routing metadata into the connector plan and CredSSP finalization boundary without treating it as credential material.
 - [x] 3.2.76 Drive the open-shaped experimental connector path through bounded CredSSP finalization before the readiness gate while preserving connector-not-ready runtime posture.
 - [x] 3.2.77 Bind finalized connector handoffs to trusted broker media-session metadata before constructing the helper backend session shape.
-- [x] 3.2.78 Force successful experimental connector finalization through the media-bound network-pump constructor before the runtime readiness gate rejects the session.
+- [x] 3.2.78 Force successful experimental connector finalization through the media-bound network-pump constructor while runtime readiness remains disabled.
 - [x] 3.2.79 Cap non-media RDP helper IPC frames before payload allocation so only SRDP media frames can use the large helper frame budget.
 - [x] 3.2.80 Mirror RDP helper IPC frame type and non-media size caps in the Rust helper before payload allocation.
 - [x] 3.2.81 Keep the non-media helper IPC cap high enough for bounded registered CA bundle open payloads while still rejecting oversized control frames.
@@ -218,6 +218,7 @@
 - [x] 3.2.83 Cap RDP helper capability-probe stdout before JSON decoding so incomplete helpers cannot force unbounded probe buffering.
 - [x] 3.2.84 Sanitize and cap RDP helper connector-readiness reasons and reject ready helpers that still report a not-ready reason.
 - [x] 3.2.85 Remove the connector-linked experimental helper's artificial finalized-session readiness gate so successful CredSSP finalization can return an active network-pump backend session.
+- [x] 3.2.86 Align the helper connector-not-ready reason and operator docs with the remaining live auth/media/demo validation gate.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -425,7 +426,7 @@
 - [x] 5.2.102 Add connector-linked coverage proving KDC proxy/hostname metadata is parsed, invalid URLs fail closed, and Kerberos config survives into CredSSP finalization.
 - [x] 5.2.103 Add connector-linked open-shaped coverage proving the experimental connector path reaches CredSSP finalization before returning connector-not-ready without exposing cleartext password material.
 - [x] 5.2.104 Add connector-linked finalized-handoff coverage proving backend session construction uses trusted media-session metadata and rejects missing media bindings.
-- [x] 5.2.105 Add connector-linked coverage proving the runtime readiness gate rejects only after a finalized connector handoff is bound to the desktop media session contract.
+- [x] 5.2.105 Add connector-linked coverage proving finalized connector handoffs bind to the desktop media session contract before runtime readiness can be advertised.
 - [x] 5.2.106 Add focused Go IPC framing tests proving oversized non-media helper frames fail before payload read while large payloads remain media-only.
 - [x] 5.2.107 Add focused Rust helper framing tests proving unsupported message types and oversized non-media frames fail before payload read while large payloads remain media-only.
 - [x] 5.2.108 Add focused Go/Rust helper framing tests proving bounded open payloads can carry registered CA bundle material under the non-media IPC cap.

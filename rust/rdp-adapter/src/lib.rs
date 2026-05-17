@@ -27,7 +27,7 @@ use zeroize::Zeroize;
 pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
 pub const HELPER_CAPABILITIES_SCHEMA: &str = "serviceradar.rdp.helper.capabilities.v1";
 pub const HELPER_PROTOCOL_VERSION: u32 = 1;
-pub const HELPER_CONNECTOR_NOT_READY_REASON: &str = "connector_loop_not_implemented";
+pub const HELPER_CONNECTOR_NOT_READY_REASON: &str = "live_auth_media_demo_not_validated";
 pub const HELPER_BACKEND_NOT_LINKED_REASON: &str = "ironrdp_backend_not_linked";
 
 const HEADER_LEN: usize = 5;

@@ -268,7 +268,7 @@ under the source-reuse rules above.
 | Redirection controls | Implemented for denial | Clipboard, drive, printer, audio, smart-card, and file-copy stay disabled unless separately reviewed and explicitly enabled. |
 | Recording and audit | Implemented for metadata | Lifecycle, policy, route, credential mode, frame statistics, and termination metadata are recorded without screen/clipboard/file/audio content by default. |
 | Optional agent distribution | Implemented, experimental | Base agents stay free of IronRDP. RDP-capable artifacts are hidden unless RDP is enabled and still require helper readiness before advertising `remote_access.rdp`. |
-| Live RDP connector | Not production-ready | Connector-linked probes cover TCP dial, HYBRID/HYBRID_EX negotiation, verified TLS, CredSSP finalization boundaries, KDC network client behavior, and media-session binding. `connector_ready` remains `false` until a live helper can complete auth, active-stage media, cleanup, and demo proof. |
+| Live RDP connector | Not production-ready | Connector-linked probes cover TCP dial, HYBRID/HYBRID_EX negotiation, verified TLS, CredSSP finalization boundaries, KDC network client behavior, media-session binding, and finalized network-pump session handoff. `connector_ready` remains `false` until a live helper can complete auth, active-stage media, cleanup, and demo proof. |
 | Teleport source import | Not approved | No current Teleport desktop/RDP code is imported. IronRDP is the reviewed protocol dependency path. |
 
 ## Optional Agent Packaging

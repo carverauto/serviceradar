@@ -85,7 +85,7 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 
 	notReadyPath := writeRDPAdapterProbeScript(t, dir, "not-ready", true, false)
 	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), notReadyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) ||
-		!strings.Contains(err.Error(), "connector_loop_not_implemented") {
+		!strings.Contains(err.Error(), "live_auth_media_demo_not_validated") {
 		t.Fatalf("not-ready helper error = %v, want %v", err, ErrDesktopAdapterUnavailable)
 	}
 	if RDPAdapterReady(notReadyPath) {
@@ -153,7 +153,7 @@ func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, linked, ready b
 
 	reason := ""
 	if !ready {
-		reason = "connector_loop_not_implemented"
+		reason = "live_auth_media_demo_not_validated"
 	}
 
 	return writeRDPAdapterProbeScriptWithReason(tb, dir, name, linked, ready, reason)
