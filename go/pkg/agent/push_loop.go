@@ -2726,6 +2726,9 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 	}
 
 	if mapperConfig == nil {
+		p.logger.Debug().
+			Int("config_json_bytes", len(configJSON)).
+			Msg("Gateway config did not include mapper configuration")
 		return
 	}
 
@@ -2741,6 +2744,10 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 	}
 
 	if mapperSvc == nil {
+		p.logger.Info().
+			Int("scheduled_jobs", len(mapperConfig.ScheduledJobs)).
+			Msg("Initializing mapper service from gateway config")
+
 		service, err := NewMapperService(compiled, p.logger)
 		if err != nil {
 			p.logger.Error().Err(err).Msg("Failed to initialize mapper service")

@@ -350,14 +350,19 @@ func (p *PushLoop) handleControlStream(
 
 		if cfg := resp.GetConfig(); cfg != nil {
 			p.applyConfigResponse(cfg, "control")
-			_ = sender.Send(&proto.ControlStreamRequest{
+			if err := sender.Send(&proto.ControlStreamRequest{
 				Payload: &proto.ControlStreamRequest_ConfigAck{
 					ConfigAck: &proto.ConfigAck{
 						ConfigVersion: cfg.ConfigVersion,
 						Timestamp:     time.Now().Unix(),
 					},
 				},
-			})
+			}); err != nil {
+				p.logger.Warn().
+					Err(err).
+					Str("config_version", cfg.ConfigVersion).
+					Msg("Failed to send control stream config ack")
+			}
 		}
 
 		if frame := resp.GetConsoleFrame(); frame != nil {
@@ -430,7 +435,7 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 		Int64("created_at", cmd.CreatedAt).
 		Msg("Received control command")
 
-	_ = sender.Send(&proto.ControlStreamRequest{
+	if err := sender.Send(&proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_CommandAck{
 			CommandAck: &proto.CommandAck{
 				CommandId:   cmd.CommandId,
@@ -439,7 +444,13 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 				Message:     "command received",
 			},
 		},
-	})
+	}); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Msg("Failed to send command ack")
+	}
 
 	if commandExpired(cmd) {
 		p.logger.Warn().

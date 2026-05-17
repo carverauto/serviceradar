@@ -956,8 +956,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp handle_config_response({:ok, {:ok, config}}, agent_id, _config_version) do
+    summary = config_payload_summary(config)
+
     Logger.info(
-      "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}"
+      "Sending config to agent: agent_id=#{agent_id}, version=#{config.config_version}, checks=#{length(config.checks)}, " <>
+        "config_json_bytes=#{summary.config_json_bytes}, mapper_jobs=#{summary.mapper_jobs}, plugins=#{summary.plugins}"
     )
 
     AgentConfigGenerator.to_proto_response(config)
@@ -982,6 +985,35 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp unavailable_config_response(_config_version), do: empty_config_response("v0-unavailable")
+
+  defp config_payload_summary(config) do
+    config_json = Map.get(config, :config_json) || ""
+    decoded = decode_config_json(config_json)
+    mapper = Map.get(decoded, "mapper")
+    plugins = Map.get(decoded, "plugins")
+
+    %{
+      config_json_bytes: byte_size(config_json),
+      mapper_jobs: mapper_scheduled_job_count(mapper),
+      plugins: plugin_assignment_count(plugins)
+    }
+  end
+
+  defp decode_config_json(config_json) when is_binary(config_json) and config_json != "" do
+    case Jason.decode(config_json) do
+      {:ok, %{} = decoded} -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp decode_config_json(_config_json), do: %{}
+
+  defp mapper_scheduled_job_count(%{"scheduled_jobs" => jobs}) when is_list(jobs), do: length(jobs)
+  defp mapper_scheduled_job_count(_mapper), do: 0
+
+  defp plugin_assignment_count(%{"assignments" => assignments}) when is_list(assignments), do: length(assignments)
+
+  defp plugin_assignment_count(_plugins), do: 0
 
   defp empty_config_response(version) do
     %Monitoring.AgentConfigResponse{
