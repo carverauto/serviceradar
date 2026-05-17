@@ -1,3 +1,5 @@
+#![cfg_attr(serviceradar_rdp_connector_link_probe, allow(dead_code))]
+
 use crate::backend::{BackendError, RdpBackend, RdpBackendSession};
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use crate::media_frame::{
