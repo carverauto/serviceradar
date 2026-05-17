@@ -23,7 +23,7 @@ use std::time::Duration;
 use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
-    "IronRDP backend is linked, but the connector loop is not implemented";
+    "IronRDP backend is linked, but live auth/media/demo validation is incomplete";
 const MEMORY_USER_REQUIRED: &str =
     "IronRDP backend currently requires a memory-user credential grant";
 const INVALID_CONNECTION_PLAN: &str = "IronRDP connection plan is invalid";
@@ -2015,6 +2015,35 @@ fn bytes_contain_secret(bytes: &[u8], secret: &[u8]) -> bool {
     !secret.is_empty() && bytes.windows(secret.len()).any(|window| window == secret)
 }
 
+#[cfg(all(test, serviceradar_rdp_connector_link_probe))]
+fn live_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+#[cfg(all(test, serviceradar_rdp_connector_link_probe))]
+fn parse_live_adapter_target(target: &str) -> Result<(String, u16), &'static str> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("empty target");
+    }
+
+    if let Some((host, port)) = target.rsplit_once(':') {
+        if !host.contains(':')
+            && !port.is_empty()
+            && port.chars().all(|value| value.is_ascii_digit())
+        {
+            let port = port.parse::<u16>().map_err(|_| "invalid port")?;
+
+            return Ok((host.to_owned(), port));
+        }
+    }
+
+    Ok((target.to_owned(), 3389))
+}
+
 fn is_memory_user_grant(grant: &DesktopCredentialGrant) -> bool {
     grant.mode == "memory_user"
         && !grant.username.trim().is_empty()
@@ -2919,6 +2948,65 @@ mod tests {
             &capture.tls_plaintext,
             &credential_password
         ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn live_connector_probe_helper_open_returns_network_pump_session_when_configured() {
+        let Some(target) = live_env("SERVICERADAR_RDP_ADAPTER_LIVE_TARGET") else {
+            eprintln!(
+                "skipping live RDP adapter open probe; \
+                 SERVICERADAR_RDP_ADAPTER_LIVE_TARGET is not set"
+            );
+            return;
+        };
+        let Some(username) = live_env("SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME") else {
+            eprintln!(
+                "skipping live RDP adapter open probe; \
+                 SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME is not set"
+            );
+            return;
+        };
+        let Some(password) = live_env("SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD") else {
+            eprintln!(
+                "skipping live RDP adapter open probe; \
+                 SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD is not set"
+            );
+            return;
+        };
+
+        let (host, port) = parse_live_adapter_target(&target).expect("valid live RDP target");
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.upstream.host = host.clone();
+        payload.target.upstream.port = u32::from(port);
+        payload.target.tls.server_name =
+            live_env("SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME").unwrap_or(host);
+        if let Some(ca_bundle_file) = live_env("SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE") {
+            payload.target.tls.ca_bundle_id = "live-ca-bundle-file".to_owned();
+            payload.target.tls.ca_bundle_pem =
+                std::fs::read_to_string(ca_bundle_file).expect("read live CA bundle");
+        }
+        payload.target.credential.allowed_principals = vec![username.clone()];
+        payload.target.metadata.insert(
+            METADATA_MEDIA_SESSION_ID.to_owned(),
+            "media-live-1".to_owned(),
+        );
+        let grant = payload
+            .credential_grant
+            .as_mut()
+            .expect("memory user credential grant");
+        grant.username = username;
+        grant.password = password.into();
+        grant.session_id = payload.session_id.clone();
+        grant.target_id = payload.target.target_id.clone();
+
+        let mut backend = IronRdpBackend;
+        let mut session = backend.open(payload).expect("live RDP adapter open");
+        session
+            .close(&DesktopClosePayload {
+                reason: "live probe cleanup".to_owned(),
+            })
+            .expect("live RDP adapter close");
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]

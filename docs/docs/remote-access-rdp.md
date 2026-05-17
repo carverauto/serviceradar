@@ -317,6 +317,25 @@ This proves the RDP TLS upgrade can use configured trust roots and server
 identity before IronRDP reaches CredSSP. It still does not prove CredSSP
 completion, user authentication, media, cleanup ordering, or helper readiness.
 
+After the verified TLS boundary is proven and a disposable lab account is
+available, run the adapter-level helper open probe. This exercises the actual
+`serviceradar-rdp-adapter` open path and expects a finalized network-pump session:
+
+```bash
+SERVICERADAR_RDP_ADAPTER_LIVE_TARGET=<rdp-target-host-or-ip> \
+  SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME=<rdp-certificate-name> \
+  SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE=/path/to/rdp-ca.pem \
+  SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME='<domain-or-local-user>' \
+  SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD='<one-time-password>' \
+  bazel test --config=macos --features=-fully_static_link \
+  //rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental_test \
+  --test_filter=live_connector_probe_helper_open_returns_network_pump_session_when_configured \
+  --test_output=streamed
+```
+
+Do not use a standing administrator password for this probe. Use a temporary
+lab account and keep the CA bundle and password material outside the repository.
+
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.
