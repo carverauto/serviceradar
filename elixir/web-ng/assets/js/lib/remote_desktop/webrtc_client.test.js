@@ -8,6 +8,7 @@ import {
   DESKTOP_MEDIA_QUALITY_AUTO,
   DESKTOP_MEDIA_QUALITY_LOW,
   RemoteDesktopWebRTCClient,
+  createDesktopMediaProcessor,
 } from "./webrtc_client"
 import {
   DESKTOP_PAYLOAD_METADATA,
@@ -96,6 +97,33 @@ function documentStub() {
 }
 
 describe("RemoteDesktopWebRTCClient", () => {
+  it("provides a pluggable desktop media processor boundary", () => {
+    const frame = {
+      sessionBindingId: "session-boundary",
+      mediaSessionId: "media-boundary",
+      sequence: 3,
+      payload: new Uint8Array([1, 2]),
+    }
+    const frameParser = vi.fn(() => frame)
+    const queueState = vi.fn(() => ({decodeQueueSize: 20, maxDecodeQueueSize: 12}))
+    const shouldDropFrame = vi.fn(() => true)
+    const processor = createDesktopMediaProcessor({
+      frameParser,
+      queueState,
+      shouldDropFrame,
+    })
+    const data = new Uint8Array([9, 9])
+
+    expect(processor.process(data)).toEqual({
+      frame,
+      dropped: true,
+      queueState: {decodeQueueSize: 20, maxDecodeQueueSize: 12},
+    })
+    expect(frameParser).toHaveBeenCalledWith(data)
+    expect(shouldDropFrame).toHaveBeenCalledWith(frame, {decodeQueueSize: 20, maxDecodeQueueSize: 12})
+    expect(processor.queueState()).toEqual({decodeQueueSize: 20, maxDecodeQueueSize: 12})
+  })
+
   it("creates a viewer session, applies an answer, and attaches offered channels", async () => {
     const fetchMock = vi
       .fn()
@@ -193,6 +221,75 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(onFrame.mock.calls[0][0].sequence).toBe(9)
     expect(onFrame.mock.calls[0][0].metadata.byteLength).toBeGreaterThan(0)
     expect(onFrame.mock.calls[0]).toHaveLength(1)
+  })
+
+  it("routes media channel data through the processing boundary", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-processor",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {closed: true}}),
+      })
+    const frame = {
+      sessionBindingId: "session-processor",
+      mediaSessionId: "media-processor",
+      sequence: 4,
+      payload: new Uint8Array([1, 2, 3]),
+    }
+    const processor = {
+      process: vi.fn(() => ({frame, dropped: false, queueState: {decodeQueueSize: 0, maxDecodeQueueSize: 8}})),
+      queueState: vi.fn(() => ({decodeQueueSize: 1, maxDecodeQueueSize: 8})),
+      close: vi.fn(),
+    }
+    const peer = new MockPeerConnection({})
+    const onFrame = vi.fn()
+    const mediaProcessorFactory = vi.fn(() => processor)
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-processor/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaProcessorFactory,
+      mediaAckFrameInterval: 1,
+      onFrame,
+    })
+    const rawMessage = new Uint8Array([8, 8])
+
+    await client.connect()
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.open()
+    mediaChannel.emitMessage(rawMessage)
+
+    expect(mediaProcessorFactory).toHaveBeenCalledWith({queueState: expect.any(Function)})
+    expect(processor.process).toHaveBeenCalledWith(rawMessage)
+    expect(onFrame).toHaveBeenCalledWith(frame)
+    expect(processor.queueState).toHaveBeenCalled()
+    expect(JSON.parse(controlChannel.sent[0])).toMatchObject({
+      type: DESKTOP_MEDIA_ACK_MESSAGE,
+      session_binding_id: "session-processor",
+      media_session_id: "media-processor",
+      last_accepted_seq: 4,
+      credit_bytes: 3,
+    })
+
+    client.close()
+    expect(processor.close).toHaveBeenCalled()
   })
 
   it("acknowledges media frames over the control channel with fresh credit", async () => {

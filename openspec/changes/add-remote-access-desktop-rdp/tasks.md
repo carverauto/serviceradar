@@ -258,6 +258,7 @@
 - [x] 4.2.1.6 Cache the browser session renderer target so the animation loop does not reacquire the Canvas2D context on every tick.
 - [x] 4.2.1.7 Add a browser WebCodecs video renderer target behind the shared render-target boundary for encoded desktop video payloads.
 - [x] 4.2.1.8 Compact sparse dirty-rectangle rows only in the Canvas fallback path while preserving `bytesPerRow` zero-copy uploads for WebGPU.
+- [x] 4.2.1.9 Add a pluggable browser media-processing boundary for future worker/WASM parsing, dirty-region state, and backpressure without changing the WebRTC client contract.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
@@ -508,6 +509,7 @@
 - [x] 5.7.19 Add browser renderer-runtime tests for the renderer-target hot-path boundary and Canvas2D/WebGPU target adapters.
 - [x] 5.7.20 Add browser renderer-runtime tests proving WebCodecs video payloads use the shared renderer-target boundary without copying payload bytes.
 - [x] 5.7.21 Add browser renderer-state tests proving sparse dirty-rectangle rows are compacted for the Canvas fallback without changing WebGPU upload metadata.
+- [x] 5.7.22 Add browser WebRTC client tests proving media frames flow through the pluggable processing boundary and close cleanup runs.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [x] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

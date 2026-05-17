@@ -37,6 +37,30 @@ function channelReady(channel) {
   return channel?.readyState === "open"
 }
 
+export function createDesktopMediaProcessor({
+  frameParser = createDesktopMediaFrameParser(),
+  queueState = () => ({}),
+  shouldDropFrame = shouldDropStaleDesktopFrame,
+} = {}) {
+  const safeQueueState = typeof queueState === "function" ? queueState : () => ({})
+  const safeShouldDropFrame = typeof shouldDropFrame === "function" ? shouldDropFrame : shouldDropStaleDesktopFrame
+
+  return {
+    process(data) {
+      const frame = frameParser(data)
+      const currentQueueState = safeQueueState()
+
+      return {
+        frame,
+        dropped: safeShouldDropFrame(frame, currentQueueState),
+        queueState: currentQueueState,
+      }
+    },
+    queueState: safeQueueState,
+    close() {},
+  }
+}
+
 export class RemoteDesktopWebRTCClient {
   constructor({
     signalingPath,
@@ -56,6 +80,7 @@ export class RemoteDesktopWebRTCClient {
     mediaAckFrameInterval = 4,
     mediaAckMaxDelayMs = 25,
     mediaQueueState = () => ({}),
+    mediaProcessorFactory = createDesktopMediaProcessor,
   } = {}) {
     this.signalingPath = signalingPath
     this.iceServers = iceServers
@@ -74,7 +99,9 @@ export class RemoteDesktopWebRTCClient {
     this.mediaAckFrameInterval = Math.max(1, mediaAckFrameInterval)
     this.mediaAckMaxDelayMs = Math.max(0, mediaAckMaxDelayMs)
     this.mediaQueueState = typeof mediaQueueState === "function" ? mediaQueueState : () => ({})
-    this.mediaFrameParser = createDesktopMediaFrameParser()
+    this.mediaProcessor = mediaProcessorFactory({
+      queueState: this.mediaQueueState,
+    })
     this.peerConnection = null
     this.viewerSessionId = null
     this.channels = new Map()
@@ -170,6 +197,7 @@ export class RemoteDesktopWebRTCClient {
     this.pendingMediaAckQueue = null
     this.lastMediaAckBinding = null
     this.mediaBackpressurePaused = false
+    this.mediaProcessor?.close?.()
     this.channels.clear()
     this.peerConnection?.close?.()
     this.peerConnection = null
@@ -233,17 +261,17 @@ export class RemoteDesktopWebRTCClient {
 
   handleChannelMessage(label, data) {
     if (label === DESKTOP_MEDIA_CHANNEL) {
-      const frame = this.mediaFrameParser(data)
-      const queueState = this.mediaQueueState()
+      const result = this.mediaProcessor.process(data)
+      const frame = result.frame
 
-      if (shouldDropStaleDesktopFrame(frame, queueState)) {
+      if (result.dropped) {
         this.onFrameDropped(frame)
-        this.queueMediaAck(frame, queueState)
+        this.queueMediaAck(frame, result.queueState)
         return
       }
 
       this.onFrame(frame)
-      this.queueMediaAck(frame, this.mediaQueueState())
+      this.queueMediaAck(frame, this.mediaProcessor.queueState())
 
       return
     }
