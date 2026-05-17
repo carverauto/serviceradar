@@ -13,7 +13,9 @@ use std::collections::VecDeque;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use std::io::{self, Read, Write};
 #[cfg(serviceradar_rdp_connector_link_probe)]
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use std::time::Duration;
 use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
@@ -620,6 +622,32 @@ fn build_connector_dial_target_for_plan(
         host: host.to_owned(),
         port: plan.upstream_port,
         endpoint,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn dial_connector_tcp_for_probe(
+    plan: &NonSecretConnectionPlan,
+    timeout: Duration,
+) -> Result<DialedConnectorStream<TcpStream>, BackendError> {
+    let dial_target = build_connector_dial_target_for_plan(plan)?;
+    let mut addresses = dial_target
+        .endpoint
+        .to_socket_addrs()
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let remote_addr = addresses
+        .next()
+        .ok_or(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let stream = TcpStream::connect_timeout(&remote_addr, timeout)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let client_addr = stream
+        .local_addr()
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+    Ok(DialedConnectorStream {
+        stream,
+        client_addr,
+        dial_target,
     })
 }
 
@@ -1880,6 +1908,27 @@ mod tests {
             .expect_err("host text with whitespace rejected");
 
         assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_tcp_dial_returns_dialed_stream_for_registered_target() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        plan.upstream_host = listener_addr.ip().to_string();
+        plan.upstream_port = listener_addr.port();
+
+        let dialed =
+            dial_connector_tcp_for_probe(&plan, Duration::from_secs(1)).expect("dialed stream");
+
+        assert_eq!(
+            dialed.endpoint(),
+            format!("{}:{}", plan.upstream_host, plan.upstream_port)
+        );
+        assert_eq!(dialed.client_addr().ip(), listener_addr.ip());
+        assert_ne!(dialed.client_addr().port(), 0);
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
