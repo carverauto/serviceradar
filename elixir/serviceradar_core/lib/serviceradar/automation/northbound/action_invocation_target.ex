@@ -87,6 +87,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     define :record_suppressed, action: :record_suppressed
     define :record_expired, action: :record_expired
     define :record_canceled, action: :record_canceled
+    define :prepare_callback, action: :prepare_callback
   end
 
   actions do
@@ -189,7 +190,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :next_poll_at,
         :poll_deadline_at,
         :last_poll_at,
-        :poll_attempt_count
+        :poll_attempt_count,
+        :callback_received_at
       ]
 
       change RedactTargetResult
@@ -205,7 +207,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :next_poll_at,
         :poll_deadline_at,
         :last_poll_at,
-        :poll_attempt_count
+        :poll_attempt_count,
+        :callback_received_at
       ]
 
       change RedactTargetResult
@@ -220,7 +223,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :next_poll_at,
         :poll_deadline_at,
         :last_poll_at,
-        :poll_attempt_count
+        :poll_attempt_count,
+        :callback_received_at
       ]
 
       change RedactTargetResult
@@ -233,7 +237,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :external_correlation_id,
         :continuation_state,
         :last_poll_at,
-        :poll_attempt_count
+        :poll_attempt_count,
+        :callback_received_at
       ]
 
       change RedactTargetResult
@@ -248,7 +253,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :external_correlation_id,
         :continuation_state,
         :last_poll_at,
-        :poll_attempt_count
+        :poll_attempt_count,
+        :callback_received_at
       ]
 
       change RedactTargetResult
@@ -258,7 +264,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
 
     update :record_skipped do
-      accept [:result, :external_correlation_id]
+      accept [:result, :external_correlation_id, :callback_received_at]
       change RedactTargetResult
       change set_attribute(:next_poll_at, nil)
       change set_attribute(:completed_at, &DateTime.utc_now/0)
@@ -266,7 +272,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
 
     update :record_suppressed do
-      accept [:result, :external_correlation_id]
+      accept [:result, :external_correlation_id, :callback_received_at]
       change RedactTargetResult
       change set_attribute(:next_poll_at, nil)
       change set_attribute(:completed_at, &DateTime.utc_now/0)
@@ -279,7 +285,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :external_correlation_id,
         :continuation_state,
         :last_poll_at,
-        :poll_attempt_count
+        :poll_attempt_count,
+        :callback_received_at
       ]
 
       change RedactTargetResult
@@ -289,11 +296,15 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
 
     update :record_canceled do
-      accept [:result, :external_correlation_id]
+      accept [:result, :external_correlation_id, :callback_received_at]
       change RedactTargetResult
       change set_attribute(:next_poll_at, nil)
       change set_attribute(:completed_at, &DateTime.utc_now/0)
       change transition_state(:canceled)
+    end
+
+    update :prepare_callback do
+      accept [:callback_token_hash, :callback_url]
     end
   end
 
@@ -369,6 +380,9 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     attribute :poll_deadline_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :last_poll_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :poll_attempt_count, :integer, allow_nil?: false, public?: true, default: 0
+    attribute :callback_token_hash, :string, allow_nil?: true, public?: false, sensitive?: true
+    attribute :callback_url, :string, allow_nil?: true, public?: true
+    attribute :callback_received_at, :utc_datetime_usec, allow_nil?: true, public?: true
 
     attribute :started_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :completed_at, :utc_datetime_usec, allow_nil?: true, public?: true

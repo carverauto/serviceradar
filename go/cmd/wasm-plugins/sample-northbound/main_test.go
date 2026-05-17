@@ -158,6 +158,53 @@ func TestDeviceLookupDeferredLifecycle(t *testing.T) {
 	}
 }
 
+func TestDeviceLookupWebhookLifecycle(t *testing.T) {
+	launchConfig := mustParseActionConfig(t, `{
+		"action_invocation": {
+			"schema": "serviceradar.northbound_action_invocation.v1",
+			"invocation_id": "inv-device-webhook",
+			"action_id": "sample.device.lookup",
+			"targets": [{
+				"kind": "device",
+				"northbound_job_id": "target-webhook-1",
+				"callback": {
+					"job_id": "target-webhook-1",
+					"url": "https://demo.example/api/northbound/action-callbacks/target-webhook-1",
+					"token": "callback-token",
+					"token_header": "x-serviceradar-callback-token"
+				},
+				"device_uid": "sr:device-1",
+				"device_ip": "192.0.2.10"
+			}],
+			"input_values": {
+				"execution_mode": "webhook"
+			}
+		}
+	}`)
+
+	launchResult := handleAction(launchConfig, decodePluginConfig(launchConfig))
+	if launchResult.Status != sdk.ActionStatusDeferred {
+		t.Fatalf("launch status = %s", launchResult.Status)
+	}
+	if launchResult.PollMode != sdk.ActionPollModeWebhook {
+		t.Fatalf("poll mode = %s", launchResult.PollMode)
+	}
+	if launchResult.NextPollDelaySeconds != 0 {
+		t.Fatalf("next poll delay = %d", launchResult.NextPollDelaySeconds)
+	}
+
+	target := launchResult.Targets[0]
+	if target.PollMode != sdk.ActionPollModeWebhook {
+		t.Fatalf("target poll mode = %s", target.PollMode)
+	}
+	if target.Result["callback_url"] == "" {
+		t.Fatalf("expected callback URL in target result")
+	}
+	if _, ok := target.Result["callback_token"]; ok {
+		t.Fatalf("callback token should not be emitted in target result")
+	}
+}
+
 func TestNormalizeActionInvocationConfigConvertsNumericInterfaceStatuses(t *testing.T) {
 	raw := map[string]any{
 		"action_invocation": map[string]any{

@@ -55,7 +55,8 @@ func runDeviceLookup(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionRes
 		return pollDeferredAction(invocation, cfg, "device", runDeviceLookupImmediate)
 	}
 
-	if stringInput(invocation.InputValues, "execution_mode", "immediate") == "deferred" {
+	switch stringInput(invocation.InputValues, "execution_mode", "immediate") {
+	case "deferred", "webhook":
 		return deferAction(invocation, "device")
 	}
 
@@ -99,7 +100,8 @@ func runInterfaceAudit(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionR
 		return pollDeferredAction(invocation, cfg, "interface", runInterfaceAuditImmediate)
 	}
 
-	if stringInput(invocation.InputValues, "execution_mode", "immediate") == "deferred" {
+	switch stringInput(invocation.InputValues, "execution_mode", "immediate") {
+	case "deferred", "webhook":
 		return deferAction(invocation, "interface")
 	}
 
@@ -163,23 +165,39 @@ func deferAction(invocation sdk.ActionInvocation, suffix string) *sdk.ActionResu
 	result := sdk.ActionDeferred("sample external API task accepted").
 		WithCorrelationID(taskID).
 		WithContinuationState(continuation).
-		WithNextPollDelay(1).
 		WithMaxDuration(120)
 
+	webhookMode := stringInput(invocation.InputValues, "execution_mode", "immediate") == "webhook"
+	if webhookMode {
+		result.WithWebhookCallback()
+	} else {
+		result.WithNextPollDelay(1)
+	}
+
 	for _, target := range invocation.Targets {
-		result.AddTargetResult(sdk.ActionTargetResult{
+		targetResult := sdk.ActionTargetResult{
 			DeviceUID:             target.DeviceUID,
 			InterfaceUID:          target.InterfaceUID,
 			Status:                sdk.ActionStatusDeferred,
 			ExternalCorrelationID: correlationID(invocation.InvocationID, firstNonEmpty(target.InterfaceUID, target.DeviceUID, suffix)),
 			ContinuationState:     continuation,
-			NextPollDelaySeconds:  1,
 			MaxDurationSeconds:    120,
 			Result: map[string]any{
-				"message":          "queued in sample external API",
-				"external_task_id": taskID,
+				"message":               "queued in sample external API",
+				"external_task_id":      taskID,
+				"northbound_job_id":     target.NorthboundJobID,
+				"callback_url":          target.Callback.URL,
+				"callback_token_header": target.Callback.TokenHeader,
 			},
-		})
+		}
+
+		if webhookMode {
+			targetResult.PollMode = sdk.ActionPollModeWebhook
+		} else {
+			targetResult.NextPollDelaySeconds = 1
+		}
+
+		result.AddTargetResult(targetResult)
 	}
 
 	return result

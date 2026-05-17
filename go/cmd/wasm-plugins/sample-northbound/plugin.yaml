@@ -52,6 +52,7 @@ actions:
           enum:
             - immediate
             - deferred
+            - webhook
           default: immediate
           x-order: 3
         reason:
@@ -102,5 +103,6 @@ actions:
           enum:
             - immediate
             - deferred
+            - webhook
           default: immediate
           x-order: 4

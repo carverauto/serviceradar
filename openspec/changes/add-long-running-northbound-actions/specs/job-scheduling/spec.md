@@ -9,6 +9,12 @@ ServiceRadar SHALL schedule deferred northbound action polls through database-ba
 - **WHEN** the result is persisted
 - **THEN** ServiceRadar SHALL enqueue exactly one poll job for that target and due time
 
+#### Scenario: Deferred action waits for webhook
+- **GIVEN** an action target returns a deferred result with `poll_mode: webhook`
+- **WHEN** the result is persisted
+- **THEN** ServiceRadar SHALL keep the target in a non-terminal state
+- **AND** ServiceRadar SHALL NOT enqueue a poll job for that target
+
 #### Scenario: Poll worker survives restart
 - **GIVEN** a deferred action target exists with a due poll time
 - **WHEN** the web-ng/core worker process restarts before polling

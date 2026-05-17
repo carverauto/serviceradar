@@ -11,12 +11,14 @@
 - [x] 2.3 Schedule polling through database-backed jobs with uniqueness per invocation target.
 - [x] 2.4 Enforce descriptor timeout, maximum duration, retry/backoff, and cancellation semantics.
 - [x] 2.5 Persist final results and normalized failure details after the external task completes.
+- [x] 2.6 Add per-target webhook callback metadata and token-gated callback result handling.
 
 ## 3. SDK and Example Plugin
 
 - [x] 3.1 Update `serviceradar-sdk-go` with deferred result, poll request, and final result helpers.
 - [x] 3.2 Update the sample northbound Wasm plugin to model launch, poll, and result fetch against an imaginary asynchronous API.
 - [x] 3.3 Add fixture payloads for launch response, poll request, poll-in-progress response, and final-result response.
+- [x] 3.4 Update `serviceradar-sdk-go` and the sample plugin with callback metadata and webhook-only deferred mode.
 
 ## 4. UI and Operators
 

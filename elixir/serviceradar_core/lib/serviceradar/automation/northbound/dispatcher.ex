@@ -243,26 +243,28 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   defp preferred_agent_ids(_invocation), do: []
 
   defp dispatch_to_assignment(invocation, assignment, opts, actor) do
-    payload = build_payload(invocation, assignment)
-    ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
-    command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
+    with {:ok, target_payloads} <- prepare_callback_targets(invocation, actor) do
+      payload = build_payload(invocation, assignment, target_payloads)
+      ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
+      command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
 
-    command_bus.dispatch(
-      assignment.agent_uid,
-      @command_type,
-      payload,
-      ttl_seconds: ttl_seconds,
-      source: :automation,
-      actor: actor,
-      context: %{
-        northbound_invocation_id: invocation.id,
-        northbound_descriptor_id: invocation.descriptor_id,
-        northbound_provider_id: invocation.provider_id,
-        plugin_assignment_id: assignment.id,
-        plugin_package_id: assignment.plugin_package_id,
-        action_id: invocation.action_id
-      }
-    )
+      command_bus.dispatch(
+        assignment.agent_uid,
+        @command_type,
+        payload,
+        ttl_seconds: ttl_seconds,
+        source: :automation,
+        actor: actor,
+        context: %{
+          northbound_invocation_id: invocation.id,
+          northbound_descriptor_id: invocation.descriptor_id,
+          northbound_provider_id: invocation.provider_id,
+          plugin_assignment_id: assignment.id,
+          plugin_package_id: assignment.plugin_package_id,
+          action_id: invocation.action_id
+        }
+      )
+    end
   end
 
   defp dispatch_poll_to_assignment(invocation, target, assignment, opts, actor) do
@@ -290,9 +292,10 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     )
   end
 
-  defp build_payload(invocation, assignment) do
+  defp build_payload(invocation, assignment, target_payloads) do
     %{
       "schema" => "serviceradar.northbound_action_invocation.v1",
+      "phase" => "launch",
       "invocation_id" => invocation.id,
       "provider_id" => invocation.provider_id,
       "descriptor_id" => invocation.descriptor_id,
@@ -302,7 +305,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "result_schema_version" => invocation.descriptor.result_schema_version,
       "plugin_assignment_id" => assignment.id,
       "plugin_package_id" => assignment.plugin_package_id,
-      "targets" => invocation.target_snapshots || [],
+      "targets" => target_payloads,
       "input_values" => invocation.input_values || %{},
       "redacted_input_values" => invocation.redacted_input_values || %{},
       "requested_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
@@ -324,7 +327,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "result_schema_version" => invocation.descriptor.result_schema_version,
       "plugin_assignment_id" => assignment.id,
       "plugin_package_id" => assignment.plugin_package_id,
-      "targets" => [target.target_snapshot],
+      "targets" => [target_snapshot_with_callback(target, nil)],
       "input_values" => invocation.input_values || %{},
       "redacted_input_values" => invocation.redacted_input_values || %{},
       "continuation_state" => target.continuation_state || %{},
@@ -341,6 +344,80 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
           "invocation_target_id" => target.id
         })
     }
+  end
+
+  defp prepare_callback_targets(invocation, actor) do
+    targets = list_targets(invocation.id, actor)
+
+    if targets == [] do
+      {:ok, invocation.target_snapshots || []}
+    else
+      {:ok, Enum.map(targets, &prepare_callback_target(&1, actor))}
+    end
+  end
+
+  defp prepare_callback_target(target, actor) do
+    token = callback_token()
+    callback = callback_metadata(target, token)
+
+    _ =
+      ActionInvocationTarget.prepare_callback(
+        target,
+        %{
+          callback_token_hash: sha256_hex(token),
+          callback_url: callback["url"]
+        },
+        actor: actor
+      )
+
+    target_snapshot_with_callback(target, callback)
+  end
+
+  defp target_snapshot_with_callback(target, callback) do
+    callback = callback || callback_metadata(target, nil)
+
+    target.target_snapshot
+    |> normalize_map()
+    |> Map.put("northbound_job_id", target.id)
+    |> Map.put("callback", callback)
+  end
+
+  defp callback_metadata(target, token) do
+    path = "/api/northbound/action-callbacks/#{target.id}"
+
+    %{
+      "job_id" => target.id,
+      "path" => path,
+      "url" => callback_url(path),
+      "token" => token,
+      "token_header" => "x-serviceradar-callback-token"
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp callback_url(path) do
+    case callback_base_url() do
+      nil -> nil
+      base_url -> base_url |> URI.parse() |> URI.merge(path) |> URI.to_string()
+    end
+  end
+
+  defp callback_base_url do
+    Application.get_env(:serviceradar_core, :northbound_callback_base_url) ||
+      System.get_env("SERVICERADAR_NORTHBOUND_CALLBACK_BASE_URL")
+  end
+
+  defp callback_token do
+    32
+    |> :crypto.strong_rand_bytes()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp sha256_hex(value) when is_binary(value) do
+    :sha256
+    |> :crypto.hash(value)
+    |> Base.encode16(case: :lower)
   end
 
   defp mark_invocation_dispatched(invocation, command, assignment, actor) do
