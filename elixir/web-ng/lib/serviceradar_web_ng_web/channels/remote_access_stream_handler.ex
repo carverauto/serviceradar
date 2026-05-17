@@ -273,7 +273,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {"user_present", "rdp", credential} when map_size(credential) > 0 ->
         with :ok <- reject_controlled_credential_fields(credential),
              {:ok, credential} <- normalize_rdp_user_present_credential(credential),
-             {:ok, grant} <- rdp_user_present_credential_grant(session, credential) do
+             {:ok, grant} <- rdp_user_present_credential_grant(session, credential, state.scope) do
           {:ok,
            [
              metadata: %{"credential_grant" => grant},
@@ -327,14 +327,16 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
-  defp rdp_user_present_credential_grant(session, credential) do
+  defp rdp_user_present_credential_grant(session, credential, scope) do
     with {:ok, target_id} <- required_metadata_string(session, "desktop_target_id"),
-         {:ok, route_id} <- required_session_string(session, :agent_id) do
+         {:ok, route_id} <- required_session_string(session, :agent_id),
+         {:ok, actor_id} <- scope_actor_id(scope) do
       {:ok,
        %{
          "mode" => "memory_user",
          "username" => Map.fetch!(credential, "username"),
          "password" => Map.fetch!(credential, "password"),
+         "actor_id" => actor_id,
          "session_id" => session.id,
          "target_id" => target_id,
          "route_id" => route_id
@@ -489,6 +491,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: %{}
+
+  defp scope_actor_id(scope) do
+    case scope_actor(scope) do
+      %{id: id} when is_binary(id) and id != "" -> {:ok, id}
+      %{"id" => id} when is_binary(id) and id != "" -> {:ok, id}
+      _actor -> {:error, :invalid_request}
+    end
+  end
 
   defp scope_identity_claims(%{identity_claims: claims}) when is_map(claims), do: claims
   defp scope_identity_claims(%{"identity_claims" => claims}) when is_map(claims), do: claims

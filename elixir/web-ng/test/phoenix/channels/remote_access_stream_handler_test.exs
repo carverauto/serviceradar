@@ -268,6 +268,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
              "mode" => "memory_user",
              "username" => "EXAMPLE\\alice",
              "password" => "rdp-session-password",
+             "actor_id" => "user-1",
              "session_id" => "session-rdp-user-present",
              "target_id" => "desktop-target-1",
              "route_id" => "agent-1"

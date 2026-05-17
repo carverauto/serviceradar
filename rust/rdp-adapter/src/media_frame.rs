@@ -69,6 +69,7 @@ pub(crate) enum DesktopMediaFrameError {
     MissingSessionBinding,
     MissingMediaSession,
     StringFieldTooLarge,
+    InvalidStringField,
     MetadataTooLarge,
     PayloadTooLarge,
     UnsupportedFlags,
@@ -86,6 +87,7 @@ impl fmt::Display for DesktopMediaFrameError {
             Self::StringFieldTooLarge => {
                 f.write_str("desktop media frame string field is too large")
             }
+            Self::InvalidStringField => f.write_str("desktop media frame string field is invalid"),
             Self::MetadataTooLarge => f.write_str("desktop media frame metadata is too large"),
             Self::PayloadTooLarge => f.write_str("desktop media frame payload is too large"),
             Self::UnsupportedFlags => f.write_str("desktop media frame flags are unsupported"),
@@ -181,6 +183,12 @@ fn validate_desktop_media_frame(
     {
         return Err(DesktopMediaFrameError::StringFieldTooLarge);
     }
+    if invalid_media_string(frame.session_binding_id)
+        || invalid_media_string(frame.media_session_id)
+        || invalid_media_string(frame.encoding)
+    {
+        return Err(DesktopMediaFrameError::InvalidStringField);
+    }
     if frame.metadata.len() > DESKTOP_MEDIA_MAX_METADATA {
         return Err(DesktopMediaFrameError::MetadataTooLarge);
     }
@@ -198,6 +206,12 @@ fn validate_desktop_media_frame(
     }
 
     Ok(())
+}
+
+fn invalid_media_string(value: &str) -> bool {
+    value
+        .bytes()
+        .any(|byte| byte == 0 || (byte.is_ascii_control() && !byte.is_ascii_whitespace()))
 }
 
 #[cfg(test)]
@@ -318,6 +332,26 @@ mod tests {
         assert_eq!(
             encode_desktop_media_frame(&unsupported_flags, &policy),
             Err(DesktopMediaFrameError::UnsupportedFlags)
+        );
+
+        let invalid_session = DesktopMediaFrame {
+            session_binding_id: "session\0-1",
+            width: 800,
+            ..too_wide
+        };
+        assert_eq!(
+            encode_desktop_media_frame(&invalid_session, &policy),
+            Err(DesktopMediaFrameError::InvalidStringField)
+        );
+
+        let invalid_encoding = DesktopMediaFrame {
+            encoding: "raw\u{0007}",
+            width: 800,
+            ..too_wide
+        };
+        assert_eq!(
+            encode_desktop_media_frame(&invalid_encoding, &policy),
+            Err(DesktopMediaFrameError::InvalidStringField)
         );
     }
 

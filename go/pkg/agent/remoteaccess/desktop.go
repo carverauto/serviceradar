@@ -91,6 +91,7 @@ var (
 // browser-selected upstream settings.
 type DesktopOpenPayload struct {
 	Schema          string                  `json:"schema,omitempty"`
+	ActorID         string                  `json:"actor_id,omitempty"`
 	Target          DesktopTarget           `json:"target"`
 	CredentialGrant *DesktopCredentialGrant `json:"credential_grant,omitempty"`
 	Metadata        map[string]string       `json:"metadata,omitempty"`

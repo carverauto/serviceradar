@@ -180,7 +180,7 @@
 - [x] 3.2.45 Bind the Bazel-only active-stage server-read probe to the helper backend pump seam so future connector sessions can emit server-driven media through the same contract.
 - [x] 3.2.46 Add a Bazel-only active-stage handoff constructor that accepts an IronRDP `ConnectionResult` so future `connect_finalize` output can enter the same input/media/pump session path.
 - [x] 3.2.47 Add a Bazel-only network-pump handoff constructor that accepts a framed stream plus IronRDP `ConnectionResult` so future finalized connector sessions can use the same backend session contract.
-- [x] 3.2.48 Add a Bazel-only verified TLS client-config probe proving registered PEM/DER CA bundles build normal Rustls verification, reject invalid bundles, and disable TLS resumption for CredSSP while runtime readiness stays disabled.
+- [x] 3.2.48 Add a Bazel-only verified TLS client-config probe proving registered PEM CA bundles build normal Rustls verification, reject DER/invalid bundles, and disable TLS resumption for CredSSP while runtime readiness stays disabled.
 - [x] 3.2.49 Add a Bazel-only system-root TLS client-config probe proving the selected agent host's native trust store can build normal Rustls verification and fail closed on load errors while runtime readiness stays disabled.
 - [x] 3.2.50 Carry the registered RDP CA bundle ID from desktop target policy into broker-generated agent/helper open payloads so verified and pinned-CA connector paths have an explicit non-secret trust-anchor handle.
 - [x] 3.2.51 Reject `pinned_ca` RDP target policy before adapter/backend execution unless the trusted target snapshot includes a registered CA bundle ID.

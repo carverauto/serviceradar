@@ -2,6 +2,11 @@ use std::env;
 use std::io;
 
 fn main() {
+    if let Err(err) = serviceradar_rdp_adapter::harden_process_for_secrets() {
+        eprintln!("failed to harden RDP helper process for secrets: {err}");
+        std::process::exit(1);
+    }
+
     let mut args = env::args().skip(1);
     if matches!(
         args.next().as_deref(),
@@ -14,11 +19,6 @@ fn main() {
         }
 
         return;
-    }
-
-    if let Err(err) = serviceradar_rdp_adapter::harden_process_for_secrets() {
-        eprintln!("failed to harden RDP helper process for secrets: {err}");
-        std::process::exit(1);
     }
 
     let stdin = io::stdin();

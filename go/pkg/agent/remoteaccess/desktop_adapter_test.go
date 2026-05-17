@@ -105,6 +105,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice@example.com",
 		Password:  desktopTestPassword,
+		ActorID:   desktopTestActorID,
 		SessionID: fakeRemoteSessionID,
 		TargetID:  desktopTestTargetID,
 		RouteID:   desktopTestAgentID,
@@ -126,6 +127,7 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 		t.Fatal("OpenRDP returned nil session")
 	}
 	if adapter.request.SessionID != fakeRemoteSessionID ||
+		adapter.request.ActorID != desktopTestActorID ||
 		adapter.request.LocalAgentID != desktopTestAgentID ||
 		adapter.request.CurrentGatewayID != remoteAccessTestGatewayID ||
 		adapter.request.Target.TLS.NLAMode != DesktopDefaultNLAPolicy ||
@@ -151,6 +153,7 @@ func TestDesktopAdapterRuntimeRejectsMismatchedCredentialSession(t *testing.T) {
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice@example.com",
 		Password:  desktopTestPassword,
+		ActorID:   desktopTestActorID,
 		SessionID: remoteAccessTestOtherSessionID,
 		TargetID:  desktopTestTargetID,
 		RouteID:   desktopTestAgentID,
@@ -468,6 +471,7 @@ func desktopOpenFrame(t *testing.T, target DesktopTarget, grant *DesktopCredenti
 
 	data, err := json.Marshal(DesktopOpenPayload{
 		Schema:          "serviceradar.desktop.open.v1",
+		ActorID:         desktopTestActorID,
 		Target:          target,
 		CredentialGrant: grant,
 	})

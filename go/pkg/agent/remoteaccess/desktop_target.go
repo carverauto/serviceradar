@@ -29,6 +29,7 @@ func DecodeDesktopOpenPayload(data []byte) (DesktopOpenPayload, error) {
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return payload, fmt.Errorf("%w: decode open payload: %w", ErrInvalidDesktopTarget, err)
 	}
+	payload.ActorID = strings.TrimSpace(payload.ActorID)
 
 	target, err := NormalizeDesktopTarget(payload.Target)
 	if err != nil {

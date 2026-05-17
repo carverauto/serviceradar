@@ -24,42 +24,43 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
 
 ## 1. RDP / Desktop Adapter (Rust + Go helper)
 
-- [ ] 1.1 [H] Actor ID in credential grant not validated to match calling principal
+- [x] 1.1 [H] Actor ID in credential grant not validated to match calling principal
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:658-670` (working tree)
       Why: `actor_id` in `DesktopCredentialGrant` is parsed but never checked against the authenticated caller; a compromised agent could submit a grant naming another actor for impersonation.
       Fix: Assert `grant.actor_id == authenticated_caller_id` before passing to backend; failing call must zeroise the grant and log.
 
-- [ ] 1.2 [H] `SensitiveString::expose()` silently coerces invalid UTF-8 to empty string
+- [x] 1.2 [H] `SensitiveString::expose()` silently coerces invalid UTF-8 to empty string
       Where: `rust/rdp-adapter/src/protocol.rs:292` (working tree)
       Why: `.unwrap_or("")` masks credential corruption — an empty password is then handed to the RDP backend which may treat it as a guest/anonymous attempt.
       Fix: Return `Result<&str, Utf8Error>` (or panic-free `Err`) and propagate so the session fails closed.
 
-- [ ] 1.3 [M] CA-bundle size limit enforced post-deserialisation, not during
+- [x] 1.3 [M] CA-bundle size limit enforced post-deserialisation, not during
       Where: `rust/rdp-adapter/src/protocol.rs:99` (field), `:727` (check) (working tree)
       Why: A 256 KiB allocation is already done by serde before validation rejects it; repeated bursts amplify into helper-level memory pressure.
       Fix: Custom serde deserialiser (or `serde_bytes` + len-prefixed reader) that aborts past the byte cap; reject before allocation.
 
-- [ ] 1.4 [M] Frame parser does not reject trailing bytes after declared payload
+- [x] 1.4 [M] Frame parser does not reject trailing bytes after declared payload
       Where: `rust/rdp-adapter/src/lib.rs:480-511` (`read_frame`) (working tree)
       Why: Wire framing is the contract boundary; silently accepting extra bytes between frames hides protocol-confusion attempts and breaks the "reject-unknown" guarantee.
       Fix: After reading `payload_length`, peek for a valid next-header magic or EOF; otherwise error and close the channel.
+      Resolution: closed as spec-delta. The current helper protocol is a length-prefixed stream with no magic byte; bytes after a payload are either the next valid frame or an invalid next header, which existing tests reject before payload allocation. Add a frame magic/version field before implementing stronger desync detection.
 
-- [ ] 1.5 [M] Pointer-bounds check off-by-one at screen edge
+- [x] 1.5 [M] Pointer-bounds check off-by-one at screen edge
       Where: `rust/rdp-adapter/src/protocol.rs:641-642` (working tree)
       Why: Uses `>` instead of `>=`, allowing `x == max_width`, `y == max_height` which are 1-past-the-end for 0-indexed coordinates and can probe out-of-canvas regions.
       Fix: Change both comparisons to `>=`.
 
-- [ ] 1.6 [L] `harden_process_for_secrets()` is opt-in, not invoked at helper start
+- [x] 1.6 [L] `harden_process_for_secrets()` is opt-in, not invoked at helper start
       Where: `rust/rdp-adapter/src/lib.rs:176-178` (working tree) — also requires reading `src/main.rs`
       Why: If the Go adapter forgets to call it, core dumps stay enabled and credential-bearing memory can leak to disk.
       Fix: Invoke in helper `main` unconditionally; remove the public opt-in.
 
-- [ ] 1.7 [L] CA-bundle ID/PEM presence check accepts whitespace-only values
+- [x] 1.7 [L] CA-bundle ID/PEM presence check accepts whitespace-only values
       Where: `rust/rdp-adapter/src/protocol.rs:732-734` (working tree)
       Why: `.trim().is_empty()` lets `"   "` pass the both-or-neither check, creating an unusable grant at runtime.
       Fix: Use raw `.is_empty()` on the original string.
 
-- [ ] 1.8 [L] ACK credit cap is per-frame, not per-session or per-window
+- [x] 1.8 [L] ACK credit cap is per-frame, not per-session or per-window
       Where: `rust/rdp-adapter/src/protocol.rs:33, 707-708` (working tree)
       Why: 1000× 4 MiB ACKs exhaust buffers without any single frame violating the cap.
       Fix: Track accumulated credit per session (rolling window) and refuse beyond a session-scoped budget.
@@ -79,47 +80,47 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
 
 ### 1.A2 Coverage Follow-Up (backend_ironrdp + connector-probe + media_frame + tests)
 
-- [ ] 1.A2.1 [C] CA-bundle parser falls back to raw bytes when PEM markers absent
+- [x] 1.A2.1 [C] CA-bundle parser falls back to raw bytes when PEM markers absent
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:1394-1397` (working tree)
       Why: A grant whose `ca_bundle_pem` is binary / corrupt / DER bytes is accepted as-is and handed to rustls, which fails opaquely later — opens MITM where the operator sees only a generic connector error and may retry with redirections relaxed.
       Fix: Strict PEM parse; reject if zero certificates parsed; surface a structured "ca_bundle_invalid" reason.
 
-- [ ] 1.A2.2 [H] `actor_id` in `DesktopCredentialGrant` is parsed but ignored by `build_memory_user_credential`
+- [x] 1.A2.2 [H] `actor_id` in `DesktopCredentialGrant` is parsed but ignored by `build_memory_user_credential`
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:658-670` + `:2339-2359`; field at `protocol.rs:127` (working tree)
       Why: Strengthens 1.1 — even after assertion is added to the open path, the credential build also has to consume the authenticated actor id or the impersonation gap reopens at backend layer.
       Fix: Thread authenticated `actor_id` into `RdpBackend::open` and require equality with `grant.actor_id` before constructing the credential; emit audit on mismatch.
 
-- [ ] 1.A2.3 [M] connector-probe test helpers clone the password as bare `String` (no `Zeroizing`)
+- [x] 1.A2.3 [M] connector-probe test helpers clone the password as bare `String` (no `Zeroizing`)
       Where: `rust/rdp-connector-probe/src/lib.rs:580, 611, 641, 713, 768` (working tree)
       Why: Test-only today, but copy-paste into production KDC paths would silently regress the main-backend zeroisation discipline.
       Fix: Wrap the password copies in `Zeroizing::new(...)` even in tests; add a clippy lint or doctest banning bare `String` for password types in this module.
 
-- [ ] 1.A2.4 [M] `media_frame.rs::validate_desktop_media_frame` doesn't reject NUL / control bytes in string fields
+- [x] 1.A2.4 [M] `media_frame.rs::validate_desktop_media_frame` doesn't reject NUL / control bytes in string fields
       Where: `rust/rdp-adapter/src/media_frame.rs:172-200` (working tree)
       Why: `session_binding_id`, `media_session_id`, `encoding` accept any UTF-8 — NUL/control bytes can corrupt downstream framing or get logged into the recorder/UI.
       Fix: Reject any control byte except whitespace; reject NUL; cap length explicitly per-field; add regression test in `media_frame.rs:250+`.
 
-- [ ] 1.A2.5 [M] TLS handshake completion not explicitly asserted before `peer_certificates()` consumption
+- [x] 1.A2.5 [M] TLS handshake completion not explicitly asserted before `peer_certificates()` consumption
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:1234-1249` (working tree)
       Why: A server alert leaves the connection in a failed state but the error maps to `CONNECTOR_NOT_IMPLEMENTED`, hiding the real cause from audit and from operators trying to diagnose MITM/cert problems.
       Fix: Assert `!tls_stream.conn.is_handshaking()` (or surface the rustls error detail) before reading peer certs.
 
-- [ ] 1.A2.6 [M] `ServerName` constructed from arbitrary string — no IDNA / DNS-label / IP-literal rejection
+- [x] 1.A2.6 [M] `ServerName` constructed from arbitrary string — no IDNA / DNS-label / IP-literal rejection
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:1231` (working tree)
       Why: A grant supplying `"[::1]"` or punycode forms can produce surprising ServerName matches against the cert SAN list.
       Fix: Pre-validate against `[A-Za-z0-9.-]+` (ASCII LDH), reject any input that parses as an IP literal; document rule in `protocol.rs` next to the field.
 
-- [ ] 1.A2.7 [L] Single hardcoded 10-s timeout for both TCP dial and KDC RPCs
+- [x] 1.A2.7 [L] Single hardcoded 10-s timeout for both TCP dial and KDC RPCs
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:42` + `ServiceRadarKdcNetworkClient::new` (working tree)
       Why: DCs under load legitimately take >10 s; the failure mode hides which stage timed out.
       Fix: Per-stage timeout, configurable in grant metadata with a hard cap; log which stage tripped.
 
-- [ ] 1.A2.8 [L] Kerberos config snapshot in handoff is never re-validated across phases
+- [x] 1.A2.8 [L] Kerberos config snapshot in handoff is never re-validated across phases
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:118, 153` (working tree)
       Why: Defence-in-depth — a metadata-mutation MITM between begin-handoff and finalize wouldn't be caught.
       Fix: Compare `kerberos_config` against the grant's KDC/realm on every phase transition; refuse on drift.
 
-- [ ] 1.A2.9 [L] `bytes_contain_secret` is a naive `windows().any(...)` byte scan
+- [x] 1.A2.9 [L] `bytes_contain_secret` is a naive `windows().any(...)` byte scan
       Where: `rust/rdp-adapter/src/backend_ironrdp.rs:2014-2020` (working tree)
       Why: Useful as test-visibility heuristic but easy to mistake for a real boundary; encoded or framed passwords slip past silently.
       Fix: Add a comment marking it test-only; if ever used as enforcement, swap for structured PDU inspection.
@@ -1353,7 +1354,7 @@ Ordered by priority. Items marked **BLOCKING** should land before this PR's merg
 2. **BLOCKING — 1.1 [H] + 1.A2.2 [H]** Authenticated actor binding in `RdpBackend::open` *and* in `build_memory_user_credential`. — RDP backend.
 3. **BLOCKING — 1.2 [H]** `SensitiveString::expose()` returns `Result`, fails session closed on invalid UTF-8. — RDP protocol.
 4. **1.3 [M]** Custom serde deserialiser for `ca_bundle_pem` size cap. — RDP protocol.
-5. **1.4 [M]** Reject trailing bytes after frame payload in `read_frame`. — RDP lib.
+5. **1.4 [M]** Closed as spec-delta: current length-prefixed stream has no frame magic; invalid next headers already fail closed. — RDP lib.
 6. **1.5 [M]** Off-by-one fix to `>=` on pointer bounds. — RDP protocol.
 7. **1.A2.4 [M]** `validate_desktop_media_frame` rejects NUL / control bytes / non-UTF-8. — `media_frame.rs`.
 8. **1.A2.5 [M]** Assert `!tls_stream.conn.is_handshaking()` before consuming peer certs. — RDP backend.
@@ -1384,6 +1385,7 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 - **3.O.5 [M]** Orphan `:pending`/`:active` reaper. *Sign-off rationale:* operational hygiene, not a security gap; bundle with retention work when it lands.
 - **3.O.9 [M]** Late-event fence at seal. *Sign-off rationale:* approximate byte counts already documented; bundle with C-B if signing the manifest+events together makes this trivial.
 - **3.O.12 [M]** Authoritative `session_id` from `recording.session_id`. *Sign-off rationale:* defensive only — no known caller passes a foreign session_id; small refactor in C-B's transactional rewrite.
+- **1.4 [M]** Frame trailing-byte detection. *Sign-off rationale:* current helper IPC is a length-prefixed stream, so extra bytes after one payload are indistinguishable from the next frame without adding a frame magic/version field. Invalid next headers already fail closed before payload allocation; stronger desync detection belongs in a future wire-format revision.
 
 ### 8.5 Rollup table
 
@@ -1394,7 +1396,7 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 | 1.1 | H | B | branch-blocking; pair with 1.A2.2 |
 | 1.2 | H | B | branch-blocking |
 | 1.3 | M | B | |
-| 1.4 | M | B | |
+| 1.4 | M | Spec | length-prefixed stream; future frame magic/version needed |
 | 1.5 | M | B | |
 | 1.6 | L | B | |
 | 1.7 | L | B | |

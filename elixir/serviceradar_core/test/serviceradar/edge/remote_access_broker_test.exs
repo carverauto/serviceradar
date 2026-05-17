@@ -548,6 +548,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert decoded["schema"] == "serviceradar.desktop.open.v1"
     assert decoded["protocol"] == "rdp"
     assert decoded["session_id"] == "session-1"
+    assert decoded["actor_id"] == "user-1"
     assert decoded["agent_id"] == "agent-1"
     assert decoded["gateway_id"] == "gateway-1"
     assert decoded["metadata"]["media_session_id"] == "desktop-media-session-1"
@@ -760,6 +761,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   test "opens from a user-present credential grant without persisted session SSH metadata" do
     session = %{
       id: "session-1",
+      requested_by: "user-1",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       metadata: %{}
@@ -1042,6 +1044,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
   defp session_fixture do
     %{
       id: "session-1",
+      requested_by: "user-1",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       metadata: %{"target" => %{"host" => "10.0.0.10", "port" => 22}}

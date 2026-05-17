@@ -3,12 +3,14 @@ use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::Duration;
+use zeroize::Zeroizing;
 
 const OPEN_SCHEMA: &str = "serviceradar.rdp.helper.open.v1";
 const CLIENT_BUILD: u32 = 1;
 const CLIENT_NAME: &str = "serviceradar";
 const CLIENT_DIR: &str = "C:\\Windows\\System32\\mstscax.dll";
 const CLIENT_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
+const MAX_DIAL_HOST_LEN: usize = 253;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -392,15 +394,40 @@ pub fn build_tls_upgrade_plan(
 fn effective_tls_server_name(request: &ServiceRadarOpenRequest) -> Result<String, &'static str> {
     let explicit_server_name = request.target.tls.server_name.trim();
     if !explicit_server_name.is_empty() {
+        if !tls_server_name_is_valid_dns_name(explicit_server_name) {
+            return Err("tls server name is invalid");
+        }
+
         return Ok(explicit_server_name.to_owned());
     }
 
     let upstream_host = request.target.upstream.host.trim();
-    if upstream_host.is_empty() {
+    if upstream_host.is_empty() || !tls_server_name_is_valid_dns_name(upstream_host) {
         return Err("tls server name is required");
     }
 
     Ok(upstream_host.to_owned())
+}
+
+fn tls_server_name_is_valid_dns_name(name: &str) -> bool {
+    if name.parse::<IpAddr>().is_ok()
+        || name.is_empty()
+        || name.len() > MAX_DIAL_HOST_LEN
+        || name.starts_with('.')
+        || name.ends_with('.')
+    {
+        return false;
+    }
+
+    name.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    })
 }
 
 fn build_active_stage_for_probe(
@@ -577,7 +604,7 @@ fn split_domain_username(username: String) -> (Option<String>, String) {
 pub fn build_initial_connector_pdu(
     request: ServiceRadarOpenRequest,
 ) -> Result<InitialConnectorPdu, &'static str> {
-    let password = request.credential_grant.password.clone();
+    let password = Zeroizing::new(request.credential_grant.password.clone());
     let config = build_connector_config(request)?;
     let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
     let before_state = connector_state_name(&connector);
@@ -608,7 +635,7 @@ pub fn drive_connector_to_credssp_boundary(
 pub fn drive_blocking_connect_begin_to_tls_upgrade(
     request: ServiceRadarOpenRequest,
 ) -> Result<BlockingConnectBeginProbe, &'static str> {
-    let password = request.credential_grant.password.clone();
+    let password = Zeroizing::new(request.credential_grant.password.clone());
     let config = build_connector_config(request)?;
     let server_confirm = encode_server_confirm(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
     let mut connector = ironrdp_connector::ClientConnector::new(config, CLIENT_ADDR);
@@ -638,7 +665,7 @@ pub fn drive_live_blocking_connect_begin_to_tls_upgrade(
     request: ServiceRadarOpenRequest,
     timeout: Duration,
 ) -> Result<BlockingConnectBeginProbe, String> {
-    let password = request.credential_grant.password.clone();
+    let password = Zeroizing::new(request.credential_grant.password.clone());
     let plan = build_connector_plan(request).map_err(str::to_owned)?;
     let target = (plan.upstream_host.as_str(), plan.upstream_port)
         .to_socket_addrs()
@@ -710,7 +737,7 @@ fn drive_live_tls_upgrade_with_client_config(
     timeout: Duration,
     config: rustls::ClientConfig,
 ) -> Result<LiveTlsUpgradeProbe, String> {
-    let password = request.credential_grant.password.clone();
+    let password = Zeroizing::new(request.credential_grant.password.clone());
     let plan = build_connector_plan(request).map_err(str::to_owned)?;
     let target = resolve_rdp_target(&plan)?;
     let stream = connect_rdp_target(target, timeout)?;
@@ -765,7 +792,7 @@ pub fn drive_blocking_connect_finalize_until_server_input(
         return Err("server public key is required");
     }
 
-    let password = request.credential_grant.password.clone();
+    let password = Zeroizing::new(request.credential_grant.password.clone());
     let plan = build_connector_plan(request)?;
     let server_confirm = encode_server_confirm(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
     let mut connector = ironrdp_connector::ClientConnector::new(plan.connector_config, CLIENT_ADDR);
@@ -1247,6 +1274,7 @@ fn decode_initial_connection_request(
 }
 
 fn bytes_contain_secret(bytes: &[u8], secret: &[u8]) -> bool {
+    // Test/probe-only leak sentinel; production logging must not scan or copy secrets.
     !secret.is_empty() && bytes.windows(secret.len()).any(|window| window == secret)
 }
 
@@ -1340,6 +1368,33 @@ mod tests {
 
         assert_eq!(plan.upstream_host, "rdp.internal.example");
         assert_eq!(plan.tls_server_name, "rdp.internal.example");
+    }
+
+    #[test]
+    fn connector_plan_rejects_ip_literal_tls_server_name() {
+        let mut request = open_request("EXAMPLE\\alice", "required");
+        request.target.tls.server_name = "192.168.1.45".to_owned();
+
+        let err = crate::build_connector_plan(request).expect_err("plan rejected");
+
+        assert_eq!(err, "tls server name is invalid");
+    }
+
+    #[test]
+    fn connector_plan_rejects_invalid_tls_server_name_labels() {
+        for server_name in [
+            "-win.example",
+            "win..example",
+            "win.example-",
+            "win_example",
+        ] {
+            let mut request = open_request("EXAMPLE\\alice", "required");
+            request.target.tls.server_name = server_name.to_owned();
+
+            let err = crate::build_connector_plan(request).expect_err("plan rejected");
+
+            assert_eq!(err, "tls server name is invalid");
+        }
     }
 
     #[test]

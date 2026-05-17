@@ -824,7 +824,8 @@ func encodeDesktopOpenPayloadWithGrant(
 	t.Helper()
 
 	payload, err := json.Marshal(remoteaccess.DesktopOpenPayload{
-		Schema: "serviceradar.desktop.open.v1",
+		Schema:  "serviceradar.desktop.open.v1",
+		ActorID: "user-1",
 		Metadata: map[string]string{
 			"media_session_id": desktopConsoleMediaID,
 			"route_id":         desktopConsoleAgentID,
@@ -846,6 +847,7 @@ func testDesktopConsoleCredentialGrant() *remoteaccess.DesktopCredentialGrant {
 		Mode:      remoteaccess.DesktopCredentialModeMemoryUser,
 		Username:  "alice",
 		Password:  "secret",
+		ActorID:   "user-1",
 		SessionID: desktopConsoleSessionID,
 		TargetID:  desktopConsoleTargetID,
 		RouteID:   desktopConsoleAgentID,

@@ -99,9 +99,18 @@ Example policy shape:
     "clipboard_enabled": false,
     "file_enabled": false,
     "audio_enabled": false
+  },
+  "metadata": {
+    "rdp.dial_timeout_ms": "10000",
+    "rdp.kdc_timeout_ms": "10000"
   }
 }
 ```
+
+`rdp.dial_timeout_ms` and `rdp.kdc_timeout_ms` are optional trusted target
+metadata overrides for the helper's TCP dial stage and Kerberos/KDC stage. Keep
+them unset unless an environment needs a longer stage timeout; the helper caps
+each value at 30 seconds.
 
 Secure defaults:
 
@@ -159,10 +168,16 @@ TLS modes:
 - `tofu`: trust-on-first-use for controlled enrollment only.
 - `insecure`: lab-only. Do not use in production.
 
+`server_name` is the TLS certificate identity, not necessarily the dial address.
+It must be an ASCII DNS name using LDH labels (`A-Z`, `a-z`, `0-9`, hyphen, and
+dots). IP literals are rejected for verified TLS. You may dial an RDP target by
+private IP in `upstream.host`, but the target certificate must still contain a
+matching DNS SAN and `server_name` must use that DNS name.
+
 For production RDP, prefer `verify` with an explicit ServiceRadar-managed CA bundle
 or `pinned_ca` for private Windows/xrdp certificates. The helper path is expected
-to build a normal Rustls client verifier from PEM or DER CA bundle material, reject
-empty or malformed bundles, and disable TLS resumption because CredSSP does not
+to build a normal Rustls client verifier from PEM CA bundle material, reject DER,
+empty, or malformed bundles, and disable TLS resumption because CredSSP does not
 support it. `system` loads the selected agent host's native trust store and must
 fail closed if the store cannot be loaded or contains no usable roots. Do not use
 TOFU as a standing trust model; it implies persistent agent-local state and should
@@ -341,13 +356,14 @@ lab account and keep the CA bundle and password material outside the repository.
 and `SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD` are required. For production-style
 verification, also set `SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME` and
 `SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE`; otherwise a private or self-signed
-RDP certificate should fail closed at the TLS trust boundary.
+RDP certificate should fail closed at the TLS trust boundary. The live server
+name must be a DNS name from the target certificate, not an IP literal.
 
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.
 - Upstream: set the private target host or IP and port `3389`.
-- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate name plus registered CA bundle ID and PEM material for private Windows/xrdp certificates. Use a lab-only trust mode only for an isolated xrdp smoke target.
+- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate DNS name plus registered CA bundle ID and PEM material for private Windows/xrdp certificates. Use a lab-only trust mode only for an isolated xrdp smoke target.
 - Credential custody: start with `memory_user` so the user supplies their own domain or local account for one session.
 - Redirection: keep clipboard, drive, printer, audio, smart-card, and file-copy disabled.
 - Recording: keep metadata enabled and screen/clipboard/file/audio content disabled.

@@ -36,6 +36,7 @@ func ValidateDesktopOpenCredentialGrant(
 	nowUnix int64,
 ) (*DesktopCredentialGrant, error) {
 	sessionID = strings.TrimSpace(sessionID)
+	payload.ActorID = strings.TrimSpace(payload.ActorID)
 	if desktopCredentialModeRequiresGrant(payload.Target.Credential.Mode) && payload.CredentialGrant == nil {
 		return nil, fmt.Errorf("%w: desktop credential grant required", ErrInvalidDesktopTarget)
 	}
@@ -52,6 +53,12 @@ func ValidateDesktopOpenCredentialGrant(
 	}
 	if desktopCredentialModeRequiresGrant(payload.Target.Credential.Mode) && grant.SessionID == "" {
 		return nil, fmt.Errorf("%w: credential grant requires session binding", ErrInvalidDesktopTarget)
+	}
+	if desktopCredentialModeRequiresGrant(payload.Target.Credential.Mode) && payload.ActorID == "" {
+		return nil, fmt.Errorf("%w: credential grant requires authenticated actor binding", ErrInvalidDesktopTarget)
+	}
+	if grant.ActorID == "" || grant.ActorID != payload.ActorID {
+		return nil, fmt.Errorf("%w: credential grant actor mismatch", ErrInvalidDesktopTarget)
 	}
 
 	return &grant, nil
@@ -115,6 +122,9 @@ func NormalizeDesktopCredentialGrantAt(
 	case DesktopCredentialModeMemoryUser:
 		if grant.Username == "" || grant.Password == "" {
 			return grant, fmt.Errorf("%w: memory user credential grant requires username and password", ErrInvalidDesktopTarget)
+		}
+		if grant.ActorID == "" {
+			return grant, fmt.Errorf("%w: memory user credential grant requires actor binding", ErrInvalidDesktopTarget)
 		}
 		if grant.SessionID == "" {
 			return grant, fmt.Errorf("%w: memory user credential grant requires session binding", ErrInvalidDesktopTarget)

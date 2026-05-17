@@ -52,6 +52,7 @@ type desktopRDPHelperAdapter struct {
 type desktopRDPHelperOpenPayload struct {
 	Schema          string                               `json:"schema"`
 	SessionID       string                               `json:"session_id"`
+	ActorID         string                               `json:"actor_id"`
 	LocalAgentID    string                               `json:"local_agent_id"`
 	GatewayID       string                               `json:"gateway_id,omitempty"`
 	StartUnix       int64                                `json:"start_unix"`
@@ -104,6 +105,7 @@ func (a desktopRDPHelperAdapter) Open(
 	openPayload, err := json.Marshal(desktopRDPHelperOpenPayload{
 		Schema:          "serviceradar.rdp.helper.open.v1",
 		SessionID:       req.SessionID,
+		ActorID:         req.ActorID,
 		LocalAgentID:    req.LocalAgentID,
 		GatewayID:       req.CurrentGatewayID,
 		StartUnix:       req.StartUnix,

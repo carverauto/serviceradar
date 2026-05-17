@@ -36,16 +36,21 @@ const TLS_MODE_SYSTEM: &str = "system";
 const UNSUPPORTED_INPUT_EVENT: &str = "IronRDP input event is unsupported";
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const INVALID_GRAPHICS_UPDATE: &str = "IronRDP graphics update is invalid";
-#[cfg(serviceradar_rdp_connector_link_probe)]
 const MAX_DIAL_HOST_LEN: usize = 253;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const DEFAULT_CONNECTOR_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const MAX_CONNECTOR_STAGE_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const DEFAULT_KDC_PORT: u16 = 88;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const MAX_KDC_RESPONSE_BYTES: u32 = 64 * 1024;
 const METADATA_KDC_PROXY_URL: &str = "rdp.kdc_proxy_url";
 const METADATA_KERBEROS_HOSTNAME: &str = "rdp.kerberos_hostname";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const METADATA_DIAL_TIMEOUT_MS: &str = "rdp.dial_timeout_ms";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const METADATA_KDC_TIMEOUT_MS: &str = "rdp.kdc_timeout_ms";
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const METADATA_MEDIA_SESSION_ID: &str = "media_session_id";
 
@@ -108,6 +113,50 @@ impl Default for ConnectorRuntimePolicy {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn connector_runtime_policy_from_request(
+    request: &OpenPayload,
+) -> Result<ConnectorRuntimePolicy, BackendError> {
+    Ok(ConnectorRuntimePolicy {
+        dial_timeout: optional_metadata_timeout_ms(
+            &request.target.metadata,
+            METADATA_DIAL_TIMEOUT_MS,
+        )?
+        .unwrap_or(DEFAULT_CONNECTOR_TIMEOUT),
+        kdc_timeout: optional_metadata_timeout_ms(
+            &request.target.metadata,
+            METADATA_KDC_TIMEOUT_MS,
+        )?
+        .unwrap_or(DEFAULT_CONNECTOR_TIMEOUT),
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn optional_metadata_timeout_ms(
+    metadata: &std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Result<Option<Duration>, BackendError> {
+    let Some(value) = metadata.get(key).map(|value| value.trim()) else {
+        return Ok(None);
+    };
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let millis = value
+        .parse::<u64>()
+        .map_err(|_| BackendError::Unsupported(INVALID_CONNECTION_PLAN))?;
+    if millis == 0 {
+        return Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    let timeout = Duration::from_millis(millis);
+    if timeout > MAX_CONNECTOR_STAGE_TIMEOUT {
+        return Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    Ok(Some(timeout))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 struct ConnectorBeginHandoff<S: Read + Write> {
     framed: ironrdp_blocking::Framed<S>,
     should_upgrade: ironrdp_blocking::ShouldUpgrade,
@@ -115,6 +164,7 @@ struct ConnectorBeginHandoff<S: Read + Write> {
     dial_target: ConnectorDialTarget,
     tls_config: VerifiedTlsClientConfig,
     server_name: ironrdp_connector::ServerName,
+    kerberos_binding: ConnectorKerberosBinding,
     kerberos_config: Option<ironrdp_connector::credssp::KerberosConfig>,
 }
 
@@ -150,6 +200,7 @@ struct ConnectorCredsspHandoff<S: Read + Write> {
     connector: ironrdp_connector::ClientConnector,
     server_name: ironrdp_connector::ServerName,
     server_public_key: Vec<u8>,
+    kerberos_binding: ConnectorKerberosBinding,
     kerberos_config: Option<ironrdp_connector::credssp::KerberosConfig>,
 }
 
@@ -169,6 +220,13 @@ struct ConnectorFinalizedHandoff<S: Read + Write> {
     framed: ironrdp_blocking::Framed<S>,
     connection_result: ironrdp_connector::ConnectionResult,
     desktop_size: ironrdp_connector::DesktopSize,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct ConnectorKerberosBinding {
+    kdc_proxy_url: Option<String>,
+    hostname: Option<String>,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -662,7 +720,7 @@ impl RdpBackend for IronRdpBackend {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         }
         let plan = build_nonsecret_connection_plan(&request)?;
-        let credential = build_memory_user_credential(grant)?;
+        let credential = build_memory_user_credential(grant, &request.actor_id)?;
         if !credential.has_material() {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         }
@@ -698,12 +756,9 @@ fn open_connector_for_experimental(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
 ) -> Result<Box<dyn RdpBackendSession>, BackendError> {
-    open_connector_for_experimental_with_runtime(
-        request,
-        plan,
-        credential,
-        ConnectorRuntimePolicy::default(),
-    )
+    let runtime = connector_runtime_policy_from_request(request)?;
+
+    open_connector_for_experimental_with_runtime(request, plan, credential, runtime)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1058,6 +1113,7 @@ where
     let config = build_connector_config_for_probe(plan, credential);
     let tls_config = build_verified_tls_client_config_for_plan(plan)?;
     let kerberos_config = build_connector_kerberos_config_for_plan(plan)?;
+    let kerberos_binding = connector_kerberos_binding_from_config(&kerberos_config);
     let server_name = ironrdp_connector::ServerName::from(&plan.tls_server_name);
     let DialedConnectorStream {
         stream,
@@ -1077,6 +1133,7 @@ where
         dial_target,
         tls_config,
         server_name,
+        kerberos_binding,
         kerberos_config,
     })
 }
@@ -1145,8 +1202,12 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_binding,
         kerberos_config,
     } = handoff;
+    if let Err(err) = validate_connector_kerberos_binding(&kerberos_binding, &kerberos_config) {
+        return Err(ConnectorFinalizeFailure { framed, error: err });
+    }
 
     match ironrdp_blocking::connect_finalize(
         upgraded,
@@ -1193,8 +1254,10 @@ where
         dial_target: _dial_target,
         tls_config: _tls_config,
         server_name,
+        kerberos_binding,
         kerberos_config,
     } = handoff;
+    validate_connector_kerberos_binding(&kerberos_binding, &kerberos_config)?;
     let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
 
     Ok(ConnectorCredsspHandoff {
@@ -1203,6 +1266,7 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_binding,
         kerberos_config,
     })
 }
@@ -1221,8 +1285,10 @@ where
         dial_target: _dial_target,
         tls_config,
         server_name,
+        kerberos_binding,
         kerberos_config,
     } = handoff;
+    validate_connector_kerberos_binding(&kerberos_binding, &kerberos_config)?;
     let (stream, leftover) = framed.into_inner();
     if !leftover.is_empty() {
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
@@ -1239,6 +1305,9 @@ where
             .conn
             .complete_io(&mut tls_stream.sock)
             .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    }
+    if tls_stream.conn.is_handshaking() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 
     let peer_certificate = tls_stream
@@ -1258,6 +1327,7 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_binding,
         kerberos_config,
     })
 }
@@ -1335,6 +1405,35 @@ fn build_connector_kerberos_config_for_plan(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn connector_kerberos_binding_from_config(
+    config: &Option<ironrdp_connector::credssp::KerberosConfig>,
+) -> ConnectorKerberosBinding {
+    let Some(config) = config else {
+        return ConnectorKerberosBinding::default();
+    };
+
+    ConnectorKerberosBinding {
+        kdc_proxy_url: config
+            .kdc_proxy_url
+            .as_ref()
+            .map(|url| url.as_str().to_owned()),
+        hostname: config.hostname.clone(),
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn validate_connector_kerberos_binding(
+    binding: &ConnectorKerberosBinding,
+    config: &Option<ironrdp_connector::credssp::KerberosConfig>,
+) -> Result<(), BackendError> {
+    if connector_kerberos_binding_from_config(config) != *binding {
+        return Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    Ok(())
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 fn build_verified_tls_client_config_from_certificates(
     certificates: Vec<rustls::pki_types::CertificateDer<'static>>,
     error_message: &'static str,
@@ -1373,27 +1472,25 @@ fn parse_registered_ca_bundle_for_probe(
         return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
     }
 
-    if trimmed
+    if !trimmed
         .windows(b"-----BEGIN CERTIFICATE-----".len())
         .any(|window| window == b"-----BEGIN CERTIFICATE-----")
     {
-        use rustls::pki_types::pem::PemObject as _;
-
-        let mut certificates = Vec::new();
-        for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(trimmed) {
-            certificates
-                .push(certificate.map_err(|_| BackendError::Unsupported(INVALID_TLS_CA_BUNDLE))?);
-        }
-        if certificates.is_empty() {
-            return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
-        }
-
-        return Ok(certificates);
+        return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
     }
 
-    Ok(vec![rustls::pki_types::CertificateDer::from(
-        trimmed.to_vec(),
-    )])
+    use rustls::pki_types::pem::PemObject as _;
+
+    let mut certificates = Vec::new();
+    for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(trimmed) {
+        certificates
+            .push(certificate.map_err(|_| BackendError::Unsupported(INVALID_TLS_CA_BUNDLE))?);
+    }
+    if certificates.is_empty() {
+        return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+    }
+
+    Ok(certificates)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -2012,6 +2109,7 @@ impl Write for ScriptedStream {
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
 fn bytes_contain_secret(bytes: &[u8], secret: &[u8]) -> bool {
+    // Test/probe-only leak sentinel; production logging must not scan or copy secrets.
     !secret.is_empty() && bytes.windows(secret.len()).any(|window| window == secret)
 }
 
@@ -2121,7 +2219,7 @@ fn open_live_helper_probe_session(
 
     let plan = build_nonsecret_connection_plan(payload)
         .map_err(|err| format!("live connection plan failed: {err}"))?;
-    let credential = build_memory_user_credential(grant)
+    let credential = build_memory_user_credential(grant, &payload.actor_id)
         .map_err(|err| format!("live credential assembly failed: {err}"))?;
     if !credential.has_material() {
         return Err("live credential grant has no usable credential material".to_owned());
@@ -2129,7 +2227,8 @@ fn open_live_helper_probe_session(
     prepare_connector_open_for_experimental(&plan, &credential)
         .map_err(|err| format!("live connector preflight failed: {err}"))?;
 
-    let runtime = ConnectorRuntimePolicy::default();
+    let runtime = connector_runtime_policy_from_request(payload)
+        .map_err(|err| format!("live connector runtime policy failed: {err}"))?;
     let dialed = dial_connector_tcp_for_probe(&plan, runtime.dial_timeout)
         .map_err(|err| format!("live TCP dial failed: {err}"))?;
     let begin_handoff =
@@ -2164,8 +2263,11 @@ where
         dial_target: _dial_target,
         tls_config,
         server_name,
+        kerberos_binding,
         kerberos_config,
     } = handoff;
+    validate_connector_kerberos_binding(&kerberos_binding, &kerberos_config)
+        .map_err(|err| format!("live TLS upgrade failed: {err}"))?;
     let (stream, leftover) = framed.into_inner();
     if !leftover.is_empty() {
         return Err(
@@ -2204,6 +2306,7 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_binding,
         kerberos_config,
     })
 }
@@ -2237,6 +2340,7 @@ fn live_adapter_open_payload_template() -> &'static str {
     r#"{
         "schema":"serviceradar.rdp.helper.open.v1",
         "session_id":"session-live-1",
+        "actor_id":"user-live-1",
         "local_agent_id":"agent-live-1",
         "gateway_id":"gateway-live-1",
         "start_unix":1778636531,
@@ -2247,20 +2351,24 @@ fn live_adapter_open_payload_template() -> &'static str {
             "protocol":"rdp",
             "route":{"selected_agent_id":"agent-live-1","selected_gateway_id":"gateway-live-1"},
             "upstream":{"host":"127.0.0.1","port":3389},
-            "tls":{"mode":"verify","nla_mode":"required","server_name":"127.0.0.1"},
+            "tls":{"mode":"verify","nla_mode":"required","server_name":"win-live.local"},
             "credential":{"mode":"memory_user","allowed_principals":["placeholder"]},
             "screen":{"max_width":1920,"max_height":1080,"frame_rate":30,"bitrate_bps":8000000,"idle_seconds":900,"ttl_seconds":3600},
             "redirection":{"clipboard_mode":"disabled"},
             "recording":{"metadata_enabled":true}
         },
-        "credential_grant":{"mode":"memory_user","username":"placeholder","password":"placeholder","session_id":"session-live-1","target_id":"target-live-1"}
+        "credential_grant":{"mode":"memory_user","username":"placeholder","password":"placeholder","actor_id":"user-live-1","session_id":"session-live-1","target_id":"target-live-1"}
     }"#
 }
 
 fn is_memory_user_grant(grant: &DesktopCredentialGrant) -> bool {
     grant.mode == "memory_user"
         && !grant.username.trim().is_empty()
-        && !grant.password.expose().is_empty()
+        && grant
+            .password
+            .expose()
+            .map(|password| !password.is_empty())
+            .unwrap_or(false)
 }
 
 fn build_nonsecret_connection_plan(
@@ -2281,7 +2389,10 @@ fn build_nonsecret_connection_plan(
     let desktop_height = u16::try_from(request.target.screen.max_height)
         .map_err(|_| BackendError::Unsupported(INVALID_CONNECTION_PLAN))?;
 
-    if upstream_host.is_empty() || effective_tls_server_name.is_empty() {
+    if upstream_host.is_empty()
+        || effective_tls_server_name.is_empty()
+        || !tls_server_name_is_valid_dns_name(effective_tls_server_name)
+    {
         return Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN));
     }
 
@@ -2297,6 +2408,27 @@ fn build_nonsecret_connection_plan(
         ),
         desktop_width,
         desktop_height,
+    })
+}
+
+fn tls_server_name_is_valid_dns_name(name: &str) -> bool {
+    if name.parse::<std::net::IpAddr>().is_ok()
+        || name.is_empty()
+        || name.len() > MAX_DIAL_HOST_LEN
+        || name.starts_with('.')
+        || name.ends_with('.')
+    {
+        return false;
+    }
+
+    name.split('.').all(|label| {
+        !label.is_empty()
+            && label.len() <= 63
+            && !label.starts_with('-')
+            && !label.ends_with('-')
+            && label
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
     })
 }
 
@@ -2338,10 +2470,18 @@ fn build_tls_trust_source(request: &OpenPayload) -> Result<TlsTrustSource, Backe
 
 fn build_memory_user_credential(
     grant: &DesktopCredentialGrant,
+    authenticated_actor_id: &str,
 ) -> Result<MemoryUserCredential, BackendError> {
     let raw_username = grant.username.trim();
-    let password = grant.password.expose();
-    if raw_username.is_empty() || password.is_empty() {
+    let password = grant
+        .password
+        .expose()
+        .map_err(|_| BackendError::Unsupported(MEMORY_USER_REQUIRED))?;
+    if raw_username.is_empty()
+        || password.is_empty()
+        || grant.actor_id.trim().is_empty()
+        || grant.actor_id != authenticated_actor_id
+    {
         return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
     }
     let (domain, username) = split_domain_username(raw_username);
@@ -2421,6 +2561,47 @@ mod tests {
         assert_eq!(plan.tls_server_name, "win.example");
     }
 
+    #[test]
+    fn nonsecret_connection_plan_rejects_ip_literal_tls_server_name() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"192.168.1.45"}"#,
+        );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+
+        let err = build_nonsecret_connection_plan(&payload).expect_err("plan rejected");
+
+        assert!(matches!(
+            err,
+            BackendError::Unsupported(INVALID_CONNECTION_PLAN)
+        ));
+    }
+
+    #[test]
+    fn nonsecret_connection_plan_rejects_invalid_tls_server_name_labels() {
+        for server_name in [
+            "-win.example",
+            "win..example",
+            "win.example-",
+            "win_example",
+        ] {
+            let raw = valid_open_payload().replace(
+                r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+                &format!(
+                    r#""tls":{{"mode":"verify","nla_mode":"required","server_name":"{server_name}"}}"#
+                ),
+            );
+            let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+
+            let err = build_nonsecret_connection_plan(&payload).expect_err("plan rejected");
+
+            assert!(matches!(
+                err,
+                BackendError::Unsupported(INVALID_CONNECTION_PLAN)
+            ));
+        }
+    }
+
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_plan_carries_kerberos_metadata() {
@@ -2462,6 +2643,69 @@ mod tests {
         };
 
         assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_kerberos_binding_revalidation_rejects_drift() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.metadata.insert(
+            METADATA_KDC_PROXY_URL.to_owned(),
+            "tcp://kdc.example:88".to_owned(),
+        );
+        payload.target.metadata.insert(
+            METADATA_KERBEROS_HOSTNAME.to_owned(),
+            "win.example".to_owned(),
+        );
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let config = build_connector_kerberos_config_for_plan(&plan).expect("Kerberos config");
+        let binding = connector_kerberos_binding_from_config(&config);
+        let mut drifted = config.clone();
+        drifted.as_mut().expect("Kerberos config present").hostname =
+            Some("changed.example".to_owned());
+
+        let err = validate_connector_kerberos_binding(&binding, &drifted).expect_err("drift");
+
+        assert!(matches!(
+            err,
+            BackendError::Unsupported(INVALID_CONNECTION_PLAN)
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_runtime_policy_uses_bounded_stage_timeout_metadata() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload
+            .target
+            .metadata
+            .insert(METADATA_DIAL_TIMEOUT_MS.to_owned(), "1500".to_owned());
+        payload
+            .target
+            .metadata
+            .insert(METADATA_KDC_TIMEOUT_MS.to_owned(), "2500".to_owned());
+
+        let runtime = connector_runtime_policy_from_request(&payload).expect("runtime policy");
+
+        assert_eq!(runtime.dial_timeout, Duration::from_millis(1500));
+        assert_eq!(runtime.kdc_timeout, Duration::from_millis(2500));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_runtime_policy_rejects_unbounded_stage_timeout_metadata() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.metadata.insert(
+            METADATA_KDC_TIMEOUT_MS.to_owned(),
+            (MAX_CONNECTOR_STAGE_TIMEOUT.as_millis() + 1).to_string(),
+        );
+
+        let err = connector_runtime_policy_from_request(&payload).expect_err("runtime rejected");
+
+        assert!(matches!(
+            err,
+            BackendError::Unsupported(INVALID_CONNECTION_PLAN)
+        ));
     }
 
     #[test]
@@ -2519,6 +2763,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -2545,6 +2790,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -2575,6 +2821,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -2605,6 +2852,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -2699,6 +2947,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -2758,6 +3007,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -2800,6 +3050,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -2839,6 +3090,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -2878,6 +3130,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -2931,6 +3184,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -3073,6 +3327,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -3123,6 +3378,7 @@ mod tests {
             .expect("credential grant")
             .password
             .expose()
+            .expect("password utf8")
             .as_bytes()
             .to_vec();
         let server = spawn_hybrid_ex_tls_capture_server(listener);
@@ -3136,6 +3392,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3177,6 +3434,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
@@ -3230,6 +3488,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3255,6 +3514,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3281,6 +3541,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3304,6 +3565,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3327,6 +3589,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let server_confirm =
@@ -3371,6 +3634,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let server_confirm =
@@ -3402,6 +3666,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let server_confirm =
@@ -3446,6 +3711,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let server_confirm =
@@ -3484,6 +3750,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let server_confirm =
@@ -3529,6 +3796,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let server_confirm =
@@ -3583,6 +3851,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let (connection_result, desktop_size) =
@@ -3621,6 +3890,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let (connection_result, desktop_size) =
@@ -3654,6 +3924,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let (connection_result, desktop_size) =
@@ -3710,6 +3981,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3736,6 +4008,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3774,19 +4047,12 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
-    fn connector_probe_registered_ca_bundle_builds_verified_tls_client_config_from_der() {
-        let probe =
+    fn connector_probe_registered_ca_bundle_rejects_der_material() {
+        let err =
             build_verified_tls_client_config_for_registered_ca_bundle(&fixture_server_cert_der())
-                .expect("verified TLS config")
-                .probe();
+                .expect_err("der material rejected");
 
-        assert_eq!(
-            probe,
-            VerifiedTlsClientConfigProbe {
-                trusted_root_count: 1,
-                resumption_disabled_for_credssp: true,
-            }
-        );
+        assert_eq!(err, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -3908,6 +4174,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
 
@@ -3929,6 +4196,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let mut session = ActiveStageSessionProbe::new(
@@ -3961,6 +4229,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let (connection_result, desktop_size) =
@@ -3995,6 +4264,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let mut session = ActiveStageSessionProbe::new(
@@ -4025,6 +4295,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let mut session = ActiveStageSessionProbe::new(
@@ -4077,6 +4348,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let mut session = ActiveStageSessionProbe::new(
@@ -4107,6 +4379,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let mut session = ActiveStageSessionProbe::new(
@@ -4138,6 +4411,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let inner = ActiveStageSessionProbe::new(
@@ -4174,6 +4448,7 @@ mod tests {
                 .credential_grant
                 .as_ref()
                 .expect("memory user credential grant"),
+            &payload.actor_id,
         )
         .expect("credential");
         let (connection_result, desktop_size) =

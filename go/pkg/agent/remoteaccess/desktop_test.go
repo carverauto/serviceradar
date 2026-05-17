@@ -22,6 +22,7 @@ const (
 	remoteAccessTestGatewayID      = "gateway-1"
 	desktopTestHost                = "windows.internal"
 	desktopTestPassword            = "secret"
+	desktopTestActorID             = "user-1"
 	desktopTestBrokeredSecret      = "secretref:rdp/admin"
 	remoteAccessTestOtherSessionID = "other-session"
 	desktopTestExpiresUnix         = 4_102_444_800
@@ -53,6 +54,7 @@ func validDesktopMemoryGrant(sessionID string) *DesktopCredentialGrant {
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice",
 		Password:  desktopTestPassword,
+		ActorID:   desktopTestActorID,
 		SessionID: sessionID,
 		TargetID:  desktopTestTargetID,
 		RouteID:   desktopTestAgentID,

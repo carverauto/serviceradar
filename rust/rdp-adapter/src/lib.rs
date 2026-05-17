@@ -43,6 +43,7 @@ const MSG_ACK: u8 = 4;
 const MSG_CLOSE: u8 = 5;
 const MSG_ERROR: u8 = 6;
 const DEFAULT_BACKEND_PUMP_INTERVAL: Duration = Duration::from_millis(10);
+const MAX_SESSION_ACK_CREDIT_BYTES: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum ProtocolError {
@@ -137,7 +138,23 @@ struct Frame {
 struct ActiveSession {
     session_id: String,
     screen_policy: protocol::DesktopScreenPolicy,
+    ack_credit_bytes: u64,
     session: Box<dyn RdpBackendSession>,
+}
+
+impl ActiveSession {
+    fn add_ack_credit(&mut self, credit_bytes: u64) -> Result<(), protocol::DesktopMediaAckError> {
+        self.ack_credit_bytes = self
+            .ack_credit_bytes
+            .checked_add(credit_bytes)
+            .ok_or(protocol::DesktopMediaAckError::CreditTooLarge)?;
+
+        if self.ack_credit_bytes > MAX_SESSION_ACK_CREDIT_BYTES {
+            return Err(protocol::DesktopMediaAckError::CreditTooLarge);
+        }
+
+        Ok(())
+    }
 }
 
 enum FrameAction {
@@ -328,6 +345,7 @@ where
                     *active_session = Some(ActiveSession {
                         session_id,
                         screen_policy,
+                        ack_credit_bytes: 0,
                         session,
                     });
                     if let Some(active) = active_session.as_mut() {
@@ -374,6 +392,10 @@ where
                     return Err(err.into());
                 }
             };
+            if let Err(err) = active.add_ack_credit(ack.credit_bytes) {
+                write_error_frame(writer, "invalid rdp helper ack payload")?;
+                return Err(err.into());
+            }
             if let Err(err) = active.session.ack(&ack) {
                 write_error_frame(writer, err.safe_message())?;
                 return Err(err.into());
@@ -704,7 +726,7 @@ mod tests {
             parsed
                 .credential_grant
                 .as_ref()
-                .map(|grant| grant.password.expose()),
+                .and_then(|grant| grant.password.expose().ok()),
             Some("secret")
         );
         assert!(payload.iter().all(|byte| *byte == 0));
@@ -1121,6 +1143,44 @@ mod tests {
             ProtocolError::InvalidAckPayload(protocol::DesktopMediaAckError::SessionMismatch)
         ));
         assert!(state.borrow().acks.is_empty());
+        assert_eq!(
+            read_frame(&mut output.as_slice()).expect("read error frame"),
+            Some(Frame {
+                message_type: MSG_ERROR,
+                payload: b"invalid rdp helper ack payload".to_vec(),
+            })
+        );
+    }
+
+    #[test]
+    fn run_stdio_rejects_excessive_session_ack_credit_before_backend_session() {
+        let mut input = Vec::new();
+        write_frame(
+            &mut input,
+            MSG_OPEN,
+            protocol::tests::valid_open_payload().as_bytes(),
+        )
+        .expect("write open frame");
+        let max_ack_payload =
+            valid_ack_payload().replace(r#""credit_bytes":8192"#, r#""credit_bytes":4194304"#);
+        for _ in 0..17 {
+            write_frame(&mut input, MSG_ACK, max_ack_payload.as_bytes()).expect("write ack frame");
+        }
+
+        let state = Rc::new(RefCell::new(RecordingState::default()));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        let err = run_stdio_with_backend(&mut input.as_slice(), &mut output, &mut backend)
+            .expect_err("ack rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidAckPayload(protocol::DesktopMediaAckError::CreditTooLarge)
+        ));
+        assert_eq!(state.borrow().acks.len(), 16);
         assert_eq!(
             read_frame(&mut output.as_slice()).expect("read error frame"),
             Some(Frame {

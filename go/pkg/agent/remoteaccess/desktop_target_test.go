@@ -180,11 +180,12 @@ func TestDecodeDesktopOpenPayloadValidatesTargetAndGrantBinding(t *testing.T) {
 	target.ApprovalRequired = true
 
 	payload := DesktopOpenPayload{
-		Target: target,
+		ActorID: desktopTestActorID,
+		Target:  target,
 		CredentialGrant: &DesktopCredentialGrant{
 			Mode:                DesktopCredentialModeBrokeredSecret,
 			CredentialSecretRef: desktopTestBrokeredSecret,
-			ActorID:             "user-1",
+			ActorID:             desktopTestActorID,
 			SessionID:           "session-1",
 			TargetID:            desktopTestTargetID,
 			RouteID:             desktopTestAgentID,
@@ -225,11 +226,12 @@ func TestDecodeDesktopOpenFrameForAgentEnforcesSelectedRoute(t *testing.T) {
 	target.ApprovalRequired = true
 
 	payload := DesktopOpenPayload{
-		Target: target,
+		ActorID: desktopTestActorID,
+		Target:  target,
 		CredentialGrant: &DesktopCredentialGrant{
 			Mode:                DesktopCredentialModeBrokeredSecret,
 			CredentialSecretRef: desktopTestBrokeredSecret,
-			ActorID:             "user-1",
+			ActorID:             desktopTestActorID,
 			SessionID:           fakeRemoteSessionID,
 			TargetID:            desktopTestTargetID,
 			RouteID:             desktopTestAgentID,

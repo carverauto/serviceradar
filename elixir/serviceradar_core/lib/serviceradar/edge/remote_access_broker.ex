@@ -681,6 +681,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
             schema: "serviceradar.desktop.open.v1",
             protocol: protocol,
             session_id: session_id(session),
+            actor_id: string_value(session, "requested_by"),
             agent_id: selected_agent_id,
             gateway_id: string_value(session, "gateway_id"),
             metadata: desktop_media_metadata(session, target_id, selected_agent_id),

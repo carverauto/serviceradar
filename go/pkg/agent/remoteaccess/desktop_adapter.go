@@ -69,6 +69,7 @@ type DesktopRDPAdapter interface {
 
 type DesktopAdapterOpenRequest struct {
 	SessionID        string
+	ActorID          string
 	LocalAgentID     string
 	CurrentGatewayID string
 	StartUnix        int64
@@ -146,6 +147,7 @@ func (r DesktopAdapterRuntime) OpenRDP(
 
 	session, err := r.Adapter.Open(ctx, DesktopAdapterOpenRequest{
 		SessionID:        frame.SessionID,
+		ActorID:          payload.ActorID,
 		LocalAgentID:     localAgentID,
 		CurrentGatewayID: strings.TrimSpace(r.CurrentGatewayID),
 		StartUnix:        nowUnix,

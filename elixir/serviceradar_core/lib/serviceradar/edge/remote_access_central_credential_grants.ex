@@ -107,6 +107,7 @@ defmodule ServiceRadar.Edge.RemoteAccessCentralCredentialGrants do
       "schema" => @grant_schema,
       "grant_type" => @grant_type,
       "session_id" => value_string(session, [:id, "id", :session_id, "session_id"]),
+      "actor_id" => value_string(session, [:requested_by, "requested_by"]),
       "agent_id" => value_string(session, [:agent_id, "agent_id"]),
       "gateway_id" => value_string(session, [:gateway_id, "gateway_id"]),
       "protocol" => value_string(session, [:protocol, "protocol"]),

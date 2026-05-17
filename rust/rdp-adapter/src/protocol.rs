@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::str::Utf8Error;
 
-use serde::Deserialize;
+use serde::{de, Deserialize};
 use zeroize::Zeroize;
 
 const OPEN_SCHEMA: &str = "serviceradar.rdp.helper.open.v1";
@@ -41,6 +42,8 @@ const MAX_TLS_CA_BUNDLE_PEM_BYTES: usize = 256 * 1024;
 pub struct OpenPayload {
     pub schema: String,
     pub session_id: String,
+    #[serde(default)]
+    pub actor_id: String,
     pub local_agent_id: String,
     #[serde(default)]
     pub gateway_id: String,
@@ -95,7 +98,7 @@ pub struct DesktopTlsPolicy {
     pub mode: String,
     #[serde(default)]
     pub ca_bundle_id: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_ca_bundle_pem")]
     pub ca_bundle_pem: String,
     #[serde(default)]
     pub nla_mode: String,
@@ -288,8 +291,8 @@ impl SensitiveString {
         self.value.is_empty()
     }
 
-    pub(crate) fn expose(&self) -> &str {
-        std::str::from_utf8(&self.value).unwrap_or("")
+    pub(crate) fn expose(&self) -> Result<&str, Utf8Error> {
+        std::str::from_utf8(&self.value)
     }
 
     fn clear(&mut self) {
@@ -326,11 +329,51 @@ impl<'de> Deserialize<'de> for SensitiveString {
     }
 }
 
+fn deserialize_ca_bundle_pem<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct BoundedCaBundleVisitor;
+
+    impl de::Visitor<'_> for BoundedCaBundleVisitor {
+        type Value = String;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a bounded PEM CA bundle string")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if value.len() > MAX_TLS_CA_BUNDLE_PEM_BYTES {
+                return Err(E::custom("CA bundle exceeds maximum length"));
+            }
+
+            Ok(value.to_owned())
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            if value.len() > MAX_TLS_CA_BUNDLE_PEM_BYTES {
+                return Err(E::custom("CA bundle exceeds maximum length"));
+            }
+
+            Ok(value)
+        }
+    }
+
+    deserializer.deserialize_string(BoundedCaBundleVisitor)
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum OpenPayloadError {
     Decode,
     InvalidSchema,
     MissingSession,
+    MissingActor,
     InvalidSessionPolicy,
     MissingAgent,
     UnsupportedProtocol,
@@ -436,6 +479,7 @@ impl fmt::Display for OpenPayloadError {
             Self::Decode => f.write_str("decode failed"),
             Self::InvalidSchema => f.write_str("schema is unsupported"),
             Self::MissingSession => f.write_str("session id is required"),
+            Self::MissingActor => f.write_str("actor id is required"),
             Self::InvalidSessionPolicy => f.write_str("session policy is invalid"),
             Self::MissingAgent => f.write_str("local agent id is required"),
             Self::UnsupportedProtocol => f.write_str("target protocol is unsupported"),
@@ -538,6 +582,9 @@ fn validate_open_payload(payload: &OpenPayload) -> Result<(), OpenPayloadError> 
     if payload.session_id.trim().is_empty() {
         return Err(OpenPayloadError::MissingSession);
     }
+    if payload.actor_id.trim().is_empty() {
+        return Err(OpenPayloadError::MissingActor);
+    }
     if payload.start_unix <= 0 {
         return Err(OpenPayloadError::InvalidSessionPolicy);
     }
@@ -639,7 +686,7 @@ fn validate_desktop_input_frame(
         return Err(DesktopFrameError::InputTokenTooLarge);
     }
     if input.kind == INPUT_KIND_POINTER
-        && (input.x > policy.max_width || input.y > policy.max_height)
+        && (input.x >= policy.max_width || input.y >= policy.max_height)
     {
         return Err(DesktopFrameError::PointerOutOfBounds);
     }
@@ -729,9 +776,11 @@ fn helper_tls_policy_supported(policy: &DesktopTlsPolicy) -> bool {
         return false;
     }
 
-    let has_bundle_id = !policy.ca_bundle_id.trim().is_empty();
-    let has_bundle_pem = !policy.ca_bundle_pem.trim().is_empty();
-    let bundle_pair_valid = has_bundle_id == has_bundle_pem;
+    let has_bundle_id = !policy.ca_bundle_id.is_empty();
+    let has_bundle_pem = !policy.ca_bundle_pem.is_empty();
+    let bundle_pair_valid = has_bundle_id == has_bundle_pem
+        && (!has_bundle_id
+            || (!policy.ca_bundle_id.trim().is_empty() && !policy.ca_bundle_pem.trim().is_empty()));
 
     match policy.mode.as_str() {
         TLS_MODE_VERIFY => bundle_pair_valid,
@@ -793,10 +842,16 @@ fn validate_credential_grant(payload: &OpenPayload) -> Result<(), OpenPayloadErr
     if !grant.session_id.is_empty() && grant.session_id != payload.session_id {
         return Err(OpenPayloadError::InvalidCredentialGrant);
     }
+    if grant.actor_id.trim().is_empty() || grant.actor_id != payload.actor_id {
+        return Err(OpenPayloadError::InvalidCredentialGrant);
+    }
 
     match grant.mode.as_str() {
         CREDENTIAL_MODE_MEMORY_USER => {
-            if grant.username.trim().is_empty() || grant.password.is_empty() {
+            if grant.username.trim().is_empty()
+                || grant.password.is_empty()
+                || grant.password.expose().is_err()
+            {
                 return Err(OpenPayloadError::InvalidCredentialGrant);
             }
             if grant.session_id.trim().is_empty()
@@ -817,10 +872,13 @@ fn validate_credential_grant(payload: &OpenPayload) -> Result<(), OpenPayloadErr
             }
         }
         CREDENTIAL_MODE_BROKERED_SECRET => {
+            let Ok(secret_ref) = grant.credential_secret_ref.expose() else {
+                return Err(OpenPayloadError::InvalidCredentialGrant);
+            };
+
             if grant.credential_secret_ref.is_empty()
-                || grant.credential_secret_ref.expose() != target.credential.credential_secret_ref
+                || secret_ref != target.credential.credential_secret_ref
                 || !grant.password.is_empty()
-                || grant.actor_id.trim().is_empty()
                 || grant.session_id.trim().is_empty()
                 || grant.route_id.trim().is_empty()
                 || grant.session_id != payload.session_id
@@ -844,6 +902,7 @@ pub(crate) mod tests {
         r#"{
             "schema":"serviceradar.rdp.helper.open.v1",
             "session_id":"session-1",
+            "actor_id":"user-1",
             "local_agent_id":"agent-1",
             "gateway_id":"gateway-1",
             "start_unix":1778636531,
@@ -860,7 +919,7 @@ pub(crate) mod tests {
                 "redirection":{"clipboard_mode":"disabled"},
                 "recording":{"metadata_enabled":true}
             },
-            "credential_grant":{"mode":"memory_user","username":"alice","password":"secret","session_id":"session-1","target_id":"target-1"}
+            "credential_grant":{"mode":"memory_user","username":"alice","password":"secret","actor_id":"user-1","session_id":"session-1","target_id":"target-1"}
         }"#
         .to_string()
     }
@@ -1002,7 +1061,7 @@ pub(crate) mod tests {
     fn parse_desktop_frame_rejects_pointer_out_of_bounds() {
         let policy = test_screen_policy();
         let err = parse_desktop_frame(
-            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"pointer","x":1921,"y":360}}"#,
+            br#"{"session_id":"session-1","protocol":"rdp","frame_type":"desktop.input","input":{"kind":"pointer","x":1920,"y":360}}"#,
             "session-1",
             &policy,
         )
@@ -1099,6 +1158,25 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn parse_open_payload_rejects_missing_actor_binding() {
+        let raw = valid_open_payload().replace(r#""actor_id":"user-1","#, "");
+        let err = parse_open_payload(raw.as_bytes()).expect_err("actor rejected");
+
+        assert_eq!(err, OpenPayloadError::MissingActor);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_grant_actor_mismatch() {
+        let raw = valid_open_payload().replace(
+            r#""actor_id":"user-1","session_id":"session-1""#,
+            r#""actor_id":"user-2","session_id":"session-1""#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("credential rejected");
+
+        assert_eq!(err, OpenPayloadError::InvalidCredentialGrant);
+    }
+
+    #[test]
     fn parse_open_payload_rejects_memory_user_missing_password() {
         let raw = valid_open_payload().replace(r#""password":"secret","#, "");
         let err = parse_open_payload(raw.as_bytes()).expect_err("credential rejected");
@@ -1111,6 +1189,7 @@ pub(crate) mod tests {
         let raw = r#"{
             "schema":"serviceradar.rdp.helper.open.v1",
             "session_id":"session-1",
+            "actor_id":"user-1",
             "local_agent_id":"agent-1",
             "start_unix":1778636531,
             "target":{
@@ -1246,6 +1325,17 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn parse_open_payload_rejects_whitespace_only_ca_bundle_pair() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","ca_bundle_id":"   ","ca_bundle_pem":"   ","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
     fn parse_open_payload_rejects_oversized_ca_bundle_material() {
         let oversized = "a".repeat(MAX_TLS_CA_BUNDLE_PEM_BYTES + 1);
         let replacement = format!(
@@ -1258,7 +1348,7 @@ pub(crate) mod tests {
         );
         let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
 
-        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+        assert_eq!(err, OpenPayloadError::Decode);
     }
 
     #[test]
@@ -1334,6 +1424,13 @@ pub(crate) mod tests {
         let secret = SensitiveString::from("secret".to_string());
 
         assert_eq!(format!("{secret:?}"), "<redacted>");
+    }
+
+    #[test]
+    fn sensitive_string_expose_rejects_invalid_utf8() {
+        let secret = SensitiveString { value: vec![0xff] };
+
+        assert!(secret.expose().is_err());
     }
 
     fn test_screen_policy() -> DesktopScreenPolicy {

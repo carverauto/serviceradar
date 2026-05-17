@@ -43,6 +43,7 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 		Mode:      remoteaccess.DesktopCredentialModeMemoryUser,
 		Username:  "alice@example.com",
 		Password:  "secret",
+		ActorID:   "user-1",
 		SessionID: "desktop-session-1",
 		TargetID:  "target-1",
 		RouteID:   "agent-1",
@@ -55,6 +56,7 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 		},
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
+		ActorID:          "user-1",
 		LocalAgentID:     "agent-1",
 		CurrentGatewayID: "gateway-1",
 		StartUnix:        1_778_000_000,
@@ -82,6 +84,7 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 	}
 	if payload.Schema != "serviceradar.rdp.helper.open.v1" ||
 		payload.SessionID != "desktop-session-1" ||
+		payload.ActorID != "user-1" ||
 		payload.LocalAgentID != "agent-1" ||
 		payload.GatewayID != "gateway-1" ||
 		payload.CredentialGrant == nil ||
@@ -98,6 +101,7 @@ func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *test
 		Mode:      remoteaccess.DesktopCredentialModeMemoryUser,
 		Username:  "alice@example.com",
 		Password:  "secret",
+		ActorID:   "user-1",
 		SessionID: "desktop-session-1",
 		TargetID:  "target-1",
 		RouteID:   "agent-1",
@@ -109,6 +113,7 @@ func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *test
 		},
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
+		ActorID:          "user-1",
 		LocalAgentID:     "agent-1",
 		CurrentGatewayID: "gateway-1",
 		StartUnix:        1_778_000_000,
@@ -846,6 +851,7 @@ func openTestDesktopRDPHelperSession(
 		},
 	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
 		SessionID:        "desktop-session-1",
+		ActorID:          "user-1",
 		LocalAgentID:     "agent-1",
 		CurrentGatewayID: "gateway-1",
 		StartUnix:        1_778_000_000,

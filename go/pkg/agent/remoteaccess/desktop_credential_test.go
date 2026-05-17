@@ -32,7 +32,7 @@ func TestNormalizeDesktopCredentialGrantEnforcesBrokeredSecretCustody(t *testing
 	validGrant := DesktopCredentialGrant{
 		Mode:                DesktopCredentialModeBrokeredSecret,
 		CredentialSecretRef: desktopTestBrokeredSecret,
-		ActorID:             "user-1",
+		ActorID:             desktopTestActorID,
 		SessionID:           "session-1",
 		TargetID:            desktopTestTargetID,
 		RouteID:             desktopTestAgentID,
@@ -122,6 +122,7 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 		Mode:      DesktopCredentialModeMemoryUser,
 		Username:  "alice",
 		Password:  desktopTestPassword,
+		ActorID:   desktopTestActorID,
 		SessionID: "session-1",
 		TargetID:  desktopTestTargetID,
 	}
@@ -153,6 +154,12 @@ func TestNormalizeDesktopCredentialGrantEnforcesMemoryUserCredential(t *testing.
 
 	grant.Username = "mallory"
 	grant.Password = desktopTestPassword
+	grant.ActorID = ""
+	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("missing actor binding error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+	grant.ActorID = desktopTestActorID
+
 	if _, err := NormalizeDesktopCredentialGrant(grant, target); !errors.Is(err, ErrInvalidDesktopTarget) {
 		t.Fatalf("disallowed principal error = %v, want %v", err, ErrInvalidDesktopTarget)
 	}
@@ -208,6 +215,7 @@ func TestValidateDesktopOpenCredentialGrantNormalizesAndBindsSession(t *testing.
 	target.Credential.AllowedPrincipals = []string{"alice"}
 	grant := validDesktopMemoryGrant("session-1")
 	payload := DesktopOpenPayload{
+		ActorID:         desktopTestActorID,
 		Target:          target,
 		CredentialGrant: grant,
 	}
@@ -219,6 +227,16 @@ func TestValidateDesktopOpenCredentialGrantNormalizesAndBindsSession(t *testing.
 	if got == nil || got.Username != "alice" || got.TargetID != desktopTestTargetID {
 		t.Fatalf("grant = %#v", got)
 	}
+
+	payload.ActorID = "user-2"
+	if _, err := ValidateDesktopOpenCredentialGrant(
+		payload,
+		"session-1",
+		1_778_000_000,
+	); !errors.Is(err, ErrInvalidDesktopTarget) {
+		t.Fatalf("mismatched actor error = %v, want %v", err, ErrInvalidDesktopTarget)
+	}
+	payload.ActorID = desktopTestActorID
 
 	grant.SessionID = remoteAccessTestOtherSessionID
 	if _, err := ValidateDesktopOpenCredentialGrant(
