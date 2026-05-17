@@ -208,6 +208,9 @@ func decodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy, copyPayloa
 	if data[4] != DesktopMediaVersion {
 		return frame, fmt.Errorf("%w: unsupported version", ErrInvalidDesktopMediaFrame)
 	}
+	if data[7] != 0 || binary.BigEndian.Uint16(data[46:48]) != 0 {
+		return frame, fmt.Errorf("%w: reserved header bytes set", ErrInvalidDesktopMediaFrame)
+	}
 
 	metadataLength := binary.BigEndian.Uint32(data[32:36])
 	payloadLength := binary.BigEndian.Uint32(data[36:40])
@@ -222,6 +225,9 @@ func decodeDesktopMediaFrame(data []byte, policy DesktopScreenPolicy, copyPayloa
 		int(payloadLength)
 	if expectedLength < DesktopMediaHeaderSize || expectedLength > len(data) {
 		return frame, fmt.Errorf("%w: truncated payload", ErrInvalidDesktopMediaFrame)
+	}
+	if expectedLength != len(data) {
+		return frame, fmt.Errorf("%w: trailing payload bytes", ErrInvalidDesktopMediaFrame)
 	}
 
 	payloadFamily, ok := desktopMediaPayloadFamily(data[6])

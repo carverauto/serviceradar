@@ -165,6 +165,78 @@ func TestDesktopMediaFrameRejectsTruncatedPayload(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaFrameRejectsTrailingPayload(t *testing.T) {
+	t.Parallel()
+
+	frame := DesktopMediaFrame{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		Width:            640,
+		Height:           480,
+		PayloadFamily:    DesktopMediaPayloadTile,
+		Payload:          []byte{1, 2, 3, 4},
+	}
+	encoded, err := EncodeDesktopMediaFrame(frame, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("EncodeDesktopMediaFrame returned error: %v", err)
+	}
+
+	encoded = append(encoded, 0xff)
+	_, err = DecodeDesktopMediaFrame(encoded, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+		t.Fatalf("DecodeDesktopMediaFrame error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+	}
+}
+
+func TestDesktopMediaFrameRejectsReservedHeaderBytes(t *testing.T) {
+	t.Parallel()
+
+	frame := DesktopMediaFrame{
+		SessionBindingID: desktopMediaTestSessionID,
+		MediaSessionID:   desktopMediaTestMediaSessionID,
+		Width:            640,
+		Height:           480,
+		PayloadFamily:    DesktopMediaPayloadTile,
+		Payload:          []byte{1, 2, 3, 4},
+	}
+	encoded, err := EncodeDesktopMediaFrame(frame, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+	if err != nil {
+		t.Fatalf("EncodeDesktopMediaFrame returned error: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func([]byte)
+	}{
+		{
+			name: "reserved byte",
+			mutate: func(data []byte) {
+				data[7] = 1
+			},
+		},
+		{
+			name: "reserved uint16",
+			mutate: func(data []byte) {
+				binary.BigEndian.PutUint16(data[46:48], 1)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data := append([]byte(nil), encoded...)
+			tt.mutate(data)
+
+			_, err := DecodeDesktopMediaFrame(data, DesktopScreenPolicy{MaxWidth: 640, MaxHeight: 480})
+			if !errors.Is(err, ErrInvalidDesktopMediaFrame) {
+				t.Fatalf("DecodeDesktopMediaFrame error = %v, want %v", err, ErrInvalidDesktopMediaFrame)
+			}
+		})
+	}
+}
+
 func TestDesktopMediaFramePartsReuseHeaderAndPreservePayloadSlice(t *testing.T) {
 	t.Parallel()
 
