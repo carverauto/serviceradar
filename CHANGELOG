@@ -10,6 +10,8 @@ Long-running northbound actions, device details UX, and inventory enrichment fix
 - Updated the sample northbound Wasm plugin to exercise immediate, polling, and webhook-style action flows for device and interface integrations.
 - Fixed the device details Logs tab so log loading runs asynchronously instead of timing out the LiveView event.
 - Improved device details metadata rendering with grouped integration sections, cleaner task history output, Armis risk score display, and better handling for integration-provided device type data.
+- Fixed stale self-scheduled Oban maintenance job reaping so stuck IP and GeoIP enrichment workers can be expired and restarted instead of silently starving NetFlow map enrichment.
+- Added agent and gateway control-stream diagnostics for command ACK failures, config ACK failures, mapper config application, config payload summaries, and stream shutdowns to make failed agent command delivery visible during managed rollouts.
 - Added validation coverage for northbound action platform-schema migrations, lifecycle state transitions, redaction, poll scheduling, and expiration.
 
 # ServiceRadar v1.2.65
