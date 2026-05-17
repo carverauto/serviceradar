@@ -656,7 +656,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           "device_role" => "gateway",
           "bridge_port_count" => 8,
           "category" => "OT",
-          "risk_score" => "72",
+          "risk_score" => "7",
           "source_tags" => "managed,ot",
           "boundary_names" => "All OT Boundaries",
           "serial_numbers" => "SN-123",
@@ -695,6 +695,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Dusk UniFi"
     assert html =~ "gateway"
     assert html =~ "All OT Boundaries"
+    assert html =~ "Risk Score"
+    assert html =~ "7 / 10"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
     assert html =~ "2 items"
@@ -1366,6 +1368,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       flows_html = render_until(flows_view, "DNS")
 
       assert flows_html =~ "DNS"
+    end
+
+    test "logs tab renders immediately while device logs load asynchronously", %{conn: conn} do
+      previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+      previous_log_delay = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms)
+
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+      Application.put_env(:serviceradar_web_ng, :device_live_log_query_delay_ms, 250)
+
+      on_exit(fn ->
+        restore_env(:srql_module, previous_srql_module)
+        restore_env(:device_live_log_query_delay_ms, previous_log_delay)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/stub-device")
+
+      html =
+        view
+        |> element("button[phx-click='switch_tab'][phx-value-tab='logs']")
+        |> render_click()
+
+      assert html =~ "Loading device logs"
+      assert render_until(view, "No logs found for this device.", 2_000) =~ "No logs found for this device."
     end
   end
 
@@ -2264,6 +2289,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       end
 
       cond do
+        String.contains?(query, "in:logs") ->
+          if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+            Process.sleep(delay_ms)
+          end
+
+          {:ok, %{"results" => [], "pagination" => %{}}}
+
         String.contains?(query, ~s|stats:"count() as total"|) ->
           {:ok, %{"results" => [%{"total" => 42}], "pagination" => %{}}}
 

@@ -160,6 +160,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_logs, [])
      |> assign(:logs_error, nil)
      |> assign(:logs_pagination, %{})
+     |> assign(:logs_loading, false)
+     |> assign(:logs_request_ref, nil)
+     |> assign(:logs_cursor, nil)
      |> assign(:has_logs, false)
      |> assign(:logs_limit, @logs_limit)
      |> assign(:flow_stats, %{})
@@ -425,6 +428,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
+  def handle_async({:device_logs, device_uid, request_ref}, {:ok, {logs, pagination, logs_error}}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.logs_request_ref do
+      {:noreply,
+       socket
+       |> assign(:device_logs, logs)
+       |> assign(:logs_pagination, pagination)
+       |> assign(:logs_error, logs_error)
+       |> assign(:logs_loading, false)
+       |> assign(:logs_request_ref, nil)
+       |> assign(:has_logs, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_logs, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device logs task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.logs_request_ref do
+      {:noreply,
+       socket
+       |> assign(:device_logs, [])
+       |> assign(:logs_pagination, %{})
+       |> assign(:logs_error, "Failed to load logs")
+       |> assign(:logs_loading, false)
+       |> assign(:logs_request_ref, nil)
+       |> assign(:has_logs, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_async(:northbound_interface_actions, {:ok, actions}, socket) when is_list(actions) do
     {:noreply,
      socket
@@ -658,19 +693,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
 
   defp maybe_reload_logs_for_active_tab(socket, "logs", uid, cursor) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    {logs, pagination, logs_error} = load_logs(srql_mod, uid, scope, cursor)
-
-    socket
-    |> assign(:device_logs, logs)
-    |> assign(:logs_pagination, pagination)
-    |> assign(:logs_error, logs_error)
-    |> assign(:has_logs, true)
+    if socket.assigns.logs_loading and socket.assigns.logs_cursor == cursor do
+      socket
+    else
+      begin_logs_load(socket, uid, cursor)
+    end
   end
 
   defp maybe_reload_logs_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
+
+  defp begin_logs_load(socket, uid, cursor) do
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+    request_ref = make_ref()
+
+    socket
+    |> assign(:device_logs, [])
+    |> assign(:logs_pagination, %{})
+    |> assign(:logs_error, nil)
+    |> assign(:logs_loading, connected?(socket))
+    |> assign(:logs_request_ref, request_ref)
+    |> assign(:logs_cursor, cursor)
+    |> assign(:has_logs, true)
+    |> maybe_start_logs_async(uid, request_ref, srql_mod, scope, cursor)
+  end
+
+  defp maybe_start_logs_async(socket, uid, request_ref, srql_mod, scope, cursor) do
+    if connected?(socket) do
+      start_async(socket, {:device_logs, uid, request_ref}, fn ->
+        load_logs(srql_mod, uid, scope, cursor)
+      end)
+    else
+      socket
+    end
+  end
 
   defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid) do
     scope = socket.assigns.current_scope
@@ -802,6 +858,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:device_logs, [])
        |> assign(:logs_error, nil)
        |> assign(:logs_pagination, %{})
+       |> assign(:logs_loading, false)
+       |> assign(:logs_request_ref, nil)
+       |> assign(:logs_cursor, nil)
        |> assign(:has_logs, false)
        |> assign(:discovery_job, nil)
        |> assign(:favorited_interfaces, MapSet.new())
@@ -876,6 +935,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:srql, srql)
        |> assign(supplemental_assigns)
        |> maybe_load_mtr_for_active_tab(active_tab)
+       |> maybe_reload_logs_for_active_tab(active_tab, uid, normalize_cursor(Map.get(params, "cursor")))
        |> maybe_begin_flow_background_loads(
          active_tab,
          uid,
@@ -905,7 +965,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     load_interfaces_data? = requested_tab == "interfaces"
     load_flows_data? = requested_tab == "flows"
-    load_logs_data? = requested_tab == "logs"
+    load_logs_data? = load_logs_synchronously?(requested_tab)
     sysmon_identity = sysmon_identity(device_row, uid)
 
     parallel_tasks =
@@ -1131,6 +1191,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_log_tasks(tasks, false, _srql_module, _uid, _scope, _params), do: tasks
+
+  defp load_logs_synchronously?(requested_tab) do
+    requested_tab == "logs" and
+      Application.get_env(:serviceradar_web_ng, :device_logs_sync_preload?, false)
+  end
 
   defp extract_interface_results(parallel_results, true), do: Map.get(parallel_results, :interfaces, {[], nil})
 
@@ -4189,6 +4254,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <.device_logs_tab_content
               logs={@device_logs}
               error={@logs_error}
+              loading={@logs_loading}
               pagination={@logs_pagination}
               device_uid={@device_uid}
               query={default_logs_query(@device_uid)}
@@ -4938,11 +5004,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("Armis", "hero-shield-check", [
           metadata_item(
             "Device ID",
-            metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]), mono: true),
+            metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]),
+            mono: true
+          ),
           metadata_item("Type", metadata_first_value(metadata, ["armis_type", "device_type", "type"])),
           metadata_item("Category", metadata_first_value(metadata, ["armis_category", "category"])),
           metadata_item("Boundaries", metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])),
-          metadata_item("Risk level", metadata_first_value(metadata, ["armis_risk_level", "risk_score"])),
+          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
+          metadata_item("Risk score", metadata_first_value(metadata, ["armis_risk_score", "risk_score"])),
           metadata_item("Tags", metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])),
           metadata_item("Visibility", metadata_first_value(metadata, ["armis_visibility", "visibility"])),
           metadata_item("Purdue level", metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])),
@@ -5051,6 +5120,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       armis_category
       armis_device_id
       armis_risk_level
+      armis_risk_score
       armis_serial_numbers
       armis_tags
       armis_type
@@ -5189,8 +5259,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     metadata = row_metadata(assigns.device_row)
     os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
-    risk_level = Map.get(assigns.device_row, "risk_level")
-    risk_score = Map.get(assigns.device_row, "risk_score")
+
+    risk_score =
+      normalize_risk_score(
+        Map.get(assigns.device_row, "risk_score") ||
+          metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
+      )
+
+    risk_level =
+      Map.get(assigns.device_row, "risk_level") ||
+        metadata_lookup(metadata, "armis_risk_level") ||
+        risk_level_from_score(risk_score)
+
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
@@ -5198,7 +5278,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
-    has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
+    has_compliance = compliance_present?(risk_level, risk_score, is_managed, is_compliant)
     has_discovery_metadata = discovery_metadata_fields != []
     has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
@@ -5220,8 +5300,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp map_present?(value), do: is_map(value) and map_size(value) > 0
 
-  defp compliance_present?(risk_level, is_managed, is_compliant) do
-    not is_nil(risk_level) or not is_nil(is_managed) or not is_nil(is_compliant)
+  defp compliance_present?(risk_level, risk_score, is_managed, is_compliant) do
+    not is_nil(risk_level) or not is_nil(risk_score) or not is_nil(is_managed) or not is_nil(is_compliant)
   end
 
   attr(:os, :map, required: true)
@@ -5330,7 +5410,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   attr(:risk_level, :string, default: nil)
-  attr(:risk_score, :integer, default: nil)
+  attr(:risk_score, :any, default: nil)
   attr(:is_managed, :boolean, default: nil)
   attr(:is_compliant, :boolean, default: nil)
   attr(:is_trusted, :boolean, default: nil)
@@ -5345,14 +5425,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
       <div class="p-4">
-        <div class="flex flex-wrap gap-4">
+        <div class="flex flex-wrap items-center gap-4">
+          <.risk_score_radial :if={not is_nil(@risk_score)} score={@risk_score} />
           <div :if={@risk_level} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Risk Level:</span>
             <.risk_badge level={@risk_level} />
-          </div>
-          <div :if={@risk_score} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">Risk Score:</span>
-            <span class="font-semibold tabular-nums">{@risk_score}</span>
           </div>
           <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Managed:</span>
@@ -5370,6 +5447,116 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
     </div>
     """
+  end
+
+  attr(:score, :any, required: true)
+
+  defp risk_score_radial(assigns) do
+    score = normalize_risk_score(assigns.score)
+    max_score = risk_score_max(score)
+    percent = risk_score_percent(score, max_score)
+    color = risk_score_color(score, max_score)
+
+    assigns =
+      assigns
+      |> assign(:score_display, format_risk_score(score))
+      |> assign(:max_display, format_risk_score(max_score))
+      |> assign(:percent, percent)
+      |> assign(:color, color)
+
+    ~H"""
+    <div class="flex items-center gap-3">
+      <div
+        class="relative size-16 rounded-full"
+        style={"background: conic-gradient(#{@color} #{@percent}%, hsl(var(--b2)) 0)"}
+        aria-label={"Risk score #{@score_display} out of #{@max_display}"}
+      >
+        <div class="absolute inset-1.5 rounded-full bg-base-100 flex flex-col items-center justify-center">
+          <span class="text-base font-semibold tabular-nums leading-none">{@score_display}</span>
+          <span class="text-[10px] text-base-content/50 leading-none">/{@max_display}</span>
+        </div>
+      </div>
+      <div class="min-w-0">
+        <div class="text-xs text-base-content/60">Risk Score</div>
+        <div class="text-sm font-semibold tabular-nums">{@score_display} / {@max_display}</div>
+      </div>
+    </div>
+    """
+  end
+
+  defp normalize_risk_score(nil), do: nil
+
+  defp normalize_risk_score(value) when is_integer(value), do: value
+
+  defp normalize_risk_score(value) when is_float(value), do: value
+
+  defp normalize_risk_score(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        nil
+
+      String.contains?(value, ".") ->
+        case Float.parse(value) do
+          {score, _rest} -> score
+          :error -> nil
+        end
+
+      true ->
+        case Integer.parse(value) do
+          {score, _rest} -> score
+          :error -> nil
+        end
+    end
+  end
+
+  defp normalize_risk_score(_value), do: nil
+
+  defp risk_score_max(score) when is_number(score) and score > 10, do: 100
+  defp risk_score_max(_score), do: 10
+
+  defp risk_score_percent(nil, _max_score), do: 0
+
+  defp risk_score_percent(score, max_score) do
+    score
+    |> Kernel./(max_score)
+    |> Kernel.*(100)
+    |> round()
+    |> max(0)
+    |> min(100)
+  end
+
+  defp risk_score_color(score, max_score) do
+    percent = risk_score_percent(score, max_score)
+
+    cond do
+      percent >= 70 -> "#ef4444"
+      percent >= 40 -> "#f59e0b"
+      true -> "#22c55e"
+    end
+  end
+
+  defp risk_level_from_score(nil), do: nil
+
+  defp risk_level_from_score(score) do
+    percent = risk_score_percent(score, risk_score_max(score))
+
+    cond do
+      percent >= 90 -> "Critical"
+      percent >= 70 -> "High"
+      percent >= 40 -> "Medium"
+      true -> "Low"
+    end
+  end
+
+  defp format_risk_score(score) when is_integer(score), do: Integer.to_string(score)
+
+  defp format_risk_score(score) when is_float(score) do
+    score
+    |> Float.round(1)
+    |> :erlang.float_to_binary(decimals: 1)
+    |> String.trim_trailing(".0")
   end
 
   attr(:level, :string, required: true)
@@ -6431,6 +6618,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:logs, :list, required: true)
   attr(:error, :string, default: nil)
+  attr(:loading, :boolean, default: false)
   attr(:pagination, :map, default: %{})
   attr(:device_uid, :string, required: true)
   attr(:query, :string, required: true)
@@ -6456,64 +6644,70 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <div class="p-4">
         <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
 
-        <%= if @logs == [] and is_nil(@error) do %>
-          <div class="text-sm text-base-content/60">No logs found for this device.</div>
+        <%= if @loading do %>
+          <div class="flex items-center gap-2 text-sm text-base-content/60">
+            <span class="loading loading-spinner loading-sm"></span> Loading device logs...
+          </div>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-sm table-zebra w-full">
-              <thead>
-                <tr>
-                  <th class="w-40">Time</th>
-                  <th class="w-24">Level</th>
-                  <th class="w-44">Service</th>
-                  <th>Message</th>
-                  <th class="w-20 text-right"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={log <- @logs}>
-                  <td class="whitespace-nowrap text-xs font-mono">
-                    {format_timestamp(log_timestamp(log))}
-                  </td>
-                  <td class="whitespace-nowrap text-xs">
-                    <.ui_badge variant={log_severity_variant(log)} size="xs">
-                      {log_severity_label(log)}
-                    </.ui_badge>
-                  </td>
-                  <td
-                    class="whitespace-nowrap text-xs truncate max-w-[14rem]"
-                    title={log_service(log)}
-                  >
-                    {log_service(log)}
-                  </td>
-                  <td class="text-xs truncate max-w-[42rem]" title={log_message(log)}>
-                    {log_message(log)}
-                  </td>
-                  <td class="text-right">
-                    <.link
-                      :if={log_id(log) != "unknown"}
-                      navigate={~p"/logs/#{log_id(log)}"}
-                      class="btn btn-ghost btn-xs"
+          <%= if @logs == [] and is_nil(@error) do %>
+            <div class="text-sm text-base-content/60">No logs found for this device.</div>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table table-sm table-zebra w-full">
+                <thead>
+                  <tr>
+                    <th class="w-40">Time</th>
+                    <th class="w-24">Level</th>
+                    <th class="w-44">Service</th>
+                    <th>Message</th>
+                    <th class="w-20 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={log <- @logs}>
+                    <td class="whitespace-nowrap text-xs font-mono">
+                      {format_timestamp(log_timestamp(log))}
+                    </td>
+                    <td class="whitespace-nowrap text-xs">
+                      <.ui_badge variant={log_severity_variant(log)} size="xs">
+                        {log_severity_label(log)}
+                      </.ui_badge>
+                    </td>
+                    <td
+                      class="whitespace-nowrap text-xs truncate max-w-[14rem]"
+                      title={log_service(log)}
                     >
-                      Details
-                    </.link>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                      {log_service(log)}
+                    </td>
+                    <td class="text-xs truncate max-w-[42rem]" title={log_message(log)}>
+                      {log_message(log)}
+                    </td>
+                    <td class="text-right">
+                      <.link
+                        :if={log_id(log) != "unknown"}
+                        navigate={~p"/logs/#{log_id(log)}"}
+                        class="btn btn-ghost btn-xs"
+                      >
+                        Details
+                      </.link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-          <div class="pt-3 border-t border-base-200 mt-3">
-            <.ui_pagination
-              prev_cursor={Map.get(@pagination, "prev_cursor")}
-              next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={"/devices/#{@device_uid}"}
-              query={@query}
-              limit={@limit}
-              result_count={length(@logs)}
-              extra_params={%{"tab" => "logs"}}
-            />
-          </div>
+            <div class="pt-3 border-t border-base-200 mt-3">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                base_path={"/devices/#{@device_uid}"}
+                query={@query}
+                limit={@limit}
+                result_count={length(@logs)}
+                extra_params={%{"tab" => "logs"}}
+              />
+            </div>
+          <% end %>
         <% end %>
       </div>
     </div>
