@@ -21,6 +21,32 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   require Logger
 
   @default_stale_threshold_minutes 240
+  @self_scheduled_workers [
+    "ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker",
+    "ServiceRadar.Edge.AgentCommandCleanupWorker",
+    "ServiceRadar.Identity.CliAuthCleanupWorker",
+    "ServiceRadar.Inventory.DeviceCleanupWorker",
+    "ServiceRadar.Inventory.InterfaceThresholdWorker",
+    "ServiceRadar.Jobs.AlertsRetentionWorker",
+    "ServiceRadar.Jobs.RefreshTraceSummariesWorker",
+    "ServiceRadar.Jobs.SecurityEventsRetentionWorker",
+    "ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker",
+    "ServiceRadar.ObjectStore.RetentionWorker",
+    "ServiceRadar.Observability.GeoLiteMmdbDownloadWorker",
+    "ServiceRadar.Observability.IpEnrichmentCleanupWorker",
+    "ServiceRadar.Observability.IpEnrichmentRefreshWorker",
+    "ServiceRadar.Observability.IpinfoMmdbDownloadWorker",
+    "ServiceRadar.Observability.NetflowExporterCacheRefreshWorker",
+    "ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker",
+    "ServiceRadar.Observability.NetflowSecurityRefreshWorker",
+    "ServiceRadar.Observability.StatefulAlertCleanupWorker",
+    "ServiceRadar.Observability.ThreatIntelFeedRefreshWorker",
+    "ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker",
+    "ServiceRadar.SweepJobs.SweepDataCleanupWorker",
+    "ServiceRadar.SweepJobs.SweepMonitorWorker",
+    "ServiceRadarWebNG.Plugins.BlobRetentionWorker",
+    "ServiceRadarWebNG.Plugins.FirstPartySyncWorker"
+  ]
 
   @completed_event [:serviceradar, :jobs, :periodic_cleanup, :completed]
   @failed_event [:serviceradar, :jobs, :periodic_cleanup, :failed]
@@ -112,11 +138,14 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     Enum.split_with(stale_jobs, &(&1.attempt < &1.max_attempts))
   end
 
-  defp stale_periodic_jobs_query(cutoff) do
+  @doc false
+  def stale_periodic_jobs_query(cutoff) do
     from(j in Job,
       where: j.state == "executing",
       where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff,
-      where: fragment("coalesce(?->>'cron', 'false') = 'true'", j.meta),
+      where:
+        fragment("coalesce(?->>'cron', 'false') = 'true'", j.meta) or
+          j.worker in ^@self_scheduled_workers,
       order_by: [asc: j.id],
       select: %{
         id: j.id,

@@ -30,6 +30,19 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorkerTest do
     end
   end
 
+  describe "stale_periodic_jobs_query/1" do
+    test "matches known self-scheduled singleton workers without cron metadata" do
+      query =
+        DateTime.utc_now()
+        |> ReapStalePeriodicJobsWorker.stale_periodic_jobs_query()
+        |> inspect()
+
+      assert query =~ "ServiceRadar.Observability.IpEnrichmentRefreshWorker"
+      assert query =~ "ServiceRadar.Observability.GeoLiteMmdbDownloadWorker"
+      assert query =~ "ServiceRadar.SweepJobs.SweepMonitorWorker"
+    end
+  end
+
   describe "emit_cleanup_telemetry/4" do
     test "publishes rescued and discarded job metadata" do
       handler_id = "periodic-cleanup-#{System.unique_integer([:positive])}"
