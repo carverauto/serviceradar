@@ -1669,6 +1669,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
             "install_path" => "/usr/local/bin/serviceradar-rdp-adapter",
             "helper_capabilities_arg" => "--capabilities",
             "helper_connector_ready" => false,
+            "helper_connector_ready_reason" => "connector_loop_not_implemented",
             "requires_helper_readiness_probe" => true,
             "release_phase" => "experimental"
           }

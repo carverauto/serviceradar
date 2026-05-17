@@ -233,7 +233,7 @@ Example metadata-only recording policy:
 The base agent remains the default fleet artifact. RDP-capable releases are optional:
 
 - The signed release manifest for the base artifact should declare `capabilities: ["agent"]`.
-- RDP-capable bundles should declare `remote_access.rdp` and include helper metadata, helper protocol version, compatibility range, checksums, signatures, SBOM/license review references, and deployment requirements.
+- RDP-capable bundles should declare `remote_access.rdp` and include helper metadata, helper protocol version, compatibility range, checksums, signatures, SBOM/license review references, and deployment requirements. Experimental bundles with `helper_connector_ready: false` must also include `helper_connector_ready_reason`.
 - EdgeOps hides artifacts with `remote_access.rdp` unless `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true`.
 - One-click rollout installs the RDP helper only when the selected signed artifact declares `remote_access.rdp`.
 - Installed agents must not advertise `remote_access.rdp` until the helper readiness probe passes.

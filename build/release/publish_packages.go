@@ -37,6 +37,7 @@ const (
 	defaultRDPHelperProtocolVersion  = "srdp-helper-v1"
 	defaultRDPHelperBinary           = "serviceradar-rdp-adapter"
 	defaultRDPHelperInstallPath      = "/usr/local/bin/serviceradar-rdp-adapter"
+	defaultRDPConnectorReadyReason   = "connector_loop_not_implemented"
 	releasePrivateKeyEnv             = "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY"
 	releasePrivateKeyFileEnv         = "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE"
 	agentRDPRuntimeArtifactEnv       = "SERVICERADAR_AGENT_RDP_RUNTIME_ARTIFACT"
@@ -595,6 +596,7 @@ func rdpAgentManifestArtifact(version string, runtimeURL string, runtimeDigest s
 			"install_path":                    defaultRDPHelperInstallPath,
 			"helper_capabilities_arg":         "--capabilities",
 			"helper_connector_ready":          false,
+			"helper_connector_ready_reason":   defaultRDPConnectorReadyReason,
 			"requires_helper_readiness_probe": true,
 			"release_phase":                   "experimental",
 		},

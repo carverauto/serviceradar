@@ -197,6 +197,7 @@ func TestBuildManagedAgentManifestAssetsWithRDPBundle(t *testing.T) {
 		t.Fatalf("rdp artifact helper requirement = %v", rdpArtifact.DeploymentRequirements["helper"])
 	}
 	if rdpArtifact.DeploymentRequirements["helper_connector_ready"] != false ||
+		rdpArtifact.DeploymentRequirements["helper_connector_ready_reason"] != defaultRDPConnectorReadyReason ||
 		rdpArtifact.DeploymentRequirements["requires_helper_readiness_probe"] != true ||
 		rdpArtifact.DeploymentRequirements["release_phase"] != "experimental" {
 		t.Fatalf("rdp artifact deployment requirements = %#v", rdpArtifact.DeploymentRequirements)

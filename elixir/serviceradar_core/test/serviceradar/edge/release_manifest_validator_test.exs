@@ -118,6 +118,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
     assert "release artifact 1 RDP deployment_requirements.requires_helper_readiness_probe must be true" in messages
 
     assert "release artifact 1 RDP deployment_requirements.release_phase must be experimental while helper_connector_ready is false" in messages
+
+    assert "release artifact 1 RDP deployment_requirements.helper_connector_ready_reason is required while helper_connector_ready is false" in messages
   end
 
   defp valid_manifest(version) do
@@ -156,6 +158,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
         "install_path" => "/usr/local/bin/serviceradar-rdp-adapter",
         "helper_capabilities_arg" => "--capabilities",
         "helper_connector_ready" => false,
+        "helper_connector_ready_reason" => "connector_loop_not_implemented",
         "requires_helper_readiness_probe" => true,
         "release_phase" => "experimental"
       }

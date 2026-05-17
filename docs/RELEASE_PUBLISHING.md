@@ -94,7 +94,7 @@ Each artifact may carry deployment metadata used by EdgeOps and one-click instal
 - `helper_protocol_version`: helper control protocol version, used by helper-backed artifacts.
 - `compatible_agent_versions`: object with `min` / `max` bounds for helper compatibility.
 - `checksums`, `signatures`, `sbom`, `license_review`: integrity and review references for the artifact and helper payloads.
-- `deployment_requirements`: object describing required helper binaries, services, or host settings.
+- `deployment_requirements`: object describing required helper binaries, services, or host settings. Experimental RDP artifacts with `helper_connector_ready: false` must also include `helper_connector_ready_reason`.
 
 Deployments that do not set `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true` hide artifacts whose capabilities include `remote_access.rdp` or `remote_access.desktop`.
 

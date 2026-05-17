@@ -352,6 +352,7 @@
 - [x] 5.2.77 Add focused Go/Rust tests proving registered CA bundle IDs and PEM material are paired, bounded, and passed through helper parsing/planning without treating them as credentials.
 - [x] 5.2.78 Add Bazel-only adapter probe coverage proving a non-secret connection plan with registered CA bundle PEM builds a verified Rustls client config and rejects invalid bundle material.
 - [x] 5.2.79 Add focused Go/Rust helper capability tests proving not-ready probes include a stable `connector_ready_reason` while connector readiness remains false.
+- [x] 5.2.80 Add release publisher and manifest-validator tests proving experimental RDP artifacts carry a stable helper connector-readiness reason.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
@@ -465,6 +466,7 @@
 - [x] 6.2.3 Enforce signed RDP helper readiness metadata during agent-side managed release staging before accepting optional helper installs.
 - [x] 6.2.4 Reject RDP helper install commands whose helper protocol, compatible agent range, or deployment requirements diverge from the signed artifact metadata.
 - [x] 6.2.5 Reject helper install commands for unsupported/non-RDP artifact capabilities so base agent artifacts cannot bypass RDP readiness checks.
+- [x] 6.2.6 Require experimental RDP release metadata to include `helper_connector_ready_reason` whenever `helper_connector_ready` is false.
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
 - [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.

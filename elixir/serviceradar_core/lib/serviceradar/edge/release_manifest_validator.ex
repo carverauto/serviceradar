@@ -301,6 +301,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
         |> validate_rdp_helper_connector_ready(requirements, index)
         |> validate_rdp_readiness_probe(requirements, index)
         |> validate_rdp_experimental_readiness(requirements, index)
+        |> validate_rdp_connector_ready_reason(requirements, index)
 
       _ ->
         [
@@ -369,6 +370,22 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
           field: :manifest,
           message:
             "release artifact #{index} RDP deployment_requirements.release_phase must be experimental while helper_connector_ready is false"
+        }
+        | errors
+      ]
+    else
+      errors
+    end
+  end
+
+  defp validate_rdp_connector_ready_reason(errors, requirements, index) do
+    if Map.get(requirements, "helper_connector_ready") == false and
+         not non_empty_string?(Map.get(requirements, "helper_connector_ready_reason")) do
+      [
+        %{
+          field: :manifest,
+          message:
+            "release artifact #{index} RDP deployment_requirements.helper_connector_ready_reason is required while helper_connector_ready is false"
         }
         | errors
       ]
