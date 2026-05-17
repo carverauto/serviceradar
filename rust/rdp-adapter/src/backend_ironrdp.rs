@@ -42,6 +42,8 @@ const DEFAULT_CONNECTOR_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_KDC_PORT: u16 = 88;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const MAX_KDC_RESPONSE_BYTES: u32 = 64 * 1024;
+const METADATA_KDC_PROXY_URL: &str = "rdp.kdc_proxy_url";
+const METADATA_KERBEROS_HOSTNAME: &str = "rdp.kerberos_hostname";
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -49,6 +51,8 @@ struct NonSecretConnectionPlan {
     upstream_port: u16,
     tls_server_name: String,
     tls_trust_source: TlsTrustSource,
+    kdc_proxy_url: Option<String>,
+    kerberos_hostname: Option<String>,
     desktop_width: u16,
     desktop_height: u16,
 }
@@ -107,6 +111,7 @@ struct ConnectorBeginHandoff<S: Read + Write> {
     dial_target: ConnectorDialTarget,
     tls_config: VerifiedTlsClientConfig,
     server_name: ironrdp_connector::ServerName,
+    kerberos_config: Option<ironrdp_connector::credssp::KerberosConfig>,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -141,6 +146,7 @@ struct ConnectorCredsspHandoff<S: Read + Write> {
     connector: ironrdp_connector::ClientConnector,
     server_name: ironrdp_connector::ServerName,
     server_public_key: Vec<u8>,
+    kerberos_config: Option<ironrdp_connector::credssp::KerberosConfig>,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -946,6 +952,7 @@ where
 {
     let config = build_connector_config_for_probe(plan, credential);
     let tls_config = build_verified_tls_client_config_for_plan(plan)?;
+    let kerberos_config = build_connector_kerberos_config_for_plan(plan)?;
     let server_name = ironrdp_connector::ServerName::from(&plan.tls_server_name);
     let DialedConnectorStream {
         stream,
@@ -965,6 +972,7 @@ where
         dial_target,
         tls_config,
         server_name,
+        kerberos_config,
     })
 }
 
@@ -1032,6 +1040,7 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_config,
     } = handoff;
 
     match ironrdp_blocking::connect_finalize(
@@ -1041,7 +1050,7 @@ where
         network_client,
         server_name,
         server_public_key,
-        None,
+        kerberos_config,
     ) {
         Ok(connection_result) => {
             let desktop_size = connection_result.desktop_size;
@@ -1079,6 +1088,7 @@ where
         dial_target: _dial_target,
         tls_config: _tls_config,
         server_name,
+        kerberos_config,
     } = handoff;
     let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
 
@@ -1088,6 +1098,7 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_config,
     })
 }
 
@@ -1105,6 +1116,7 @@ where
         dial_target: _dial_target,
         tls_config,
         server_name,
+        kerberos_config,
     } = handoff;
     let (stream, leftover) = framed.into_inner();
     if !leftover.is_empty() {
@@ -1141,6 +1153,7 @@ where
         connector,
         server_name,
         server_public_key,
+        kerberos_config,
     })
 }
 
@@ -1198,6 +1211,22 @@ fn build_verified_tls_client_config_for_plan(
             build_verified_tls_client_config_for_registered_ca_bundle(pem.as_bytes())
         }
     }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_connector_kerberos_config_for_plan(
+    plan: &NonSecretConnectionPlan,
+) -> Result<Option<ironrdp_connector::credssp::KerberosConfig>, BackendError> {
+    if plan.kdc_proxy_url.is_none() && plan.kerberos_hostname.is_none() {
+        return Ok(None);
+    }
+
+    ironrdp_connector::credssp::KerberosConfig::new(
+        plan.kdc_proxy_url.clone(),
+        plan.kerberos_hostname.clone(),
+    )
+    .map(Some)
+    .map_err(|_| BackendError::Unsupported(INVALID_CONNECTION_PLAN))
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1876,9 +1905,25 @@ fn build_nonsecret_connection_plan(
         upstream_port,
         tls_server_name: effective_tls_server_name.to_owned(),
         tls_trust_source,
+        kdc_proxy_url: optional_metadata_value(&request.target.metadata, METADATA_KDC_PROXY_URL),
+        kerberos_hostname: optional_metadata_value(
+            &request.target.metadata,
+            METADATA_KERBEROS_HOSTNAME,
+        ),
         desktop_width,
         desktop_height,
     })
+}
+
+fn optional_metadata_value(
+    metadata: &std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Option<String> {
+    metadata
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
 }
 
 fn build_tls_trust_source(request: &OpenPayload) -> Result<TlsTrustSource, BackendError> {
@@ -1970,6 +2015,8 @@ mod tests {
                 upstream_port: 3389,
                 tls_server_name: "win.example".to_owned(),
                 tls_trust_source: TlsTrustSource::SystemRoots,
+                kdc_proxy_url: None,
+                kerberos_hostname: None,
                 desktop_width: 1920,
                 desktop_height: 1080,
             }
@@ -1987,6 +2034,49 @@ mod tests {
 
         assert_eq!(plan.upstream_host, "win.example");
         assert_eq!(plan.tls_server_name, "win.example");
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_plan_carries_kerberos_metadata() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.metadata.insert(
+            METADATA_KDC_PROXY_URL.to_owned(),
+            "tcp://kdc.example:88".to_owned(),
+        );
+        payload.target.metadata.insert(
+            METADATA_KERBEROS_HOSTNAME.to_owned(),
+            "win.example".to_owned(),
+        );
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+        assert_eq!(plan.kdc_proxy_url.as_deref(), Some("tcp://kdc.example:88"));
+        assert_eq!(plan.kerberos_hostname.as_deref(), Some("win.example"));
+
+        let kerberos = build_connector_kerberos_config_for_plan(&plan)
+            .expect("Kerberos config")
+            .expect("Kerberos config present");
+
+        assert!(kerberos.kdc_proxy_url.is_some());
+        assert_eq!(kerberos.hostname.as_deref(), Some("win.example"));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_plan_rejects_invalid_kdc_proxy_url() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload
+            .target
+            .metadata
+            .insert(METADATA_KDC_PROXY_URL.to_owned(), "not a url".to_owned());
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+        let err = match build_connector_kerberos_config_for_plan(&plan) {
+            Ok(_) => panic!("invalid KDC proxy URL accepted"),
+            Err(err) => err,
+        };
+
+        assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
     }
 
     #[test]
@@ -2971,6 +3061,14 @@ mod tests {
         let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
         payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
         payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        payload.target.metadata.insert(
+            METADATA_KDC_PROXY_URL.to_owned(),
+            "tcp://kdc.example:88".to_owned(),
+        );
+        payload.target.metadata.insert(
+            METADATA_KERBEROS_HOSTNAME.to_owned(),
+            "win.example".to_owned(),
+        );
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
         let credential = build_memory_user_credential(
             payload
@@ -2988,6 +3086,7 @@ mod tests {
             ScriptedStream::new(vec![server_confirm]),
         )
         .expect("connector begin handoff");
+        assert!(begin_handoff.kerberos_config.is_some());
         let server_public_key = derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
             &fixture_server_cert_der(),
         )
@@ -3000,6 +3099,7 @@ mod tests {
 
         assert!(credssp_handoff.requires_credssp());
         assert_eq!(credssp_handoff.server_name(), "win.example");
+        assert!(credssp_handoff.kerberos_config.is_some());
         assert!(leftover.is_empty());
         assert!(!stream.writes.is_empty());
         assert!(!bytes_contain_secret(
