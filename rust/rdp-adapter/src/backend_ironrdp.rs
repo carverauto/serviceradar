@@ -106,7 +106,27 @@ impl<W: Write> ActiveStageSessionProbe<W> {
         session_binding_id: String,
         media_session_id: String,
     ) -> Self {
-        let (active_stage, desktop_size) = build_active_stage_for_probe(plan, credential);
+        let (connection_result, desktop_size) = build_connection_result_for_probe(plan, credential);
+
+        Self::from_connection_result(
+            connection_result,
+            desktop_size,
+            upstream,
+            policy,
+            session_binding_id,
+            media_session_id,
+        )
+    }
+
+    fn from_connection_result(
+        connection_result: ironrdp_connector::ConnectionResult,
+        desktop_size: ironrdp_connector::DesktopSize,
+        upstream: W,
+        policy: &DesktopScreenPolicy,
+        session_binding_id: String,
+        media_session_id: String,
+    ) -> Self {
+        let active_stage = ironrdp_session::ActiveStage::new(connection_result);
         let image = ironrdp_session::image::DecodedImage::new(
             ironrdp_graphics::image_processing::PixelFormat::RgbA32,
             desktop_size.width,
@@ -768,6 +788,22 @@ fn build_active_stage_for_probe(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
 ) -> (ironrdp_session::ActiveStage, ironrdp_connector::DesktopSize) {
+    let (connection_result, desktop_size) = build_connection_result_for_probe(plan, credential);
+
+    (
+        ironrdp_session::ActiveStage::new(connection_result),
+        desktop_size,
+    )
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_connection_result_for_probe(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> (
+    ironrdp_connector::ConnectionResult,
+    ironrdp_connector::DesktopSize,
+) {
     let config = build_connector_config_for_probe(plan, credential);
     let desktop_size = config.desktop_size;
     let connector = ironrdp_connector::ClientConnector::new(
@@ -788,10 +824,7 @@ fn build_active_stage_for_probe(
         connection_activation,
     };
 
-    (
-        ironrdp_session::ActiveStage::new(connection_result),
-        desktop_size,
-    )
+    (connection_result, desktop_size)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1476,6 +1509,40 @@ mod tests {
         let probe = session
             .input(&desktop_key_frame("Enter", true))
             .expect("input routed");
+
+        assert_eq!(probe.rdp_response_frames, 1);
+        assert!(probe.rdp_response_bytes > 0);
+        assert_eq!(probe.queued_media_frames, 0);
+        assert_eq!(session.upstream_ref().len(), probe.rdp_response_bytes);
+        assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_active_stage_session_accepts_connection_result_handoff() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let (connection_result, desktop_size) =
+            build_connection_result_for_probe(&plan, &credential);
+        let mut session = ActiveStageSessionProbe::from_connection_result(
+            connection_result,
+            desktop_size,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+
+        let probe = session
+            .input(&desktop_key_frame("Enter", true))
+            .expect("input routed after connection-result handoff");
 
         assert_eq!(probe.rdp_response_frames, 1);
         assert!(probe.rdp_response_bytes > 0);
