@@ -276,6 +276,9 @@ func ValidateDesktopMediaFrame(frame DesktopMediaFrame, policy DesktopScreenPoli
 	if desktopMediaPayloadFamilyID(frame.PayloadFamily) == 0 {
 		return fmt.Errorf("%w: unsupported payload family", ErrInvalidDesktopMediaFrame)
 	}
+	if frame.Flags&^DesktopMediaAllowedFlags != 0 {
+		return fmt.Errorf("%w: unsupported flags", ErrInvalidDesktopMediaFrame)
+	}
 	if len(frame.Metadata) > DesktopMediaMaxMetadata {
 		return fmt.Errorf("%w: metadata exceeds maximum", ErrInvalidDesktopMediaFrame)
 	}

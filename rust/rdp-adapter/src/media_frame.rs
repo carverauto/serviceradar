@@ -18,6 +18,11 @@ pub(crate) const DESKTOP_MEDIA_FLAG_FULL_FRAME: u8 = 0x02;
 pub(crate) const DESKTOP_MEDIA_FLAG_CURSOR_UPDATE: u8 = 0x04;
 pub(crate) const DESKTOP_MEDIA_FLAG_END_OF_STREAM: u8 = 0x08;
 pub(crate) const DESKTOP_MEDIA_FLAG_DISCONTINUITY: u8 = 0x10;
+const DESKTOP_MEDIA_ALLOWED_FLAGS: u8 = DESKTOP_MEDIA_FLAG_KEYFRAME
+    | DESKTOP_MEDIA_FLAG_FULL_FRAME
+    | DESKTOP_MEDIA_FLAG_CURSOR_UPDATE
+    | DESKTOP_MEDIA_FLAG_END_OF_STREAM
+    | DESKTOP_MEDIA_FLAG_DISCONTINUITY;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DesktopMediaPayloadFamily {
@@ -66,6 +71,7 @@ pub(crate) enum DesktopMediaFrameError {
     StringFieldTooLarge,
     MetadataTooLarge,
     PayloadTooLarge,
+    UnsupportedFlags,
     DimensionsExceedPolicy,
     FrameLengthOverflow,
 }
@@ -82,6 +88,7 @@ impl fmt::Display for DesktopMediaFrameError {
             }
             Self::MetadataTooLarge => f.write_str("desktop media frame metadata is too large"),
             Self::PayloadTooLarge => f.write_str("desktop media frame payload is too large"),
+            Self::UnsupportedFlags => f.write_str("desktop media frame flags are unsupported"),
             Self::DimensionsExceedPolicy => {
                 f.write_str("desktop media frame dimensions exceed policy")
             }
@@ -179,6 +186,9 @@ fn validate_desktop_media_frame(
     }
     if frame.payload.len() > DESKTOP_MAX_FRAME_DATA {
         return Err(DesktopMediaFrameError::PayloadTooLarge);
+    }
+    if frame.flags & !DESKTOP_MEDIA_ALLOWED_FLAGS != 0 {
+        return Err(DesktopMediaFrameError::UnsupportedFlags);
     }
     if frame.payload_family.requires_dimensions() && (frame.width == 0 || frame.height == 0) {
         return Err(DesktopMediaFrameError::DimensionsExceedPolicy);
@@ -298,6 +308,16 @@ mod tests {
         assert_eq!(
             encode_desktop_media_frame(&oversized_metadata, &policy),
             Err(DesktopMediaFrameError::MetadataTooLarge)
+        );
+
+        let unsupported_flags = DesktopMediaFrame {
+            width: 800,
+            flags: 0x20,
+            ..too_wide
+        };
+        assert_eq!(
+            encode_desktop_media_frame(&unsupported_flags, &policy),
+            Err(DesktopMediaFrameError::UnsupportedFlags)
         );
     }
 

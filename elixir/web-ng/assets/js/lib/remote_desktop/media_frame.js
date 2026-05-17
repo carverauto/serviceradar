@@ -7,6 +7,8 @@ const FLAG_FULL_FRAME = 0x02
 const FLAG_CURSOR_UPDATE = 0x04
 const FLAG_END_OF_STREAM = 0x08
 const FLAG_DISCONTINUITY = 0x10
+const FLAG_ALLOWED =
+  FLAG_KEYFRAME | FLAG_FULL_FRAME | FLAG_CURSOR_UPDATE | FLAG_END_OF_STREAM | FLAG_DISCONTINUITY
 
 export const DESKTOP_PAYLOAD_VIDEO = "video"
 export const DESKTOP_PAYLOAD_DIRTY_RECT = "dirty_rect"
@@ -97,7 +99,15 @@ function metadataBytes(metadata) {
 }
 
 function frameFlags(frame) {
-  let flags = Number.isInteger(frame.flags) ? frame.flags & 0xff : 0
+  let flags = 0
+  if (Number.isInteger(frame.flags)) {
+    if (frame.flags < 0 || frame.flags > 0xff || (frame.flags & ~FLAG_ALLOWED) !== 0) {
+      throw new Error("desktop media frame flags are unsupported")
+    }
+
+    flags = frame.flags
+  }
+
   if (frame.keyframe) flags |= FLAG_KEYFRAME
   if (frame.fullFrame) flags |= FLAG_FULL_FRAME
   if (frame.cursorUpdate) flags |= FLAG_CURSOR_UPDATE
@@ -212,6 +222,10 @@ function parseDesktopMediaFrameWithCache(data, stableStringCache = null) {
   }
 
   const flags = view.getUint8(5)
+  if ((flags & ~FLAG_ALLOWED) !== 0) {
+    throw new Error("desktop media frame flags are unsupported")
+  }
+
   const payloadFamily = PAYLOAD_ID_TO_FAMILY[view.getUint8(6)]
   if (!payloadFamily) {
     throw new Error("desktop media frame payload family is unsupported")

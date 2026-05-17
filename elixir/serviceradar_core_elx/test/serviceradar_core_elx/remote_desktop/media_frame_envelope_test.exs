@@ -65,6 +65,9 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaFrameEnvelopeTest do
     assert {:error, {:field_out_of_range, :flags}} =
              MediaFrameEnvelope.encode(frame(flags: 256))
 
+    assert {:error, {:unsupported_flags, :flags}} =
+             MediaFrameEnvelope.encode(frame(flags: 32))
+
     assert {:error, {:field_too_large, :metadata}} =
              MediaFrameEnvelope.encode(frame(metadata: :binary.copy(<<0>>, 65_537)))
   end

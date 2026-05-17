@@ -32,6 +32,11 @@ const (
 	DesktopMediaFlagCursorUpdate  uint8 = 0x04
 	DesktopMediaFlagEndOfStream   uint8 = 0x08
 	DesktopMediaFlagDiscontinuity uint8 = 0x10
+	DesktopMediaAllowedFlags            = DesktopMediaFlagKeyframe |
+		DesktopMediaFlagFullFrame |
+		DesktopMediaFlagCursorUpdate |
+		DesktopMediaFlagEndOfStream |
+		DesktopMediaFlagDiscontinuity
 
 	DesktopMediaPayloadVideo     = "video"
 	DesktopMediaPayloadDirtyRect = "dirty_rect"

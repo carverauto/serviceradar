@@ -113,6 +113,12 @@ func TestDesktopMediaFrameValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "unsupported flags",
+			mutate: func(frame *DesktopMediaFrame) {
+				frame.Flags = 0x20
+			},
+		},
+		{
 			name: "dimensions exceed policy",
 			mutate: func(frame *DesktopMediaFrame) {
 				frame.Width = 1281

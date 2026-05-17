@@ -8,6 +8,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaFrameEnvelope do
   WebRTC send boundary.
   """
 
+  import Bitwise
+
   @version 1
   @header_size 48
   @max_uint16 65_535
@@ -16,6 +18,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaFrameEnvelope do
   @min_int64 -9_223_372_036_854_775_808
   @max_int64 9_223_372_036_854_775_807
   @max_metadata_bytes 64 * 1_024
+  @allowed_flags 0x01 ||| 0x02 ||| 0x04 ||| 0x08 ||| 0x10
 
   @payload_family_ids %{
     "video" => 1,
@@ -66,6 +69,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaFrameEnvelope do
          :ok <- require_nonempty(fields.media_session_id, :media_session_id),
          {:ok, payload_family_id} <- payload_family_id(fields.payload_family),
          :ok <- require_uint8(fields.flags, :flags),
+         :ok <- require_supported_flags(fields.flags),
          :ok <- require_uint64(fields.sequence, :sequence),
          :ok <- require_int64(fields.timestamp_unix_nano, :timestamp_unix_nano),
          :ok <- require_uint32_value(fields.width, :width),
@@ -100,6 +104,9 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaFrameEnvelope do
 
   defp require_uint8(value, _field) when value >= 0 and value <= 255, do: :ok
   defp require_uint8(_value, field), do: {:error, {:field_out_of_range, field}}
+
+  defp require_supported_flags(value) when (value &&& bnot(@allowed_flags)) == 0, do: :ok
+  defp require_supported_flags(_value), do: {:error, {:unsupported_flags, :flags}}
 
   defp require_uint32_value(value, _field) when value >= 0 and value <= @max_uint32, do: :ok
   defp require_uint32_value(_value, field), do: {:error, {:field_out_of_range, field}}

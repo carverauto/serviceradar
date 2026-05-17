@@ -166,6 +166,20 @@ describe("remote desktop media frame envelope", () => {
     const reservedUint16 = new Uint8Array(valid)
     new DataView(reservedUint16.buffer).setUint16(46, 1, false)
     expect(() => parseDesktopMediaFrame(reservedUint16)).toThrow("reserved header bytes")
+
+    const unknownFlags = new Uint8Array(valid)
+    unknownFlags[5] = 0x20
+    expect(() => parseDesktopMediaFrame(unknownFlags)).toThrow("flags are unsupported")
+  })
+
+  it("rejects unsupported flags during browser-side frame encoding", () => {
+    expect(() =>
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_METADATA,
+        flags: 0x20,
+        payload: new Uint8Array(),
+      })
+    ).toThrow("flags are unsupported")
   })
 
   it("selects renderer modes by payload family and browser capability", () => {

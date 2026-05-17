@@ -131,6 +131,7 @@
 - [x] 3.1.65 Preserve the desktop media gateway sender ownership contract by treating stream sends as synchronous consumption of frame metadata and payload buffers.
 - [x] 3.1.66 Reject inbound desktop media gateway ACK and close messages whose media-ingest, agent, or gateway bindings do not match the accepted stream.
 - [x] 3.1.67 Reject shared Go SRDP media frames with trailing payload bytes or non-zero reserved header bytes before adapter forwarding.
+- [x] 3.1.68 Reject SRDP media frames with unknown flag bits across Go, Rust, core-elx, and browser envelope boundaries.
 - [ ] 3.2 Implement the agent RDP adapter for registered targets only, including TLS/NLA verification and credential handling.
 - [x] 3.2.1 Add agent-side desktop open-frame decoding that rejects unselected routes before adapter dial.
 - [x] 3.2.2 Add an agent-side RDP adapter runtime seam that validates registered target route/TLS/NLA policy, requires a dedicated media sender, and fails closed until a concrete adapter is injected.
