@@ -30,11 +30,11 @@ defmodule ServiceRadar.Monitoring.Alert do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
+  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert.AutoEscalateScheduler
   alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
   alias ServiceRadar.Monitoring.Alert.SendNotificationsScheduler
   alias ServiceRadar.Monitoring.Alert.SendNotificationsWorker
-  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Oban.AshObanQueueResolver
 
   @alert_trigger_fields [

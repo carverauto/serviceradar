@@ -87,8 +87,11 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
 
   defp has_field_filter?(filters, field) do
     Enum.any?(filters, fn
-      %{field: filter_field} when is_binary(filter_field) -> String.downcase(filter_field) == field
-      _filter -> false
+      %{field: filter_field} when is_binary(filter_field) ->
+        String.downcase(filter_field) == field
+
+      _filter ->
+        false
     end)
   end
 
@@ -130,7 +133,8 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     end
   end
 
-  defp apply_standard_filter(query, field, op, value) when field == :is_active and op in ["eq", "equals"] do
+  defp apply_standard_filter(query, field, op, value)
+       when field == :is_active and op in ["eq", "equals"] do
     value = normalize_bool(value)
     Ash.Query.filter(query, is_active == ^value or (is_nil(is_active) and ^value == true))
   end
@@ -141,11 +145,13 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
     Ash.Query.filter(query, is_active != ^value and not (is_nil(is_active) and ^value == true))
   end
 
-  defp apply_standard_filter(query, field, op, value) when op in ["eq", "equals"] and is_atom(field) do
+  defp apply_standard_filter(query, field, op, value)
+       when op in ["eq", "equals"] and is_atom(field) do
     Ash.Query.filter_input(query, %{field => %{eq: value}})
   end
 
-  defp apply_standard_filter(query, field, op, value) when op in ["contains", "like"] and is_atom(field) do
+  defp apply_standard_filter(query, field, op, value)
+       when op in ["contains", "like"] and is_atom(field) do
     value = trim_like_wildcards(value)
     Ash.Query.filter_input(query, %{field => %{contains: value}})
   end
@@ -166,7 +172,8 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
 
   defp log_prefix(opts), do: Keyword.get(opts, :log_prefix, "SRQLDeviceMatcher")
 
-  defp tag_field?(field, opts), do: Keyword.get(opts, :tag_fields?, true) and String.starts_with?(field, "tags.")
+  defp tag_field?(field, opts),
+    do: Keyword.get(opts, :tag_fields?, true) and String.starts_with?(field, "tags.")
 
   defp trim_like_wildcards(value) when is_binary(value) do
     value |> String.trim_leading("%") |> String.trim_trailing("%")

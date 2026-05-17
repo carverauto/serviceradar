@@ -83,6 +83,8 @@ defmodule ServiceRadar.Inventory.DeviceLifecycle do
     if value == "", do: nil, else: value
   end
 
-  defp present_string(value) when is_atom(value), do: value |> Atom.to_string() |> present_string()
+  defp present_string(value) when is_atom(value),
+    do: value |> Atom.to_string() |> present_string()
+
   defp present_string(_value), do: nil
 end

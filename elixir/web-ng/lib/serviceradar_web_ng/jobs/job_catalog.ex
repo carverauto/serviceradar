@@ -21,8 +21,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
-  alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadar.Oban.Router
+  alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
 
   require Logger
 
@@ -126,8 +126,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   defp maybe_sort(jobs, nil, _dir), do: jobs
 
-  defp maybe_sort(jobs, field, dir)
-       when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
+  defp maybe_sort(jobs, field, dir) when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
     sorter = fn job ->
       value = Map.get(job, field)
       # Handle nil values - put them at the end
@@ -319,11 +318,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  def trigger_job(%{
-        source: :manual,
-        worker: ArmisNorthboundRunWorker,
-        integration_source_id: integration_source_id
-      })
+  def trigger_job(%{source: :manual, worker: ArmisNorthboundRunWorker, integration_source_id: integration_source_id})
       when is_binary(integration_source_id) do
     ArmisNorthboundRunWorker.enqueue_now(integration_source_id)
   rescue
@@ -336,8 +331,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  def trigger_job(%{source: :manual, worker: worker})
-      when worker == @plugin_blob_retention_worker do
+  def trigger_job(%{source: :manual, worker: worker}) when worker == @plugin_blob_retention_worker do
     apply(worker, :enqueue_manual, [])
   rescue
     e -> {:error, Exception.message(e)}
@@ -601,8 +595,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
       %{
         id: "manual:object_store_release_retention",
         name: "Object store release retention",
-        description:
-          "Manually queue cleanup for retained agent release artifacts in ServiceRadar object storage.",
+        description: "Manually queue cleanup for retained agent release artifacts in ServiceRadar object storage.",
         source: :manual,
         cron: "manual",
         queue: :maintenance,
@@ -651,8 +644,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     %{
       id: "manual:armis_northbound:#{source.id}",
       name: "Armis northbound: #{source.name}",
-      description:
-        "Manually queue a northbound availability sync for the #{source.name} Armis source.",
+      description: "Manually queue a northbound availability sync for the #{source.name} Armis source.",
       source: :manual,
       cron: "manual",
       queue: :integrations,
