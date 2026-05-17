@@ -257,6 +257,29 @@ impl<S: Read, W: Write> ActiveStageNetworkPumpSessionProbe<S, W> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn from_connection_result(
+        framed: ironrdp_blocking::Framed<S>,
+        connection_result: ironrdp_connector::ConnectionResult,
+        desktop_size: ironrdp_connector::DesktopSize,
+        upstream: W,
+        policy: &DesktopScreenPolicy,
+        session_binding_id: String,
+        media_session_id: String,
+        timestamp_unix_nano: i64,
+    ) -> Self {
+        let inner = ActiveStageSessionProbe::from_connection_result(
+            connection_result,
+            desktop_size,
+            upstream,
+            policy,
+            session_binding_id,
+            media_session_id,
+        );
+
+        Self::new(framed, inner, timestamp_unix_nano)
+    }
+
     fn drain_media_frames(&mut self) -> Vec<Vec<u8>> {
         self.inner.drain_media_frames()
     }
@@ -1727,6 +1750,43 @@ mod tests {
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
         assert!(session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_network_pump_session_accepts_connection_result_handoff() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let (connection_result, desktop_size) =
+            build_connection_result_for_probe(&plan, &credential);
+        let framed = ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new()));
+        let mut session = ActiveStageNetworkPumpSessionProbe::from_connection_result(
+            framed,
+            connection_result,
+            desktop_size,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+            1234,
+        );
+
+        {
+            let session_trait: &mut dyn RdpBackendSession = &mut session;
+            session_trait
+                .input(&desktop_key_frame("Enter", true))
+                .expect("input routed after network-pump handoff");
+        }
+
+        assert!(!session.upstream_ref().is_empty());
         assert!(session.drain_media_frames().is_empty());
     }
 
