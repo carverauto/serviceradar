@@ -6,12 +6,13 @@ Long-running northbound actions, device details UX, and inventory enrichment fix
 
 **1.2.66**
 - Added deferred northbound action execution with polling, result-fetching, expiration, cancellation handling, external correlation IDs, redacted persisted results, and resumable continuation state.
-- Added token-gated northbound action webhook callbacks so external systems can report job progress or completion back to ServiceRadar without requiring only poll-based integrations.
+- Added token-gated and HMAC-signed northbound action webhook callbacks so external systems can report job progress or completion back to ServiceRadar without requiring only poll-based integrations.
 - Updated the sample northbound Wasm plugin to exercise immediate, polling, and webhook-style action flows for device and interface integrations.
 - Fixed the device details Logs tab so log loading runs asynchronously instead of timing out the LiveView event.
 - Improved device details metadata rendering with grouped integration sections, cleaner task history output, Armis risk score display, and better handling for integration-provided device type data.
 - Fixed stale self-scheduled Oban maintenance job reaping so stuck IP and GeoIP enrichment workers can be expired and restarted instead of silently starving NetFlow map enrichment.
 - Added agent and gateway control-stream diagnostics for command ACK failures, config ACK failures, mapper config application, config payload summaries, and stream shutdowns to make failed agent command delivery visible during managed rollouts.
+- Hardened Bazel module resolution for release CI by preferring the Bazel mirror for the transitive `rules_kotlin` archive when GitHub release downloads return transient 502s.
 - Added validation coverage for northbound action platform-schema migrations, lifecycle state transitions, redaction, poll scheduling, and expiration.
 
 # ServiceRadar v1.2.65
