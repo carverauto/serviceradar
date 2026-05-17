@@ -104,3 +104,45 @@ func TestDesktopRDPHelperFrameAllowsEmptyPayload(t *testing.T) {
 		t.Fatalf("frame = %#v", got)
 	}
 }
+
+func TestDesktopRDPHelperFrameCapsNonMediaBeforePayloadRead(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	var header [desktopRDPHelperFrameHeaderSize]byte
+	binary.BigEndian.PutUint32(header[0:4], desktopRDPHelperMaxControlBytes+1)
+	header[4] = byte(desktopRDPHelperMessageError)
+	buf.Write(header[:])
+
+	if _, err := readDesktopRDPHelperFrame(&buf, desktopRDPHelperMaxFrameBytes); !errors.Is(err, errDesktopRDPHelperFrameTooLarge) {
+		t.Fatalf("oversized control read error = %v, want %v", err, errDesktopRDPHelperFrameTooLarge)
+	}
+}
+
+func TestDesktopRDPHelperFrameKeepsLargePayloadsMediaOnly(t *testing.T) {
+	t.Parallel()
+
+	payload := bytes.Repeat([]byte{0x42}, desktopRDPHelperMaxControlBytes)
+	if err := writeDesktopRDPHelperFrame(io.Discard, desktopRDPHelperFrame{
+		Type:    desktopRDPHelperMessageClose,
+		Payload: payload,
+	}); !errors.Is(err, errDesktopRDPHelperFrameTooLarge) {
+		t.Fatalf("oversized close write error = %v, want %v", err, errDesktopRDPHelperFrameTooLarge)
+	}
+
+	var buf bytes.Buffer
+	if err := writeDesktopRDPHelperFrame(&buf, desktopRDPHelperFrame{
+		Type:    desktopRDPHelperMessageMediaFrame,
+		Payload: payload,
+	}); err != nil {
+		t.Fatalf("large media write returned error: %v", err)
+	}
+
+	got, err := readDesktopRDPHelperFrame(&buf, desktopRDPHelperMaxFrameBytes)
+	if err != nil {
+		t.Fatalf("large media read returned error: %v", err)
+	}
+	if got.Type != desktopRDPHelperMessageMediaFrame || !bytes.Equal(got.Payload, payload) {
+		t.Fatalf("large media frame = %#v", got)
+	}
+}

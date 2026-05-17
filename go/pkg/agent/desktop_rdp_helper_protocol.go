@@ -26,6 +26,7 @@ import (
 const (
 	desktopRDPHelperFrameHeaderSize = 5
 	desktopRDPHelperMaxFrameBytes   = 16 * 1024 * 1024
+	desktopRDPHelperMaxControlBytes = 64 * 1024
 
 	desktopRDPHelperMessageOpen       desktopRDPHelperMessageType = 1
 	desktopRDPHelperMessageInput      desktopRDPHelperMessageType = 2
@@ -86,16 +87,17 @@ func readDesktopRDPHelperFrame(r io.Reader, maxFrameBytes int) (desktopRDPHelper
 	if length == 0 {
 		return desktopRDPHelperFrame{}, fmt.Errorf("%w: missing message type", errDesktopRDPHelperInvalidFrame)
 	}
-	if length > uint32(maxFrameBytes) {
+	messageType := desktopRDPHelperMessageType(header[4])
+	if err := validateDesktopRDPHelperMessageType(messageType); err != nil {
+		return desktopRDPHelperFrame{}, err
+	}
+	if limit := maxDesktopRDPHelperFrameBytes(messageType, maxFrameBytes); length > uint32(limit) {
 		return desktopRDPHelperFrame{}, fmt.Errorf("%w: %d", errDesktopRDPHelperFrameTooLarge, length)
 	}
 
 	frame := desktopRDPHelperFrame{
-		Type:    desktopRDPHelperMessageType(header[4]),
+		Type:    messageType,
 		Payload: make([]byte, int(length)-1),
-	}
-	if err := validateDesktopRDPHelperMessageType(frame.Type); err != nil {
-		return desktopRDPHelperFrame{}, err
 	}
 	if len(frame.Payload) == 0 {
 		return frame, nil
@@ -114,11 +116,25 @@ func validateDesktopRDPHelperFrame(frame desktopRDPHelperFrame, maxFrameBytes in
 	if err := validateDesktopRDPHelperMessageType(frame.Type); err != nil {
 		return err
 	}
-	if len(frame.Payload)+1 > maxFrameBytes {
+	if len(frame.Payload)+1 > maxDesktopRDPHelperFrameBytes(frame.Type, maxFrameBytes) {
 		return fmt.Errorf("%w: %d", errDesktopRDPHelperFrameTooLarge, len(frame.Payload)+1)
 	}
 
 	return nil
+}
+
+func maxDesktopRDPHelperFrameBytes(messageType desktopRDPHelperMessageType, maxFrameBytes int) int {
+	if maxFrameBytes <= 0 || maxFrameBytes > desktopRDPHelperMaxFrameBytes {
+		maxFrameBytes = desktopRDPHelperMaxFrameBytes
+	}
+	if messageType == desktopRDPHelperMessageMediaFrame {
+		return maxFrameBytes
+	}
+	if maxFrameBytes < desktopRDPHelperMaxControlBytes {
+		return maxFrameBytes
+	}
+
+	return desktopRDPHelperMaxControlBytes
 }
 
 func validateDesktopRDPHelperMessageType(messageType desktopRDPHelperMessageType) error {
