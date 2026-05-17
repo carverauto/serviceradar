@@ -86,6 +86,7 @@ struct BlockingConnectFinalizeProbe {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ConnectorRuntimePolicy {
     dial_timeout: Duration,
+    kdc_timeout: Duration,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -93,6 +94,7 @@ impl Default for ConnectorRuntimePolicy {
     fn default() -> Self {
         Self {
             dial_timeout: DEFAULT_CONNECTOR_TIMEOUT,
+            kdc_timeout: DEFAULT_CONNECTOR_TIMEOUT,
         }
     }
 }
@@ -885,6 +887,21 @@ fn connect_verified_credssp_handoff_for_experimental(
         begin_connector_handoff_with_tcp_dial_for_probe(plan, credential, runtime.dial_timeout)?;
 
     upgrade_connector_handoff_tls_for_probe(begin_handoff)
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn finalize_verified_connector_for_experimental(
+    handoff: ConnectorCredsspHandoff<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
+    runtime: ConnectorRuntimePolicy,
+) -> Result<
+    ConnectorFinalizedHandoff<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
+    ConnectorFinalizeFailure<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
+> {
+    let mut network_client = ServiceRadarKdcNetworkClient {
+        timeout: runtime.kdc_timeout,
+    };
+
+    finalize_connector_handoff_for_probe(handoff, &mut network_client)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1702,7 +1719,19 @@ impl ServiceRadarKdcNetworkClient {
             Ok(IpAddr::V6(_)) => format!("[{host}]:{port}"),
             _ => format!("{host}:{port}"),
         };
-        let mut stream = TcpStream::connect(endpoint).map_err(|err| {
+        let mut addresses = endpoint.to_socket_addrs().map_err(|err| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                format!("Kerberos TCP address resolution failed: {err}"),
+            )
+        })?;
+        let address = addresses.next().ok_or_else(|| {
+            ironrdp_connector::sspi::Error::new(
+                ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
+                "Kerberos TCP address resolution returned no endpoints",
+            )
+        })?;
+        let mut stream = TcpStream::connect_timeout(&address, self.timeout).map_err(|err| {
             ironrdp_connector::sspi::Error::new(
                 ironrdp_connector::sspi::ErrorKind::NoAuthenticatingAuthority,
                 format!("Kerberos TCP connection failed: {err}"),
@@ -2417,6 +2446,56 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
+    fn connector_probe_experimental_finalize_uses_bounded_kdc_client_without_password() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        plan.upstream_host = listener_addr.ip().to_string();
+        plan.upstream_port = listener_addr.port();
+        plan.tls_server_name = "win.example".to_owned();
+        let runtime = ConnectorRuntimePolicy {
+            dial_timeout: Duration::from_secs(1),
+            kdc_timeout: Duration::from_millis(100),
+        };
+        let server = spawn_hybrid_ex_tls_capture_server(listener);
+
+        let credssp_handoff =
+            connect_verified_credssp_handoff_for_experimental(&plan, &credential, runtime)
+                .expect("CredSSP-ready handoff");
+        let failure = match finalize_verified_connector_for_experimental(credssp_handoff, runtime) {
+            Ok(_) => panic!("incomplete loopback server should not finalize"),
+            Err(failure) => failure,
+        };
+        let capture = server.join().expect("server thread");
+
+        assert_eq!(
+            failure.error,
+            BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
+        );
+        assert!(!capture.initial_request.is_empty());
+        assert!(!capture.tls_plaintext.is_empty());
+        assert!(!bytes_contain_secret(
+            &capture.initial_request,
+            credential.password.value.as_str().as_bytes(),
+        ));
+        assert!(!bytes_contain_secret(
+            &capture.tls_plaintext,
+            credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
     fn connector_probe_kdc_network_client_tcp_round_trip_is_bounded() {
         use ironrdp_connector::sspi::network_client::NetworkClient as _;
         use std::io::{Read as _, Write as _};
@@ -2529,6 +2608,7 @@ mod tests {
         let server = spawn_hybrid_ex_tls_probe_server(listener);
         let runtime = ConnectorRuntimePolicy {
             dial_timeout: Duration::from_secs(1),
+            kdc_timeout: Duration::from_secs(1),
         };
 
         let credssp_handoff =
@@ -2569,6 +2649,7 @@ mod tests {
         let server = spawn_hybrid_ex_tls_probe_server(listener);
         let runtime = ConnectorRuntimePolicy {
             dial_timeout: Duration::from_secs(1),
+            kdc_timeout: Duration::from_secs(1),
         };
 
         let err = open_connector_for_experimental_until_readiness_gate(&payload, runtime)
