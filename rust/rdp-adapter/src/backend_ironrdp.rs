@@ -2200,6 +2200,59 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
+    fn connector_probe_tcp_tls_finalize_writes_credssp_without_password() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        plan.upstream_host = listener_addr.ip().to_string();
+        plan.upstream_port = listener_addr.port();
+        plan.tls_server_name = "win.example".to_owned();
+        let server = spawn_hybrid_ex_tls_capture_server(listener);
+
+        let begin_handoff = begin_connector_handoff_with_tcp_dial_for_probe(
+            &plan,
+            &credential,
+            Duration::from_secs(1),
+        )
+        .expect("connector begin handoff");
+        let credssp_handoff =
+            upgrade_connector_handoff_tls_for_probe(begin_handoff).expect("TLS upgrade");
+        let mut network_client = RejectingNetworkClient;
+        let failure =
+            match finalize_connector_handoff_for_probe(credssp_handoff, &mut network_client) {
+                Ok(_) => panic!("rejecting network client should not finalize"),
+                Err(failure) => failure,
+            };
+        let capture = server.join().expect("server thread");
+
+        assert_eq!(
+            failure.error,
+            BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
+        );
+        assert!(!capture.initial_request.is_empty());
+        assert!(!capture.tls_plaintext.is_empty());
+        assert!(!bytes_contain_secret(
+            &capture.initial_request,
+            credential.password.value.as_str().as_bytes(),
+        ));
+        assert!(!bytes_contain_secret(
+            &capture.tls_plaintext,
+            credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
     fn connector_probe_tcp_connect_begin_rejects_tls_only_confirm_without_password() {
         use std::io::{Read as _, Write as _};
 
@@ -3504,6 +3557,12 @@ mod tests {
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
+    struct HybridExTlsProbeCapture {
+        initial_request: Vec<u8>,
+        tls_plaintext: Vec<u8>,
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
     fn spawn_hybrid_ex_tls_probe_server(
         listener: std::net::TcpListener,
     ) -> std::thread::JoinHandle<Vec<u8>> {
@@ -3538,6 +3597,59 @@ mod tests {
             }
 
             initial_request[..read].to_vec()
+        })
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn spawn_hybrid_ex_tls_capture_server(
+        listener: std::net::TcpListener,
+    ) -> std::thread::JoinHandle<HybridExTlsProbeCapture> {
+        use std::io::{Read as _, Write as _};
+
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+                .expect("server confirm");
+
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accepted connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("read timeout");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(1)))
+                .expect("write timeout");
+            let mut initial_request = [0_u8; 4096];
+            let read = stream
+                .read(&mut initial_request)
+                .expect("initial connector request");
+            stream
+                .write_all(&server_confirm)
+                .expect("server confirm write");
+            let server_config = fixture_tls_server_config_for_probe();
+            let mut server_connection =
+                rustls::ServerConnection::new(Arc::new(server_config)).expect("server connection");
+            while server_connection.is_handshaking() {
+                server_connection
+                    .complete_io(&mut stream)
+                    .expect("server TLS handshake");
+            }
+
+            let mut tls_plaintext = Vec::new();
+            let _ = server_connection.complete_io(&mut stream);
+            let mut plaintext = [0_u8; 4096];
+            loop {
+                match server_connection.reader().read(&mut plaintext) {
+                    Ok(0) => break,
+                    Ok(count) => tls_plaintext.extend_from_slice(&plaintext[..count]),
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(_) => break,
+                }
+            }
+
+            HybridExTlsProbeCapture {
+                initial_request: initial_request[..read].to_vec(),
+                tls_plaintext,
+            }
         })
     }
 
