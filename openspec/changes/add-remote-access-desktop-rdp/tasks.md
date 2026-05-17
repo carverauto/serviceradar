@@ -193,6 +193,7 @@
 - [x] 3.2.62 Add a connector-linked dialed-stream boundary that carries the registered remote endpoint and local client socket address into connect-begin handoff without exposing credential material.
 - [x] 3.2.63 Add a connector-linked TCP dial helper that turns a registered dial target into a dialed stream with local client address while runtime readiness remains disabled.
 - [x] 3.2.64 Add a connector-linked TCP connect-begin boundary that dials a registered target stream and drives IronRDP to the TLS-upgrade boundary while runtime readiness remains disabled.
+- [x] 3.2.65 Keep the connector-linked TCP connect-begin boundary fail-closed when a real stream selects plain TLS instead of CredSSP/NLA.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -375,6 +376,7 @@
 - [x] 5.2.89 Add connector-linked dialed-stream handoff coverage proving the remote endpoint and client address survive into connect-begin without cleartext password exposure.
 - [x] 5.2.90 Add connector-linked loopback TCP dial coverage proving registered targets can produce a dialed stream and local client address without enabling runtime RDP readiness.
 - [x] 5.2.91 Add connector-linked loopback TCP connect-begin coverage proving a real stream reaches the TLS-upgrade boundary and the pre-TLS request omits cleartext password material.
+- [x] 5.2.92 Add connector-linked loopback TCP downgrade coverage proving TLS-only server confirms fail closed and the pre-TLS request still omits cleartext password material.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

@@ -2005,6 +2005,63 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
+    fn connector_probe_tcp_connect_begin_rejects_tls_only_confirm_without_password() {
+        use std::io::{Read as _, Write as _};
+
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        plan.upstream_host = listener_addr.ip().to_string();
+        plan.upstream_port = listener_addr.port();
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::SSL)
+                .expect("server confirm");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accepted connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("read timeout");
+            let mut initial_request = [0_u8; 4096];
+            let read = stream
+                .read(&mut initial_request)
+                .expect("initial connector request");
+            stream
+                .write_all(&server_confirm)
+                .expect("server confirm write");
+
+            initial_request[..read].to_vec()
+        });
+
+        let err = match begin_connector_handoff_with_tcp_dial_for_probe(
+            &plan,
+            &credential,
+            Duration::from_secs(1),
+        ) {
+            Ok(_) => panic!("tls-only confirm should be rejected"),
+            Err(err) => err,
+        };
+        let initial_request = server.join().expect("server thread");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+        assert!(!initial_request.is_empty());
+        assert!(!bytes_contain_secret(
+            &initial_request,
+            credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
     fn connector_probe_initial_pdu_advertises_nla_without_tls_fallback() {
         let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
