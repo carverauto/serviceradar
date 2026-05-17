@@ -288,7 +288,16 @@ export class RemoteDesktopWebRTCClient {
 
   handleChannelMessage(label, data) {
     if (label === DESKTOP_MEDIA_CHANNEL) {
-      const result = this.mediaProcessor.process(data)
+      let result
+
+      try {
+        result = this.mediaProcessor.process(data)
+      } catch (error) {
+        this.onError(error)
+        this.close("desktop media frame processing failed")
+        return
+      }
+
       const frame = result.frame
 
       if (result.dropped) {

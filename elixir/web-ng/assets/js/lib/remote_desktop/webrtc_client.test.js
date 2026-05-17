@@ -348,6 +348,69 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(processor.close).toHaveBeenCalled()
   })
 
+  it("fails closed when desktop media processing rejects a frame", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-malformed",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {closed: true}}),
+      })
+    const processorError = new Error("malformed desktop media")
+    const processor = {
+      process: vi.fn(() => {
+        throw processorError
+      }),
+      queueState: vi.fn(),
+      close: vi.fn(),
+    }
+    const peer = new MockPeerConnection({})
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    const onError = vi.fn()
+    const onFrame = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-malformed/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaProcessorFactory: () => processor,
+      onError,
+      onFrame,
+    })
+
+    await client.connect()
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    mediaChannel.emitMessage(new Uint8Array([0xde, 0xad]))
+
+    expect(onError).toHaveBeenCalledWith(processorError)
+    expect(onFrame).not.toHaveBeenCalled()
+    expect(processor.close).toHaveBeenCalled()
+    expect(mediaChannel.closed).toBe(true)
+    expect(controlChannel.closed).toBe(true)
+    expect(peer.closed).toBe(true)
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "/api/desktop-sessions/session-malformed/webrtc/session/viewer-malformed",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({reason: "desktop media frame processing failed"}),
+      }),
+    ])
+  })
+
   it("acknowledges media frames over the control channel with fresh credit", async () => {
     const fetchMock = vi
       .fn()
