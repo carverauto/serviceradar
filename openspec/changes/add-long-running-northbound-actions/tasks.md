@@ -2,7 +2,7 @@
 
 - [x] 1.1 Extend invocation/target state to represent deferred, polling, result-fetching, completed, failed, expired, and canceled states.
 - [x] 1.2 Persist external correlation ID, next poll time, poll attempt count, deadline, and encrypted/redacted continuation state per target.
-- [ ] 1.3 Add migration tests for platform-schema objects only.
+- [x] 1.3 Add migration tests for platform-schema objects only.
 
 ## 2. Runtime and Dispatch
 
@@ -28,7 +28,7 @@
 
 ## 5. Validation
 
-- [ ] 5.1 Add unit tests for state transitions, continuation redaction, poll scheduling, and expiration.
+- [x] 5.1 Add unit tests for state transitions, continuation redaction, poll scheduling, and expiration.
 - [x] 5.2 Add Wasm runtime tests for immediate and deferred action results.
 - [x] 5.3 Add LiveView tests for long-running action status visibility.
 - [x] 5.4 Run `openspec validate add-long-running-northbound-actions --strict`.
