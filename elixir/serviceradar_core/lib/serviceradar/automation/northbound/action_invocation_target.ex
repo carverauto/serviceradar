@@ -304,7 +304,16 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
 
     update :prepare_callback do
-      accept [:callback_token_hash, :callback_url]
+      accept [
+        :callback_token_hash,
+        :callback_url,
+        :callback_auth_mode,
+        :callback_hmac_secret_ciphertext,
+        :callback_hmac_algorithm,
+        :callback_hmac_signature_header,
+        :callback_hmac_timestamp_header,
+        :callback_hmac_timestamp_tolerance_seconds
+      ]
     end
   end
 
@@ -383,6 +392,44 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     attribute :callback_token_hash, :string, allow_nil?: true, public?: false, sensitive?: true
     attribute :callback_url, :string, allow_nil?: true, public?: true
     attribute :callback_received_at, :utc_datetime_usec, allow_nil?: true, public?: true
+
+    attribute :callback_auth_mode, :atom do
+      allow_nil? false
+      public? false
+      default :token
+      constraints one_of: [:token, :hmac_optional, :hmac_required]
+    end
+
+    attribute :callback_hmac_secret_ciphertext, :string do
+      allow_nil? true
+      public? false
+      sensitive? true
+    end
+
+    attribute :callback_hmac_algorithm, :string do
+      allow_nil? true
+      public? false
+      default "hmac-sha256"
+    end
+
+    attribute :callback_hmac_signature_header, :string do
+      allow_nil? true
+      public? false
+      default "x-serviceradar-callback-signature"
+    end
+
+    attribute :callback_hmac_timestamp_header, :string do
+      allow_nil? true
+      public? false
+      default "x-serviceradar-callback-timestamp"
+    end
+
+    attribute :callback_hmac_timestamp_tolerance_seconds, :integer do
+      allow_nil? true
+      public? false
+      default 300
+      constraints min: 1, max: 86_400
+    end
 
     attribute :started_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :completed_at, :utc_datetime_usec, allow_nil?: true, public?: true

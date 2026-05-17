@@ -8,8 +8,10 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.ActionProvider
+  alias ServiceRadar.Automation.Northbound.CommandResultHandler
   alias ServiceRadar.Automation.Northbound.InvocationService
   alias ServiceRadar.Automation.Northbound.PollWorker
+  alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.TestSupport
 
@@ -21,6 +23,17 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
   end
 
   setup do
+    original_crypto_secret = Application.get_env(:serviceradar_core, :crypto_secret)
+    Application.put_env(:serviceradar_core, :crypto_secret, String.duplicate("a", 32))
+
+    on_exit(fn ->
+      if original_crypto_secret do
+        Application.put_env(:serviceradar_core, :crypto_secret, original_crypto_secret)
+      else
+        Application.delete_env(:serviceradar_core, :crypto_secret)
+      end
+    end)
+
     actor = %{
       id: Ash.UUID.generate(),
       email: "northbound-lifecycle@serviceradar.local",
@@ -114,6 +127,108 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     assert expired_invocation.error_class == "provider_timeout"
   end
 
+  test "callback handler preserves token-only callback compatibility", %{actor: actor} do
+    {:ok, target} = create_callback_target(actor, :token)
+
+    assert {:ok, :accepted} =
+             CommandResultHandler.handle_callback_result(
+               target.id,
+               %{"status" => "succeeded", "result" => %{"message" => "complete"}},
+               actor: actor,
+               token: "callback-token"
+             )
+
+    assert {:ok, updated} = ActionInvocationTarget.get_by_id(target.id, actor: actor)
+    assert updated.status == :succeeded
+    assert updated.result["message"] == "complete"
+  end
+
+  test "callback handler accepts valid signed callbacks", %{actor: actor} do
+    {:ok, target} = create_callback_target(actor, :hmac_required)
+    raw_body = ~s({"status":"succeeded","result":{"message":"signed complete"}})
+    timestamp = DateTime.utc_now() |> DateTime.to_unix() |> Integer.to_string()
+    signature = callback_signature("callback-hmac-secret", timestamp, raw_body)
+
+    assert {:ok, :accepted} =
+             CommandResultHandler.handle_callback_result(
+               target.id,
+               %{"status" => "succeeded", "result" => %{"message" => "signed complete"}},
+               actor: actor,
+               token: "callback-token",
+               raw_body: raw_body,
+               headers: %{
+                 "x-serviceradar-callback-timestamp" => timestamp,
+                 "x-serviceradar-callback-signature" => signature
+               }
+             )
+
+    assert {:ok, updated} = ActionInvocationTarget.get_by_id(target.id, actor: actor)
+    assert updated.status == :succeeded
+    assert updated.result["message"] == "signed complete"
+  end
+
+  test "callback handler rejects invalid signed callbacks", %{actor: actor} do
+    {:ok, target} = create_callback_target(actor, :hmac_required)
+    raw_body = ~s({"status":"succeeded"})
+    timestamp = DateTime.utc_now() |> DateTime.to_unix() |> Integer.to_string()
+
+    assert {:error, :invalid_callback_signature} =
+             CommandResultHandler.handle_callback_result(
+               target.id,
+               %{"status" => "succeeded"},
+               actor: actor,
+               token: "callback-token",
+               raw_body: raw_body,
+               headers: %{
+                 "x-serviceradar-callback-timestamp" => timestamp,
+                 "x-serviceradar-callback-signature" => "sha256=bad"
+               }
+             )
+
+    assert {:ok, updated} = ActionInvocationTarget.get_by_id(target.id, actor: actor)
+    assert updated.status == :running
+  end
+
+  test "callback handler rejects stale signed callbacks", %{actor: actor} do
+    {:ok, target} = create_callback_target(actor, :hmac_required)
+    raw_body = ~s({"status":"succeeded"})
+
+    timestamp =
+      DateTime.utc_now()
+      |> DateTime.add(-600, :second)
+      |> DateTime.to_unix()
+      |> Integer.to_string()
+
+    signature = callback_signature("callback-hmac-secret", timestamp, raw_body)
+
+    assert {:error, :stale_callback_signature} =
+             CommandResultHandler.handle_callback_result(
+               target.id,
+               %{"status" => "succeeded"},
+               actor: actor,
+               token: "callback-token",
+               raw_body: raw_body,
+               headers: %{
+                 "x-serviceradar-callback-timestamp" => timestamp,
+                 "x-serviceradar-callback-signature" => signature
+               }
+             )
+  end
+
+  test "callback handler rejects missing signatures in required mode", %{actor: actor} do
+    {:ok, target} = create_callback_target(actor, :hmac_required)
+
+    assert {:error, :missing_callback_signature} =
+             CommandResultHandler.handle_callback_result(
+               target.id,
+               %{"status" => "succeeded"},
+               actor: actor,
+               token: "callback-token",
+               raw_body: ~s({"status":"succeeded"}),
+               headers: %{}
+             )
+  end
+
   defp create_target(actor) do
     with {:ok, provider} <- create_provider(actor),
          {:ok, descriptor} <- create_descriptor(provider, actor),
@@ -129,6 +244,50 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
            ) do
       {:ok, hd(invocation.targets)}
     end
+  end
+
+  defp create_callback_target(actor, mode) do
+    with {:ok, target} <- create_target(actor),
+         {:ok, invocation} <- ActionInvocation.get_by_id(target.invocation_id, actor: actor),
+         {:ok, _invocation} <- ActionInvocation.record_running(invocation, actor: actor),
+         {:ok, target} <- ActionInvocationTarget.record_running(target, %{}, actor: actor) do
+      attrs =
+        maybe_put_hmac_secret(
+          %{
+            callback_token_hash: sha256_hex("callback-token"),
+            callback_url: "https://service.example/api/northbound/action-callbacks/#{target.id}",
+            callback_auth_mode: mode,
+            callback_hmac_algorithm: "hmac-sha256",
+            callback_hmac_signature_header: "x-serviceradar-callback-signature",
+            callback_hmac_timestamp_header: "x-serviceradar-callback-timestamp",
+            callback_hmac_timestamp_tolerance_seconds: 300
+          },
+          mode
+        )
+
+      ActionInvocationTarget.prepare_callback(target, attrs, actor: actor)
+    end
+  end
+
+  defp maybe_put_hmac_secret(attrs, mode) when mode in [:hmac_required, :hmac_optional] do
+    Map.put(attrs, :callback_hmac_secret_ciphertext, Crypto.encrypt("callback-hmac-secret"))
+  end
+
+  defp maybe_put_hmac_secret(attrs, _mode), do: attrs
+
+  defp callback_signature(secret, timestamp, raw_body) do
+    digest =
+      :hmac
+      |> :crypto.mac(:sha256, secret, "#{timestamp}.#{raw_body}")
+      |> Base.encode16(case: :lower)
+
+    "sha256=#{digest}"
+  end
+
+  defp sha256_hex(value) do
+    :sha256
+    |> :crypto.hash(value)
+    |> Base.encode16(case: :lower)
   end
 
   defp create_provider(actor) do
