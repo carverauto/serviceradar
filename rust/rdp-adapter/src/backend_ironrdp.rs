@@ -674,6 +674,8 @@ impl RdpBackend for IronRdpBackend {
 
         #[cfg(not(serviceradar_rdp_connector_link_probe))]
         {
+            let _ = plan;
+
             Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
         }
     }
