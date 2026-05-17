@@ -255,6 +255,7 @@
 - [x] 4.2.1.4 Route the browser render drain through WebGPU tile uploads when a queue/texture is available, keeping Canvas2D as the local harness fallback.
 - [x] 4.2.1.5 Add a browser renderer-target boundary so Canvas2D, WebGPU, and future WASM/GPU compositor paths share one hot-path frame application seam.
 - [x] 4.2.1.6 Cache the browser session renderer target so the animation loop does not reacquire the Canvas2D context on every tick.
+- [x] 4.2.1.7 Add a browser WebCodecs video renderer target behind the shared render-target boundary for encoded desktop video payloads.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
@@ -502,6 +503,7 @@
 - [x] 5.7.17 Add browser control-frame tests proving keyboard, pointer, focus, resize, oversized-token rejection, and WebRTC control-channel send behavior match the Go desktop frame contract.
 - [x] 5.7.18 Add browser renderer-runtime tests proving WebGPU tile uploads are preferred over Canvas2D and reuse frame payload buffers without copying.
 - [x] 5.7.19 Add browser renderer-runtime tests for the renderer-target hot-path boundary and Canvas2D/WebGPU target adapters.
+- [x] 5.7.20 Add browser renderer-runtime tests proving WebCodecs video payloads use the shared renderer-target boundary without copying payload bytes.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [x] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

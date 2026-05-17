@@ -8,7 +8,7 @@ import {
   sendDesktopControlFrame,
 } from "../../js/lib/remote_desktop/control_frame.js"
 import {createDesktopRenderQueue, desktopPolicyStatusItems, normalizeDesktopPolicySnapshot} from "../../js/lib/remote_desktop/renderer_state.js"
-import {createCanvasDesktopRenderTarget, drainDesktopRenderQueue} from "../../js/lib/remote_desktop/renderer_runtime.js"
+import {createBrowserDesktopRenderTarget, drainDesktopRenderQueue} from "../../js/lib/remote_desktop/renderer_runtime.js"
 import {RemoteDesktopWebRTCClient} from "../../js/lib/remote_desktop/webrtc_client.js"
 
 const DEFAULT_QUEUE_MAX_FRAMES = 12
@@ -42,6 +42,11 @@ function queueDepthLabel(queueStats) {
 
 function sequenceLabel(sequence) {
   return sequence === null || sequence === undefined ? "No frames" : String(sequence)
+}
+
+function closeRenderTarget(renderTargetRef) {
+  renderTargetRef.current.target?.close?.()
+  renderTargetRef.current = {canvas: null, target: null}
 }
 
 export function Component({
@@ -140,7 +145,7 @@ export function Component({
   useEffect(() => {
     closeClient("desktop session changed")
     renderQueueRef.current.clear()
-    renderTargetRef.current = {canvas: null, target: null}
+    closeRenderTarget(renderTargetRef)
     setViewerSessionId("")
     setFrameCount(0)
     setDroppedFrameCount(0)
@@ -196,9 +201,10 @@ export function Component({
     }
 
     if (renderTargetRef.current.canvas !== canvas) {
+      renderTargetRef.current.target?.close?.()
       renderTargetRef.current = {
         canvas,
-        target: createCanvasDesktopRenderTarget(canvas.getContext?.("2d", {alpha: false})),
+        target: createBrowserDesktopRenderTarget(canvas),
       }
     }
 
@@ -211,7 +217,10 @@ export function Component({
     }
   }, [autoConnect, connect, session])
 
-  useEffect(() => () => closeClient("desktop viewer unmounted"), [closeClient])
+  useEffect(() => () => {
+    closeClient("desktop viewer unmounted")
+    closeRenderTarget(renderTargetRef)
+  }, [closeClient])
 
   useEffect(() => {
     if (!session) {

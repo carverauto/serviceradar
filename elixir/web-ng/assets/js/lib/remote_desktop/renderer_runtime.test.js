@@ -1,9 +1,17 @@
 import {describe, expect, it} from "vitest"
 
-import {DESKTOP_PAYLOAD_METADATA, DESKTOP_PAYLOAD_TILE, encodeDesktopMediaFrame, parseDesktopMediaFrame} from "./media_frame"
+import {
+  DESKTOP_PAYLOAD_METADATA,
+  DESKTOP_PAYLOAD_TILE,
+  DESKTOP_PAYLOAD_VIDEO,
+  encodeDesktopMediaFrame,
+  parseDesktopMediaFrame,
+} from "./media_frame"
 import {createDesktopRenderQueue} from "./renderer_state"
 import {
+  createBrowserDesktopRenderTarget,
   createCanvasDesktopRenderTarget,
+  createWebCodecsDesktopVideoRenderTarget,
   createWebGPUDesktopTileRenderTarget,
   drainDesktopRenderQueue,
 } from "./renderer_runtime"
@@ -20,6 +28,21 @@ function tileFrame({sequence = 1, width = 8, height = 8} = {}) {
         tiles: [{x: 2, y: 3, width: 1, height: 1, payloadOffset: 0, payloadLength: 4}],
       },
       payload: new Uint8Array([1, 2, 3, 255]),
+    })
+  )
+}
+
+function videoFrame({sequence = 1, keyframe = true, width = 8, height = 8} = {}) {
+  return parseDesktopMediaFrame(
+    encodeDesktopMediaFrame({
+      sequence,
+      timestampUnixNano: 123_456_789,
+      width,
+      height,
+      payloadFamily: DESKTOP_PAYLOAD_VIDEO,
+      encoding: "avc1.42E01E",
+      keyframe,
+      payload: new Uint8Array([1, 2, 3, 4]),
     })
   )
 }
@@ -196,6 +219,110 @@ describe("remote desktop renderer runtime", () => {
     expect(webGPUCalls[0].destination.texture).toBe(texture)
     expect(webGPUCalls[0].source.buffer).toBe(frame.payload.buffer)
     expect(createWebGPUDesktopTileRenderTarget()).toBeNull()
+  })
+
+  it("decodes browser video frames through WebCodecs without copying payload bytes", () => {
+    const decoderCalls = []
+    const chunks = []
+    const closedFrames = []
+    const drawImageCalls = []
+    const context = {
+      canvas: {width: 0, height: 0},
+      drawImage(frame, x, y, width, height) {
+        drawImageCalls.push({frame, x, y, width, height})
+      },
+    }
+    const target = createWebCodecsDesktopVideoRenderTarget({
+      context,
+      encodedVideoChunkFactory(options) {
+        chunks.push(options)
+        return {chunk: options}
+      },
+      videoDecoderFactory(options) {
+        decoderCalls.push(options)
+        return {
+          configure(config) {
+            decoderCalls.push({config})
+          },
+          decode(chunk) {
+            options.output({
+              chunk,
+              displayWidth: 8,
+              displayHeight: 8,
+              close() {
+                closedFrames.push(chunk)
+              },
+            })
+          },
+          close() {
+            decoderCalls.push({closed: true})
+          },
+        }
+      },
+    })
+    const frame = videoFrame({sequence: 41, width: 1024, height: 768})
+
+    expect(target.kind).toBe("webcodecs")
+    expect(target.resizeForFrame(frame)).toBe(true)
+    expect(target.applyFrame(frame)).toBe(1)
+    expect(chunks).toEqual([
+      {
+        type: "key",
+        timestamp: 123_456,
+        data: frame.payload,
+      },
+    ])
+    expect(chunks[0].data.buffer).toBe(frame.payload.buffer)
+    expect(drawImageCalls).toHaveLength(1)
+    expect(drawImageCalls[0]).toMatchObject({x: 0, y: 0, width: 1024, height: 768})
+    expect(closedFrames).toHaveLength(1)
+
+    target.close()
+    expect(decoderCalls).toContainEqual({closed: true})
+  })
+
+  it("routes browser targets between WebCodecs video and canvas tile frames", () => {
+    const queue = createDesktopRenderQueue({maxFrames: 4})
+    const decodedChunks = []
+    const putImageDataCalls = []
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext() {
+        return {
+          canvas,
+          drawImage() {},
+          putImageData(imageData, x, y) {
+            putImageDataCalls.push({imageData, x, y})
+          },
+        }
+      },
+    }
+    const target = createBrowserDesktopRenderTarget(canvas, {
+      createImageData: (bytes, width, height) => ({bytes, width, height}),
+      encodedVideoChunkFactory: (options) => options,
+      videoDecoderFactory: (options) => ({
+        configure() {},
+        decode(chunk) {
+          decodedChunks.push(chunk)
+          options.output({displayWidth: 8, displayHeight: 8, close() {}})
+        },
+        close() {},
+      }),
+    })
+
+    queue.push(videoFrame({sequence: 51, width: 1280, height: 720}))
+    queue.push(tileFrame({sequence: 52, width: 1280, height: 720}))
+
+    expect(drainDesktopRenderQueue(queue, {renderTarget: target, maxFrames: 2})).toEqual({
+      frames: 2,
+      uploads: 2,
+      lastSequence: 52,
+      resized: true,
+    })
+    expect(decodedChunks).toHaveLength(1)
+    expect(putImageDataCalls).toHaveLength(1)
+    expect(target.kind).toBe("browser_canvas_webcodecs")
   })
 
   it("counts metadata frames without treating them as screen-pixel uploads", () => {
