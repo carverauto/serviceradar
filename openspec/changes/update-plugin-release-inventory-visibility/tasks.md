@@ -20,13 +20,13 @@
 - [x] 3.6 Normalize plugin result statuses from SDK/sample plugins so `failed` is accepted or mapped to the canonical failed/critical status instead of producing `plugin status invalid`.
 
 ## 4. Documentation and Validation
-- [ ] 4.1 Clean up device details metadata cards: group SNMP, Armis, UniFi, MikroTik, Proxmox, NetBox, and discovery metadata into source-specific sections.
-- [ ] 4.2 Remove redundant aliases/opaque "other metadata" summaries when the same data is already shown in richer tables.
-- [ ] 4.3 Render uptime and timestamps as readable dates/durations.
+- [x] 4.1 Clean up device details metadata cards: group SNMP, Armis, UniFi, MikroTik, Proxmox, NetBox, and discovery metadata into source-specific sections.
+- [x] 4.2 Remove redundant aliases/opaque "other metadata" summaries when the same data is already shown in richer tables.
+- [x] 4.3 Render uptime and timestamps as readable dates/durations.
 - [ ] 4.4 Add Armis risk score visual treatment and display active/in-service state consistently.
 - [ ] 4.5 Ensure Armis-enriched device type/category populate canonical OCSF type fields when stronger local evidence is absent.
-- [ ] 4.6 Make the device Logs tab run a bounded SRQL/device-log query and show an immediate zero-row empty state when no logs exist.
-- [ ] 4.7 Fix Agent Availability card source labeling so recent per-agent sweep history is reflected rather than showing fallback/no-data.
+- [x] 4.6 Make the device Logs tab run a bounded SRQL/device-log query and show an immediate zero-row empty state when no logs exist.
+- [x] 4.7 Fix Agent Availability card source labeling so recent per-agent sweep history is reflected rather than showing fallback/no-data.
 
 ## 5. Northbound Task UX and Target Context
 - [ ] 5.1 Ensure task launch feedback tells operators where results appear and refreshes task history without blocking LiveView events.
@@ -52,7 +52,7 @@
 ## 8. Documentation and Validation
 - [x] 8.1 Document the release/plugin inventory limits and object-store retention behavior.
 - [x] 8.2 Document the Wasm plugin service visibility contract for plugin authors/operators.
-- [ ] 8.3 Document device-details metadata grouping and task-result location semantics.
+- [x] 8.3 Document device-details metadata grouping and task-result location semantics.
 - [ ] 8.4 Run focused web-ng tests for release/plugin inventory and device/task UI.
 - [ ] 8.5 Run focused agent/gateway/service status tests for plugin service publication and rollout states.
 - [ ] 8.6 Run focused topology/NetFlow regression checks.
