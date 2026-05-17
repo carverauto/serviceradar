@@ -214,6 +214,7 @@
 - [x] 3.2.81 Keep the non-media helper IPC cap high enough for bounded registered CA bundle open payloads while still rejecting oversized control frames.
 - [x] 3.2.82 Document the RDP helper media-sender ownership contract so helper IPC buffers can be zeroed after synchronous send without async slice retention.
 - [x] 3.2.83 Cap RDP helper capability-probe stdout before JSON decoding so incomplete helpers cannot force unbounded probe buffering.
+- [x] 3.2.84 Sanitize and cap RDP helper connector-readiness reasons and reject ready helpers that still report a not-ready reason.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -425,6 +426,7 @@
 - [x] 5.2.108 Add focused Go/Rust helper framing tests proving bounded open payloads can carry registered CA bundle material under the non-media IPC cap.
 - [x] 5.2.109 Add focused Go tests proving helper media payloads are synchronously copied/serialized before helper IPC buffers are cleared.
 - [x] 5.2.110 Add focused Go tests proving oversized RDP helper capability output is rejected by the bounded probe reader.
+- [x] 5.2.111 Add focused Go tests proving RDP helper connector-readiness reasons are normalized, capped, and absent when connector readiness is true.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

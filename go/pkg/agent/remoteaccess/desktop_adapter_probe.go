@@ -33,6 +33,7 @@ const (
 	RDPAdapterProbeTimeout        = 2 * time.Second
 	RDPAdapterMinProtocolVersion  = 1
 	rdpAdapterMaxCapabilitiesJSON = 16 * 1024
+	rdpAdapterMaxReadyReasonBytes = 256
 )
 
 type RDPAdapterCapabilities struct {
@@ -140,6 +141,8 @@ func RDPAdapterReady(path string) bool {
 }
 
 func validateRDPAdapterCapabilities(capabilities RDPAdapterCapabilities) error {
+	connectorReadyReason := normalizeRDPAdapterReadyReason(capabilities.ConnectorReadyReason)
+
 	if capabilities.Schema != RDPAdapterCapabilitiesSchema {
 		return fmt.Errorf("%w: unsupported capability schema", ErrDesktopAdapterUnavailable)
 	}
@@ -152,12 +155,15 @@ func validateRDPAdapterCapabilities(capabilities RDPAdapterCapabilities) error {
 	if !capabilities.IronRDPBackendLinked {
 		return fmt.Errorf("%w: ironrdp backend not linked", ErrDesktopAdapterUnavailable)
 	}
+	if capabilities.ConnectorReady && connectorReadyReason != "" {
+		return fmt.Errorf("%w: unexpected connector-ready reason", ErrDesktopAdapterUnavailable)
+	}
 	if !capabilities.ConnectorReady {
-		if capabilities.ConnectorReadyReason != "" {
+		if connectorReadyReason != "" {
 			return fmt.Errorf(
 				"%w: connector not ready: %s",
 				ErrDesktopAdapterUnavailable,
-				capabilities.ConnectorReadyReason,
+				connectorReadyReason,
 			)
 		}
 
@@ -165,4 +171,26 @@ func validateRDPAdapterCapabilities(capabilities RDPAdapterCapabilities) error {
 	}
 
 	return nil
+}
+
+func normalizeRDPAdapterReadyReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		next := string(r)
+		if out.Len()+len(next) > rdpAdapterMaxReadyReasonBytes {
+			break
+		}
+		out.WriteString(next)
+	}
+
+	return strings.TrimSpace(out.String())
 }

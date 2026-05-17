@@ -18,6 +18,7 @@ package remoteaccess
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -113,7 +114,59 @@ func TestProbeRDPAdapterCapabilitiesRejectsOversizedOutput(t *testing.T) {
 	}
 }
 
+func TestProbeRDPAdapterCapabilitiesNormalizesConnectorReadyReason(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	notReadyPath := writeRDPAdapterProbeScriptWithReason(
+		t,
+		dir,
+		"not-ready-reason",
+		true,
+		false,
+		" connector\nnot\tready "+strings.Repeat("x", rdpAdapterMaxReadyReasonBytes),
+	)
+	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), notReadyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) {
+		t.Fatalf("not-ready helper error = %v, want %v", err, ErrDesktopAdapterUnavailable)
+	} else if strings.ContainsAny(err.Error(), "\n\t") {
+		t.Fatalf("connector reason was not normalized: %q", err.Error())
+	} else if strings.Contains(err.Error(), strings.Repeat("x", rdpAdapterMaxReadyReasonBytes)) {
+		t.Fatalf("connector reason was not capped: %q", err.Error())
+	}
+
+	readyPath := writeRDPAdapterProbeScriptWithReason(
+		t,
+		dir,
+		"ready-with-reason",
+		true,
+		true,
+		"should-not-be-present",
+	)
+	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), readyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) ||
+		!strings.Contains(err.Error(), "unexpected connector-ready reason") {
+		t.Fatalf("ready helper with reason error = %v, want unexpected reason", err)
+	}
+}
+
 func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, linked, ready bool) string {
+	tb.Helper()
+
+	reason := ""
+	if !ready {
+		reason = "connector_loop_not_implemented"
+	}
+
+	return writeRDPAdapterProbeScriptWithReason(tb, dir, name, linked, ready, reason)
+}
+
+func writeRDPAdapterProbeScriptWithReason(
+	tb testing.TB,
+	dir string,
+	name string,
+	linked bool,
+	ready bool,
+	reason string,
+) string {
 	tb.Helper()
 
 	path := filepath.Join(dir, name)
@@ -126,8 +179,12 @@ func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, linked, ready b
 		readyValue = enhancedMetadataTrue
 	}
 	connectorReadyReasonJSON := ""
-	if !ready {
-		connectorReadyReasonJSON = `,"connector_ready_reason":"connector_loop_not_implemented"`
+	if reason != "" {
+		reasonJSON, err := json.Marshal(reason)
+		if err != nil {
+			tb.Fatalf("Marshal reason returned error: %v", err)
+		}
+		connectorReadyReasonJSON = `,"connector_ready_reason":` + string(reasonJSON)
 	}
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"--capabilities\" ]; then\n" +
