@@ -250,6 +250,27 @@ TELEPORT_SRC=$HOME/src/teleport scripts/check-teleport-license-paths.sh \
 
 The current checkout reports AGPL transitive dependencies through Teleport API/types/auth/logging/proto and desktop protocol paths. Treat Teleport behavior as product and architecture reference only. Use ServiceRadar-owned session/policy code and separately reviewed RDP dependencies.
 
+## Teleport-Style Desktop Parity Status
+
+This change is tracking comparable product behavior, not source-code parity with
+Teleport. Current Teleport desktop/RDP implementation code remains reference-only
+under the source-reuse rules above.
+
+| Capability | ServiceRadar status | Notes |
+| --- | --- | --- |
+| Registered desktop targets | Implemented | Sessions are created from trusted target IDs and policy snapshots, not browser-supplied upstreams. |
+| Route-bound agent access | Implemented | Desktop sessions bind to one selected agent/gateway route and reject mismatched route, media, and control frames. |
+| RBAC and approval binding | Implemented | RDP uses `devices.remote_access.rdp.open` and approval metadata binds target, route, credential mode, and policy. |
+| Credential custody | Partial | Memory-only user credentials and brokered-secret policy guards are implemented. Domain delegation and smart-card modes remain design targets. |
+| TLS/NLA enforcement | Partial | The helper validates policy, builds verified Rustls client configs from registered CA/system roots, reaches TLS/CredSSP boundaries in probes, and keeps NLA required. Full live CredSSP authentication is still gated. |
+| Desktop media transport | Implemented | Dedicated desktop media gRPC, gateway tracking, ERTS forwarding, WebRTC DataChannel delivery, SRDP envelopes, credits, pause/resume, quality hints, and close semantics are implemented and tested. |
+| Browser renderer | Partial | WebRTC/DataChannel parsing, WebGPU-preferred tile upload, Canvas fallback harnesses, dirty-region state, and control-frame tests exist. A full live RDP desktop proof still depends on connector readiness. |
+| Redirection controls | Implemented for denial | Clipboard, drive, printer, audio, smart-card, and file-copy stay disabled unless separately reviewed and explicitly enabled. |
+| Recording and audit | Implemented for metadata | Lifecycle, policy, route, credential mode, frame statistics, and termination metadata are recorded without screen/clipboard/file/audio content by default. |
+| Optional agent distribution | Implemented, experimental | Base agents stay free of IronRDP. RDP-capable artifacts are hidden unless RDP is enabled and still require helper readiness before advertising `remote_access.rdp`. |
+| Live RDP connector | Not production-ready | Connector-linked probes cover TCP dial, HYBRID/HYBRID_EX negotiation, verified TLS, CredSSP finalization boundaries, KDC network client behavior, and media-session binding. `connector_ready` remains `false` until a live helper can complete auth, active-stage media, cleanup, and demo proof. |
+| Teleport source import | Not approved | No current Teleport desktop/RDP code is imported. IronRDP is the reviewed protocol dependency path. |
+
 ## Optional Agent Packaging
 The base ServiceRadar agent must remain the default artifact for most deployments. IronRDP and the `serviceradar-rdp-adapter` helper should be shipped only through an explicit remote-access/RDP artifact path, not silently embedded in every agent install.
 

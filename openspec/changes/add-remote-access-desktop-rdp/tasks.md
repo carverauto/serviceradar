@@ -417,6 +417,7 @@
 - [x] 5.4.3 Add an explicitly lab-gated live TLS upgrade smoke probe and validate `192.168.1.45` reaches IronRDP's CredSSP state with certificate public-key extraction and without recorded cleartext password exposure.
 - [x] 5.4.4 Add an opt-in live verified TLS upgrade probe for controlled RDP targets with configured CA bundle files and server identity.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
+- [x] 5.5.1 Add the current Teleport-style desktop parity/status matrix with explicit partial and not-production-ready connector states.
 - [x] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.
 - [x] 5.6.2 Add focused Go tests for browser desktop media acknowledgement control-message decoding.
