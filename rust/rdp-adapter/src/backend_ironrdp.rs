@@ -591,6 +591,28 @@ fn prepare_connector_open_for_experimental(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn open_connector_for_experimental_until_readiness_gate(
+    request: &OpenPayload,
+    runtime: ConnectorRuntimePolicy,
+) -> Result<(), BackendError> {
+    let Some(grant) = request.credential_grant.as_ref() else {
+        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
+    };
+    if !is_memory_user_grant(grant) {
+        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
+    }
+    let plan = build_nonsecret_connection_plan(request)?;
+    let credential = build_memory_user_credential(grant)?;
+    if !credential.has_material() {
+        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
+    }
+    let _credssp_handoff =
+        connect_verified_credssp_handoff_for_experimental(&plan, &credential, runtime)?;
+
+    Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 fn build_connector_config_preflight_for_experimental(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
@@ -2320,6 +2342,42 @@ mod tests {
         assert!(!bytes_contain_secret(
             &initial_request,
             credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_open_path_reaches_verified_handoff_before_readiness_gate() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        payload.target.upstream.host = listener_addr.ip().to_string();
+        payload.target.upstream.port = u32::from(listener_addr.port());
+        payload.target.tls.server_name = "win.example".to_owned();
+        let credential_password = payload
+            .credential_grant
+            .as_ref()
+            .expect("credential grant")
+            .password
+            .expose()
+            .as_bytes()
+            .to_vec();
+        let server = spawn_hybrid_ex_tls_probe_server(listener);
+        let runtime = ConnectorRuntimePolicy {
+            dial_timeout: Duration::from_secs(1),
+        };
+
+        let err = open_connector_for_experimental_until_readiness_gate(&payload, runtime)
+            .expect_err("runtime readiness gate remains closed");
+        let initial_request = server.join().expect("server thread");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+        assert!(!initial_request.is_empty());
+        assert!(!bytes_contain_secret(
+            &initial_request,
+            &credential_password
         ));
     }
 
