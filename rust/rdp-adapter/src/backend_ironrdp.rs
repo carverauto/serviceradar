@@ -333,6 +333,18 @@ struct VerifiedTlsPeerPublicKeyForProbe {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct ExperimentalConnectorOpenPreflight {
+    upstream_host: String,
+    upstream_port: u16,
+    tls_server_name: String,
+    desktop_width: u16,
+    desktop_height: u16,
+    domain: Option<String>,
+    username: String,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 impl VerifiedTlsPeerPublicKeyForProbe {
     fn into_bytes(self) -> Vec<u8> {
         self.bytes
@@ -410,9 +422,36 @@ fn prepare_connector_open_for_experimental(
     credential: &MemoryUserCredential,
 ) -> Result<(), BackendError> {
     let _verified_tls = build_verified_tls_client_config_for_plan_for_probe(plan)?;
-    let _config = build_connector_config_for_probe(plan, credential);
+    let _preflight = build_connector_config_preflight_for_experimental(plan, credential)?;
 
     Ok(())
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_connector_config_preflight_for_experimental(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<ExperimentalConnectorOpenPreflight, BackendError> {
+    let (domain, username) = credential.connector_identity();
+    if username.trim().is_empty()
+        || credential.password.value.is_empty()
+        || plan.upstream_host.trim().is_empty()
+        || plan.tls_server_name.trim().is_empty()
+        || plan.desktop_width == 0
+        || plan.desktop_height == 0
+    {
+        return Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    Ok(ExperimentalConnectorOpenPreflight {
+        upstream_host: plan.upstream_host.clone(),
+        upstream_port: plan.upstream_port,
+        tls_server_name: plan.tls_server_name.clone(),
+        desktop_width: plan.desktop_width,
+        desktop_height: plan.desktop_height,
+        domain: domain.map(str::to_owned),
+        username: username.to_owned(),
+    })
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1471,6 +1510,34 @@ mod tests {
         assert_eq!(config.domain.as_deref(), Some("EXAMPLE"));
         let ironrdp_connector::Credentials::UsernamePassword { username, .. } = config.credentials;
         assert_eq!(username, "alice");
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_experimental_open_preflight_omits_password_copy() {
+        let raw = valid_open_payload()
+            .replace(r#""username":"alice""#, r#""username":"EXAMPLE\\alice""#)
+            .replace(
+                r#""allowed_principals":["alice"]"#,
+                r#""allowed_principals":["EXAMPLE\\alice"]"#,
+            );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+
+        let preflight = build_connector_config_preflight_for_experimental(&plan, &credential)
+            .expect("preflight");
+        let debug = format!("{preflight:?}");
+
+        assert_eq!(preflight.domain.as_deref(), Some("EXAMPLE"));
+        assert_eq!(preflight.username, "alice");
+        assert!(!debug.contains("secret"));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
