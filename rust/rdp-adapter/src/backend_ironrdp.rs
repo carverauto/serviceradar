@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use std::io::{self, Read, Write};
 #[cfg(serviceradar_rdp_connector_link_probe)]
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
@@ -30,6 +30,8 @@ const TLS_MODE_SYSTEM: &str = "system";
 const UNSUPPORTED_INPUT_EVENT: &str = "IronRDP input event is unsupported";
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const INVALID_GRAPHICS_UPDATE: &str = "IronRDP graphics update is invalid";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const MAX_DIAL_HOST_LEN: usize = 253;
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -445,11 +447,20 @@ struct VerifiedTlsPeerPublicKeyForProbe {
 struct ExperimentalConnectorOpenPreflight {
     upstream_host: String,
     upstream_port: u16,
+    upstream_endpoint: String,
     tls_server_name: String,
     desktop_width: u16,
     desktop_height: u16,
     domain: Option<String>,
     username: String,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct ConnectorDialTarget {
+    host: String,
+    port: u16,
+    endpoint: String,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -541,9 +552,9 @@ fn build_connector_config_preflight_for_experimental(
     credential: &MemoryUserCredential,
 ) -> Result<ExperimentalConnectorOpenPreflight, BackendError> {
     let (domain, username) = credential.connector_identity();
+    let dial_target = build_connector_dial_target_for_plan(plan)?;
     if username.trim().is_empty()
         || credential.password.value.is_empty()
-        || plan.upstream_host.trim().is_empty()
         || plan.tls_server_name.trim().is_empty()
         || plan.desktop_width == 0
         || plan.desktop_height == 0
@@ -552,13 +563,40 @@ fn build_connector_config_preflight_for_experimental(
     }
 
     Ok(ExperimentalConnectorOpenPreflight {
-        upstream_host: plan.upstream_host.clone(),
-        upstream_port: plan.upstream_port,
+        upstream_host: dial_target.host,
+        upstream_port: dial_target.port,
+        upstream_endpoint: dial_target.endpoint,
         tls_server_name: plan.tls_server_name.clone(),
         desktop_width: plan.desktop_width,
         desktop_height: plan.desktop_height,
         domain: domain.map(str::to_owned),
         username: username.to_owned(),
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_connector_dial_target_for_plan(
+    plan: &NonSecretConnectionPlan,
+) -> Result<ConnectorDialTarget, BackendError> {
+    let host = plan.upstream_host.trim();
+    if host.is_empty()
+        || host.len() > MAX_DIAL_HOST_LEN
+        || host
+            .chars()
+            .any(|ch| ch.is_ascii_control() || ch.is_whitespace())
+    {
+        return Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    let endpoint = match host.parse::<IpAddr>() {
+        Ok(IpAddr::V6(_)) => format!("[{host}]:{}", plan.upstream_port),
+        _ => format!("{host}:{}", plan.upstream_port),
+    };
+
+    Ok(ConnectorDialTarget {
+        host: host.to_owned(),
+        port: plan.upstream_port,
+        endpoint,
     })
 }
 
@@ -1748,7 +1786,40 @@ mod tests {
 
         assert_eq!(preflight.domain.as_deref(), Some("EXAMPLE"));
         assert_eq!(preflight.username, "alice");
+        assert_eq!(preflight.upstream_endpoint, "win.example:3389");
         assert!(!debug.contains("secret"));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_dial_target_formats_ipv6_endpoint_without_dns() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        plan.upstream_host = "2001:db8::45".to_owned();
+
+        let dial_target = build_connector_dial_target_for_plan(&plan).expect("dial target");
+
+        assert_eq!(
+            dial_target,
+            ConnectorDialTarget {
+                host: "2001:db8::45".to_owned(),
+                port: 3389,
+                endpoint: "[2001:db8::45]:3389".to_owned(),
+            }
+        );
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_dial_target_rejects_invalid_host_text() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        plan.upstream_host = "bad host.example".to_owned();
+
+        let err = build_connector_dial_target_for_plan(&plan)
+            .expect_err("host text with whitespace rejected");
+
+        assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
