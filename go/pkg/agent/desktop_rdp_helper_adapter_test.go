@@ -343,7 +343,10 @@ func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 	t.Parallel()
 
 	transport := newFakeDesktopRDPHelperTransport()
-	mediaSender := &fakeDesktopRDPHelperMediaSender{frames: make(chan remoteaccess.DesktopMediaFrame, 1)}
+	mediaSender := &fakeDesktopRDPHelperMediaSender{
+		frames:     make(chan remoteaccess.DesktopMediaFrame, 1),
+		copyFrames: true,
+	}
 	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
 	if err != nil {
 		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
@@ -374,7 +377,8 @@ func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 			got.Sequence != want.Sequence ||
 			got.Width != want.Width ||
 			got.Height != want.Height ||
-			got.PayloadFamily != want.PayloadFamily {
+			got.PayloadFamily != want.PayloadFamily ||
+			!bytes.Equal(got.Payload, want.Payload) {
 			t.Fatalf("forwarded frame = %#v, want %#v", got, want)
 		}
 	case err := <-session.(*desktopRDPHelperSession).Err():
@@ -385,6 +389,52 @@ func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 	if !allZeroBytes(encoded) {
 		t.Fatalf("forwarded helper media payload was not cleared: %q", string(encoded))
 	}
+}
+
+func TestDesktopRDPHelperAdapterMediaSenderCopiesBeforePayloadClear(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	mediaSender := &fakeDesktopRDPHelperMediaSender{
+		frames:     make(chan remoteaccess.DesktopMediaFrame, 1),
+		copyFrames: true,
+	}
+	session, err := openTestDesktopRDPHelperSession(t, transport, mediaSender)
+	if err != nil {
+		t.Fatalf("openTestDesktopRDPHelperSession returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	want := remoteaccess.DesktopMediaFrame{
+		SessionBindingID:  "desktop-session-1",
+		MediaSessionID:    "media-session-1",
+		Sequence:          4,
+		TimestampUnixNano: 1_778_000_000_000,
+		Width:             640,
+		Height:            480,
+		PayloadFamily:     remoteaccess.DesktopMediaPayloadDirtyRect,
+		Encoding:          "raw_rgba",
+		Metadata:          []byte(`{"x":1}`),
+		Payload:           []byte{9, 8, 7, 6},
+	}
+	encoded, err := remoteaccess.EncodeDesktopMediaFrame(want, testDesktopRDPHelperTarget().Screen)
+	if err != nil {
+		t.Fatalf("EncodeDesktopMediaFrame returned error: %v", err)
+	}
+	transport.recv <- desktopRDPHelperFrame{Type: desktopRDPHelperMessageMediaFrame, Payload: encoded}
+
+	select {
+	case got := <-mediaSender.frames:
+		if !bytes.Equal(got.Metadata, want.Metadata) || !bytes.Equal(got.Payload, want.Payload) {
+			t.Fatalf("copied frame bytes = metadata %q payload %v, want metadata %q payload %v",
+				string(got.Metadata), got.Payload, string(want.Metadata), want.Payload)
+		}
+	case err := <-session.(*desktopRDPHelperSession).Err():
+		t.Fatalf("helper session returned error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for copied media frame")
+	}
+	waitForZeroBytes(t, encoded)
 }
 
 func TestDesktopRDPHelperAdapterRejectsTrailingHelperMediaPayload(t *testing.T) {
@@ -920,10 +970,25 @@ func allZeroBytes(data []byte) bool {
 	return true
 }
 
+func waitForZeroBytes(tb testing.TB, data []byte) {
+	tb.Helper()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if allZeroBytes(data) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	tb.Fatalf("bytes were not cleared: %q", string(data))
+}
+
 type fakeDesktopRDPHelperMediaSender struct {
 	frames     chan remoteaccess.DesktopMediaFrame
 	ackHandler remoteaccess.DesktopMediaAckHandler
 	err        error
+	copyFrames bool
 }
 
 func (s *fakeDesktopRDPHelperMediaSender) SendDesktopMediaFrame(_ context.Context, frame remoteaccess.DesktopMediaFrame) error {
@@ -931,10 +996,20 @@ func (s *fakeDesktopRDPHelperMediaSender) SendDesktopMediaFrame(_ context.Contex
 		return s.err
 	}
 	if s.frames != nil {
+		if s.copyFrames {
+			frame = copyDesktopMediaFrameForTest(frame)
+		}
 		s.frames <- frame
 	}
 
 	return nil
+}
+
+func copyDesktopMediaFrameForTest(frame remoteaccess.DesktopMediaFrame) remoteaccess.DesktopMediaFrame {
+	frame.Metadata = append([]byte(nil), frame.Metadata...)
+	frame.Payload = append([]byte(nil), frame.Payload...)
+
+	return frame
 }
 
 func (s *fakeDesktopRDPHelperMediaSender) SetDesktopMediaAckHandler(handler remoteaccess.DesktopMediaAckHandler) {

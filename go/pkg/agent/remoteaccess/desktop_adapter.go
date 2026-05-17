@@ -31,6 +31,9 @@ var (
 
 // DesktopMediaSender is the adapter-facing media sink for SRDP screen updates.
 // Implementations typically wrap the dedicated desktop media gRPC stream.
+// Metadata and Payload may alias adapter-owned buffers; senders must
+// synchronously serialize or copy bytes needed after SendDesktopMediaFrame
+// returns and must not retain the frame slices.
 type DesktopMediaSender interface {
 	SendDesktopMediaFrame(context.Context, DesktopMediaFrame) error
 }
