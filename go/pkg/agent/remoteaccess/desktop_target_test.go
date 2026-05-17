@@ -19,6 +19,7 @@ package remoteaccess
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -111,6 +112,27 @@ func TestNormalizeDesktopTargetRejectsUntrustedOrUnsafePolicy(t *testing.T) {
 			mutate: func(target *DesktopTarget) {
 				target.TLS.Mode = DesktopTLSModePinnedCA
 				target.TLS.CABundleID = ""
+			},
+		},
+		{
+			name: "ca bundle id without material",
+			mutate: func(target *DesktopTarget) {
+				target.TLS.CABundleID = "rdp-ca"
+				target.TLS.CABundlePEM = ""
+			},
+		},
+		{
+			name: "ca bundle material without id",
+			mutate: func(target *DesktopTarget) {
+				target.TLS.CABundleID = ""
+				target.TLS.CABundlePEM = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"
+			},
+		},
+		{
+			name: "oversized ca bundle material",
+			mutate: func(target *DesktopTarget) {
+				target.TLS.CABundleID = "rdp-ca"
+				target.TLS.CABundlePEM = strings.Repeat("a", DesktopMaxCABundlePEM+1)
 			},
 		},
 		{

@@ -180,6 +180,7 @@
 - [x] 3.2.49 Add a Bazel-only system-root TLS client-config probe proving the selected agent host's native trust store can build normal Rustls verification and fail closed on load errors while runtime readiness stays disabled.
 - [x] 3.2.50 Carry the registered RDP CA bundle ID from desktop target policy into broker-generated agent/helper open payloads so verified and pinned-CA connector paths have an explicit non-secret trust-anchor handle.
 - [x] 3.2.51 Reject `pinned_ca` RDP target policy before adapter/backend execution unless the trusted target snapshot includes a registered CA bundle ID.
+- [x] 3.2.52 Carry bounded registered RDP CA bundle PEM material in trusted agent/helper open payloads so verified TLS can be built without agent-local trust registry state.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -346,6 +347,7 @@
 - [x] 5.2.74 Add Bazel-only adapter probe coverage proving registered CA bundle material builds a verified Rustls client config, rejects empty/invalid material, and disables TLS resumption for CredSSP.
 - [x] 5.2.75 Add Bazel-only adapter probe coverage proving system-root trust loading builds a verified Rustls client config with native roots and disables TLS resumption for CredSSP.
 - [x] 5.2.76 Add focused Go/Rust tests proving `pinned_ca` target policy fails closed unless a CA bundle ID is present in the trusted open payload.
+- [x] 5.2.77 Add focused Go/Rust tests proving registered CA bundle IDs and PEM material are paired, bounded, and passed through helper parsing/planning without treating them as credentials.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
@@ -423,6 +425,7 @@
 - [x] 5.6.59 Add focused Go tests proving RDP opens with secret-bearing credential modes fail closed before media reservation when the per-session grant is missing.
 - [x] 5.6.60 Add focused channel tests proving user-present RDP attach emits a desktop credential grant, does not echo secrets, and rejects SSH-style private-key credentials.
 - [x] 5.6.61 Add focused Elixir coverage proving RDP broker open frames forward the configured CA bundle ID in the target TLS policy without leaking target policy internals into metadata.
+- [x] 5.6.62 Add focused Elixir coverage proving RDP broker open frames forward public CA bundle PEM material only inside target TLS policy.
 - [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

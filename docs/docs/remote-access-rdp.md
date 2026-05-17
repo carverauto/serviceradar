@@ -67,6 +67,8 @@ Example policy shape:
   },
   "tls": {
     "mode": "verify",
+    "ca_bundle_id": "corp-rdp-ca",
+    "ca_bundle_pem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
     "nla_mode": "required",
     "server_name": "win-admin-01.example.com"
   },
@@ -165,6 +167,12 @@ support it. `system` loads the selected agent host's native trust store and must
 fail closed if the store cannot be loaded or contains no usable roots. Do not use
 TOFU as a standing trust model; it implies persistent agent-local state and should
 stay limited to a reviewed enrollment workflow.
+
+Registered CA bundles are public trust material, not credentials. For registered
+bundle modes, the trusted session policy should include both `ca_bundle_id` for
+auditability and bounded `ca_bundle_pem` material so the selected helper can
+verify the target without agent-local trust state. Do not put private keys or
+passwords in target TLS policy.
 
 Keep `nla_mode` set to `required` for Windows RDP. Disabling NLA is a temporary lab-only setting and should not pass production policy review.
 
@@ -313,7 +321,7 @@ Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.
 - Upstream: set the private target host or IP and port `3389`.
-- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate name and a registered CA bundle ID for private Windows/xrdp certificates. Use a lab-only trust mode only for an isolated xrdp smoke target.
+- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate name plus registered CA bundle ID and PEM material for private Windows/xrdp certificates. Use a lab-only trust mode only for an isolated xrdp smoke target.
 - Credential custody: start with `memory_user` so the user supplies their own domain or local account for one session.
 - Redirection: keep clipboard, drive, printer, audio, smart-card, and file-copy disabled.
 - Recording: keep metadata enabled and screen/clipboard/file/audio content disabled.

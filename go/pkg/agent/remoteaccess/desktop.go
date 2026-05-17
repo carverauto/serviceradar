@@ -42,6 +42,7 @@ const (
 	DesktopDefaultBitrateBPS = 8_000_000
 	DesktopDefaultIdleSec    = 900
 	DesktopDefaultTTLSec     = 3600
+	DesktopMaxCABundlePEM    = 256 * 1024
 	DesktopMaxWidth          = 7680
 	DesktopMaxHeight         = 4320
 	DesktopMaxFrameRate      = 60
@@ -125,10 +126,11 @@ type DesktopUpstream struct {
 }
 
 type DesktopTLSPolicy struct {
-	Mode       string `json:"mode"`
-	CABundleID string `json:"ca_bundle_id,omitempty"`
-	NLAMode    string `json:"nla_mode,omitempty"`
-	ServerName string `json:"server_name,omitempty"`
+	Mode        string `json:"mode"`
+	CABundleID  string `json:"ca_bundle_id,omitempty"`
+	CABundlePEM string `json:"ca_bundle_pem,omitempty"`
+	NLAMode     string `json:"nla_mode,omitempty"`
+	ServerName  string `json:"server_name,omitempty"`
 }
 
 type DesktopCredentialPolicy struct {

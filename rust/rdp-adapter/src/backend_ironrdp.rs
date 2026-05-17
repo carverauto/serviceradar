@@ -42,7 +42,7 @@ struct NonSecretConnectionPlan {
 #[derive(Debug, Eq, PartialEq)]
 enum TlsTrustSource {
     SystemRoots,
-    RegisteredCaBundle(String),
+    RegisteredCaBundle { id: String, pem: String },
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1215,15 +1215,25 @@ fn build_nonsecret_connection_plan(
 
 fn build_tls_trust_source(request: &OpenPayload) -> Result<TlsTrustSource, BackendError> {
     let ca_bundle_id = request.target.tls.ca_bundle_id.trim();
+    let ca_bundle_pem = request.target.tls.ca_bundle_pem.trim();
 
     match request.target.tls.mode.as_str() {
         TLS_MODE_SYSTEM => Ok(TlsTrustSource::SystemRoots),
         TLS_MODE_VERIFY if ca_bundle_id.is_empty() => Ok(TlsTrustSource::SystemRoots),
-        TLS_MODE_VERIFY => Ok(TlsTrustSource::RegisteredCaBundle(ca_bundle_id.to_owned())),
-        TLS_MODE_PINNED_CA if ca_bundle_id.is_empty() => {
+        TLS_MODE_VERIFY if ca_bundle_pem.is_empty() => {
             Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN))
         }
-        TLS_MODE_PINNED_CA => Ok(TlsTrustSource::RegisteredCaBundle(ca_bundle_id.to_owned())),
+        TLS_MODE_VERIFY => Ok(TlsTrustSource::RegisteredCaBundle {
+            id: ca_bundle_id.to_owned(),
+            pem: ca_bundle_pem.to_owned(),
+        }),
+        TLS_MODE_PINNED_CA if ca_bundle_id.is_empty() || ca_bundle_pem.is_empty() => {
+            Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN))
+        }
+        TLS_MODE_PINNED_CA => Ok(TlsTrustSource::RegisteredCaBundle {
+            id: ca_bundle_id.to_owned(),
+            pem: ca_bundle_pem.to_owned(),
+        }),
         _ => Err(BackendError::Unsupported(INVALID_CONNECTION_PLAN)),
     }
 }
@@ -1315,41 +1325,46 @@ mod tests {
     fn nonsecret_connection_plan_uses_registered_ca_bundle_for_verify_mode() {
         let raw = valid_open_payload().replace(
             r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
-            r#""tls":{"mode":"verify","ca_bundle_id":"ca-rdp-prod","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","ca_bundle_id":"ca-rdp-prod","ca_bundle_pem":"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----","nla_mode":"required","server_name":"win.example"}"#,
         );
         let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
         assert_eq!(
             plan.tls_trust_source,
-            TlsTrustSource::RegisteredCaBundle("ca-rdp-prod".to_owned())
+            TlsTrustSource::RegisteredCaBundle {
+                id: "ca-rdp-prod".to_owned(),
+                pem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----".to_owned(),
+            }
         );
     }
 
     #[test]
-    fn nonsecret_connection_plan_requires_registered_ca_bundle_for_pinned_ca() {
+    fn nonsecret_connection_plan_requires_registered_ca_bundle_material_for_pinned_ca() {
         let raw = valid_open_payload().replace(
             r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
-            r#""tls":{"mode":"pinned_ca","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"pinned_ca","ca_bundle_id":"ca-rdp-prod","nla_mode":"required","server_name":"win.example"}"#,
         );
-        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
-        let err = build_nonsecret_connection_plan(&payload).expect_err("pinned CA rejected");
+        let err = parse_open_payload(raw.as_bytes()).expect_err("pinned CA rejected");
 
-        assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+        assert_eq!(err, crate::protocol::OpenPayloadError::UnsupportedTlsPolicy);
     }
 
     #[test]
     fn nonsecret_connection_plan_uses_registered_ca_bundle_for_pinned_ca() {
         let raw = valid_open_payload().replace(
             r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
-            r#""tls":{"mode":"pinned_ca","ca_bundle_id":"ca-rdp-prod","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"pinned_ca","ca_bundle_id":"ca-rdp-prod","ca_bundle_pem":"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----","nla_mode":"required","server_name":"win.example"}"#,
         );
         let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
         assert_eq!(
             plan.tls_trust_source,
-            TlsTrustSource::RegisteredCaBundle("ca-rdp-prod".to_owned())
+            TlsTrustSource::RegisteredCaBundle {
+                id: "ca-rdp-prod".to_owned(),
+                pem: "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----".to_owned(),
+            }
         );
     }
 

@@ -31,6 +31,7 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.TLS.Mode = DesktopTLSModePinnedCA
 	target.TLS.CABundleID = "ca-bundle-1"
+	target.TLS.CABundlePEM = desktopTestCABundlePEM
 	target.TLS.NLAMode = DesktopNLAModeRequired
 	target.TLS.ServerName = "windows.internal"
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
@@ -78,6 +79,7 @@ func TestDesktopAuditMetadataOmitsCredentialSecrets(t *testing.T) {
 	for _, forbidden := range []string{
 		"secret-password",
 		desktopTestBrokeredSecret,
+		desktopTestCABundlePEM,
 		"administrator",
 		"target-secret",
 		"payload-secret",
@@ -96,6 +98,7 @@ func TestDesktopLifecycleAuditMetadataUsesFixedEventsAndOmitsSecrets(t *testing.
 	target.Route.SelectedGateway = remoteAccessTestGatewayID
 	target.TLS.Mode = DesktopTLSModePinnedCA
 	target.TLS.CABundleID = "ca-bundle-1"
+	target.TLS.CABundlePEM = desktopTestCABundlePEM
 	target.Credential.Mode = DesktopCredentialModeBrokeredSecret
 	target.Credential.CredentialSecretRef = desktopTestBrokeredSecret
 	target.ApprovalRequired = true

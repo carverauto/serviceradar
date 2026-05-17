@@ -94,6 +94,7 @@ func NormalizeDesktopTarget(target DesktopTarget) (DesktopTarget, error) {
 	target.Upstream.Host = strings.TrimSpace(target.Upstream.Host)
 	target.TLS.Mode = strings.TrimSpace(target.TLS.Mode)
 	target.TLS.CABundleID = strings.TrimSpace(target.TLS.CABundleID)
+	target.TLS.CABundlePEM = strings.TrimSpace(target.TLS.CABundlePEM)
 	target.TLS.NLAMode = strings.TrimSpace(target.TLS.NLAMode)
 	target.TLS.ServerName = strings.TrimSpace(target.TLS.ServerName)
 	target.Credential.Mode = strings.TrimSpace(target.Credential.Mode)
@@ -180,8 +181,8 @@ func validateDesktopTarget(target DesktopTarget) error {
 	if !validDesktopTLSMode(target.TLS.Mode) {
 		return fmt.Errorf("%w: invalid tls mode", ErrInvalidDesktopTarget)
 	}
-	if target.TLS.Mode == DesktopTLSModePinnedCA && target.TLS.CABundleID == "" {
-		return fmt.Errorf("%w: pinned_ca requires ca_bundle_id", ErrInvalidDesktopTarget)
+	if err := validateDesktopCABundlePolicy(target.TLS); err != nil {
+		return err
 	}
 	if !validDesktopNLAMode(target.TLS.NLAMode) {
 		return fmt.Errorf("%w: invalid nla mode", ErrInvalidDesktopTarget)
@@ -202,6 +203,23 @@ func validateDesktopTarget(target DesktopTarget) error {
 	}
 	if !validDesktopClipboardMode(target.Redirection.ClipboardMode) {
 		return fmt.Errorf("%w: invalid clipboard mode", ErrInvalidDesktopTarget)
+	}
+
+	return nil
+}
+
+func validateDesktopCABundlePolicy(policy DesktopTLSPolicy) error {
+	if len(policy.CABundlePEM) > DesktopMaxCABundlePEM {
+		return fmt.Errorf("%w: ca_bundle_pem too large", ErrInvalidDesktopTarget)
+	}
+	if policy.CABundleID == "" && policy.CABundlePEM != "" {
+		return fmt.Errorf("%w: ca_bundle_pem requires ca_bundle_id", ErrInvalidDesktopTarget)
+	}
+	if policy.CABundleID != "" && policy.CABundlePEM == "" {
+		return fmt.Errorf("%w: ca_bundle_id requires ca_bundle_pem", ErrInvalidDesktopTarget)
+	}
+	if policy.Mode == DesktopTLSModePinnedCA && policy.CABundleID == "" {
+		return fmt.Errorf("%w: pinned_ca requires ca_bundle_id", ErrInvalidDesktopTarget)
 	}
 
 	return nil

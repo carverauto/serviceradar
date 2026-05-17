@@ -25,6 +25,7 @@ const (
 	desktopTestBrokeredSecret      = "secretref:rdp/admin"
 	remoteAccessTestOtherSessionID = "other-session"
 	desktopTestExpiresUnix         = 4_102_444_800
+	desktopTestCABundlePEM         = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----"
 )
 
 func validDesktopTarget() DesktopTarget {

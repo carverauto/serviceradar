@@ -94,7 +94,11 @@ func TestDesktopAdapterRuntimeOpenRDPValidatesRoutePolicyAndCleansCredentials(t 
 	t.Parallel()
 
 	target := validDesktopTarget()
-	target.TLS = DesktopTLSPolicy{Mode: DesktopTLSModePinnedCA, CABundleID: "ca-1"}
+	target.TLS = DesktopTLSPolicy{
+		Mode:        DesktopTLSModePinnedCA,
+		CABundleID:  "ca-1",
+		CABundlePEM: desktopTestCABundlePEM,
+	}
 	target.Credential.AllowedPrincipals = []string{"alice@example.com"}
 
 	grant := &DesktopCredentialGrant{

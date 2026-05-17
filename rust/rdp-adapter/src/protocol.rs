@@ -34,6 +34,7 @@ const MAX_ACK_CREDIT_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_ACK_CLOSE_REASON_BYTES: usize = 256;
 const MAX_INPUT_TOKEN_BYTES: usize = 128;
 const MAX_CLOSE_REASON_BYTES: usize = 256;
+const MAX_TLS_CA_BUNDLE_PEM_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,6 +95,8 @@ pub struct DesktopTlsPolicy {
     pub mode: String,
     #[serde(default)]
     pub ca_bundle_id: String,
+    #[serde(default)]
+    pub ca_bundle_pem: String,
     #[serde(default)]
     pub nla_mode: String,
     #[serde(default)]
@@ -720,11 +723,22 @@ fn helper_route_policy_supported(route: &DesktopRoute) -> bool {
 }
 
 fn helper_tls_policy_supported(policy: &DesktopTlsPolicy) -> bool {
-    matches!(
-        policy.mode.as_str(),
-        TLS_MODE_VERIFY | TLS_MODE_PINNED_CA | TLS_MODE_SYSTEM
-    ) && policy.nla_mode == NLA_MODE_REQUIRED
-        && (policy.mode != TLS_MODE_PINNED_CA || !policy.ca_bundle_id.trim().is_empty())
+    if policy.nla_mode != NLA_MODE_REQUIRED
+        || policy.ca_bundle_pem.len() > MAX_TLS_CA_BUNDLE_PEM_BYTES
+    {
+        return false;
+    }
+
+    let has_bundle_id = !policy.ca_bundle_id.trim().is_empty();
+    let has_bundle_pem = !policy.ca_bundle_pem.trim().is_empty();
+    let bundle_pair_valid = has_bundle_id == has_bundle_pem;
+
+    match policy.mode.as_str() {
+        TLS_MODE_VERIFY => bundle_pair_valid,
+        TLS_MODE_PINNED_CA => has_bundle_id && has_bundle_pem,
+        TLS_MODE_SYSTEM => !has_bundle_id && !has_bundle_pem,
+        _ => false,
+    }
 }
 
 fn helper_credential_policy_supported(policy: &DesktopCredentialPolicy) -> bool {
@@ -864,6 +878,22 @@ pub(crate) mod tests {
                 .map(|grant| grant.username.as_str()),
             Some("alice")
         );
+    }
+
+    #[test]
+    fn parse_open_payload_accepts_verify_ca_bundle_material() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","ca_bundle_id":"corp-rdp-ca","ca_bundle_pem":"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
+
+        assert_eq!(payload.target.tls.ca_bundle_id, "corp-rdp-ca");
+        assert!(payload
+            .target
+            .tls
+            .ca_bundle_pem
+            .starts_with("-----BEGIN CERTIFICATE-----"));
     }
 
     #[test]
@@ -1187,6 +1217,44 @@ pub(crate) mod tests {
         let raw = valid_open_payload().replace(
             r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
             r#""tls":{"mode":"pinned_ca","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_ca_bundle_id_without_material() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","ca_bundle_id":"corp-rdp-ca","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_ca_bundle_material_without_id() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"verify","ca_bundle_pem":"-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----","nla_mode":"required","server_name":"win.example"}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_oversized_ca_bundle_material() {
+        let oversized = "a".repeat(MAX_TLS_CA_BUNDLE_PEM_BYTES + 1);
+        let replacement = format!(
+            r#""tls":{{"mode":"verify","ca_bundle_id":"corp-rdp-ca","ca_bundle_pem":"{}","nla_mode":"required","server_name":"win.example"}}"#,
+            oversized
+        );
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            &replacement,
         );
         let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
 
