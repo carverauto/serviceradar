@@ -120,6 +120,46 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
   end
 
+  test "attach ticket consume is atomic under concurrent attempts" do
+    uid = unique_uid("ticket-race")
+    insert_device!(uid, agent_id: "agent-ticket-race", gateway_id: "gateway-ticket-race")
+
+    assert {:ok, %{session: session, ticket: ticket}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present"},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    parent = self()
+
+    results =
+      1..2
+      |> Enum.map(fn _index ->
+        Task.async(fn ->
+          Process.put(:remote_access_audit_owner, parent)
+
+          RemoteAccessSessions.attach_with_ticket(ticket,
+            session_id: session.id,
+            audit_writer: AuditSink
+          )
+        end)
+      end)
+      |> Task.await_many(5_000)
+
+    assert Enum.count(results, &match?({:ok, %RemoteAccessSession{status: :attached}}, &1)) == 1
+    assert Enum.count(results, &(&1 == {:error, :invalid_or_expired_ticket})) == 1
+
+    assert_receive {:remote_access_audit, attach_audit}
+    assert attach_audit[:action] == :remote_access_session_attach
+
+    refute_receive {:remote_access_audit, _duplicate_attach_audit}, 50
+  end
+
   test "generic SSH rejects agent-local reusable credential custody" do
     uid = unique_uid("agent-local")
     insert_device!(uid, agent_id: "agent-local", gateway_id: "gateway-local")
