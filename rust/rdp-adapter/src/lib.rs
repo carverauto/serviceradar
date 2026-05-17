@@ -32,7 +32,7 @@ pub const HELPER_BACKEND_NOT_LINKED_REASON: &str = "ironrdp_backend_not_linked";
 
 const HEADER_LEN: usize = 5;
 const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
-const MAX_CONTROL_FRAME_LENGTH: u32 = 64 * 1024;
+const MAX_CONTROL_FRAME_LENGTH: u32 = 512 * 1024;
 
 const MSG_OPEN: u8 = 1;
 const MSG_INPUT: u8 = 2;
@@ -1357,6 +1357,19 @@ mod tests {
             .expect("media read")
             .expect("media frame");
         assert_eq!(frame.message_type, MSG_MEDIA_FRAME);
+        assert_eq!(frame.payload.len(), payload.len());
+    }
+
+    #[test]
+    fn write_frame_allows_bounded_open_payloads_for_ca_bundles() {
+        let payload = vec![0u8; 256 * 1024];
+        let mut output = Vec::new();
+
+        write_frame(&mut output, MSG_OPEN, &payload).expect("bounded open accepted");
+        let frame = read_frame(&mut output.as_slice())
+            .expect("open read")
+            .expect("open frame");
+        assert_eq!(frame.message_type, MSG_OPEN);
         assert_eq!(frame.payload.len(), payload.len());
     }
 

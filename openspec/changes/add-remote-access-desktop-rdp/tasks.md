@@ -209,6 +209,7 @@
 - [x] 3.2.78 Force successful experimental connector finalization through the media-bound network-pump constructor before the runtime readiness gate rejects the session.
 - [x] 3.2.79 Cap non-media RDP helper IPC frames before payload allocation so only SRDP media frames can use the large helper frame budget.
 - [x] 3.2.80 Mirror RDP helper IPC frame type and non-media size caps in the Rust helper before payload allocation.
+- [x] 3.2.81 Keep the non-media helper IPC cap high enough for bounded registered CA bundle open payloads while still rejecting oversized control frames.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -417,6 +418,7 @@
 - [x] 5.2.105 Add connector-linked coverage proving the runtime readiness gate rejects only after a finalized connector handoff is bound to the desktop media session contract.
 - [x] 5.2.106 Add focused Go IPC framing tests proving oversized non-media helper frames fail before payload read while large payloads remain media-only.
 - [x] 5.2.107 Add focused Rust helper framing tests proving unsupported message types and oversized non-media frames fail before payload read while large payloads remain media-only.
+- [x] 5.2.108 Add focused Go/Rust helper framing tests proving bounded open payloads can carry registered CA bundle material under the non-media IPC cap.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

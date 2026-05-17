@@ -26,7 +26,7 @@ import (
 const (
 	desktopRDPHelperFrameHeaderSize = 5
 	desktopRDPHelperMaxFrameBytes   = 16 * 1024 * 1024
-	desktopRDPHelperMaxControlBytes = 64 * 1024
+	desktopRDPHelperMaxControlBytes = 512 * 1024
 
 	desktopRDPHelperMessageOpen       desktopRDPHelperMessageType = 1
 	desktopRDPHelperMessageInput      desktopRDPHelperMessageType = 2

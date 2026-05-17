@@ -146,3 +146,24 @@ func TestDesktopRDPHelperFrameKeepsLargePayloadsMediaOnly(t *testing.T) {
 		t.Fatalf("large media frame = %#v", got)
 	}
 }
+
+func TestDesktopRDPHelperFrameAllowsBoundedOpenPayloadsForCABundles(t *testing.T) {
+	t.Parallel()
+
+	payload := bytes.Repeat([]byte{0x43}, 256*1024)
+	var buf bytes.Buffer
+	if err := writeDesktopRDPHelperFrame(&buf, desktopRDPHelperFrame{
+		Type:    desktopRDPHelperMessageOpen,
+		Payload: payload,
+	}); err != nil {
+		t.Fatalf("bounded open write returned error: %v", err)
+	}
+
+	got, err := readDesktopRDPHelperFrame(&buf, desktopRDPHelperMaxFrameBytes)
+	if err != nil {
+		t.Fatalf("bounded open read returned error: %v", err)
+	}
+	if got.Type != desktopRDPHelperMessageOpen || !bytes.Equal(got.Payload, payload) {
+		t.Fatalf("bounded open frame = %#v", got)
+	}
+}
