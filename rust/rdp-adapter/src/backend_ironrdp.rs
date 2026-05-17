@@ -389,17 +389,30 @@ impl RdpBackend for IronRdpBackend {
         if !is_memory_user_grant(grant) {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         }
-        let _plan = build_nonsecret_connection_plan(&request)?;
+        let plan = build_nonsecret_connection_plan(&request)?;
         let credential = build_memory_user_credential(grant)?;
         if !credential.has_material() {
             return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
         }
         let _connector_identity = credential.connector_identity();
+        #[cfg(serviceradar_rdp_connector_link_probe)]
+        prepare_connector_open_for_experimental(&plan, &credential)?;
 
         // Keep connector readiness false until the real IronRDP loop consumes
         // only zeroizing credential wrappers and proves cleanup ordering.
         Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
     }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn prepare_connector_open_for_experimental(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<(), BackendError> {
+    let _verified_tls = build_verified_tls_client_config_for_plan_for_probe(plan)?;
+    let _config = build_connector_config_for_probe(plan, credential);
+
+    Ok(())
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1709,6 +1722,38 @@ mod tests {
             .expect_err("invalid plan bundle rejected");
 
         assert_eq!(err, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_backend_open_runs_verified_tls_preflight_before_fail_closed() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let mut backend = IronRdpBackend;
+
+        let result = backend.open(payload);
+
+        assert!(matches!(
+            result,
+            Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_backend_open_rejects_invalid_ca_bundle_before_connector_loop() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = "not a certificate".to_owned();
+        let mut backend = IronRdpBackend;
+
+        let result = backend.open(payload);
+
+        assert!(matches!(
+            result,
+            Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE))
+        ));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
