@@ -322,19 +322,26 @@ available, run the adapter-level helper open probe. This exercises the actual
 `serviceradar-rdp-adapter` open path and expects a finalized network-pump session:
 
 ```bash
-SERVICERADAR_RDP_ADAPTER_LIVE_TARGET=<rdp-target-host-or-ip> \
-  SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME=<rdp-certificate-name> \
-  SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE=/path/to/rdp-ca.pem \
-  SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME='<domain-or-local-user>' \
-  SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD='<one-time-password>' \
-  bazel test --config=macos --features=-fully_static_link \
-  //rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental_test \
-  --test_filter=live_connector_probe_helper_open_returns_network_pump_session_when_configured \
+set -a
+source ./.env
+set +a
+bazel test --config=macos --features=-fully_static_link \
+  //rust/rdp-adapter:rdp_adapter_live_connector_probe_test \
+  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_TARGET \
+  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME \
+  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE \
+  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME \
+  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD \
   --test_output=streamed
 ```
 
 Do not use a standing administrator password for this probe. Use a temporary
 lab account and keep the CA bundle and password material outside the repository.
+`SERVICERADAR_RDP_ADAPTER_LIVE_TARGET`, `SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME`,
+and `SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD` are required. For production-style
+verification, also set `SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME` and
+`SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE`; otherwise a private or self-signed
+RDP certificate should fail closed at the TLS trust boundary.
 
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 

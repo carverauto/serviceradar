@@ -15,6 +15,8 @@ use std::thread;
 use std::time::Duration;
 
 pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
+#[cfg(all(feature = "ironrdp-backend", serviceradar_rdp_connector_link_probe))]
+pub use backend_ironrdp::run_live_helper_open_probe_from_env;
 #[cfg(feature = "ironrdp-backend")]
 pub use backend_ironrdp::IronRdpBackend;
 #[cfg(serviceradar_rdp_connector_link_probe)]

@@ -124,3 +124,11 @@ rust_test(
     name = "rdp_adapter_ironrdp_connector_experimental_test",
     crate = ":rdp_adapter_ironrdp_connector_experimental_lib",
 )
+
+rust_test(
+    name = "rdp_adapter_live_connector_probe_test",
+    srcs = ["tests/connector_live_probe.rs"],
+    crate_root = "tests/connector_live_probe.rs",
+    edition = "2021",
+    deps = [":rdp_adapter_ironrdp_connector_experimental_lib"],
+)
