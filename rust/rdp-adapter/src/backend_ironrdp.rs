@@ -12,6 +12,8 @@ use crate::protocol::{DesktopFrame, DesktopScreenPolicy};
 use std::collections::VecDeque;
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use std::io::{self, Read, Write};
+#[cfg(serviceradar_rdp_connector_link_probe)]
+use std::net::SocketAddr;
 use zeroize::Zeroizing;
 
 const CONNECTOR_NOT_IMPLEMENTED: &str =
@@ -91,6 +93,10 @@ impl<S: Read + Write> ConnectorBeginHandoff<S> {
 
     fn server_name(&self) -> &str {
         self.server_name.as_str()
+    }
+
+    fn client_addr(&self) -> SocketAddr {
+        self.connector.client_addr
     }
 }
 
@@ -606,7 +612,7 @@ fn build_initial_connector_pdu_for_probe(
 ) -> Result<Vec<u8>, BackendError> {
     let config = build_connector_config_for_probe(plan, credential);
     let mut connector =
-        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+        ironrdp_connector::ClientConnector::new(config, default_connector_client_addr_for_probe());
     let mut buffer = ironrdp_core::WriteBuf::new();
     let written = ironrdp_connector::Sequence::step_no_input(&mut connector, &mut buffer)
         .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
@@ -638,7 +644,7 @@ fn drive_connector_to_upgrade_boundary_for_probe(
 ) -> Result<ConnectorUpgradeBoundaryProbe, BackendError> {
     let config = build_connector_config_for_probe(plan, credential);
     let mut connector =
-        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+        ironrdp_connector::ClientConnector::new(config, default_connector_client_addr_for_probe());
     let mut initial = ironrdp_core::WriteBuf::new();
     ironrdp_connector::Sequence::step_no_input(&mut connector, &mut initial)
         .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
@@ -707,11 +713,28 @@ fn begin_connector_handoff_for_probe<S>(
 where
     S: Sync + Read + Write,
 {
+    begin_connector_handoff_with_client_addr_for_probe(
+        plan,
+        credential,
+        stream,
+        default_connector_client_addr_for_probe(),
+    )
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn begin_connector_handoff_with_client_addr_for_probe<S>(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+    stream: S,
+    client_addr: SocketAddr,
+) -> Result<ConnectorBeginHandoff<S>, BackendError>
+where
+    S: Sync + Read + Write,
+{
     let config = build_connector_config_for_probe(plan, credential);
     let tls_config = build_verified_tls_client_config_for_plan(plan)?;
     let server_name = ironrdp_connector::ServerName::from(&plan.tls_server_name);
-    let mut connector =
-        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
+    let mut connector = ironrdp_connector::ClientConnector::new(config, client_addr);
     let mut framed = ironrdp_blocking::Framed::new(stream);
 
     let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
@@ -724,6 +747,11 @@ where
         tls_config,
         server_name,
     })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn default_connector_client_addr_for_probe() -> SocketAddr {
+    "127.0.0.1:0".parse().expect("loopback")
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1191,7 +1219,7 @@ fn build_connection_result_for_probe(
     let desktop_size = config.desktop_size;
     let connector = ironrdp_connector::ClientConnector::new(
         config.clone(),
-        "127.0.0.1:0".parse().expect("loopback"),
+        default_connector_client_addr_for_probe(),
     );
     let connection_activation =
         ironrdp_connector::connection_activation::ConnectionActivationSequence::new(
@@ -1859,6 +1887,37 @@ mod tests {
             &stream.writes,
             credential.password.value.as_str().as_bytes(),
         ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_begin_handoff_uses_supplied_client_socket_addr() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+                .expect("server confirm");
+        let client_addr: SocketAddr = "10.7.8.9:49152".parse().expect("client addr");
+
+        let handoff = begin_connector_handoff_with_client_addr_for_probe(
+            &plan,
+            &credential,
+            ScriptedStream::new(vec![server_confirm]),
+            client_addr,
+        )
+        .expect("connector begin handoff");
+
+        assert_eq!(handoff.client_addr(), client_addr);
+        assert!(handoff.requires_security_upgrade());
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
