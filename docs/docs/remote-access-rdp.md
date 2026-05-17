@@ -313,7 +313,7 @@ Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.
 - Upstream: set the private target host or IP and port `3389`.
-- TLS/NLA: keep NLA required. Use `verify` with the target certificate name and trust roots for Windows; use a lab-only trust mode only for an isolated xrdp smoke target.
+- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate name and a registered CA bundle ID for private Windows/xrdp certificates. Use a lab-only trust mode only for an isolated xrdp smoke target.
 - Credential custody: start with `memory_user` so the user supplies their own domain or local account for one session.
 - Redirection: keep clipboard, drive, printer, audio, smart-card, and file-copy disabled.
 - Recording: keep metadata enabled and screen/clipboard/file/audio content disabled.

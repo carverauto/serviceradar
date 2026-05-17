@@ -178,6 +178,7 @@
 - [x] 3.2.47 Add a Bazel-only network-pump handoff constructor that accepts a framed stream plus IronRDP `ConnectionResult` so future finalized connector sessions can use the same backend session contract.
 - [x] 3.2.48 Add a Bazel-only verified TLS client-config probe proving registered PEM/DER CA bundles build normal Rustls verification, reject invalid bundles, and disable TLS resumption for CredSSP while runtime readiness stays disabled.
 - [x] 3.2.49 Add a Bazel-only system-root TLS client-config probe proving the selected agent host's native trust store can build normal Rustls verification and fail closed on load errors while runtime readiness stays disabled.
+- [x] 3.2.50 Carry the registered RDP CA bundle ID from desktop target policy into broker-generated agent/helper open payloads so verified and pinned-CA connector paths have an explicit non-secret trust-anchor handle.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -419,6 +420,7 @@
 - [x] 5.6.58 Add focused Go tests proving RDP open frames reserve desktop media sessions, open the adapter runtime, emit media binding readiness, register active sessions, and fail closed before adapter open when media setup is missing.
 - [x] 5.6.59 Add focused Go tests proving RDP opens with secret-bearing credential modes fail closed before media reservation when the per-session grant is missing.
 - [x] 5.6.60 Add focused channel tests proving user-present RDP attach emits a desktop credential grant, does not echo secrets, and rejects SSH-style private-key credentials.
+- [x] 5.6.61 Add focused Elixir coverage proving RDP broker open frames forward the configured CA bundle ID in the target TLS policy without leaking target policy internals into metadata.
 - [x] 5.7 Add browser renderer tests for WebRTC capability selection, DataChannel handling, WebGPU rendering, local Canvas harness behavior, dirty tile masks, queue limits, stale update coalescing, and Arrow metadata-only handling.
 - [x] 5.7.1 Add browser WebRTC client tests for desktop media frame acknowledgement and credit emission over the control DataChannel.
 - [x] 5.7.2 Add browser WebRTC client tests for coalesced desktop media acknowledgements and consumed-byte credit accounting.

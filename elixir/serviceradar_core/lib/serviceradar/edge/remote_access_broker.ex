@@ -745,6 +745,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
     reject_blank_map(%{
       mode: desktop_tls_mode(string_value(tls, "mode")),
+      ca_bundle_id: string_value(tls, "ca_bundle_id"),
       nla_mode: if(truthy?(Map.get(nla, "required", true)), do: "required", else: "disabled"),
       server_name: string_value(tls, "server_name") || string_value(tls, "server")
     })

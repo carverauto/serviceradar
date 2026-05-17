@@ -514,6 +514,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       |> put_in([:metadata, "target_display_name"], "Windows 01")
       |> put_in([:metadata, "target_tls"], %{
         "mode" => "verify_ca",
+        "ca_bundle_id" => "corp-rdp-ca",
         "server_name" => "win-01.example.com"
       })
       |> put_in([:metadata, "nla"], %{"required" => true})
@@ -562,6 +563,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
 
     assert target["tls"] == %{
              "mode" => "verify",
+             "ca_bundle_id" => "corp-rdp-ca",
              "nla_mode" => "required",
              "server_name" => "win-01.example.com"
            }
