@@ -424,6 +424,8 @@ func (s *desktopMediaGatewaySender) validateInboundClose(closeMsg *proto.Desktop
 		return fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
 	case closeMsg.GetMediaIngestId() != s.mediaIngest:
 		return fmt.Errorf("%w: media ingest mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+	case closeMsg.GetAgentId() != s.agentID:
+		return fmt.Errorf("%w: agent mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
 	case closeMsg.GetGatewayId() != s.gatewayID:
 		return fmt.Errorf("%w: gateway mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
 	default:

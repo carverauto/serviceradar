@@ -689,6 +689,12 @@ func TestDesktopMediaGatewaySenderRejectsInboundCloseBindingMismatches(t *testin
 			},
 		},
 		{
+			name: "agent mismatch",
+			mutate: func(closeMsg *proto.DesktopMediaStreamClose) {
+				closeMsg.AgentId = "other-agent"
+			},
+		},
+		{
 			name: "gateway mismatch",
 			mutate: func(closeMsg *proto.DesktopMediaStreamClose) {
 				closeMsg.GatewayId = "other-gateway"
@@ -769,6 +775,7 @@ func validDesktopMediaProtoClose(reason string) *proto.DesktopMediaStreamClose {
 		DesktopSessionId: testDesktopMediaSessionID,
 		MediaSessionId:   testDesktopMediaID,
 		MediaIngestId:    testDesktopMediaIngestID,
+		AgentId:          testDesktopMediaAgentID,
 		GatewayId:        testDesktopMediaGatewayID,
 		Reason:           reason,
 	}
