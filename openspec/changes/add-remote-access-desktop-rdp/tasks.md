@@ -171,6 +171,7 @@
 - [x] 3.2.42 Add a Bazel-only active-stage session harness that accepts ServiceRadar browser input, drives IronRDP input processing, writes upstream response bytes, and exposes media drain semantics.
 - [x] 3.2.43 Add a helper backend pump seam so server-driven RDP media can be emitted while browser IPC input is idle.
 - [x] 3.2.44 Make the production helper binary use the pumped stdio loop without marking the IronRDP connector ready.
+- [x] 3.2.45 Bind the Bazel-only active-stage server-read probe to the helper backend pump seam so future connector sessions can emit server-driven media through the same contract.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -331,6 +332,7 @@
 - [x] 5.2.68 Add Bazel-only adapter probe coverage for a future network-read path that feeds server RDP frames into IronRDP active-stage processing and fails closed on malformed PDUs.
 - [x] 5.2.69 Add Bazel-only adapter probe coverage for reading one framed server RDP PDU from `ironrdp-blocking::Framed` and failing closed before active-stage processing on malformed network input.
 - [x] 5.2.70 Add focused Rust helper tests proving backend-pumped media frames are emitted while the IPC reader is idle.
+- [x] 5.2.71 Add Bazel-only adapter probe coverage proving the helper backend pump seam reads framed server RDP PDUs and fails closed before media drain on malformed input.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

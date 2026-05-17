@@ -217,6 +217,64 @@ impl<W: Write> RdpBackendSession for ActiveStageSessionProbe<W> {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct ActiveStageNetworkPumpSessionProbe<S: Read, W: Write> {
+    framed: ironrdp_blocking::Framed<S>,
+    inner: ActiveStageSessionProbe<W>,
+    timestamp_unix_nano: i64,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<S: Read, W: Write> ActiveStageNetworkPumpSessionProbe<S, W> {
+    fn new(
+        framed: ironrdp_blocking::Framed<S>,
+        inner: ActiveStageSessionProbe<W>,
+        timestamp_unix_nano: i64,
+    ) -> Self {
+        Self {
+            framed,
+            inner,
+            timestamp_unix_nano,
+        }
+    }
+
+    fn drain_media_frames(&mut self) -> Vec<Vec<u8>> {
+        self.inner.drain_media_frames()
+    }
+
+    fn upstream_ref(&self) -> &W {
+        self.inner.upstream_ref()
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<S: Read, W: Write> RdpBackendSession for ActiveStageNetworkPumpSessionProbe<S, W> {
+    fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError> {
+        self.inner.input(frame).map(|_| ())
+    }
+
+    fn ack(&mut self, _ack: &crate::protocol::DesktopMediaAck) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError> {
+        self.inner.close(payload)
+    }
+
+    fn pump(&mut self) -> Result<(), BackendError> {
+        read_active_stage_server_frame_for_probe(
+            &mut self.framed,
+            &mut self.inner,
+            self.timestamp_unix_nano,
+        )
+        .map(|_| ())
+    }
+
+    fn drain_media_frames(&mut self) -> Result<Vec<Vec<u8>>, BackendError> {
+        Ok(ActiveStageNetworkPumpSessionProbe::drain_media_frames(self))
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
 struct VerifiedTlsPeerPublicKeyForProbe {
     bytes: Vec<u8>,
@@ -1563,6 +1621,42 @@ mod tests {
 
         let err = read_active_stage_server_frame_for_probe(&mut framed, &mut session, 1234)
             .expect_err("malformed pdu rejected");
+
+        assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+        assert!(session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_backend_session_pump_reads_server_frames() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let inner = ActiveStageSessionProbe::new(
+            &plan,
+            &credential,
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+        );
+        let framed =
+            ironrdp_blocking::Framed::new(ScriptedStream::new(vec![b"not-a-pdu".to_vec()]));
+        let mut session = ActiveStageNetworkPumpSessionProbe::new(framed, inner, 1234);
+
+        let err = {
+            let session_trait: &mut dyn RdpBackendSession = &mut session;
+            session_trait
+                .pump()
+                .expect_err("malformed pumped server frame rejected")
+        };
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
         assert!(session.upstream_ref().is_empty());
