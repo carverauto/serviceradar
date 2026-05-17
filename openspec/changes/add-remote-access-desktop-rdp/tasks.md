@@ -428,7 +428,7 @@
 - [x] 5.7.19 Add browser renderer-runtime tests for the renderer-target hot-path boundary and Canvas2D/WebGPU target adapters.
 
 ## 6. Optional Packaging And EdgeOps Distribution
-- [ ] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
+- [x] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.
   - [x] Add release-publisher support for an explicit optional RDP-enabled runtime bundle artifact that is omitted from default releases.
   - [x] Add a separate `serviceradar-rdp-adapter` helper binary target and RDP-enabled runtime archive that are omitted from base agent installs.
   - [x] Add a separate fail-closed `rdp_adapter_ironrdp` Bazel target that links reviewed IronRDP core/PDU crates without changing the default agent or runtime bundle.
