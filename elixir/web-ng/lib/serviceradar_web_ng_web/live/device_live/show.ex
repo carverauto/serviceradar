@@ -146,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:northbound_interface_launch_action, nil)
      |> assign(:northbound_device_history, [])
      |> assign(:northbound_device_history_error, nil)
+     |> assign(:northbound_launch_notice, nil)
      |> assign(:show_interfaces_bulk_edit, false)
      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
      # Interface metrics for favorited interfaces
@@ -1834,13 +1835,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
          {:ok, targets} <- selected_interface_action_targets(socket),
          {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
+      {history, history_error} =
+        load_northbound_device_history(socket.assigns.current_scope, socket.assigns.device_uid)
+
       {:noreply,
        socket
        |> close_northbound_interface_action_modal()
        |> assign(:selected_interfaces, MapSet.new())
+       |> assign(:northbound_device_history, history)
+       |> assign(:northbound_device_history_error, history_error)
+       |> assign(:northbound_launch_notice, %{
+         title: "Task dispatched for #{length(targets)} interface(s)",
+         invocation_id: invocation.id
+       })
        |> put_flash(
          :info,
-         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} interface(s)."
+         "Task dispatched. Watch Task History for results."
        )}
     else
       {:error, reason} ->
@@ -3524,7 +3534,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   <div class="space-y-1 text-sm">
                     <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
                     <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
-                    <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
+                    <.kv_inline label="Type" value={device_type_label(@device_row)} />
                     <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
                     <.kv_inline
                       :if={present?(Map.get(@device_row, "model"))}
@@ -4117,6 +4127,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 subtitle="Recent actions for this device and its interfaces"
                 entries={@northbound_device_history}
                 error={@northbound_device_history_error}
+                notice={@northbound_launch_notice}
                 empty_message="No task invocations have been recorded for this device yet."
               />
 
@@ -4866,6 +4877,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp classification_provenance_label(_row), do: "Unspecified"
 
+  defp device_type_label(row) when is_map(row) do
+    first_present([
+      Map.get(row, "type"),
+      metadata_value(row, "armis_type"),
+      metadata_value(row, "device_type"),
+      metadata_value(row, "type"),
+      metadata_value(row, "armis_category"),
+      metadata_value(row, "category"),
+      device_type_name(Map.get(row, "type_id"))
+    ])
+  end
+
+  defp device_type_label(_row), do: nil
+
+  defp device_type_name(0), do: "Unknown"
+  defp device_type_name(1), do: "Server"
+  defp device_type_name(2), do: "Desktop"
+  defp device_type_name(3), do: "Laptop"
+  defp device_type_name(4), do: "Tablet"
+  defp device_type_name(5), do: "Mobile"
+  defp device_type_name(6), do: "Virtual"
+  defp device_type_name(7), do: "IOT"
+  defp device_type_name(8), do: "Browser"
+  defp device_type_name(9), do: "Firewall"
+  defp device_type_name(10), do: "Switch"
+  defp device_type_name(11), do: "Hub"
+  defp device_type_name(12), do: "Router"
+  defp device_type_name(13), do: "IDS"
+  defp device_type_name(14), do: "IPS"
+  defp device_type_name(15), do: "Load Balancer"
+  defp device_type_name(99), do: "Other"
+  defp device_type_name(_type_id), do: nil
+
   defp snmp_fallback_derived?(row) when is_map(row) do
     metadata = row_metadata(row)
     has_rule = present?(metadata_value(row, "classification_rule_id"))
@@ -4925,7 +4969,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         >
           <div
             :for={group <- @metadata_groups}
-            class="min-w-0 border-l border-base-200 pl-3"
+            class="min-w-0 rounded-lg border border-base-200 bg-base-200/20 p-3"
           >
             <div class="mb-2 flex items-center gap-2">
               <.icon name={group.icon} class="size-4 text-base-content/60" />
@@ -4988,8 +5032,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("UniFi", "hero-wifi", [
           metadata_item("Controller", metadata_lookup(metadata, "controller_name")),
           metadata_item("Controller URL", metadata_lookup(metadata, "controller_url"), mono: true),
+          metadata_item("API names", metadata_lookup(metadata, "unifi_api_names")),
+          metadata_item("API URLs", metadata_lookup(metadata, "unifi_api_urls"), mono: true),
           metadata_item("Role", metadata_lookup(metadata, "device_role")),
           metadata_item("Bridge ports", metadata_lookup(metadata, "bridge_port_count"))
+        ]),
+        metadata_group("SNMP", "hero-radio", [
+          metadata_item("Name", metadata_first_value(metadata, ["snmp_name", "sys_name"])),
+          metadata_item("Location", metadata_first_value(metadata, ["snmp_location", "sys_location"])),
+          metadata_item("Contact", metadata_first_value(metadata, ["snmp_owner", "sys_owner", "sys_contact"])),
+          metadata_item("Object ID", metadata_lookup(metadata, "sys_object_id"), mono: true),
+          metadata_item(
+            "Uptime",
+            metadata_uptime(metadata_first_value(metadata, ["uptime", "sys_uptime", "snmp_uptime"]))
+          ),
+          metadata_item("Description", metadata_first_value(metadata, ["snmp_description", "sys_descr"]))
+        ]),
+        metadata_group("MikroTik", "hero-cpu-chip", [
+          metadata_item("API names", metadata_lookup(metadata, "mikrotik_api_names")),
+          metadata_item("API URLs", metadata_lookup(metadata, "mikrotik_api_urls"), mono: true)
+        ]),
+        metadata_group("Proxmox", "hero-cube-transparent", [
+          metadata_item("Candidate probe", metadata_lookup(metadata, "proxmox_candidate_probe_enabled"))
+        ]),
+        metadata_group("Discovery", "hero-map", [
+          metadata_item("Discovery ID", metadata_lookup(metadata, "discovery_id"), mono: true),
+          metadata_item("Discovery time", metadata_timestamp(metadata_lookup(metadata, "discovery_time")), mono: true),
+          metadata_item("Mapper job", metadata_lookup(metadata, "mapper_job_name")),
+          metadata_item("Mapper job ID", metadata_lookup(metadata, "mapper_job_id"), mono: true)
         ]),
         metadata_group("Classification", "hero-tag", [
           metadata_item("Source", metadata_lookup(metadata, "classification_source")),
@@ -5052,7 +5122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           metadata_item("Unavailable count", metadata_lookup(metadata, "scan_unavailable_count")),
           metadata_item("Availability", metadata_lookup(metadata, "scan_availability_percent"))
         ]),
-        metadata_integration_details_group(metadata)
+        metadata_other_summary_group(metadata)
       ],
       &(&1.items == [])
     )
@@ -5072,24 +5142,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Map.get(metadata, key)
   end
 
-  defp metadata_integration_details_group(metadata) when is_map(metadata) do
-    items =
-      metadata
-      |> Enum.sort_by(fn {key, _value} -> key |> to_string() |> String.downcase() end)
-      |> Enum.reject(fn {key, _value} -> metadata_detail_hidden_key?(to_string(key)) end)
-      |> Enum.reject(fn {key, _value} -> metadata_detail_curated_key?(to_string(key)) end)
-      |> Enum.flat_map(fn {key, value} ->
-        if metadata_present?(value) do
-          [metadata_item(format_label(to_string(key)), value, mono: metadata_detail_mono_key?(to_string(key)))]
-        else
-          []
-        end
-      end)
+  defp metadata_timestamp(nil), do: nil
 
-    metadata_group("Integration Details", "hero-list-bullet", items)
+  defp metadata_timestamp(value) do
+    case format_timestamp(value) do
+      "—" -> value
+      formatted -> formatted
+    end
   end
 
-  defp metadata_integration_details_group(_metadata), do: metadata_group("Integration Details", "hero-list-bullet", [])
+  defp metadata_uptime(nil), do: nil
+
+  defp metadata_uptime(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> Integer.parse()
+    |> case do
+      {integer, ""} -> metadata_uptime(integer)
+      _ -> value
+    end
+  end
+
+  defp metadata_uptime(value) when is_number(value) and value >= 0 do
+    value
+    |> Kernel./(100)
+    |> Float.round()
+    |> trunc()
+    |> metadata_duration()
+  end
+
+  defp metadata_uptime(value), do: value
+
+  defp metadata_duration(seconds) when is_integer(seconds) do
+    days = div(seconds, 86_400)
+    hours = seconds |> rem(86_400) |> div(3_600)
+    minutes = seconds |> rem(3_600) |> div(60)
+
+    [
+      if(days > 0, do: "#{days}d"),
+      if(hours > 0, do: "#{hours}h"),
+      if(minutes > 0, do: "#{minutes}m")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> "#{seconds}s"
+      parts -> Enum.join(parts, " ")
+    end
+  end
+
+  defp metadata_count_label(count) when is_integer(count) and count > 0 do
+    "#{count} #{if count == 1, do: "key", else: "keys"}"
+  end
+
+  defp metadata_count_label(_count), do: nil
+
+  defp metadata_other_summary_group(metadata) when is_map(metadata) do
+    visible_count =
+      metadata
+      |> Enum.reject(fn {key, _value} -> metadata_detail_hidden_key?(to_string(key)) end)
+      |> Enum.reject(fn {key, _value} -> metadata_detail_curated_key?(to_string(key)) end)
+      |> Enum.count(fn {_key, value} -> metadata_present?(value) end)
+
+    metadata_group("Other Metadata", "hero-list-bullet", [
+      metadata_item("Additional keys", metadata_count_label(visible_count))
+    ])
+  end
+
+  defp metadata_other_summary_group(_metadata), do: metadata_group("Other Metadata", "hero-list-bullet", [])
 
   defp metadata_detail_hidden_key?(key) do
     String.starts_with?(key, "_") or
@@ -5106,13 +5225,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     key in metadata_curated_keys()
   end
 
-  defp metadata_detail_mono_key?(key) do
-    String.ends_with?(key, "_id") or
-      String.ends_with?(key, "_url") or
-      String.contains?(key, "uuid") or
-      key in ["source_device_id", "integration_id", "netbox_device_id"]
-  end
-
   defp metadata_curated_keys do
     ~w(
       account
@@ -5127,6 +5239,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       armis_visibility
       boundary_names
       bridge_port_count
+      bridge_base_mac
       category
       classification_confidence
       classification_reason
@@ -5134,23 +5247,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       classification_source
       controller_name
       controller_url
+      device_role_confidence
+      device_role_source
       device_role
       device_role_name
       device_status
       device_type
+      discovery_id
+      discovery_time
       identity_source
       identity_state
+      identity_mac_kind
       integration_id
       integration_type
+      ip_forwarding
       location
       location_name
       manufacturer
+      mapper_job_id
+      mapper_job_name
+      mikrotik_api_names
+      mikrotik_api_urls
       model
       netbox_device_id
       netbox_tags
       operating_system
       platform
       platform_name
+      proxmox_candidate_probe_enabled
       purdue_level
       query_label
       rack
@@ -5167,16 +5291,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       site
       site_name
       site_slug
+      snmp_description
+      snmp_fingerprint
+      snmp_location
+      snmp_name
+      snmp_owner
       source_device_id
       source_tags
+      source
       status
+      stp_forwarding_port_count
+      sweep_consecutive_failures
+      sweep_mapper_promotion
       sync_run_id
       sync_service_id
       sync_total_devices
+      sys_contact
+      sys_descr
+      sys_location
+      sys_name
+      sys_object_id
+      sys_owner
       tags
       tenant
       tenant_name
       type
+      unifi_api_names
+      unifi_api_urls
+      uptime
       visibility
     )
   end
@@ -5196,7 +5338,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp metadata_aliases(_metadata, _prefix), do: []
 
   defp metadata_present?(nil), do: false
-  defp metadata_present?(""), do: false
+
+  defp metadata_present?(value) when is_binary(value) do
+    String.trim(value) not in ["", "nil", "null"]
+  end
+
   defp metadata_present?(value) when is_list(value), do: value != []
   defp metadata_present?(value) when is_map(value), do: map_size(value) > 0
   defp metadata_present?(_value), do: true
@@ -8217,6 +8363,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp log_message(_log), do: "—"
+
+  defp first_present(values) when is_list(values) do
+    Enum.find_value(values, fn
+      nil -> nil
+      "" -> nil
+      value -> value
+    end)
+  end
 
   defp first_present(map, keys) do
     Enum.find_value(keys, fn key ->

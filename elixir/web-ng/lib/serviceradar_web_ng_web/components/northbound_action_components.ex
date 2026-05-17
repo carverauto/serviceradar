@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   attr(:subtitle, :string, default: nil)
   attr(:empty_message, :string, default: "No task invocations have been recorded yet.")
   attr(:error, :string, default: nil)
+  attr(:notice, :map, default: nil)
 
   def northbound_action_history(assigns) do
     ~H"""
@@ -149,6 +150,27 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         <span :if={@entries != []} class="badge badge-ghost badge-sm">{length(@entries)}</span>
       </div>
 
+      <div
+        :if={is_map(@notice)}
+        class="mx-4 mt-4 rounded-lg border border-info/20 bg-info/10 px-4 py-3 text-sm text-base-content"
+      >
+        <div class="flex gap-3">
+          <.icon name="hero-play-circle" class="mt-0.5 size-5 shrink-0 text-info" />
+          <div class="min-w-0 space-y-1">
+            <p class="font-semibold">{Map.get(@notice, :title, "Task dispatched")}</p>
+            <p class="text-xs text-base-content/70">
+              Results update in Task History as the integration reports progress.
+              <span
+                :if={ActionForm.present_text?(Map.get(@notice, :invocation_id))}
+                class="font-mono"
+              >
+                {ActionForm.short_id(Map.get(@notice, :invocation_id))}
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div :if={ActionForm.present_text?(@error)} class="px-4 py-3 text-sm text-error">
         {@error}
       </div>
@@ -157,7 +179,10 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         :if={@entries == [] and not ActionForm.present_text?(@error)}
         class="px-4 py-6 text-sm text-base-content/60"
       >
-        {@empty_message}
+        <p>{@empty_message}</p>
+        <p class="mt-2 text-xs text-base-content/50">
+          Newly launched tasks appear here with queued, running, succeeded, or failed status.
+        </p>
       </div>
 
       <div :if={@entries != []} class="divide-y divide-base-200">
@@ -345,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       ],
       fn {string_key, atom_key} ->
         case Map.get(map, string_key) || Map.get(map, atom_key) do
-          value when is_binary(value) -> value
+          value when is_binary(value) -> present_summary_text(value)
           value when is_atom(value) -> Atom.to_string(value)
           value when is_number(value) -> to_string(value)
           _ -> nil
@@ -355,6 +380,16 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   end
 
   defp summary_value(_value), do: nil
+
+  defp present_summary_text(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if value in ["", "nil", "null"] do
+      nil
+    else
+      value
+    end
+  end
 
   defp history_input_chips(entry) do
     entry

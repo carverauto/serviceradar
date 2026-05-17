@@ -1674,7 +1674,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         "type",
         "device_type",
         "deviceType",
-        "type_name"
+        "type_name",
+        "category",
+        "armis_type",
+        "armis_category"
       ])
 
     if explicit in [nil, ""] do
@@ -1685,9 +1688,37 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp explicit_type_tuple(explicit) do
-    normalized = String.downcase(explicit)
+    normalized =
+      explicit
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "_")
+      |> String.trim("_")
 
     cond do
+      normalized in ["unknown"] ->
+        {"Unknown", 0}
+
+      normalized in ["server", "server_system"] ->
+        {"Server", 1}
+
+      normalized in ["desktop", "desktop_computer", "workstation"] ->
+        {"Desktop", 2}
+
+      normalized in ["laptop", "notebook"] ->
+        {"Laptop", 3}
+
+      normalized in ["tablet", "ipad"] ->
+        {"Tablet", 4}
+
+      normalized in ["mobile", "mobile_phone", "phone", "smartphone", "mobile_device"] ->
+        {"Mobile", 5}
+
+      normalized in ["browser", "web_browser"] ->
+        {"Browser", 8}
+
+      normalized in ["firewall", "network_firewall"] ->
+        {"Firewall", 9}
+
       normalized in ["router", "gateway"] ->
         {"Router", 12}
 
@@ -1702,6 +1733,21 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
       normalized in ["virtual", "vm", "virtual_machine", "virtual machine", "lxc", "container"] ->
         {"Virtual", 6}
+
+      normalized in ["iot", "io_t", "internet_of_things"] ->
+        {"IOT", 7}
+
+      normalized in ["hub"] ->
+        {"Hub", 11}
+
+      normalized in ["ids", "intrusion_detection_system"] ->
+        {"IDS", 13}
+
+      normalized in ["ips", "intrusion_prevention_system"] ->
+        {"IPS", 14}
+
+      normalized in ["load_balancer", "loadbalancer"] ->
+        {"Load Balancer", 15}
 
       true ->
         {explicit, 99}

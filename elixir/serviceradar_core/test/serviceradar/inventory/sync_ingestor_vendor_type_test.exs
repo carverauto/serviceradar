@@ -323,6 +323,30 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert interface.metadata["vlan"] == "100"
   end
 
+  test "promotes Armis metadata device type into OCSF type fields", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "armis-tablet-#{System.unique_integer([:positive])}",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => "armis-tablet-#{System.unique_integer([:positive])}",
+        "integration_type" => "armis",
+        "type" => "Tablet",
+        "category" => "Mobile Device",
+        "brand" => "D-Link"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.type == "Tablet"
+    assert device.type_id == 4
+    assert device.vendor_name == "D-Link"
+  end
+
   test "does not re-enable devices manually marked unmanaged", %{actor: actor} do
     ip = unique_ip()
 
