@@ -108,6 +108,56 @@ func TestDesktopMediaGatewaySenderOpensAndSendsFrames(t *testing.T) {
 	}
 }
 
+func TestDesktopMediaGatewaySenderConsumesFrameBytesBeforeReturn(t *testing.T) {
+	t.Parallel()
+
+	stream := newFakeDesktopMediaStream()
+	sender, err := newDesktopMediaGatewaySender(
+		context.Background(),
+		&fakeDesktopMediaGateway{
+			openResp: acceptedDesktopMediaOpenResponse(),
+			stream:   stream,
+		},
+		testDesktopMediaGatewaySenderConfig(),
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("newDesktopMediaGatewaySender returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = sender.Close(context.Background(), "test done") })
+
+	metadata := []byte{1, 2}
+	payload := []byte{3, 4, 5}
+	frame := remoteaccess.DesktopMediaFrame{
+		SessionBindingID:  testDesktopMediaSessionID,
+		MediaSessionID:    testDesktopMediaID,
+		Sequence:          7,
+		TimestampUnixNano: 1_778_000_000_000,
+		Width:             10,
+		Height:            10,
+		PayloadFamily:     remoteaccess.DesktopMediaPayloadTile,
+		Encoding:          "raw_rgba",
+		Metadata:          metadata,
+		Payload:           payload,
+	}
+	if err := sender.SendDesktopMediaFrame(context.Background(), frame); err != nil {
+		t.Fatalf("SendDesktopMediaFrame returned error: %v", err)
+	}
+	clearBytes(metadata)
+	clearBytes(payload)
+
+	chunk := stream.sent[0].GetFrame()
+	if chunk == nil {
+		t.Fatal("sent message did not contain frame chunk")
+	}
+	if got := chunk.GetMetadata(); len(got) != 2 || got[0] != 1 || got[1] != 2 {
+		t.Fatalf("sent metadata = %v, want [1 2]", got)
+	}
+	if got := chunk.GetPayload(); len(got) != 3 || got[0] != 3 || got[1] != 4 || got[2] != 5 {
+		t.Fatalf("sent payload = %v, want [3 4 5]", got)
+	}
+}
+
 func TestDesktopMediaGatewaySenderRoutesAcks(t *testing.T) {
 	t.Parallel()
 
@@ -636,8 +686,31 @@ func newFakeDesktopMediaStream() *fakeDesktopMediaStream {
 }
 
 func (s *fakeDesktopMediaStream) Send(msg *proto.DesktopMediaClientMessage) error {
-	s.sent = append(s.sent, msg)
+	s.sent = append(s.sent, cloneDesktopMediaClientMessageForTest(msg))
 	return nil
+}
+
+func cloneDesktopMediaClientMessageForTest(msg *proto.DesktopMediaClientMessage) *proto.DesktopMediaClientMessage {
+	if msg == nil {
+		return nil
+	}
+
+	clone := *msg
+	switch message := msg.GetMessage().(type) {
+	case *proto.DesktopMediaClientMessage_Frame:
+		frame := *message.Frame
+		frame.Metadata = append([]byte(nil), frame.Metadata...)
+		frame.Payload = append([]byte(nil), frame.Payload...)
+		clone.Message = &proto.DesktopMediaClientMessage_Frame{Frame: &frame}
+	case *proto.DesktopMediaClientMessage_Close:
+		closeMsg := *message.Close
+		clone.Message = &proto.DesktopMediaClientMessage_Close{Close: &closeMsg}
+	case *proto.DesktopMediaClientMessage_Heartbeat:
+		heartbeat := *message.Heartbeat
+		clone.Message = &proto.DesktopMediaClientMessage_Heartbeat{Heartbeat: &heartbeat}
+	}
+
+	return &clone
 }
 
 func (s *fakeDesktopMediaStream) Recv() (*proto.DesktopMediaServerMessage, error) {
