@@ -8,11 +8,15 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.PollWorker
   alias ServiceRadar.Edge.AgentCommand
+  alias ServiceRadar.Edge.Crypto
 
   require Logger
 
   @command_type "plugin.run_action"
   @terminal_target_statuses [:succeeded, :failed, :skipped, :suppressed, :expired, :canceled]
+  @default_signature_header "x-serviceradar-callback-signature"
+  @default_timestamp_header "x-serviceradar-callback-timestamp"
+  @default_timestamp_tolerance_seconds 300
 
   @spec handle_command_result(map(), keyword()) :: :ok
   def handle_command_result(data, opts \\ [])
@@ -56,7 +60,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
     token = Keyword.get(opts, :token)
 
     with {:ok, target} <- get_target(job_id, actor),
-         :ok <- authorize_callback(target, token),
+         :ok <- authorize_callback(target, token, opts),
          {:ok, invocation} <- get_invocation(target.invocation_id, actor) do
       if terminal_target?(target) do
         {:ok, :already_terminal}
@@ -133,21 +137,178 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
     end
   end
 
-  defp authorize_callback(_target, token) when not is_binary(token) or token == "",
+  defp authorize_callback(_target, token, _opts) when not is_binary(token) or token == "",
     do: {:error, :invalid_callback_token}
 
-  defp authorize_callback(%{callback_token_hash: hash}, token)
+  defp authorize_callback(%{callback_token_hash: hash} = target, token, opts)
        when is_binary(hash) and hash != "" do
     token_hash = sha256_hex(token)
 
     if byte_size(hash) == byte_size(token_hash) and Plug.Crypto.secure_compare(hash, token_hash) do
-      :ok
+      authorize_callback_signature(target, opts)
     else
       {:error, :invalid_callback_token}
     end
   end
 
-  defp authorize_callback(_target, _token), do: {:error, :callback_not_configured}
+  defp authorize_callback(_target, _token, _opts), do: {:error, :callback_not_configured}
+
+  defp authorize_callback_signature(%{callback_auth_mode: mode}, _opts)
+       when mode in [nil, :token], do: :ok
+
+  defp authorize_callback_signature(%{callback_auth_mode: :hmac_optional} = target, opts) do
+    if callback_signature_present?(target, opts) do
+      verify_callback_hmac(target, opts)
+    else
+      :ok
+    end
+  end
+
+  defp authorize_callback_signature(%{callback_auth_mode: :hmac_required} = target, opts) do
+    if callback_signature_present?(target, opts) do
+      verify_callback_hmac(target, opts)
+    else
+      {:error, :missing_callback_signature}
+    end
+  end
+
+  defp authorize_callback_signature(_target, _opts), do: :ok
+
+  defp callback_signature_present?(target, opts) do
+    signature_value(target, opts) not in [nil, ""] or
+      timestamp_value(target, opts) not in [nil, ""]
+  end
+
+  defp verify_callback_hmac(target, opts) do
+    with {:ok, secret} <- callback_hmac_secret(target),
+         {:ok, timestamp} <- callback_timestamp(target, opts),
+         :ok <- verify_callback_timestamp(target, timestamp, opts),
+         {:ok, signature} <- callback_signature(target, opts) do
+      compare_callback_signature(secret, timestamp.raw, raw_body(opts), signature)
+    end
+  end
+
+  defp callback_hmac_secret(%{callback_hmac_secret_ciphertext: ciphertext})
+       when is_binary(ciphertext) and ciphertext != "" do
+    case Crypto.decrypt_safe(ciphertext) do
+      {:ok, secret} when is_binary(secret) and secret != "" -> {:ok, secret}
+      _ -> {:error, :callback_not_configured}
+    end
+  end
+
+  defp callback_hmac_secret(_target), do: {:error, :callback_not_configured}
+
+  defp callback_timestamp(target, opts) do
+    case timestamp_value(target, opts) do
+      value when is_binary(value) and value != "" ->
+        parse_callback_timestamp(value)
+
+      _ ->
+        {:error, :missing_callback_timestamp}
+    end
+  end
+
+  defp parse_callback_timestamp(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    if match?({_integer, ""}, Integer.parse(trimmed)) do
+      {seconds, ""} = Integer.parse(trimmed)
+      {:ok, datetime} = DateTime.from_unix(seconds)
+      {:ok, %{raw: trimmed, datetime: datetime}}
+    else
+      case DateTime.from_iso8601(trimmed) do
+        {:ok, datetime, _offset} -> {:ok, %{raw: trimmed, datetime: datetime}}
+        _ -> {:error, :invalid_callback_timestamp}
+      end
+    end
+  rescue
+    _ -> {:error, :invalid_callback_timestamp}
+  end
+
+  defp verify_callback_timestamp(target, %{datetime: timestamp}, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    tolerance =
+      target.callback_hmac_timestamp_tolerance_seconds || @default_timestamp_tolerance_seconds
+
+    skew_seconds = abs(DateTime.diff(now, timestamp, :second))
+
+    if skew_seconds <= tolerance do
+      :ok
+    else
+      {:error, :stale_callback_signature}
+    end
+  end
+
+  defp callback_signature(target, opts) do
+    case signature_value(target, opts) do
+      value when is_binary(value) and value != "" -> {:ok, normalize_signature(value)}
+      _ -> {:error, :missing_callback_signature}
+    end
+  end
+
+  defp compare_callback_signature(secret, timestamp, raw_body, signature) do
+    expected =
+      secret
+      |> hmac_sha256("#{timestamp}.#{raw_body}")
+      |> Base.encode16(case: :lower)
+
+    with "sha256=" <> supplied_hex <- signature,
+         true <- byte_size(supplied_hex) == byte_size(expected),
+         true <- Plug.Crypto.secure_compare(supplied_hex, expected) do
+      :ok
+    else
+      _ -> {:error, :invalid_callback_signature}
+    end
+  end
+
+  defp hmac_sha256(secret, message), do: :crypto.mac(:hmac, :sha256, secret, message)
+
+  defp normalize_signature(value) when is_binary(value),
+    do: value |> String.trim() |> String.downcase()
+
+  defp signature_value(target, opts), do: header_value(opts, signature_header(target))
+  defp timestamp_value(target, opts), do: header_value(opts, timestamp_header(target))
+
+  defp signature_header(%{callback_hmac_signature_header: header})
+       when is_binary(header) and header != "", do: header
+
+  defp signature_header(_target), do: @default_signature_header
+
+  defp timestamp_header(%{callback_hmac_timestamp_header: header})
+       when is_binary(header) and header != "", do: header
+
+  defp timestamp_header(_target), do: @default_timestamp_header
+
+  defp header_value(opts, header) do
+    headers = Keyword.get(opts, :headers, %{})
+    normalized = String.downcase(header)
+
+    cond do
+      is_map(headers) ->
+        Map.get(headers, normalized) || Map.get(headers, header)
+
+      is_list(headers) ->
+        Enum.find_value(headers, fn
+          {key, value} when is_binary(key) ->
+            if String.downcase(key) == normalized, do: value
+
+          _ ->
+            nil
+        end)
+
+      true ->
+        nil
+    end
+  end
+
+  defp raw_body(opts) do
+    case Keyword.get(opts, :raw_body, "") do
+      body when is_binary(body) -> body
+      body when is_list(body) -> IO.iodata_to_binary(body)
+      _ -> ""
+    end
+  end
 
   defp record_callback_result(invocation, target, payload, actor) do
     payload = normalize_payload(payload)

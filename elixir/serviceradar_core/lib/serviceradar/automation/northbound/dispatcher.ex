@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins
   alias ServiceRadar.Plugins.PluginAssignment
 
@@ -15,6 +16,13 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   require Logger
 
   @command_type "plugin.run_action"
+  @callback_token_header "x-serviceradar-callback-token"
+  @callback_signature_header "x-serviceradar-callback-signature"
+  @callback_timestamp_header "x-serviceradar-callback-timestamp"
+  @callback_hmac_algorithm "hmac-sha256"
+  @callback_signature_format "sha256=<hex>"
+  @callback_signed_payload "<timestamp>.<raw_body>"
+  @default_callback_tolerance_seconds 300
 
   @spec dispatch_invocation(ActionInvocation.t() | String.t(), keyword()) ::
           {:ok, ActionInvocation.t()} | {:error, term()}
@@ -352,21 +360,21 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     if targets == [] do
       {:ok, invocation.target_snapshots || []}
     else
-      {:ok, Enum.map(targets, &prepare_callback_target(&1, actor))}
+      auth_config = callback_auth_config(invocation)
+
+      {:ok, Enum.map(targets, &prepare_callback_target(&1, auth_config, actor))}
     end
   end
 
-  defp prepare_callback_target(target, actor) do
+  defp prepare_callback_target(target, auth_config, actor) do
     token = callback_token()
-    callback = callback_metadata(target, token)
+    signing_secret = callback_signing_secret(auth_config)
+    callback = callback_metadata(target, token, auth_config, signing_secret)
 
     _ =
       ActionInvocationTarget.prepare_callback(
         target,
-        %{
-          callback_token_hash: sha256_hex(token),
-          callback_url: callback["url"]
-        },
+        callback_persistence_attrs(callback, token, auth_config, signing_secret),
         actor: actor
       )
 
@@ -374,7 +382,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   end
 
   defp target_snapshot_with_callback(target, callback) do
-    callback = callback || callback_metadata(target, nil)
+    callback = callback || callback_metadata(target, nil, callback_auth_config(target), nil)
 
     target.target_snapshot
     |> normalize_map()
@@ -382,19 +390,169 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     |> Map.put("callback", callback)
   end
 
-  defp callback_metadata(target, token) do
+  defp callback_metadata(target, token, auth_config, signing_secret) do
     path = "/api/northbound/action-callbacks/#{target.id}"
 
-    %{
+    metadata = %{
       "job_id" => target.id,
       "path" => path,
       "url" => callback_url(path),
       "token" => token,
-      "token_header" => "x-serviceradar-callback-token"
+      "token_header" => @callback_token_header,
+      "auth_mode" => Atom.to_string(auth_config.mode)
     }
+
+    metadata =
+      if hmac_callback?(auth_config.mode) do
+        Map.merge(metadata, %{
+          "signature_algorithm" => @callback_hmac_algorithm,
+          "signature_header" => @callback_signature_header,
+          "timestamp_header" => @callback_timestamp_header,
+          "signature_format" => @callback_signature_format,
+          "signed_payload" => @callback_signed_payload,
+          "timestamp_tolerance_seconds" => auth_config.timestamp_tolerance_seconds,
+          "signing_secret" => signing_secret
+        })
+      else
+        metadata
+      end
+
+    metadata
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp callback_persistence_attrs(callback, token, auth_config, signing_secret) do
+    attrs = %{
+      callback_token_hash: sha256_hex(token),
+      callback_url: callback["url"],
+      callback_auth_mode: auth_config.mode
+    }
+
+    if hmac_callback?(auth_config.mode) and is_binary(signing_secret) and signing_secret != "" do
+      Map.merge(attrs, %{
+        callback_hmac_secret_ciphertext: Crypto.encrypt(signing_secret),
+        callback_hmac_algorithm: @callback_hmac_algorithm,
+        callback_hmac_signature_header: @callback_signature_header,
+        callback_hmac_timestamp_header: @callback_timestamp_header,
+        callback_hmac_timestamp_tolerance_seconds: auth_config.timestamp_tolerance_seconds
+      })
+    else
+      attrs
+    end
+  end
+
+  defp callback_auth_config(%ActionInvocation{} = invocation) do
+    metadata_candidates = [
+      normalize_map(invocation.descriptor && invocation.descriptor.metadata),
+      normalize_map(invocation.provider && invocation.provider.metadata),
+      normalize_map(invocation.metadata)
+    ]
+
+    %{
+      mode: callback_auth_mode(metadata_candidates),
+      timestamp_tolerance_seconds: callback_timestamp_tolerance(metadata_candidates)
+    }
+  end
+
+  defp callback_auth_config(%ActionInvocationTarget{} = target) do
+    %{
+      mode: target.callback_auth_mode || :token,
+      timestamp_tolerance_seconds:
+        target.callback_hmac_timestamp_tolerance_seconds || @default_callback_tolerance_seconds
+    }
+  end
+
+  defp callback_auth_mode(metadata_candidates) when is_list(metadata_candidates) do
+    metadata_candidates
+    |> Enum.find_value(&metadata_callback_auth_mode/1)
+    |> case do
+      mode when mode in [:token, :hmac_optional, :hmac_required] -> mode
+      _ -> :token
+    end
+  end
+
+  defp metadata_callback_auth_mode(metadata) when is_map(metadata) do
+    Enum.find_value(
+      [
+        map_get(metadata, "callback_auth_mode"),
+        map_get(metadata, "callback_hmac_mode"),
+        map_get(metadata, "callback_mode"),
+        metadata |> map_get("callback") |> map_get("auth_mode"),
+        metadata |> map_get("callback") |> map_get("hmac_mode"),
+        metadata |> map_get("webhook") |> map_get("auth_mode"),
+        metadata |> map_get("webhook") |> map_get("hmac_mode")
+      ],
+      &normalize_callback_auth_mode/1
+    )
+  end
+
+  defp metadata_callback_auth_mode(_metadata), do: nil
+
+  defp normalize_callback_auth_mode(value) when is_atom(value),
+    do: normalize_callback_auth_mode(Atom.to_string(value))
+
+  defp normalize_callback_auth_mode(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "token" -> :token
+      "token_only" -> :token
+      "none" -> :token
+      "hmac" -> :hmac_required
+      "signed" -> :hmac_required
+      "hmac-sha256" -> :hmac_required
+      "hmac_sha256" -> :hmac_required
+      "required" -> :hmac_required
+      "hmac_required" -> :hmac_required
+      "hmac-required" -> :hmac_required
+      "optional" -> :hmac_optional
+      "hmac_optional" -> :hmac_optional
+      "hmac-optional" -> :hmac_optional
+      _ -> nil
+    end
+  end
+
+  defp normalize_callback_auth_mode(_value), do: nil
+
+  defp callback_timestamp_tolerance(metadata_candidates) when is_list(metadata_candidates) do
+    metadata_candidates
+    |> Enum.find_value(&metadata_callback_timestamp_tolerance/1)
+    |> case do
+      seconds when is_integer(seconds) and seconds > 0 -> min(seconds, 86_400)
+      _ -> @default_callback_tolerance_seconds
+    end
+  end
+
+  defp metadata_callback_timestamp_tolerance(metadata) when is_map(metadata) do
+    Enum.find_value(
+      [
+        map_get(metadata, "callback_timestamp_tolerance_seconds"),
+        map_get(metadata, "callback_hmac_timestamp_tolerance_seconds"),
+        metadata |> map_get("callback") |> map_get("timestamp_tolerance_seconds"),
+        metadata |> map_get("webhook") |> map_get("timestamp_tolerance_seconds")
+      ],
+      &positive_integer/1
+    )
+  end
+
+  defp metadata_callback_timestamp_tolerance(_metadata), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+
+  defp positive_integer(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {integer, ""} when integer > 0 -> integer
+      _ -> nil
+    end
+  end
+
+  defp positive_integer(_value), do: nil
+
+  defp hmac_callback?(mode), do: mode in [:hmac_optional, :hmac_required]
+
+  defp callback_signing_secret(%{mode: mode}) when mode in [:hmac_optional, :hmac_required],
+    do: callback_token()
+
+  defp callback_signing_secret(_auth_config), do: nil
 
   defp callback_url(path) do
     case callback_base_url() do
