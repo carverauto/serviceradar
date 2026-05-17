@@ -206,6 +206,7 @@
 - [x] 3.2.75 Carry trusted target Kerberos/KDC routing metadata into the connector plan and CredSSP finalization boundary without treating it as credential material.
 - [x] 3.2.76 Drive the open-shaped experimental connector path through bounded CredSSP finalization before the readiness gate while preserving connector-not-ready runtime posture.
 - [x] 3.2.77 Bind finalized connector handoffs to trusted broker media-session metadata before constructing the helper backend session shape.
+- [x] 3.2.78 Force successful experimental connector finalization through the media-bound network-pump constructor before the runtime readiness gate rejects the session.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -247,7 +248,7 @@
 - [x] 4.1.2 Add a `settings.edge.manage`-gated admin API for listing, creating, updating, enabling, and disabling registered RDP desktop targets without exposing plaintext credential-shaped fields.
 - [x] 4.1.3 Add a `settings.edge.manage`-gated settings LiveView for listing, creating, editing, enabling, and disabling RDP desktop targets with route, TLS/NLA, screen, clipboard redirection, recording, and allowed-principal controls.
 - [x] 4.1.4 Add operator-facing Kerberos/KDC routing fields for RDP desktop targets and keep browser session metadata from overriding those trusted values.
-- [ ] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
+- [x] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
 - [ ] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
 - [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
 - [x] 4.2.1.2 Add the server-side web-ng WebRTC signaling facade/controller contract for `webrtc_desktop_media`.
@@ -404,6 +405,7 @@
 - [x] 5.2.102 Add connector-linked coverage proving KDC proxy/hostname metadata is parsed, invalid URLs fail closed, and Kerberos config survives into CredSSP finalization.
 - [x] 5.2.103 Add connector-linked open-shaped coverage proving the experimental connector path reaches CredSSP finalization before returning connector-not-ready without exposing cleartext password material.
 - [x] 5.2.104 Add connector-linked finalized-handoff coverage proving backend session construction uses trusted media-session metadata and rejects missing media bindings.
+- [x] 5.2.105 Add connector-linked coverage proving the runtime readiness gate rejects only after a finalized connector handoff is bound to the desktop media session contract.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

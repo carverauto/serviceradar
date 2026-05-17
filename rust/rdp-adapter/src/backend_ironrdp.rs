@@ -647,9 +647,27 @@ fn open_connector_for_experimental_until_readiness_gate(
     }
     let credssp_handoff =
         connect_verified_credssp_handoff_for_experimental(&plan, &credential, runtime)?;
-    if let Err(failure) = finalize_verified_connector_for_experimental(credssp_handoff, runtime) {
-        return Err(failure.error);
+    match finalize_verified_connector_for_experimental(credssp_handoff, runtime) {
+        Ok(handoff) => {
+            reject_finalized_connector_session_until_readiness_gate(handoff, io::sink(), request)
+        }
+        Err(failure) => Err(failure.error),
     }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn reject_finalized_connector_session_until_readiness_gate<S, W>(
+    handoff: ConnectorFinalizedHandoff<S>,
+    upstream: W,
+    request: &OpenPayload,
+) -> Result<(), BackendError>
+where
+    S: Read + Write,
+    W: Write,
+{
+    let _session = finalized_connector_handoff_into_network_pump_session_for_probe(
+        handoff, upstream, request,
+    )?;
 
     Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
 }
@@ -3266,6 +3284,59 @@ mod tests {
         };
 
         assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_readiness_gate_requires_network_pump_media_binding() {
+        let mut payload =
+            parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let (connection_result, desktop_size) =
+            build_connection_result_for_probe(&plan, &credential);
+
+        let missing_binding_err = reject_finalized_connector_session_until_readiness_gate(
+            ConnectorFinalizedHandoff {
+                framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
+                connection_result: connection_result.clone(),
+                desktop_size,
+            },
+            io::sink(),
+            &payload,
+        )
+        .expect_err("missing media binding rejected before readiness gate");
+
+        assert_eq!(
+            missing_binding_err,
+            BackendError::Unsupported(INVALID_CONNECTION_PLAN)
+        );
+
+        payload
+            .target
+            .metadata
+            .insert(METADATA_MEDIA_SESSION_ID.to_owned(), "media-1".to_owned());
+        let readiness_err = reject_finalized_connector_session_until_readiness_gate(
+            ConnectorFinalizedHandoff {
+                framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
+                connection_result,
+                desktop_size,
+            },
+            io::sink(),
+            &payload,
+        )
+        .expect_err("finalized network-pump session still gated");
+
+        assert_eq!(
+            readiness_err,
+            BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
+        );
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
