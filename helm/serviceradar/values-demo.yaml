@@ -567,6 +567,14 @@ certs:
     # upgrades do not rotate the runtime CA unexpectedly.
     enabled: false
 
+objectStoreRetention:
+  enabled: true
+  dryRun: false
+  agentReleaseKeepLatest: 5
+  pluginOrphanGraceSeconds: 604800
+  datasvcTimeoutMs: 30000
+  webNgMaintenanceQueueLimit: 1
+
 bmpCollector:
   enabled: true
   replicaCount: 3
