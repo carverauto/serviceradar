@@ -186,6 +186,7 @@
 - [x] 3.2.55 Run the connector-linked helper's runtime open path through verified TLS trust and connector-config input preflight before returning connector-not-ready.
 - [x] 3.2.56 Build and carry real Rustls client configs with resumption disabled from the selected TLS trust source for the future connector upgrade path.
 - [x] 3.2.57 Add a connector-linked connect-begin handoff that owns the framed stream, connector state, verified TLS config, and server name before TLS upgrade while runtime readiness stays disabled.
+- [x] 3.2.58 Add a connector-linked CredSSP-ready handoff that marks the verified TLS upgrade boundary and carries certificate-derived server public-key material into finalization while runtime readiness stays disabled.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -361,6 +362,7 @@
 - [x] 5.2.82 Add Bazel-only adapter probe coverage proving connector-not-ready runtime preflight excludes password material from the preflight structure.
 - [x] 5.2.83 Add Bazel-only adapter probe coverage proving registered CA bundle and system-root trust sources produce real Rustls client configs with resumption disabled.
 - [x] 5.2.84 Add connector-linked connect-begin handoff coverage proving the post-negotiation handoff preserves upgrade state, verified TLS config, and server identity without pre-TLS password exposure.
+- [x] 5.2.85 Add connector-linked CredSSP handoff coverage proving the marked TLS-upgraded state carries server identity and certificate-derived binding material without exposing the cleartext password.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

@@ -95,6 +95,26 @@ impl<S: Read + Write> ConnectorBeginHandoff<S> {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct ConnectorCredsspHandoff<S: Read + Write> {
+    framed: ironrdp_blocking::Framed<S>,
+    upgraded: ironrdp_blocking::Upgraded,
+    connector: ironrdp_connector::ClientConnector,
+    server_name: ironrdp_connector::ServerName,
+    server_public_key: Vec<u8>,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<S: Read + Write> ConnectorCredsspHandoff<S> {
+    fn requires_credssp(&self) -> bool {
+        self.connector.should_perform_credssp()
+    }
+
+    fn server_name(&self) -> &str {
+        self.server_name.as_str()
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
 struct VerifiedTlsClientConfigProbe {
     trusted_root_count: usize,
@@ -675,33 +695,35 @@ fn drive_blocking_connect_finalize_for_probe(
     credential: &MemoryUserCredential,
     server_public_key: VerifiedTlsPeerPublicKeyForProbe,
 ) -> Result<BlockingConnectFinalizeProbe, BackendError> {
-    let server_public_key = server_public_key.into_bytes();
-    if server_public_key.is_empty() {
-        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
-    }
-
-    let config = build_connector_config_for_probe(plan, credential);
     let server_confirm =
         encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)?;
-    let mut connector =
-        ironrdp_connector::ClientConnector::new(config, "127.0.0.1:0".parse().expect("loopback"));
-    let mut framed = ironrdp_blocking::Framed::new(ScriptedStream::new(vec![server_confirm]));
-    let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
-        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
-    let (_stream, leftover) = framed.into_inner();
+    let handoff = begin_connector_handoff_for_probe(
+        plan,
+        credential,
+        ScriptedStream::new(vec![server_confirm]),
+    )?;
+    let (stream, leftover) = handoff.framed.get_inner();
     if !leftover.is_empty() {
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 
-    let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
-    let mut upgraded_framed = ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new()));
+    let initial_write_len = stream.writes.len();
+    let credssp_handoff =
+        mark_connector_handoff_tls_upgraded_for_probe(handoff, server_public_key)?;
+    let ConnectorCredsspHandoff {
+        mut framed,
+        upgraded,
+        connector,
+        server_name,
+        server_public_key,
+    } = credssp_handoff;
     let mut network_client = RejectingNetworkClient;
     let finalize = ironrdp_blocking::connect_finalize(
         upgraded,
         connector,
-        &mut upgraded_framed,
+        &mut framed,
         &mut network_client,
-        plan.tls_server_name.clone().into(),
+        server_name,
         server_public_key,
         None,
     );
@@ -709,18 +731,49 @@ fn drive_blocking_connect_finalize_for_probe(
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 
-    let (stream, leftover) = upgraded_framed.into_inner();
+    let (stream, leftover) = framed.into_inner();
     if !leftover.is_empty() {
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     }
 
     Ok(BlockingConnectFinalizeProbe {
-        wrote_credssp_bytes: !stream.writes.is_empty(),
+        wrote_credssp_bytes: stream.writes.len() > initial_write_len,
         contains_cleartext_password: bytes_contain_secret(
             &stream.writes,
             credential.password.value.as_str().as_bytes(),
         ),
         written_bytes: stream.writes,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn mark_connector_handoff_tls_upgraded_for_probe<S>(
+    handoff: ConnectorBeginHandoff<S>,
+    server_public_key: VerifiedTlsPeerPublicKeyForProbe,
+) -> Result<ConnectorCredsspHandoff<S>, BackendError>
+where
+    S: Read + Write,
+{
+    let server_public_key = server_public_key.into_bytes();
+    if server_public_key.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    let ConnectorBeginHandoff {
+        framed,
+        should_upgrade,
+        mut connector,
+        tls_config: _tls_config,
+        server_name,
+    } = handoff;
+    let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
+
+    Ok(ConnectorCredsspHandoff {
+        framed,
+        upgraded,
+        connector,
+        server_name,
+        server_public_key,
     })
 }
 
@@ -1769,6 +1822,49 @@ mod tests {
         assert!(matches!(
             result,
             Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_marked_tls_handoff_enters_credssp_state_without_password() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+                .expect("server confirm");
+        let begin_handoff = begin_connector_handoff_for_probe(
+            &plan,
+            &credential,
+            ScriptedStream::new(vec![server_confirm]),
+        )
+        .expect("connector begin handoff");
+        let server_public_key = derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
+            &fixture_server_cert_der(),
+        )
+        .expect("server public key");
+
+        let credssp_handoff =
+            mark_connector_handoff_tls_upgraded_for_probe(begin_handoff, server_public_key)
+                .expect("credssp handoff");
+        let (stream, leftover) = credssp_handoff.framed.get_inner();
+
+        assert!(credssp_handoff.requires_credssp());
+        assert_eq!(credssp_handoff.server_name(), "win.example");
+        assert!(leftover.is_empty());
+        assert!(!stream.writes.is_empty());
+        assert!(!bytes_contain_secret(
+            &stream.writes,
+            credential.password.value.as_str().as_bytes(),
         ));
     }
 
