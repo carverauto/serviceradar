@@ -217,6 +217,7 @@
 - [x] 3.2.82 Document the RDP helper media-sender ownership contract so helper IPC buffers can be zeroed after synchronous send without async slice retention.
 - [x] 3.2.83 Cap RDP helper capability-probe stdout before JSON decoding so incomplete helpers cannot force unbounded probe buffering.
 - [x] 3.2.84 Sanitize and cap RDP helper connector-readiness reasons and reject ready helpers that still report a not-ready reason.
+- [x] 3.2.85 Remove the connector-linked experimental helper's artificial finalized-session readiness gate so successful CredSSP finalization can return an active network-pump backend session.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.

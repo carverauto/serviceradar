@@ -471,12 +471,27 @@ impl<S: Read, W: Write> ActiveStageNetworkPumpSessionProbe<S, W> {
     fn upstream_ref(&self) -> &W {
         self.inner.upstream_ref()
     }
+
+    fn network_writes_len(&self) -> usize
+    where
+        S: NetworkWriteProbe,
+    {
+        self.framed.get_inner().0.writes_len()
+    }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-impl<S: Read, W: Write> RdpBackendSession for ActiveStageNetworkPumpSessionProbe<S, W> {
+impl<S: Read + Write, W: Write> RdpBackendSession for ActiveStageNetworkPumpSessionProbe<S, W> {
     fn input(&mut self, frame: &DesktopFrame) -> Result<(), BackendError> {
-        self.inner.input(frame).map(|_| ())
+        let events = map_desktop_input_events_for_probe(frame)?;
+        let outputs = self
+            .inner
+            .active_stage
+            .process_fastpath_input(&mut self.inner.image, &events)
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+        self.handle_outputs_to_network(outputs, frame.timestamp)
+            .map(|_| ())
     }
 
     fn ack(&mut self, _ack: &crate::protocol::DesktopMediaAck) -> Result<(), BackendError> {
@@ -484,20 +499,58 @@ impl<S: Read, W: Write> RdpBackendSession for ActiveStageNetworkPumpSessionProbe
     }
 
     fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError> {
-        self.inner.close(payload)
+        let _reason = &payload.reason;
+        let outputs = self
+            .inner
+            .active_stage
+            .graceful_shutdown()
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+        self.handle_outputs_to_network(outputs, 0).map(|_| ())
     }
 
     fn pump(&mut self) -> Result<(), BackendError> {
-        read_active_stage_server_frame_for_probe(
-            &mut self.framed,
-            &mut self.inner,
-            self.timestamp_unix_nano,
-        )
-        .map(|_| ())
+        let (action, frame) = self
+            .framed
+            .read_pdu()
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+        let outputs = self
+            .inner
+            .active_stage
+            .process(&mut self.inner.image, action, &frame)
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+
+        self.handle_outputs_to_network(outputs, self.timestamp_unix_nano)
+            .map(|_| ())
     }
 
     fn drain_media_frames(&mut self) -> Result<Vec<Vec<u8>>, BackendError> {
         Ok(ActiveStageNetworkPumpSessionProbe::drain_media_frames(self))
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<S: Read + Write, W: Write> ActiveStageNetworkPumpSessionProbe<S, W> {
+    fn handle_outputs_to_network(
+        &mut self,
+        outputs: Vec<ironrdp_session::ActiveStageOutput>,
+        timestamp_unix_nano: i64,
+    ) -> Result<ActiveStageOutputProbe, BackendError> {
+        handle_active_stage_outputs_with_writer_for_probe(
+            outputs,
+            |frame| {
+                self.framed
+                    .write_all(frame)
+                    .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+            },
+            &mut self.inner.media_queue,
+            &self.inner.image,
+            &self.inner.policy,
+            &self.inner.session_binding_id,
+            &self.inner.media_session_id,
+            &mut self.inner.next_sequence,
+            timestamp_unix_nano,
+        )
     }
 }
 
@@ -544,6 +597,11 @@ impl<S: Read + Write> DialedConnectorStream<S> {
     fn client_addr(&self) -> SocketAddr {
         self.client_addr
     }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+trait NetworkWriteProbe {
+    fn writes_len(&self) -> usize;
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -610,11 +668,14 @@ impl RdpBackend for IronRdpBackend {
         }
         let _connector_identity = credential.connector_identity();
         #[cfg(serviceradar_rdp_connector_link_probe)]
-        prepare_connector_open_for_experimental(&plan, &credential)?;
+        {
+            return open_connector_for_experimental(&request, &plan, &credential);
+        }
 
-        // Keep connector readiness false until the real IronRDP loop consumes
-        // only zeroizing credential wrappers and proves cleanup ordering.
-        Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+        #[cfg(not(serviceradar_rdp_connector_link_probe))]
+        {
+            Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+        }
     }
 }
 
@@ -630,46 +691,40 @@ fn prepare_connector_open_for_experimental(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn open_connector_for_experimental_until_readiness_gate(
+fn open_connector_for_experimental(
     request: &OpenPayload,
-    runtime: ConnectorRuntimePolicy,
-) -> Result<(), BackendError> {
-    let Some(grant) = request.credential_grant.as_ref() else {
-        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
-    };
-    if !is_memory_user_grant(grant) {
-        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
-    }
-    let plan = build_nonsecret_connection_plan(request)?;
-    let credential = build_memory_user_credential(grant)?;
-    if !credential.has_material() {
-        return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
-    }
-    let credssp_handoff =
-        connect_verified_credssp_handoff_for_experimental(&plan, &credential, runtime)?;
-    match finalize_verified_connector_for_experimental(credssp_handoff, runtime) {
-        Ok(handoff) => {
-            reject_finalized_connector_session_until_readiness_gate(handoff, io::sink(), request)
-        }
-        Err(failure) => Err(failure.error),
-    }
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+) -> Result<Box<dyn RdpBackendSession>, BackendError> {
+    open_connector_for_experimental_with_runtime(
+        request,
+        plan,
+        credential,
+        ConnectorRuntimePolicy::default(),
+    )
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn reject_finalized_connector_session_until_readiness_gate<S, W>(
-    handoff: ConnectorFinalizedHandoff<S>,
-    upstream: W,
+fn open_connector_for_experimental_with_runtime(
     request: &OpenPayload,
-) -> Result<(), BackendError>
-where
-    S: Read + Write,
-    W: Write,
-{
-    let _session = finalized_connector_handoff_into_network_pump_session_for_probe(
-        handoff, upstream, request,
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+    runtime: ConnectorRuntimePolicy,
+) -> Result<Box<dyn RdpBackendSession>, BackendError> {
+    prepare_connector_open_for_experimental(plan, credential)?;
+
+    let handoff = connect_verified_credssp_handoff_for_experimental(plan, credential, runtime)?;
+    let handoff = match finalize_verified_connector_for_experimental(handoff, runtime) {
+        Ok(handoff) => handoff,
+        Err(failure) => return Err(failure.error),
+    };
+    let session = finalized_connector_handoff_into_network_pump_session_for_probe(
+        handoff,
+        io::sink(),
+        request,
     )?;
 
-    Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+    Ok(Box::new(session))
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1634,6 +1689,39 @@ fn handle_active_stage_outputs_for_probe<W: Write>(
     next_sequence: &mut u64,
     timestamp_unix_nano: i64,
 ) -> Result<ActiveStageOutputProbe, BackendError> {
+    handle_active_stage_outputs_with_writer_for_probe(
+        outputs,
+        |frame| {
+            upstream
+                .write_all(frame)
+                .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
+        },
+        media_queue,
+        image,
+        policy,
+        session_binding_id,
+        media_session_id,
+        next_sequence,
+        timestamp_unix_nano,
+    )
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[allow(clippy::too_many_arguments)]
+fn handle_active_stage_outputs_with_writer_for_probe<F>(
+    outputs: Vec<ironrdp_session::ActiveStageOutput>,
+    mut write_response_frame: F,
+    media_queue: &mut VecDeque<Vec<u8>>,
+    image: &ironrdp_session::image::DecodedImage,
+    policy: &DesktopScreenPolicy,
+    session_binding_id: &str,
+    media_session_id: &str,
+    next_sequence: &mut u64,
+    timestamp_unix_nano: i64,
+) -> Result<ActiveStageOutputProbe, BackendError>
+where
+    F: FnMut(&[u8]) -> Result<(), BackendError>,
+{
     let mut probe = ActiveStageOutputProbe {
         rdp_response_frames: 0,
         rdp_response_bytes: 0,
@@ -1645,9 +1733,7 @@ fn handle_active_stage_outputs_for_probe<W: Write>(
     for output in outputs {
         match output {
             ironrdp_session::ActiveStageOutput::ResponseFrame(frame) => {
-                upstream
-                    .write_all(&frame)
-                    .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+                write_response_frame(&frame)?;
                 probe.rdp_response_frames += 1;
                 probe.rdp_response_bytes += frame.len();
             }
@@ -1880,6 +1966,13 @@ impl ScriptedStream {
             read_offset: 0,
             writes: Vec::new(),
         }
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl NetworkWriteProbe for ScriptedStream {
+    fn writes_len(&self) -> usize {
+        self.writes.len()
     }
 }
 
@@ -2767,10 +2860,14 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
-    fn connector_probe_open_path_reaches_finalization_before_readiness_gate() {
+    fn connector_probe_open_path_attempts_finalization_and_session_handoff() {
         let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
         payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
         payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
+        payload
+            .target
+            .metadata
+            .insert(METADATA_MEDIA_SESSION_ID.to_owned(), "media-1".to_owned());
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
         let listener_addr = listener.local_addr().expect("listener addr");
         payload.target.upstream.host = listener_addr.ip().to_string();
@@ -2789,9 +2886,24 @@ mod tests {
             dial_timeout: Duration::from_secs(1),
             kdc_timeout: Duration::from_secs(1),
         };
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
 
-        let err = open_connector_for_experimental_until_readiness_gate(&payload, runtime)
-            .expect_err("runtime readiness gate remains closed");
+        let err = match open_connector_for_experimental_with_runtime(
+            &payload,
+            &plan,
+            &credential,
+            runtime,
+        ) {
+            Ok(_) => panic!("incomplete loopback server should not finalize"),
+            Err(err) => err,
+        };
         let capture = server.join().expect("server thread");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
@@ -3250,7 +3362,8 @@ mod tests {
                 .expect("input routed after finalized connector handoff");
         }
 
-        assert!(!session.upstream_ref().is_empty());
+        assert!(session.upstream_ref().is_empty());
+        assert!(session.network_writes_len() > 0);
         assert!(session.drain_media_frames().is_empty());
     }
 
@@ -3288,7 +3401,7 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
-    fn connector_probe_readiness_gate_requires_network_pump_media_binding() {
+    fn connector_probe_finalized_handoff_opens_network_pump_session() {
         let mut payload =
             parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
@@ -3302,7 +3415,7 @@ mod tests {
         let (connection_result, desktop_size) =
             build_connection_result_for_probe(&plan, &credential);
 
-        let missing_binding_err = reject_finalized_connector_session_until_readiness_gate(
+        let missing_binding_err = finalized_connector_handoff_into_network_pump_session_for_probe(
             ConnectorFinalizedHandoff {
                 framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
                 connection_result: connection_result.clone(),
@@ -3311,7 +3424,7 @@ mod tests {
             io::sink(),
             &payload,
         )
-        .expect_err("missing media binding rejected before readiness gate");
+        .expect_err("missing media binding rejected");
 
         assert_eq!(
             missing_binding_err,
@@ -3322,7 +3435,7 @@ mod tests {
             .target
             .metadata
             .insert(METADATA_MEDIA_SESSION_ID.to_owned(), "media-1".to_owned());
-        let readiness_err = reject_finalized_connector_session_until_readiness_gate(
+        let mut session = finalized_connector_handoff_into_network_pump_session_for_probe(
             ConnectorFinalizedHandoff {
                 framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
                 connection_result,
@@ -3331,12 +3444,16 @@ mod tests {
             io::sink(),
             &payload,
         )
-        .expect_err("finalized network-pump session still gated");
+        .expect("finalized network-pump session");
 
-        assert_eq!(
-            readiness_err,
-            BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
-        );
+        {
+            let session_trait: &mut dyn RdpBackendSession = &mut session;
+            session_trait
+                .input(&desktop_key_frame("Enter", true))
+                .expect("finalized session routes input");
+        }
+
+        assert!(session.network_writes_len() > 0);
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -3836,7 +3953,8 @@ mod tests {
                 .expect("input routed after network-pump handoff");
         }
 
-        assert!(!session.upstream_ref().is_empty());
+        assert!(session.upstream_ref().is_empty());
+        assert!(session.network_writes_len() > 0);
         assert!(session.drain_media_frames().is_empty());
     }
 
