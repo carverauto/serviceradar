@@ -120,30 +120,99 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
   end
 
   defp interface_snapshot(device, interface) do
+    if_name = first_present([interface.if_name, interface.if_descr, interface.interface_uid])
+
+    Map.merge(
+      %{
+        "kind" => "interface",
+        "device_uid" => device.uid,
+        "device_name" => device.name,
+        "device_hostname" => device.hostname,
+        "device_ip" => device.ip,
+        "device_agent_id" => device.agent_id,
+        "device_gateway_id" => device.gateway_id,
+        "interface_uid" => interface.interface_uid,
+        "if_index" => interface.if_index,
+        "ifIndex" => interface.if_index,
+        "ifindex" => interface.if_index,
+        "if_name" => interface.if_name,
+        "interface_name" => if_name,
+        "name" => if_name,
+        "if_descr" => interface.if_descr,
+        "if_alias" => interface.if_alias,
+        "if_phys_address" => interface.if_phys_address,
+        "ip_addresses" => interface.ip_addresses || [],
+        "if_admin_status" => interface_status_name(interface.if_admin_status),
+        "if_admin_status_id" => interface.if_admin_status,
+        "if_oper_status" => interface_status_name(interface.if_oper_status),
+        "if_oper_status_id" => interface.if_oper_status,
+        "if_type_name" => interface.if_type_name,
+        "interface_kind" => interface.interface_kind,
+        "classifications" => interface.classifications || []
+      },
+      interface_physical_context(interface, if_name)
+    )
+  end
+
+  defp interface_physical_context(interface, if_name) do
+    source_name =
+      first_present([if_name, interface.if_descr, interface.if_alias, interface.interface_uid])
+
+    parsed = parse_physical_interface_name(source_name)
+
+    context =
+      %{}
+      |> merge_present("name", source_name)
+      |> merge_present("path", Map.get(parsed, "physical_path"))
+      |> merge_present("stack_member", Map.get(parsed, "stack_member"))
+      |> merge_present("module", Map.get(parsed, "module"))
+      |> merge_present("slot", Map.get(parsed, "slot"))
+      |> merge_present("port", Map.get(parsed, "port"))
+
     %{
-      "kind" => "interface",
-      "device_uid" => device.uid,
-      "device_name" => device.name,
-      "device_hostname" => device.hostname,
-      "device_ip" => device.ip,
-      "device_agent_id" => device.agent_id,
-      "device_gateway_id" => device.gateway_id,
-      "interface_uid" => interface.interface_uid,
-      "if_index" => interface.if_index,
-      "if_name" => interface.if_name,
-      "if_descr" => interface.if_descr,
-      "if_alias" => interface.if_alias,
-      "if_phys_address" => interface.if_phys_address,
-      "ip_addresses" => interface.ip_addresses || [],
-      "if_admin_status" => interface_status_name(interface.if_admin_status),
-      "if_admin_status_id" => interface.if_admin_status,
-      "if_oper_status" => interface_status_name(interface.if_oper_status),
-      "if_oper_status_id" => interface.if_oper_status,
-      "if_type_name" => interface.if_type_name,
-      "interface_kind" => interface.interface_kind,
-      "classifications" => interface.classifications || []
+      "physical_name" => source_name,
+      "physical_path" => Map.get(parsed, "physical_path"),
+      "stack_member" => Map.get(parsed, "stack_member"),
+      "module" => Map.get(parsed, "module"),
+      "slot" => Map.get(parsed, "slot"),
+      "port" => Map.get(parsed, "port"),
+      "physical_context" => context
     }
   end
+
+  defp parse_physical_interface_name(value) when is_binary(value) do
+    segments =
+      ~r/\d+/
+      |> Regex.scan(value)
+      |> List.flatten()
+
+    case segments do
+      [port] ->
+        %{"physical_path" => port, "port" => port}
+
+      [module, port] ->
+        %{
+          "physical_path" => Enum.join([module, port], "/"),
+          "module" => module,
+          "slot" => module,
+          "port" => port
+        }
+
+      [stack_member, module, port | _rest] ->
+        %{
+          "physical_path" => Enum.join([stack_member, module, port], "/"),
+          "stack_member" => stack_member,
+          "module" => module,
+          "slot" => module,
+          "port" => port
+        }
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp parse_physical_interface_name(_value), do: %{}
 
   defp interface_status_name(1), do: "up"
   defp interface_status_name(2), do: "down"
@@ -154,6 +223,21 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
   defp fetch(map, key) do
     Map.get(map, key) || Map.get(map, to_string(key))
   end
+
+  defp first_present(values) when is_list(values) do
+    Enum.find_value(values, fn
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp merge_present(map, _key, nil), do: map
+  defp merge_present(map, _key, ""), do: map
+  defp merge_present(map, key, value), do: Map.put(map, key, value)
 
   defp required_string(map, key) do
     case fetch(map, key) do

@@ -29,12 +29,12 @@
 - [x] 4.7 Fix Agent Availability card source labeling so recent per-agent sweep history is reflected rather than showing fallback/no-data.
 
 ## 5. Northbound Task UX and Target Context
-- [ ] 5.1 Ensure task launch feedback tells operators where results appear and refreshes task history without blocking LiveView events.
-- [ ] 5.2 Remove meaningless `nil` fields from task history target/result summaries.
-- [ ] 5.3 Ensure interface task target snapshots include interface name, ifIndex, and physical naming/module context when available.
-- [ ] 5.4 Let plugin contracts choose supported device/interface fields instead of hard-coding brittle target payload shapes.
-- [ ] 5.5 Add regression coverage for numeric/string field mismatches in target snapshots.
-- [ ] 5.6 Fix demo task-launch authorization so users with the intended role can launch device/interface tasks, and unauthorized users get a precise missing-permission message.
+- [x] 5.1 Ensure task launch feedback tells operators where results appear and refreshes task history without blocking LiveView events.
+- [x] 5.2 Remove meaningless `nil` fields from task history target/result summaries.
+- [x] 5.3 Ensure interface task target snapshots include interface name, ifIndex, and physical naming/module context when available.
+- [x] 5.4 Let plugin contracts choose supported device/interface fields instead of hard-coding brittle target payload shapes.
+- [x] 5.5 Add regression coverage for numeric/string field mismatches in target snapshots.
+- [x] 5.6 Fix demo task-launch authorization so users with the intended role can launch device/interface tasks, and unauthorized users get a precise missing-permission message.
 
 ## 6. Agent Rollout Status Semantics
 - [ ] 6.1 Trace `command_ack_timeout` handling for agents that restart after dispatch but later activate successfully.

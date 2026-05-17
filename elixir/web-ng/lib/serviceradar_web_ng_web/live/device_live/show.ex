@@ -1796,7 +1796,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("run_task_for_interface_selection", _params, socket) do
     cond do
       not can_launch_northbound_actions?(socket.assigns.current_scope) ->
-        {:noreply, put_flash(socket, :error, "You are not authorized to launch tasks.")}
+        {:noreply, put_flash(socket, :error, northbound_launch_permission_error())}
 
       MapSet.size(socket.assigns.selected_interfaces) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one interface before Run Task.")}
@@ -2201,6 +2201,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_launch_northbound_actions?(scope) do
     RBAC.can?(scope, "northbound.actions.launch")
+  end
+
+  defp northbound_launch_permission_error do
+    "You are not authorized to launch tasks. Missing permission: northbound.actions.launch."
   end
 
   defp open_northbound_interface_action_modal(socket, nil) do

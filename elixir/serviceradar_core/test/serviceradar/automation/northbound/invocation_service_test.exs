@@ -141,6 +141,24 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
 
     assert [
              %{
+               "if_index" => 17,
+               "ifIndex" => 17,
+               "ifindex" => 17,
+               "if_name" => "Gi1/0/17",
+               "interface_name" => "Gi1/0/17",
+               "physical_path" => "1/0/17",
+               "stack_member" => "1",
+               "module" => "0",
+               "slot" => "0",
+               "port" => "17",
+               "physical_context" => %{
+                 "name" => "Gi1/0/17",
+                 "path" => "1/0/17",
+                 "stack_member" => "1",
+                 "module" => "0",
+                 "slot" => "0",
+                 "port" => "17"
+               },
                "if_admin_status" => "up",
                "if_admin_status_id" => 1,
                "if_oper_status" => "down",
