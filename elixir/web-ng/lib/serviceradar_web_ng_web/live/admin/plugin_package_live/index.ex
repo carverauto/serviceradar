@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
+  @package_page_size 10
   @first_party_catalog_page_size 10
 
   @impl true
@@ -37,6 +38,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
         |> assign(:packages, list_packages(%{}, scope))
+        |> assign(:package_page, 1)
+        |> assign(:package_page_size, @package_page_size)
         |> assign(:filter_status, nil)
         |> assign(:filter_source_type, nil)
         |> assign(:first_party_catalog, [])
@@ -193,6 +196,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      socket
      |> assign(:filter_status, normalize_filter(filter_status))
      |> assign(:filter_source_type, normalize_filter(filter_source_type))
+     |> assign(:package_page, 1)
      |> assign(:packages, list_packages(filters, scope))}
   end
 
@@ -224,6 +228,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       )
 
     {:noreply, assign(socket, :first_party_catalog_page, page)}
+  end
+
+  def handle_event("package_page", %{"page" => page}, socket) do
+    page =
+      clamp_page(
+        page,
+        length(socket.assigns.packages),
+        socket.assigns.package_page_size
+      )
+
+    {:noreply, assign(socket, :package_page, page)}
   end
 
   def handle_event("import_first_party_catalog", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
@@ -995,7 +1010,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for package <- @packages do %>
+                  <%= for package <- paginated_items(@packages, @package_page, @package_page_size) do %>
                     <tr class="hover:bg-base-200/30">
                       <td>
                         <div class="font-medium">{package.name}</div>
@@ -1030,6 +1045,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <% end %>
                 </tbody>
               </table>
+              <.pagination_controls
+                id_prefix="plugin-packages"
+                event="package_page"
+                page={@package_page}
+                total_items={length(@packages)}
+                page_size={@package_page_size}
+              />
             <% end %>
           </div>
         </.ui_panel>

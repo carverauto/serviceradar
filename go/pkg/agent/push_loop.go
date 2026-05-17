@@ -1948,7 +1948,7 @@ func (p *PushLoop) normalizePluginPayload(
 	if !ok {
 		return nil, false, errPluginMissingStatus
 	}
-	status := strings.ToUpper(strings.TrimSpace(statusRaw))
+	status := normalizePluginStatus(statusRaw)
 	if !isValidPluginStatus(status) {
 		return nil, false, fmt.Errorf("%w: %s", errPluginInvalidStatus, statusRaw)
 	}
@@ -2084,6 +2084,15 @@ func isValidPluginStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func normalizePluginStatus(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FAILED", "FAIL", "ERROR":
+		return "CRITICAL"
+	default:
+		return strings.ToUpper(strings.TrimSpace(status))
 	}
 }
 

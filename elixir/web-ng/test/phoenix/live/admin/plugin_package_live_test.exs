@@ -224,6 +224,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Catalog Plugin 01"
   end
 
+  test "installed plugin packages are paginated ten at a time", %{conn: conn, actor: actor} do
+    for index <- 1..12 do
+      create_upload_package!(actor, index)
+    end
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins")
+
+    assert html =~ "Showing 1-10 of 12"
+    assert html =~ "Installed Plugin 12"
+    assert html =~ "Installed Plugin 03"
+    refute html =~ "Installed Plugin 02"
+    refute html =~ "Installed Plugin 01"
+
+    html =
+      lv
+      |> element("#plugin-packages-next-page")
+      |> render_click()
+
+    assert html =~ "Showing 11-12 of 12"
+    assert html =~ "Installed Plugin 02"
+    assert html =~ "Installed Plugin 01"
+    refute html =~ "Installed Plugin 12"
+  end
+
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
@@ -445,4 +469,38 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp create_upload_package!(actor, index) do
+    suffix = index |> Integer.to_string() |> String.pad_leading(2, "0")
+    plugin_id = "installed-plugin-#{suffix}-#{System.unique_integer([:positive])}"
+
+    manifest = %{
+      "id" => plugin_id,
+      "name" => "Installed Plugin #{suffix}",
+      "version" => "1.0.#{index}",
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "outputs" => "serviceradar.plugin_result.v1",
+      "capabilities" => ["submit_result"],
+      "resources" => %{
+        "requested_memory_mb" => 32,
+        "requested_cpu_ms" => 100,
+        "max_open_connections" => 1
+      }
+    }
+
+    assert {:ok, package} =
+             Packages.create(
+               %{
+                 manifest: manifest,
+                 config_schema: %{},
+                 signature: %{},
+                 source_type: :upload,
+                 content_hash: "sha256:#{plugin_id}"
+               },
+               actor: actor
+             )
+
+    package
+  end
 end
