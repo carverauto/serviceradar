@@ -483,12 +483,20 @@ export function applyCanvasTileFrame(frame, context, createImageData = defaultIm
   }
 
   const uploads = desktopFrameUploadPlan(frame)
+  let applied = 0
 
   for (const upload of uploads) {
-    context.putImageData(createImageData(upload.source, upload.width, upload.height), upload.x, upload.y)
+    const source = compactCanvasUploadSource(upload)
+
+    if (!source) {
+      continue
+    }
+
+    context.putImageData(createImageData(source, upload.width, upload.height), upload.x, upload.y)
+    applied += 1
   }
 
-  return uploads.length
+  return applied
 }
 
 export function applyWebGPUTileFrame(frame, queue, texture) {
@@ -526,4 +534,32 @@ function defaultImageDataFactory(bytes, width, height) {
     width,
     height
   )
+}
+
+function compactCanvasUploadSource(upload) {
+  const rowBytes = upload.width * 4
+  const expectedBytes = rowBytes * upload.height
+
+  if (upload.bytesPerRow === rowBytes && upload.source.byteLength === expectedBytes) {
+    return upload.source
+  }
+
+  if (upload.bytesPerRow < rowBytes || upload.source.byteLength < rowBytes) {
+    return null
+  }
+
+  const compacted = new Uint8Array(expectedBytes)
+
+  for (let row = 0; row < upload.height; row += 1) {
+    const sourceOffset = row * upload.bytesPerRow
+    const sourceEnd = sourceOffset + rowBytes
+
+    if (sourceEnd > upload.source.byteLength) {
+      return null
+    }
+
+    compacted.set(upload.source.subarray(sourceOffset, sourceEnd), row * rowBytes)
+  }
+
+  return compacted
 }

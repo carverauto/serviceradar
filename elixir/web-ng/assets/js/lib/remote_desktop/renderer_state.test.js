@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest"
 
 import {
+  DESKTOP_PAYLOAD_DIRTY_RECT,
   DESKTOP_PAYLOAD_METADATA,
   DESKTOP_PAYLOAD_TILE,
   encodeDesktopMediaFrame,
@@ -214,6 +215,60 @@ describe("remote desktop renderer state helpers", () => {
         y: 12,
       },
     ])
+  })
+
+  it("compacts sparse dirty rectangle rows for the Canvas fallback", () => {
+    const payload = new Uint8Array([
+      1, 2, 3, 255, 4, 5, 6, 255,
+      0, 0, 0, 0, 0, 0, 0, 0,
+      7, 8, 9, 255, 10, 11, 12, 255,
+    ])
+    const calls = []
+    const frame = parseDesktopMediaFrame(
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_DIRTY_RECT,
+        encoding: "rgba",
+        metadata: {
+          dirtyRects: [{
+            x: 4,
+            y: 6,
+            width: 2,
+            height: 2,
+            payloadOffset: 0,
+            payloadLength: payload.byteLength,
+            bytesPerRow: 16,
+          }],
+        },
+        payload,
+      })
+    )
+
+    const applied = applyCanvasTileFrame(
+      frame,
+      {
+        putImageData(imageData, x, y) {
+          calls.push({imageData, x, y})
+        },
+      },
+      (bytes, width, height) => ({bytes, width, height})
+    )
+
+    expect(applied).toBe(1)
+    expect(calls).toEqual([
+      {
+        imageData: {
+          bytes: new Uint8Array([
+            1, 2, 3, 255, 4, 5, 6, 255,
+            7, 8, 9, 255, 10, 11, 12, 255,
+          ]),
+          width: 2,
+          height: 2,
+        },
+        x: 4,
+        y: 6,
+      },
+    ])
+    expect(calls[0].imageData.bytes.buffer).not.toBe(frame.payload.buffer)
   })
 
   it("keeps metadata-only frames out of screen-pixel upload paths", () => {
