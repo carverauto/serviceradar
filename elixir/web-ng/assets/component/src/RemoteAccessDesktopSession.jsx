@@ -63,6 +63,7 @@ export function Component({
   const renderQueueRef = useRef(createDesktopRenderQueue({maxFrames: queueMaxFrames}))
   const renderTargetRef = useRef({canvas: null, target: null})
   const canvasRef = useRef(null)
+  const videoRef = useRef(null)
   const clientRef = useRef(null)
   const [connectionStatus, setConnectionStatus] = useState(autoConnect ? "pending" : "idle")
   const [viewerSessionId, setViewerSessionId] = useState("")
@@ -72,11 +73,13 @@ export function Component({
   const [queueStats, setQueueStats] = useState(() => queueState(renderQueueRef.current))
   const [controlFrameCount, setControlFrameCount] = useState(0)
   const [lastError, setLastError] = useState("")
+  const [mediaStream, setMediaStream] = useState(null)
 
   const closeClient = useCallback((reason = "desktop viewer closed") => {
     clientRef.current?.close(reason)
     clientRef.current = null
     setViewerSessionId("")
+    setMediaStream(null)
   }, [])
 
   const connect = useCallback(async () => {
@@ -121,6 +124,9 @@ export function Component({
       onError(error) {
         setLastError(error?.message || "Desktop media connection failed")
       },
+      onMediaStream(stream) {
+        setMediaStream(stream)
+      },
     })
 
     clientRef.current = client
@@ -153,6 +159,7 @@ export function Component({
     setQueueStats(queueState(renderQueueRef.current))
     setControlFrameCount(0)
     setLastError("")
+    setMediaStream(null)
     setConnectionStatus(autoConnect ? "pending" : "idle")
   }, [autoConnect, closeClient, sessionIdentity])
 
@@ -221,6 +228,28 @@ export function Component({
     closeClient("desktop viewer unmounted")
     closeRenderTarget(renderTargetRef)
   }, [closeClient])
+
+  useEffect(() => {
+    const video = videoRef.current
+
+    if (!video) {
+      return undefined
+    }
+
+    if (video.srcObject !== mediaStream) {
+      video.srcObject = mediaStream
+    }
+
+    if (mediaStream) {
+      void video.play?.().catch(() => {})
+    }
+
+    return () => {
+      if (video.srcObject === mediaStream) {
+        video.srcObject = null
+      }
+    }
+  }, [mediaStream])
 
   useEffect(() => {
     if (!session) {
@@ -301,7 +330,7 @@ export function Component({
           <div className="relative flex aspect-video w-full max-w-6xl items-center justify-center overflow-hidden border border-white/10 bg-neutral-950 text-center">
             <canvas
               aria-label="Remote desktop display"
-              className="h-full w-full object-contain"
+              className={`h-full w-full object-contain ${mediaStream ? "opacity-0" : ""}`}
               onBlur={handleCanvasBlur}
               onFocus={handleCanvasFocus}
               onKeyDown={(event) => handleCanvasKey(event, true)}
@@ -312,7 +341,15 @@ export function Component({
               ref={canvasRef}
               tabIndex={0}
             />
-            {rendererStats.framesApplied === 0 ? (
+            <video
+              aria-label="Remote desktop video track"
+              autoPlay
+              className={`pointer-events-none absolute inset-0 h-full w-full object-contain ${mediaStream ? "" : "hidden"}`}
+              muted
+              playsInline
+              ref={videoRef}
+            />
+            {rendererStats.framesApplied === 0 && !mediaStream ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div className="space-y-2 px-4">
                   <div className="text-sm font-medium">No video yet</div>

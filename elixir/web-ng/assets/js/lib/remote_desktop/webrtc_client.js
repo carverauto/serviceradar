@@ -37,6 +37,24 @@ function channelReady(channel) {
   return channel?.readyState === "open"
 }
 
+export function desktopMediaStreamFromTrackEvent(event, mediaStreamFactory = globalThis.MediaStream) {
+  const track = event?.track
+
+  if (track?.kind !== "video") {
+    return null
+  }
+
+  if (event.streams?.[0]) {
+    return event.streams[0]
+  }
+
+  if (typeof mediaStreamFactory !== "function") {
+    return null
+  }
+
+  return new mediaStreamFactory([track])
+}
+
 export function createDesktopMediaProcessor({
   frameParser = createDesktopMediaFrameParser(),
   queueState = () => ({}),
@@ -76,6 +94,7 @@ export class RemoteDesktopWebRTCClient {
     onOpen = () => {},
     onClose = () => {},
     onError = () => {},
+    onMediaStream = () => {},
     mediaAckCreditBytes = 262_144,
     mediaAckFrameInterval = 4,
     mediaAckMaxDelayMs = 25,
@@ -95,6 +114,7 @@ export class RemoteDesktopWebRTCClient {
     this.onOpen = onOpen
     this.onClose = onClose
     this.onError = onError
+    this.onMediaStream = onMediaStream
     this.mediaAckCreditBytes = Math.max(1, mediaAckCreditBytes)
     this.mediaAckFrameInterval = Math.max(1, mediaAckFrameInterval)
     this.mediaAckMaxDelayMs = Math.max(0, mediaAckMaxDelayMs)
@@ -213,6 +233,13 @@ export class RemoteDesktopWebRTCClient {
 
   attachPeerHandlers() {
     this.peerConnection.addEventListener("datachannel", (event) => this.attachDataChannel(event.channel))
+    this.peerConnection.addEventListener("track", (event) => {
+      const mediaStream = desktopMediaStreamFromTrackEvent(event)
+
+      if (mediaStream) {
+        this.onMediaStream(mediaStream, event)
+      }
+    })
     this.peerConnection.addEventListener("icecandidate", (event) => {
       if (!event.candidate || !this.viewerSessionId) {
         return

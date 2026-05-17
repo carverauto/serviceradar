@@ -9,6 +9,7 @@ import {
   DESKTOP_MEDIA_QUALITY_LOW,
   RemoteDesktopWebRTCClient,
   createDesktopMediaProcessor,
+  desktopMediaStreamFromTrackEvent,
 } from "./webrtc_client"
 import {
   DESKTOP_PAYLOAD_METADATA,
@@ -82,6 +83,10 @@ class MockPeerConnection {
     this.handlers.icecandidate?.({candidate})
   }
 
+  emitTrack(event) {
+    this.handlers.track?.(event)
+  }
+
   close() {
     this.closed = true
     this.connectionState = "closed"
@@ -97,6 +102,19 @@ function documentStub() {
 }
 
 describe("RemoteDesktopWebRTCClient", () => {
+  it("normalizes received video tracks into desktop media streams", () => {
+    const videoTrack = {kind: "video"}
+    const existingStream = {id: "stream-1"}
+    const mediaStreamFactory = vi.fn((tracks) => ({id: "created-stream", tracks}))
+
+    expect(desktopMediaStreamFromTrackEvent({track: {kind: "audio"}, streams: [existingStream]})).toBeNull()
+    expect(desktopMediaStreamFromTrackEvent({track: videoTrack, streams: [existingStream]})).toBe(existingStream)
+    expect(desktopMediaStreamFromTrackEvent({track: videoTrack, streams: []}, mediaStreamFactory)).toEqual({
+      id: "created-stream",
+      tracks: [videoTrack],
+    })
+  })
+
   it("provides a pluggable desktop media processor boundary", () => {
     const frame = {
       sessionBindingId: "session-boundary",
@@ -173,6 +191,44 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(fetchMock.mock.calls[1][1].headers["x-csrf-token"]).toBe("csrf-token")
     expect(onOpen).toHaveBeenCalledWith(DESKTOP_MEDIA_CHANNEL)
     expect(onOpen).toHaveBeenCalledWith(DESKTOP_CONTROL_CHANNEL)
+  })
+
+  it("surfaces received WebRTC video tracks for browser media-track rendering", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-track",
+            offer_sdp: "v=0\r\nm=video",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+    const peer = new MockPeerConnection({})
+    const onMediaStream = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-track/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      onMediaStream,
+    })
+    const mediaStream = {id: "rdp-video-stream"}
+
+    await client.connect()
+    peer.emitTrack({track: {kind: "audio"}, streams: [mediaStream]})
+    peer.emitTrack({track: {kind: "video"}, streams: [mediaStream]})
+
+    expect(onMediaStream).toHaveBeenCalledTimes(1)
+    expect(onMediaStream).toHaveBeenCalledWith(mediaStream, {
+      track: {kind: "video"},
+      streams: [mediaStream],
+    })
   })
 
   it("parses media channel frames and leaves metadata bytes renderer-owned", async () => {
