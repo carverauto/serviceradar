@@ -19,13 +19,13 @@
 ## 4. Scheduling and Operations
 - [x] 4.1 Add Oban maintenance worker(s) with uniqueness, dry-run support, and manual enqueue support.
 - [x] 4.2 Add configuration for retention enablement, dry-run mode, schedule, release keep count, and plugin orphan grace period.
-- [ ] 4.3 Surface the cleanup jobs in the job catalog where supported.
+- [x] 4.3 Surface the cleanup jobs in the job catalog where supported.
 - [x] 4.4 Document object namespaces, retention defaults, dry-run output, and production cleanup workflow.
 
 ## 5. Verification
 - [x] 5.1 Add unit tests for datasvc object listing and RBAC.
-- [ ] 5.2 Add Elixir tests for release retention planning and protected rollout references.
-- [ ] 5.3 Add Elixir tests for plugin retention planning and protected assignment/policy references.
-- [ ] 5.4 Run focused Go and Elixir test suites.
+- [x] 5.2 Add Elixir tests for release retention planning and protected rollout references.
+- [x] 5.3 Add Elixir tests for plugin retention planning and protected assignment/policy references.
+- [x] 5.4 Run focused Go and Elixir test suites.
 - [x] 5.5 Run `openspec validate add-object-store-retention --strict`.
 - [x] 5.6 Run `git diff --check`.

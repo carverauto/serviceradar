@@ -21,9 +21,16 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.PollingSchedule
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadar.Oban.Router
 
   require Logger
+
+  @plugin_blob_retention_worker Module.concat([
+                                  "ServiceRadarWebNG",
+                                  "Plugins",
+                                  "BlobRetentionWorker"
+                                ])
 
   @type job_entry :: %{
           id: String.t(),
@@ -119,7 +126,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   defp maybe_sort(jobs, nil, _dir), do: jobs
 
-  defp maybe_sort(jobs, field, dir) when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
+  defp maybe_sort(jobs, field, dir)
+       when field in [:name, :source, :cron, :last_run_at, :next_run_at] do
     sorter = fn job ->
       value = Map.get(job, field)
       # Handle nil values - put them at the end
@@ -183,7 +191,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   """
   @spec manual_jobs() :: [job_entry()]
   def manual_jobs do
-    armis_northbound_jobs()
+    retention_jobs() ++ armis_northbound_jobs()
   end
 
   @doc """
@@ -311,9 +319,26 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     e -> {:error, Exception.message(e)}
   end
 
-  def trigger_job(%{source: :manual, worker: ArmisNorthboundRunWorker, integration_source_id: integration_source_id})
+  def trigger_job(%{
+        source: :manual,
+        worker: ArmisNorthboundRunWorker,
+        integration_source_id: integration_source_id
+      })
       when is_binary(integration_source_id) do
     ArmisNorthboundRunWorker.enqueue_now(integration_source_id)
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  def trigger_job(%{source: :manual, worker: ObjectStoreRetentionWorker}) do
+    ObjectStoreRetentionWorker.enqueue_manual()
+  rescue
+    e -> {:error, Exception.message(e)}
+  end
+
+  def trigger_job(%{source: :manual, worker: worker})
+      when worker == @plugin_blob_retention_worker do
+    apply(worker, :enqueue_manual, [])
   rescue
     e -> {:error, Exception.message(e)}
   end
@@ -332,7 +357,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   def get_execution_stats(worker_or_job, opts \\ [])
 
   def get_execution_stats(%{} = job, opts) do
-    get_execution_stats(job.worker, Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter)))
+    get_execution_stats(
+      job.worker,
+      Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter))
+    )
   end
 
   def get_execution_stats(worker, opts) do
@@ -391,7 +419,10 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   def get_aggregated_stats(worker_or_job, opts \\ [])
 
   def get_aggregated_stats(%{} = job, opts) do
-    get_aggregated_stats(worker_from_job(job), Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter)))
+    get_aggregated_stats(
+      worker_from_job(job),
+      Keyword.put_new(opts, :args_filter, Map.get(job, :args_filter))
+    )
   end
 
   def get_aggregated_stats(worker, opts) do
@@ -565,6 +596,44 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
 
   defp resource_description(_), do: "Executes scheduled actions for Ash resources"
 
+  defp retention_jobs do
+    [
+      %{
+        id: "manual:object_store_release_retention",
+        name: "Object store release retention",
+        description:
+          "Manually queue cleanup for retained agent release artifacts in ServiceRadar object storage.",
+        source: :manual,
+        cron: "manual",
+        queue: :maintenance,
+        enabled: true,
+        worker: ObjectStoreRetentionWorker,
+        resource: nil,
+        action: nil,
+        last_run_at: get_last_run(ObjectStoreRetentionWorker),
+        next_run_at: nil,
+        args_filter: %{"manual" => true},
+        integration_source_id: nil
+      },
+      %{
+        id: "manual:plugin_blob_retention",
+        name: "Plugin blob retention",
+        description: "Manually queue cleanup for stale or orphaned plugin package blobs.",
+        source: :manual,
+        cron: "manual",
+        queue: :maintenance,
+        enabled: true,
+        worker: @plugin_blob_retention_worker,
+        resource: nil,
+        action: nil,
+        last_run_at: get_last_run(@plugin_blob_retention_worker),
+        next_run_at: nil,
+        args_filter: %{"manual" => true},
+        integration_source_id: nil
+      }
+    ]
+  end
+
   defp armis_northbound_jobs do
     actor = SystemActor.system(:job_catalog)
 
@@ -582,7 +651,8 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     %{
       id: "manual:armis_northbound:#{source.id}",
       name: "Armis northbound: #{source.name}",
-      description: "Manually queue a northbound availability sync for the #{source.name} Armis source.",
+      description:
+        "Manually queue a northbound availability sync for the #{source.name} Armis source.",
       source: :manual,
       cron: "manual",
       queue: :integrations,
@@ -704,7 +774,11 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
   defp worker_from_job(%{worker: worker}), do: worker
 
   defp integration_source_module do
-    Application.get_env(:serviceradar_web_ng, :job_catalog_integration_source_module, IntegrationSource)
+    Application.get_env(
+      :serviceradar_web_ng,
+      :job_catalog_integration_source_module,
+      IntegrationSource
+    )
   end
 
   defp self_scheduling_workers do
