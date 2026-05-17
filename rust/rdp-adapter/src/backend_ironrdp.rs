@@ -651,6 +651,20 @@ fn build_verified_tls_client_config_for_system_roots_for_probe(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_verified_tls_client_config_for_plan_for_probe(
+    plan: &NonSecretConnectionPlan,
+) -> Result<VerifiedTlsClientConfigProbe, BackendError> {
+    match &plan.tls_trust_source {
+        TlsTrustSource::SystemRoots => {
+            build_verified_tls_client_config_for_system_roots_for_probe()
+        }
+        TlsTrustSource::RegisteredCaBundle { pem, .. } => {
+            build_verified_tls_client_config_for_registered_ca_bundle_for_probe(pem.as_bytes())
+        }
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 fn build_verified_tls_client_config_from_certificates_for_probe(
     certificates: Vec<rustls::pki_types::CertificateDer<'static>>,
     error_message: &'static str,
@@ -1661,6 +1675,40 @@ mod tests {
 
         assert_eq!(empty, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
         assert_eq!(invalid, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_builds_verified_tls_client_config_from_plan_bundle_material() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+        let probe =
+            build_verified_tls_client_config_for_plan_for_probe(&plan).expect("verified config");
+
+        assert_eq!(
+            probe,
+            VerifiedTlsClientConfigProbe {
+                trusted_root_count: 1,
+                resumption_disabled_for_credssp: true,
+            }
+        );
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_rejects_invalid_plan_bundle_material() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = "not a certificate".to_owned();
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+
+        let err = build_verified_tls_client_config_for_plan_for_probe(&plan)
+            .expect_err("invalid plan bundle rejected");
+
+        assert_eq!(err, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
