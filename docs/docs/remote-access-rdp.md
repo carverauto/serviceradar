@@ -270,6 +270,21 @@ This proves the target accepts the NLA/CredSSP negotiation path without sending 
 cleartext password in the initial client bytes. It is not a substitute for the full
 TLS verification, CredSSP, authentication, media, and cleanup proof.
 
+For a controlled lab target with a self-signed or otherwise untrusted certificate,
+run the explicit TLS upgrade smoke probe:
+
+```bash
+SERVICERADAR_RDP_LIVE_TARGET=<rdp-target-host-or-ip> \
+  SERVICERADAR_RDP_LIVE_TLS_INSECURE_ACCEPT_INVALID_CERTS=1 \
+  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
+  live_tls_upgrade_reaches_credssp_boundary_when_lab_insecure_is_enabled -- --nocapture
+```
+
+This proves the TCP stream can upgrade to TLS, the peer certificate public key can
+be extracted for CredSSP binding, and IronRDP reaches the CredSSP state without
+recorded cleartext password exposure. The env var name is intentionally explicit:
+this is not production trust validation and must not make `connector_ready` true.
+
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.

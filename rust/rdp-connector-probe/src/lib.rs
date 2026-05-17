@@ -187,6 +187,17 @@ pub struct BlockingConnectFinalizeProbe {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub struct LiveTlsUpgradeProbe {
+    pub before_state: &'static str,
+    pub after_begin_state: &'static str,
+    pub after_upgrade_state: &'static str,
+    pub peer_certificate_count: usize,
+    pub server_public_key_len: usize,
+    pub contains_cleartext_password: bool,
+    pub wrote_tls_bytes: bool,
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct ActiveStageSmokeProbe {
     pub desktop_width: u16,
     pub desktop_height: u16,
@@ -660,6 +671,57 @@ pub fn drive_live_blocking_connect_begin_to_tls_upgrade(
     })
 }
 
+pub fn drive_live_tls_upgrade_accepting_invalid_certificates_for_lab(
+    request: ServiceRadarOpenRequest,
+    timeout: Duration,
+) -> Result<LiveTlsUpgradeProbe, String> {
+    let password = request.credential_grant.password.clone();
+    let plan = build_connector_plan(request).map_err(str::to_owned)?;
+    let target = resolve_rdp_target(&plan)?;
+    let stream = connect_rdp_target(target, timeout)?;
+    let client_addr = stream
+        .local_addr()
+        .map_err(|err| format!("rdp client local address lookup failed: {err}"))?;
+
+    let mut connector = ironrdp_connector::ClientConnector::new(plan.connector_config, client_addr);
+    let before_state = connector_state_name(&connector);
+    let mut framed = ironrdp_blocking::Framed::new(RecordingStream::new(stream));
+    let should_upgrade = ironrdp_blocking::connect_begin(&mut framed, &mut connector)
+        .map_err(|err| format!("live blocking connect begin failed: {err}"))?;
+    let after_begin_state = connector_state_name(&connector);
+    let (recording_stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err("live blocking connect begin left unread bytes".to_owned());
+    }
+
+    let initial_written_len = recording_stream.writes.len();
+    let (tls_stream, server_public_key) =
+        tls_upgrade_accepting_invalid_certificates_for_lab(recording_stream, plan.tls_server_name)?;
+    let peer_certificate_count = tls_stream
+        .conn
+        .peer_certificates()
+        .map_or(0, <[rustls::pki_types::CertificateDer<'_>]>::len);
+    let _upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
+    let after_upgrade_state = connector_state_name(&connector);
+    let tls_writes = tls_stream
+        .sock
+        .writes
+        .len()
+        .saturating_sub(initial_written_len);
+    let contains_cleartext_password =
+        bytes_contain_secret(&tls_stream.sock.writes, password.as_bytes());
+
+    Ok(LiveTlsUpgradeProbe {
+        before_state,
+        after_begin_state,
+        after_upgrade_state,
+        peer_certificate_count,
+        server_public_key_len: server_public_key.len(),
+        contains_cleartext_password,
+        wrote_tls_bytes: tls_writes > 0,
+    })
+}
+
 pub fn drive_blocking_connect_finalize_until_server_input(
     request: ServiceRadarOpenRequest,
     server_public_key: Vec<u8>,
@@ -727,6 +789,125 @@ pub fn extract_credssp_server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, &'s
     }
 
     Ok(public_key.to_vec())
+}
+
+fn resolve_rdp_target(plan: &ConnectorPlan) -> Result<SocketAddr, String> {
+    (plan.upstream_host.as_str(), plan.upstream_port)
+        .to_socket_addrs()
+        .map_err(|err| format!("rdp target address resolution failed: {err}"))?
+        .next()
+        .ok_or_else(|| "rdp target address resolution returned no addresses".to_owned())
+}
+
+fn connect_rdp_target(target: SocketAddr, timeout: Duration) -> Result<TcpStream, String> {
+    let stream = TcpStream::connect_timeout(&target, timeout)
+        .map_err(|err| format!("rdp target connect failed: {err}"))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|err| format!("rdp target read timeout setup failed: {err}"))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|err| format!("rdp target write timeout setup failed: {err}"))?;
+
+    Ok(stream)
+}
+
+fn tls_upgrade_accepting_invalid_certificates_for_lab(
+    stream: RecordingStream<TcpStream>,
+    server_name: String,
+) -> Result<
+    (
+        rustls::StreamOwned<rustls::ClientConnection, RecordingStream<TcpStream>>,
+        Vec<u8>,
+    ),
+    String,
+> {
+    let mut config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(std::sync::Arc::new(LabNoCertificateVerification))
+        .with_no_client_auth();
+    config.resumption = rustls::client::Resumption::disabled();
+
+    let server_name = rustls::pki_types::ServerName::try_from(server_name)
+        .map_err(|_| "tls server name is invalid".to_owned())?;
+    let client = rustls::ClientConnection::new(std::sync::Arc::new(config), server_name)
+        .map_err(|err| format!("tls client setup failed: {err}"))?;
+    let mut tls_stream = rustls::StreamOwned::new(client, stream);
+
+    for _ in 0..32 {
+        if !tls_stream.conn.is_handshaking() {
+            break;
+        }
+        tls_stream
+            .conn
+            .complete_io(&mut tls_stream.sock)
+            .map_err(|err| format!("tls handshake failed: {err}"))?;
+    }
+    if tls_stream.conn.is_handshaking() {
+        return Err("tls handshake did not complete in bounded steps".to_owned());
+    }
+
+    let cert = tls_stream
+        .conn
+        .peer_certificates()
+        .and_then(|certificates| certificates.first())
+        .ok_or_else(|| "tls peer certificate is missing".to_owned())?;
+    let server_public_key =
+        extract_credssp_server_public_key(cert.as_ref()).map_err(str::to_owned)?;
+
+    Ok((tls_stream, server_public_key))
+}
+
+#[derive(Debug)]
+struct LabNoCertificateVerification;
+
+impl rustls::client::danger::ServerCertVerifier for LabNoCertificateVerification {
+    fn verify_server_cert(
+        &self,
+        _: &rustls::pki_types::CertificateDer<'_>,
+        _: &[rustls::pki_types::CertificateDer<'_>],
+        _: &rustls::pki_types::ServerName<'_>,
+        _: &[u8],
+        _: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &rustls::pki_types::CertificateDer<'_>,
+        _: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _: &[u8],
+        _: &rustls::pki_types::CertificateDer<'_>,
+        _: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        vec![
+            rustls::SignatureScheme::RSA_PKCS1_SHA1,
+            rustls::SignatureScheme::ECDSA_SHA1_Legacy,
+            rustls::SignatureScheme::RSA_PKCS1_SHA256,
+            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+            rustls::SignatureScheme::RSA_PKCS1_SHA384,
+            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+            rustls::SignatureScheme::RSA_PKCS1_SHA512,
+            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
+            rustls::SignatureScheme::RSA_PSS_SHA256,
+            rustls::SignatureScheme::RSA_PSS_SHA384,
+            rustls::SignatureScheme::RSA_PSS_SHA512,
+            rustls::SignatureScheme::ED25519,
+            rustls::SignatureScheme::ED448,
+        ]
+    }
 }
 
 struct RejectingNetworkClient;
@@ -1155,6 +1336,49 @@ mod tests {
         assert!(boundary.requires_security_upgrade);
         assert!(!boundary.contains_cleartext_password);
         assert_eq!(&boundary.written_bytes[..2], &[0x03, 0x00]);
+    }
+
+    #[test]
+    fn live_tls_upgrade_reaches_credssp_boundary_when_lab_insecure_is_enabled() {
+        let Some(target) = std::env::var("SERVICERADAR_RDP_LIVE_TARGET")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            eprintln!("skipping live RDP TLS probe; SERVICERADAR_RDP_LIVE_TARGET is not set");
+            return;
+        };
+        if std::env::var("SERVICERADAR_RDP_LIVE_TLS_INSECURE_ACCEPT_INVALID_CERTS").as_deref()
+            != Ok("1")
+        {
+            eprintln!(
+                "skipping live RDP TLS probe; \
+                 SERVICERADAR_RDP_LIVE_TLS_INSECURE_ACCEPT_INVALID_CERTS=1 is required"
+            );
+            return;
+        }
+
+        let (host, port) = parse_live_target(&target).expect("valid live RDP target");
+        let mut request = open_request("EXAMPLE\\serviceradar-probe", "required");
+        request.target.upstream.host = host;
+        request.target.upstream.port = port;
+        request.target.tls.server_name = std::env::var("SERVICERADAR_RDP_LIVE_SERVER_NAME")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| request.target.upstream.host.clone());
+
+        let probe = crate::drive_live_tls_upgrade_accepting_invalid_certificates_for_lab(
+            request,
+            Duration::from_secs(5),
+        )
+        .expect("live TLS upgrade");
+
+        assert_eq!(probe.before_state, "ConnectionInitiationSendRequest");
+        assert_eq!(probe.after_begin_state, "EnhancedSecurityUpgrade");
+        assert_eq!(probe.after_upgrade_state, "Credssp");
+        assert!(probe.peer_certificate_count > 0);
+        assert!(probe.server_public_key_len > 0);
+        assert!(probe.wrote_tls_bytes);
+        assert!(!probe.contains_cleartext_password);
     }
 
     #[test]
