@@ -51,6 +51,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "renders out of service state in device list and details", %{conn: conn} do
+    uid = "test-device-inactive-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "inactive-host",
+        is_available: true,
+        is_active: false,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, list_view, _list_html} = live(conn, ~p"/devices?limit=10")
+    list_html = render_until(list_view, "inactive-host", 10_000)
+
+    assert list_html =~ "inactive-host"
+    assert list_html =~ "Out of service"
+
+    {:ok, details_view, _details_html} = live(conn, ~p"/devices/#{uid}")
+    details_html = render_until(details_view, "Out of service")
+
+    assert details_html =~ "Out of service"
+    assert details_html =~ "In Service"
+    assert details_html =~ "No"
+  end
+
   test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
     uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
 

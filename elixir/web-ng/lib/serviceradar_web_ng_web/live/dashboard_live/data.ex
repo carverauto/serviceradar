@@ -211,6 +211,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         COUNT(*) FILTER (WHERE is_available = true)::bigint AS available
       FROM platform.ocsf_devices
       WHERE deleted_at IS NULL
+        AND is_active = true
       """
 
       case Repo.query(sql, []) do
@@ -2027,6 +2028,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         COUNT(*) FILTER (WHERE COALESCE(is_available, false) = true)::float8 AS value
       FROM platform.ocsf_devices
       WHERE deleted_at IS NULL
+        AND is_active = true
         AND last_seen_time >= $1
       GROUP BY 1
       ORDER BY 1 ASC

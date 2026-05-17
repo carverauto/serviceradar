@@ -70,6 +70,7 @@ defmodule ServiceRadar.Inventory.Device do
     :is_managed,
     :is_compliant,
     :is_trusted,
+    :is_active,
     :os,
     :hw_info,
     :network_interfaces,
@@ -106,6 +107,7 @@ defmodule ServiceRadar.Inventory.Device do
     :is_managed,
     :is_compliant,
     :is_trusted,
+    :is_active,
     :os,
     :hw_info,
     :network_interfaces,
@@ -163,6 +165,8 @@ defmodule ServiceRadar.Inventory.Device do
     define :get_by_mac, action: :by_mac, args: [:mac, :include_deleted]
     define :soft_delete, action: :soft_delete, args: [:deleted_reason, :deleted_by]
     define :restore, action: :restore
+    define :mark_active, action: :mark_active
+    define :mark_inactive, action: :mark_inactive
     define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
   end
 
@@ -299,6 +303,20 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_active do
+      description "Return a device to active service"
+
+      change set_attribute(:is_active, true)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_inactive do
+      description "Mark a device out of service without deleting it"
+
+      change set_attribute(:is_active, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -531,6 +549,13 @@ defmodule ServiceRadar.Inventory.Device do
       default false
       public? true
       description "Trust status"
+    end
+
+    attribute :is_active, :boolean do
+      allow_nil? false
+      default true
+      public? true
+      description "Whether device is currently in service"
     end
 
     # OCSF Nested Objects (JSONB)

@@ -1453,6 +1453,41 @@ mod tests {
     }
 
     #[test]
+    fn devices_docs_example_active_false() {
+        let query = "in:devices is_active:false";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build SQL for active state query");
+        assert!(
+            sql.to_lowercase()
+                .contains("\"ocsf_devices\".\"is_active\" = $1"),
+            "expected SQL to include active lifecycle predicate, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .any(|param| matches!(param, BindParam::Bool(false))),
+            "expected false active-state bind param, got: {params:?}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_group_by_active_state() {
+        let query = "in:devices stats:count() as count by is_active";
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("coalesce(is_active, true)"),
+            "expected active lifecycle column in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
     fn devices_stats_group_by_with_filter() {
         let query = "in:devices vendor_name:Cisco stats:count() as count by type";
         let plan = plan_for(query);

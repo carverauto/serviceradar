@@ -34,6 +34,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
   alias ServiceRadar.Monitoring.Alert.SendNotificationsScheduler
   alias ServiceRadar.Monitoring.Alert.SendNotificationsWorker
+  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Oban.AshObanQueueResolver
 
   @alert_trigger_fields [
@@ -203,6 +204,24 @@ defmodule ServiceRadar.Monitoring.Alert do
 
       accept @alert_trigger_fields
 
+      change fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn changeset ->
+          attrs = %{
+            device_uid: changeset_input(changeset, :device_uid),
+            metadata: changeset_input(changeset, :metadata)
+          }
+
+          if DeviceLifecycle.suppress_operational_event?(attrs) do
+            Ash.Changeset.add_error(changeset,
+              field: :device_uid,
+              message: "device is marked out of service"
+            )
+          else
+            changeset
+          end
+        end)
+      end
+
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
     end
 
@@ -310,6 +329,12 @@ defmodule ServiceRadar.Monitoring.Alert do
     changeset
     |> Ash.Changeset.change_attribute(:notification_count, current_count + 1)
     |> Ash.Changeset.change_attribute(:last_notification_at, DateTime.utc_now())
+  end
+
+  defp changeset_input(changeset, field) do
+    Ash.Changeset.get_argument_or_attribute(changeset, field) ||
+      Map.get(changeset.params || %{}, field) ||
+      Map.get(changeset.params || %{}, Atom.to_string(field))
   end
 
   policies do

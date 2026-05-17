@@ -1469,6 +1469,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("mark_device_active", _params, socket) do
+    update_device_active_state(socket, true)
+  end
+
+  def handle_event("mark_device_inactive", _params, socket) do
+    update_device_active_state(socket, false)
+  end
+
   def handle_event("toggle_aliases", _params, socket) do
     show_stale = not socket.assigns.show_stale_aliases
     scope = socket.assigns.current_scope
@@ -3402,6 +3410,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
+      |> assign(:device_active, device_active_state(device_row, row_metadata(device_row)))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
@@ -3456,6 +3465,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               >
                 <.icon name="hero-archive-box" class="size-3" /> Deleted
               </span>
+              <span
+                :if={@device_active == false}
+                class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning"
+              >
+                <.icon name="hero-pause-circle" class="size-3" /> Out of service
+              </span>
             </span>
           </:subtitle>
           <:actions>
@@ -3503,6 +3518,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-confirm="Restore this device to the active inventory?"
             >
               <.icon name="hero-arrow-path" class="size-4" /> Restore
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage and not @device_deleted and @device_active == false}
+              phx-click="mark_device_active"
+              variant="outline"
+              size="sm"
+              phx-confirm="Return this device to service?"
+            >
+              <.icon name="hero-play-circle" class="size-4" /> In service
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage and not @device_deleted and @device_active != false}
+              phx-click="mark_device_inactive"
+              variant="outline"
+              size="sm"
+              phx-confirm="Mark this device out of service? Operational events and alerts for it will be suppressed."
+            >
+              <.icon name="hero-pause-circle" class="size-4" /> Out of service
             </.ui_button>
             <.ui_button
               :if={@can_manage and not @device_deleted}
@@ -4794,6 +4827,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ -> %{}
     end
   end
+
+  defp row_metadata(_row), do: %{}
 
   defp format_prop_value(nil), do: "—"
   defp format_prop_value(""), do: "—"
@@ -11826,4 +11861,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:error, List.first(errors) || :bulk_update_failed}
     end
   end
+
+  defp update_device_active_state(socket, active?) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    with {:ok, device} <- load_device(scope, device_uid),
+         {:ok, _updated} <- set_device_active_state(device, active?, scope) do
+      message = if active?, do: "Device returned to service", else: "Device marked out of service"
+
+      {:noreply,
+       socket
+       |> put_flash(:info, message)
+       |> push_patch(to: device_show_path(socket, device_uid))}
+    else
+      {:error, reason} ->
+        action = if active?, do: "return device to service", else: "mark device out of service"
+        Logger.error("Device active lifecycle update failed for #{device_uid}: #{inspect(reason)}")
+
+        {:noreply, put_flash(socket, :error, "Failed to #{action}: #{format_ash_error(reason)}")}
+    end
+  end
+
+  defp set_device_active_state(device, true, scope), do: Device.mark_active(device, scope: scope)
+  defp set_device_active_state(device, false, scope), do: Device.mark_inactive(device, scope: scope)
 end

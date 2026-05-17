@@ -62,6 +62,27 @@ defmodule ServiceRadar.Monitoring.AlertTest do
         assert alert.severity == severity
       end
     end
+
+    test "suppresses alerts for inactive devices" do
+      device = device_fixture(%{is_active: false})
+
+      result =
+        Alert
+        |> Ash.Changeset.for_create(
+          :trigger,
+          %{
+            title: "Inactive device CPU",
+            severity: :warning,
+            source_type: :device,
+            device_uid: device.uid
+          },
+          actor: system_actor()
+        )
+        |> Ash.create()
+
+      assert {:error, %Ash.Error.Invalid{} = error} = result
+      assert Exception.message(error) =~ "device is marked out of service"
+    end
   end
 
   describe "acknowledge transition" do

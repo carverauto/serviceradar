@@ -8,9 +8,9 @@ use crate::{
         agent_id as col_agent_id, availability_source_agent_id as col_availability_source_agent_id,
         deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
-        hostname as col_hostname, ip as col_ip, is_available as col_is_available,
-        last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
-        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
+        hostname as col_hostname, ip as col_ip, is_active as col_is_active,
+        is_available as col_is_available, last_seen_time as col_last_seen_time, model as col_model,
+        ocsf_devices, risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
         vendor_name as col_vendor_name,
     },
     time::TimeRange,
@@ -38,6 +38,7 @@ pub enum DeviceGroupField {
     VendorName,
     RiskLevel,
     IsAvailable,
+    IsActive,
     GatewayId,
 }
 
@@ -48,6 +49,7 @@ impl DeviceGroupField {
             "vendor_name" | "vendor" => Some(Self::VendorName),
             "risk_level" | "risk" => Some(Self::RiskLevel),
             "is_available" | "available" => Some(Self::IsAvailable),
+            "is_active" | "active" => Some(Self::IsActive),
             "gateway_id" | "gateway" => Some(Self::GatewayId),
             _ => None,
         }
@@ -60,6 +62,7 @@ impl DeviceGroupField {
             Self::VendorName => "COALESCE(vendor_name, 'Unknown')",
             Self::RiskLevel => "COALESCE(risk_level, 'Unknown')",
             Self::IsAvailable => "COALESCE(is_available, false)",
+            Self::IsActive => "COALESCE(is_active, true)",
             Self::GatewayId => "gateway_id",
         }
     }
@@ -70,6 +73,7 @@ impl DeviceGroupField {
             Self::VendorName => "vendor_name",
             Self::RiskLevel => "risk_level",
             Self::IsAvailable => "is_available",
+            Self::IsActive => "is_active",
             Self::GatewayId => "gateway_id",
         }
     }
@@ -404,7 +408,7 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<DeviceStatsSpec>> {
 fn parse_group_field(raw: &str) -> Result<DeviceGroupField> {
     DeviceGroupField::from_str(raw).ok_or_else(|| {
         ServiceError::InvalidRequest(format!(
-            "unsupported stats group field '{}'. Supported fields: type, vendor_name, risk_level, is_available, gateway_id",
+            "unsupported stats group field '{}'. Supported fields: type, vendor_name, risk_level, is_available, is_active, gateway_id",
             raw
         ))
     })
@@ -559,6 +563,19 @@ fn build_grouped_stats_filter_clause(
                 _ => {
                     return Err(ServiceError::InvalidRequest(
                         "is_available filter only supports equality".into(),
+                    ))
+                }
+            }
+        }
+        "is_active" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            binds.push(DeviceSqlBindValue::Bool(value));
+            match filter.op {
+                FilterOp::Eq => "COALESCE(is_active, true) = ?".to_string(),
+                FilterOp::NotEq => "COALESCE(is_active, true) <> ?".to_string(),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "is_active filter only supports equality".into(),
                     ))
                 }
             }
@@ -794,6 +811,15 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
                 col_is_available,
                 parse_bool(filter.value.as_scalar()?)?,
                 "is_available only supports equality"
+            )?;
+        }
+        "is_active" => {
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_is_active,
+                parse_bool(filter.value.as_scalar()?)?,
+                "is_active only supports equality"
             )?;
         }
         // OCSF device type (string name like "Server", "Router", etc.)
@@ -1179,6 +1205,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             Ok(())
         }
         "is_available" => {
+            params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        "is_active" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
             Ok(())
         }

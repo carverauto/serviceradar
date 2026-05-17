@@ -13,6 +13,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
 
   alias ServiceRadar.Automation.Northbound.EventHandlerRunner
   alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Types.Jsonb
 
   require Logger
@@ -63,6 +64,26 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
       accept @event_fields
 
       change fn changeset, _context ->
+        Ash.Changeset.before_action(changeset, fn changeset ->
+          attrs = %{
+            device: changeset_input(changeset, :device),
+            metadata: changeset_input(changeset, :metadata),
+            src_endpoint: changeset_input(changeset, :src_endpoint),
+            dst_endpoint: changeset_input(changeset, :dst_endpoint)
+          }
+
+          if DeviceLifecycle.suppress_operational_event?(attrs) do
+            Ash.Changeset.add_error(changeset,
+              field: :device,
+              message: "device is marked out of service"
+            )
+          else
+            changeset
+          end
+        end)
+      end
+
+      change fn changeset, _context ->
         if is_nil(Ash.Changeset.get_attribute(changeset, :time)) do
           Ash.Changeset.change_attribute(changeset, :time, DateTime.utc_now())
         else
@@ -85,6 +106,12 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   end
 
   changes do
+  end
+
+  defp changeset_input(changeset, field) do
+    Ash.Changeset.get_argument_or_attribute(changeset, field) ||
+      Map.get(changeset.params || %{}, field) ||
+      Map.get(changeset.params || %{}, Atom.to_string(field))
   end
 
   defp dispatch_northbound_event_handlers(event) do

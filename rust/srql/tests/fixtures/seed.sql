@@ -24,6 +24,7 @@ INSERT INTO ocsf_devices (
         agent_id,
         discovery_sources,
         is_available,
+        is_active,
         metadata
     )
 SELECT 'device-alpha',
@@ -45,6 +46,7 @@ SELECT 'device-alpha',
     'gateway-1',
     'agent-1',
     ARRAY ['sweep','armis'],
+    TRUE,
     TRUE,
     '{"site":"dfw-edge","packet_loss_bucket":"low"}'::jsonb
 FROM base
@@ -69,6 +71,7 @@ SELECT 'device-beta',
     'agent-2',
     ARRAY ['armis'],
     FALSE,
+    FALSE,
     '{"site":"dfw-edge","packet_loss_bucket":"medium"}'::jsonb
 FROM base
 UNION ALL
@@ -92,6 +95,7 @@ SELECT 'device-gamma',
     'agent-3',
     ARRAY ['sweep'],
     TRUE,
+    TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"high"}'::jsonb
 FROM base
 UNION ALL
@@ -114,6 +118,7 @@ SELECT 'device-delta',
     'gateway-2',
     'agent-3',
     ARRAY ['sweep'],
+    TRUE,
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
 FROM base;

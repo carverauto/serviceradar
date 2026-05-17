@@ -1281,7 +1281,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <div>
                 This deployment is using {@managed_device_count} managed devices, above the
                 configured advisory limit of {@managed_device_limit}. Managed device count tracks
-                non-deleted inventory devices marked managed.
+                active, non-deleted inventory devices marked managed.
               </div>
             </div>
           </div>
@@ -1307,6 +1307,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
           >
             <.icon name="hero-x-circle" class="size-3" /> Unavailable
+          </.link>
+          <.link
+            navigate={~p"/devices?q=in:devices is_active:true"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_active", "true"), do: "btn-primary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-play-circle" class="size-3" /> In service
+          </.link>
+          <.link
+            navigate={~p"/devices?q=in:devices is_active:false"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_active", "false"), do: "btn-warning", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-pause-circle" class="size-3" /> Out of service
           </.link>
           <.link
             navigate={~p"/devices?q=in:devices discovery_sources:(sweep)"}
@@ -1471,6 +1483,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% is_selected =
                     is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
                   <% deleted = deleted_device_row?(row) %>
+                  <% active = active_device_row?(row) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
@@ -1478,7 +1491,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
                   <% snmp_fallback = snmp_fallback_derived?(row) %>
-                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
                         :if={is_binary(device_uid)}
@@ -1511,6 +1524,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                           </span>
                         </div>
                         <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
+                        <span :if={not active} class="badge badge-warning badge-xs shrink-0">
+                          Out of service
+                        </span>
                       </div>
                       <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
                         {Map.get(row, "ip") || "—"}
@@ -3384,6 +3400,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     value = Map.get(row, "deleted_at")
     not is_nil(value) and value != ""
   end
+
+  defp active_device_row?(row) when is_map(row) do
+    row
+    |> Map.get("is_active", true)
+    |> normalize_bool(default: true)
+  end
+
+  defp active_device_row?(_row), do: true
+
+  defp normalize_bool(value, _opts) when is_boolean(value), do: value
+  defp normalize_bool(1, _opts), do: true
+  defp normalize_bool(0, _opts), do: false
+
+  defp normalize_bool(value, opts) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "active" -> true
+      "in_service" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      "inactive" -> false
+      "out_of_service" -> false
+      _ -> Keyword.get(opts, :default, false)
+    end
+  end
+
+  defp normalize_bool(_value, opts), do: Keyword.get(opts, :default, false)
 
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.

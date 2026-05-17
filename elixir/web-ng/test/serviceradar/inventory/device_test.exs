@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  alias Ash.Error.Forbidden
   alias Ash.Page.Keyset
   alias ServiceRadar.Inventory.Device
 
@@ -105,7 +106,7 @@ defmodule ServiceRadar.Inventory.DeviceTest do
         |> Ash.Changeset.for_update(:update, %{name: "Should Fail"}, actor: actor)
         |> Ash.update()
 
-      assert {:error, %Ash.Error.Forbidden{}} = result
+      assert {:error, %Forbidden{}} = result
     end
 
     test "touch updates last_seen_time", %{device: device} do
@@ -124,6 +125,21 @@ defmodule ServiceRadar.Inventory.DeviceTest do
       assert DateTime.compare(touched.last_seen_time, original_last_seen) in [:gt, :eq]
       # But also verify it's at least been updated (modified_time would be set)
       assert touched.last_seen_time
+    end
+
+    test "operators can mark devices out of and back in service", %{device: device} do
+      actor = operator_actor()
+
+      assert {:ok, inactive} = Device.mark_inactive(device, actor: actor)
+      assert inactive.is_active == false
+      assert inactive.modified_time
+
+      assert {:ok, active} = Device.mark_active(inactive, actor: actor)
+      assert active.is_active == true
+    end
+
+    test "viewers cannot change device active lifecycle", %{device: device} do
+      assert {:error, %Forbidden{}} = Device.mark_inactive(device, actor: viewer_actor())
     end
   end
 
