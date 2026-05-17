@@ -121,7 +121,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
     {:ok, provider} = create_provider(actor)
     {:ok, descriptor} = create_descriptor(provider, actor, scopes: ["interface"])
     {:ok, device} = create_device(actor)
-    {:ok, interface} = create_interface(actor, device.uid)
+    {:ok, interface} = create_interface(actor, device)
 
     assert {:ok, invocation} =
              InvocationService.create_invocation(
@@ -223,6 +223,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
 
   defp create_device(actor) do
     uid = "sr:test-#{System.unique_integer([:positive])}"
+    host_octet = rem(System.unique_integer([:positive]), 200) + 20
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Device
@@ -232,7 +233,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
         uid: uid,
         name: "test-device",
         hostname: "test-device",
-        ip: "192.0.2.10",
+        ip: "192.0.2.#{host_octet}",
         type_id: 0,
         created_time: now,
         modified_time: now,
@@ -244,16 +245,16 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
     |> Ash.create(actor: actor, domain: ServiceRadar.Inventory)
   end
 
-  defp create_interface(actor, device_uid) do
+  defp create_interface(actor, device) do
     Interface
     |> Ash.Changeset.for_create(
       :create,
       %{
         timestamp: DateTime.truncate(DateTime.utc_now(), :second),
-        device_id: device_uid,
+        device_id: device.uid,
         interface_uid: "ifindex:#{System.unique_integer([:positive])}",
         if_index: 17,
-        device_ip: "192.0.2.10",
+        device_ip: device.ip,
         if_name: "Gi1/0/17",
         if_descr: "GigabitEthernet1/0/17",
         if_admin_status: 1,

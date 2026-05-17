@@ -53,7 +53,7 @@
 - [x] 8.1 Document the release/plugin inventory limits and object-store retention behavior.
 - [x] 8.2 Document the Wasm plugin service visibility contract for plugin authors/operators.
 - [x] 8.3 Document device-details metadata grouping and task-result location semantics.
-- [ ] 8.4 Run focused web-ng tests for release/plugin inventory and device/task UI.
-- [ ] 8.5 Run focused agent/gateway/service status tests for plugin service publication and rollout states.
+- [x] 8.4 Run focused web-ng tests for release/plugin inventory and device/task UI.
+- [x] 8.5 Run focused agent/gateway/service status tests for plugin service publication and rollout states.
 - [x] 8.6 Run focused topology/NetFlow regression checks.
 - [x] 8.7 Run `openspec validate update-plugin-release-inventory-visibility --strict`.

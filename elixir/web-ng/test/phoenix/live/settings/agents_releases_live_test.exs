@@ -1353,10 +1353,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
-    assert has_element?(lv, "#use-release-#{older}")
+    release_selector = "#use-release-#{String.replace(older, ~r/[^A-Za-z0-9_-]+/, "-")}"
+
+    assert has_element?(lv, release_selector)
 
     lv
-    |> element("#use-release-#{older}")
+    |> element(release_selector)
     |> render_click()
 
     assert has_element?(

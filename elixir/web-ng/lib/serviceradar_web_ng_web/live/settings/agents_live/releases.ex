@@ -1031,7 +1031,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         </td>
                         <td>
                           <button
-                            id={"use-release-#{release.version}"}
+                            id={"use-release-#{dom_id_fragment(release.version)}"}
                             type="button"
                             phx-click="use_release"
                             phx-value-version={release.version}
@@ -1840,6 +1840,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp release_provider_label("forgejo"), do: "Forgejo Releases"
   defp release_provider_label(_provider), do: "Repository Release"
+
+  defp dom_id_fragment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "item"
+      fragment -> fragment
+    end
+  end
 
   defp release_source_summary(%{metadata: %{"source" => %{} = source}}) do
     provider =
