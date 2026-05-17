@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   @artifact_object_list_metadata_fields ~w(signatures sbom)
   @rdp_capabilities MapSet.new(["remote_access.rdp", "remote_access.desktop"])
   @rdp_deployment_required_strings ~w(helper install_path helper_capabilities_arg)
+  @rdp_helper_ready_reason_max_bytes 256
 
   @type field_error :: %{field: atom(), message: String.t()}
 
@@ -380,7 +381,8 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
 
   defp validate_rdp_connector_ready_reason(errors, requirements, index) do
     ready? = Map.get(requirements, "helper_connector_ready")
-    reason? = non_empty_string?(Map.get(requirements, "helper_connector_ready_reason"))
+    reason = normalize_string(Map.get(requirements, "helper_connector_ready_reason"))
+    reason? = reason != ""
 
     cond do
       ready? == false and not reason? ->
@@ -389,6 +391,16 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
             field: :manifest,
             message:
               "release artifact #{index} RDP deployment_requirements.helper_connector_ready_reason is required while helper_connector_ready is false"
+          }
+          | errors
+        ]
+
+      ready? == false and invalid_rdp_ready_reason?(reason) ->
+        [
+          %{
+            field: :manifest,
+            message:
+              "release artifact #{index} RDP deployment_requirements.helper_connector_ready_reason must be printable and at most #{@rdp_helper_ready_reason_max_bytes} bytes"
           }
           | errors
         ]
@@ -406,6 +418,11 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
       true ->
         errors
     end
+  end
+
+  defp invalid_rdp_ready_reason?(reason) do
+    byte_size(reason) > @rdp_helper_ready_reason_max_bytes or
+      String.match?(reason, ~r/[\x00-\x1F\x7F]/)
   end
 
   defp rdp_artifact?(artifact) do

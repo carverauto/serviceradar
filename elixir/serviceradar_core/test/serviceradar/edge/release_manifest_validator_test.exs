@@ -127,7 +127,10 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
       "1.2.3"
       |> valid_manifest()
       |> put_in(["artifacts", Access.at(0)], valid_rdp_artifact("1.2.3"))
-      |> put_in(["artifacts", Access.at(0), "deployment_requirements", "helper_connector_ready"], true)
+      |> put_in(
+        ["artifacts", Access.at(0), "deployment_requirements", "helper_connector_ready"],
+        true
+      )
 
     assert {:error, errors} =
              ReleaseManifestValidator.validate("1.2.3", manifest, sign_manifest(manifest))
@@ -135,6 +138,26 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
     messages = Enum.map(errors, & &1.message)
 
     assert "release artifact 1 RDP deployment_requirements.helper_connector_ready_reason must be absent while helper_connector_ready is true" in messages
+  end
+
+  test "rejects non-printable or oversized RDP helper readiness reasons" do
+    for reason <- ["connector\nnot\tready", String.duplicate("x", 257)] do
+      manifest =
+        "1.2.3"
+        |> valid_manifest()
+        |> put_in(["artifacts", Access.at(0)], valid_rdp_artifact("1.2.3"))
+        |> put_in(
+          ["artifacts", Access.at(0), "deployment_requirements", "helper_connector_ready_reason"],
+          reason
+        )
+
+      assert {:error, errors} =
+               ReleaseManifestValidator.validate("1.2.3", manifest, sign_manifest(manifest))
+
+      messages = Enum.map(errors, & &1.message)
+
+      assert "release artifact 1 RDP deployment_requirements.helper_connector_ready_reason must be printable and at most 256 bytes" in messages
+    end
   end
 
   defp valid_manifest(version) do
