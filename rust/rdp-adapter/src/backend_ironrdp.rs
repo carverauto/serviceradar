@@ -77,6 +77,7 @@ struct ConnectorBeginHandoff<S: Read + Write> {
     framed: ironrdp_blocking::Framed<S>,
     should_upgrade: ironrdp_blocking::ShouldUpgrade,
     connector: ironrdp_connector::ClientConnector,
+    dial_target: ConnectorDialTarget,
     tls_config: VerifiedTlsClientConfig,
     server_name: ironrdp_connector::ServerName,
 }
@@ -99,6 +100,10 @@ impl<S: Read + Write> ConnectorBeginHandoff<S> {
 
     fn client_addr(&self) -> SocketAddr {
         self.connector.client_addr
+    }
+
+    fn remote_endpoint(&self) -> &str {
+        self.dial_target.endpoint.as_str()
     }
 }
 
@@ -464,6 +469,24 @@ struct ConnectorDialTarget {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct DialedConnectorStream<S: Read + Write> {
+    stream: S,
+    client_addr: SocketAddr,
+    dial_target: ConnectorDialTarget,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<S: Read + Write> DialedConnectorStream<S> {
+    fn endpoint(&self) -> &str {
+        self.dial_target.endpoint.as_str()
+    }
+
+    fn client_addr(&self) -> SocketAddr {
+        self.client_addr
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 impl VerifiedTlsPeerPublicKeyForProbe {
     fn into_bytes(self) -> Vec<u8> {
         self.bytes
@@ -769,9 +792,44 @@ fn begin_connector_handoff_with_client_addr_for_probe<S>(
 where
     S: Sync + Read + Write,
 {
+    let dialed = prepare_dialed_connector_stream_for_probe(plan, stream, client_addr)?;
+
+    begin_connector_handoff_with_dialed_stream_for_probe(plan, credential, dialed)
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn prepare_dialed_connector_stream_for_probe<S>(
+    plan: &NonSecretConnectionPlan,
+    stream: S,
+    client_addr: SocketAddr,
+) -> Result<DialedConnectorStream<S>, BackendError>
+where
+    S: Read + Write,
+{
+    Ok(DialedConnectorStream {
+        stream,
+        client_addr,
+        dial_target: build_connector_dial_target_for_plan(plan)?,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn begin_connector_handoff_with_dialed_stream_for_probe<S>(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+    dialed: DialedConnectorStream<S>,
+) -> Result<ConnectorBeginHandoff<S>, BackendError>
+where
+    S: Sync + Read + Write,
+{
     let config = build_connector_config_for_probe(plan, credential);
     let tls_config = build_verified_tls_client_config_for_plan(plan)?;
     let server_name = ironrdp_connector::ServerName::from(&plan.tls_server_name);
+    let DialedConnectorStream {
+        stream,
+        client_addr,
+        dial_target,
+    } = dialed;
     let mut connector = ironrdp_connector::ClientConnector::new(config, client_addr);
     let mut framed = ironrdp_blocking::Framed::new(stream);
 
@@ -782,6 +840,7 @@ where
         framed,
         should_upgrade,
         connector,
+        dial_target,
         tls_config,
         server_name,
     })
@@ -895,6 +954,7 @@ where
         framed,
         should_upgrade,
         mut connector,
+        dial_target: _dial_target,
         tls_config: _tls_config,
         server_name,
     } = handoff;
@@ -1945,6 +2005,7 @@ mod tests {
 
         assert!(handoff.requires_security_upgrade());
         assert_eq!(handoff.server_name(), "win.example");
+        assert_eq!(handoff.remote_endpoint(), "win.example:3389");
         assert_eq!(
             handoff.tls_probe(),
             VerifiedTlsClientConfigProbe {
@@ -1989,6 +2050,50 @@ mod tests {
 
         assert_eq!(handoff.client_addr(), client_addr);
         assert!(handoff.requires_security_upgrade());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_begin_handoff_accepts_prepared_dialed_stream() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+                .expect("server confirm");
+        let client_addr: SocketAddr = "10.7.8.9:49152".parse().expect("client addr");
+        let dialed = prepare_dialed_connector_stream_for_probe(
+            &plan,
+            ScriptedStream::new(vec![server_confirm]),
+            client_addr,
+        )
+        .expect("dialed stream");
+
+        assert_eq!(dialed.endpoint(), "win.example:3389");
+        assert_eq!(dialed.client_addr(), client_addr);
+
+        let handoff =
+            begin_connector_handoff_with_dialed_stream_for_probe(&plan, &credential, dialed)
+                .expect("connector begin handoff");
+        let (stream, leftover) = handoff.framed.get_inner();
+
+        assert!(handoff.requires_security_upgrade());
+        assert_eq!(handoff.client_addr(), client_addr);
+        assert_eq!(handoff.remote_endpoint(), "win.example:3389");
+        assert!(leftover.is_empty());
+        assert!(!stream.writes.is_empty());
+        assert!(!bytes_contain_secret(
+            &stream.writes,
+            credential.password.value.as_str().as_bytes(),
+        ));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]

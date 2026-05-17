@@ -190,6 +190,7 @@
 - [x] 3.2.59 Add a connector-linked finalized handoff boundary that preserves the framed stream and can enter the existing active-stage network-pump session contract after `connect_finalize` succeeds.
 - [x] 3.2.60 Parameterize the connector handoff client socket address so future live TCP dials can pass the selected local endpoint into IronRDP instead of relying on a hardcoded loopback address.
 - [x] 3.2.61 Add a connector-linked non-secret dial target preflight that formats registered target endpoints, handles IPv6 bracket formatting, and rejects unusable host text before live TCP code is added.
+- [x] 3.2.62 Add a connector-linked dialed-stream boundary that carries the registered remote endpoint and local client socket address into connect-begin handoff without exposing credential material.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -369,6 +370,7 @@
 - [x] 5.2.86 Add connector-linked finalization coverage proving failed CredSSP finalization returns the framed stream without cleartext password exposure and finalized handoffs can build active-stage network-pump sessions.
 - [x] 5.2.87 Add connector-linked coverage proving connect-begin handoffs preserve the supplied client socket address for future live TCP sessions.
 - [x] 5.2.88 Add connector-linked dial-target coverage proving DNS names and IPv6 literals format correctly without network I/O and malformed host text fails closed.
+- [x] 5.2.89 Add connector-linked dialed-stream handoff coverage proving the remote endpoint and client address survive into connect-begin without cleartext password exposure.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
