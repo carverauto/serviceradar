@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.66
+
+Long-running northbound actions, device details UX, and inventory enrichment fixes.
+
+## Whats New
+
+**1.2.66**
+- Added deferred northbound action execution with polling, result-fetching, expiration, cancellation handling, external correlation IDs, redacted persisted results, and resumable continuation state.
+- Added token-gated northbound action webhook callbacks so external systems can report job progress or completion back to ServiceRadar without requiring only poll-based integrations.
+- Updated the sample northbound Wasm plugin to exercise immediate, polling, and webhook-style action flows for device and interface integrations.
+- Fixed the device details Logs tab so log loading runs asynchronously instead of timing out the LiveView event.
+- Improved device details metadata rendering with grouped integration sections, cleaner task history output, Armis risk score display, and better handling for integration-provided device type data.
+- Added validation coverage for northbound action platform-schema migrations, lifecycle state transitions, redaction, poll scheduling, and expiration.
+
 # ServiceRadar v1.2.65
 
 Northbound launch authorization and device integration metadata display fixes.
