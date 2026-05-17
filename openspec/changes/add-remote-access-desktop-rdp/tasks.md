@@ -205,6 +205,7 @@
 - [x] 3.2.74 Wire the ServiceRadar-owned bounded KDC client into the experimental CredSSP finalization boundary while preserving connector-not-ready runtime posture.
 - [x] 3.2.75 Carry trusted target Kerberos/KDC routing metadata into the connector plan and CredSSP finalization boundary without treating it as credential material.
 - [x] 3.2.76 Drive the open-shaped experimental connector path through bounded CredSSP finalization before the readiness gate while preserving connector-not-ready runtime posture.
+- [x] 3.2.77 Bind finalized connector handoffs to trusted broker media-session metadata before constructing the helper backend session shape.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -401,6 +402,7 @@
 - [x] 5.2.101 Add connector-linked loopback finalization coverage proving the experimental CredSSP path uses the bounded KDC client and still fails closed without exposing cleartext password material.
 - [x] 5.2.102 Add connector-linked coverage proving KDC proxy/hostname metadata is parsed, invalid URLs fail closed, and Kerberos config survives into CredSSP finalization.
 - [x] 5.2.103 Add connector-linked open-shaped coverage proving the experimental connector path reaches CredSSP finalization before returning connector-not-ready without exposing cleartext password material.
+- [x] 5.2.104 Add connector-linked finalized-handoff coverage proving backend session construction uses trusted media-session metadata and rejects missing media bindings.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

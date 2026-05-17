@@ -44,6 +44,8 @@ const DEFAULT_KDC_PORT: u16 = 88;
 const MAX_KDC_RESPONSE_BYTES: u32 = 64 * 1024;
 const METADATA_KDC_PROXY_URL: &str = "rdp.kdc_proxy_url";
 const METADATA_KERBEROS_HOSTNAME: &str = "rdp.kerberos_hostname";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const METADATA_MEDIA_SESSION_ID: &str = "media_session_id";
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -189,6 +191,29 @@ impl<S: Read + Write> ConnectorFinalizedHandoff<S> {
             timestamp_unix_nano,
         )
     }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn finalized_connector_handoff_into_network_pump_session_for_probe<S, W>(
+    handoff: ConnectorFinalizedHandoff<S>,
+    upstream: W,
+    request: &OpenPayload,
+) -> Result<ActiveStageNetworkPumpSessionProbe<S, W>, BackendError>
+where
+    S: Read + Write,
+    W: Write,
+{
+    let media_session_id =
+        optional_metadata_value(&request.target.metadata, METADATA_MEDIA_SESSION_ID)
+            .ok_or(BackendError::Unsupported(INVALID_CONNECTION_PLAN))?;
+
+    Ok(handoff.into_network_pump_session(
+        upstream,
+        &request.target.screen,
+        request.session_id.clone(),
+        media_session_id,
+        request.start_unix,
+    ))
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -3170,6 +3195,48 @@ mod tests {
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_finalized_handoff_builds_network_pump_session() {
+        let mut payload =
+            parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        payload
+            .target
+            .metadata
+            .insert(METADATA_MEDIA_SESSION_ID.to_owned(), "media-1".to_owned());
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let (connection_result, desktop_size) =
+            build_connection_result_for_probe(&plan, &credential);
+        let handoff = ConnectorFinalizedHandoff {
+            framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
+            connection_result,
+            desktop_size,
+        };
+        let mut session = finalized_connector_handoff_into_network_pump_session_for_probe(
+            handoff,
+            Vec::<u8>::new(),
+            &payload,
+        )
+        .expect("finalized connector handoff session");
+
+        {
+            let session_trait: &mut dyn RdpBackendSession = &mut session;
+            session_trait
+                .input(&desktop_key_frame("Enter", true))
+                .expect("input routed after finalized connector handoff");
+        }
+
+        assert!(!session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_finalized_handoff_requires_media_binding() {
         let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
         let credential = build_memory_user_credential(
@@ -3186,23 +3253,17 @@ mod tests {
             connection_result,
             desktop_size,
         };
-        let mut session = handoff.into_network_pump_session(
+
+        let err = match finalized_connector_handoff_into_network_pump_session_for_probe(
+            handoff,
             Vec::<u8>::new(),
-            &payload.target.screen,
-            "session-1".to_owned(),
-            "media-1".to_owned(),
-            1234,
-        );
+            &payload,
+        ) {
+            Ok(_) => panic!("missing media binding should be rejected"),
+            Err(err) => err,
+        };
 
-        {
-            let session_trait: &mut dyn RdpBackendSession = &mut session;
-            session_trait
-                .input(&desktop_key_frame("Enter", true))
-                .expect("input routed after finalized connector handoff");
-        }
-
-        assert!(!session.upstream_ref().is_empty());
-        assert!(session.drain_media_frames().is_empty());
+        assert_eq!(err, BackendError::Unsupported(INVALID_CONNECTION_PLAN));
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
