@@ -944,6 +944,8 @@ func TestNormalizePluginPayloadRejectsInvalidStatus(t *testing.T) {
 }
 
 func TestNormalizePluginPayloadMapsFailedStatus(t *testing.T) {
+	const expectedStatus = "CRITICAL"
+
 	pl := &PushLoop{}
 	result := PluginResult{
 		Payload: []byte(`{"status":"failed","summary":"plugin execution failed"}`),
@@ -962,8 +964,8 @@ func TestNormalizePluginPayloadMapsFailedStatus(t *testing.T) {
 		t.Fatalf("failed to unmarshal payload: %v", err)
 	}
 
-	if payload["status"] != "CRITICAL" {
-		t.Fatalf("expected CRITICAL status, got %#v", payload["status"])
+	if payload["status"] != expectedStatus {
+		t.Fatalf("expected %s status, got %#v", expectedStatus, payload["status"])
 	}
 }
 

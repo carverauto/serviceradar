@@ -2078,9 +2078,16 @@ func pluginServiceName(result PluginResult) string {
 	return "plugin"
 }
 
+const (
+	pluginStatusOK       = "OK"
+	pluginStatusWarning  = "WARNING"
+	pluginStatusCritical = "CRITICAL"
+	pluginStatusUnknown  = "UNKNOWN"
+)
+
 func isValidPluginStatus(status string) bool {
 	switch status {
-	case "OK", "WARNING", "CRITICAL", "UNKNOWN":
+	case pluginStatusOK, pluginStatusWarning, pluginStatusCritical, pluginStatusUnknown:
 		return true
 	default:
 		return false
@@ -2090,7 +2097,7 @@ func isValidPluginStatus(status string) bool {
 func normalizePluginStatus(status string) string {
 	switch strings.ToUpper(strings.TrimSpace(status)) {
 	case "FAILED", "FAIL", "ERROR":
-		return "CRITICAL"
+		return pluginStatusCritical
 	default:
 		return strings.ToUpper(strings.TrimSpace(status))
 	}
@@ -2098,9 +2105,9 @@ func normalizePluginStatus(status string) string {
 
 func pluginStatusAvailable(status string) bool {
 	switch status {
-	case "OK", "WARNING":
+	case pluginStatusOK, pluginStatusWarning:
 		return true
-	case "CRITICAL", "UNKNOWN":
+	case pluginStatusCritical, pluginStatusUnknown:
 		return false
 	default:
 		return false
