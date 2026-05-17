@@ -250,7 +250,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
   end
 
-  defp should_track_assignment_service?(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
+  defp should_track_assignment_service?(
+         %PluginAssignment{} = assignment,
+         %PluginPackage{} = package
+       ) do
     assignment.enabled == true and
       (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
@@ -275,7 +278,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_assignment(%PluginAssignment{} = assignment, agent, %PluginPackage{} = package) do
+  defp build_attrs_from_assignment(
+         %PluginAssignment{} = assignment,
+         agent,
+         %PluginPackage{} = package
+       ) do
     plugin_type = assignment_plugin_type(package)
     {available, message} = assignment_initial_state(plugin_type)
 

@@ -661,7 +661,9 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     {:ok, target} =
       AgentReleaseTarget.set_status(
         target,
-        %{status: :restarting, last_error: "command_ack_timeout"}, actor: actor)
+        %{status: :restarting, last_error: "command_ack_timeout"},
+        actor: actor
+      )
 
     agent = Agent.get_by_uid!(agent_id, actor: actor)
 
