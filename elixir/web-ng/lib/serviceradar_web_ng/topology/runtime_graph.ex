@@ -164,6 +164,58 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   @doc false
+  @spec topology_diagnostics_query() :: String.t()
+  def topology_diagnostics_query do
+    """
+    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
+    RETURN {
+      canonical_edges: count(r),
+      backbone_candidates: sum(CASE
+        WHEN toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON'] THEN 1
+        WHEN coalesce(r.relation_type, '') = ''
+          AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'] THEN 1
+        ELSE 0
+      END),
+      attachment_candidates: sum(CASE
+        WHEN toUpper(coalesce(r.relation_type, '')) IN ['ATTACHED_TO', 'OBSERVED_TO'] THEN 1
+        WHEN coalesce(r.relation_type, '') = ''
+          AND toLower(coalesce(r.evidence_class, '')) IN ['endpoint-attachment', 'observed-only'] THEN 1
+        ELSE 0
+      END),
+      missing_relation_type: sum(CASE WHEN coalesce(r.relation_type, '') = '' THEN 1 ELSE 0 END),
+      missing_evidence_class: sum(CASE WHEN coalesce(r.evidence_class, '') = '' THEN 1 ELSE 0 END),
+      missing_endpoint_ids: sum(CASE WHEN a.id IS NULL OR b.id IS NULL THEN 1 ELSE 0 END),
+      non_canonical_endpoint_ids: sum(CASE
+        WHEN a.id IS NULL OR b.id IS NULL THEN 0
+        WHEN NOT a.id STARTS WITH 'sr:' OR NOT b.id STARTS WITH 'sr:' THEN 1
+        ELSE 0
+      END),
+      missing_observed_at: sum(CASE
+        WHEN r.last_observed_at IS NULL AND r.observed_at IS NULL THEN 1
+        ELSE 0
+      END)
+    } AS diagnostics
+    """
+  end
+
+  @doc false
+  @spec diagnostics() :: {:ok, map()} | {:error, term()}
+  def diagnostics do
+    case AgeGraph.query(topology_diagnostics_query()) do
+      {:ok, [%{} = row | _]} ->
+        {:ok, row |> unwrap_single_map_value() |> atomize_diagnostics()}
+
+      {:ok, []} ->
+        {:ok, %{}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    error -> {:error, error}
+  end
+
+  @doc false
   @spec virtualization_inventory_links_query() :: String.t()
   def virtualization_inventory_links_query do
     """
@@ -249,7 +301,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND b.id STARTS WITH 'sr:'
       AND (
         toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']
-        OR (r.relation_type IS NULL AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
+        OR (coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'])
       )
     WITH a, b, r
     ORDER BY coalesce(r.last_observed_at, r.observed_at) DESC
@@ -430,6 +482,22 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     else
       map
     end
+  end
+
+  defp atomize_diagnostics(%{} = map) do
+    Map.new(
+      [
+        :canonical_edges,
+        :backbone_candidates,
+        :attachment_candidates,
+        :missing_relation_type,
+        :missing_evidence_class,
+        :missing_endpoint_ids,
+        :non_canonical_endpoint_ids,
+        :missing_observed_at
+      ],
+      fn key -> {key, parse_non_negative_int(map_fetch(map, key))} end
+    )
   end
 
   defp maybe_string_key(%{} = map, k1, k2, k3) do

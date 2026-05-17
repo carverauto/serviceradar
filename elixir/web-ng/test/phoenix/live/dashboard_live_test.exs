@@ -53,6 +53,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
   end
 
+  test "NetFlow map hourly rollup predicate includes the current aggregate bucket" do
+    assert Data.netflow_map_time_predicate("bucket") == "f.bucket >= date_trunc('hour', $1::timestamptz)"
+    assert Data.netflow_map_time_predicate("time") == "f.time >= $1"
+  end
+
   test "dashboard falls back to NetFlow for unsupported map modes", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/dashboard")
 

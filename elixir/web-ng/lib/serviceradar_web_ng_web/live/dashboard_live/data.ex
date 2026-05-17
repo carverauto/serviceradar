@@ -575,6 +575,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp traffic_links_from_relation(relation, time_column, cutoff) do
     flow_count_expr = flow_count_expr(relation)
+    time_predicate = netflow_map_time_predicate(time_column)
     has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
     has_threat? = relation_exists?("platform.ip_threat_intel_cache")
     has_anchor? = netflow_location_anchors_available?()
@@ -687,7 +688,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     #{geo_join}
     #{anchor_join}
     #{threat_join}
-    WHERE f.#{time_column} >= $1
+    WHERE #{time_predicate}
       AND f.src_endpoint_ip IS NOT NULL
       AND f.dst_endpoint_ip IS NOT NULL
       AND f.src_endpoint_ip <> f.dst_endpoint_ip
@@ -770,6 +771,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
         []
     end
   end
+
+  @doc false
+  @spec netflow_map_time_predicate(String.t()) :: String.t()
+  def netflow_map_time_predicate("bucket"), do: "f.bucket >= date_trunc('hour', $1::timestamptz)"
+  def netflow_map_time_predicate(time_column), do: "f.#{time_column} >= $1"
 
   defp threat_select_expr(true) do
     """
@@ -2708,10 +2714,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
 
   defp anchored_country_expr(false, _anchor_alias, fallback_expr), do: fallback_expr
 
-  defp anchor_label_select_expr(true, anchor_alias), do: "#{anchor_alias}.location_label"
+  defp anchor_label_select_expr(true, anchor_alias), do: "COALESCE(#{anchor_alias}.location_label, #{anchor_alias}.label)"
   defp anchor_label_select_expr(false, _anchor_alias), do: "NULL::text"
 
-  defp local_anchor_select_expr(true, anchor_alias), do: "(#{anchor_alias}.location_label IS NOT NULL)"
+  defp local_anchor_select_expr(true, anchor_alias),
+    do: "(#{anchor_alias}.latitude IS NOT NULL AND #{anchor_alias}.longitude IS NOT NULL)"
+
   defp local_anchor_select_expr(false, _anchor_alias), do: "FALSE"
 
   defp flow_count_expr("ocsf_network_activity"), do: "COUNT(*)"

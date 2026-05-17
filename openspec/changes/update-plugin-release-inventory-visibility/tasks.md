@@ -43,11 +43,11 @@
 - [x] 6.4 Fix agent details desired-version derivation so stale failed rollout attempts do not override the current desired version or a newer successful activation.
 
 ## 7. NetFlow and Topology Regression Diagnostics
-- [ ] 7.1 Investigate why `/dashboard` reports no NetFlow paths despite recent flow conversations.
-- [ ] 7.2 Verify GeoIP enrichment and private-network anchor joins still provide coordinates for mapped paths.
-- [ ] 7.3 Investigate topology backbone islands against expected AGE canonical adjacency.
-- [ ] 7.4 Add diagnostic counters or validation queries for missing canonical edges, unresolved endpoints, stale-edge pruning, and anchor gaps.
-- [ ] 7.5 Add regression coverage or replay fixtures that preserve expected backbone connectivity.
+- [x] 7.1 Investigate why `/dashboard` reports no NetFlow paths despite recent flow conversations.
+- [x] 7.2 Verify GeoIP enrichment and private-network anchor joins still provide coordinates for mapped paths.
+- [x] 7.3 Investigate topology backbone islands against expected AGE canonical adjacency.
+- [x] 7.4 Add diagnostic counters or validation queries for missing canonical edges, unresolved endpoints, stale-edge pruning, and anchor gaps.
+- [x] 7.5 Add regression coverage or replay fixtures that preserve expected backbone connectivity.
 
 ## 8. Documentation and Validation
 - [x] 8.1 Document the release/plugin inventory limits and object-store retention behavior.
@@ -55,5 +55,5 @@
 - [x] 8.3 Document device-details metadata grouping and task-result location semantics.
 - [ ] 8.4 Run focused web-ng tests for release/plugin inventory and device/task UI.
 - [ ] 8.5 Run focused agent/gateway/service status tests for plugin service publication and rollout states.
-- [ ] 8.6 Run focused topology/NetFlow regression checks.
+- [x] 8.6 Run focused topology/NetFlow regression checks.
 - [x] 8.7 Run `openspec validate update-plugin-release-inventory-visibility --strict`.
