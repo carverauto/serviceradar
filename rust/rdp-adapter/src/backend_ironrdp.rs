@@ -36,6 +36,8 @@ const UNSUPPORTED_INPUT_EVENT: &str = "IronRDP input event is unsupported";
 const INVALID_GRAPHICS_UPDATE: &str = "IronRDP graphics update is invalid";
 #[cfg(serviceradar_rdp_connector_link_probe)]
 const MAX_DIAL_HOST_LEN: usize = 253;
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const DEFAULT_CONNECTOR_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Eq, PartialEq)]
 struct NonSecretConnectionPlan {
@@ -74,6 +76,21 @@ struct BlockingConnectFinalizeProbe {
     wrote_credssp_bytes: bool,
     contains_cleartext_password: bool,
     written_bytes: Vec<u8>,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ConnectorRuntimePolicy {
+    dial_timeout: Duration,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl Default for ConnectorRuntimePolicy {
+    fn default() -> Self {
+        Self {
+            dial_timeout: DEFAULT_CONNECTOR_TIMEOUT,
+        }
+    }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -827,6 +844,21 @@ fn begin_connector_handoff_with_tcp_dial_for_probe(
     let dialed = dial_connector_tcp_for_probe(plan, timeout)?;
 
     begin_connector_handoff_with_dialed_stream_for_probe(plan, credential, dialed)
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn connect_verified_credssp_handoff_for_experimental(
+    plan: &NonSecretConnectionPlan,
+    credential: &MemoryUserCredential,
+    runtime: ConnectorRuntimePolicy,
+) -> Result<
+    ConnectorCredsspHandoff<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
+    BackendError,
+> {
+    let begin_handoff =
+        begin_connector_handoff_with_tcp_dial_for_probe(plan, credential, runtime.dial_timeout)?;
+
+    upgrade_connector_handoff_tls_for_probe(begin_handoff)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -2247,6 +2279,46 @@ mod tests {
         ));
         assert!(!bytes_contain_secret(
             &capture.tls_plaintext,
+            credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_experimental_open_boundary_reaches_credssp_handoff_without_password() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        plan.upstream_host = listener_addr.ip().to_string();
+        plan.upstream_port = listener_addr.port();
+        plan.tls_server_name = "win.example".to_owned();
+        let server = spawn_hybrid_ex_tls_probe_server(listener);
+        let runtime = ConnectorRuntimePolicy {
+            dial_timeout: Duration::from_secs(1),
+        };
+
+        let credssp_handoff =
+            connect_verified_credssp_handoff_for_experimental(&plan, &credential, runtime)
+                .expect("CredSSP-ready handoff");
+        let initial_request = server.join().expect("server thread");
+        let (_tls_stream, leftover) = credssp_handoff.framed.get_inner();
+
+        assert!(credssp_handoff.requires_credssp());
+        assert_eq!(credssp_handoff.server_name(), "win.example");
+        assert!(leftover.is_empty());
+        assert!(!initial_request.is_empty());
+        assert!(!bytes_contain_secret(
+            &initial_request,
             credential.password.value.as_str().as_bytes(),
         ));
     }

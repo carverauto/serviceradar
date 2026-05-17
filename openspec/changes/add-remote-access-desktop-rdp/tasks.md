@@ -199,6 +199,7 @@
 - [x] 3.2.68 Keep the connector-linked verified Rustls upgrade boundary fail-closed when the endpoint certificate is not signed by the registered/pinned RDP trust source.
 - [x] 3.2.69 Apply the selected connector TCP timeout to connected stream reads and writes so later TLS/CredSSP phases fail closed instead of hanging on unresponsive endpoints.
 - [x] 3.2.70 Drive the connector-linked verified TLS handoff into the CredSSP finalization boundary over a real Rustls stream while preserving fail-closed behavior and password redaction.
+- [x] 3.2.71 Add an experimental connector-open boundary that owns TCP dial, NLA negotiation, verified Rustls upgrade, and CredSSP-ready handoff behind the optional connector artifact while runtime readiness remains disabled.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -387,6 +388,7 @@
 - [x] 5.2.95 Add connector-linked loopback Rustls CA-mismatch coverage proving untrusted endpoint certificates fail closed before CredSSP and the pre-TLS request omits cleartext password material.
 - [x] 5.2.96 Add connector-linked TCP dial coverage proving live streams inherit read/write timeouts for bounded TLS/CredSSP failure behavior.
 - [x] 5.2.97 Add connector-linked loopback Rustls finalization coverage proving CredSSP bytes begin only after verified TLS and captured pre-auth plaintext omits cleartext password material.
+- [x] 5.2.98 Add connector-linked loopback coverage proving the experimental connector-open boundary reaches the CredSSP-ready handoff without exposing cleartext password material or enabling runtime readiness.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
