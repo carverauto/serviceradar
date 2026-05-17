@@ -122,6 +122,21 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidatorTest do
     assert "release artifact 1 RDP deployment_requirements.helper_connector_ready_reason is required while helper_connector_ready is false" in messages
   end
 
+  test "rejects RDP artifacts with stale helper readiness reason when connector is ready" do
+    manifest =
+      "1.2.3"
+      |> valid_manifest()
+      |> put_in(["artifacts", Access.at(0)], valid_rdp_artifact("1.2.3"))
+      |> put_in(["artifacts", Access.at(0), "deployment_requirements", "helper_connector_ready"], true)
+
+    assert {:error, errors} =
+             ReleaseManifestValidator.validate("1.2.3", manifest, sign_manifest(manifest))
+
+    messages = Enum.map(errors, & &1.message)
+
+    assert "release artifact 1 RDP deployment_requirements.helper_connector_ready_reason must be absent while helper_connector_ready is true" in messages
+  end
+
   defp valid_manifest(version) do
     %{
       "version" => version,

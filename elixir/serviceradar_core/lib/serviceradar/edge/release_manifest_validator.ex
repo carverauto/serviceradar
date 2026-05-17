@@ -379,18 +379,32 @@ defmodule ServiceRadar.Edge.ReleaseManifestValidator do
   end
 
   defp validate_rdp_connector_ready_reason(errors, requirements, index) do
-    if Map.get(requirements, "helper_connector_ready") == false and
-         not non_empty_string?(Map.get(requirements, "helper_connector_ready_reason")) do
-      [
-        %{
-          field: :manifest,
-          message:
-            "release artifact #{index} RDP deployment_requirements.helper_connector_ready_reason is required while helper_connector_ready is false"
-        }
-        | errors
-      ]
-    else
-      errors
+    ready? = Map.get(requirements, "helper_connector_ready")
+    reason? = non_empty_string?(Map.get(requirements, "helper_connector_ready_reason"))
+
+    cond do
+      ready? == false and not reason? ->
+        [
+          %{
+            field: :manifest,
+            message:
+              "release artifact #{index} RDP deployment_requirements.helper_connector_ready_reason is required while helper_connector_ready is false"
+          }
+          | errors
+        ]
+
+      ready? == true and reason? ->
+        [
+          %{
+            field: :manifest,
+            message:
+              "release artifact #{index} RDP deployment_requirements.helper_connector_ready_reason must be absent while helper_connector_ready is true"
+          }
+          | errors
+        ]
+
+      true ->
+        errors
     end
   end
 

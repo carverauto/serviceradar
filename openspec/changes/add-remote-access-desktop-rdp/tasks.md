@@ -554,6 +554,7 @@
 - [x] 6.2.5 Reject helper install commands for unsupported/non-RDP artifact capabilities so base agent artifacts cannot bypass RDP readiness checks.
 - [x] 6.2.6 Require experimental RDP release metadata to include `helper_connector_ready_reason` whenever `helper_connector_ready` is false.
 - [x] 6.2.7 Reject RDP release metadata that omits `helper_connector_ready_reason` for connector-not-ready experimental artifacts or includes it on connector-ready artifacts.
+- [x] 6.2.8 Align core release-manifest validation with agent-side RDP readiness metadata rules so connector-ready artifacts cannot retain stale not-ready reasons.
 - [x] 6.3 Update web-ng EdgeOps artifact discovery to hide RDP-enabled artifacts unless the deployment has remote-access/RDP enabled by operator policy.
 - [x] 6.4 Update one-click agent deployment to install or update the RDP helper only when the selected artifact declares `remote_access.rdp`.
 - [x] 6.5 Add tests proving base agents do not expose RDP artifacts in EdgeOps by default and RDP-enabled deployments only show signed compatible helper/bundle artifacts.
