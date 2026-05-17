@@ -64,6 +64,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
         "target_tls_mode" => "verify_ca",
         "nla_required" => "true",
         "recording_mode" => "metadata_only",
+        "kdc_proxy_url" => "tcp://kdc.finance.example.test:88",
+        "kerberos_hostname" => "win-finance-1.example.test",
         "max_width" => "1920",
         "max_height" => "1080",
         "frame_rate" => "30",
@@ -84,6 +86,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
     assert target.allowed_principals == ["CARVER\\alice", "CARVER\\bob"]
     assert target.screen_policy["max_width"] == 1920
     assert target.redirection_policy["clipboard"] == "disabled"
+    assert target.metadata["rdp.kdc_proxy_url"] == "tcp://kdc.finance.example.test:88"
+    assert target.metadata["rdp.kerberos_hostname"] == "win-finance-1.example.test"
   end
 
   test "edits and disables an RDP desktop target", %{conn: conn, scope: scope} do
@@ -98,7 +102,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
         Map.merge(target_form_params(target), %{
           "description" => "Updated target",
           "target_port" => "3390",
-          "clipboard" => "local_to_remote"
+          "clipboard" => "local_to_remote",
+          "kdc_proxy_url" => "tcp://kdc.patch.example.test:88",
+          "kerberos_hostname" => "rdp-patch.example.test"
         })
     )
     |> render_submit()
@@ -111,6 +117,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
     updated = get_target_by_name!(scope, target.name)
     assert updated.target_port == 3390
     assert updated.redirection_policy["clipboard"] == "local_to_remote"
+    assert updated.metadata["rdp.kdc_proxy_url"] == "tcp://kdc.patch.example.test:88"
+    assert updated.metadata["rdp.kerberos_hostname"] == "rdp-patch.example.test"
+    assert updated.metadata["existing"] == "kept"
 
     lv
     |> element("button[phx-click='disable_target'][phx-value-id='#{target.id}']")
@@ -119,6 +128,44 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
     html = render(lv)
     assert html =~ "RDP desktop target disabled"
     assert get_target_by_name!(scope, target.name).enabled == false
+  end
+
+  test "rejects non-TCP KDC proxy URLs in the settings form", %{conn: conn} do
+    target_name = "Invalid KDC #{System.unique_integer([:positive])}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/desktop-targets/new")
+
+    html =
+      lv
+      |> form("form[phx-submit='save_target']",
+        desktop_target: %{
+          "name" => target_name,
+          "description" => "",
+          "enabled" => "true",
+          "target_kind" => "inventory_device",
+          "device_uid" => "win-invalid-kdc-1",
+          "target_host" => "win-invalid-kdc-1.example.test",
+          "target_port" => "3389",
+          "agent_id" => "agent-invalid-kdc",
+          "gateway_id" => "gateway-invalid-kdc",
+          "credential_custody_mode" => "user_present",
+          "credential_rule_id" => "",
+          "target_tls_mode" => "verify_ca",
+          "nla_required" => "true",
+          "recording_mode" => "metadata_only",
+          "kdc_proxy_url" => "https://kdc.example.test",
+          "kerberos_hostname" => "win-invalid-kdc-1.example.test",
+          "max_width" => "",
+          "max_height" => "",
+          "frame_rate" => "",
+          "bitrate_kbps" => "",
+          "clipboard" => "disabled",
+          "allowed_principals" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "KDC Proxy URL must use tcp://"
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do
@@ -144,7 +191,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
         target_tls: %{"mode" => "verify_ca"},
         nla: %{"required" => true},
         redirection_policy: %{"clipboard" => "disabled"},
-        recording_policy: %{"mode" => "metadata_only"}
+        recording_policy: %{"mode" => "metadata_only"},
+        metadata: %{"existing" => "kept"}
       },
       actor: system_actor()
     )
@@ -166,6 +214,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
       "target_tls_mode" => target.target_tls["mode"],
       "nla_required" => "true",
       "recording_mode" => target.recording_policy["mode"],
+      "kdc_proxy_url" => target.metadata["rdp.kdc_proxy_url"] || "",
+      "kerberos_hostname" => target.metadata["rdp.kerberos_hostname"] || "",
       "max_width" => "",
       "max_height" => "",
       "frame_rate" => "",

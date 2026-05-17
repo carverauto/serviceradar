@@ -332,6 +332,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
             </fieldset>
 
             <fieldset class="rounded-lg border border-base-300 p-4">
+              <legend class="px-1 text-sm font-medium">Kerberos Routing</legend>
+              <div class="space-y-3">
+                <.input field={@form[:kdc_proxy_url]} label="KDC Proxy URL" />
+                <.input field={@form[:kerberos_hostname]} label="Kerberos Hostname" />
+              </div>
+            </fieldset>
+
+            <fieldset class="rounded-lg border border-base-300 p-4">
               <legend class="px-1 text-sm font-medium">Screen Policy</legend>
               <div class="grid gap-3 sm:grid-cols-2">
                 <.input field={@form[:max_width]} type="number" label="Max Width" min="1" />
@@ -428,6 +436,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   end
 
   defp save_target(%{assigns: %{form_mode: :edit, editing_target: %RemoteAccessDesktopTarget{} = target}} = socket, attrs) do
+    attrs = merge_existing_target_metadata(attrs, target)
+
     case RemoteAccessDesktopTargets.update_managed(socket.assigns.current_scope, target, attrs) do
       {:ok, _target} ->
         {:noreply,
@@ -468,7 +478,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
          {:ok, target_kind} <- enum_value(params["target_kind"], @target_kinds, "target_kind"),
          {:ok, credential_mode} <-
            enum_value(params["credential_custody_mode"], @credential_modes, "credential_custody_mode"),
-         {:ok, credential_rule_id} <- optional_uuid(params["credential_rule_id"]) do
+         {:ok, credential_rule_id} <- optional_uuid(params["credential_rule_id"]),
+         {:ok, kdc_proxy_url} <- optional_kdc_proxy_url(params["kdc_proxy_url"]),
+         {:ok, kerberos_hostname} <- optional_kerberos_hostname(params["kerberos_hostname"]) do
       {:ok,
        %{
          name: name,
@@ -488,10 +500,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
          nla: %{"required" => truthy?(params["nla_required"])},
          screen_policy: screen_policy(params),
          redirection_policy: %{"clipboard" => safe_option(params["clipboard"], @clipboard_modes, "disabled")},
-         recording_policy: %{"mode" => safe_option(params["recording_mode"], @recording_modes, "metadata_only")}
+         recording_policy: %{"mode" => safe_option(params["recording_mode"], @recording_modes, "metadata_only")},
+         metadata: rdp_kerberos_metadata(kdc_proxy_url, kerberos_hostname)
        }}
     end
   end
+
+  defp merge_existing_target_metadata(%{metadata: metadata} = attrs, %RemoteAccessDesktopTarget{} = target)
+       when is_map(metadata) do
+    existing =
+      target.metadata
+      |> normalize_metadata()
+      |> Map.drop(["rdp.kdc_proxy_url", "rdp.kerberos_hostname"])
+
+    Map.put(attrs, :metadata, Map.merge(existing, metadata))
+  end
+
+  defp merge_existing_target_metadata(attrs, _target), do: attrs
 
   defp required_string(params, key) do
     case blank_to_nil(params[key]) do
@@ -544,6 +569,45 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
     end
   end
 
+  defp rdp_kerberos_metadata(kdc_proxy_url, kerberos_hostname) do
+    %{}
+    |> put_metadata_string("rdp.kdc_proxy_url", kdc_proxy_url)
+    |> put_metadata_string("rdp.kerberos_hostname", kerberos_hostname)
+  end
+
+  defp put_metadata_string(map, key, value) do
+    case blank_to_nil(value) do
+      nil -> map
+      value -> Map.put(map, key, value)
+    end
+  end
+
+  defp optional_kdc_proxy_url(value) do
+    case blank_to_nil(value) do
+      nil ->
+        {:ok, nil}
+
+      value ->
+        uri = URI.parse(value)
+
+        cond do
+          uri.scheme != "tcp" ->
+            {:error, "KDC Proxy URL must use tcp://"}
+
+          blank_to_nil(uri.host) == nil ->
+            {:error, "KDC Proxy URL must include a host"}
+
+          uri.userinfo || uri.path not in [nil, ""] || uri.query || uri.fragment ->
+            {:error, "KDC Proxy URL must be a tcp://host[:port] endpoint"}
+
+          true ->
+            {:ok, value}
+        end
+    end
+  end
+
+  defp optional_kerberos_hostname(value), do: {:ok, blank_to_nil(value)}
+
   defp parse_positive_integer(value) when is_integer(value) and value > 0, do: value
 
   defp parse_positive_integer(value) when is_binary(value) do
@@ -571,6 +635,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       "target_tls_mode" => "verify_ca",
       "nla_required" => "true",
       "recording_mode" => "metadata_only",
+      "kdc_proxy_url" => "",
+      "kerberos_hostname" => "",
       "max_width" => "",
       "max_height" => "",
       "frame_rate" => "",
@@ -596,6 +662,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       "target_tls_mode" => policy_value(target.target_tls, "mode", "verify_ca"),
       "nla_required" => if(policy_value(target.nla, "required", true), do: "true", else: "false"),
       "recording_mode" => policy_value(target.recording_policy, "mode", "metadata_only"),
+      "kdc_proxy_url" => policy_value(target.metadata, "rdp.kdc_proxy_url", ""),
+      "kerberos_hostname" => policy_value(target.metadata, "rdp.kerberos_hostname", ""),
       "max_width" => policy_number(target.screen_policy, "max_width"),
       "max_height" => policy_number(target.screen_policy, "max_height"),
       "frame_rate" => policy_number(target.screen_policy, "frame_rate"),
@@ -631,6 +699,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   end
 
   defp blank_to_nil(_value), do: nil
+
+  defp normalize_metadata(metadata) when is_map(metadata), do: metadata
+  defp normalize_metadata(_metadata), do: %{}
 
   defp policy_value(map, key, default) when is_map(map), do: Map.get(map, key, default)
   defp policy_value(_map, _key, default), do: default

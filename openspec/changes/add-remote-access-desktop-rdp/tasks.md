@@ -244,6 +244,7 @@
 - [x] 4.1.1 Add a durable Ash/Postgres registered RDP desktop target resource with route, credential custody, TLS/NLA, screen, redirection, recording, approval, and metadata fields.
 - [x] 4.1.2 Add a `settings.edge.manage`-gated admin API for listing, creating, updating, enabling, and disabling registered RDP desktop targets without exposing plaintext credential-shaped fields.
 - [x] 4.1.3 Add a `settings.edge.manage`-gated settings LiveView for listing, creating, editing, enabling, and disabling RDP desktop targets with route, TLS/NLA, screen, clipboard redirection, recording, and allowed-principal controls.
+- [x] 4.1.4 Add operator-facing Kerberos/KDC routing fields for RDP desktop targets and keep browser session metadata from overriding those trusted values.
 - [ ] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
 - [ ] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
 - [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
@@ -294,6 +295,7 @@
 - [x] 5.1.23 Add focused browser component and LiveView hook tests for the RDP session shell policy posture, WebRTC availability state, prop parsing, and unmount cleanup.
 - [x] 5.1.24 Add focused browser component tests proving the RDP session shell renders backpressure queue state without exposing secret-shaped policy fields.
 - [x] 5.1.25 Add focused browser renderer-state and component tests proving RDP TLS/NLA transport posture is visible without exposing secret-shaped policy fields.
+- [x] 5.1.26 Add focused LiveView/controller coverage proving RDP Kerberos/KDC routing metadata is operator-managed and browser session metadata cannot override it.
 - [x] 5.2 Add RDP adapter tests for TLS/NLA policy, credential non-persistence, rendering frames, resize, keyboard/pointer events, backpressure, cancellation, and cleanup.
 - [x] 5.2.1 Add focused Go tests for brokered desktop credential custody binding and memory-user credential completeness.
 - [x] 5.2.2 Add focused Go tests for desktop credential grant cleanup semantics.

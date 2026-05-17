@@ -526,7 +526,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
         "bitrate_kbps" => 6000
       })
       |> put_in([:metadata, "redirection_policy"], %{"clipboard" => "local_to_remote"})
-      |> put_in([:metadata, "metadata"], %{"allowed_principals" => ["alice@example.com"]})
+      |> put_in([:metadata, "rdp.kdc_proxy_url"], "tcp://kdc.example.com:88")
+      |> put_in([:metadata, "rdp.kerberos_hostname"], "win-01.example.com")
+      |> put_in([:metadata, "metadata"], %{
+        "allowed_principals" => ["alice@example.com"]
+      })
 
     start_supervised!(
       {RemoteAccessBroker,
@@ -578,6 +582,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert target["screen"]["bitrate_bps"] == 6_000_000
     assert target["redirection"]["clipboard_mode"] == "text_to_remote"
     assert target["recording"] == %{"metadata_enabled" => true}
+    assert target["metadata"]["rdp.kdc_proxy_url"] == "tcp://kdc.example.com:88"
+    assert target["metadata"]["rdp.kerberos_hostname"] == "win-01.example.com"
     refute Map.has_key?(target["metadata"], "target_tls")
   end
 

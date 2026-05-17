@@ -36,6 +36,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     password
     principal_mappings
     private_key
+    rdp.kdc_proxy_url
+    rdp.kerberos_hostname
     secret
     secret_payload
     ssh

@@ -197,7 +197,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           screen_policy: %{"max_width" => 1920, "max_height" => 1080},
           redirection_policy: %{"clipboard" => "disabled", "drive" => "disabled"},
           recording_policy: %{"mode" => "metadata_only"},
-          metadata: %{"environment" => "prod", "secret" => "must-not-forward"}
+          metadata: %{
+            "environment" => "prod",
+            "rdp.kdc_proxy_url" => "tcp://kdc.policy.example.com:88",
+            "rdp.kerberos_hostname" => "win-1.example.com",
+            "secret" => "must-not-forward"
+          }
         }
       ])
 
@@ -226,6 +231,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           "desktop_target_id" => "desktop-target-1",
           "metadata" => %{
             "client_trace_id" => "trace-1",
+            "rdp.kdc_proxy_url" => "tcp://kdc.browser.example.com:88",
+            "rdp.kerberos_hostname" => "browser.example.com",
             "target_tls" => %{"mode" => "skip_verify"},
             "password" => "must-not-forward"
           }
@@ -257,6 +264,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.metadata["screen_policy"] == %{"max_width" => 1920, "max_height" => 1080}
       assert request.metadata["redirection_policy"] == %{"clipboard" => "disabled", "drive" => "disabled"}
       assert request.metadata["environment"] == "prod"
+      assert request.metadata["rdp.kdc_proxy_url"] == "tcp://kdc.policy.example.com:88"
+      assert request.metadata["rdp.kerberos_hostname"] == "win-1.example.com"
       assert request.metadata["client_trace_id"] == "trace-1"
       refute Map.has_key?(request.metadata, "password")
       refute Map.has_key?(request.metadata, "secret")
