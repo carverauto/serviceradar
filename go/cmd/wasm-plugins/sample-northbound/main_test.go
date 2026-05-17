@@ -99,6 +99,65 @@ func TestInterfaceAuditAction(t *testing.T) {
 	}
 }
 
+func TestDeviceLookupDeferredLifecycle(t *testing.T) {
+	launchConfig := mustParseActionConfig(t, `{
+		"action_invocation": {
+			"schema": "serviceradar.northbound_action_invocation.v1",
+			"invocation_id": "inv-device-async",
+			"action_id": "sample.device.lookup",
+			"targets": [{
+				"kind": "device",
+				"device_uid": "sr:device-1",
+				"device_ip": "192.0.2.10"
+			}],
+			"input_values": {
+				"execution_mode": "deferred"
+			}
+		}
+	}`)
+
+	launchResult := handleAction(launchConfig, decodePluginConfig(launchConfig))
+	if launchResult.Status != sdk.ActionStatusDeferred {
+		t.Fatalf("launch status = %s", launchResult.Status)
+	}
+	if launchResult.NextPollDelaySeconds != 1 {
+		t.Fatalf("next poll delay = %d", launchResult.NextPollDelaySeconds)
+	}
+
+	pollConfig := mustParseActionConfig(t, `{
+		"action_invocation": {
+			"schema": "serviceradar.northbound_action_invocation.v1",
+			"phase": "poll",
+			"invocation_id": "inv-device-async",
+			"invocation_target_id": "target-1",
+			"action_id": "sample.device.lookup",
+			"poll_attempt_count": 0,
+			"continuation_state": {
+				"external_task_id": "external-123"
+			},
+			"targets": [{
+				"kind": "device",
+				"device_uid": "sr:device-1",
+				"device_ip": "192.0.2.10"
+			}]
+		}
+	}`)
+
+	pollResult := handleAction(pollConfig, decodePluginConfig(pollConfig))
+	if pollResult.Status != sdk.ActionStatusFetching {
+		t.Fatalf("poll status = %s", pollResult.Status)
+	}
+
+	pollConfig.ActionInvocation.PollAttemptCount = 1
+	finalResult := handleAction(pollConfig, decodePluginConfig(pollConfig))
+	if finalResult.Status != sdk.ActionStatusSucceeded {
+		t.Fatalf("final status = %s", finalResult.Status)
+	}
+	if finalResult.Summary["external_task_id"] != "external-123" {
+		t.Fatalf("external task id = %v", finalResult.Summary["external_task_id"])
+	}
+}
+
 func TestNormalizeActionInvocationConfigConvertsNumericInterfaceStatuses(t *testing.T) {
 	raw := map[string]any{
 		"action_invocation": map[string]any{

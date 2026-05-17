@@ -220,6 +220,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert empty_html =~ "Newly launched tasks appear here"
   end
 
+  test "northbound action history explains long-running progress" do
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        title: "Task History",
+        subtitle: "Recent actions",
+        entries: [
+          %{
+            invocation_id: "018f2fd1-f0ff-7cf0-9dc0-000000000998",
+            action_label: "Sample Device Lookup",
+            provider_name: "Sample Northbound NMS",
+            state: :polling,
+            target_status: :result_fetching,
+            target_kind: :device,
+            device_uid: "sr:b195e",
+            inserted_at: ~U[2026-05-17 00:17:02Z],
+            next_poll_at: ~U[2026-05-17 00:17:32Z],
+            poll_attempt_count: 2,
+            target_result: %{},
+            result_summary: %{},
+            redacted_input_values: %{"execution_mode" => "deferred"}
+          }
+        ],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert html =~ "Result fetching"
+    assert html =~ "Fetching external task results"
+    assert html =~ "next poll 2026-05-17 00:17:32"
+    assert html =~ "poll 2"
+  end
+
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
     uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
 

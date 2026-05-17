@@ -32,7 +32,11 @@ defmodule ServiceRadar.Automation.Northbound.History do
           target_result: map(),
           error_class: String.t() | nil,
           error_message: String.t() | nil,
-          external_correlation_id: String.t() | nil
+          external_correlation_id: String.t() | nil,
+          next_poll_at: DateTime.t() | nil,
+          poll_deadline_at: DateTime.t() | nil,
+          last_poll_at: DateTime.t() | nil,
+          poll_attempt_count: non_neg_integer()
         }
 
   @spec list_for_device(String.t(), keyword()) :: {:ok, [history_entry()]} | {:error, term()}
@@ -108,7 +112,11 @@ defmodule ServiceRadar.Automation.Northbound.History do
       error_class: value(invocation, :error_class),
       error_message: value(invocation, :error_message),
       external_correlation_id:
-        target.external_correlation_id || value(invocation, :external_correlation_id)
+        target.external_correlation_id || value(invocation, :external_correlation_id),
+      next_poll_at: target.next_poll_at,
+      poll_deadline_at: target.poll_deadline_at,
+      last_poll_at: target.last_poll_at,
+      poll_attempt_count: target.poll_attempt_count || 0
     }
   end
 

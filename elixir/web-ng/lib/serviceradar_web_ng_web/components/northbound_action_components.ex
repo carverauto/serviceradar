@@ -316,13 +316,20 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp action_state_badge_class(:suppressed), do: "badge badge-warning badge-sm"
   defp action_state_badge_class(:running), do: "badge badge-info badge-sm"
   defp action_state_badge_class(:dispatching), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:polling), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:result_fetching), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:expired), do: "badge badge-error badge-sm"
   defp action_state_badge_class(_state), do: "badge badge-ghost badge-sm"
 
   defp target_status_badge_class(:succeeded), do: "badge badge-success badge-sm"
   defp target_status_badge_class(:failed), do: "badge badge-error badge-sm"
   defp target_status_badge_class(:skipped), do: "badge badge-warning badge-sm"
   defp target_status_badge_class(:suppressed), do: "badge badge-warning badge-sm"
+  defp target_status_badge_class(:canceled), do: "badge badge-warning badge-sm"
   defp target_status_badge_class(:running), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(:polling), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(:result_fetching), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(:expired), do: "badge badge-error badge-sm"
   defp target_status_badge_class(_status), do: "badge badge-ghost badge-sm"
 
   defp action_state_label(nil), do: "Pending"
@@ -351,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     Enum.find(
       [
         Map.get(entry, :error_message),
+        history_progress_summary(entry),
         summary_value(Map.get(entry, :target_result)),
         summary_value(Map.get(entry, :result_summary)),
         Map.get(entry, :external_correlation_id)
@@ -380,6 +388,39 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   end
 
   defp summary_value(_value), do: nil
+
+  defp history_progress_summary(entry) do
+    case Map.get(entry, :target_status) || Map.get(entry, :state) do
+      status when status in [:polling, :result_fetching] ->
+        progress_summary(status, entry)
+
+      :expired ->
+        "External task expired"
+
+      _ ->
+        nil
+    end
+  end
+
+  defp progress_summary(:result_fetching, entry), do: poll_summary("Fetching external task results", entry)
+
+  defp progress_summary(_status, entry), do: poll_summary("Waiting for external task", entry)
+
+  defp poll_summary(prefix, entry) do
+    [
+      prefix,
+      next_poll_text(Map.get(entry, :next_poll_at)),
+      poll_attempt_text(Map.get(entry, :poll_attempt_count))
+    ]
+    |> Enum.filter(&ActionForm.present_text?/1)
+    |> Enum.join(" · ")
+  end
+
+  defp next_poll_text(nil), do: nil
+  defp next_poll_text(value), do: "next poll #{format_history_timestamp(value)}"
+
+  defp poll_attempt_text(count) when is_integer(count) and count > 0, do: "poll #{count}"
+  defp poll_attempt_text(_count), do: nil
 
   defp present_summary_text(value) when is_binary(value) do
     value = String.trim(value)

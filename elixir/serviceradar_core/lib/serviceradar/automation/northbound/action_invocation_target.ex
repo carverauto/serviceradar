@@ -6,7 +6,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
   use Ash.Resource,
     domain: ServiceRadar.Automation.Northbound,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    extensions: [AshStateMachine]
 
   alias ServiceRadar.Automation.Northbound.Changes.RedactTargetResult
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -24,13 +25,68 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
   end
 
+  state_machine do
+    initial_states [:pending]
+    default_initial_state :pending
+    state_attribute :status
+
+    transitions do
+      transition :record_running, from: :pending, to: :running
+
+      transition :record_deferred,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :polling
+
+      transition :record_polling, from: [:running, :polling, :result_fetching], to: :polling
+
+      transition :record_result_fetching,
+        from: [:running, :polling, :result_fetching],
+        to: :result_fetching
+
+      transition :record_succeeded,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :succeeded
+
+      transition :record_failed,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :failed
+
+      transition :record_skipped,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :skipped
+
+      transition :record_suppressed,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :suppressed
+
+      transition :record_expired,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :expired
+
+      transition :record_canceled,
+        from: [:pending, :running, :polling, :result_fetching],
+        to: :canceled
+    end
+  end
+
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_for_invocation, action: :for_invocation, args: [:invocation_id]
     define :list_for_device, action: :for_device, args: [:device_uid]
     define :list_for_interface, action: :for_interface, args: [:device_uid, :interface_uid]
+    define :list_poll_due, action: :poll_due, args: [:now]
     define :create_target, action: :create
     define :record_result, action: :record_result
+    define :record_running, action: :record_running
+    define :record_deferred, action: :record_deferred
+    define :record_polling, action: :record_polling
+    define :record_result_fetching, action: :record_result_fetching
+    define :record_succeeded, action: :record_succeeded
+    define :record_failed, action: :record_failed
+    define :record_skipped, action: :record_skipped
+    define :record_suppressed, action: :record_suppressed
+    define :record_expired, action: :record_expired
+    define :record_canceled, action: :record_canceled
   end
 
   actions do
@@ -68,6 +124,17 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
       prepare build(sort: [inserted_at: :desc])
     end
 
+    read :poll_due do
+      argument :now, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               status in [:polling, :result_fetching] and not is_nil(next_poll_at) and
+                 next_poll_at <= ^arg(:now)
+             )
+
+      prepare build(sort: [next_poll_at: :asc])
+    end
+
     create :create do
       accept [
         :invocation_id,
@@ -78,6 +145,11 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
         :status,
         :result,
         :external_correlation_id,
+        :continuation_state,
+        :next_poll_at,
+        :poll_deadline_at,
+        :last_poll_at,
+        :poll_attempt_count,
         :started_at,
         :completed_at
       ]
@@ -86,8 +158,142 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
 
     update :record_result do
-      accept [:status, :result, :external_correlation_id, :started_at, :completed_at]
+      accept [
+        :status,
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :next_poll_at,
+        :poll_deadline_at,
+        :last_poll_at,
+        :poll_attempt_count,
+        :started_at,
+        :completed_at
+      ]
+
       change RedactTargetResult
+    end
+
+    update :record_running do
+      accept [:result, :external_correlation_id]
+      change RedactTargetResult
+      change set_attribute(:started_at, &DateTime.utc_now/0)
+      change transition_state(:running)
+    end
+
+    update :record_deferred do
+      accept [
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :next_poll_at,
+        :poll_deadline_at,
+        :last_poll_at,
+        :poll_attempt_count
+      ]
+
+      change RedactTargetResult
+      change set_attribute(:started_at, &DateTime.utc_now/0)
+      change transition_state(:polling)
+    end
+
+    update :record_polling do
+      accept [
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :next_poll_at,
+        :poll_deadline_at,
+        :last_poll_at,
+        :poll_attempt_count
+      ]
+
+      change RedactTargetResult
+      change transition_state(:polling)
+    end
+
+    update :record_result_fetching do
+      accept [
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :next_poll_at,
+        :poll_deadline_at,
+        :last_poll_at,
+        :poll_attempt_count
+      ]
+
+      change RedactTargetResult
+      change transition_state(:result_fetching)
+    end
+
+    update :record_succeeded do
+      accept [
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :last_poll_at,
+        :poll_attempt_count
+      ]
+
+      change RedactTargetResult
+      change set_attribute(:next_poll_at, nil)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:succeeded)
+    end
+
+    update :record_failed do
+      accept [
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :last_poll_at,
+        :poll_attempt_count
+      ]
+
+      change RedactTargetResult
+      change set_attribute(:next_poll_at, nil)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:failed)
+    end
+
+    update :record_skipped do
+      accept [:result, :external_correlation_id]
+      change RedactTargetResult
+      change set_attribute(:next_poll_at, nil)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:skipped)
+    end
+
+    update :record_suppressed do
+      accept [:result, :external_correlation_id]
+      change RedactTargetResult
+      change set_attribute(:next_poll_at, nil)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:suppressed)
+    end
+
+    update :record_expired do
+      accept [
+        :result,
+        :external_correlation_id,
+        :continuation_state,
+        :last_poll_at,
+        :poll_attempt_count
+      ]
+
+      change RedactTargetResult
+      change set_attribute(:next_poll_at, nil)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:expired)
+    end
+
+    update :record_canceled do
+      accept [:result, :external_correlation_id]
+      change RedactTargetResult
+      change set_attribute(:next_poll_at, nil)
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:canceled)
     end
   end
 
@@ -97,7 +303,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     system_bypass()
 
     action_with_permission(
-      [:read, :by_id, :for_invocation, :for_device, :for_interface],
+      [:read, :by_id, :for_invocation, :for_device, :for_interface, :poll_due],
       @view_check
     )
 
@@ -129,7 +335,19 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
       allow_nil? false
       public? true
       default :pending
-      constraints one_of: [:pending, :running, :succeeded, :failed, :skipped, :suppressed]
+
+      constraints one_of: [
+                    :pending,
+                    :running,
+                    :polling,
+                    :result_fetching,
+                    :succeeded,
+                    :failed,
+                    :skipped,
+                    :suppressed,
+                    :expired,
+                    :canceled
+                  ]
     end
 
     attribute :result, :map do
@@ -139,6 +357,19 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocationTarget do
     end
 
     attribute :external_correlation_id, :string, allow_nil?: true, public?: true
+
+    attribute :continuation_state, :map do
+      allow_nil? false
+      public? false
+      sensitive? true
+      default %{}
+    end
+
+    attribute :next_poll_at, :utc_datetime_usec, allow_nil?: true, public?: true
+    attribute :poll_deadline_at, :utc_datetime_usec, allow_nil?: true, public?: true
+    attribute :last_poll_at, :utc_datetime_usec, allow_nil?: true, public?: true
+    attribute :poll_attempt_count, :integer, allow_nil?: false, public?: true, default: 0
+
     attribute :started_at, :utc_datetime_usec, allow_nil?: true, public?: true
     attribute :completed_at, :utc_datetime_usec, allow_nil?: true, public?: true
 

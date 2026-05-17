@@ -6,6 +6,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
+  alias ServiceRadar.Automation.Northbound.PollWorker
   alias ServiceRadar.Edge.AgentCommand
 
   require Logger
@@ -49,10 +50,21 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
          {:ok, invocation_id} <- context_invocation_id(context),
          {:ok, invocation} <- get_invocation(invocation_id, actor) do
       payload = normalize_payload(map_get(data, :payload, %{}))
-      success? = map_get(data, :success, false) == true and result_status(payload) != :failed
+      status = result_status(payload)
 
-      record_target_results(invocation, payload, success?, actor)
-      record_invocation_result(invocation, data, payload, success?, actor)
+      success? =
+        status == :succeeded or
+          (map_get(data, :success, false) == true and status not in [:failed, :expired])
+
+      terminal_status = terminal_status(status, success?)
+
+      if status in [:deferred, :polling, :result_fetching] do
+        record_deferred_results(invocation, payload, status, actor)
+        record_invocation_deferred(invocation, data, payload, status, actor)
+      else
+        record_target_results(invocation, payload, terminal_status, actor)
+        record_invocation_result(invocation, data, payload, terminal_status, actor)
+      end
     else
       {:error, :not_northbound_command} ->
         :ok
@@ -89,7 +101,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
     end
   end
 
-  defp record_invocation_result(invocation, data, payload, true, actor) do
+  defp record_invocation_result(invocation, data, payload, :succeeded, actor) do
     ActionInvocation.record_succeeded(
       invocation,
       %{
@@ -100,7 +112,20 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
     )
   end
 
-  defp record_invocation_result(invocation, data, payload, false, actor) do
+  defp record_invocation_result(invocation, data, payload, :expired, actor) do
+    ActionInvocation.record_expired(
+      invocation,
+      %{
+        result_summary: result_summary(data, payload),
+        external_correlation_id: external_correlation_id(payload),
+        error_class: to_string(map_get(payload, :error_class, "provider_timeout")),
+        error_message: error_message(data, payload)
+      },
+      actor: actor
+    )
+  end
+
+  defp record_invocation_result(invocation, data, payload, _status, actor) do
     ActionInvocation.record_failed(
       invocation,
       %{
@@ -113,29 +138,94 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
     )
   end
 
-  defp record_target_results(invocation, payload, success?, actor) do
+  defp record_invocation_deferred(invocation, data, payload, :result_fetching, actor) do
+    ActionInvocation.record_result_fetching(
+      invocation,
+      %{
+        result_summary: result_summary(data, payload),
+        external_correlation_id: external_correlation_id(payload)
+      },
+      actor: actor
+    )
+  end
+
+  defp record_invocation_deferred(invocation, data, payload, _status, actor) do
+    ActionInvocation.record_polling(
+      invocation,
+      %{
+        result_summary: result_summary(data, payload),
+        external_correlation_id: external_correlation_id(payload)
+      },
+      actor: actor
+    )
+  end
+
+  defp record_deferred_results(invocation, payload, fallback_status, actor) do
     targets = list_targets(invocation.id, actor)
     target_payloads = payload |> map_get(:targets, []) |> List.wrap()
-    fallback_status = if(success?, do: :succeeded, else: :failed)
-    now = DateTime.utc_now()
 
     Enum.each(targets, fn target ->
-      result_payload = matching_target_payload(target, target_payloads) || %{}
+      result_payload = matching_target_payload(target, target_payloads) || payload
+
+      status =
+        normalize_status(map_get(result_payload, :status, fallback_status), fallback_status)
+
+      next_poll_at = next_poll_at(result_payload) || next_poll_at(payload)
+      attrs = deferred_attrs(target, result_payload, payload, next_poll_at)
+
+      updated =
+        case status do
+          :result_fetching ->
+            ActionInvocationTarget.record_result_fetching(target, attrs, actor: actor)
+
+          _ ->
+            ActionInvocationTarget.record_deferred(target, attrs, actor: actor)
+        end
+
+      case updated do
+        {:ok, updated_target} -> _ = PollWorker.schedule_target(updated_target, next_poll_at)
+        _ -> :ok
+      end
+    end)
+  end
+
+  defp record_target_results(invocation, payload, fallback_status, actor) do
+    targets = list_targets(invocation.id, actor)
+    target_payloads = payload |> map_get(:targets, []) |> List.wrap()
+
+    Enum.each(targets, fn target ->
+      result_payload = matching_target_payload(target, target_payloads) || payload
 
       status =
         normalize_status(map_get(result_payload, :status, fallback_status), fallback_status)
 
       attrs = %{
-        status: status,
-        completed_at: now,
         result: normalize_target_result(result_payload, payload),
         external_correlation_id:
           external_correlation_id(result_payload) || external_correlation_id(payload)
       }
 
-      _ = ActionInvocationTarget.record_result(target, attrs, actor: actor)
+      _ = record_terminal_target_result(target, status, attrs, actor)
     end)
   end
+
+  defp record_terminal_target_result(target, :succeeded, attrs, actor),
+    do: ActionInvocationTarget.record_succeeded(target, attrs, actor: actor)
+
+  defp record_terminal_target_result(target, :skipped, attrs, actor),
+    do: ActionInvocationTarget.record_skipped(target, attrs, actor: actor)
+
+  defp record_terminal_target_result(target, :suppressed, attrs, actor),
+    do: ActionInvocationTarget.record_suppressed(target, attrs, actor: actor)
+
+  defp record_terminal_target_result(target, :expired, attrs, actor),
+    do: ActionInvocationTarget.record_expired(target, attrs, actor: actor)
+
+  defp record_terminal_target_result(target, :canceled, attrs, actor),
+    do: ActionInvocationTarget.record_canceled(target, attrs, actor: actor)
+
+  defp record_terminal_target_result(target, _status, attrs, actor),
+    do: ActionInvocationTarget.record_failed(target, attrs, actor: actor)
 
   defp list_targets(invocation_id, actor) do
     case ActionInvocationTarget.list_for_invocation(invocation_id, actor: actor) do
@@ -186,8 +276,26 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
 
   defp result_status(payload), do: normalize_status(map_get(payload, :status, nil), :unknown)
 
+  defp terminal_status(status, _success?)
+       when status in [:succeeded, :failed, :skipped, :suppressed, :expired, :canceled],
+       do: status
+
+  defp terminal_status(_status, true), do: :succeeded
+  defp terminal_status(_status, false), do: :failed
+
   defp normalize_status(status, _fallback)
-       when status in [:succeeded, :failed, :skipped, :suppressed], do: status
+       when status in [
+              :succeeded,
+              :failed,
+              :skipped,
+              :suppressed,
+              :deferred,
+              :polling,
+              :result_fetching,
+              :expired,
+              :canceled
+            ],
+       do: status
 
   defp normalize_status(status, fallback) when is_binary(status) do
     case status |> String.trim() |> String.downcase() do
@@ -197,6 +305,17 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
       "failed" -> :failed
       "failure" -> :failed
       "error" -> :failed
+      "deferred" -> :deferred
+      "accepted" -> :deferred
+      "pending_external" -> :deferred
+      "polling" -> :polling
+      "running" -> :polling
+      "result_fetching" -> :result_fetching
+      "fetching_results" -> :result_fetching
+      "expired" -> :expired
+      "timeout" -> :expired
+      "canceled" -> :canceled
+      "cancelled" -> :canceled
       "skipped" -> :skipped
       "suppressed" -> :suppressed
       _ -> fallback
@@ -234,6 +353,81 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   defp normalize_payload(payload) when is_map(payload), do: payload
   defp normalize_payload(payload) when is_list(payload), do: %{"targets" => payload}
   defp normalize_payload(payload), do: %{"result" => payload}
+
+  defp deferred_attrs(target, result_payload, payload, next_poll_at) do
+    %{
+      result: normalize_target_result(result_payload, payload),
+      external_correlation_id:
+        external_correlation_id(result_payload) || external_correlation_id(payload),
+      continuation_state:
+        continuation_state(result_payload) || continuation_state(payload) ||
+          target.continuation_state || %{},
+      next_poll_at: next_poll_at,
+      poll_deadline_at:
+        poll_deadline_at(result_payload) || poll_deadline_at(payload) || target.poll_deadline_at,
+      last_poll_at: DateTime.utc_now(),
+      poll_attempt_count: target.poll_attempt_count || 0
+    }
+  end
+
+  defp continuation_state(payload) when is_map(payload) do
+    case map_get(payload, :continuation_state, nil) || map_get(payload, :continuation, nil) do
+      %{} = state -> state
+      _ -> nil
+    end
+  end
+
+  defp continuation_state(_payload), do: nil
+
+  defp next_poll_at(payload) when is_map(payload) do
+    cond do
+      match?(%DateTime{}, map_get(payload, :next_poll_at, nil)) ->
+        dt = map_get(payload, :next_poll_at, nil)
+        dt
+
+      is_binary(map_get(payload, :next_poll_at, nil)) ->
+        parse_datetime(map_get(payload, :next_poll_at, nil))
+
+      is_integer(map_get(payload, :next_poll_delay_seconds, nil)) ->
+        DateTime.add(DateTime.utc_now(), map_get(payload, :next_poll_delay_seconds, nil), :second)
+
+      is_integer(map_get(payload, :poll_after_seconds, nil)) ->
+        DateTime.add(DateTime.utc_now(), map_get(payload, :poll_after_seconds, nil), :second)
+
+      true ->
+        DateTime.add(DateTime.utc_now(), 30, :second)
+    end
+  end
+
+  defp next_poll_at(_payload), do: DateTime.add(DateTime.utc_now(), 30, :second)
+
+  defp poll_deadline_at(payload) when is_map(payload) do
+    cond do
+      match?(%DateTime{}, map_get(payload, :poll_deadline_at, nil)) ->
+        dt = map_get(payload, :poll_deadline_at, nil)
+        dt
+
+      is_binary(map_get(payload, :poll_deadline_at, nil)) ->
+        parse_datetime(map_get(payload, :poll_deadline_at, nil))
+
+      is_integer(map_get(payload, :max_duration_seconds, nil)) ->
+        DateTime.add(DateTime.utc_now(), map_get(payload, :max_duration_seconds, nil), :second)
+
+      true ->
+        nil
+    end
+  end
+
+  defp poll_deadline_at(_payload), do: nil
+
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_datetime(_value), do: nil
 
   defp map_get(map, key, default) when is_map(map) and is_atom(key) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))

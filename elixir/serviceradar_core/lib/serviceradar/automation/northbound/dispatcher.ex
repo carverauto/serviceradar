@@ -44,6 +44,36 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
 
   def dispatch_invocation(_invocation, _opts), do: {:error, :invalid_invocation}
 
+  @spec dispatch_poll(ActionInvocationTarget.t() | String.t(), keyword()) ::
+          {:ok, ActionInvocationTarget.t()} | {:error, term()}
+  def dispatch_poll(target_or_id, opts \\ [])
+
+  def dispatch_poll(%ActionInvocationTarget{} = target, opts) do
+    system_actor = Keyword.get(opts, :system_actor, SystemActor.system(:northbound_dispatcher))
+
+    with {:ok, target} <- load_target(target.id, system_actor),
+         :ok <- validate_pollable(target),
+         {:ok, invocation} <- load_invocation(target.invocation_id, system_actor),
+         :ok <- validate_pollable_invocation(invocation),
+         {:ok, assignment} <- resolve_plugin_assignment(invocation, system_actor),
+         {:ok, _command} <-
+           dispatch_poll_to_assignment(invocation, target, assignment, opts, system_actor),
+         {:ok, target} <- mark_target_poll_dispatched(target, system_actor),
+         {:ok, _invocation} <- mark_invocation_polling(invocation, system_actor) do
+      {:ok, target}
+    end
+  end
+
+  def dispatch_poll(target_id, opts) when is_binary(target_id) do
+    system_actor = Keyword.get(opts, :system_actor, SystemActor.system(:northbound_dispatcher))
+
+    with {:ok, target} <- load_target(target_id, system_actor) do
+      dispatch_poll(target, opts)
+    end
+  end
+
+  def dispatch_poll(_target, _opts), do: {:error, :invalid_target}
+
   defp load_invocation(id, actor) do
     case ActionInvocation.get_by_id(id, actor: actor) do
       {:ok, nil} -> {:error, :invocation_not_found}
@@ -53,10 +83,35 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     end
   end
 
+  defp load_target(id, actor) do
+    case ActionInvocationTarget.get_by_id(id, actor: actor) do
+      {:ok, nil} -> {:error, :target_not_found}
+      {:ok, target} -> {:ok, target}
+      {:error, reason} -> {:error, reason}
+      nil -> {:error, :target_not_found}
+    end
+  end
+
   defp validate_dispatchable(%ActionInvocation{state: :pending}), do: :ok
 
   defp validate_dispatchable(%ActionInvocation{state: state}),
     do: {:error, {:not_dispatchable, state}}
+
+  defp validate_pollable(%ActionInvocationTarget{status: status})
+       when status in [:polling, :result_fetching], do: :ok
+
+  defp validate_pollable(%ActionInvocationTarget{status: status}),
+    do: {:error, {:not_pollable, status}}
+
+  defp validate_pollable_invocation(%ActionInvocation{state: state})
+       when state in [:running, :polling, :result_fetching],
+       do: :ok
+
+  defp validate_pollable_invocation(%ActionInvocation{state: :canceled}),
+    do: {:error, :invocation_canceled}
+
+  defp validate_pollable_invocation(%ActionInvocation{state: state}),
+    do: {:error, {:invocation_not_pollable, state}}
 
   defp dispatch_by_provider(
          %ActionInvocation{provider: %{provider_type: :wasm_plugin}} = invocation,
@@ -210,6 +265,31 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     )
   end
 
+  defp dispatch_poll_to_assignment(invocation, target, assignment, opts, actor) do
+    payload = build_poll_payload(invocation, target, assignment)
+    ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
+    command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
+
+    command_bus.dispatch(
+      assignment.agent_uid,
+      @command_type,
+      payload,
+      ttl_seconds: ttl_seconds,
+      source: :automation,
+      actor: actor,
+      context: %{
+        northbound_invocation_id: invocation.id,
+        northbound_invocation_target_id: target.id,
+        northbound_descriptor_id: invocation.descriptor_id,
+        northbound_provider_id: invocation.provider_id,
+        plugin_assignment_id: assignment.id,
+        plugin_package_id: assignment.plugin_package_id,
+        action_id: invocation.action_id,
+        action_phase: "poll"
+      }
+    )
+  end
+
   defp build_payload(invocation, assignment) do
     %{
       "schema" => "serviceradar.northbound_action_invocation.v1",
@@ -227,6 +307,39 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "redacted_input_values" => invocation.redacted_input_values || %{},
       "requested_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       "metadata" => Map.put(invocation.metadata || %{}, "dispatch_agent_id", assignment.agent_uid)
+    }
+  end
+
+  defp build_poll_payload(invocation, target, assignment) do
+    %{
+      "schema" => "serviceradar.northbound_action_invocation.v1",
+      "phase" => "poll",
+      "invocation_id" => invocation.id,
+      "invocation_target_id" => target.id,
+      "provider_id" => invocation.provider_id,
+      "descriptor_id" => invocation.descriptor_id,
+      "action_id" => invocation.action_id,
+      "action_version" => invocation.action_version,
+      "descriptor_hash" => invocation.descriptor_hash,
+      "result_schema_version" => invocation.descriptor.result_schema_version,
+      "plugin_assignment_id" => assignment.id,
+      "plugin_package_id" => assignment.plugin_package_id,
+      "targets" => [target.target_snapshot],
+      "input_values" => invocation.input_values || %{},
+      "redacted_input_values" => invocation.redacted_input_values || %{},
+      "continuation_state" => target.continuation_state || %{},
+      "external_correlation_id" =>
+        target.external_correlation_id || invocation.external_correlation_id,
+      "poll_attempt_count" => target.poll_attempt_count || 0,
+      "requested_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+      "metadata" =>
+        invocation.metadata
+        |> normalize_map()
+        |> Map.merge(%{
+          "dispatch_agent_id" => assignment.agent_uid,
+          "action_phase" => "poll",
+          "invocation_target_id" => target.id
+        })
     }
   end
 
@@ -260,16 +373,30 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     ActionInvocation.record_running(invocation, actor: actor)
   end
 
-  defp mark_targets_running(invocation, actor) do
-    now = DateTime.utc_now()
+  defp mark_invocation_polling(invocation, actor) do
+    ActionInvocation.record_polling(invocation, %{}, actor: actor)
+  end
 
+  defp mark_target_poll_dispatched(target, actor) do
+    attrs = %{
+      last_poll_at: DateTime.utc_now(),
+      poll_attempt_count: (target.poll_attempt_count || 0) + 1
+    }
+
+    case target.status do
+      :result_fetching ->
+        ActionInvocationTarget.record_result_fetching(target, attrs, actor: actor)
+
+      _ ->
+        ActionInvocationTarget.record_polling(target, attrs, actor: actor)
+    end
+  end
+
+  defp mark_targets_running(invocation, actor) do
     invocation.id
     |> list_targets(actor)
     |> Enum.each(fn target ->
-      _ =
-        ActionInvocationTarget.record_result(target, %{status: :running, started_at: now},
-          actor: actor
-        )
+      _ = ActionInvocationTarget.record_running(target, %{}, actor: actor)
     end)
 
     :ok
@@ -287,15 +414,13 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
         actor: actor
       )
 
-    now = DateTime.utc_now()
-
     invocation.id
     |> list_targets(actor)
     |> Enum.each(fn target ->
       _ =
-        ActionInvocationTarget.record_result(
+        ActionInvocationTarget.record_failed(
           target,
-          %{status: :failed, completed_at: now, result: %{"reason" => inspect(reason)}},
+          %{result: %{"reason" => inspect(reason)}},
           actor: actor
         )
     end)
