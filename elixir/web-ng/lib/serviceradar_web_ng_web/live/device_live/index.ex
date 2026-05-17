@@ -622,7 +622,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp refresh_devices(socket, opts \\ []) do
-    params = Map.get(socket.assigns, :last_params, %{})
+    params =
+      socket.assigns
+      |> Map.get(:last_params, %{})
+      |> include_inactive_inventory_params()
+
     uri = Map.get(socket.assigns, :last_uri, "/devices")
     preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
     stats_loaded? = Map.get(socket.assigns, :device_stats_loaded, false)
@@ -3223,6 +3227,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp parse_count_value(_value), do: nil
+
+  defp include_inactive_inventory_params(params) when is_map(params) do
+    query = params |> Map.get("q", "") |> to_string() |> String.trim()
+
+    query =
+      cond do
+        query == "" ->
+          "in:devices include_inactive:true"
+
+        lifecycle_filter?(query) ->
+          query
+
+        String.starts_with?(String.downcase(query), "in:devices") ->
+          "#{query} include_inactive:true"
+
+        true ->
+          query
+      end
+
+    Map.put(params, "q", query)
+  end
+
+  defp include_inactive_inventory_params(params), do: params
+
+  defp lifecycle_filter?(query) when is_binary(query) do
+    String.match?(query, ~r/(^|\s)(?:is_active|active|include_inactive):/i)
+  end
 
   defp normalize_device_count_query(""), do: "in:devices"
 

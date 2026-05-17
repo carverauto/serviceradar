@@ -59,6 +59,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
@@ -257,6 +258,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "ip" => :ip,
     "gateway_id" => :gateway_id,
     "agent_id" => :agent_id,
+    "is_active" => :is_active,
+    "active" => :is_active,
+    "is_managed" => :is_managed,
+    "managed" => :is_managed,
     "vendor_name" => :vendor_name,
     "model" => :model,
     "type" => :type,
@@ -277,6 +282,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         field_mappings: @interface_field_map,
         allow_existing_atom_fields?: false,
         tag_fields?: false,
+        default_active?: false,
         log_prefix: "SNMPCompiler"
       )
       |> Ash.Query.distinct(:device_id)
@@ -288,6 +294,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         interfaces
         |> Enum.map(& &1.device)
         |> Enum.reject(&is_nil/1)
+        |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
         |> Enum.uniq_by(& &1.uid)
 
       {:error, reason} ->
@@ -362,8 +369,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp resolve_polling_host(%{management_device_id: mgmt_id} = device, actor)
-       when is_binary(mgmt_id) and mgmt_id != "" do
+  defp resolve_polling_host(%{management_device_id: mgmt_id} = device, actor) when is_binary(mgmt_id) and mgmt_id != "" do
     query =
       Device
       |> Ash.Query.filter(uid == ^mgmt_id)
@@ -381,9 +387,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
           device.ip || device.hostname
         else
-          Logger.debug(
-            "SNMPCompiler: using management device #{mgmt_id} IP #{mgmt_ip} for #{device.uid}"
-          )
+          Logger.debug("SNMPCompiler: using management device #{mgmt_id} IP #{mgmt_ip} for #{device.uid}")
 
           mgmt_ip
         end
@@ -442,9 +446,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         Enum.filter(aliases, &(&1.alias_type == :ip))
 
       {:error, reason} ->
-        Logger.warning(
-          "SNMPCompiler: failed to load active IP aliases for #{device_uid} - #{inspect(reason)}"
-        )
+        Logger.warning("SNMPCompiler: failed to load active IP aliases for #{device_uid} - #{inspect(reason)}")
 
         []
     end
@@ -628,8 +630,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     |> sort_oids()
   end
 
-  defp derive_packet_oid(%{"name" => name, "oid" => oid})
-       when is_binary(name) and is_binary(oid) do
+  defp derive_packet_oid(%{"name" => name, "oid" => oid}) when is_binary(name) and is_binary(oid) do
     with {base_oid, if_index} <- split_oid_index(oid),
          packet_name when is_binary(packet_name) <- packet_metric_name(name),
          packet_base when is_binary(packet_base) <- packet_metric_base_oid(base_oid) do
@@ -806,11 +807,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     %{
       "username" => Map.get(credential, :username),
       "security_level" => ProtocolFormatter.security_level(Map.get(credential, :security_level)),
-      "auth_protocol" =>
-        ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol), style: :hyphenated),
+      "auth_protocol" => ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol), style: :hyphenated),
       "auth_password" => Map.get(credential, :auth_password),
-      "priv_protocol" =>
-        ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol), style: :hyphenated),
+      "priv_protocol" => ProtocolFormatter.priv_protocol(Map.get(credential, :priv_protocol), style: :hyphenated),
       "priv_password" => Map.get(credential, :priv_password)
     }
   end

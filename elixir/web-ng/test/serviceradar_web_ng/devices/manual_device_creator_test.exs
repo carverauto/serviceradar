@@ -60,7 +60,9 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert first.discovery_sources == ["manual"]
     assert first.tags == %{"source" => "test"}
     assert first.is_managed == true
+    assert first.is_active == true
     assert second.is_managed == true
+    assert second.is_active == true
   end
 
   test "does not add hostname-only devices when DNS resolution fails", %{scope: scope} do

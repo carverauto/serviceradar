@@ -122,6 +122,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "vendor_name",
         "discovery_sources",
         "tags",
+        "include_inactive",
         "include_deleted"
       ],
       boolean_fields: [
@@ -130,6 +131,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "is_managed",
         "is_compliant",
         "is_trusted",
+        "include_inactive",
         "include_deleted"
       ],
       # Fields backed by array columns - builder will always use list syntax for these

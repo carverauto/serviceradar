@@ -25,3 +25,17 @@ ServiceRadar SHALL treat `ocsf_devices.is_managed` as managed inventory estate m
 - **WHEN** an authorized operator marks the device active or inactive
 - **THEN** only `is_active` SHALL change
 - **AND** `is_managed` SHALL remain unchanged
+
+### Requirement: Inactive devices are archival-only
+ServiceRadar SHALL treat inactive devices as archival inventory records and SHALL exclude them from operational work by default.
+
+#### Scenario: Inactive device remains visible for archival lookup
+- **GIVEN** a device has `is_active = false`
+- **WHEN** an operator views the device inventory or explicitly queries inactive inventory
+- **THEN** the device SHALL remain queryable and visible for record keeping and history
+- **AND** overall inventory counts SHALL continue to include inactive and unmanaged records unless the view is explicitly scoped to active managed usage
+
+#### Scenario: Inactive device is not an operational target
+- **GIVEN** a device has `is_active = false`
+- **WHEN** ServiceRadar compiles targets for polling, sweeping, baseline diagnostics, or live camera relay startup
+- **THEN** the device SHALL be excluded unless the operation is explicitly archival and non-invasive

@@ -75,9 +75,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     elapsed = System.monotonic_time(:millisecond) - start_time
     rate = if elapsed > 0, do: Float.round(total_count / (elapsed / 1000), 1), else: 0
 
-    Logger.info(
-      "SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)"
-    )
+    Logger.info("SyncIngestor: Completed #{total_count} updates in #{elapsed}ms (#{rate} devices/sec)")
 
     maybe_refresh_inventory_rollups(result, total_count)
   end
@@ -152,8 +150,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp apply_uid_remap_to_identifier_records(records, remap) when map_size(remap) == 0,
-    do: records
+  defp apply_uid_remap_to_identifier_records(records, remap) when map_size(remap) == 0, do: records
 
   defp apply_uid_remap_to_identifier_records(records, remap) do
     records
@@ -177,8 +174,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end)
   end
 
-  defp apply_uid_remap_to_resolved_updates(resolved, remap) when map_size(remap) == 0,
-    do: resolved
+  defp apply_uid_remap_to_resolved_updates(resolved, remap) when map_size(remap) == 0, do: resolved
 
   defp apply_uid_remap_to_resolved_updates(resolved, remap) do
     Enum.map(resolved, fn {update, device_id} ->
@@ -219,8 +215,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     existing_ip_to_device = bulk_lookup_by_ip(normalized_updates)
 
     {resolved_updates, _batch_ip_to_device} =
-      Enum.reduce(normalized_updates, {[], existing_ip_to_device}, fn update,
-                                                                      {acc, ip_to_device} ->
+      Enum.reduce(normalized_updates, {[], existing_ip_to_device}, fn update, {acc, ip_to_device} ->
         ids = effective_identifiers(update)
         device_id = resolve_device_id_cached(update, existing_mappings, ip_to_device)
 
@@ -296,8 +291,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
   defp maybe_add_id_if(acc, false, _type, _value, _partition), do: acc
 
-  defp maybe_add_id_if(acc, true, type, value, partition),
-    do: maybe_add_id(acc, type, value, partition)
+  defp maybe_add_id_if(acc, true, type, value, partition), do: maybe_add_id(acc, type, value, partition)
 
   # Bulk lookup device identifiers - single query for all identifiers
   # DB connection's search_path determines the schema
@@ -486,6 +480,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         network_interfaces: update.network_interfaces || [],
         is_available: update.is_available,
         is_managed: true,
+        is_active: true,
         owner: owner,
         metadata: metadata,
         tags: update.tags || %{},
@@ -725,8 +720,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp prefer_non_nil(nil, old_value), do: old_value
   defp prefer_non_nil(new_value, _old_value), do: new_value
 
-  defp prefer_positive_int(new_value, _old_value) when is_integer(new_value) and new_value > 0,
-    do: new_value
+  defp prefer_positive_int(new_value, _old_value) when is_integer(new_value) and new_value > 0, do: new_value
 
   defp prefer_positive_int(_new_value, old_value), do: old_value
 
@@ -853,8 +847,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     ]
   end
 
-  defp maybe_add_identifier_record_if(acc, false, _update, _device_id, _type, _value, _partition),
-    do: acc
+  defp maybe_add_identifier_record_if(acc, false, _update, _device_id, _type, _value, _partition), do: acc
 
   defp maybe_add_identifier_record_if(acc, true, update, device_id, type, value, partition) do
     maybe_add_identifier_record(acc, update, device_id, type, value, partition)
@@ -876,8 +869,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> log_sync_interface_shape()
   end
 
-  defp build_interface_record(update, device_id, interface, index, timestamp)
-       when is_map(interface) do
+  defp build_interface_record(update, device_id, interface, index, timestamp) when is_map(interface) do
     interface_uid = interface_uid(interface, index)
 
     if interface_uid == "" do
@@ -1845,8 +1837,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp merge_inferred_map(explicit, inferred) when is_map(explicit) and is_map(inferred),
     do: Map.merge(inferred, explicit)
 
-  defp merge_inferred_map(explicit, _inferred) when is_map(explicit) and map_size(explicit) > 0,
-    do: explicit
+  defp merge_inferred_map(explicit, _inferred) when is_map(explicit) and map_size(explicit) > 0, do: explicit
 
   defp merge_inferred_map(_explicit, inferred), do: inferred
 
@@ -2014,17 +2005,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
            }
          ) do
       :ok ->
-        Logger.info(
-          "SyncIngestor: merged alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip})"
-        )
+        Logger.info("SyncIngestor: merged alias device #{alias_device_id} into #{device_id} (ip=#{ids.ip})")
 
         MapSet.put(merged_ips, ids.ip)
 
       {:error, reason} ->
         if alias_not_found?(reason) do
-          Logger.info(
-            "SyncIngestor: alias device #{alias_device_id} already merged for ip=#{ids.ip}"
-          )
+          Logger.info("SyncIngestor: alias device #{alias_device_id} already merged for ip=#{ids.ip}")
 
           MapSet.put(merged_ips, ids.ip)
         else

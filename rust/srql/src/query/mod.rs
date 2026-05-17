@@ -911,6 +911,10 @@ mod tests {
         let (sql, _) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
         let lower = sql.to_lowercase();
 
+        assert!(
+            lower.contains("coalesce(\"ocsf_devices\".\"is_active\", true) = true"),
+            "expected default active-device predicate, got: {sql}"
+        );
         assert!(lower.contains("split_part(ip, ',', 1)"));
         assert!(lower.contains("pg_input_is_valid"));
         assert!(
@@ -920,6 +924,26 @@ mod tests {
         assert!(
             !lower.contains("nullif(ip, '')::inet"),
             "default device ordering should not cast malformed IP strings directly, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_include_inactive_suppresses_default_active_filter() {
+        let query = "in:devices include_inactive:true";
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            !lower.contains("coalesce(\"ocsf_devices\".\"is_active\", true) = true"),
+            "include_inactive:true should not add default active predicate, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .all(|param| !matches!(param, BindParam::Bool(_))),
+            "include_inactive is a control token and should not bind a bool param, got: {params:?}"
         );
     }
 
@@ -1463,7 +1487,7 @@ mod tests {
             devices::to_sql_and_params(&plan).expect("should build SQL for active state query");
         assert!(
             sql.to_lowercase()
-                .contains("\"ocsf_devices\".\"is_active\" = $1"),
+                .contains("coalesce(\"ocsf_devices\".\"is_active\", true) = $1"),
             "expected SQL to include active lifecycle predicate, got: {sql}"
         );
         assert!(

@@ -144,8 +144,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   def extract_camera_descriptors(_payload), do: []
 
-  defp normalize_source(descriptor, descriptors, payload, status, observed_at)
-       when is_map(descriptor) do
+  defp normalize_source(descriptor, descriptors, payload, status, observed_at) when is_map(descriptor) do
     vendor = string_value(descriptor, ["vendor"])
 
     vendor_camera_id =
@@ -180,8 +179,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
            vendor: vendor,
            vendor_camera_id: vendor_camera_id,
            display_name: string_value(descriptor, ["display_name", "displayName", "name"]),
-           source_url:
-             string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
+           source_url: string_value(descriptor, ["source_url", "sourceUrl", "rtsp_url", "rtspUrl"]),
            assigned_agent_id:
              string_value(descriptor, [
                "assigned_agent_id",
@@ -295,11 +293,9 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         profile_name: "default",
         vendor_profile_id: string_value(descriptor, ["vendor_profile_id", "vendorProfileId"]),
         source_url_override: nil,
-        rtsp_transport:
-          string_value(descriptor, ["rtsp_transport", "rtspTransport", "transport"]),
+        rtsp_transport: string_value(descriptor, ["rtsp_transport", "rtspTransport", "transport"]),
         codec_hint: string_value(descriptor, ["codec_hint", "codecHint", "codec"]),
-        container_hint:
-          string_value(descriptor, ["container_hint", "containerHint", "container"]),
+        container_hint: string_value(descriptor, ["container_hint", "containerHint", "container"]),
         relay_eligible: boolean_value(descriptor, ["relay_eligible", "relayEligible"], true),
         last_seen_at: observed_at,
         metadata: map_value(descriptor, ["profile_metadata", "profileMetadata"]) || %{}
@@ -341,10 +337,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     |> StreamProfile.upsert_profile(actor: actor)
   end
 
-  defp preserve_source_local_metadata(
-         %{vendor: vendor, vendor_camera_id: vendor_camera_id} = attrs,
-         actor
-       )
+  defp preserve_source_local_metadata(%{vendor: vendor, vendor_camera_id: vendor_camera_id} = attrs, actor)
        when is_binary(vendor) and is_binary(vendor_camera_id) do
     existing_metadata =
       Source
@@ -362,16 +355,11 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp preserve_source_local_metadata(attrs, _actor), do: attrs
 
-  defp preserve_profile_local_metadata(
-         %{camera_source_id: camera_source_id, profile_name: profile_name} = attrs,
-         actor
-       )
+  defp preserve_profile_local_metadata(%{camera_source_id: camera_source_id, profile_name: profile_name} = attrs, actor)
        when is_binary(camera_source_id) and is_binary(profile_name) do
     existing_metadata =
       StreamProfile
-      |> Ash.Query.filter(
-        expr(camera_source_id == ^camera_source_id and profile_name == ^profile_name)
-      )
+      |> Ash.Query.filter(expr(camera_source_id == ^camera_source_id and profile_name == ^profile_name))
       |> Ash.read_one(actor: actor)
       |> existing_metadata()
 
@@ -449,6 +437,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          model: descriptor_model(descriptor),
          discovery_sources: ["camera_plugin"],
          is_managed: true,
+         is_active: true,
          is_available: descriptor_available?(descriptor, status),
          last_seen_time: observed_at,
          metadata:
@@ -566,8 +555,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp camera_device_update_attrs(%Device{} = device, attrs) when is_map(attrs) do
     common_attrs = %{
       is_available: attrs.is_available,
-      discovery_sources:
-        merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
+      discovery_sources: merge_discovery_sources(device.discovery_sources, attrs.discovery_sources),
       metadata: merge_device_metadata(device.metadata, attrs.metadata),
       last_seen_time: attrs.last_seen_time
     }
@@ -584,8 +572,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         agent_id: nil,
         management_device_id: nil,
         vendor_name: attrs.vendor_name,
-        model: attrs.model,
-        is_managed: attrs.is_managed
+        model: attrs.model
       })
     else
       common_attrs
@@ -596,8 +583,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     device.type == "camera" or device.type_id == 7
   end
 
-  defp prepare_camera_ip_claim(device_uid, attrs, actor)
-       when is_binary(device_uid) and is_map(attrs) do
+  defp prepare_camera_ip_claim(device_uid, attrs, actor) when is_binary(device_uid) and is_map(attrs) do
     case camera_ip_conflict(device_uid, attrs, actor) do
       {:ok, nil} ->
         {attrs, nil}
@@ -625,8 +611,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp resolve_camera_ip_claim(device_uid, attrs, actor)
-       when is_binary(device_uid) and is_map(attrs) do
+  defp resolve_camera_ip_claim(device_uid, attrs, actor) when is_binary(device_uid) and is_map(attrs) do
     case camera_ip_conflict(device_uid, attrs, actor) do
       {:ok, nil} ->
         {:ok, attrs}
@@ -665,8 +650,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp camera_ip_conflict(device_uid, attrs, actor)
-       when is_binary(device_uid) and is_map(attrs) do
+  defp camera_ip_conflict(device_uid, attrs, actor) when is_binary(device_uid) and is_map(attrs) do
     case Map.get(attrs, :ip) do
       ip when is_binary(ip) and ip != "" ->
         case list_devices_by_ip(ip, actor) do
@@ -782,9 +766,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   defp device_has_strong_identifiers?(device_uid, actor) when is_binary(device_uid) do
     DeviceIdentifier
     |> Ash.Query.for_read(:by_device, %{device_id: device_uid})
-    |> Ash.Query.filter(
-      identifier_type in [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac]
-    )
+    |> Ash.Query.filter(identifier_type in [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac])
     |> Ash.read(actor: actor)
     |> Page.unwrap()
     |> case do
@@ -825,8 +807,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     }
   end
 
-  defp enrich_camera_device_attrs(device_uid, attrs, actor)
-       when is_binary(device_uid) and is_map(attrs) do
+  defp enrich_camera_device_attrs(device_uid, attrs, actor) when is_binary(device_uid) and is_map(attrs) do
     with mac when is_binary(mac) and mac != "" <- Map.get(attrs, :mac),
          {:ok, peer} <- find_inventory_peer_by_mac(mac, device_uid, actor) do
       %{
@@ -843,17 +824,14 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp enrich_camera_device_attrs(_device_uid, attrs, _actor), do: attrs
 
-  defp find_inventory_peer_by_mac(mac, device_uid, actor)
-       when is_binary(mac) and mac != "" and is_binary(device_uid) do
+  defp find_inventory_peer_by_mac(mac, device_uid, actor) when is_binary(mac) and mac != "" and is_binary(device_uid) do
     with {:ok, devices} <-
            read_inventory_peers_by_mac(mac_lookup_candidates(mac), device_uid, actor) do
       select_inventory_peer(devices)
     end
   rescue
     error ->
-      Logger.warning(
-        "Failed to enrich camera inventory from peer MAC #{mac}: #{Exception.message(error)}"
-      )
+      Logger.warning("Failed to enrich camera inventory from peer MAC #{mac}: #{Exception.message(error)}")
 
       {:error, :lookup_failed}
   end
@@ -864,9 +842,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
        when is_list(mac_candidates) and mac_candidates != [] do
     Device
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      mac in ^mac_candidates and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname))
-    )
+    |> Ash.Query.filter(mac in ^mac_candidates and uid != ^device_uid and (not is_nil(ip) or not is_nil(hostname)))
     |> Ash.read(actor: actor)
     |> Page.unwrap()
     |> case do
@@ -875,8 +851,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp read_inventory_peers_by_mac(_mac_candidates, _device_uid, _actor),
-    do: {:error, :invalid_mac}
+  defp read_inventory_peers_by_mac(_mac_candidates, _device_uid, _actor), do: {:error, :invalid_mac}
 
   defp select_inventory_peer(devices) when is_list(devices) do
     case Enum.max_by(devices, &camera_inventory_peer_score/1, fn -> nil end) do
@@ -937,8 +912,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
 
   defp mac_lookup_candidates(_mac), do: []
 
-  defp register_camera_identifiers(device_uid, attrs, actor)
-       when is_binary(device_uid) and is_map(attrs) do
+  defp register_camera_identifiers(device_uid, attrs, actor) when is_binary(device_uid) and is_map(attrs) do
     ids =
       %{}
       |> maybe_put("mac", attrs.mac)
@@ -955,9 +929,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             :ok
 
           {:error, reason} ->
-            Logger.warning(
-              "Failed to register camera identifiers for #{device_uid}: #{inspect(reason)}"
-            )
+            Logger.warning("Failed to register camera identifiers for #{device_uid}: #{inspect(reason)}")
 
             :ok
         end
@@ -1106,8 +1078,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     Enum.max_by(events, &event_sort_key/1, fn -> nil end)
   end
 
-  defp camera_event_matches_descriptor?(event, descriptor)
-       when is_map(event) and is_map(descriptor) do
+  defp camera_event_matches_descriptor?(event, descriptor) when is_map(event) and is_map(descriptor) do
     device = map_value(event, ["device"]) || %{}
     unmapped = map_value(event, ["unmapped"]) || %{}
 
@@ -1431,8 +1402,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
           ]),
         "source_url" => first_stream_url(streams),
         "stream_profiles" => Enum.map(streams, &axis_profile_descriptor/1),
-        "identity" =>
-          %{"serial" => serial} |> Enum.reject(fn {_key, value} -> blank?(value) end) |> Map.new()
+        "identity" => %{"serial" => serial} |> Enum.reject(fn {_key, value} -> blank?(value) end) |> Map.new()
       }
     end
   end
@@ -1460,8 +1430,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     end
   end
 
-  defp build_enrichment_descriptor(details, enrichment)
-       when is_map(details) and is_map(enrichment) do
+  defp build_enrichment_descriptor(details, enrichment) when is_map(details) and is_map(enrichment) do
     identity = map_value(enrichment, ["identity"]) || %{}
     camera = map_value(enrichment, ["camera"]) || %{}
     source = map_value(enrichment, ["source"]) || %{}
@@ -1533,8 +1502,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
                 string_value(details, ["camera_host", "cameraHost"])
               ]),
             "plugin_id" => string_value(source, ["plugin_id", "pluginId"]),
-            "insecure_skip_verify" =>
-              boolean_value(source, ["insecure_skip_verify", "insecureSkipVerify"], nil),
+            "insecure_skip_verify" => boolean_value(source, ["insecure_skip_verify", "insecureSkipVerify"], nil),
             "device_enrichment" => enrichment
           }
           |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -1551,12 +1519,10 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
     metadata =
       %{
         "auth_mode" => string_value(stream, ["auth_mode", "authMode"]),
-        "credential_reference_id" =>
-          string_value(stream, ["credential_reference_id", "credentialReferenceId"]),
+        "credential_reference_id" => string_value(stream, ["credential_reference_id", "credentialReferenceId"]),
         "source" => string_value(stream, ["source"]),
         "protocol" => string_value(stream, ["protocol"]),
-        "insecure_skip_verify" =>
-          boolean_value(stream, ["insecure_skip_verify", "insecureSkipVerify"], nil)
+        "insecure_skip_verify" => boolean_value(stream, ["insecure_skip_verify", "insecureSkipVerify"], nil)
       }
       |> Enum.reject(fn {_key, value} -> blank?(value) end)
       |> Map.new()
@@ -1649,8 +1615,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
             )))
   end
 
-  defp maybe_replace_descriptor_device_uid(descriptor, {:ok, uid})
-       when is_binary(uid) and uid != "" do
+  defp maybe_replace_descriptor_device_uid(descriptor, {:ok, uid}) when is_binary(uid) and uid != "" do
     Map.put(descriptor, "device_uid", uid)
   end
 

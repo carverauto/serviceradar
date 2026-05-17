@@ -132,10 +132,12 @@ defmodule ServiceRadar.Inventory.DeviceTest do
 
       assert {:ok, inactive} = Device.mark_inactive(device, actor: actor)
       assert inactive.is_active == false
+      assert inactive.is_managed == device.is_managed
       assert inactive.modified_time
 
       assert {:ok, active} = Device.mark_active(inactive, actor: actor)
       assert active.is_active == true
+      assert active.is_managed == device.is_managed
     end
 
     test "viewers cannot change device active lifecycle", %{device: device} do

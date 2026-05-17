@@ -10,6 +10,7 @@ Conflating these fields would make inactive devices disappear from managed inven
   - Make newly imported devices managed by default.
   - Preserve explicit operator managed/unmanaged choices during later imports.
   - Keep inactive devices visible but excluded from active usage accounting.
+  - Exclude inactive devices from operational work by default.
   - Avoid reactivating or remanaging devices just because an integration sees them again.
 - Non-Goals:
   - Add commercial billing policy or hard feature gates.
@@ -21,6 +22,8 @@ Conflating these fields would make inactive devices disappear from managed inven
 - Decision: Import/create paths set managed and active defaults only for newly created devices.
 - Decision: Update/upsert paths must not overwrite existing `is_managed` or `is_active` with defaults unless the source explicitly owns that lifecycle field and the action permits it.
 - Decision: Operator active/inactive actions update only `is_active`.
+- Decision: Default SRQL `in:devices` queries include active devices only. Explicit `is_active:false` remains the inactive archival lookup path, and inventory views that need all lifecycle states use `include_inactive:true`.
+- Decision: Polling, sweeping, baseline diagnostics, and camera relay source selection must treat inactive devices as ineligible targets.
 
 ## Risks / Trade-offs
 - Existing bulk upsert code that always writes `is_managed = true` can remanage devices unexpectedly.

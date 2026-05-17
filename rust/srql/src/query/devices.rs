@@ -8,9 +8,9 @@ use crate::{
         agent_id as col_agent_id, availability_source_agent_id as col_availability_source_agent_id,
         deleted_at as col_deleted_at, device_type as col_device_type,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
-        hostname as col_hostname, ip as col_ip, is_active as col_is_active,
-        is_available as col_is_available, last_seen_time as col_last_seen_time, model as col_model,
-        ocsf_devices, risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
+        hostname as col_hostname, ip as col_ip, is_available as col_is_available,
+        last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
+        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
         vendor_name as col_vendor_name,
     },
     time::TimeRange,
@@ -331,6 +331,10 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
         query = query.filter(col_deleted_at.is_null());
     }
 
+    if should_apply_default_active_filter(&plan.filters)? {
+        query = apply_default_active_filter(query);
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
             col_last_seen_time
@@ -428,6 +432,10 @@ fn build_grouped_stats_query(
 
     if !plan.include_deleted && !has_deleted_filter(&plan.filters) {
         clauses.push("deleted_at IS NULL".to_string());
+    }
+
+    if should_apply_default_active_filter(&plan.filters)? {
+        clauses.push("COALESCE(is_active, true) = true".to_string());
     }
 
     // Time range filter
@@ -579,6 +587,10 @@ fn build_grouped_stats_filter_clause(
                     ))
                 }
             }
+        }
+        "include_inactive" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
+            return Ok(None);
         }
         "deleted" => {
             let value = parse_bool(filter.value.as_scalar()?)?;
@@ -736,6 +748,10 @@ fn build_stats_query(
         query = query.filter(col_deleted_at.is_null());
     }
 
+    if should_apply_default_active_filter(&plan.filters)? {
+        query = apply_default_active_filter(query);
+    }
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
             col_last_seen_time
@@ -814,13 +830,10 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
             )?;
         }
         "is_active" => {
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_is_active,
-                parse_bool(filter.value.as_scalar()?)?,
-                "is_active only supports equality"
-            )?;
+            query = apply_active_filter(query, filter)?;
+        }
+        "include_inactive" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
         }
         // OCSF device type (string name like "Server", "Router", etc.)
         "type" | "device_type" => {
@@ -975,6 +988,49 @@ fn has_deleted_filter(filters: &[Filter]) -> bool {
     filters
         .iter()
         .any(|filter| filter.field.eq_ignore_ascii_case("deleted"))
+}
+
+fn has_active_filter(filters: &[Filter]) -> bool {
+    filters
+        .iter()
+        .any(|filter| filter.field.eq_ignore_ascii_case("is_active"))
+}
+
+fn should_apply_default_active_filter(filters: &[Filter]) -> Result<bool> {
+    if has_active_filter(filters) {
+        return Ok(false);
+    }
+
+    for filter in filters {
+        if filter.field.eq_ignore_ascii_case("include_inactive") {
+            return Ok(!parse_bool(filter.value.as_scalar()?)?);
+        }
+    }
+
+    Ok(true)
+}
+
+fn apply_default_active_filter<'a>(query: DeviceQuery<'a>) -> DeviceQuery<'a> {
+    query.filter(sql::<Bool>(
+        "COALESCE(\"ocsf_devices\".\"is_active\", true) = true",
+    ))
+}
+
+fn apply_active_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
+    let value = parse_bool(filter.value.as_scalar()?)?;
+
+    match filter.op {
+        FilterOp::Eq => Ok(query.filter(
+            sql::<Bool>("COALESCE(\"ocsf_devices\".\"is_active\", true) = ").bind::<Bool, _>(value),
+        )),
+        FilterOp::NotEq => Ok(query.filter(
+            sql::<Bool>("COALESCE(\"ocsf_devices\".\"is_active\", true) <> ")
+                .bind::<Bool, _>(value),
+        )),
+        _ => Err(ServiceError::InvalidRequest(
+            "is_active only supports equality".into(),
+        )),
+    }
 }
 
 fn apply_ip_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
@@ -1210,6 +1266,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         }
         "is_active" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
+            Ok(())
+        }
+        "include_inactive" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
             Ok(())
         }
         "deleted" => {

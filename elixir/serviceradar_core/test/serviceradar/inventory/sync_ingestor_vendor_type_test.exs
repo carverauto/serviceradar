@@ -305,6 +305,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.hw_info == %{"serial_number" => "SN-123"}
     assert [%{"name" => "eth0"}] = device.network_interfaces
     assert device.is_managed == true
+    assert device.is_active == true
     assert device.metadata["query_label"] == "managed"
     assert device.metadata["boundary_names"] == "All OT Boundaries"
 
@@ -374,6 +375,34 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
     assert fetch_device_by_ip!(actor, ip).is_managed == false
+  end
+
+  test "does not reactivate devices manually marked inactive", %{actor: actor} do
+    ip = unique_ip()
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "user-inactive-test",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => "armis-user-inactive-#{System.unique_integer([:positive])}",
+        "integration_type" => "armis"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.is_managed == true
+    assert device.is_active == true
+
+    assert {:ok, _updated} = Device.mark_inactive(device, actor: actor)
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    updated = fetch_device_by_ip!(actor, ip)
+    assert updated.is_managed == true
+    assert updated.is_active == false
   end
 
   test "merges metadata maps across updates instead of replacing existing keys", %{actor: actor} do
