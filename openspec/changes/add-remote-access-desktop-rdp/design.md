@@ -264,7 +264,7 @@ Forgejo release metadata should describe feature capabilities, compatibility, ch
 - deployments without the remote-access/RDP feature enabled see only base agent artifacts
 - deployments with RDP enabled see the RDP helper/bundle artifacts and their compatibility status
 - one-click deploys install the base agent plus helper only when the selected artifact declares `remote_access.rdp`
-- installed agents still advertise `remote_access.rdp` only after local config enables RDP and the helper `--capabilities` probe reports a compatible protocol version and `connector_ready: true`
+- installed agents still advertise `remote_access.rdp` only after local config enables RDP and the helper `--capabilities` probe reports a compatible protocol version and `connector_ready: true`; when readiness is false, the probe should include a stable `connector_ready_reason` for operator diagnostics
 
 This keeps the default agent small, reduces the default attack surface, and makes the additional Rust/RDP dependency chain visible to operators who intentionally opt into it. Helper and agent versions should be pinned together or express an explicit compatibility range so an agent update cannot accidentally run an incompatible helper protocol.
 

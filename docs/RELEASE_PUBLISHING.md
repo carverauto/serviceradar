@@ -77,7 +77,7 @@ bazel run --stamp //build/release:publish_packages -- \
   --agent-rdp-runtime build/packaging/agent/agent_rdp_release_runtime_archive.tar.gz
 ```
 
-The current optional bundle includes `serviceradar-agent` and the `serviceradar-rdp-adapter` helper binary. The helper is distributed only in the RDP-enabled archive and remains fail-closed while the live connector/open path reports `connector_ready: false`. Until then, RDP bundle manifest entries are marked with `deployment_requirements.release_phase: "experimental"` and `helper_connector_ready: false`; installed agents still advertise `remote_access.rdp` only after the helper readiness probe reports `connector_ready: true`.
+The current optional bundle includes `serviceradar-agent` and the `serviceradar-rdp-adapter` helper binary. The helper is distributed only in the RDP-enabled archive and remains fail-closed while the live connector/open path reports `connector_ready: false` with a `connector_ready_reason`. Until then, RDP bundle manifest entries are marked with `deployment_requirements.release_phase: "experimental"` and `helper_connector_ready: false`; installed agents still advertise `remote_access.rdp` only after the helper readiness probe reports `connector_ready: true`.
 
 ### Environment variables
 

@@ -42,7 +42,7 @@ SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true
 serviceradar-rdp-adapter --capabilities
 ```
 
-The helper must report schema `serviceradar.rdp.helper.capabilities.v1`, protocol `rdp`, `ironrdp_backend_linked: true`, and `connector_ready: true` before the agent may advertise `remote_access.rdp`.
+The helper must report schema `serviceradar.rdp.helper.capabilities.v1`, protocol `rdp`, `ironrdp_backend_linked: true`, and `connector_ready: true` before the agent may advertise `remote_access.rdp`. While `connector_ready` is `false`, the helper also reports `connector_ready_reason` so operators can distinguish an unlinked backend from an incomplete connector loop.
 
 ## Target Policy
 
@@ -272,7 +272,7 @@ nc -vz <rdp-target-host> 3389
 serviceradar-rdp-adapter --capabilities
 ```
 
-The end-to-end proof requires `connector_ready: true`. Until then, the current experimental helper can validate policy, RBAC, target registration, signaling, media envelope handling, and fail-closed behavior, but it cannot complete a live RDP desktop connection.
+The end-to-end proof requires `connector_ready: true`. Until then, the current experimental helper can validate policy, RBAC, target registration, signaling, media envelope handling, and fail-closed behavior, but it cannot complete a live RDP desktop connection. If the probe reports `connector_ready: false`, inspect `connector_ready_reason`; expected experimental values are `ironrdp_backend_not_linked` for a base helper and `connector_loop_not_implemented` for an IronRDP-linked helper that is still gated.
 
 Before enabling helper readiness, run the connector boundary probe from the repository
 against the private target reachable from the selected agent network:

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,6 +66,9 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 	if resolved != readyPath || !capabilities.ConnectorReady || !capabilities.IronRDPBackendLinked {
 		t.Fatalf("probe result resolved=%q capabilities=%#v", resolved, capabilities)
 	}
+	if capabilities.ConnectorReadyReason != "" {
+		t.Fatalf("ready helper connector reason = %q, want empty", capabilities.ConnectorReadyReason)
+	}
 	if !RDPAdapterReady(readyPath) {
 		t.Fatal("RDPAdapterReady returned false for ready helper")
 	}
@@ -78,7 +82,8 @@ func TestProbeRDPAdapterCapabilitiesRequiresReadyConnector(t *testing.T) {
 	}
 
 	notReadyPath := writeRDPAdapterProbeScript(t, dir, "not-ready", true, false)
-	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), notReadyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) {
+	if _, _, err := ProbeRDPAdapterCapabilities(context.Background(), notReadyPath); !errors.Is(err, ErrDesktopAdapterUnavailable) ||
+		!strings.Contains(err.Error(), "connector_loop_not_implemented") {
 		t.Fatalf("not-ready helper error = %v, want %v", err, ErrDesktopAdapterUnavailable)
 	}
 	if RDPAdapterReady(notReadyPath) {
@@ -98,9 +103,13 @@ func writeRDPAdapterProbeScript(tb testing.TB, dir, name string, linked, ready b
 	if ready {
 		readyValue = enhancedMetadataTrue
 	}
+	connectorReadyReasonJSON := ""
+	if !ready {
+		connectorReadyReasonJSON = `,"connector_ready_reason":"connector_loop_not_implemented"`
+	}
 	script := "#!/bin/sh\n" +
 		"if [ \"$1\" = \"--capabilities\" ]; then\n" +
-		"  echo '{\"schema\":\"serviceradar.rdp.helper.capabilities.v1\",\"protocol\":\"rdp\",\"helper_protocol_version\":1,\"ironrdp_backend_linked\":" + linkedValue + ",\"connector_ready\":" + readyValue + "}'\n" +
+		"  echo '{\"schema\":\"serviceradar.rdp.helper.capabilities.v1\",\"protocol\":\"rdp\",\"helper_protocol_version\":1,\"ironrdp_backend_linked\":" + linkedValue + ",\"connector_ready\":" + readyValue + connectorReadyReasonJSON + "}'\n" +
 		"  exit 0\n" +
 		"fi\n" +
 		"exit 0\n"

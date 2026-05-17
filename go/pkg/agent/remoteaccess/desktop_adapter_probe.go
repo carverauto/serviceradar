@@ -40,6 +40,7 @@ type RDPAdapterCapabilities struct {
 	HelperProtocolVersion int    `json:"helper_protocol_version"`
 	IronRDPBackendLinked  bool   `json:"ironrdp_backend_linked"`
 	ConnectorReady        bool   `json:"connector_ready"`
+	ConnectorReadyReason  string `json:"connector_ready_reason,omitempty"`
 }
 
 // NormalizeRDPAdapterPath returns the configured helper path, or the default
@@ -123,6 +124,14 @@ func validateRDPAdapterCapabilities(capabilities RDPAdapterCapabilities) error {
 		return fmt.Errorf("%w: ironrdp backend not linked", ErrDesktopAdapterUnavailable)
 	}
 	if !capabilities.ConnectorReady {
+		if capabilities.ConnectorReadyReason != "" {
+			return fmt.Errorf(
+				"%w: connector not ready: %s",
+				ErrDesktopAdapterUnavailable,
+				capabilities.ConnectorReadyReason,
+			)
+		}
+
 		return fmt.Errorf("%w: connector not ready", ErrDesktopAdapterUnavailable)
 	}
 

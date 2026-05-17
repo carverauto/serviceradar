@@ -27,6 +27,8 @@ use zeroize::Zeroize;
 pub const HELPER_CAPABILITIES_ARG: &str = "--capabilities";
 pub const HELPER_CAPABILITIES_SCHEMA: &str = "serviceradar.rdp.helper.capabilities.v1";
 pub const HELPER_PROTOCOL_VERSION: u32 = 1;
+pub const HELPER_CONNECTOR_NOT_READY_REASON: &str = "connector_loop_not_implemented";
+pub const HELPER_BACKEND_NOT_LINKED_REASON: &str = "ironrdp_backend_not_linked";
 
 const HEADER_LEN: usize = 5;
 const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
@@ -178,14 +180,20 @@ where
 {
     let ironrdp_backend_linked = cfg!(feature = "ironrdp-backend");
     let connector_ready = false;
+    let connector_ready_reason = if ironrdp_backend_linked {
+        HELPER_CONNECTOR_NOT_READY_REASON
+    } else {
+        HELPER_BACKEND_NOT_LINKED_REASON
+    };
 
     writeln!(
         writer,
-        "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":{},\"connector_ready\":{}}}",
+        "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":{},\"connector_ready\":{},\"connector_ready_reason\":\"{}\"}}",
         HELPER_CAPABILITIES_SCHEMA,
         HELPER_PROTOCOL_VERSION,
         ironrdp_backend_linked,
-        connector_ready
+        connector_ready,
+        connector_ready_reason
     )
 }
 
@@ -617,6 +625,12 @@ mod tests {
         assert!(payload.contains("\"protocol\":\"rdp\""));
         assert!(payload.contains("\"helper_protocol_version\":1"));
         assert!(payload.contains("\"connector_ready\":false"));
+        let expected_reason = if cfg!(feature = "ironrdp-backend") {
+            HELPER_CONNECTOR_NOT_READY_REASON
+        } else {
+            HELPER_BACKEND_NOT_LINKED_REASON
+        };
+        assert!(payload.contains(&format!("\"connector_ready_reason\":\"{expected_reason}\"")));
     }
 
     #[test]
