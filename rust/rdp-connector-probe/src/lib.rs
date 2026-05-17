@@ -198,6 +198,12 @@ pub struct LiveTlsUpgradeProbe {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+pub struct VerifiedTlsClientConfigProbe {
+    pub trusted_root_count: usize,
+    pub resumption_disabled_for_credssp: bool,
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct ActiveStageSmokeProbe {
     pub desktop_width: u16,
     pub desktop_height: u16,
@@ -791,6 +797,80 @@ pub fn extract_credssp_server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, &'s
     Ok(public_key.to_vec())
 }
 
+pub fn build_verified_tls_client_config_for_registered_ca_bundle(
+    ca_bundle: &[u8],
+) -> Result<VerifiedTlsClientConfigProbe, String> {
+    let certificates = parse_registered_ca_bundle(ca_bundle)?;
+    let mut roots = rustls::RootCertStore::empty();
+    let mut added = 0;
+
+    for certificate in certificates {
+        roots
+            .add(certificate)
+            .map_err(|err| format!("registered CA bundle contains invalid certificate: {err}"))?;
+        added += 1;
+    }
+    if added == 0 {
+        return Err("registered CA bundle contains no certificates".to_owned());
+    }
+
+    let mut config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.resumption = rustls::client::Resumption::disabled();
+    drop(config);
+
+    Ok(VerifiedTlsClientConfigProbe {
+        trusted_root_count: added,
+        resumption_disabled_for_credssp: true,
+    })
+}
+
+fn parse_registered_ca_bundle(
+    ca_bundle: &[u8],
+) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
+    let trimmed = trim_ascii_whitespace(ca_bundle);
+    if trimmed.is_empty() {
+        return Err("registered CA bundle is empty".to_owned());
+    }
+
+    if trimmed
+        .windows(b"-----BEGIN CERTIFICATE-----".len())
+        .any(|window| window == b"-----BEGIN CERTIFICATE-----")
+    {
+        use rustls::pki_types::pem::PemObject as _;
+
+        let mut certificates = Vec::new();
+        for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(trimmed) {
+            certificates.push(
+                certificate.map_err(|err| format!("registered CA bundle PEM is invalid: {err}"))?,
+            );
+        }
+        if certificates.is_empty() {
+            return Err("registered CA bundle contains no certificates".to_owned());
+        }
+
+        return Ok(certificates);
+    }
+
+    Ok(vec![rustls::pki_types::CertificateDer::from(
+        trimmed.to_vec(),
+    )])
+}
+
+fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(start, |position| position + 1);
+
+    &bytes[start..end]
+}
+
 fn resolve_rdp_target(plan: &ConnectorPlan) -> Result<SocketAddr, String> {
     (plan.upstream_host.as_str(), plan.upstream_port)
         .to_socket_addrs()
@@ -1232,6 +1312,51 @@ mod tests {
     }
 
     #[test]
+    fn registered_ca_bundle_builds_verified_tls_client_config_from_der() {
+        let probe = crate::build_verified_tls_client_config_for_registered_ca_bundle(
+            &fixture_server_cert_der(),
+        )
+        .expect("verified TLS config");
+
+        assert_eq!(
+            probe,
+            VerifiedTlsClientConfigProbe {
+                trusted_root_count: 1,
+                resumption_disabled_for_credssp: true,
+            }
+        );
+    }
+
+    #[test]
+    fn registered_ca_bundle_builds_verified_tls_client_config_from_pem_chain() {
+        let cert_pem = fixture_server_cert_pem();
+        let ca_bundle = format!("{cert_pem}\n{cert_pem}");
+        let probe =
+            crate::build_verified_tls_client_config_for_registered_ca_bundle(ca_bundle.as_bytes())
+                .expect("verified TLS config");
+
+        assert_eq!(
+            probe,
+            VerifiedTlsClientConfigProbe {
+                trusted_root_count: 2,
+                resumption_disabled_for_credssp: true,
+            }
+        );
+    }
+
+    #[test]
+    fn registered_ca_bundle_rejects_empty_or_invalid_material() {
+        let empty = crate::build_verified_tls_client_config_for_registered_ca_bundle(b" \n\t")
+            .expect_err("empty rejected");
+        let invalid =
+            crate::build_verified_tls_client_config_for_registered_ca_bundle(b"not a certificate")
+                .expect_err("invalid rejected");
+
+        assert_eq!(empty, "registered CA bundle is empty");
+        assert!(invalid.starts_with("registered CA bundle contains invalid certificate:"));
+    }
+
+    #[test]
     fn rejects_non_nla_connector_config() {
         let err = crate::build_connector_config(open_request("alice", "optional")).unwrap_err();
 
@@ -1588,5 +1713,17 @@ mod tests {
                 "MIIDDTCCAfWgAwIBAgIUFaHwQBAFyvmfso6OPbcQ+2/fVSUwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAwwLd2luLmV4YW1wbGUwHhcNMjYwNTE2MTYzNzQ3WhcNMjYwNTE3MTYzNzQ3WjAWMRQwEgYDVQQDDAt3aW4uZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALbcS3SPVJlbV5AwbziMjXX0Z5CXcOIMt67zeIzoh6hmiAou1IIVZ14FrWStQj4kJNcAwdYQWtZcjM0ya6Hx3fd/M4H3FIatWkrlZcwDtxPeMHxoLzJ0mP/yLdacyvjfKqQDn8f0JEd4KY5dN1eD/OFBGF+XuQyIBsAom6SFuo7uZA4+HmC01P5ac0zAyJKOVDpgdBWa9FYn+YszqAwjrRau1m4A8K5BgRPDBs1FQwjGhRGePEuRgOKsHdBGq/PJ1Iw4mES4pwStTgGvFHJnIPxxZHX0WHiDZnbNx+K+HJh0eaWEjYUazuQtvsyllNM6KmZIHb/bgcZ0VTRQZ87l9lUCAwEAAaNTMFEwHQYDVR0OBBYEFOEi76jfCExGDeYivuwXNMm6uGnAMB8GA1UdIwQYMBaAFOEi76jfCExGDeYivuwXNMm6uGnAMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAI6IdjMvys+AEAoeZ31Lo0IbMsM4EChsvXwpE9BZ5zuPEtRwxoxLwVKrhfjkQjuX6CWFcMlWPvUqKU4t8G3b6/5ym67vJqYkLXgF5UG5Aj7AuiLIY6j8zBcZ4dFsx7hheXZC4em5e6D16eDgATWEBKf/kfbmnX8EET5gkqolAjYI4D1M3gT5yJrulhNmfXThW5A2Vvn70AhsrhMylogKRejaMOelRi1XA0AAXkZ53JWNTCJLJtRg/6PAeyT6nJwpTZi1iKJs0gRTv2TAnUFKeVfDV1CE63YM8953dq+xwqmrTmyZabWJb6yAXEepIUPMscB2UcHKFAqgWZ+4herSzfY=",
             )
             .expect("fixture certificate")
+    }
+
+    fn fixture_server_cert_pem() -> String {
+        let body = STANDARD.encode(fixture_server_cert_der());
+        let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+        for chunk in body.as_bytes().chunks(64) {
+            pem.push_str(std::str::from_utf8(chunk).expect("base64 is utf8"));
+            pem.push('\n');
+        }
+        pem.push_str("-----END CERTIFICATE-----\n");
+
+        pem
     }
 }

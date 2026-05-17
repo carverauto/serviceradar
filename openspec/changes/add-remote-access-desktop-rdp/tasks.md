@@ -175,6 +175,7 @@
 - [x] 3.2.45 Bind the Bazel-only active-stage server-read probe to the helper backend pump seam so future connector sessions can emit server-driven media through the same contract.
 - [x] 3.2.46 Add a Bazel-only active-stage handoff constructor that accepts an IronRDP `ConnectionResult` so future `connect_finalize` output can enter the same input/media/pump session path.
 - [x] 3.2.47 Add a Bazel-only network-pump handoff constructor that accepts a framed stream plus IronRDP `ConnectionResult` so future finalized connector sessions can use the same backend session contract.
+- [x] 3.2.48 Add a Bazel-only verified TLS client-config probe proving registered PEM/DER CA bundles build normal Rustls verification, reject invalid bundles, and disable TLS resumption for CredSSP while runtime readiness stays disabled.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -338,6 +339,7 @@
 - [x] 5.2.71 Add Bazel-only adapter probe coverage proving the helper backend pump seam reads framed server RDP PDUs and fails closed before media drain on malformed input.
 - [x] 5.2.72 Add Bazel-only adapter probe coverage proving an IronRDP `ConnectionResult` handoff can drive browser input into upstream RDP response bytes through the helper backend session path.
 - [x] 5.2.73 Add Bazel-only adapter probe coverage proving a framed stream plus IronRDP `ConnectionResult` handoff can drive browser input through the network-pump backend session path.
+- [x] 5.2.74 Add Bazel-only adapter probe coverage proving registered CA bundle material builds a verified Rustls client config, rejects empty/invalid material, and disables TLS resumption for CredSSP.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

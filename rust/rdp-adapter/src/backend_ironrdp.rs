@@ -19,6 +19,8 @@ const CONNECTOR_NOT_IMPLEMENTED: &str =
 const MEMORY_USER_REQUIRED: &str =
     "IronRDP backend currently requires a memory-user credential grant";
 const INVALID_CONNECTION_PLAN: &str = "IronRDP connection plan is invalid";
+#[cfg(serviceradar_rdp_connector_link_probe)]
+const INVALID_TLS_CA_BUNDLE: &str = "IronRDP TLS CA bundle is invalid";
 const TLS_MODE_PINNED_CA: &str = "pinned_ca";
 const TLS_MODE_VERIFY: &str = "verify";
 const TLS_MODE_SYSTEM: &str = "system";
@@ -64,6 +66,13 @@ struct BlockingConnectFinalizeProbe {
     wrote_credssp_bytes: bool,
     contains_cleartext_password: bool,
     written_bytes: Vec<u8>,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+#[derive(Debug, Eq, PartialEq)]
+struct VerifiedTlsClientConfigProbe {
+    trusted_root_count: usize,
+    resumption_disabled_for_credssp: bool,
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -613,6 +622,82 @@ fn derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
     Ok(VerifiedTlsPeerPublicKeyForProbe {
         bytes: public_key.to_vec(),
     })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
+    ca_bundle: &[u8],
+) -> Result<VerifiedTlsClientConfigProbe, BackendError> {
+    let certificates = parse_registered_ca_bundle_for_probe(ca_bundle)?;
+    let mut roots = rustls::RootCertStore::empty();
+    let mut added = 0;
+
+    for certificate in certificates {
+        roots
+            .add(certificate)
+            .map_err(|_| BackendError::Unsupported(INVALID_TLS_CA_BUNDLE))?;
+        added += 1;
+    }
+    if added == 0 {
+        return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+    }
+
+    let mut config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.resumption = rustls::client::Resumption::disabled();
+    drop(config);
+
+    Ok(VerifiedTlsClientConfigProbe {
+        trusted_root_count: added,
+        resumption_disabled_for_credssp: true,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn parse_registered_ca_bundle_for_probe(
+    ca_bundle: &[u8],
+) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, BackendError> {
+    let trimmed = trim_ascii_whitespace(ca_bundle);
+    if trimmed.is_empty() {
+        return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+    }
+
+    if trimmed
+        .windows(b"-----BEGIN CERTIFICATE-----".len())
+        .any(|window| window == b"-----BEGIN CERTIFICATE-----")
+    {
+        use rustls::pki_types::pem::PemObject as _;
+
+        let mut certificates = Vec::new();
+        for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(trimmed) {
+            certificates
+                .push(certificate.map_err(|_| BackendError::Unsupported(INVALID_TLS_CA_BUNDLE))?);
+        }
+        if certificates.is_empty() {
+            return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+        }
+
+        return Ok(certificates);
+    }
+
+    Ok(vec![rustls::pki_types::CertificateDer::from(
+        trimmed.to_vec(),
+    )])
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| !byte.is_ascii_whitespace())
+        .map_or(start, |position| position + 1);
+
+    &bytes[start..end]
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1489,6 +1574,56 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
+    fn connector_probe_registered_ca_bundle_builds_verified_tls_client_config_from_der() {
+        let probe = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
+            &fixture_server_cert_der(),
+        )
+        .expect("verified TLS config");
+
+        assert_eq!(
+            probe,
+            VerifiedTlsClientConfigProbe {
+                trusted_root_count: 1,
+                resumption_disabled_for_credssp: true,
+            }
+        );
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_registered_ca_bundle_builds_verified_tls_client_config_from_pem_chain() {
+        let cert_pem = fixture_server_cert_pem();
+        let ca_bundle = format!("{cert_pem}\n{cert_pem}");
+        let probe = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
+            ca_bundle.as_bytes(),
+        )
+        .expect("verified TLS config");
+
+        assert_eq!(
+            probe,
+            VerifiedTlsClientConfigProbe {
+                trusted_root_count: 2,
+                resumption_disabled_for_credssp: true,
+            }
+        );
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_registered_ca_bundle_rejects_empty_or_invalid_material() {
+        let empty = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(b" \n\t")
+            .expect_err("empty rejected");
+        let invalid = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
+            b"not a certificate",
+        )
+        .expect_err("invalid rejected");
+
+        assert_eq!(empty, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+        assert_eq!(invalid, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
     fn connector_probe_active_stage_encodes_keyboard_input_response_frame() {
         let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
@@ -2144,5 +2279,20 @@ mod tests {
                 "MIIDDTCCAfWgAwIBAgIUFaHwQBAFyvmfso6OPbcQ+2/fVSUwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAwwLd2luLmV4YW1wbGUwHhcNMjYwNTE2MTYzNzQ3WhcNMjYwNTE3MTYzNzQ3WjAWMRQwEgYDVQQDDAt3aW4uZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALbcS3SPVJlbV5AwbziMjXX0Z5CXcOIMt67zeIzoh6hmiAou1IIVZ14FrWStQj4kJNcAwdYQWtZcjM0ya6Hx3fd/M4H3FIatWkrlZcwDtxPeMHxoLzJ0mP/yLdacyvjfKqQDn8f0JEd4KY5dN1eD/OFBGF+XuQyIBsAom6SFuo7uZA4+HmC01P5ac0zAyJKOVDpgdBWa9FYn+YszqAwjrRau1m4A8K5BgRPDBs1FQwjGhRGePEuRgOKsHdBGq/PJ1Iw4mES4pwStTgGvFHJnIPxxZHX0WHiDZnbNx+K+HJh0eaWEjYUazuQtvsyllNM6KmZIHb/bgcZ0VTRQZ87l9lUCAwEAAaNTMFEwHQYDVR0OBBYEFOEi76jfCExGDeYivuwXNMm6uGnAMB8GA1UdIwQYMBaAFOEi76jfCExGDeYivuwXNMm6uGnAMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAI6IdjMvys+AEAoeZ31Lo0IbMsM4EChsvXwpE9BZ5zuPEtRwxoxLwVKrhfjkQjuX6CWFcMlWPvUqKU4t8G3b6/5ym67vJqYkLXgF5UG5Aj7AuiLIY6j8zBcZ4dFsx7hheXZC4em5e6D16eDgATWEBKf/kfbmnX8EET5gkqolAjYI4D1M3gT5yJrulhNmfXThW5A2Vvn70AhsrhMylogKRejaMOelRi1XA0AAXkZ53JWNTCJLJtRg/6PAeyT6nJwpTZi1iKJs0gRTv2TAnUFKeVfDV1CE63YM8953dq+xwqmrTmyZabWJb6yAXEepIUPMscB2UcHKFAqgWZ+4herSzfY=",
             )
             .expect("fixture certificate")
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn fixture_server_cert_pem() -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let body = STANDARD.encode(fixture_server_cert_der());
+        let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+        for chunk in body.as_bytes().chunks(64) {
+            pem.push_str(std::str::from_utf8(chunk).expect("base64 is utf8"));
+            pem.push('\n');
+        }
+        pem.push_str("-----END CERTIFICATE-----\n");
+
+        pem
     }
 }

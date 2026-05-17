@@ -10,6 +10,7 @@ RDP_CONNECTOR_DEPS = [
     "@rdp_connector_crates//:ironrdp-graphics",
     "@rdp_connector_crates//:ironrdp-pdu",
     "@rdp_connector_crates//:ironrdp-session",
+    "@rdp_connector_crates//:rustls",
     "@rdp_connector_crates//:serde",
     "@rdp_connector_crates//:serde_json",
     "@rdp_connector_crates//:x509-cert",

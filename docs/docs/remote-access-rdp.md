@@ -157,6 +157,13 @@ TLS modes:
 - `tofu`: trust-on-first-use for controlled enrollment only.
 - `insecure`: lab-only. Do not use in production.
 
+For production RDP, prefer `verify` with an explicit ServiceRadar-managed CA bundle
+or `pinned_ca` for private Windows/xrdp certificates. The helper path is expected
+to build a normal Rustls client verifier from PEM or DER CA bundle material, reject
+empty or malformed bundles, and disable TLS resumption because CredSSP does not
+support it. Do not use TOFU as a standing trust model; it implies persistent
+agent-local state and should stay limited to a reviewed enrollment workflow.
+
 Keep `nla_mode` set to `required` for Windows RDP. Disabling NLA is a temporary lab-only setting and should not pass production policy review.
 
 ## Redirection Controls
