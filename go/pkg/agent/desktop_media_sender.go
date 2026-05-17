@@ -360,6 +360,12 @@ func (s *desktopMediaGatewaySender) recvLoop() {
 		}
 
 		if ack := msg.GetAck(); ack != nil {
+			if err := s.validateInboundAck(ack); err != nil {
+				s.recvErr <- err
+
+				return
+			}
+
 			converted := remoteaccess.DesktopMediaAck{
 				SessionBindingID: ack.GetDesktopSessionId(),
 				MediaSessionID:   ack.GetMediaSessionId(),
@@ -378,6 +384,12 @@ func (s *desktopMediaGatewaySender) recvLoop() {
 		}
 
 		if closeMsg := msg.GetClose(); closeMsg != nil {
+			if err := s.validateInboundClose(closeMsg); err != nil {
+				s.recvErr <- err
+
+				return
+			}
+
 			reason := normalizeDesktopMediaTerminalReason(closeMsg.GetReason())
 			if reason == "" {
 				reason = "desktop media stream closed"
@@ -386,6 +398,36 @@ func (s *desktopMediaGatewaySender) recvLoop() {
 
 			return
 		}
+	}
+}
+
+func (s *desktopMediaGatewaySender) validateInboundAck(ack *proto.DesktopMediaAck) error {
+	switch {
+	case ack.GetDesktopSessionId() != s.desktopID:
+		return fmt.Errorf("%w: desktop session mismatch", remoteaccess.ErrInvalidDesktopMediaAck)
+	case ack.GetMediaSessionId() != s.mediaID:
+		return fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaAck)
+	case ack.GetMediaIngestId() != s.mediaIngest:
+		return fmt.Errorf("%w: media ingest mismatch", remoteaccess.ErrInvalidDesktopMediaAck)
+	case ack.GetGatewayId() != s.gatewayID:
+		return fmt.Errorf("%w: gateway mismatch", remoteaccess.ErrInvalidDesktopMediaAck)
+	default:
+		return nil
+	}
+}
+
+func (s *desktopMediaGatewaySender) validateInboundClose(closeMsg *proto.DesktopMediaStreamClose) error {
+	switch {
+	case closeMsg.GetDesktopSessionId() != s.desktopID:
+		return fmt.Errorf("%w: desktop session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+	case closeMsg.GetMediaSessionId() != s.mediaID:
+		return fmt.Errorf("%w: media session mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+	case closeMsg.GetMediaIngestId() != s.mediaIngest:
+		return fmt.Errorf("%w: media ingest mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+	case closeMsg.GetGatewayId() != s.gatewayID:
+		return fmt.Errorf("%w: gateway mismatch", remoteaccess.ErrInvalidDesktopMediaFrame)
+	default:
+		return nil
 	}
 }
 

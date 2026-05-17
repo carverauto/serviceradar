@@ -258,6 +258,69 @@ func TestDesktopMediaGatewaySenderRejectsInvalidAcksBeforeHandler(t *testing.T) 
 	}
 }
 
+func TestDesktopMediaGatewaySenderRejectsInboundAckBindingMismatches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*proto.DesktopMediaAck)
+	}{
+		{
+			name: "media ingest mismatch",
+			mutate: func(ack *proto.DesktopMediaAck) {
+				ack.MediaIngestId = "other-ingest"
+			},
+		},
+		{
+			name: "gateway mismatch",
+			mutate: func(ack *proto.DesktopMediaAck) {
+				ack.GatewayId = "other-gateway"
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := newFakeDesktopMediaStream()
+			called := make(chan struct{}, 1)
+			sender, err := newDesktopMediaGatewaySender(
+				context.Background(),
+				&fakeDesktopMediaGateway{
+					openResp: acceptedDesktopMediaOpenResponse(),
+					stream:   stream,
+				},
+				testDesktopMediaGatewaySenderConfig(),
+				func(context.Context, remoteaccess.DesktopMediaAck) error {
+					called <- struct{}{}
+					return nil
+				},
+			)
+			if err != nil {
+				t.Fatalf("newDesktopMediaGatewaySender returned error: %v", err)
+			}
+
+			ack := validDesktopMediaProtoAck()
+			tc.mutate(ack)
+			stream.recv <- &proto.DesktopMediaServerMessage{
+				Message: &proto.DesktopMediaServerMessage_Ack{Ack: ack},
+			}
+
+			select {
+			case err := <-sender.RecvErr():
+				if !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaAck) {
+					t.Fatalf("recv error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaAck)
+				}
+			case <-called:
+				t.Fatal("ack handler was called for mismatched ack")
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for invalid ack error")
+			}
+		})
+	}
+}
+
 func TestDesktopMediaGatewaySenderRejectsInvalidFrames(t *testing.T) {
 	t.Parallel()
 
@@ -595,7 +658,7 @@ func TestDesktopMediaGatewaySenderNormalizesInboundCloseReason(t *testing.T) {
 	reason := " gateway\nclosed\t" + strings.Repeat("x", remoteaccess.DesktopMediaMaxCloseReason)
 	stream.recv <- &proto.DesktopMediaServerMessage{
 		Message: &proto.DesktopMediaServerMessage_Close{
-			Close: &proto.DesktopMediaStreamClose{Reason: reason},
+			Close: validDesktopMediaProtoClose(reason),
 		},
 	}
 
@@ -609,6 +672,63 @@ func TestDesktopMediaGatewaySenderNormalizesInboundCloseReason(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for inbound close error")
+	}
+}
+
+func TestDesktopMediaGatewaySenderRejectsInboundCloseBindingMismatches(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*proto.DesktopMediaStreamClose)
+	}{
+		{
+			name: "media ingest mismatch",
+			mutate: func(closeMsg *proto.DesktopMediaStreamClose) {
+				closeMsg.MediaIngestId = "other-ingest"
+			},
+		},
+		{
+			name: "gateway mismatch",
+			mutate: func(closeMsg *proto.DesktopMediaStreamClose) {
+				closeMsg.GatewayId = "other-gateway"
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := newFakeDesktopMediaStream()
+			sender, err := newDesktopMediaGatewaySender(
+				context.Background(),
+				&fakeDesktopMediaGateway{
+					openResp: acceptedDesktopMediaOpenResponse(),
+					stream:   stream,
+				},
+				testDesktopMediaGatewaySenderConfig(),
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("newDesktopMediaGatewaySender returned error: %v", err)
+			}
+
+			closeMsg := validDesktopMediaProtoClose("gateway closed")
+			tc.mutate(closeMsg)
+			stream.recv <- &proto.DesktopMediaServerMessage{
+				Message: &proto.DesktopMediaServerMessage_Close{Close: closeMsg},
+			}
+
+			select {
+			case err := <-sender.RecvErr():
+				if !errors.Is(err, remoteaccess.ErrInvalidDesktopMediaFrame) {
+					t.Fatalf("recv error = %v, want %v", err, remoteaccess.ErrInvalidDesktopMediaFrame)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for invalid close error")
+			}
+		})
 	}
 }
 
@@ -630,6 +750,27 @@ func testDesktopMediaGatewaySenderConfig() desktopMediaGatewaySenderConfig {
 		TargetID:         testDesktopMediaTargetID,
 		RouteID:          testDesktopMediaRouteID,
 		LeaseToken:       testDesktopMediaLease,
+	}
+}
+
+func validDesktopMediaProtoAck() *proto.DesktopMediaAck {
+	return &proto.DesktopMediaAck{
+		DesktopSessionId:     testDesktopMediaSessionID,
+		MediaSessionId:       testDesktopMediaID,
+		MediaIngestId:        testDesktopMediaIngestID,
+		GatewayId:            testDesktopMediaGatewayID,
+		LastAcceptedSequence: 9,
+		CreditBytes:          1024,
+	}
+}
+
+func validDesktopMediaProtoClose(reason string) *proto.DesktopMediaStreamClose {
+	return &proto.DesktopMediaStreamClose{
+		DesktopSessionId: testDesktopMediaSessionID,
+		MediaSessionId:   testDesktopMediaID,
+		MediaIngestId:    testDesktopMediaIngestID,
+		GatewayId:        testDesktopMediaGatewayID,
+		Reason:           reason,
 	}
 }
 
