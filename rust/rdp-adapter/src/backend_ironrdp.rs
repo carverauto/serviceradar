@@ -115,6 +115,43 @@ impl<S: Read + Write> ConnectorCredsspHandoff<S> {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct ConnectorFinalizedHandoff<S: Read + Write> {
+    framed: ironrdp_blocking::Framed<S>,
+    connection_result: ironrdp_connector::ConnectionResult,
+    desktop_size: ironrdp_connector::DesktopSize,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl<S: Read + Write> ConnectorFinalizedHandoff<S> {
+    #[allow(clippy::too_many_arguments)]
+    fn into_network_pump_session<W: Write>(
+        self,
+        upstream: W,
+        policy: &DesktopScreenPolicy,
+        session_binding_id: String,
+        media_session_id: String,
+        timestamp_unix_nano: i64,
+    ) -> ActiveStageNetworkPumpSessionProbe<S, W> {
+        ActiveStageNetworkPumpSessionProbe::from_connection_result(
+            self.framed,
+            self.connection_result,
+            self.desktop_size,
+            upstream,
+            policy,
+            session_binding_id,
+            media_session_id,
+            timestamp_unix_nano,
+        )
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+struct ConnectorFinalizeFailure<S: Read + Write> {
+    framed: ironrdp_blocking::Framed<S>,
+    error: BackendError,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
 struct VerifiedTlsClientConfigProbe {
     trusted_root_count: usize,
@@ -710,30 +747,17 @@ fn drive_blocking_connect_finalize_for_probe(
     let initial_write_len = stream.writes.len();
     let credssp_handoff =
         mark_connector_handoff_tls_upgraded_for_probe(handoff, server_public_key)?;
-    let ConnectorCredsspHandoff {
-        mut framed,
-        upgraded,
-        connector,
-        server_name,
-        server_public_key,
-    } = credssp_handoff;
     let mut network_client = RejectingNetworkClient;
-    let finalize = ironrdp_blocking::connect_finalize(
-        upgraded,
-        connector,
-        &mut framed,
-        &mut network_client,
-        server_name,
-        server_public_key,
-        None,
-    );
-    if finalize.is_ok() {
-        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
-    }
-
-    let (stream, leftover) = framed.into_inner();
+    let failure = match finalize_connector_handoff_for_probe(credssp_handoff, &mut network_client) {
+        Ok(_) => return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)),
+        Err(failure) => failure,
+    };
+    let (stream, leftover) = failure.framed.into_inner();
     if !leftover.is_empty() {
         return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+    if failure.error != BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED) {
+        return Err(failure.error);
     }
 
     Ok(BlockingConnectFinalizeProbe {
@@ -744,6 +768,48 @@ fn drive_blocking_connect_finalize_for_probe(
         ),
         written_bytes: stream.writes,
     })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn finalize_connector_handoff_for_probe<S, N>(
+    handoff: ConnectorCredsspHandoff<S>,
+    network_client: &mut N,
+) -> Result<ConnectorFinalizedHandoff<S>, ConnectorFinalizeFailure<S>>
+where
+    S: Read + Write,
+    N: ironrdp_connector::sspi::network_client::NetworkClient,
+{
+    let ConnectorCredsspHandoff {
+        mut framed,
+        upgraded,
+        connector,
+        server_name,
+        server_public_key,
+    } = handoff;
+
+    match ironrdp_blocking::connect_finalize(
+        upgraded,
+        connector,
+        &mut framed,
+        network_client,
+        server_name,
+        server_public_key,
+        None,
+    ) {
+        Ok(connection_result) => {
+            let desktop_size = connection_result.desktop_size;
+
+            Ok(ConnectorFinalizedHandoff {
+                framed,
+                connection_result,
+                desktop_size,
+            })
+        }
+        Err(_) => Err(ConnectorFinalizeFailure {
+            framed,
+            error: BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED),
+        }),
+    }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
@@ -1866,6 +1932,95 @@ mod tests {
             &stream.writes,
             credential.password.value.as_str().as_bytes(),
         ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_finalize_failure_preserves_framed_stream_without_password() {
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+                .expect("server confirm");
+        let begin_handoff = begin_connector_handoff_for_probe(
+            &plan,
+            &credential,
+            ScriptedStream::new(vec![server_confirm]),
+        )
+        .expect("connector begin handoff");
+        let server_public_key = derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
+            &fixture_server_cert_der(),
+        )
+        .expect("server public key");
+        let credssp_handoff =
+            mark_connector_handoff_tls_upgraded_for_probe(begin_handoff, server_public_key)
+                .expect("credssp handoff");
+        let mut network_client = RejectingNetworkClient;
+
+        let failure =
+            match finalize_connector_handoff_for_probe(credssp_handoff, &mut network_client) {
+                Ok(_) => panic!("rejecting network client should not finalize"),
+                Err(failure) => failure,
+            };
+        let (stream, leftover) = failure.framed.get_inner();
+
+        assert_eq!(
+            failure.error,
+            BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
+        );
+        assert!(leftover.is_empty());
+        assert!(!stream.writes.is_empty());
+        assert!(!bytes_contain_secret(
+            &stream.writes,
+            credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_finalized_handoff_builds_network_pump_session() {
+        let payload = parse_open_payload(valid_open_payload().as_bytes()).expect("valid payload");
+        let plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let (connection_result, desktop_size) =
+            build_connection_result_for_probe(&plan, &credential);
+        let handoff = ConnectorFinalizedHandoff {
+            framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
+            connection_result,
+            desktop_size,
+        };
+        let mut session = handoff.into_network_pump_session(
+            Vec::<u8>::new(),
+            &payload.target.screen,
+            "session-1".to_owned(),
+            "media-1".to_owned(),
+            1234,
+        );
+
+        {
+            let session_trait: &mut dyn RdpBackendSession = &mut session;
+            session_trait
+                .input(&desktop_key_frame("Enter", true))
+                .expect("input routed after finalized connector handoff");
+        }
+
+        assert!(!session.upstream_ref().is_empty());
+        assert!(session.drain_media_frames().is_empty());
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
