@@ -10,6 +10,9 @@ mod protocol;
 use std::error::Error;
 use std::fmt;
 use std::io::{self, ErrorKind, Read, Write};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::Duration;
 
 pub use backend::{BackendError, RdpBackend, RdpBackendSession, UnavailableBackend};
 #[cfg(feature = "ironrdp-backend")]
@@ -34,6 +37,7 @@ const MSG_MEDIA_FRAME: u8 = 3;
 const MSG_ACK: u8 = 4;
 const MSG_CLOSE: u8 = 5;
 const MSG_ERROR: u8 = 6;
+const DEFAULT_BACKEND_PUMP_INTERVAL: Duration = Duration::from_millis(10);
 
 #[derive(Debug)]
 pub enum ProtocolError {
@@ -131,6 +135,11 @@ struct ActiveSession {
     session: Box<dyn RdpBackendSession>,
 }
 
+enum FrameAction {
+    Continue,
+    Close,
+}
+
 pub fn run_stdio<R, W>(reader: &mut R, writer: &mut W) -> Result<(), ProtocolError>
 where
     R: Read,
@@ -143,6 +152,20 @@ where
     let mut backend = UnavailableBackend;
 
     run_stdio_with_backend(reader, writer, &mut backend)
+}
+
+pub fn run_stdio_pumped<R, W>(reader: R, writer: &mut W) -> Result<(), ProtocolError>
+where
+    R: Read + Send + 'static,
+    W: Write,
+{
+    #[cfg(feature = "ironrdp-backend")]
+    let mut backend = IronRdpBackend;
+
+    #[cfg(not(feature = "ironrdp-backend"))]
+    let mut backend = UnavailableBackend;
+
+    run_stdio_with_backend_pump(reader, writer, &mut backend, DEFAULT_BACKEND_PUMP_INTERVAL)
 }
 
 pub fn harden_process_for_secrets() -> io::Result<()> {
@@ -178,117 +201,211 @@ where
 {
     let mut active_session: Option<ActiveSession> = None;
 
-    while let Some(mut frame) = read_frame(reader)? {
-        match frame.message_type {
-            MSG_OPEN => {
-                if active_session.is_some() {
-                    write_error_frame(writer, "rdp helper session is already open")?;
-                    return Err(ProtocolError::UnexpectedMessage(frame.message_type));
-                }
-
-                let open = match parse_and_clear_open_payload(&mut frame.payload) {
-                    Ok(open) => open,
-                    Err(err) => {
-                        write_error_frame(writer, "invalid rdp helper open payload")?;
-                        return Err(err.into());
-                    }
-                };
-
-                let session_id = open.session_id.clone();
-                let screen_policy = protocol::DesktopScreenPolicy {
-                    max_width: open.target.screen.max_width,
-                    max_height: open.target.screen.max_height,
-                    color_depth: open.target.screen.color_depth,
-                    frame_rate: open.target.screen.frame_rate,
-                    bitrate_bps: open.target.screen.bitrate_bps,
-                    idle_seconds: open.target.screen.idle_seconds,
-                    ttl_seconds: open.target.screen.ttl_seconds,
-                };
-
-                match backend.open(open) {
-                    Ok(session) => {
-                        active_session = Some(ActiveSession {
-                            session_id,
-                            screen_policy,
-                            session,
-                        });
-                        if let Some(active) = active_session.as_mut() {
-                            drain_and_write_media_frames(writer, active.session.as_mut())?;
-                        }
-                    }
-                    Err(err) => {
-                        write_error_frame(writer, err.safe_message())?;
-                        return Err(err.into());
-                    }
-                }
-            }
-            MSG_INPUT => {
-                let Some(active) = active_session.as_mut() else {
-                    write_error_frame(writer, "rdp helper session is not open")?;
-                    return Err(ProtocolError::UnexpectedMessage(frame.message_type));
-                };
-                let input = match parse_and_clear_input_payload(
-                    &mut frame.payload,
-                    &active.session_id,
-                    &active.screen_policy,
-                ) {
-                    Ok(input) => input,
-                    Err(err) => {
-                        write_error_frame(writer, "invalid rdp helper input payload")?;
-                        return Err(err.into());
-                    }
-                };
-                if let Err(err) = active.session.input(&input) {
-                    write_error_frame(writer, err.safe_message())?;
-                    return Err(err.into());
-                }
-                drain_and_write_media_frames(writer, active.session.as_mut())?;
-            }
-            MSG_ACK => {
-                let Some(active) = active_session.as_mut() else {
-                    write_error_frame(writer, "rdp helper session is not open")?;
-                    return Err(ProtocolError::UnexpectedMessage(frame.message_type));
-                };
-                let ack = match parse_and_clear_ack_payload(&mut frame.payload, &active.session_id)
-                {
-                    Ok(ack) => ack,
-                    Err(err) => {
-                        write_error_frame(writer, "invalid rdp helper ack payload")?;
-                        return Err(err.into());
-                    }
-                };
-                if let Err(err) = active.session.ack(&ack) {
-                    write_error_frame(writer, err.safe_message())?;
-                    return Err(err.into());
-                }
-                drain_and_write_media_frames(writer, active.session.as_mut())?;
-            }
-            MSG_CLOSE => {
-                let close = match parse_and_clear_close_payload(&mut frame.payload) {
-                    Ok(close) => close,
-                    Err(err) => {
-                        write_error_frame(writer, "invalid rdp helper close payload")?;
-                        return Err(err.into());
-                    }
-                };
-
-                if let Some(mut active) = active_session.take() {
-                    if let Err(err) = active.session.close(&close) {
-                        write_error_frame(writer, err.safe_message())?;
-                        return Err(err.into());
-                    }
-                }
-
-                return Ok(());
-            }
-            message_type => {
-                write_error_frame(writer, "rdp helper message type is unsupported")?;
-                return Err(ProtocolError::UnexpectedMessage(message_type));
-            }
+    while let Some(frame) = read_frame(reader)? {
+        if let FrameAction::Close = process_frame(frame, writer, backend, &mut active_session)? {
+            return Ok(());
         }
     }
 
     Ok(())
+}
+
+pub fn run_stdio_with_backend_pump<R, W, B>(
+    reader: R,
+    writer: &mut W,
+    backend: &mut B,
+    pump_interval: Duration,
+) -> Result<(), ProtocolError>
+where
+    R: Read + Send + 'static,
+    W: Write,
+    B: RdpBackend,
+{
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || read_frames_into_channel(reader, sender));
+    let mut active_session: Option<ActiveSession> = None;
+    let interval = if pump_interval.is_zero() {
+        DEFAULT_BACKEND_PUMP_INTERVAL
+    } else {
+        pump_interval
+    };
+
+    loop {
+        match receiver.recv_timeout(interval) {
+            Ok(Ok(Some(frame))) => {
+                if let FrameAction::Close =
+                    process_frame(frame, writer, backend, &mut active_session)?
+                {
+                    return Ok(());
+                }
+            }
+            Ok(Ok(None)) => return Ok(()),
+            Ok(Err(err)) => return Err(err),
+            Err(RecvTimeoutError::Timeout) => {
+                if let Some(active) = active_session.as_mut() {
+                    pump_and_write_media_frames(writer, active.session.as_mut())?;
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => return Ok(()),
+        }
+    }
+}
+
+fn read_frames_into_channel<R>(
+    mut reader: R,
+    sender: mpsc::Sender<Result<Option<Frame>, ProtocolError>>,
+) where
+    R: Read,
+{
+    loop {
+        match read_frame(&mut reader) {
+            Ok(Some(frame)) => {
+                if sender.send(Ok(Some(frame))).is_err() {
+                    return;
+                }
+            }
+            Ok(None) => {
+                let _ = sender.send(Ok(None));
+                return;
+            }
+            Err(err) => {
+                let _ = sender.send(Err(err));
+                return;
+            }
+        }
+    }
+}
+
+fn process_frame<W, B>(
+    mut frame: Frame,
+    writer: &mut W,
+    backend: &mut B,
+    active_session: &mut Option<ActiveSession>,
+) -> Result<FrameAction, ProtocolError>
+where
+    W: Write,
+    B: RdpBackend,
+{
+    match frame.message_type {
+        MSG_OPEN => {
+            if active_session.is_some() {
+                write_error_frame(writer, "rdp helper session is already open")?;
+                return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+            }
+
+            let open = match parse_and_clear_open_payload(&mut frame.payload) {
+                Ok(open) => open,
+                Err(err) => {
+                    write_error_frame(writer, "invalid rdp helper open payload")?;
+                    return Err(err.into());
+                }
+            };
+
+            let session_id = open.session_id.clone();
+            let screen_policy = protocol::DesktopScreenPolicy {
+                max_width: open.target.screen.max_width,
+                max_height: open.target.screen.max_height,
+                color_depth: open.target.screen.color_depth,
+                frame_rate: open.target.screen.frame_rate,
+                bitrate_bps: open.target.screen.bitrate_bps,
+                idle_seconds: open.target.screen.idle_seconds,
+                ttl_seconds: open.target.screen.ttl_seconds,
+            };
+
+            match backend.open(open) {
+                Ok(session) => {
+                    *active_session = Some(ActiveSession {
+                        session_id,
+                        screen_policy,
+                        session,
+                    });
+                    if let Some(active) = active_session.as_mut() {
+                        drain_and_write_media_frames(writer, active.session.as_mut())?;
+                    }
+                }
+                Err(err) => {
+                    write_error_frame(writer, err.safe_message())?;
+                    return Err(err.into());
+                }
+            }
+        }
+        MSG_INPUT => {
+            let Some(active) = active_session.as_mut() else {
+                write_error_frame(writer, "rdp helper session is not open")?;
+                return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+            };
+            let input = match parse_and_clear_input_payload(
+                &mut frame.payload,
+                &active.session_id,
+                &active.screen_policy,
+            ) {
+                Ok(input) => input,
+                Err(err) => {
+                    write_error_frame(writer, "invalid rdp helper input payload")?;
+                    return Err(err.into());
+                }
+            };
+            if let Err(err) = active.session.input(&input) {
+                write_error_frame(writer, err.safe_message())?;
+                return Err(err.into());
+            }
+            drain_and_write_media_frames(writer, active.session.as_mut())?;
+        }
+        MSG_ACK => {
+            let Some(active) = active_session.as_mut() else {
+                write_error_frame(writer, "rdp helper session is not open")?;
+                return Err(ProtocolError::UnexpectedMessage(frame.message_type));
+            };
+            let ack = match parse_and_clear_ack_payload(&mut frame.payload, &active.session_id) {
+                Ok(ack) => ack,
+                Err(err) => {
+                    write_error_frame(writer, "invalid rdp helper ack payload")?;
+                    return Err(err.into());
+                }
+            };
+            if let Err(err) = active.session.ack(&ack) {
+                write_error_frame(writer, err.safe_message())?;
+                return Err(err.into());
+            }
+            drain_and_write_media_frames(writer, active.session.as_mut())?;
+        }
+        MSG_CLOSE => {
+            let close = match parse_and_clear_close_payload(&mut frame.payload) {
+                Ok(close) => close,
+                Err(err) => {
+                    write_error_frame(writer, "invalid rdp helper close payload")?;
+                    return Err(err.into());
+                }
+            };
+
+            if let Some(mut active) = active_session.take() {
+                if let Err(err) = active.session.close(&close) {
+                    write_error_frame(writer, err.safe_message())?;
+                    return Err(err.into());
+                }
+            }
+
+            return Ok(FrameAction::Close);
+        }
+        message_type => {
+            write_error_frame(writer, "rdp helper message type is unsupported")?;
+            return Err(ProtocolError::UnexpectedMessage(message_type));
+        }
+    }
+
+    Ok(FrameAction::Continue)
+}
+
+fn pump_and_write_media_frames<W: Write>(
+    writer: &mut W,
+    session: &mut dyn RdpBackendSession,
+) -> Result<(), ProtocolError> {
+    if let Err(err) = session.pump() {
+        write_error_frame(writer, err.safe_message())?;
+        return Err(err.into());
+    }
+
+    drain_and_write_media_frames(writer, session)
 }
 
 fn drain_and_write_media_frames<W: Write>(
@@ -419,6 +536,8 @@ mod tests {
         acks: Vec<DesktopMediaAck>,
         close_payloads: Vec<DesktopClosePayload>,
         pending_media_frames: Vec<Vec<u8>>,
+        pump_count: usize,
+        pump_media_frames: Vec<Vec<u8>>,
         media_drain_error: Option<&'static str>,
     }
 
@@ -463,6 +582,15 @@ mod tests {
 
         fn close(&mut self, payload: &DesktopClosePayload) -> Result<(), BackendError> {
             self.state.borrow_mut().close_payloads.push(payload.clone());
+
+            Ok(())
+        }
+
+        fn pump(&mut self) -> Result<(), BackendError> {
+            let mut state = self.state.borrow_mut();
+            state.pump_count += 1;
+            let pump_media_frames = std::mem::take(&mut state.pump_media_frames);
+            state.pending_media_frames.extend(pump_media_frames);
 
             Ok(())
         }
@@ -761,6 +889,54 @@ mod tests {
             })
         );
         assert_eq!(read_frame(&mut output).expect("read eof"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn run_stdio_pump_emits_backend_media_while_ipc_reader_is_idle() {
+        use std::os::unix::net::UnixStream;
+        use std::thread;
+        use std::time::Duration;
+
+        let (mut writer_pipe, reader_pipe) = UnixStream::pair().expect("unix stream pair");
+        let input_thread = thread::spawn(move || {
+            write_frame(
+                &mut writer_pipe,
+                MSG_OPEN,
+                protocol::tests::valid_open_payload().as_bytes(),
+            )
+            .expect("write open frame");
+            thread::sleep(Duration::from_millis(40));
+            write_frame(&mut writer_pipe, MSG_CLOSE, br#"{"reason":"done"}"#)
+                .expect("write close frame");
+        });
+        let state = Rc::new(RefCell::new(RecordingState {
+            pump_media_frames: vec![b"server-driven-srdp-frame".to_vec()],
+            ..RecordingState::default()
+        }));
+        let mut output = Vec::new();
+        let mut backend = RecordingBackend {
+            state: Rc::clone(&state),
+        };
+
+        run_stdio_with_backend_pump(
+            reader_pipe,
+            &mut output,
+            &mut backend,
+            Duration::from_millis(5),
+        )
+        .expect("pumped session succeeds");
+        input_thread.join().expect("input thread joins");
+
+        assert!(state.borrow().pump_count > 0);
+        let mut output = output.as_slice();
+        assert_eq!(
+            read_frame(&mut output).expect("read pumped media frame"),
+            Some(Frame {
+                message_type: MSG_MEDIA_FRAME,
+                payload: b"server-driven-srdp-frame".to_vec(),
+            })
+        );
     }
 
     #[test]
