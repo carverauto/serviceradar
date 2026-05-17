@@ -347,6 +347,7 @@
 - [x] 5.3.7 Add focused Go tests for adapter-facing desktop session guard behavior.
 - [ ] 5.4 Add a demo proof path with a private Windows RDP target or controlled RDP test server reachable only from an agent.
 - [x] 5.4.1 Add an operator demo proof path for a private Windows/xrdp target reachable only from the selected edge agent, with readiness, policy, media, backpressure, cleanup, and audit checks.
+- [x] 5.4.2 Add an opt-in live IronRDP connector boundary probe and validate the lab target at `192.168.1.45` reaches the TLS/NLA upgrade boundary without cleartext password exposure.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [x] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.

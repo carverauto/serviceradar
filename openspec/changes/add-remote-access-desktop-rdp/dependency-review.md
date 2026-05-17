@@ -91,6 +91,8 @@ IronRDP may be used only for the RDP protocol mechanics after a dedicated import
 
 The feature-linked helper target must still fail closed until the connector loop, TLS verification, NLA/CredSSP handling, credential drop ordering, frame decoding, and controlled RDP test target are implemented.
 
+Live target validation on 2026-05-16: `SERVICERADAR_RDP_LIVE_TARGET=192.168.1.45 cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked live_blocking_connect_begin_reaches_tls_upgrade_boundary_when_configured -- --nocapture` passed. This proves the lab target is reachable on RDP and accepts the NLA/CredSSP negotiation path through `ironrdp-blocking::connect_begin` without cleartext password exposure in the initial client bytes. It does not prove TLS certificate validation, CredSSP completion, target authentication, active-stage media, cleanup ordering, or helper readiness.
+
 ## Follow-Up Before Import
 - Verify the selected IronRDP commit's crate licenses from the upstream checkout, not from Teleport's AGPL workspace.
 - Decide whether the production optional IronRDP connector helper uses the review probe's separate Rust workspace/lockfile pattern or a dedicated Bazel crate-universe repository to keep the connector crypto graph isolated from the root ServiceRadar workspace.

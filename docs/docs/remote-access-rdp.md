@@ -257,6 +257,19 @@ serviceradar-rdp-adapter --capabilities
 
 The end-to-end proof requires `connector_ready: true`. Until then, the current experimental helper can validate policy, RBAC, target registration, signaling, media envelope handling, and fail-closed behavior, but it cannot complete a live RDP desktop connection.
 
+Before enabling helper readiness, run the connector boundary probe from the repository
+against the private target reachable from the selected agent network:
+
+```bash
+SERVICERADAR_RDP_LIVE_TARGET=<rdp-target-host-or-ip> \
+  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
+  live_blocking_connect_begin_reaches_tls_upgrade_boundary_when_configured -- --nocapture
+```
+
+This proves the target accepts the NLA/CredSSP negotiation path without sending a
+cleartext password in the initial client bytes. It is not a substitute for the full
+TLS verification, CredSSP, authentication, media, and cleanup proof.
+
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.

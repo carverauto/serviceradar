@@ -1,7 +1,8 @@
 use serde::Deserialize;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
+use std::time::Duration;
 
 const OPEN_SCHEMA: &str = "serviceradar.rdp.helper.open.v1";
 const CLIENT_BUILD: u32 = 1;
@@ -616,6 +617,49 @@ pub fn drive_blocking_connect_begin_to_tls_upgrade(
     })
 }
 
+pub fn drive_live_blocking_connect_begin_to_tls_upgrade(
+    request: ServiceRadarOpenRequest,
+    timeout: Duration,
+) -> Result<BlockingConnectBeginProbe, String> {
+    let password = request.credential_grant.password.clone();
+    let plan = build_connector_plan(request).map_err(str::to_owned)?;
+    let target = (plan.upstream_host.as_str(), plan.upstream_port)
+        .to_socket_addrs()
+        .map_err(|err| format!("rdp target address resolution failed: {err}"))?
+        .next()
+        .ok_or_else(|| "rdp target address resolution returned no addresses".to_owned())?;
+    let stream = TcpStream::connect_timeout(&target, timeout)
+        .map_err(|err| format!("rdp target connect failed: {err}"))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|err| format!("rdp target read timeout setup failed: {err}"))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|err| format!("rdp target write timeout setup failed: {err}"))?;
+
+    let mut connector = ironrdp_connector::ClientConnector::new(plan.connector_config, CLIENT_ADDR);
+    let before_state = connector_state_name(&connector);
+    let mut framed = ironrdp_blocking::Framed::new(RecordingStream::new(stream));
+
+    ironrdp_blocking::connect_begin(&mut framed, &mut connector)
+        .map_err(|err| format!("live blocking connect begin failed: {err}"))?;
+
+    let after_state = connector_state_name(&connector);
+    let requires_security_upgrade = connector.should_perform_security_upgrade();
+    let (stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err("live blocking connect begin left unread bytes".to_owned());
+    }
+
+    Ok(BlockingConnectBeginProbe {
+        before_state,
+        after_state,
+        requires_security_upgrade,
+        contains_cleartext_password: bytes_contain_secret(&stream.writes, password.as_bytes()),
+        written_bytes: stream.writes,
+    })
+}
+
 pub fn drive_blocking_connect_finalize_until_server_input(
     request: ServiceRadarOpenRequest,
     server_public_key: Vec<u8>,
@@ -742,6 +786,39 @@ impl Write for ScriptedStream {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+struct RecordingStream<T> {
+    inner: T,
+    writes: Vec<u8>,
+}
+
+impl<T> RecordingStream<T> {
+    fn new(inner: T) -> Self {
+        Self {
+            inner,
+            writes: Vec::new(),
+        }
+    }
+}
+
+impl<T: Read> Read for RecordingStream<T> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+impl<T: Write> Write for RecordingStream<T> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(buf)?;
+        self.writes.extend_from_slice(&buf[..written]);
+
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
     }
 }
 
@@ -1050,6 +1127,37 @@ mod tests {
     }
 
     #[test]
+    fn live_blocking_connect_begin_reaches_tls_upgrade_boundary_when_configured() {
+        let Some(target) = std::env::var("SERVICERADAR_RDP_LIVE_TARGET")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            eprintln!("skipping live RDP probe; SERVICERADAR_RDP_LIVE_TARGET is not set");
+            return;
+        };
+        let (host, port) = parse_live_target(&target).expect("valid live RDP target");
+        let mut request = open_request("EXAMPLE\\serviceradar-probe", "required");
+        request.target.upstream.host = host;
+        request.target.upstream.port = port;
+        request.target.tls.server_name = std::env::var("SERVICERADAR_RDP_LIVE_SERVER_NAME")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| request.target.upstream.host.clone());
+
+        let boundary = crate::drive_live_blocking_connect_begin_to_tls_upgrade(
+            request,
+            Duration::from_secs(5),
+        )
+        .expect("live boundary");
+
+        assert_eq!(boundary.before_state, "ConnectionInitiationSendRequest");
+        assert_eq!(boundary.after_state, "EnhancedSecurityUpgrade");
+        assert!(boundary.requires_security_upgrade);
+        assert!(!boundary.contains_cleartext_password);
+        assert_eq!(&boundary.written_bytes[..2], &[0x03, 0x00]);
+    }
+
+    #[test]
     fn extracts_tls_server_public_key_for_credssp_binding() {
         let public_key = crate::extract_credssp_server_public_key(&fixture_server_cert_der())
             .expect("server public key");
@@ -1228,6 +1336,26 @@ mod tests {
             "credential_grant":{"mode":"memory_user","username":"alice","password":"secret","session_id":"session-1","target_id":"target-1","route_id":"agent-1"}
         }"#
         .to_owned()
+    }
+
+    fn parse_live_target(raw: &str) -> Result<(String, u16), &'static str> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err("live RDP target is empty");
+        }
+
+        if let Some((host, port)) = trimmed.rsplit_once(':') {
+            let port = port
+                .parse()
+                .map_err(|_| "live RDP target port is invalid")?;
+            if host.is_empty() || port == 0 {
+                return Err("live RDP target is invalid");
+            }
+
+            return Ok((host.to_owned(), port));
+        }
+
+        Ok((trimmed.to_owned(), 3389))
     }
 
     fn fixture_server_cert_der() -> Vec<u8> {
