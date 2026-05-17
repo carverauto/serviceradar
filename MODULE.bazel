@@ -56,6 +56,20 @@ archive_override(
     ],
 )
 
+# rules_rust pulls rules_kotlin transitively through Bazel Central Registry.
+# Prefer the Bazel mirror first so CI can analyze targets during GitHub release
+# outages instead of failing before any ServiceRadar code is built or tested.
+archive_override(
+    module_name = "rules_kotlin",
+    integrity = "sha256-O3cpdv7Hvc2h2EudObF2WJQkwEfrIXW+0JqsYw5Qr0M=",
+    patch_strip = 1,
+    patches = ["//third_party/patches/rules_kotlin:module_dot_bazel_version.patch"],
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_kotlin/releases/download/v1.9.6/rules_kotlin-v1.9.6.tar.gz",
+        "https://github.com/bazelbuild/rules_kotlin/releases/download/v1.9.6/rules_kotlin-v1.9.6.tar.gz",
+    ],
+)
+
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,
