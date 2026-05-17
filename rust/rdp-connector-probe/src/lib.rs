@@ -801,17 +801,47 @@ pub fn build_verified_tls_client_config_for_registered_ca_bundle(
     ca_bundle: &[u8],
 ) -> Result<VerifiedTlsClientConfigProbe, String> {
     let certificates = parse_registered_ca_bundle(ca_bundle)?;
+
+    build_verified_tls_client_config_from_certificates(
+        certificates,
+        "registered CA bundle contains invalid certificate",
+        "registered CA bundle contains no certificates",
+    )
+}
+
+pub fn build_verified_tls_client_config_for_system_roots(
+) -> Result<VerifiedTlsClientConfigProbe, String> {
+    let native = rustls_native_certs::load_native_certs();
+    if !native.errors.is_empty() {
+        return Err(format!(
+            "system root store load failed with {} error(s)",
+            native.errors.len()
+        ));
+    }
+
+    build_verified_tls_client_config_from_certificates(
+        native.certs,
+        "system root store contains invalid certificate",
+        "system root store contains no certificates",
+    )
+}
+
+fn build_verified_tls_client_config_from_certificates(
+    certificates: Vec<rustls::pki_types::CertificateDer<'static>>,
+    invalid_message: &'static str,
+    empty_message: &'static str,
+) -> Result<VerifiedTlsClientConfigProbe, String> {
     let mut roots = rustls::RootCertStore::empty();
     let mut added = 0;
 
     for certificate in certificates {
         roots
             .add(certificate)
-            .map_err(|err| format!("registered CA bundle contains invalid certificate: {err}"))?;
+            .map_err(|err| format!("{invalid_message}: {err}"))?;
         added += 1;
     }
     if added == 0 {
-        return Err("registered CA bundle contains no certificates".to_owned());
+        return Err(empty_message.to_owned());
     }
 
     let mut config = rustls::ClientConfig::builder()
@@ -1354,6 +1384,15 @@ mod tests {
 
         assert_eq!(empty, "registered CA bundle is empty");
         assert!(invalid.starts_with("registered CA bundle contains invalid certificate:"));
+    }
+
+    #[test]
+    fn system_roots_build_verified_tls_client_config() {
+        let probe = crate::build_verified_tls_client_config_for_system_roots()
+            .expect("system roots TLS config");
+
+        assert!(probe.trusted_root_count > 0);
+        assert!(probe.resumption_disabled_for_credssp);
     }
 
     #[test]
