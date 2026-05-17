@@ -618,8 +618,11 @@ fn open_connector_for_experimental_until_readiness_gate(
     if !credential.has_material() {
         return Err(BackendError::Unsupported(MEMORY_USER_REQUIRED));
     }
-    let _credssp_handoff =
+    let credssp_handoff =
         connect_verified_credssp_handoff_for_experimental(&plan, &credential, runtime)?;
+    if let Err(failure) = finalize_verified_connector_for_experimental(credssp_handoff, runtime) {
+        return Err(failure.error);
+    }
 
     Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))
 }
@@ -2719,7 +2722,7 @@ mod tests {
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
-    fn connector_probe_open_path_reaches_verified_handoff_before_readiness_gate() {
+    fn connector_probe_open_path_reaches_finalization_before_readiness_gate() {
         let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
         payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
         payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
@@ -2736,7 +2739,7 @@ mod tests {
             .expose()
             .as_bytes()
             .to_vec();
-        let server = spawn_hybrid_ex_tls_probe_server(listener);
+        let server = spawn_hybrid_ex_tls_capture_server(listener);
         let runtime = ConnectorRuntimePolicy {
             dial_timeout: Duration::from_secs(1),
             kdc_timeout: Duration::from_secs(1),
@@ -2744,12 +2747,17 @@ mod tests {
 
         let err = open_connector_for_experimental_until_readiness_gate(&payload, runtime)
             .expect_err("runtime readiness gate remains closed");
-        let initial_request = server.join().expect("server thread");
+        let capture = server.join().expect("server thread");
 
         assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
-        assert!(!initial_request.is_empty());
+        assert!(!capture.initial_request.is_empty());
+        assert!(!capture.tls_plaintext.is_empty());
         assert!(!bytes_contain_secret(
-            &initial_request,
+            &capture.initial_request,
+            &credential_password
+        ));
+        assert!(!bytes_contain_secret(
+            &capture.tls_plaintext,
             &credential_password
         ));
     }
