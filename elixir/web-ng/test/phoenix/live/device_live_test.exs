@@ -179,6 +179,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ ~s(name="action[input][extra_vars]")
   end
 
+  test "northbound action history hides nil-like summaries and explains empty state" do
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        title: "Task History",
+        subtitle: "Recent actions",
+        entries: [
+          %{
+            invocation_id: "018f2fd1-f0ff-7cf0-9dc0-000000000999",
+            action_label: "Sample Device Lookup",
+            provider_name: "Sample Northbound NMS",
+            state: :succeeded,
+            target_status: :succeeded,
+            target_kind: :device,
+            device_uid: "sr:b195e",
+            inserted_at: ~U[2026-05-17 00:17:02Z],
+            target_result: %{"summary" => "nil"},
+            result_summary: %{"message" => "null"},
+            redacted_input_values: %{"include_neighbors" => false}
+          }
+        ],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert html =~ "Sample Device Lookup"
+    assert html =~ "Include Neighbors: No"
+    refute html =~ "nil"
+    refute html =~ "null"
+
+    empty_html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        entries: [],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert empty_html =~ "Newly launched tasks appear here"
+  end
+
+  test "northbound action history explains long-running progress" do
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        title: "Task History",
+        subtitle: "Recent actions",
+        entries: [
+          %{
+            invocation_id: "018f2fd1-f0ff-7cf0-9dc0-000000000998",
+            action_label: "Sample Device Lookup",
+            provider_name: "Sample Northbound NMS",
+            state: :polling,
+            target_status: :result_fetching,
+            target_kind: :device,
+            device_uid: "sr:b195e",
+            inserted_at: ~U[2026-05-17 00:17:02Z],
+            next_poll_at: ~U[2026-05-17 00:17:32Z],
+            poll_attempt_count: 2,
+            target_result: %{},
+            result_summary: %{},
+            redacted_input_values: %{"execution_mode" => "deferred"}
+          }
+        ],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert html =~ "Result fetching"
+    assert html =~ "Fetching external task results"
+    assert html =~ "next poll 2026-05-17 00:17:32"
+    assert html =~ "poll 2"
+  end
+
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
     uid = "test-device-srql-submit-#{System.unique_integer([:positive])}"
 
@@ -653,10 +727,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           "sync_service_id" => "agent-dusk01",
           "controller_name" => "Dusk UniFi",
           "controller_url" => "https://unifi.example.local",
+          "unifi_api_names" => "tonka01",
+          "unifi_api_urls" => "https://192.168.10.1/proxy/network/integration/v1",
+          "mikrotik_api_names" => "edge-mikrotik",
+          "mikrotik_api_urls" => "http://192.168.6.167/rest",
+          "proxmox_candidate_probe_enabled" => true,
+          "sys_name" => "aruba-24g-02",
+          "sys_location" => "Minnetonka, MN",
+          "sys_contact" => "support@example.test",
+          "sys_object_id" => ".1.3.6.1.4.1.11.2.3.7.11.153",
+          "uptime" => 168_519_247,
+          "sys_descr" => "HP J9727A 2920-24G-PoE+ Switch",
           "device_role" => "gateway",
           "bridge_port_count" => 8,
+          "type" => "Tablet",
           "category" => "OT",
-          "risk_score" => "72",
+          "risk_score" => "7",
           "source_tags" => "managed,ot",
           "boundary_names" => "All OT Boundaries",
           "serial_numbers" => "SN-123",
@@ -691,23 +777,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "UniFi"
     assert html =~ "Armis"
     assert html =~ "NetBox"
-    assert html =~ "Integration Details"
+    assert html =~ "SNMP"
+    assert html =~ "MikroTik"
+    assert html =~ "Proxmox"
+    assert html =~ "Other Metadata"
     assert html =~ "Dusk UniFi"
     assert html =~ "gateway"
+    assert html =~ "Tablet"
+    assert html =~ "tonka01"
+    assert html =~ "edge-mikrotik"
+    assert html =~ "Candidate probe"
+    assert html =~ "Yes"
+    assert html =~ "aruba-24g-02"
+    assert html =~ "Minnetonka, MN"
+    assert html =~ ".1.3.6.1.4.1.11.2.3.7.11.153"
+    assert html =~ "19d 12h"
     assert html =~ "All OT Boundaries"
+    assert html =~ "Risk Score"
+    assert html =~ "7 / 10"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
     assert html =~ "2 items"
     assert html =~ "nb-123"
     assert html =~ "Manufacturing"
     assert html =~ "MDF-A"
-    assert html =~ "asset-7799"
     assert html =~ "matched UniFi gateway role"
     assert html =~ "10.0.0.1"
     assert html =~ "192.168.10.1"
     assert html =~ "0eea1432d277"
 
     refute html =~ "Additional metadata keys"
+    refute html =~ "Integration Details"
+    refute html =~ "asset-7799"
     refute html =~ "_alias_last_seen_at"
     refute html =~ "debug_unifi_payload"
     refute html =~ "raw-integration-id"
@@ -1288,6 +1389,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> render_submit()
 
       assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
+      html = render(view)
+
+      assert html =~ "Task dispatched for 1 interface"
+      assert html =~ "Results update in Task History"
 
       assert attrs.descriptor_id == action.descriptor_id
 
@@ -1366,6 +1471,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       flows_html = render_until(flows_view, "DNS")
 
       assert flows_html =~ "DNS"
+    end
+
+    test "logs tab renders immediately while device logs load asynchronously", %{conn: conn} do
+      previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+      previous_log_delay = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms)
+
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+      Application.put_env(:serviceradar_web_ng, :device_live_log_query_delay_ms, 250)
+
+      on_exit(fn ->
+        restore_env(:srql_module, previous_srql_module)
+        restore_env(:device_live_log_query_delay_ms, previous_log_delay)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/stub-device")
+
+      html =
+        view
+        |> element("button[phx-click='switch_tab'][phx-value-tab='logs']")
+        |> render_click()
+
+      assert html =~ "Loading device logs"
+      assert render_until(view, "No logs found for this device.", 2_000) =~ "No logs found for this device."
     end
   end
 
@@ -2264,6 +2392,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       end
 
       cond do
+        String.contains?(query, "in:logs") ->
+          if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+            Process.sleep(delay_ms)
+          end
+
+          {:ok, %{"results" => [], "pagination" => %{}}}
+
         String.contains?(query, ~s|stats:"count() as total"|) ->
           {:ok, %{"results" => [%{"total" => 42}], "pagination" => %{}}}
 

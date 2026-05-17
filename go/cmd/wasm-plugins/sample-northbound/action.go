@@ -51,6 +51,19 @@ func handleAction(hostConfig *sdk.ActionHostConfig, cfg Config) *sdk.ActionResul
 }
 
 func runDeviceLookup(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionResult {
+	if invocation.Phase == "poll" {
+		return pollDeferredAction(invocation, cfg, "device", runDeviceLookupImmediate)
+	}
+
+	switch stringInput(invocation.InputValues, "execution_mode", "immediate") {
+	case "deferred", "webhook":
+		return deferAction(invocation, "device")
+	}
+
+	return runDeviceLookupImmediate(invocation, cfg)
+}
+
+func runDeviceLookupImmediate(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionResult {
 	result := sdk.ActionSucceeded("sample device lookup completed").
 		WithSummary("action_id", invocation.ActionID).
 		WithSummary("target_count", len(invocation.Targets)).
@@ -83,6 +96,19 @@ func runDeviceLookup(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionRes
 }
 
 func runInterfaceAudit(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionResult {
+	if invocation.Phase == "poll" {
+		return pollDeferredAction(invocation, cfg, "interface", runInterfaceAuditImmediate)
+	}
+
+	switch stringInput(invocation.InputValues, "execution_mode", "immediate") {
+	case "deferred", "webhook":
+		return deferAction(invocation, "interface")
+	}
+
+	return runInterfaceAuditImmediate(invocation, cfg)
+}
+
+func runInterfaceAuditImmediate(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionResult {
 	result := sdk.ActionSucceeded("sample interface audit completed").
 		WithSummary("action_id", invocation.ActionID).
 		WithSummary("target_count", len(invocation.Targets)).
@@ -126,6 +152,81 @@ func runInterfaceAudit(invocation sdk.ActionInvocation, cfg Config) *sdk.ActionR
 	}
 
 	return result
+}
+
+func deferAction(invocation sdk.ActionInvocation, suffix string) *sdk.ActionResult {
+	taskID := correlationID(invocation.InvocationID, suffix+"-async-task")
+	continuation := map[string]any{
+		"external_task_id": taskID,
+		"action_id":        invocation.ActionID,
+		"stage":            "poll",
+	}
+
+	result := sdk.ActionDeferred("sample external API task accepted").
+		WithCorrelationID(taskID).
+		WithContinuationState(continuation).
+		WithMaxDuration(120)
+
+	webhookMode := stringInput(invocation.InputValues, "execution_mode", "immediate") == "webhook"
+	if webhookMode {
+		result.WithWebhookCallback()
+	} else {
+		result.WithNextPollDelay(1)
+	}
+
+	for _, target := range invocation.Targets {
+		targetResult := sdk.ActionTargetResult{
+			DeviceUID:             target.DeviceUID,
+			InterfaceUID:          target.InterfaceUID,
+			Status:                sdk.ActionStatusDeferred,
+			ExternalCorrelationID: correlationID(invocation.InvocationID, firstNonEmpty(target.InterfaceUID, target.DeviceUID, suffix)),
+			ContinuationState:     continuation,
+			MaxDurationSeconds:    120,
+			Result: map[string]any{
+				"message":               "queued in sample external API",
+				"external_task_id":      taskID,
+				"northbound_job_id":     target.NorthboundJobID,
+				"callback_url":          target.Callback.URL,
+				"callback_token_header": target.Callback.TokenHeader,
+			},
+		}
+
+		if webhookMode {
+			targetResult.PollMode = sdk.ActionPollModeWebhook
+		} else {
+			targetResult.NextPollDelaySeconds = 1
+		}
+
+		result.AddTargetResult(targetResult)
+	}
+
+	return result
+}
+
+func pollDeferredAction(
+	invocation sdk.ActionInvocation,
+	cfg Config,
+	suffix string,
+	finalize func(sdk.ActionInvocation, Config) *sdk.ActionResult,
+) *sdk.ActionResult {
+	taskID := stringFromMap(invocation.ContinuationState, "external_task_id", correlationID(invocation.InvocationID, suffix+"-async-task"))
+
+	if invocation.PollAttemptCount < 1 {
+		return sdk.ActionResultFetching("sample external API task completed; fetching results").
+			WithCorrelationID(taskID).
+			WithContinuationState(map[string]any{
+				"external_task_id": taskID,
+				"action_id":        invocation.ActionID,
+				"stage":            "result_fetch",
+			}).
+			WithNextPollDelay(1).
+			WithMaxDuration(120)
+	}
+
+	return finalize(invocation, cfg).
+		WithCorrelationID(taskID).
+		WithSummary("external_task_id", taskID).
+		WithSummary("poll_attempt_count", invocation.PollAttemptCount)
 }
 
 func decodePluginConfig(hostConfig *sdk.ActionHostConfig) Config {
@@ -305,6 +406,17 @@ func boolInput(values map[string]any, key string, fallback bool) bool {
 	}
 	value, ok := values[key].(bool)
 	if !ok {
+		return fallback
+	}
+	return value
+}
+
+func stringFromMap(values map[string]any, key, fallback string) string {
+	if values == nil {
+		return fallback
+	}
+	value, ok := values[key].(string)
+	if !ok || strings.TrimSpace(value) == "" {
 		return fallback
 	}
 	return value

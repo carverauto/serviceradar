@@ -60,9 +60,31 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
     transitions do
       transition :record_dispatch, from: :pending, to: :dispatching
       transition :record_running, from: [:pending, :dispatching], to: :running
-      transition :record_succeeded, from: [:dispatching, :running], to: :succeeded
-      transition :record_failed, from: [:pending, :dispatching, :running], to: :failed
-      transition :record_canceled, from: [:pending, :dispatching, :running], to: :canceled
+
+      transition :record_polling,
+        from: [:dispatching, :running, :polling, :result_fetching],
+        to: :polling
+
+      transition :record_result_fetching,
+        from: [:running, :polling, :result_fetching],
+        to: :result_fetching
+
+      transition :record_succeeded,
+        from: [:dispatching, :running, :polling, :result_fetching],
+        to: :succeeded
+
+      transition :record_failed,
+        from: [:pending, :dispatching, :running, :polling, :result_fetching],
+        to: :failed
+
+      transition :record_expired,
+        from: [:pending, :dispatching, :running, :polling, :result_fetching],
+        to: :expired
+
+      transition :record_canceled,
+        from: [:pending, :dispatching, :running, :polling, :result_fetching],
+        to: :canceled
+
       transition :record_suppressed, from: :pending, to: :suppressed
     end
   end
@@ -85,8 +107,11 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
     define :create_invocation, action: :create
     define :record_dispatch, action: :record_dispatch
     define :record_running, action: :record_running
+    define :record_polling, action: :record_polling
+    define :record_result_fetching, action: :record_result_fetching
     define :record_succeeded, action: :record_succeeded
     define :record_failed, action: :record_failed
+    define :record_expired, action: :record_expired
     define :record_canceled, action: :record_canceled
     define :record_suppressed, action: :record_suppressed
   end
@@ -177,6 +202,20 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
       change transition_state(:running)
     end
 
+    update :record_polling do
+      accept [:result_summary, :external_correlation_id]
+      change RedactInvocationResult
+      change set_attribute(:started_at, &DateTime.utc_now/0)
+      change transition_state(:polling)
+    end
+
+    update :record_result_fetching do
+      accept [:result_summary, :external_correlation_id]
+      change RedactInvocationResult
+      change set_attribute(:started_at, &DateTime.utc_now/0)
+      change transition_state(:result_fetching)
+    end
+
     update :record_succeeded do
       accept [:result_summary, :external_correlation_id]
       change RedactInvocationResult
@@ -189,6 +228,13 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
       change RedactInvocationResult
       change set_attribute(:completed_at, &DateTime.utc_now/0)
       change transition_state(:failed)
+    end
+
+    update :record_expired do
+      accept [:result_summary, :external_correlation_id, :error_class, :error_message]
+      change RedactInvocationResult
+      change set_attribute(:completed_at, &DateTime.utc_now/0)
+      change transition_state(:expired)
     end
 
     update :record_canceled do
@@ -264,8 +310,11 @@ defmodule ServiceRadar.Automation.Northbound.ActionInvocation do
                     :pending,
                     :dispatching,
                     :running,
+                    :polling,
+                    :result_fetching,
                     :succeeded,
                     :failed,
+                    :expired,
                     :canceled,
                     :suppressed
                   ]

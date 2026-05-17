@@ -146,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:northbound_interface_launch_action, nil)
      |> assign(:northbound_device_history, [])
      |> assign(:northbound_device_history_error, nil)
+     |> assign(:northbound_launch_notice, nil)
      |> assign(:show_interfaces_bulk_edit, false)
      |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
      # Interface metrics for favorited interfaces
@@ -160,6 +161,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_logs, [])
      |> assign(:logs_error, nil)
      |> assign(:logs_pagination, %{})
+     |> assign(:logs_loading, false)
+     |> assign(:logs_request_ref, nil)
+     |> assign(:logs_cursor, nil)
      |> assign(:has_logs, false)
      |> assign(:logs_limit, @logs_limit)
      |> assign(:flow_stats, %{})
@@ -425,6 +429,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
+  def handle_async({:device_logs, device_uid, request_ref}, {:ok, {logs, pagination, logs_error}}, socket) do
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.logs_request_ref do
+      {:noreply,
+       socket
+       |> assign(:device_logs, logs)
+       |> assign(:logs_pagination, pagination)
+       |> assign(:logs_error, logs_error)
+       |> assign(:logs_loading, false)
+       |> assign(:logs_request_ref, nil)
+       |> assign(:has_logs, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:device_logs, device_uid, request_ref}, {:exit, reason}, socket) do
+    Logger.warning("Device logs task failed for #{device_uid}: #{inspect(reason)}")
+
+    if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.logs_request_ref do
+      {:noreply,
+       socket
+       |> assign(:device_logs, [])
+       |> assign(:logs_pagination, %{})
+       |> assign(:logs_error, "Failed to load logs")
+       |> assign(:logs_loading, false)
+       |> assign(:logs_request_ref, nil)
+       |> assign(:has_logs, true)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_async(:northbound_interface_actions, {:ok, actions}, socket) when is_list(actions) do
     {:noreply,
      socket
@@ -658,19 +694,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
 
   defp maybe_reload_logs_for_active_tab(socket, "logs", uid, cursor) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    {logs, pagination, logs_error} = load_logs(srql_mod, uid, scope, cursor)
-
-    socket
-    |> assign(:device_logs, logs)
-    |> assign(:logs_pagination, pagination)
-    |> assign(:logs_error, logs_error)
-    |> assign(:has_logs, true)
+    if socket.assigns.logs_loading and socket.assigns.logs_cursor == cursor do
+      socket
+    else
+      begin_logs_load(socket, uid, cursor)
+    end
   end
 
   defp maybe_reload_logs_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
+
+  defp begin_logs_load(socket, uid, cursor) do
+    scope = socket.assigns.current_scope
+    srql_mod = srql_module()
+    request_ref = make_ref()
+
+    socket
+    |> assign(:device_logs, [])
+    |> assign(:logs_pagination, %{})
+    |> assign(:logs_error, nil)
+    |> assign(:logs_loading, connected?(socket))
+    |> assign(:logs_request_ref, request_ref)
+    |> assign(:logs_cursor, cursor)
+    |> assign(:has_logs, true)
+    |> maybe_start_logs_async(uid, request_ref, srql_mod, scope, cursor)
+  end
+
+  defp maybe_start_logs_async(socket, uid, request_ref, srql_mod, scope, cursor) do
+    if connected?(socket) do
+      start_async(socket, {:device_logs, uid, request_ref}, fn ->
+        load_logs(srql_mod, uid, scope, cursor)
+      end)
+    else
+      socket
+    end
+  end
 
   defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid) do
     scope = socket.assigns.current_scope
@@ -802,6 +859,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:device_logs, [])
        |> assign(:logs_error, nil)
        |> assign(:logs_pagination, %{})
+       |> assign(:logs_loading, false)
+       |> assign(:logs_request_ref, nil)
+       |> assign(:logs_cursor, nil)
        |> assign(:has_logs, false)
        |> assign(:discovery_job, nil)
        |> assign(:favorited_interfaces, MapSet.new())
@@ -876,6 +936,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:srql, srql)
        |> assign(supplemental_assigns)
        |> maybe_load_mtr_for_active_tab(active_tab)
+       |> maybe_reload_logs_for_active_tab(active_tab, uid, normalize_cursor(Map.get(params, "cursor")))
        |> maybe_begin_flow_background_loads(
          active_tab,
          uid,
@@ -905,7 +966,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     load_interfaces_data? = requested_tab == "interfaces"
     load_flows_data? = requested_tab == "flows"
-    load_logs_data? = requested_tab == "logs"
+    load_logs_data? = load_logs_synchronously?(requested_tab)
     sysmon_identity = sysmon_identity(device_row, uid)
 
     parallel_tasks =
@@ -1131,6 +1192,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_log_tasks(tasks, false, _srql_module, _uid, _scope, _params), do: tasks
+
+  defp load_logs_synchronously?(requested_tab) do
+    requested_tab == "logs" and
+      Application.get_env(:serviceradar_web_ng, :device_logs_sync_preload?, false)
+  end
 
   defp extract_interface_results(parallel_results, true), do: Map.get(parallel_results, :interfaces, {[], nil})
 
@@ -1769,13 +1835,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
          {:ok, targets} <- selected_interface_action_targets(socket),
          {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
+      {history, history_error} =
+        load_northbound_device_history(socket.assigns.current_scope, socket.assigns.device_uid)
+
       {:noreply,
        socket
        |> close_northbound_interface_action_modal()
        |> assign(:selected_interfaces, MapSet.new())
+       |> assign(:northbound_device_history, history)
+       |> assign(:northbound_device_history_error, history_error)
+       |> assign(:northbound_launch_notice, %{
+         title: "Task dispatched for #{length(targets)} interface(s)",
+         invocation_id: invocation.id
+       })
        |> put_flash(
          :info,
-         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} interface(s)."
+         "Task dispatched. Watch Task History for results."
        )}
     else
       {:error, reason} ->
@@ -3459,7 +3534,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                   <div class="space-y-1 text-sm">
                     <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
                     <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
-                    <.kv_inline label="Type" value={Map.get(@device_row, "type")} />
+                    <.kv_inline label="Type" value={device_type_label(@device_row)} />
                     <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
                     <.kv_inline
                       :if={present?(Map.get(@device_row, "model"))}
@@ -4052,6 +4127,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 subtitle="Recent actions for this device and its interfaces"
                 entries={@northbound_device_history}
                 error={@northbound_device_history_error}
+                notice={@northbound_launch_notice}
                 empty_message="No task invocations have been recorded for this device yet."
               />
 
@@ -4189,6 +4265,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <.device_logs_tab_content
               logs={@device_logs}
               error={@logs_error}
+              loading={@logs_loading}
               pagination={@logs_pagination}
               device_uid={@device_uid}
               query={default_logs_query(@device_uid)}
@@ -4800,6 +4877,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp classification_provenance_label(_row), do: "Unspecified"
 
+  defp device_type_label(row) when is_map(row) do
+    first_present([
+      Map.get(row, "type"),
+      metadata_value(row, "armis_type"),
+      metadata_value(row, "device_type"),
+      metadata_value(row, "type"),
+      metadata_value(row, "armis_category"),
+      metadata_value(row, "category"),
+      device_type_name(Map.get(row, "type_id"))
+    ])
+  end
+
+  defp device_type_label(_row), do: nil
+
+  defp device_type_name(0), do: "Unknown"
+  defp device_type_name(1), do: "Server"
+  defp device_type_name(2), do: "Desktop"
+  defp device_type_name(3), do: "Laptop"
+  defp device_type_name(4), do: "Tablet"
+  defp device_type_name(5), do: "Mobile"
+  defp device_type_name(6), do: "Virtual"
+  defp device_type_name(7), do: "IOT"
+  defp device_type_name(8), do: "Browser"
+  defp device_type_name(9), do: "Firewall"
+  defp device_type_name(10), do: "Switch"
+  defp device_type_name(11), do: "Hub"
+  defp device_type_name(12), do: "Router"
+  defp device_type_name(13), do: "IDS"
+  defp device_type_name(14), do: "IPS"
+  defp device_type_name(15), do: "Load Balancer"
+  defp device_type_name(99), do: "Other"
+  defp device_type_name(_type_id), do: nil
+
   defp snmp_fallback_derived?(row) when is_map(row) do
     metadata = row_metadata(row)
     has_rule = present?(metadata_value(row, "classification_rule_id"))
@@ -4859,7 +4969,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         >
           <div
             :for={group <- @metadata_groups}
-            class="min-w-0 border-l border-base-200 pl-3"
+            class="min-w-0 rounded-lg border border-base-200 bg-base-200/20 p-3"
           >
             <div class="mb-2 flex items-center gap-2">
               <.icon name={group.icon} class="size-4 text-base-content/60" />
@@ -4922,8 +5032,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("UniFi", "hero-wifi", [
           metadata_item("Controller", metadata_lookup(metadata, "controller_name")),
           metadata_item("Controller URL", metadata_lookup(metadata, "controller_url"), mono: true),
+          metadata_item("API names", metadata_lookup(metadata, "unifi_api_names")),
+          metadata_item("API URLs", metadata_lookup(metadata, "unifi_api_urls"), mono: true),
           metadata_item("Role", metadata_lookup(metadata, "device_role")),
           metadata_item("Bridge ports", metadata_lookup(metadata, "bridge_port_count"))
+        ]),
+        metadata_group("SNMP", "hero-radio", [
+          metadata_item("Name", metadata_first_value(metadata, ["snmp_name", "sys_name"])),
+          metadata_item("Location", metadata_first_value(metadata, ["snmp_location", "sys_location"])),
+          metadata_item("Contact", metadata_first_value(metadata, ["snmp_owner", "sys_owner", "sys_contact"])),
+          metadata_item("Object ID", metadata_lookup(metadata, "sys_object_id"), mono: true),
+          metadata_item(
+            "Uptime",
+            metadata_uptime(metadata_first_value(metadata, ["uptime", "sys_uptime", "snmp_uptime"]))
+          ),
+          metadata_item("Description", metadata_first_value(metadata, ["snmp_description", "sys_descr"]))
+        ]),
+        metadata_group("MikroTik", "hero-cpu-chip", [
+          metadata_item("API names", metadata_lookup(metadata, "mikrotik_api_names")),
+          metadata_item("API URLs", metadata_lookup(metadata, "mikrotik_api_urls"), mono: true)
+        ]),
+        metadata_group("Proxmox", "hero-cube-transparent", [
+          metadata_item("Candidate probe", metadata_lookup(metadata, "proxmox_candidate_probe_enabled"))
+        ]),
+        metadata_group("Discovery", "hero-map", [
+          metadata_item("Discovery ID", metadata_lookup(metadata, "discovery_id"), mono: true),
+          metadata_item("Discovery time", metadata_timestamp(metadata_lookup(metadata, "discovery_time")), mono: true),
+          metadata_item("Mapper job", metadata_lookup(metadata, "mapper_job_name")),
+          metadata_item("Mapper job ID", metadata_lookup(metadata, "mapper_job_id"), mono: true)
         ]),
         metadata_group("Classification", "hero-tag", [
           metadata_item("Source", metadata_lookup(metadata, "classification_source")),
@@ -4938,11 +5074,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("Armis", "hero-shield-check", [
           metadata_item(
             "Device ID",
-            metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]), mono: true),
+            metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]),
+            mono: true
+          ),
           metadata_item("Type", metadata_first_value(metadata, ["armis_type", "device_type", "type"])),
           metadata_item("Category", metadata_first_value(metadata, ["armis_category", "category"])),
           metadata_item("Boundaries", metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])),
-          metadata_item("Risk level", metadata_first_value(metadata, ["armis_risk_level", "risk_score"])),
+          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
+          metadata_item("Risk score", metadata_first_value(metadata, ["armis_risk_score", "risk_score"])),
           metadata_item("Tags", metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])),
           metadata_item("Visibility", metadata_first_value(metadata, ["armis_visibility", "visibility"])),
           metadata_item("Purdue level", metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])),
@@ -4983,7 +5122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           metadata_item("Unavailable count", metadata_lookup(metadata, "scan_unavailable_count")),
           metadata_item("Availability", metadata_lookup(metadata, "scan_availability_percent"))
         ]),
-        metadata_integration_details_group(metadata)
+        metadata_other_summary_group(metadata)
       ],
       &(&1.items == [])
     )
@@ -5003,24 +5142,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Map.get(metadata, key)
   end
 
-  defp metadata_integration_details_group(metadata) when is_map(metadata) do
-    items =
-      metadata
-      |> Enum.sort_by(fn {key, _value} -> key |> to_string() |> String.downcase() end)
-      |> Enum.reject(fn {key, _value} -> metadata_detail_hidden_key?(to_string(key)) end)
-      |> Enum.reject(fn {key, _value} -> metadata_detail_curated_key?(to_string(key)) end)
-      |> Enum.flat_map(fn {key, value} ->
-        if metadata_present?(value) do
-          [metadata_item(format_label(to_string(key)), value, mono: metadata_detail_mono_key?(to_string(key)))]
-        else
-          []
-        end
-      end)
+  defp metadata_timestamp(nil), do: nil
 
-    metadata_group("Integration Details", "hero-list-bullet", items)
+  defp metadata_timestamp(value) do
+    case format_timestamp(value) do
+      "—" -> value
+      formatted -> formatted
+    end
   end
 
-  defp metadata_integration_details_group(_metadata), do: metadata_group("Integration Details", "hero-list-bullet", [])
+  defp metadata_uptime(nil), do: nil
+
+  defp metadata_uptime(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> Integer.parse()
+    |> case do
+      {integer, ""} -> metadata_uptime(integer)
+      _ -> value
+    end
+  end
+
+  defp metadata_uptime(value) when is_number(value) and value >= 0 do
+    value
+    |> Kernel./(100)
+    |> Float.round()
+    |> trunc()
+    |> metadata_duration()
+  end
+
+  defp metadata_uptime(value), do: value
+
+  defp metadata_duration(seconds) when is_integer(seconds) do
+    days = div(seconds, 86_400)
+    hours = seconds |> rem(86_400) |> div(3_600)
+    minutes = seconds |> rem(3_600) |> div(60)
+
+    [
+      if(days > 0, do: "#{days}d"),
+      if(hours > 0, do: "#{hours}h"),
+      if(minutes > 0, do: "#{minutes}m")
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> "#{seconds}s"
+      parts -> Enum.join(parts, " ")
+    end
+  end
+
+  defp metadata_count_label(count) when is_integer(count) and count > 0 do
+    "#{count} #{if count == 1, do: "key", else: "keys"}"
+  end
+
+  defp metadata_count_label(_count), do: nil
+
+  defp metadata_other_summary_group(metadata) when is_map(metadata) do
+    visible_count =
+      metadata
+      |> Enum.reject(fn {key, _value} -> metadata_detail_hidden_key?(to_string(key)) end)
+      |> Enum.reject(fn {key, _value} -> metadata_detail_curated_key?(to_string(key)) end)
+      |> Enum.count(fn {_key, value} -> metadata_present?(value) end)
+
+    metadata_group("Other Metadata", "hero-list-bullet", [
+      metadata_item("Additional keys", metadata_count_label(visible_count))
+    ])
+  end
+
+  defp metadata_other_summary_group(_metadata), do: metadata_group("Other Metadata", "hero-list-bullet", [])
 
   defp metadata_detail_hidden_key?(key) do
     String.starts_with?(key, "_") or
@@ -5037,13 +5225,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     key in metadata_curated_keys()
   end
 
-  defp metadata_detail_mono_key?(key) do
-    String.ends_with?(key, "_id") or
-      String.ends_with?(key, "_url") or
-      String.contains?(key, "uuid") or
-      key in ["source_device_id", "integration_id", "netbox_device_id"]
-  end
-
   defp metadata_curated_keys do
     ~w(
       account
@@ -5051,12 +5232,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       armis_category
       armis_device_id
       armis_risk_level
+      armis_risk_score
       armis_serial_numbers
       armis_tags
       armis_type
       armis_visibility
       boundary_names
       bridge_port_count
+      bridge_base_mac
       category
       classification_confidence
       classification_reason
@@ -5064,23 +5247,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       classification_source
       controller_name
       controller_url
+      device_role_confidence
+      device_role_source
       device_role
       device_role_name
       device_status
       device_type
+      discovery_id
+      discovery_time
       identity_source
       identity_state
+      identity_mac_kind
       integration_id
       integration_type
+      ip_forwarding
       location
       location_name
       manufacturer
+      mapper_job_id
+      mapper_job_name
+      mikrotik_api_names
+      mikrotik_api_urls
       model
       netbox_device_id
       netbox_tags
       operating_system
       platform
       platform_name
+      proxmox_candidate_probe_enabled
       purdue_level
       query_label
       rack
@@ -5097,16 +5291,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       site
       site_name
       site_slug
+      snmp_description
+      snmp_fingerprint
+      snmp_location
+      snmp_name
+      snmp_owner
       source_device_id
       source_tags
+      source
       status
+      stp_forwarding_port_count
+      sweep_consecutive_failures
+      sweep_mapper_promotion
       sync_run_id
       sync_service_id
       sync_total_devices
+      sys_contact
+      sys_descr
+      sys_location
+      sys_name
+      sys_object_id
+      sys_owner
       tags
       tenant
       tenant_name
       type
+      unifi_api_names
+      unifi_api_urls
+      uptime
       visibility
     )
   end
@@ -5126,7 +5338,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp metadata_aliases(_metadata, _prefix), do: []
 
   defp metadata_present?(nil), do: false
-  defp metadata_present?(""), do: false
+
+  defp metadata_present?(value) when is_binary(value) do
+    String.trim(value) not in ["", "nil", "null"]
+  end
+
   defp metadata_present?(value) when is_list(value), do: value != []
   defp metadata_present?(value) when is_map(value), do: map_size(value) > 0
   defp metadata_present?(_value), do: true
@@ -5189,8 +5405,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     metadata = row_metadata(assigns.device_row)
     os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
-    risk_level = Map.get(assigns.device_row, "risk_level")
-    risk_score = Map.get(assigns.device_row, "risk_score")
+
+    risk_score =
+      normalize_risk_score(
+        Map.get(assigns.device_row, "risk_score") ||
+          metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
+      )
+
+    risk_level =
+      Map.get(assigns.device_row, "risk_level") ||
+        metadata_lookup(metadata, "armis_risk_level") ||
+        risk_level_from_score(risk_score)
+
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
@@ -5198,7 +5424,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
-    has_compliance = compliance_present?(risk_level, is_managed, is_compliant)
+    has_compliance = compliance_present?(risk_level, risk_score, is_managed, is_compliant)
     has_discovery_metadata = discovery_metadata_fields != []
     has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
@@ -5220,8 +5446,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp map_present?(value), do: is_map(value) and map_size(value) > 0
 
-  defp compliance_present?(risk_level, is_managed, is_compliant) do
-    not is_nil(risk_level) or not is_nil(is_managed) or not is_nil(is_compliant)
+  defp compliance_present?(risk_level, risk_score, is_managed, is_compliant) do
+    not is_nil(risk_level) or not is_nil(risk_score) or not is_nil(is_managed) or not is_nil(is_compliant)
   end
 
   attr(:os, :map, required: true)
@@ -5330,7 +5556,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   attr(:risk_level, :string, default: nil)
-  attr(:risk_score, :integer, default: nil)
+  attr(:risk_score, :any, default: nil)
   attr(:is_managed, :boolean, default: nil)
   attr(:is_compliant, :boolean, default: nil)
   attr(:is_trusted, :boolean, default: nil)
@@ -5345,14 +5571,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         </div>
       </div>
       <div class="p-4">
-        <div class="flex flex-wrap gap-4">
+        <div class="flex flex-wrap items-center gap-4">
+          <.risk_score_radial :if={not is_nil(@risk_score)} score={@risk_score} />
           <div :if={@risk_level} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Risk Level:</span>
             <.risk_badge level={@risk_level} />
-          </div>
-          <div :if={@risk_score} class="flex items-center gap-2">
-            <span class="text-xs text-base-content/60">Risk Score:</span>
-            <span class="font-semibold tabular-nums">{@risk_score}</span>
           </div>
           <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Managed:</span>
@@ -5370,6 +5593,116 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       </div>
     </div>
     """
+  end
+
+  attr(:score, :any, required: true)
+
+  defp risk_score_radial(assigns) do
+    score = normalize_risk_score(assigns.score)
+    max_score = risk_score_max(score)
+    percent = risk_score_percent(score, max_score)
+    color = risk_score_color(score, max_score)
+
+    assigns =
+      assigns
+      |> assign(:score_display, format_risk_score(score))
+      |> assign(:max_display, format_risk_score(max_score))
+      |> assign(:percent, percent)
+      |> assign(:color, color)
+
+    ~H"""
+    <div class="flex items-center gap-3">
+      <div
+        class="relative size-16 rounded-full"
+        style={"background: conic-gradient(#{@color} #{@percent}%, hsl(var(--b2)) 0)"}
+        aria-label={"Risk score #{@score_display} out of #{@max_display}"}
+      >
+        <div class="absolute inset-1.5 rounded-full bg-base-100 flex flex-col items-center justify-center">
+          <span class="text-base font-semibold tabular-nums leading-none">{@score_display}</span>
+          <span class="text-[10px] text-base-content/50 leading-none">/{@max_display}</span>
+        </div>
+      </div>
+      <div class="min-w-0">
+        <div class="text-xs text-base-content/60">Risk Score</div>
+        <div class="text-sm font-semibold tabular-nums">{@score_display} / {@max_display}</div>
+      </div>
+    </div>
+    """
+  end
+
+  defp normalize_risk_score(nil), do: nil
+
+  defp normalize_risk_score(value) when is_integer(value), do: value
+
+  defp normalize_risk_score(value) when is_float(value), do: value
+
+  defp normalize_risk_score(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" ->
+        nil
+
+      String.contains?(value, ".") ->
+        case Float.parse(value) do
+          {score, _rest} -> score
+          :error -> nil
+        end
+
+      true ->
+        case Integer.parse(value) do
+          {score, _rest} -> score
+          :error -> nil
+        end
+    end
+  end
+
+  defp normalize_risk_score(_value), do: nil
+
+  defp risk_score_max(score) when is_number(score) and score > 10, do: 100
+  defp risk_score_max(_score), do: 10
+
+  defp risk_score_percent(nil, _max_score), do: 0
+
+  defp risk_score_percent(score, max_score) do
+    score
+    |> Kernel./(max_score)
+    |> Kernel.*(100)
+    |> round()
+    |> max(0)
+    |> min(100)
+  end
+
+  defp risk_score_color(score, max_score) do
+    percent = risk_score_percent(score, max_score)
+
+    cond do
+      percent >= 70 -> "#ef4444"
+      percent >= 40 -> "#f59e0b"
+      true -> "#22c55e"
+    end
+  end
+
+  defp risk_level_from_score(nil), do: nil
+
+  defp risk_level_from_score(score) do
+    percent = risk_score_percent(score, risk_score_max(score))
+
+    cond do
+      percent >= 90 -> "Critical"
+      percent >= 70 -> "High"
+      percent >= 40 -> "Medium"
+      true -> "Low"
+    end
+  end
+
+  defp format_risk_score(score) when is_integer(score), do: Integer.to_string(score)
+
+  defp format_risk_score(score) when is_float(score) do
+    score
+    |> Float.round(1)
+    |> :erlang.float_to_binary(decimals: 1)
+    |> String.trim_trailing(".0")
   end
 
   attr(:level, :string, required: true)
@@ -6431,6 +6764,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:logs, :list, required: true)
   attr(:error, :string, default: nil)
+  attr(:loading, :boolean, default: false)
   attr(:pagination, :map, default: %{})
   attr(:device_uid, :string, required: true)
   attr(:query, :string, required: true)
@@ -6456,64 +6790,70 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       <div class="p-4">
         <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
 
-        <%= if @logs == [] and is_nil(@error) do %>
-          <div class="text-sm text-base-content/60">No logs found for this device.</div>
+        <%= if @loading do %>
+          <div class="flex items-center gap-2 text-sm text-base-content/60">
+            <span class="loading loading-spinner loading-sm"></span> Loading device logs...
+          </div>
         <% else %>
-          <div class="overflow-x-auto">
-            <table class="table table-sm table-zebra w-full">
-              <thead>
-                <tr>
-                  <th class="w-40">Time</th>
-                  <th class="w-24">Level</th>
-                  <th class="w-44">Service</th>
-                  <th>Message</th>
-                  <th class="w-20 text-right"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={log <- @logs}>
-                  <td class="whitespace-nowrap text-xs font-mono">
-                    {format_timestamp(log_timestamp(log))}
-                  </td>
-                  <td class="whitespace-nowrap text-xs">
-                    <.ui_badge variant={log_severity_variant(log)} size="xs">
-                      {log_severity_label(log)}
-                    </.ui_badge>
-                  </td>
-                  <td
-                    class="whitespace-nowrap text-xs truncate max-w-[14rem]"
-                    title={log_service(log)}
-                  >
-                    {log_service(log)}
-                  </td>
-                  <td class="text-xs truncate max-w-[42rem]" title={log_message(log)}>
-                    {log_message(log)}
-                  </td>
-                  <td class="text-right">
-                    <.link
-                      :if={log_id(log) != "unknown"}
-                      navigate={~p"/logs/#{log_id(log)}"}
-                      class="btn btn-ghost btn-xs"
+          <%= if @logs == [] and is_nil(@error) do %>
+            <div class="text-sm text-base-content/60">No logs found for this device.</div>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table table-sm table-zebra w-full">
+                <thead>
+                  <tr>
+                    <th class="w-40">Time</th>
+                    <th class="w-24">Level</th>
+                    <th class="w-44">Service</th>
+                    <th>Message</th>
+                    <th class="w-20 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={log <- @logs}>
+                    <td class="whitespace-nowrap text-xs font-mono">
+                      {format_timestamp(log_timestamp(log))}
+                    </td>
+                    <td class="whitespace-nowrap text-xs">
+                      <.ui_badge variant={log_severity_variant(log)} size="xs">
+                        {log_severity_label(log)}
+                      </.ui_badge>
+                    </td>
+                    <td
+                      class="whitespace-nowrap text-xs truncate max-w-[14rem]"
+                      title={log_service(log)}
                     >
-                      Details
-                    </.link>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                      {log_service(log)}
+                    </td>
+                    <td class="text-xs truncate max-w-[42rem]" title={log_message(log)}>
+                      {log_message(log)}
+                    </td>
+                    <td class="text-right">
+                      <.link
+                        :if={log_id(log) != "unknown"}
+                        navigate={~p"/logs/#{log_id(log)}"}
+                        class="btn btn-ghost btn-xs"
+                      >
+                        Details
+                      </.link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-          <div class="pt-3 border-t border-base-200 mt-3">
-            <.ui_pagination
-              prev_cursor={Map.get(@pagination, "prev_cursor")}
-              next_cursor={Map.get(@pagination, "next_cursor")}
-              base_path={"/devices/#{@device_uid}"}
-              query={@query}
-              limit={@limit}
-              result_count={length(@logs)}
-              extra_params={%{"tab" => "logs"}}
-            />
-          </div>
+            <div class="pt-3 border-t border-base-200 mt-3">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                base_path={"/devices/#{@device_uid}"}
+                query={@query}
+                limit={@limit}
+                result_count={length(@logs)}
+                extra_params={%{"tab" => "logs"}}
+              />
+            </div>
+          <% end %>
         <% end %>
       </div>
     </div>
@@ -8023,6 +8363,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp log_message(_log), do: "—"
+
+  defp first_present(values) when is_list(values) do
+    Enum.find_value(values, fn
+      nil -> nil
+      "" -> nil
+      value -> value
+    end)
+  end
 
   defp first_present(map, keys) do
     Enum.find_value(keys, fn key ->

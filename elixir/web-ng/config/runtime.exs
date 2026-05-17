@@ -1353,6 +1353,12 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Repo, repo_config
 
+  config :serviceradar_core,
+    northbound_callback_base_url:
+      System.get_env("SERVICERADAR_NORTHBOUND_CALLBACK_BASE_URL") ||
+        System.get_env("BASE_URL") ||
+        "https://#{host}"
+
   # Guardian JWT signing secret (same as token_signing_secret for consistency)
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret
   config :serviceradar_web_ng, :base_url, "https://#{host}"

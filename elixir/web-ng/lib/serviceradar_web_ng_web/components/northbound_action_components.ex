@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   attr(:subtitle, :string, default: nil)
   attr(:empty_message, :string, default: "No task invocations have been recorded yet.")
   attr(:error, :string, default: nil)
+  attr(:notice, :map, default: nil)
 
   def northbound_action_history(assigns) do
     ~H"""
@@ -149,6 +150,27 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         <span :if={@entries != []} class="badge badge-ghost badge-sm">{length(@entries)}</span>
       </div>
 
+      <div
+        :if={is_map(@notice)}
+        class="mx-4 mt-4 rounded-lg border border-info/20 bg-info/10 px-4 py-3 text-sm text-base-content"
+      >
+        <div class="flex gap-3">
+          <.icon name="hero-play-circle" class="mt-0.5 size-5 shrink-0 text-info" />
+          <div class="min-w-0 space-y-1">
+            <p class="font-semibold">{Map.get(@notice, :title, "Task dispatched")}</p>
+            <p class="text-xs text-base-content/70">
+              Results update in Task History as the integration reports progress.
+              <span
+                :if={ActionForm.present_text?(Map.get(@notice, :invocation_id))}
+                class="font-mono"
+              >
+                {ActionForm.short_id(Map.get(@notice, :invocation_id))}
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div :if={ActionForm.present_text?(@error)} class="px-4 py-3 text-sm text-error">
         {@error}
       </div>
@@ -157,7 +179,10 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         :if={@entries == [] and not ActionForm.present_text?(@error)}
         class="px-4 py-6 text-sm text-base-content/60"
       >
-        {@empty_message}
+        <p>{@empty_message}</p>
+        <p class="mt-2 text-xs text-base-content/50">
+          Newly launched tasks appear here with queued, running, succeeded, or failed status.
+        </p>
       </div>
 
       <div :if={@entries != []} class="divide-y divide-base-200">
@@ -291,13 +316,20 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp action_state_badge_class(:suppressed), do: "badge badge-warning badge-sm"
   defp action_state_badge_class(:running), do: "badge badge-info badge-sm"
   defp action_state_badge_class(:dispatching), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:polling), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:result_fetching), do: "badge badge-info badge-sm"
+  defp action_state_badge_class(:expired), do: "badge badge-error badge-sm"
   defp action_state_badge_class(_state), do: "badge badge-ghost badge-sm"
 
   defp target_status_badge_class(:succeeded), do: "badge badge-success badge-sm"
   defp target_status_badge_class(:failed), do: "badge badge-error badge-sm"
   defp target_status_badge_class(:skipped), do: "badge badge-warning badge-sm"
   defp target_status_badge_class(:suppressed), do: "badge badge-warning badge-sm"
+  defp target_status_badge_class(:canceled), do: "badge badge-warning badge-sm"
   defp target_status_badge_class(:running), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(:polling), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(:result_fetching), do: "badge badge-info badge-sm"
+  defp target_status_badge_class(:expired), do: "badge badge-error badge-sm"
   defp target_status_badge_class(_status), do: "badge badge-ghost badge-sm"
 
   defp action_state_label(nil), do: "Pending"
@@ -326,6 +358,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     Enum.find(
       [
         Map.get(entry, :error_message),
+        history_progress_summary(entry),
         summary_value(Map.get(entry, :target_result)),
         summary_value(Map.get(entry, :result_summary)),
         Map.get(entry, :external_correlation_id)
@@ -345,7 +378,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       ],
       fn {string_key, atom_key} ->
         case Map.get(map, string_key) || Map.get(map, atom_key) do
-          value when is_binary(value) -> value
+          value when is_binary(value) -> present_summary_text(value)
           value when is_atom(value) -> Atom.to_string(value)
           value when is_number(value) -> to_string(value)
           _ -> nil
@@ -355,6 +388,49 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   end
 
   defp summary_value(_value), do: nil
+
+  defp history_progress_summary(entry) do
+    case Map.get(entry, :target_status) || Map.get(entry, :state) do
+      status when status in [:polling, :result_fetching] ->
+        progress_summary(status, entry)
+
+      :expired ->
+        "External task expired"
+
+      _ ->
+        nil
+    end
+  end
+
+  defp progress_summary(:result_fetching, entry), do: poll_summary("Fetching external task results", entry)
+
+  defp progress_summary(_status, entry), do: poll_summary("Waiting for external task", entry)
+
+  defp poll_summary(prefix, entry) do
+    [
+      prefix,
+      next_poll_text(Map.get(entry, :next_poll_at)),
+      poll_attempt_text(Map.get(entry, :poll_attempt_count))
+    ]
+    |> Enum.filter(&ActionForm.present_text?/1)
+    |> Enum.join(" · ")
+  end
+
+  defp next_poll_text(nil), do: nil
+  defp next_poll_text(value), do: "next poll #{format_history_timestamp(value)}"
+
+  defp poll_attempt_text(count) when is_integer(count) and count > 0, do: "poll #{count}"
+  defp poll_attempt_text(_count), do: nil
+
+  defp present_summary_text(value) when is_binary(value) do
+    value = String.trim(value)
+
+    if value in ["", "nil", "null"] do
+      nil
+    else
+      value
+    end
+  end
 
   defp history_input_chips(entry) do
     entry

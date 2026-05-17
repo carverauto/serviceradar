@@ -139,6 +139,9 @@ config :serviceradar_core,
   mtr_consensus_cohort_retention_ms: 300_000
 
 config :serviceradar_core,
+  northbound_callback_base_url: nil
+
+config :serviceradar_core,
   remote_access_ssh_certificate_policy: %{}
 
 config :serviceradar_core,

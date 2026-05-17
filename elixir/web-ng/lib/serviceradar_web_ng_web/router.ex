@@ -252,6 +252,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/csp-report", CspReportController, :create)
   end
 
+  scope "/api/northbound", ServiceRadarWebNGWeb.Api do
+    pipe_through([:api, :rate_limit_api_default])
+
+    post("/action-callbacks/:job_id", NorthboundActionCallbackController, :create)
+  end
+
   scope "/api/docs", ServiceRadarWebNGWeb.Api do
     pipe_through(:api)
 
