@@ -287,6 +287,10 @@ export class RemoteDesktopWebRTCClient {
   }
 
   handleChannelMessage(label, data) {
+    if (this.closed) {
+      return
+    }
+
     if (label === DESKTOP_MEDIA_CHANNEL) {
       let result
 

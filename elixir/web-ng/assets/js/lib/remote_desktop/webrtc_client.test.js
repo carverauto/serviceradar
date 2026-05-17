@@ -464,6 +464,67 @@ describe("RemoteDesktopWebRTCClient", () => {
     ])
   })
 
+  it("ignores stale data channel messages after the viewer session is closed", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-stale",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {closed: true}}),
+      })
+    const processor = {
+      process: vi.fn(),
+      queueState: vi.fn(),
+      close: vi.fn(),
+    }
+    const peer = new MockPeerConnection({})
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    const onControlMessage = vi.fn()
+    const onFrame = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-stale/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      mediaProcessorFactory: () => processor,
+      onControlMessage,
+      onFrame,
+    })
+
+    await client.connect()
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    client.close("test closed")
+
+    mediaChannel.emitMessage(new Uint8Array([0xde, 0xad]))
+    controlChannel.emitMessage(JSON.stringify({type: "quality", level: "low"}))
+
+    expect(processor.process).not.toHaveBeenCalled()
+    expect(onFrame).not.toHaveBeenCalled()
+    expect(onControlMessage).not.toHaveBeenCalled()
+    expect(fetchMock.mock.calls).toHaveLength(3)
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "/api/desktop-sessions/session-stale/webrtc/session/viewer-stale",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({reason: "test closed"}),
+      }),
+    ])
+  })
+
   it("acknowledges media frames over the control channel with fresh credit", async () => {
     const fetchMock = vi
       .fn()
