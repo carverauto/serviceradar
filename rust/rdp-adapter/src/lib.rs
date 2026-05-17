@@ -32,6 +32,7 @@ pub const HELPER_BACKEND_NOT_LINKED_REASON: &str = "ironrdp_backend_not_linked";
 
 const HEADER_LEN: usize = 5;
 const MAX_FRAME_LENGTH: u32 = 16 * 1024 * 1024;
+const MAX_CONTROL_FRAME_LENGTH: u32 = 64 * 1024;
 
 const MSG_OPEN: u8 = 1;
 const MSG_INPUT: u8 = 2;
@@ -486,7 +487,14 @@ fn read_frame<R: Read>(reader: &mut R) -> Result<Option<Frame>, ProtocolError> {
     reader.read_exact(&mut header[1..])?;
 
     let frame_length = u32::from_be_bytes([header[0], header[1], header[2], header[3]]);
-    if frame_length == 0 || frame_length > MAX_FRAME_LENGTH {
+    let message_type = header[4];
+    if frame_length == 0 {
+        return Err(ProtocolError::InvalidFrameLength(frame_length));
+    }
+    if !helper_message_type_supported(message_type) {
+        return Err(ProtocolError::UnexpectedMessage(message_type));
+    }
+    if frame_length > max_frame_length_for_message(message_type) {
         return Err(ProtocolError::InvalidFrameLength(frame_length));
     }
 
@@ -495,7 +503,7 @@ fn read_frame<R: Read>(reader: &mut R) -> Result<Option<Frame>, ProtocolError> {
     reader.read_exact(&mut payload)?;
 
     Ok(Some(Frame {
-        message_type: header[4],
+        message_type,
         payload,
     }))
 }
@@ -518,6 +526,12 @@ fn write_frame<W: Write>(
     if frame_length > MAX_FRAME_LENGTH {
         return Err(ProtocolError::InvalidFrameLength(frame_length));
     }
+    if !helper_message_type_supported(message_type) {
+        return Err(ProtocolError::UnexpectedMessage(message_type));
+    }
+    if frame_length > max_frame_length_for_message(message_type) {
+        return Err(ProtocolError::InvalidFrameLength(frame_length));
+    }
 
     writer.write_all(&frame_length.to_be_bytes())?;
     writer.write_all(&[message_type])?;
@@ -525,6 +539,21 @@ fn write_frame<W: Write>(
     writer.flush()?;
 
     Ok(())
+}
+
+fn helper_message_type_supported(message_type: u8) -> bool {
+    matches!(
+        message_type,
+        MSG_OPEN | MSG_INPUT | MSG_MEDIA_FRAME | MSG_ACK | MSG_CLOSE | MSG_ERROR
+    )
+}
+
+fn max_frame_length_for_message(message_type: u8) -> u32 {
+    if message_type == MSG_MEDIA_FRAME {
+        MAX_FRAME_LENGTH
+    } else {
+        MAX_CONTROL_FRAME_LENGTH
+    }
 }
 
 #[cfg(test)]
@@ -1249,7 +1278,7 @@ mod tests {
     fn read_frame_rejects_oversized_frame() {
         let mut input = Vec::new();
         input.extend_from_slice(&(MAX_FRAME_LENGTH + 1).to_be_bytes());
-        input.push(MSG_OPEN);
+        input.push(MSG_MEDIA_FRAME);
 
         let err = read_frame(&mut input.as_slice()).expect_err("oversized frame rejected");
 
@@ -1260,17 +1289,75 @@ mod tests {
     }
 
     #[test]
-    fn write_frame_rejects_oversized_payload() {
+    fn read_frame_rejects_oversized_control_frame_before_payload_read() {
+        let mut input = Vec::new();
+        input.extend_from_slice(&(MAX_CONTROL_FRAME_LENGTH + 1).to_be_bytes());
+        input.push(MSG_ERROR);
+
+        let err = read_frame(&mut input.as_slice()).expect_err("oversized control frame rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidFrameLength(length) if length == MAX_CONTROL_FRAME_LENGTH + 1
+        ));
+    }
+
+    #[test]
+    fn read_frame_rejects_zero_length_before_message_type() {
+        let mut input = Vec::new();
+        input.extend_from_slice(&0u32.to_be_bytes());
+        input.push(99);
+
+        let err = read_frame(&mut input.as_slice()).expect_err("zero-length frame rejected");
+
+        assert!(matches!(err, ProtocolError::InvalidFrameLength(0)));
+    }
+
+    #[test]
+    fn read_frame_rejects_unsupported_type_before_payload_read() {
+        let mut input = Vec::new();
+        input.extend_from_slice(&1024u32.to_be_bytes());
+        input.push(99);
+
+        let err = read_frame(&mut input.as_slice()).expect_err("unsupported frame rejected");
+
+        assert!(matches!(err, ProtocolError::UnexpectedMessage(99)));
+    }
+
+    #[test]
+    fn write_frame_rejects_oversized_media_payload() {
         let payload = vec![0u8; MAX_FRAME_LENGTH as usize];
         let mut output = Vec::new();
 
-        let err = write_frame(&mut output, MSG_ERROR, &payload).expect_err("payload rejected");
+        let err =
+            write_frame(&mut output, MSG_MEDIA_FRAME, &payload).expect_err("payload rejected");
 
         assert!(matches!(
             err,
             ProtocolError::InvalidFrameLength(length) if length == MAX_FRAME_LENGTH + 1
         ));
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn write_frame_keeps_large_payloads_media_only() {
+        let payload = vec![0u8; MAX_CONTROL_FRAME_LENGTH as usize];
+        let mut output = Vec::new();
+
+        let err = write_frame(&mut output, MSG_CLOSE, &payload).expect_err("control rejected");
+
+        assert!(matches!(
+            err,
+            ProtocolError::InvalidFrameLength(length) if length == MAX_CONTROL_FRAME_LENGTH + 1
+        ));
+        assert!(output.is_empty());
+
+        write_frame(&mut output, MSG_MEDIA_FRAME, &payload).expect("media accepted");
+        let frame = read_frame(&mut output.as_slice())
+            .expect("media read")
+            .expect("media frame");
+        assert_eq!(frame.message_type, MSG_MEDIA_FRAME);
+        assert_eq!(frame.payload.len(), payload.len());
     }
 
     fn valid_ack_payload() -> String {
