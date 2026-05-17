@@ -45,27 +45,29 @@ import (
 )
 
 const (
-	defaultReleaseRuntimeRoot              = "/var/lib/serviceradar/agent"
-	releaseVersionsDirName                 = "versions"
-	releaseTmpDirName                      = "tmp"
-	releaseMetadataFileName                = ".serviceradar-release.json"
-	releaseDefaultEntrypoint               = "serviceradar-agent"
-	releaseArtifactFormatTarGz             = "tar.gz"
-	releaseArtifactMaxBytes          int64 = 256 * 1024 * 1024
-	releasePublicKeyEnv                    = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
-	releaseCapabilityRemoteAccessRDP       = "remote_access.rdp"
-	releaseRDPHelperBinary                 = "serviceradar-rdp-adapter"
-	releaseRDPHelperInstallPath            = "/usr/local/bin/serviceradar-rdp-adapter"
-	releaseRDPHelperReadinessProbe         = "--capabilities"
-	releaseRequirementHelper               = "helper"
-	releaseRequirementInstallPath          = "install_path"
-	releaseRequirementHelperCapArg         = "helper_capabilities_arg"
-	releaseRequirementRequiresProbe        = "requires_helper_readiness_probe"
-	releaseRequirementHelperReady          = "helper_connector_ready"
-	releaseRequirementReleasePhase         = "release_phase"
-	releaseReleasePhaseExperimental        = "experimental"
-	releaseCompatibleAgentMin              = "min"
-	releaseCompatibleAgentMax              = "max"
+	defaultReleaseRuntimeRoot                 = "/var/lib/serviceradar/agent"
+	releaseVersionsDirName                    = "versions"
+	releaseTmpDirName                         = "tmp"
+	releaseMetadataFileName                   = ".serviceradar-release.json"
+	releaseDefaultEntrypoint                  = "serviceradar-agent"
+	releaseArtifactFormatTarGz                = "tar.gz"
+	releaseArtifactMaxBytes             int64 = 256 * 1024 * 1024
+	releasePublicKeyEnv                       = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
+	releaseCapabilityRemoteAccessRDP          = "remote_access.rdp"
+	releaseRDPHelperBinary                    = "serviceradar-rdp-adapter"
+	releaseRDPHelperInstallPath               = "/usr/local/bin/serviceradar-rdp-adapter"
+	releaseRDPHelperReadinessProbe            = "--capabilities"
+	releaseRequirementHelper                  = "helper"
+	releaseRequirementInstallPath             = "install_path"
+	releaseRequirementHelperCapArg            = "helper_capabilities_arg"
+	releaseRequirementRequiresProbe           = "requires_helper_readiness_probe"
+	releaseRequirementHelperReady             = "helper_connector_ready"
+	releaseRequirementHelperReadyReason       = "helper_connector_ready_reason"
+	releaseRequirementReleasePhase            = "release_phase"
+	releaseReleasePhaseExperimental           = "experimental"
+	releaseCompatibleAgentMin                 = "min"
+	releaseCompatibleAgentMax                 = "max"
+	releaseHelperReadyReasonMaxBytes          = 256
 )
 
 var (
@@ -401,14 +403,47 @@ func validateRDPHelperArtifactReadiness(artifact releaseArtifactPayload) (bool, 
 	if !ok {
 		return false, errReleaseHelperReadinessMissing
 	}
-	if !connectorReady && releaseDeploymentRequirementString(
+	readinessReason := normalizeReleaseHelperReadyReason(releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelperReadyReason,
+	))
+	if connectorReady {
+		if readinessReason != "" {
+			return false, errReleaseHelperReadinessMissing
+		}
+
+		return true, nil
+	}
+	if releaseDeploymentRequirementString(
 		artifact.DeploymentRequirements,
 		releaseRequirementReleasePhase,
-	) != releaseReleasePhaseExperimental {
+	) != releaseReleasePhaseExperimental || readinessReason == "" {
 		return false, errReleaseHelperReadinessMissing
 	}
 
-	return connectorReady, nil
+	return false, nil
+}
+
+func normalizeReleaseHelperReadyReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		next := string(r)
+		if out.Len()+len(next) > releaseHelperReadyReasonMaxBytes {
+			break
+		}
+		out.WriteString(next)
+	}
+
+	return strings.TrimSpace(out.String())
 }
 
 func releaseDeploymentRequirementString(requirements map[string]interface{}, key string) string {

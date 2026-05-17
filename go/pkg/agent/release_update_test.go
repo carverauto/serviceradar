@@ -431,9 +431,23 @@ func TestStageAgentReleaseRejectsRDPCapabilityWithoutReadinessMetadata(t *testin
 			},
 		},
 		{
+			name: "missing connector readiness reason for experimental artifact",
+			mutate: func(artifact *releaseArtifactPayload) {
+				artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
+				artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
+			},
+		},
+		{
+			name: "connector readiness reason present for ready artifact",
+			mutate: func(artifact *releaseArtifactPayload) {
+				artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "connector_loop_not_implemented"
+			},
+		},
+		{
 			name: "connector not ready without experimental phase",
 			mutate: func(artifact *releaseArtifactPayload) {
 				artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
+				artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "connector_loop_not_implemented"
 			},
 		},
 	}
@@ -467,6 +481,7 @@ func TestStageAgentReleaseRejectsHelperInstallWhenRDPConnectorNotReady(t *testin
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
 	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
+	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "connector_loop_not_implemented"
 	payload := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
 		Enabled:    true,
@@ -490,6 +505,7 @@ func TestStageAgentReleaseAcceptsRDPArtifactMarkedConnectorNotReadyWithoutHelper
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
 	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
+	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "connector_loop_not_implemented"
 	payload := signedReleasePayload(t, binaryData, artifact)
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
