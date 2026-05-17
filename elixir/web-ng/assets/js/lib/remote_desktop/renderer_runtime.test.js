@@ -1,4 +1,4 @@
-import {describe, expect, it} from "vitest"
+import {describe, expect, it, vi} from "vitest"
 
 import {
   DESKTOP_PAYLOAD_METADATA,
@@ -348,5 +348,49 @@ describe("remote desktop renderer runtime", () => {
       lastSequence: 12,
       resized: false,
     })
+  })
+
+  it("drops renderer failures without breaking later frame drains", () => {
+    const queue = createDesktopRenderQueue({maxFrames: 4})
+    const putImageDataCalls = []
+    const onFrameError = vi.fn()
+    const context = {
+      canvas: {width: 8, height: 8},
+      putImageData(imageData, x, y) {
+        putImageDataCalls.push({imageData, x, y})
+      },
+    }
+
+    queue.push(parseDesktopMediaFrame(
+      encodeDesktopMediaFrame({
+        sequence: 61,
+        width: 8,
+        height: 8,
+        payloadFamily: DESKTOP_PAYLOAD_TILE,
+        encoding: "rgba",
+        metadata: new Uint8Array([0x7b]),
+        payload: new Uint8Array([1, 2, 3, 255]),
+      })
+    ))
+    queue.push(tileFrame({sequence: 62, width: 8, height: 8}))
+
+    const result = drainDesktopRenderQueue(queue, {
+      context,
+      createImageData: (bytes, width, height) => ({bytes, width, height}),
+      maxFrames: 2,
+      onFrameError,
+    })
+
+    expect(result).toMatchObject({
+      frames: 2,
+      uploads: 1,
+      lastSequence: 62,
+      resized: false,
+      errors: 1,
+    })
+    expect(result.lastError).toBeInstanceOf(SyntaxError)
+    expect(onFrameError).toHaveBeenCalledWith(result.lastError, expect.objectContaining({sequence: 61}))
+    expect(putImageDataCalls).toHaveLength(1)
+    expect(queue.length).toBe(0)
   })
 })

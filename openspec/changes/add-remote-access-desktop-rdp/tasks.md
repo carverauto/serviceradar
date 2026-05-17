@@ -262,6 +262,7 @@
 - [x] 4.2.1.10 Add receive-side WebRTC video-track handling and a browser video surface for future browser-decodable desktop media tracks.
 - [x] 4.2.1.11 Fail closed on malformed browser desktop media frames by reporting the processing error and closing the WebRTC viewer session.
 - [x] 4.2.1.12 Fail closed on malformed browser desktop control frames by reporting the processing error and closing the WebRTC viewer session.
+- [x] 4.2.1.13 Keep browser render drains alive when one desktop frame cannot be rendered, surfacing the renderer error and counting the failed frame as dropped.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.
@@ -516,6 +517,7 @@
 - [x] 5.7.23 Add browser WebRTC client and component tests proving video tracks surface separately from DataChannel frame rendering.
 - [x] 5.7.24 Add browser WebRTC client tests proving malformed desktop media frames fail closed through viewer cleanup.
 - [x] 5.7.25 Add browser WebRTC client tests proving malformed desktop control frames fail closed through viewer cleanup.
+- [x] 5.7.26 Add browser renderer-runtime tests proving malformed frame metadata is dropped without breaking later frame drains.
 
 ## 6. Optional Packaging And EdgeOps Distribution
 - [x] 6.1 Add separate release/build artifacts for the base agent and the RDP helper or RDP-enabled bundle so IronRDP is not included in default agent installs.

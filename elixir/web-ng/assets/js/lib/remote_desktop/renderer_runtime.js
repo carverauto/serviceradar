@@ -29,6 +29,7 @@ export function drainDesktopRenderQueue(queue, {
   createImageData,
   gpuQueue = null,
   maxFrames = DEFAULT_MAX_DRAIN_FRAMES,
+  onFrameError = () => {},
   renderTarget = null,
   texture = null,
 } = {}) {
@@ -41,6 +42,8 @@ export function drainDesktopRenderQueue(queue, {
   let uploads = 0
   let lastSequence = null
   let resized = false
+  let errors = 0
+  let lastError = null
 
   for (let index = 0; index < safeMaxFrames; index += 1) {
     const frame = queue.shift()
@@ -51,11 +54,25 @@ export function drainDesktopRenderQueue(queue, {
 
     frames += 1
     lastSequence = frame.sequence ?? lastSequence
-    resized = resizeRenderTargetForFrame(renderTarget, context, frame) || resized
-    uploads += applyDesktopFrame(frame, renderTarget, context, createImageData, gpuQueue, texture)
+
+    try {
+      resized = resizeRenderTargetForFrame(renderTarget, context, frame) || resized
+      uploads += applyDesktopFrame(frame, renderTarget, context, createImageData, gpuQueue, texture)
+    } catch (error) {
+      errors += 1
+      lastError = error
+      onFrameError(error, frame)
+    }
   }
 
-  return {frames, uploads, lastSequence, resized}
+  const result = {frames, uploads, lastSequence, resized}
+
+  if (errors > 0) {
+    result.errors = errors
+    result.lastError = lastError
+  }
+
+  return result
 }
 
 function resizeRenderTargetForFrame(renderTarget, context, frame) {

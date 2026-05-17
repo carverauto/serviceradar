@@ -278,16 +278,26 @@ export function Component({
 
       const result = drainDesktopRenderQueue(renderQueueRef.current, {
         maxFrames: DEFAULT_RENDER_DRAIN_FRAMES,
+        onFrameError(error) {
+          setLastError(error?.message || "Unable to render desktop frame")
+        },
         renderTarget: canvasRenderTarget(),
       })
 
       if (result.frames > 0) {
+        const renderErrors = result.errors || 0
+        const appliedFrames = Math.max(0, result.frames - renderErrors)
+
+        if (result.errors > 0) {
+          setDroppedFrameCount((count) => count + renderErrors)
+        }
+
         if (result.resized) {
           sendResizeFrame()
         }
 
         setRendererStats((stats) => ({
-          framesApplied: stats.framesApplied + result.frames,
+          framesApplied: stats.framesApplied + appliedFrames,
           tilesApplied: stats.tilesApplied + result.uploads,
           lastSequence: result.lastSequence ?? stats.lastSequence,
         }))
