@@ -553,6 +553,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   defp mark_target_status(target, status, attrs, actor) do
     attrs =
       attrs
+      |> clear_stale_last_error(status)
       |> Map.merge(status_transition_attrs(target, status))
       |> Map.put(:status, status)
       |> compact_map()
@@ -574,6 +575,13 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
         {:error, reason}
     end
   end
+
+  defp clear_stale_last_error(attrs, status)
+       when status in [:dispatched, :downloading, :verifying, :staged, :restarting, :healthy] do
+    Map.put_new(attrs, :last_error, nil)
+  end
+
+  defp clear_stale_last_error(attrs, _status), do: attrs
 
   defp sync_agent_release_state(agent_id, desired_version, status, last_error, actor, opts \\ []) do
     case Agent.get_by_uid(agent_id, actor: actor) do

@@ -301,6 +301,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
     assert target.status == :dispatched
     assert target.command_id == second_command.command_id
+    assert target.last_error == nil
   end
 
   test "handle_command_expired marks an inflight release target failed", %{
@@ -657,6 +658,11 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
         progress_percent: 95
       })
 
+    {:ok, target} =
+      AgentReleaseTarget.set_status(
+        target,
+        %{status: :restarting, last_error: "command_ack_timeout"}, actor: actor)
+
     agent = Agent.get_by_uid!(agent_id, actor: actor)
 
     {:ok, _agent} =
@@ -676,6 +682,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManagerTest do
     target = AgentReleaseTarget.get_by_id!(target.id, actor: actor)
     assert target.status == :healthy
     assert target.progress_percent == 100
+    assert target.last_error == nil
 
     rollout = AgentReleaseRollout.get_by_id!(rollout.id, actor: actor)
     assert rollout.status == :completed

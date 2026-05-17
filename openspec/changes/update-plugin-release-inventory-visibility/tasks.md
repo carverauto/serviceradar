@@ -37,10 +37,10 @@
 - [x] 5.6 Fix demo task-launch authorization so users with the intended role can launch device/interface tasks, and unauthorized users get a precise missing-permission message.
 
 ## 6. Agent Rollout Status Semantics
-- [ ] 6.1 Trace `command_ack_timeout` handling for agents that restart after dispatch but later activate successfully.
-- [ ] 6.2 Ensure late reconnect/activation success supersedes transient ack-timeout progress text and clears stale last-error display.
-- [ ] 6.3 Add rollout-state tests for dispatch timeout followed by successful activation.
-- [ ] 6.4 Fix agent details desired-version derivation so stale failed rollout attempts do not override the current desired version or a newer successful activation.
+- [x] 6.1 Trace `command_ack_timeout` handling for agents that restart after dispatch but later activate successfully.
+- [x] 6.2 Ensure late reconnect/activation success supersedes transient ack-timeout progress text and clears stale last-error display.
+- [x] 6.3 Add rollout-state tests for dispatch timeout followed by successful activation.
+- [x] 6.4 Fix agent details desired-version derivation so stale failed rollout attempts do not override the current desired version or a newer successful activation.
 
 ## 7. NetFlow and Topology Regression Diagnostics
 - [ ] 7.1 Investigate why `/dashboard` reports no NetFlow paths despite recent flow conversations.
