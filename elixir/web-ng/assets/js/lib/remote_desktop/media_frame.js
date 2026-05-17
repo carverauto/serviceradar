@@ -207,6 +207,10 @@ function parseDesktopMediaFrameWithCache(data, stableStringCache = null) {
     throw new Error(`desktop media frame version ${version} is unsupported`)
   }
 
+  if (view.getUint8(7) !== 0 || view.getUint16(46, false) !== 0) {
+    throw new Error("desktop media frame reserved header bytes are set")
+  }
+
   const flags = view.getUint8(5)
   const payloadFamily = PAYLOAD_ID_TO_FAMILY[view.getUint8(6)]
   if (!payloadFamily) {

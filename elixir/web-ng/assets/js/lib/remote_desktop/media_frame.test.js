@@ -158,6 +158,14 @@ describe("remote desktop media frame envelope", () => {
     trailing.set(valid)
     trailing[valid.byteLength] = 0xff
     expect(() => parseDesktopMediaFrame(trailing)).toThrow("trailing bytes")
+
+    const reservedByte = new Uint8Array(valid)
+    reservedByte[7] = 1
+    expect(() => parseDesktopMediaFrame(reservedByte)).toThrow("reserved header bytes")
+
+    const reservedUint16 = new Uint8Array(valid)
+    new DataView(reservedUint16.buffer).setUint16(46, 1, false)
+    expect(() => parseDesktopMediaFrame(reservedUint16)).toThrow("reserved header bytes")
   })
 
   it("selects renderer modes by payload family and browser capability", () => {
