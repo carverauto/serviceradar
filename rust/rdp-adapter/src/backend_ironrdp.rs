@@ -15,6 +15,8 @@ use std::io::{self, Read, Write};
 #[cfg(serviceradar_rdp_connector_link_probe)]
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
 #[cfg(serviceradar_rdp_connector_link_probe)]
+use std::sync::Arc;
+#[cfg(serviceradar_rdp_connector_link_probe)]
 use std::time::Duration;
 use zeroize::Zeroizing;
 
@@ -1001,6 +1003,59 @@ where
 
     Ok(ConnectorCredsspHandoff {
         framed,
+        upgraded,
+        connector,
+        server_name,
+        server_public_key,
+    })
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+fn upgrade_connector_handoff_tls_for_probe<S>(
+    handoff: ConnectorBeginHandoff<S>,
+) -> Result<ConnectorCredsspHandoff<rustls::StreamOwned<rustls::ClientConnection, S>>, BackendError>
+where
+    S: Read + Write,
+{
+    let ConnectorBeginHandoff {
+        framed,
+        should_upgrade,
+        mut connector,
+        dial_target: _dial_target,
+        tls_config,
+        server_name,
+    } = handoff;
+    let (stream, leftover) = framed.into_inner();
+    if !leftover.is_empty() {
+        return Err(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
+    }
+
+    let tls_server_name = rustls::pki_types::ServerName::try_from(server_name.as_str().to_owned())
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let client_config = Arc::new(tls_config.config);
+    let client_connection = rustls::ClientConnection::new(client_config, tls_server_name)
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let mut tls_stream = rustls::StreamOwned::new(client_connection, stream);
+    while tls_stream.conn.is_handshaking() {
+        tls_stream
+            .conn
+            .complete_io(&mut tls_stream.sock)
+            .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    }
+
+    let peer_certificate = tls_stream
+        .conn
+        .peer_certificates()
+        .and_then(|certificates| certificates.first())
+        .ok_or(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    let server_public_key = derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
+        peer_certificate.as_ref(),
+    )?
+    .into_bytes();
+    let upgraded = ironrdp_blocking::mark_as_upgraded(should_upgrade, &mut connector);
+
+    Ok(ConnectorCredsspHandoff {
+        framed: ironrdp_blocking::Framed::new(tls_stream),
         upgraded,
         connector,
         server_name,
@@ -1996,6 +2051,78 @@ mod tests {
         );
         assert_eq!(handoff.client_addr().ip(), listener_addr.ip());
         assert_ne!(handoff.client_addr().port(), 0);
+        assert!(!initial_request.is_empty());
+        assert!(!bytes_contain_secret(
+            &initial_request,
+            credential.password.value.as_str().as_bytes(),
+        ));
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    #[test]
+    fn connector_probe_tcp_tls_upgrade_enters_credssp_state_without_password() {
+        use std::io::{Read as _, Write as _};
+
+        let mut payload = parse_open_payload(valid_open_payload().as_bytes()).expect("payload");
+        payload.target.tls.ca_bundle_id = "ca-rdp-prod".to_owned();
+        payload.target.tls.ca_bundle_pem = fixture_tls_server_cert_pem();
+        let mut plan = build_nonsecret_connection_plan(&payload).expect("plan");
+        let credential = build_memory_user_credential(
+            payload
+                .credential_grant
+                .as_ref()
+                .expect("memory user credential grant"),
+        )
+        .expect("credential");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener");
+        let listener_addr = listener.local_addr().expect("listener addr");
+        plan.upstream_host = listener_addr.ip().to_string();
+        plan.upstream_port = listener_addr.port();
+        plan.tls_server_name = "win.example".to_owned();
+        let server_confirm =
+            encode_server_confirm_for_probe(ironrdp_pdu::nego::SecurityProtocol::HYBRID_EX)
+                .expect("server confirm");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accepted connection");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .expect("read timeout");
+            stream
+                .set_write_timeout(Some(Duration::from_secs(1)))
+                .expect("write timeout");
+            let mut initial_request = [0_u8; 4096];
+            let read = stream
+                .read(&mut initial_request)
+                .expect("initial connector request");
+            stream
+                .write_all(&server_confirm)
+                .expect("server confirm write");
+            let server_config = fixture_tls_server_config_for_probe();
+            let mut server_connection =
+                rustls::ServerConnection::new(Arc::new(server_config)).expect("server connection");
+            while server_connection.is_handshaking() {
+                server_connection
+                    .complete_io(&mut stream)
+                    .expect("server TLS handshake");
+            }
+
+            initial_request[..read].to_vec()
+        });
+
+        let begin_handoff = begin_connector_handoff_with_tcp_dial_for_probe(
+            &plan,
+            &credential,
+            Duration::from_secs(1),
+        )
+        .expect("connector begin handoff");
+        let credssp_handoff =
+            upgrade_connector_handoff_tls_for_probe(begin_handoff).expect("TLS upgrade");
+        let initial_request = server.join().expect("server thread");
+        let (_tls_stream, leftover) = credssp_handoff.framed.get_inner();
+
+        assert!(credssp_handoff.requires_credssp());
+        assert_eq!(credssp_handoff.server_name(), "win.example");
+        assert!(leftover.is_empty());
         assert!(!initial_request.is_empty());
         assert!(!bytes_contain_secret(
             &initial_request,
@@ -3306,5 +3433,55 @@ mod tests {
         pem.push_str("-----END CERTIFICATE-----\n");
 
         pem
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn fixture_tls_server_config_for_probe() -> rustls::ServerConfig {
+        let cert = rustls::pki_types::CertificateDer::from(fixture_tls_server_cert_der());
+        let key = rustls::pki_types::PrivateKeyDer::Pkcs8(
+            rustls::pki_types::PrivatePkcs8KeyDer::from(fixture_tls_server_key_der()),
+        );
+
+        rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .expect("fixture TLS server config")
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn fixture_tls_server_cert_der() -> Vec<u8> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        STANDARD
+            .decode(
+                "MIIDJTCCAg2gAwIBAgIUaVf+hJE9biQOeCj7Hlnyp0pWaqAwDQYJKoZIhvcNAQELBQAwFjEUMBIGA1UEAwwLd2luLmV4YW1wbGUwHhcNMjYwNTE3MDUxMDQxWhcNMjYwNTE4MDUxMDQxWjAWMRQwEgYDVQQDDAt3aW4uZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKGuZfZ1QqXmZtoBDjgHfUW7AqXIsIP9AaWsECA7SFNDwVLAzrlw3s1GauZFzpRkByxC73+Tf9P4eqhBlR23zY9AZ9I//fJVOKLDJIHQjjUZba2y4ipb+/ns4GRFBsu7hw3QQd8l+egLZrDzZEYuaZQxtTtSjFcZadDZPSzkGuJ4Q1YqAryl6yrLKeLlsxonUNfnCu7rEgiRRfl6fUAzHLz9/Ewi69NpmykR3AGwbS9pf1FmYIBxhlpIw4fqQGw+pVRaCz6XnCWCaut4sEhBEDIShfRW8ZxXfrdJ4C5Ndw4rKbny9vrr2X65OW8i9vq4jctJvGq2CV5s09A9udoEpecCAwEAAaNrMGkwHQYDVR0OBBYEFEnORq1zs4ze0Cjw9dYRSpM0U3ZfMB8GA1UdIwQYMBaAFEnORq1zs4ze0Cjw9dYRSpM0U3ZfMA8GA1UdEwEB/wQFMAMBAf8wFgYDVR0RBA8wDYILd2luLmV4YW1wbGUwDQYJKoZIhvcNAQELBQADggEBADq9Cr8CFhXREqA1+UJNjkm4LrsiSSfTEzOkjExutLshFzfA9jJbtDyfVNF+9mYQlGpJJIFy3FVlL4GsVxG9wtHgL6c3jwWaFjT3RJCo37eqUGfwGI9lbxlSvdfqPZmmpGHv+3pqE9zs7s1nPicIwHs9V21TH8EsJrI/p8bGayx2hW7hKiRZ+lHdyc6T0JYGorMOUNzrabd8FLAt+tlQN0PKx8d1AvbQ2liADhBrUqfSZnSge5q/Ei8/BXtpO2QIR+0aR6gCABEgCh9Dn8hF3rYhShl7dSmaaZw7sB/oetco1b+hS1/trjsG6tdnQhvpcy206OmzMsuCsWj+nLhodXw=",
+            )
+            .expect("fixture TLS certificate")
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn fixture_tls_server_cert_pem() -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let body = STANDARD.encode(fixture_tls_server_cert_der());
+        let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+        for chunk in body.as_bytes().chunks(64) {
+            pem.push_str(std::str::from_utf8(chunk).expect("base64 is utf8"));
+            pem.push('\n');
+        }
+        pem.push_str("-----END CERTIFICATE-----\n");
+
+        pem
+    }
+
+    #[cfg(serviceradar_rdp_connector_link_probe)]
+    fn fixture_tls_server_key_der() -> Vec<u8> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        STANDARD
+            .decode(
+                "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQChrmX2dUKl5mbaAQ44B31FuwKlyLCD/QGlrBAgO0hTQ8FSwM65cN7NRmrmRc6UZAcsQu9/k3/T+HqoQZUdt82PQGfSP/3yVTiiwySB0I41GW2tsuIqW/v57OBkRQbLu4cN0EHfJfnoC2aw82RGLmmUMbU7UoxXGWnQ2T0s5BrieENWKgK8pesqyyni5bMaJ1DX5wru6xIIkUX5en1AMxy8/fxMIuvTaZspEdwBsG0vaX9RZmCAcYZaSMOH6kBsPqVUWgs+l5wlgmrreLBIQRAyEoX0VvGcV363SeAuTXcOKym58vb669l+uTlvIvb6uI3LSbxqtglebNPQPbnaBKXnAgMBAAECggEAQadUbzahmEWNqWP5VqYv6ANvKUvr5cT1CMXsjHIWRf2DAOwbZfEgAEJigVyCbP6LbR1HLMqEA1roz+9FspojJlMUdauXnvKdO3a7md1LCePoBjtYHLRah1v5qK3g+xUM2/6f6RH+P4x1qFBFfTw2kj93JP45z9qZff3hGhwMkL54rp+ObfwGnu97Egy51Xzx94C5LK86KmwgfytGOpKAHLWijf+md61exTn+4danJcMkx550ynKBFoXEqRFZ2phiKP3/I8Ni9k67vktJ6mrpR1ymGtcBmDwZDqhc1IpWIZLmbf6iSSvmrunImDdYelZgINh+fD3oU28duou9IYhKtQKBgQDYCpOyaACRNc66xlzThE2JknN/8wm6nCvDyNIfAdMXgITRezuOoEPoHRSxGc87GZ/oIlQ72Jicp390U50YC4Q/vCXHi9omTycuH62Cd8+CrI7HjWons5989p8uDn+cRQLNtZqtotFY/tH/nQwH3zG5rp7GoR8couqTMRKFuTUtZQKBgQC/lefKcNExAcitENlQJrG5G2XPLrmqyit3DDxJ7byxfcXu9kObLOLx8rTLQCwaZxHcnEFT8QGByuxVFpYmy8MvyLbH9aYGYitydpVeu3+prODj3FNX3zVAHRZX50weerXDB2EUs/4Meupyxe0e7ecRTLxIHmulUYpeqD6/s0THWwKBgGoHJt2UNVMO+VqpJ72XXQZ7nbvZ55hyNPhtgtI87wDFzmmQ9XXWKf2s6A7S/+WdeeFPl8+XSa74dZD9yEeYv1sYV+JLPNE4X54/ZcR2UJ1tWtWNDeBWQ5vs3cqYywBCzlFvI268TcpDpYSx6smiPKFIlhwdz0samc2Lc++1KegRAoGBALK4VJI0y/C7iUho/1AVyJS1SjQLkogQMJvNfjA45l1sxsg0UrzfEpZBowY3xuyaWb9CxG5Z1N4PPofhmhB25I4e3uOJ9GbgDUep9413u4+9Bc2KKvU9857rg3xc+FU2g3h72cRGZCegQjTvDlRb+cHZo4pjVmfRuRK0QFT0FqUhAoGAFaZzpX5A75HegMY2RfGIivRPgWdDquAHzlsUHYPbfOYVAABAnUOvWD6tZzTxDfrwixfALYIa/4sU0j+H2mun+8ypmU7jMh/B/OzW6gltNgUkgXfiqxfRBoMXIPydwlFKgqOOryEFJjf14YBQv7OLd80BXXOmbIaY0+tOYOwX1ME=",
+            )
+            .expect("fixture TLS key")
     }
 }
