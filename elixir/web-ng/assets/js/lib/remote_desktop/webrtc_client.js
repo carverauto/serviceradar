@@ -313,7 +313,17 @@ export class RemoteDesktopWebRTCClient {
     }
 
     if (typeof data === "string") {
-      this.onControlMessage(JSON.parse(data))
+      let message
+
+      try {
+        message = JSON.parse(data)
+      } catch (error) {
+        this.onError(error)
+        this.close("desktop control frame processing failed")
+        return
+      }
+
+      this.onControlMessage(message)
     } else {
       this.onControlMessage(data)
     }

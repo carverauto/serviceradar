@@ -411,6 +411,59 @@ describe("RemoteDesktopWebRTCClient", () => {
     ])
   })
 
+  it("fails closed when desktop control processing rejects a frame", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-control-malformed",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: async () => ({data: {closed: true}}),
+      })
+    const peer = new MockPeerConnection({})
+    const mediaChannel = new MockDataChannel(DESKTOP_MEDIA_CHANNEL)
+    const controlChannel = new MockDataChannel(DESKTOP_CONTROL_CHANNEL)
+    const onControlMessage = vi.fn()
+    const onError = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-control-malformed/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      onControlMessage,
+      onError,
+    })
+
+    await client.connect()
+    peer.emitDataChannel(mediaChannel)
+    peer.emitDataChannel(controlChannel)
+    controlChannel.emitMessage("{")
+
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(SyntaxError)
+    expect(onControlMessage).not.toHaveBeenCalled()
+    expect(mediaChannel.closed).toBe(true)
+    expect(controlChannel.closed).toBe(true)
+    expect(peer.closed).toBe(true)
+    expect(fetchMock.mock.calls[2]).toEqual([
+      "/api/desktop-sessions/session-control-malformed/webrtc/session/viewer-control-malformed",
+      expect.objectContaining({
+        method: "DELETE",
+        body: JSON.stringify({reason: "desktop control frame processing failed"}),
+      }),
+    ])
+  })
+
   it("acknowledges media frames over the control channel with fresh credit", async () => {
     const fetchMock = vi
       .fn()
