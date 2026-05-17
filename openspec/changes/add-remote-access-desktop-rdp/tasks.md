@@ -272,6 +272,7 @@
 - [x] 4.2.1.12 Fail closed on malformed browser desktop control frames by reporting the processing error and closing the WebRTC viewer session.
 - [x] 4.2.1.13 Keep browser render drains alive when one desktop frame cannot be rendered, surfacing the renderer error and counting the failed frame as dropped.
 - [x] 4.2.1.14 Ignore stale browser desktop media/control DataChannel messages after viewer-session close.
+- [x] 4.2.1.15 Reject browser SRDP media frames with trailing bytes so DataChannel payloads match the validated frame envelope exactly.
 - [x] 4.2.2 Keep Apache Arrow IPC limited to structured desktop metadata, audit/stat snapshots, overlays, or frame manifests; do not use Arrow IPC as the default screen-pixel transport.
 - [x] 4.2.3 Add a browser-facing sanitized desktop policy snapshot to RDP session responses for target identity, route, credential custody, redirection, quota, approval, and recording posture.
 - [x] 4.2.4 Add browser renderer-state helpers that normalize the RDP policy snapshot into stable visible status items without retaining secret-shaped fields.

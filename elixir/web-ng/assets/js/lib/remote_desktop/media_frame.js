@@ -234,6 +234,10 @@ function parseDesktopMediaFrameWithCache(data, stableStringCache = null) {
     throw new Error("desktop media frame payload is truncated")
   }
 
+  if (expectedLength !== bytes.byteLength) {
+    throw new Error("desktop media frame has trailing bytes")
+  }
+
   let offset = FRAME_HEADER_SIZE
   const sessionBindingId = stableStringFromBytes(
     bytes.subarray(offset, offset + sessionLength),

@@ -147,6 +147,17 @@ describe("remote desktop media frame envelope", () => {
       })
     ).subarray(0, 50)
     expect(() => parseDesktopMediaFrame(truncated)).toThrow("payload is truncated")
+
+    const valid = new Uint8Array(
+      encodeDesktopMediaFrame({
+        payloadFamily: DESKTOP_PAYLOAD_VIDEO,
+        payload: new Uint8Array([1, 2, 3]),
+      })
+    )
+    const trailing = new Uint8Array(valid.byteLength + 1)
+    trailing.set(valid)
+    trailing[valid.byteLength] = 0xff
+    expect(() => parseDesktopMediaFrame(trailing)).toThrow("trailing bytes")
   })
 
   it("selects renderer modes by payload family and browser capability", () => {
