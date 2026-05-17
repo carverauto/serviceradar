@@ -76,6 +76,25 @@ struct VerifiedTlsClientConfigProbe {
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
+struct VerifiedTlsClientConfig {
+    config: rustls::ClientConfig,
+    trusted_root_count: usize,
+    resumption_disabled_for_credssp: bool,
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
+impl VerifiedTlsClientConfig {
+    fn probe(&self) -> VerifiedTlsClientConfigProbe {
+        let _client_config = &self.config;
+
+        VerifiedTlsClientConfigProbe {
+            trusted_root_count: self.trusted_root_count,
+            resumption_disabled_for_credssp: self.resumption_disabled_for_credssp,
+        }
+    }
+}
+
+#[cfg(serviceradar_rdp_connector_link_probe)]
 #[derive(Debug, Eq, PartialEq)]
 struct ActiveStageInputProbe {
     response_frames: usize,
@@ -421,7 +440,7 @@ fn prepare_connector_open_for_experimental(
     plan: &NonSecretConnectionPlan,
     credential: &MemoryUserCredential,
 ) -> Result<(), BackendError> {
-    let _verified_tls = build_verified_tls_client_config_for_plan_for_probe(plan)?;
+    let _verified_tls = build_verified_tls_client_config_for_plan(plan)?;
     let _preflight = build_connector_config_preflight_for_experimental(plan, credential)?;
 
     Ok(())
@@ -677,50 +696,42 @@ fn derive_credssp_server_public_key_from_verified_tls_peer_for_probe(
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
+fn build_verified_tls_client_config_for_registered_ca_bundle(
     ca_bundle: &[u8],
-) -> Result<VerifiedTlsClientConfigProbe, BackendError> {
+) -> Result<VerifiedTlsClientConfig, BackendError> {
     let certificates = parse_registered_ca_bundle_for_probe(ca_bundle)?;
 
-    build_verified_tls_client_config_from_certificates_for_probe(
-        certificates,
-        INVALID_TLS_CA_BUNDLE,
-    )
+    build_verified_tls_client_config_from_certificates(certificates, INVALID_TLS_CA_BUNDLE)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn build_verified_tls_client_config_for_system_roots_for_probe(
-) -> Result<VerifiedTlsClientConfigProbe, BackendError> {
+fn build_verified_tls_client_config_for_system_roots(
+) -> Result<VerifiedTlsClientConfig, BackendError> {
     let native = rustls_native_certs::load_native_certs();
     if !native.errors.is_empty() {
         return Err(BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
     }
 
-    build_verified_tls_client_config_from_certificates_for_probe(
-        native.certs,
-        INVALID_TLS_CA_BUNDLE,
-    )
+    build_verified_tls_client_config_from_certificates(native.certs, INVALID_TLS_CA_BUNDLE)
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn build_verified_tls_client_config_for_plan_for_probe(
+fn build_verified_tls_client_config_for_plan(
     plan: &NonSecretConnectionPlan,
-) -> Result<VerifiedTlsClientConfigProbe, BackendError> {
+) -> Result<VerifiedTlsClientConfig, BackendError> {
     match &plan.tls_trust_source {
-        TlsTrustSource::SystemRoots => {
-            build_verified_tls_client_config_for_system_roots_for_probe()
-        }
+        TlsTrustSource::SystemRoots => build_verified_tls_client_config_for_system_roots(),
         TlsTrustSource::RegisteredCaBundle { pem, .. } => {
-            build_verified_tls_client_config_for_registered_ca_bundle_for_probe(pem.as_bytes())
+            build_verified_tls_client_config_for_registered_ca_bundle(pem.as_bytes())
         }
     }
 }
 
 #[cfg(serviceradar_rdp_connector_link_probe)]
-fn build_verified_tls_client_config_from_certificates_for_probe(
+fn build_verified_tls_client_config_from_certificates(
     certificates: Vec<rustls::pki_types::CertificateDer<'static>>,
     error_message: &'static str,
-) -> Result<VerifiedTlsClientConfigProbe, BackendError> {
+) -> Result<VerifiedTlsClientConfig, BackendError> {
     let mut roots = rustls::RootCertStore::empty();
     let mut added = 0;
 
@@ -738,9 +749,9 @@ fn build_verified_tls_client_config_from_certificates_for_probe(
         .with_root_certificates(roots)
         .with_no_client_auth();
     config.resumption = rustls::client::Resumption::disabled();
-    drop(config);
 
-    Ok(VerifiedTlsClientConfigProbe {
+    Ok(VerifiedTlsClientConfig {
+        config,
         trusted_root_count: added,
         resumption_disabled_for_credssp: true,
     })
@@ -1710,10 +1721,10 @@ mod tests {
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_registered_ca_bundle_builds_verified_tls_client_config_from_der() {
-        let probe = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
-            &fixture_server_cert_der(),
-        )
-        .expect("verified TLS config");
+        let probe =
+            build_verified_tls_client_config_for_registered_ca_bundle(&fixture_server_cert_der())
+                .expect("verified TLS config")
+                .probe();
 
         assert_eq!(
             probe,
@@ -1729,10 +1740,9 @@ mod tests {
     fn connector_probe_registered_ca_bundle_builds_verified_tls_client_config_from_pem_chain() {
         let cert_pem = fixture_server_cert_pem();
         let ca_bundle = format!("{cert_pem}\n{cert_pem}");
-        let probe = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
-            ca_bundle.as_bytes(),
-        )
-        .expect("verified TLS config");
+        let probe = build_verified_tls_client_config_for_registered_ca_bundle(ca_bundle.as_bytes())
+            .expect("verified TLS config")
+            .probe();
 
         assert_eq!(
             probe,
@@ -1746,12 +1756,11 @@ mod tests {
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_registered_ca_bundle_rejects_empty_or_invalid_material() {
-        let empty = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(b" \n\t")
+        let empty = build_verified_tls_client_config_for_registered_ca_bundle(b" \n\t")
             .expect_err("empty rejected");
-        let invalid = build_verified_tls_client_config_for_registered_ca_bundle_for_probe(
-            b"not a certificate",
-        )
-        .expect_err("invalid rejected");
+        let invalid =
+            build_verified_tls_client_config_for_registered_ca_bundle(b"not a certificate")
+                .expect_err("invalid rejected");
 
         assert_eq!(empty, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
         assert_eq!(invalid, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
@@ -1765,8 +1774,9 @@ mod tests {
         payload.target.tls.ca_bundle_pem = fixture_server_cert_pem();
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
-        let probe =
-            build_verified_tls_client_config_for_plan_for_probe(&plan).expect("verified config");
+        let probe = build_verified_tls_client_config_for_plan(&plan)
+            .expect("verified config")
+            .probe();
 
         assert_eq!(
             probe,
@@ -1785,7 +1795,7 @@ mod tests {
         payload.target.tls.ca_bundle_pem = "not a certificate".to_owned();
         let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
-        let err = build_verified_tls_client_config_for_plan_for_probe(&plan)
+        let err = build_verified_tls_client_config_for_plan(&plan)
             .expect_err("invalid plan bundle rejected");
 
         assert_eq!(err, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
@@ -1826,8 +1836,9 @@ mod tests {
     #[cfg(serviceradar_rdp_connector_link_probe)]
     #[test]
     fn connector_probe_system_roots_build_verified_tls_client_config() {
-        let probe = build_verified_tls_client_config_for_system_roots_for_probe()
-            .expect("system roots TLS config");
+        let probe =
+            build_verified_tls_client_config_for_system_roots().expect("system roots TLS config");
+        let probe = probe.probe();
 
         assert!(probe.trusted_root_count > 0);
         assert!(probe.resumption_disabled_for_credssp);

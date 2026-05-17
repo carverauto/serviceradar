@@ -184,6 +184,7 @@
 - [x] 3.2.53 Bind adapter-side verified Rustls client-config construction to the non-secret connection plan's selected TLS trust source.
 - [x] 3.2.54 Add explicit helper capability not-ready reasons so operators can distinguish an unlinked backend from an incomplete connector loop.
 - [x] 3.2.55 Run the connector-linked helper's runtime open path through verified TLS trust and connector-config input preflight before returning connector-not-ready.
+- [x] 3.2.56 Build and carry real Rustls client configs with resumption disabled from the selected TLS trust source for the future connector upgrade path.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -357,6 +358,7 @@
 - [x] 5.2.80 Add release publisher and manifest-validator tests proving experimental RDP artifacts carry a stable helper connector-readiness reason.
 - [x] 5.2.81 Add Bazel-only adapter probe coverage proving the connector-linked helper `open()` rejects invalid CA bundles before the connector loop and remains fail-closed for valid bundles.
 - [x] 5.2.82 Add Bazel-only adapter probe coverage proving connector-not-ready runtime preflight excludes password material from the preflight structure.
+- [x] 5.2.83 Add Bazel-only adapter probe coverage proving registered CA bundle and system-root trust sources produce real Rustls client configs with resumption disabled.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.
