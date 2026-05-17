@@ -197,6 +197,7 @@
 - [x] 3.2.66 Add a connector-linked verified Rustls upgrade boundary that consumes the post-connect-begin stream, verifies the registered server identity/CA, extracts certificate-derived CredSSP binding material, and marks the connector TLS-upgraded while runtime readiness remains disabled.
 - [x] 3.2.67 Keep the connector-linked verified Rustls upgrade boundary fail-closed when the registered server identity does not match the trusted RDP endpoint certificate.
 - [x] 3.2.68 Keep the connector-linked verified Rustls upgrade boundary fail-closed when the endpoint certificate is not signed by the registered/pinned RDP trust source.
+- [x] 3.2.69 Apply the selected connector TCP timeout to connected stream reads and writes so later TLS/CredSSP phases fail closed instead of hanging on unresponsive endpoints.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -383,6 +384,7 @@
 - [x] 5.2.93 Add connector-linked loopback Rustls upgrade coverage proving a verified registered CA/server-name pair enters the CredSSP-ready handoff and the pre-TLS request omits cleartext password material.
 - [x] 5.2.94 Add connector-linked loopback Rustls name-mismatch coverage proving TLS verification fails closed before CredSSP and the pre-TLS request omits cleartext password material.
 - [x] 5.2.95 Add connector-linked loopback Rustls CA-mismatch coverage proving untrusted endpoint certificates fail closed before CredSSP and the pre-TLS request omits cleartext password material.
+- [x] 5.2.96 Add connector-linked TCP dial coverage proving live streams inherit read/write timeouts for bounded TLS/CredSSP failure behavior.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

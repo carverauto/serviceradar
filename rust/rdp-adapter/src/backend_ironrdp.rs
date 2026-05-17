@@ -642,6 +642,12 @@ fn dial_connector_tcp_for_probe(
         .ok_or(BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
     let stream = TcpStream::connect_timeout(&remote_addr, timeout)
         .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
     let client_addr = stream
         .local_addr()
         .map_err(|_| BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED))?;
@@ -1995,6 +2001,20 @@ mod tests {
         );
         assert_eq!(dialed.client_addr().ip(), listener_addr.ip());
         assert_ne!(dialed.client_addr().port(), 0);
+        assert_eq!(
+            dialed
+                .stream
+                .read_timeout()
+                .expect("read timeout configured"),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(
+            dialed
+                .stream
+                .write_timeout()
+                .expect("write timeout configured"),
+            Some(Duration::from_secs(1))
+        );
     }
 
     #[cfg(serviceradar_rdp_connector_link_probe)]
