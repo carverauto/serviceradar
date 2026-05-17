@@ -179,6 +179,7 @@
 - [x] 3.2.48 Add a Bazel-only verified TLS client-config probe proving registered PEM/DER CA bundles build normal Rustls verification, reject invalid bundles, and disable TLS resumption for CredSSP while runtime readiness stays disabled.
 - [x] 3.2.49 Add a Bazel-only system-root TLS client-config probe proving the selected agent host's native trust store can build normal Rustls verification and fail closed on load errors while runtime readiness stays disabled.
 - [x] 3.2.50 Carry the registered RDP CA bundle ID from desktop target policy into broker-generated agent/helper open payloads so verified and pinned-CA connector paths have an explicit non-secret trust-anchor handle.
+- [x] 3.2.51 Reject `pinned_ca` RDP target policy before adapter/backend execution unless the trusted target snapshot includes a registered CA bundle ID.
 - [x] 3.3 Ensure credentials, generated keys, RDP files, and credential caches are memory-only and are dropped on session close, timeout, policy revocation, or route loss.
 - [x] 3.3.1 Tighten agent desktop credential grant validation for brokered-secret custody and memory-user credential completeness.
 - [x] 3.3.2 Add an agent-side desktop credential grant cleanup helper for adapter close/error paths.
@@ -344,6 +345,7 @@
 - [x] 5.2.73 Add Bazel-only adapter probe coverage proving a framed stream plus IronRDP `ConnectionResult` handoff can drive browser input through the network-pump backend session path.
 - [x] 5.2.74 Add Bazel-only adapter probe coverage proving registered CA bundle material builds a verified Rustls client config, rejects empty/invalid material, and disables TLS resumption for CredSSP.
 - [x] 5.2.75 Add Bazel-only adapter probe coverage proving system-root trust loading builds a verified Rustls client config with native roots and disables TLS resumption for CredSSP.
+- [x] 5.2.76 Add focused Go/Rust tests proving `pinned_ca` target policy fails closed unless a CA bundle ID is present in the trusted open payload.
 - [x] 5.3 Add route/session tests proving frames are accepted only on the selected route and terminate on revocation or route loss.
 - [x] 5.3.1 Add focused Go tests for selected-agent desktop open-frame binding and session-bound desktop frame decoding.
 - [x] 5.3.2 Add focused Go tests for desktop pointer coordinate and input token bounds.

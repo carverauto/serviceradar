@@ -107,6 +107,13 @@ func TestNormalizeDesktopTargetRejectsUntrustedOrUnsafePolicy(t *testing.T) {
 			},
 		},
 		{
+			name: "pinned ca without bundle id",
+			mutate: func(target *DesktopTarget) {
+				target.TLS.Mode = DesktopTLSModePinnedCA
+				target.TLS.CABundleID = ""
+			},
+		},
+		{
 			name: "brokered secret without approval",
 			mutate: func(target *DesktopTarget) {
 				target.Credential.Mode = DesktopCredentialModeBrokeredSecret

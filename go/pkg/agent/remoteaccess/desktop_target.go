@@ -180,6 +180,9 @@ func validateDesktopTarget(target DesktopTarget) error {
 	if !validDesktopTLSMode(target.TLS.Mode) {
 		return fmt.Errorf("%w: invalid tls mode", ErrInvalidDesktopTarget)
 	}
+	if target.TLS.Mode == DesktopTLSModePinnedCA && target.TLS.CABundleID == "" {
+		return fmt.Errorf("%w: pinned_ca requires ca_bundle_id", ErrInvalidDesktopTarget)
+	}
 	if !validDesktopNLAMode(target.TLS.NLAMode) {
 		return fmt.Errorf("%w: invalid nla mode", ErrInvalidDesktopTarget)
 	}

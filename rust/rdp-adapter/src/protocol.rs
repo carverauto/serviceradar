@@ -724,6 +724,7 @@ fn helper_tls_policy_supported(policy: &DesktopTlsPolicy) -> bool {
         policy.mode.as_str(),
         TLS_MODE_VERIFY | TLS_MODE_PINNED_CA | TLS_MODE_SYSTEM
     ) && policy.nla_mode == NLA_MODE_REQUIRED
+        && (policy.mode != TLS_MODE_PINNED_CA || !policy.ca_bundle_id.trim().is_empty())
 }
 
 fn helper_credential_policy_supported(policy: &DesktopCredentialPolicy) -> bool {
@@ -1175,6 +1176,17 @@ pub(crate) mod tests {
         let raw = valid_open_payload().replace(
             r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
             r#""tls":{"mode":"insecure","nla_mode":"disabled","server_name":"win.example"}"#,
+        );
+        let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
+
+        assert_eq!(err, OpenPayloadError::UnsupportedTlsPolicy);
+    }
+
+    #[test]
+    fn parse_open_payload_rejects_pinned_ca_without_bundle_id() {
+        let raw = valid_open_payload().replace(
+            r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
+            r#""tls":{"mode":"pinned_ca","nla_mode":"required","server_name":"win.example"}"#,
         );
         let err = parse_open_payload(raw.as_bytes()).expect_err("tls policy rejected");
 
