@@ -261,7 +261,7 @@
 - [x] 4.1.3 Add a `settings.edge.manage`-gated settings LiveView for listing, creating, editing, enabling, and disabling RDP desktop targets with route, TLS/NLA, screen, clipboard redirection, recording, and allowed-principal controls.
 - [x] 4.1.4 Add operator-facing Kerberos/KDC routing fields for RDP desktop targets and keep browser session metadata from overriding those trusted values.
 - [x] 4.2 Add a browser graphical renderer for authorized RDP sessions with visible target identity, recording state, credential mode, redirection state, quota state, and approval status.
-- [ ] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
+- [x] 4.2.1 Implement the browser media golden path: WebRTC session/signaling, WebRTC media tracks for encoded video, WebRTC DataChannel for binary frame envelopes and backpressure, WebGPU dirty-region/tile renderer, WASM helper boundary, and explicit browser backpressure.
 - [x] 4.2.1.1 Add the browser-side WebRTC signaling helper and binary desktop media frame parser/selector contract.
 - [x] 4.2.1.2 Add the server-side web-ng WebRTC signaling facade/controller contract for `webrtc_desktop_media`.
 - [x] 4.2.1.3 Add a browser WebGPU queue adapter for dirty-region/tile upload descriptors.
