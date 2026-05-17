@@ -681,6 +681,35 @@ pub fn drive_live_tls_upgrade_accepting_invalid_certificates_for_lab(
     request: ServiceRadarOpenRequest,
     timeout: Duration,
 ) -> Result<LiveTlsUpgradeProbe, String> {
+    let config = lab_tls_client_config_accepting_invalid_certificates();
+
+    drive_live_tls_upgrade_with_client_config(request, timeout, config)
+}
+
+pub fn drive_live_tls_upgrade_with_registered_ca_bundle(
+    request: ServiceRadarOpenRequest,
+    ca_bundle: &[u8],
+    timeout: Duration,
+) -> Result<LiveTlsUpgradeProbe, String> {
+    let (config, _) = build_tls_client_config_for_registered_ca_bundle(ca_bundle)?;
+
+    drive_live_tls_upgrade_with_client_config(request, timeout, config)
+}
+
+pub fn drive_live_tls_upgrade_with_system_roots(
+    request: ServiceRadarOpenRequest,
+    timeout: Duration,
+) -> Result<LiveTlsUpgradeProbe, String> {
+    let (config, _) = build_tls_client_config_for_system_roots()?;
+
+    drive_live_tls_upgrade_with_client_config(request, timeout, config)
+}
+
+fn drive_live_tls_upgrade_with_client_config(
+    request: ServiceRadarOpenRequest,
+    timeout: Duration,
+    config: rustls::ClientConfig,
+) -> Result<LiveTlsUpgradeProbe, String> {
     let password = request.credential_grant.password.clone();
     let plan = build_connector_plan(request).map_err(str::to_owned)?;
     let target = resolve_rdp_target(&plan)?;
@@ -702,7 +731,7 @@ pub fn drive_live_tls_upgrade_accepting_invalid_certificates_for_lab(
 
     let initial_written_len = recording_stream.writes.len();
     let (tls_stream, server_public_key) =
-        tls_upgrade_accepting_invalid_certificates_for_lab(recording_stream, plan.tls_server_name)?;
+        tls_upgrade_with_client_config(recording_stream, plan.tls_server_name, config)?;
     let peer_certificate_count = tls_stream
         .conn
         .peer_certificates()
@@ -800,17 +829,37 @@ pub fn extract_credssp_server_public_key(cert_der: &[u8]) -> Result<Vec<u8>, &'s
 pub fn build_verified_tls_client_config_for_registered_ca_bundle(
     ca_bundle: &[u8],
 ) -> Result<VerifiedTlsClientConfigProbe, String> {
+    let (_, trusted_root_count) = build_tls_client_config_for_registered_ca_bundle(ca_bundle)?;
+
+    Ok(VerifiedTlsClientConfigProbe {
+        trusted_root_count,
+        resumption_disabled_for_credssp: true,
+    })
+}
+
+pub fn build_verified_tls_client_config_for_system_roots(
+) -> Result<VerifiedTlsClientConfigProbe, String> {
+    let (_, trusted_root_count) = build_tls_client_config_for_system_roots()?;
+
+    Ok(VerifiedTlsClientConfigProbe {
+        trusted_root_count,
+        resumption_disabled_for_credssp: true,
+    })
+}
+
+fn build_tls_client_config_for_registered_ca_bundle(
+    ca_bundle: &[u8],
+) -> Result<(rustls::ClientConfig, usize), String> {
     let certificates = parse_registered_ca_bundle(ca_bundle)?;
 
-    build_verified_tls_client_config_from_certificates(
+    build_tls_client_config_from_certificates(
         certificates,
         "registered CA bundle contains invalid certificate",
         "registered CA bundle contains no certificates",
     )
 }
 
-pub fn build_verified_tls_client_config_for_system_roots(
-) -> Result<VerifiedTlsClientConfigProbe, String> {
+fn build_tls_client_config_for_system_roots() -> Result<(rustls::ClientConfig, usize), String> {
     let native = rustls_native_certs::load_native_certs();
     if !native.errors.is_empty() {
         return Err(format!(
@@ -819,18 +868,18 @@ pub fn build_verified_tls_client_config_for_system_roots(
         ));
     }
 
-    build_verified_tls_client_config_from_certificates(
+    build_tls_client_config_from_certificates(
         native.certs,
         "system root store contains invalid certificate",
         "system root store contains no certificates",
     )
 }
 
-fn build_verified_tls_client_config_from_certificates(
+fn build_tls_client_config_from_certificates(
     certificates: Vec<rustls::pki_types::CertificateDer<'static>>,
     invalid_message: &'static str,
     empty_message: &'static str,
-) -> Result<VerifiedTlsClientConfigProbe, String> {
+) -> Result<(rustls::ClientConfig, usize), String> {
     let mut roots = rustls::RootCertStore::empty();
     let mut added = 0;
 
@@ -848,12 +897,8 @@ fn build_verified_tls_client_config_from_certificates(
         .with_root_certificates(roots)
         .with_no_client_auth();
     config.resumption = rustls::client::Resumption::disabled();
-    drop(config);
 
-    Ok(VerifiedTlsClientConfigProbe {
-        trusted_root_count: added,
-        resumption_disabled_for_credssp: true,
-    })
+    Ok((config, added))
 }
 
 fn parse_registered_ca_bundle(
@@ -922,9 +967,20 @@ fn connect_rdp_target(target: SocketAddr, timeout: Duration) -> Result<TcpStream
     Ok(stream)
 }
 
-fn tls_upgrade_accepting_invalid_certificates_for_lab(
+fn lab_tls_client_config_accepting_invalid_certificates() -> rustls::ClientConfig {
+    let mut config = rustls::ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(std::sync::Arc::new(LabNoCertificateVerification))
+        .with_no_client_auth();
+    config.resumption = rustls::client::Resumption::disabled();
+
+    config
+}
+
+fn tls_upgrade_with_client_config(
     stream: RecordingStream<TcpStream>,
     server_name: String,
+    config: rustls::ClientConfig,
 ) -> Result<
     (
         rustls::StreamOwned<rustls::ClientConnection, RecordingStream<TcpStream>>,
@@ -932,12 +988,6 @@ fn tls_upgrade_accepting_invalid_certificates_for_lab(
     ),
     String,
 > {
-    let mut config = rustls::ClientConfig::builder()
-        .dangerous()
-        .with_custom_certificate_verifier(std::sync::Arc::new(LabNoCertificateVerification))
-        .with_no_client_auth();
-    config.resumption = rustls::client::Resumption::disabled();
-
     let server_name = rustls::pki_types::ServerName::try_from(server_name)
         .map_err(|_| "tls server name is invalid".to_owned())?;
     let client = rustls::ClientConnection::new(std::sync::Arc::new(config), server_name)
@@ -1535,6 +1585,55 @@ mod tests {
             Duration::from_secs(5),
         )
         .expect("live TLS upgrade");
+
+        assert_eq!(probe.before_state, "ConnectionInitiationSendRequest");
+        assert_eq!(probe.after_begin_state, "EnhancedSecurityUpgrade");
+        assert_eq!(probe.after_upgrade_state, "Credssp");
+        assert!(probe.peer_certificate_count > 0);
+        assert!(probe.server_public_key_len > 0);
+        assert!(probe.wrote_tls_bytes);
+        assert!(!probe.contains_cleartext_password);
+    }
+
+    #[test]
+    fn live_verified_tls_upgrade_reaches_credssp_boundary_when_configured() {
+        let Some(target) = std::env::var("SERVICERADAR_RDP_LIVE_TARGET")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            eprintln!(
+                "skipping live verified RDP TLS probe; SERVICERADAR_RDP_LIVE_TARGET is not set"
+            );
+            return;
+        };
+        let Some(ca_bundle_file) = std::env::var("SERVICERADAR_RDP_LIVE_CA_BUNDLE_FILE")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            eprintln!(
+                "skipping live verified RDP TLS probe; \
+                 SERVICERADAR_RDP_LIVE_CA_BUNDLE_FILE is not set"
+            );
+            return;
+        };
+
+        let ca_bundle = std::fs::read(&ca_bundle_file).expect("read live CA bundle");
+        let (host, port) = parse_live_target(&target).expect("valid live RDP target");
+        let mut request = open_request("EXAMPLE\\serviceradar-probe", "required");
+        request.target.upstream.host = host;
+        request.target.upstream.port = port;
+        request.target.tls.server_name = std::env::var("SERVICERADAR_RDP_LIVE_SERVER_NAME")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| request.target.upstream.host.clone());
+        request.target.tls.ca_bundle_id = "live-ca-bundle-file".to_owned();
+
+        let probe = crate::drive_live_tls_upgrade_with_registered_ca_bundle(
+            request,
+            &ca_bundle,
+            Duration::from_secs(5),
+        )
+        .expect("live verified TLS upgrade");
 
         assert_eq!(probe.before_state, "ConnectionInitiationSendRequest");
         assert_eq!(probe.after_begin_state, "EnhancedSecurityUpgrade");

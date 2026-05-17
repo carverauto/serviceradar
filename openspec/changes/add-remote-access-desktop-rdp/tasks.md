@@ -22,11 +22,12 @@
 - [x] 1.4.17 Add a review-only `ironrdp-blocking` connect-finalize probe proving the post-TLS boundary enters CredSSP and writes no cleartext password before server input.
 - [x] 1.4.18 Add a review-only TLS upgrade policy probe proving system roots, registered CA bundles, and pinned CA modes are selected explicitly while insecure modes fail closed.
 - [x] 1.4.19 Add a review-only lab-gated Rustls TLS upgrade smoke probe proving a live RDP stream can reach IronRDP's CredSSP state without recorded cleartext password exposure while production certificate verification remains unimplemented.
-- [x] 1.4.19 Add a Bazel-only adapter connector-link probe proving the future production helper can compile adapter code against the isolated IronRDP connector crate universe without using the root Rust lockfile.
-- [x] 1.4.20 Record the IronRDP active-stage import gate, including `ironrdp-session`, its protocol/render dependencies, disabled UI/client stacks, and ServiceRadar-owned SRDP mapping requirements.
-- [x] 1.4.21 Add `ironrdp-session` to the isolated connector probe workspace so active-stage dependencies are reviewed without perturbing the root Rust workspace.
-- [x] 1.4.22 Add an isolated active-stage construction probe proving a ServiceRadar-derived connector plan can initialize IronRDP session state without importing upstream UI/client stacks.
-- [x] 1.4.23 Add an isolated active-stage input encoding probe proving a ServiceRadar-shaped keyboard event can become an upstream RDP response frame without importing UI/client stacks.
+- [x] 1.4.20 Add an opt-in live verified Rustls TLS upgrade probe requiring an explicit CA bundle file and server identity before advancing the live RDP stream to IronRDP's CredSSP state.
+- [x] 1.4.21 Add a Bazel-only adapter connector-link probe proving the future production helper can compile adapter code against the isolated IronRDP connector crate universe without using the root Rust lockfile.
+- [x] 1.4.22 Record the IronRDP active-stage import gate, including `ironrdp-session`, its protocol/render dependencies, disabled UI/client stacks, and ServiceRadar-owned SRDP mapping requirements.
+- [x] 1.4.23 Add `ironrdp-session` to the isolated connector probe workspace so active-stage dependencies are reviewed without perturbing the root Rust workspace.
+- [x] 1.4.24 Add an isolated active-stage construction probe proving a ServiceRadar-derived connector plan can initialize IronRDP session state without importing upstream UI/client stacks.
+- [x] 1.4.25 Add an isolated active-stage input encoding probe proving a ServiceRadar-shaped keyboard event can become an upstream RDP response frame without importing UI/client stacks.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add desktop target RBAC and approval checks that bind actor, target, route, policy snapshot, credential mode, and redirection policy to one session.
@@ -354,6 +355,7 @@
 - [x] 5.4.1 Add an operator demo proof path for a private Windows/xrdp target reachable only from the selected edge agent, with readiness, policy, media, backpressure, cleanup, and audit checks.
 - [x] 5.4.2 Add an opt-in live IronRDP connector boundary probe and validate the lab target at `192.168.1.45` reaches the TLS/NLA upgrade boundary without cleartext password exposure.
 - [x] 5.4.3 Add an explicitly lab-gated live TLS upgrade smoke probe and validate `192.168.1.45` reaches IronRDP's CredSSP state with certificate public-key extraction and without recorded cleartext password exposure.
+- [x] 5.4.4 Add an opt-in live verified TLS upgrade probe for controlled RDP targets with configured CA bundle files and server identity.
 - [ ] 5.5 Update the Teleport parity matrix after the RDP slice is implemented and validated.
 - [x] 5.6 Add desktop media performance tests for delayed links, browser backpressure, credit-window exhaustion, long-running frame bursts, and stale-frame coalescing/drop behavior.
 - [x] 5.6.1 Add focused Go tests for desktop media frame encoding/decoding, validation, truncation rejection, ack validation, and credit-window exhaustion/adjustment.

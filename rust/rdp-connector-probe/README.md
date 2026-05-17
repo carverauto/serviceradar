@@ -43,3 +43,21 @@ peer certificate public key can be extracted for CredSSP binding, IronRDP moves
 to the CredSSP state, and the recorded bytes do not contain the test password.
 It does not prove production certificate verification, CredSSP completion, user
 authentication, media, cleanup ordering, or helper readiness.
+
+To run the live TLS upgrade probe with normal certificate verification, provide a
+PEM or DER CA bundle for the target certificate:
+
+```bash
+SERVICERADAR_RDP_LIVE_TARGET=192.168.1.45 \
+  SERVICERADAR_RDP_LIVE_SERVER_NAME=win-admin-01.example.com \
+  SERVICERADAR_RDP_LIVE_CA_BUNDLE_FILE=/path/to/rdp-ca.pem \
+  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
+  live_verified_tls_upgrade_reaches_credssp_boundary_when_configured -- --nocapture
+```
+
+This verified probe skips unless both `SERVICERADAR_RDP_LIVE_TARGET` and
+`SERVICERADAR_RDP_LIVE_CA_BUNDLE_FILE` are set. It proves the live target can
+complete the RDP TLS upgrade using configured trust and server identity, then
+reach the CredSSP state without recorded cleartext password exposure. It still
+does not complete CredSSP authentication, active desktop media, cleanup ordering,
+or helper readiness.

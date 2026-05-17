@@ -294,6 +294,21 @@ be extracted for CredSSP binding, and IronRDP reaches the CredSSP state without
 recorded cleartext password exposure. The env var name is intentionally explicit:
 this is not production trust validation and must not make `connector_ready` true.
 
+For a controlled target with a configured CA bundle, run the verified live TLS
+upgrade probe:
+
+```bash
+SERVICERADAR_RDP_LIVE_TARGET=<rdp-target-host-or-ip> \
+  SERVICERADAR_RDP_LIVE_SERVER_NAME=<rdp-certificate-name> \
+  SERVICERADAR_RDP_LIVE_CA_BUNDLE_FILE=/path/to/rdp-ca.pem \
+  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
+  live_verified_tls_upgrade_reaches_credssp_boundary_when_configured -- --nocapture
+```
+
+This proves the RDP TLS upgrade can use configured trust roots and server
+identity before IronRDP reaches CredSSP. It still does not prove CredSSP
+completion, user authentication, media, cleanup ordering, or helper readiness.
+
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.
