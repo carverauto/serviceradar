@@ -135,6 +135,7 @@ defmodule ServiceRadarAgentGateway.Application do
         metrics_children() ++
         [
           ServiceRadarAgentGateway.AgentRegistryProxy,
+          ServiceRadarAgentGateway.AgentCertificateRevocation,
           ServiceRadarAgentGateway.StatusBuffer,
           ServiceRadarAgentGateway.CameraMediaSessionTracker,
           ServiceRadarAgentGateway.DesktopMediaSessionTracker

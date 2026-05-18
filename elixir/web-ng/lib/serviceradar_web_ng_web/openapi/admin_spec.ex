@@ -173,6 +173,14 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
       "/api/admin/edge-packages/{id}/revoke" => %{
         "post" => op("Revoke edge package", "Edge", params: [:id], response: "AnyObject")
       },
+      "/api/admin/gateways/{gateway_id}/agent-certs/{component_id}/revoke" => %{
+        "post" =>
+          op("Revoke agent certificate", "Edge",
+            params: [:gateway_id, :component_id],
+            body: "AnyObject",
+            response: "AnyObject"
+          )
+      },
       "/api/admin/edge-packages/{id}/download" => %{
         "post" => op("Download edge package", "Edge", params: [:id], response: "AnyObject")
       },

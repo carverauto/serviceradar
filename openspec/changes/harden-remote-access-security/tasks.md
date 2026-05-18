@@ -644,10 +644,11 @@ Result: cert *shape* and *bind* are correct — partition_id is issuer-derived, 
       Fix: Default `validity_days: 1` (or 3); require `--allow-long-ttl` flag for anything longer; emit audit on issuance with TTL > 7 days.
       Resolution: Default is now 1 day; issuer rejects invalid TTLs and values above 30 days unless `allow_long_ttl?: true`; long-TTL opt-ins emit a warning and tests cover defaults, rejections, and explicit override.
 
-- [ ] 6.L.2 [H] No revocation mechanism (no CRL, no OCSP, no in-memory denylist)
+- [x] 6.L.2 [H] No revocation mechanism (no CRL, no OCSP, no in-memory denylist)
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/cert_issuer.ex`; gateway TLS at `application.ex:241-254`; `go/pkg/grpc/cert_manager.go` (working tree)
       Why: A stolen agent cert is valid until TTL expiry. Pairs with 6.L.1: today that's up to a year of impersonation; even with the short-TTL fix you still need a kill switch for the active TTL window.
       Fix: Short-term — add an in-memory revocation list (ETS) consulted by the gRPC interceptor; surface a `cert revoke <component_id>` admin endpoint. Medium-term — CRL or OCSP-stapling.
+      Resolution: Agent gateway now supervises an ETS-backed `AgentCertificateRevocation` denylist keyed by component id, certificate fingerprint, or serial. `ComponentIdentityResolver` extracts certificate fingerprint/serial and rejects revoked identities before gRPC handlers accept the request. web-ng exposes `POST /api/admin/gateways/:gateway_id/agent-certs/:component_id/revoke`, which RPCs to the selected gateway and inserts the component-id revocation.
 
 - [ ] 6.L.3 [M] Per-partition authz on the cert issuer endpoint is conditional on external auth
       Where: `cert_issuer.ex:16-26` (working tree); upstream caller in web-ng/admin RPC

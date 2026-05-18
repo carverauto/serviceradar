@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.ComponentTemplates
+  alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.RBAC
@@ -390,6 +391,33 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
           conn
           |> put_status(:conflict)
           |> json(%{error: "package already revoked"})
+      end
+    end
+  end
+
+  @doc """
+  POST /api/admin/gateways/:gateway_id/agent-certs/:component_id/revoke
+
+  Revokes an agent mTLS certificate by component id on the selected gateway.
+  """
+  def revoke_agent_certificate(conn, %{"gateway_id" => gateway_id, "component_id" => component_id} = params) do
+    reason = params["reason"]
+
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "settings.edge.manage") do
+      case GatewayCertificateIssuer.revoke_agent_certificate(gateway_id, component_id, reason: reason) do
+        {:ok, result} ->
+          json(conn, result)
+
+        {:error, :gateway_unavailable} ->
+          conn
+          |> put_status(:service_unavailable)
+          |> json(%{error: "gateway unavailable"})
+
+        {:error, :invalid_identity} ->
+          conn
+          |> put_status(:bad_request)
+          |> json(%{error: "invalid identity"})
       end
     end
   end

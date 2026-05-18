@@ -442,6 +442,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Package actions
     post("/edge-packages/:id/revoke", EdgeController, :revoke)
+    post("/gateways/:gateway_id/agent-certs/:component_id/revoke", EdgeController, :revoke_agent_certificate)
 
     # Plugin registry
     get("/plugins", PluginController, :index)

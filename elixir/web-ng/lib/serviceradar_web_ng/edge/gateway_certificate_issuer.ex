@@ -24,6 +24,19 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
   def issue_agent_bundle(_, _, _, _), do: {:error, :invalid_identity}
 
+  @spec revoke_agent_certificate(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, atom()}
+  def revoke_agent_certificate(gateway_id, component_id, opts \\ [])
+
+  def revoke_agent_certificate(gateway_id, component_id, opts) when is_binary(gateway_id) and is_binary(component_id) do
+    with {:ok, node} <- lookup_gateway_node(gateway_id),
+         :ok <- rpc_revoke(node, component_id, opts) do
+      {:ok, %{gateway_id: gateway_id, component_id: component_id, revoked: true}}
+    end
+  end
+
+  def revoke_agent_certificate(_, _, _), do: {:error, :invalid_identity}
+
   defp lookup_gateway_node(gateway_id) do
     case GatewayRegistry.lookup(gateway_id) do
       [{_pid, metadata} | _] ->
@@ -49,12 +62,13 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   defp rpc_issue(node, component_id, partition_id, opts) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout)
     validity_days = Keyword.get(opts, :validity_days)
+    issuer_module = Keyword.get(opts, :cert_issuer_module, ServiceRadarAgentGateway.CertIssuer)
 
     rpc_opts = maybe_put([], :validity_days, validity_days)
 
     case :rpc.call(
            node,
-           ServiceRadarAgentGateway.CertIssuer,
+           issuer_module,
            :issue_agent_bundle,
            [component_id, partition_id, :agent, rpc_opts],
            timeout
@@ -68,6 +82,31 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
       {:badrpc, reason} ->
         Logger.warning("[GatewayCertificateIssuer] Gateway RPC failed: #{inspect(reason)}")
+        {:error, :gateway_unavailable}
+    end
+  end
+
+  defp rpc_revoke(node, component_id, opts) do
+    timeout = Keyword.get(opts, :timeout_ms, @default_timeout)
+    reason = Keyword.get(opts, :reason)
+    revocation_module = Keyword.get(opts, :revocation_module, ServiceRadarAgentGateway.AgentCertificateRevocation)
+
+    case :rpc.call(
+           node,
+           revocation_module,
+           :revoke_component_id,
+           [component_id, [reason: reason]],
+           timeout
+         ) do
+      :ok ->
+        :ok
+
+      {:badrpc, reason} ->
+        Logger.warning("[GatewayCertificateIssuer] Gateway revoke RPC failed: #{inspect(reason)}")
+        {:error, :gateway_unavailable}
+
+      other ->
+        Logger.warning("[GatewayCertificateIssuer] Unexpected revoke result: #{inspect(other)}")
         {:error, :gateway_unavailable}
     end
   end
