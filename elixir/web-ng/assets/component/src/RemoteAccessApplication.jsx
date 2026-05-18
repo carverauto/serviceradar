@@ -26,6 +26,15 @@ function decodeBody(value) {
   return new TextDecoder().decode(bytes)
 }
 
+function encodeBodyChunk(value) {
+  let binary = ""
+  for (const byte of value) {
+    binary += String.fromCharCode(byte)
+  }
+
+  return btoa(binary)
+}
+
 function requestId() {
   if (window.crypto?.randomUUID) {
     return window.crypto.randomUUID()
@@ -47,6 +56,10 @@ function parsePathAndQuery(value) {
     path: prefixed.slice(0, index) || "/",
     query: prefixed.slice(index + 1),
   }
+}
+
+function requestMayHaveBody(method) {
+  return !["GET", "HEAD", "OPTIONS"].includes(method)
 }
 
 function statusClass(status) {
@@ -74,7 +87,8 @@ export function Component({
   const [path, setPath] = useState("/")
   const [method, setMethod] = useState("GET")
   const [response, setResponse] = useState(null)
-  const [body, setBody] = useState("")
+  const [requestBody, setRequestBody] = useState("")
+  const [responseBody, setResponseBody] = useState("")
 
   const subtitle = useMemo(() => {
     if (!session) {
@@ -101,7 +115,7 @@ export function Component({
     setStatus("opening")
     setError("")
     setResponse(null)
-    setBody("")
+    setResponseBody("")
 
     try {
       const createResponse = await fetch(createPath, {
@@ -193,7 +207,7 @@ export function Component({
         return
       }
 
-      setBody((current) => `${current}${decodeBody(payload.data)}`)
+      setResponseBody((current) => `${current}${decodeBody(payload.data)}`)
       if (payload.eof) {
         setStatus("ready")
       }
@@ -220,7 +234,9 @@ export function Component({
     setStatus("requesting")
     setError("")
     setResponse(null)
-    setBody("")
+    setResponseBody("")
+
+    const bodyBytes = new TextEncoder().encode(requestMayHaveBody(method) ? requestBody : "")
 
     socketRef.current.send(
       JSON.stringify({
@@ -234,6 +250,26 @@ export function Component({
         },
       }),
     )
+
+    if (requestMayHaveBody(method)) {
+      const chunkSize = 48 * 1024
+      const chunkCount = Math.max(1, Math.ceil(bodyBytes.length / chunkSize))
+
+      for (let index = 0; index < chunkCount; index += 1) {
+        const start = index * chunkSize
+        const chunk = bodyBytes.slice(start, start + chunkSize)
+
+        socketRef.current.send(
+          JSON.stringify({
+            type: "app_data",
+            request_id: id,
+            sequence: index + 1,
+            data: encodeBodyChunk(chunk),
+            eof: index === chunkCount - 1,
+          }),
+        )
+      }
+    }
   }
 
   return (
@@ -263,6 +299,10 @@ export function Component({
               <select className="select select-bordered select-sm" value={method} onChange={(event) => setMethod(event.target.value)}>
                 <option value="GET">GET</option>
                 <option value="HEAD">HEAD</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
               </select>
             </label>
             <label className="form-control">
@@ -272,6 +312,15 @@ export function Component({
               <input className="input input-bordered input-sm font-mono" value={path} onChange={(event) => setPath(event.target.value)} />
             </label>
           </div>
+
+          {requestMayHaveBody(method) ? (
+            <label className="form-control">
+              <div className="label py-1">
+                <span className="label-text">Body</span>
+              </div>
+              <textarea className="textarea textarea-bordered min-h-32 font-mono text-xs" value={requestBody} onChange={(event) => setRequestBody(event.target.value)} />
+            </label>
+          ) : null}
 
           {error ? <div className="alert alert-error py-2 text-sm">{error}</div> : null}
 
@@ -289,7 +338,7 @@ export function Component({
             </div>
           ) : null}
           <pre className="min-h-80 overflow-auto rounded border border-base-300 bg-base-200 p-4 text-xs whitespace-pre-wrap">
-            {body || "Response body will appear here."}
+            {responseBody || "Response body will appear here."}
           </pre>
         </section>
       </div>

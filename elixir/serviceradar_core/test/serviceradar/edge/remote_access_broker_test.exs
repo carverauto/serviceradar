@@ -257,6 +257,60 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
            } = Jason.decode!(frame.data)
   end
 
+  test "sends application request data to the selected agent without auditing body content" do
+    body = "request body"
+    encoded_body = Base.encode64(body)
+
+    session =
+      Map.merge(session_fixture(), %{
+        protocol: :app,
+        adapter: :application,
+        target_host: "app.internal.example",
+        target_port: 8443,
+        metadata: %{
+          "target_id" => "app-target-1",
+          "target_type" => "application",
+          "upstream_scheme" => "https"
+        }
+      })
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "app_open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    assert :ok =
+             RemoteAccessBroker.send_application_data(pid, %{
+               request_id: "req-1",
+               direction: "request",
+               sequence: 1,
+               data: encoded_body,
+               eof: true
+             })
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "app_data"} = frame, _opts}
+    assert Jason.decode!(frame.data)["data"] == encoded_body
+
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_application_data
+    assert audit[:details].request_id == "req-1"
+    assert audit[:details].direction == "request"
+    assert audit[:details].sequence == 1
+    assert audit[:details].body_bytes == byte_size(body)
+    refute inspect(audit) =~ encoded_body
+    refute inspect(audit) =~ body
+  end
+
   test "opens registered TCP sessions with tcp frames over the selected route" do
     session =
       Map.merge(session_fixture(), %{
