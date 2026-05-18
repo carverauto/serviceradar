@@ -404,10 +404,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Add a CI lint (or a runtime guard) that fails the build if a `post|put|patch|delete` route on the remote-access surface isn't routed through a pipeline that includes `:protect_from_forgery`
       Resolution: Added a static router regression test that parses `router.ex`, asserts `:api_auth` still includes `:protect_from_forgery`, and fails if any mutating `/remote-access...` API route is declared outside the `:api_auth` pipeline.
 
-- [ ] 5.6 [M] Host-key fingerprints / target labels rendered in EEx assumed safe
+- [x] 5.6 [M] Host-key fingerprints / target labels rendered in EEx assumed safe
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/remote_access_host_keys_live.ex:230, 242, 310, 323` (commit: staging)
       Why: Today's values are colon-hex; a future schema addition (operator-set label / comment) interpolated the same way becomes stored XSS.
       Fix: Audit + add a property-based test that asserts every host-key field rendered is HTML-escaped; document the rule in `design.md`.
+      Resolution: Host-key table rendering remains plain HEEx interpolation, backed by a property-style LiveView test that injects XSS payloads into rendered host-key text fields and asserts raw payloads do not appear while escaped values do. `design.md` now records the remote-access LiveView rule: untrusted hostnames, fingerprints, labels, metadata, and target-observed text stay out of `raw/1`, JS strings, and manually concatenated HTML.
 
 - [ ] 5.7 [M] File-transfer controller accepts paths containing `..` / `.`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_file_transfer_controller.ex:186-197, 209-221` (commit: staging)

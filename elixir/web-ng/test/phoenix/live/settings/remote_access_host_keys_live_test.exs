@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
+  use ExUnitProperties
 
   import Phoenix.LiveViewTest
 
@@ -9,6 +10,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+
+  @xss_payloads [
+    "<script>alert(1)</script>",
+    "\"><img src=x onerror=alert(1)>",
+    "' onmouseover='alert(1)",
+    "<svg><animate onbegin=alert(1) attributeName=x /></svg>"
+  ]
 
   setup :register_and_log_in_admin_user
 
@@ -66,6 +74,32 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
     html = render(lv)
     assert html =~ "Host key trusted"
     assert html =~ "Trusted"
+  end
+
+  property "host-key table text fields are HTML escaped", %{conn: conn} do
+    check all(payload <- StreamData.member_of(@xss_payloads), max_runs: length(@xss_payloads)) do
+      {:ok, %{host_key: _host_key}} =
+        RemoteAccessHostKeys.observe(
+          observation("escaped",
+            target_host: payload,
+            agent_id: payload,
+            gateway_id: payload,
+            key_type: payload,
+            fingerprint_sha256: payload
+          ),
+          actor: system_actor()
+        )
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/networks/host-keys")
+
+      escaped_payload =
+        payload
+        |> Phoenix.HTML.html_escape()
+        |> Phoenix.HTML.safe_to_string()
+
+      refute html =~ payload
+      assert html =~ escaped_payload
+    end
   end
 
   test "rotates a trusted host key to an observed replacement", %{conn: conn} do

@@ -99,6 +99,7 @@ Each capability slice is reviewed against this checklist:
 - **Single proposal, capability-grouped tasks** (chosen by user). Avoids fragmenting the audit; per-capability follow-ups only when remediation is its own multi-week project.
 - **All tracking in this proposal** (chosen by user after triage). Originally considered filing forgejo issues for staging-rooted findings — rejected to keep a single source of truth. Remediation that targets staging code ships as its own focused PR but is checked off against the relevant cluster in §8.
 - **No new normative spec until findings are triaged**: deltas in `specs/edge-architecture/spec.md` are written after the review finishes so they reflect what we actually need to guarantee, not a guess.
+- **Remote-access LiveViews render untrusted text only through HEEx interpolation**: hostnames, agent IDs, fingerprints, labels, metadata-derived fields, and target-supplied values must stay out of `raw/1`, JavaScript strings, and manually concatenated HTML. Tests should include representative XSS payloads whenever a remote-access screen renders future operator-set or agent-observed fields.
 
 ## Risks / Trade-offs
 
