@@ -719,6 +719,46 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, after_request)
   end
 
+  test "browser application request paths reject traversal and malformed forms" do
+    invalid_paths = [
+      "relative",
+      " /health",
+      "//admin",
+      "/../admin",
+      "/safe/./admin",
+      "/%2e%2e/admin",
+      "/safe\\admin",
+      "/safe\x00admin",
+      "/%ZZ"
+    ]
+
+    for {path, index} <- Enum.with_index(invalid_paths) do
+      session_id = "session-app-invalid-path-#{index}"
+      {:ok, state} = init_state(session_id)
+
+      {:push, _response, attached} =
+        RemoteAccessStreamHandler.handle_in({attach_payload(session_id), [opcode: :text]}, state)
+
+      payload = %{
+        type: "app_request",
+        request_id: "request-#{index}",
+        method: "GET",
+        path: path,
+        headers: %{"accept" => ["text/plain"]}
+      }
+
+      assert {:stop, :normal, 1011, [{:text, response}], failed_state} =
+               RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+      assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+      assert failed_state.closing_action == :failed
+      assert_receive {:fail_session, ^session_id, :invalid_request, _opts}
+      refute_receive {:broker_application_request, _caller, _payload}
+
+      RemoteAccessStreamHandler.terminate(:normal, failed_state)
+    end
+  end
+
   test "broker application frames are forwarded as typed websocket messages" do
     {:ok, state} = init_state("session-app-response")
 

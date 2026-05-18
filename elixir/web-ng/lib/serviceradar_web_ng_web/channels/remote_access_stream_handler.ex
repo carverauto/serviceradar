@@ -425,14 +425,35 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp application_method(_message), do: {:error, :invalid_request}
 
   defp application_path(%{"path" => path}) when is_binary(path) and byte_size(path) <= @max_application_path_bytes do
-    cond do
-      path == "" -> {:error, :invalid_request}
-      String.starts_with?(path, "/") -> {:ok, path}
-      true -> {:error, :invalid_request}
-    end
+    if safe_application_path?(path), do: {:ok, path}, else: {:error, :invalid_request}
   end
 
   defp application_path(_message), do: {:error, :invalid_request}
+
+  defp safe_application_path?(path) when is_binary(path) do
+    path == String.trim(path) and safe_application_path_segments?(path) and
+      case path_unescape(path) do
+        {:ok, decoded} -> safe_application_path_segments?(decoded)
+        {:error, _reason} -> false
+      end
+  end
+
+  defp safe_application_path_segments?(path) do
+    String.starts_with?(path, "/") and not String.starts_with?(path, "//") and
+      not String.contains?(path, ["://", "\\"]) and
+      not String.match?(path, ~r/[\x00-\x1F\x7F]/) and
+      path
+      |> String.split("/")
+      |> Enum.all?(&(&1 not in [".", ".."]))
+  end
+
+  defp path_unescape(path) do
+    try do
+      {:ok, :uri_string.unquote(path)}
+    catch
+      :throw, {:error, reason, _value} -> {:error, reason}
+    end
+  end
 
   defp application_headers(nil), do: {:ok, %{}}
 
