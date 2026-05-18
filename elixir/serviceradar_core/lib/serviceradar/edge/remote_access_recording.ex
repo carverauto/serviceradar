@@ -55,7 +55,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
@@ -92,6 +92,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
       accept @finish_fields
       change set_attribute(:status, :expired)
     end
+
+    destroy :destroy
   end
 
   policies do

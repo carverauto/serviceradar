@@ -19,6 +19,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   @default_storage_prefix "remote-access"
   @default_retention_days 30
   @export_permission "devices.remote_access.recordings.export"
+  @delete_permission "devices.remote_access.recordings.delete"
 
   @spec ensure_for_session(map() | struct(), keyword()) ::
           {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
@@ -127,6 +128,26 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
          {:ok, %RemoteAccessRecording{} = recording} <-
            RemoteAccessRecording.get_by_id(recording_id, scope_opts(opts)) do
       export(recording, opts)
+    end
+  end
+
+  @spec destroy(RemoteAccessRecording.t() | binary(), keyword()) ::
+          :ok | {:error, term()}
+  def destroy(recording_or_id, opts \\ [])
+
+  def destroy(%RemoteAccessRecording{} = recording, opts) do
+    with :ok <- authorize_destroy(opts),
+         :ok <- Ash.destroy(recording, actor: system_actor(:destroy), action: :destroy) do
+      write_audit(:remote_access_recording_destroyed, recording, opts)
+      :ok
+    end
+  end
+
+  def destroy(recording_id, opts) when is_binary(recording_id) do
+    with :ok <- authorize_destroy(opts),
+         {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:destroy_read)) do
+      destroy(recording, opts)
     end
   end
 
@@ -525,6 +546,22 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
+  defp authorize_destroy(opts) do
+    case export_actor(opts) do
+      %{role: :system} ->
+        :ok
+
+      %{role: "system"} ->
+        :ok
+
+      nil ->
+        {:error, :forbidden}
+
+      actor ->
+        if RBAC.has_permission?(actor, @delete_permission), do: :ok, else: {:error, :forbidden}
+    end
+  end
+
   defp export_actor(opts) do
     Keyword.get(opts, :actor) ||
       Keyword.get(opts, :audit_actor) ||
@@ -615,12 +652,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   end
 
   defp audit_severity(:remote_access_recording_failed), do: :high
+  defp audit_severity(:remote_access_recording_destroyed), do: :high
   defp audit_severity(_action), do: :medium
 
   defp action_suffix(:remote_access_recording_created), do: "created"
   defp action_suffix(:remote_access_recording_active), do: "active"
   defp action_suffix(:remote_access_recording_completed), do: "completed"
   defp action_suffix(:remote_access_recording_failed), do: "failed"
+  defp action_suffix(:remote_access_recording_destroyed), do: "destroyed"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp system_actor(suffix), do: SystemActor.system(:"remote_access_recording_#{suffix}")

@@ -17,9 +17,11 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   alias ServiceRadar.Edge.RemoteAccessRecordings
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Identity.RBAC
 
   @active_session_statuses [:attached, :opening, :active]
   @default_protocol :sftp
+  @delete_permission "devices.remote_access.files.delete"
   @frame_type "file_transfer_request"
   @agent_frame_types [
     "file_transfer_progress",
@@ -85,6 +87,25 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
       {:error, :invalid_uuid} -> {:error, :not_found}
       {:error, %NotFound{}} -> {:error, :not_found}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec destroy(RemoteAccessFileTransfer.t() | String.t(), keyword()) :: :ok | {:error, term()}
+  def destroy(transfer_or_id, opts \\ [])
+
+  def destroy(%RemoteAccessFileTransfer{} = transfer, opts) do
+    with :ok <- authorize_destroy(opts),
+         :ok <- Ash.destroy(transfer, actor: system_actor(:destroy), action: :destroy) do
+      write_audit_event(:remote_access_file_transfer_destroyed, transfer, %{}, opts)
+      :ok
+    end
+  end
+
+  def destroy(transfer_id, opts) when is_binary(transfer_id) do
+    with :ok <- authorize_destroy(opts),
+         {:ok, transfer} <-
+           transfer_resource(opts).get_by_id(transfer_id, actor: system_actor(:destroy_read)) do
+      destroy(transfer, opts)
     end
   end
 
@@ -662,11 +683,28 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
       (Keyword.get(opts, :scope) && Map.get(Keyword.get(opts, :scope), :user))
   end
 
+  defp authorize_destroy(opts) do
+    case audit_actor(opts) do
+      %{role: :system} ->
+        :ok
+
+      %{role: "system"} ->
+        :ok
+
+      nil ->
+        {:error, :forbidden}
+
+      actor ->
+        if RBAC.has_permission?(actor, @delete_permission), do: :ok, else: {:error, :forbidden}
+    end
+  end
+
   defp audit_severity(action)
        when action in [
               :remote_access_file_transfer_denied,
               :remote_access_file_transfer_failed,
-              :remote_access_file_transfer_quota_exhausted
+              :remote_access_file_transfer_quota_exhausted,
+              :remote_access_file_transfer_destroyed
             ],
        do: :high
 
@@ -679,6 +717,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   defp action_suffix(:remote_access_file_transfer_failed), do: "failed"
   defp action_suffix(:remote_access_file_transfer_canceled), do: "canceled"
   defp action_suffix(:remote_access_file_transfer_quota_exhausted), do: "quota exhausted"
+  defp action_suffix(:remote_access_file_transfer_destroyed), do: "destroyed"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp recording_opts(opts) do

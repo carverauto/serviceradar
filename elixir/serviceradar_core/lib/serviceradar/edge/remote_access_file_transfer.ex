@@ -77,7 +77,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfer do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
@@ -128,6 +128,8 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfer do
       accept @finish_fields
       change set_attribute(:status, :quota_exhausted)
     end
+
+    destroy :destroy
   end
 
   policies do
