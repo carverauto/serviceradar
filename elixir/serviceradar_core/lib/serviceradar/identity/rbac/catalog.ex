@@ -97,6 +97,18 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.app.open",
+          label: "Open application remote access",
+          description: "Open policy-registered HTTP and HTTPS application access sessions",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.tcp.open",
+          label: "Open TCP remote access",
+          description: "Open policy-registered raw TCP access sessions",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.requests.review",
           label: "Review remote-access requests",
           description: "Approve and deny approval-gated remote-access requests",
@@ -311,6 +323,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "settings.remote_access_host_keys.manage",
           label: "Manage remote-access host keys",
           description: "Review, trust, rotate, and revoke SSH host keys for remote access",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "settings.remote_access_targets.manage",
+          label: "Manage remote-access targets",
+          description: "Create and manage registered application and TCP remote-access targets",
           default_roles: @admin_roles
         },
         %{

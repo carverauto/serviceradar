@@ -155,6 +155,22 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["message"] =~ "protocol"
     end
 
+    test "rejects future app and tcp protocols on the public SSH endpoint", %{conn: conn} do
+      for protocol <- ["app", "tcp"] do
+        conn =
+          post(conn, ~p"/api/remote-access/sessions", %{
+            "device_uid" => "linux-1",
+            "protocol" => protocol
+          })
+
+        body = json_response(conn, 400)
+        assert body["error"] == "invalid_request"
+        assert body["message"] =~ "protocol"
+      end
+
+      refute_receive {:open_remote_access_session, _device_uid, _request, _opts}
+    end
+
     test "rejects non-SSH adapters on the public SSH endpoint", %{conn: conn} do
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
@@ -451,6 +467,62 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
             ssh
             ssh_certificate
             certificate_envelope
+          ) do
+        refute Map.has_key?(request.metadata, key)
+      end
+    end
+
+    test "strips client-controlled application and TCP target policy metadata", %{conn: conn} do
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "metadata" => %{
+            "safe" => "kept",
+            "application_id" => "app-from-browser",
+            "app_target_id" => "target-from-browser",
+            "tcp_target_id" => "tcp-from-browser",
+            "upstream_host" => "169.254.169.254",
+            "upstream_port" => 80,
+            "upstream_url" => "http://169.254.169.254/latest/meta-data",
+            "url" => "http://169.254.169.254/",
+            "route_id" => "agent-route-from-browser",
+            "host_header" => "metadata.google.internal",
+            "sni" => "metadata.google.internal",
+            "tls_server_name" => "metadata.google.internal",
+            "ca_bundle_ref" => "browser-ca",
+            "allowed_methods" => ["GET", "POST"],
+            "allowed_path_prefixes" => ["/"],
+            "max_request_bytes" => 1_000_000_000,
+            "max_response_bytes" => 1_000_000_000,
+            "recording" => %{"enabled" => false},
+            "quota" => %{"bytes" => 1_000_000_000}
+          }
+        })
+
+      assert json_response(conn, 201)
+      assert_receive {:open_remote_access_session, "linux-1", request, _opts}
+
+      assert request.metadata["safe"] == "kept"
+
+      for key <- ~w(
+            application_id
+            app_target_id
+            tcp_target_id
+            upstream_host
+            upstream_port
+            upstream_url
+            url
+            route_id
+            host_header
+            sni
+            tls_server_name
+            ca_bundle_ref
+            allowed_methods
+            allowed_path_prefixes
+            max_request_bytes
+            max_response_bytes
+            recording
+            quota
           ) do
         refute Map.has_key?(request.metadata, key)
       end
