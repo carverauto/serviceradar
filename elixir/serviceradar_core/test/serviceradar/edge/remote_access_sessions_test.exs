@@ -676,6 +676,83 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert 3 == Enum.count(audits, &(&1[:action] == :remote_access_session_denied))
   end
 
+  test "PaperTrail action inputs do not retain credential pointers" do
+    uid = unique_uid("papertrail")
+    insert_device!(uid, agent_id: "agent-papertrail", gateway_id: "gateway-papertrail")
+
+    credential_rule_id =
+      create_credential_rule!("papertrail", scope_value: "agent-papertrail").id
+
+    requester_id = insert_user!("papertrail-requester")
+    reviewer_id = insert_user!("papertrail-reviewer")
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-papertrail",
+                 gateway_id: "gateway-papertrail",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "papertrail hardening",
+                 ttl_seconds: 600,
+                 metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, request_audit}
+    assert request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "papertrail-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approval_audit}
+    assert approval_audit[:action] == :remote_access_request_approved
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approved.id,
+                 credential_rule_id: credential_rule_id,
+                 metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, consumed_audit}
+    assert consumed_audit[:action] == :remote_access_request_consumed
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    request_action_inputs = version_action_inputs("remote_access_request_versions", approved.id)
+    session_action_inputs = version_action_inputs("remote_access_session_versions", session.id)
+
+    assert request_action_inputs != []
+    assert session_action_inputs != []
+    assert Enum.all?(request_action_inputs, &blank_action_inputs?/1)
+    assert Enum.all?(session_action_inputs, &blank_action_inputs?/1)
+    refute inspect(request_action_inputs) =~ credential_rule_id
+    refute inspect(session_action_inputs) =~ credential_rule_id
+    refute inspect(session_action_inputs) =~ approved.id
+    refute inspect(request_action_inputs) =~ "private_key"
+    refute inspect(session_action_inputs) =~ "private_key"
+  end
+
   test "RDP approvals are scoped to the selected desktop target and agent route" do
     uid = unique_uid("rdp-approval")
     insert_device!(uid, agent_id: "agent-rdp-approval", gateway_id: "gateway-rdp-approval")
@@ -1259,6 +1336,26 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   end
 
   defp unique_uid(label), do: "remote-access-#{label}-#{System.unique_integer([:positive])}"
+
+  defp blank_action_inputs?(nil), do: true
+  defp blank_action_inputs?(%{} = inputs), do: map_size(inputs) == 0
+  defp blank_action_inputs?(_inputs), do: false
+
+  defp version_action_inputs(table, source_id)
+       when table in ["remote_access_request_versions", "remote_access_session_versions"] do
+    %Postgrex.Result{rows: rows} =
+      Repo.query!(
+        """
+        SELECT version_action_inputs
+        FROM platform.#{table}
+        WHERE version_source_id = $1::text::uuid
+        ORDER BY version_inserted_at ASC
+        """,
+        [source_id]
+      )
+
+    Enum.map(rows, fn [action_inputs] -> action_inputs end)
+  end
 
   defp private_key_fixture do
     """

@@ -72,7 +72,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
     mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
     change_tracking_mode :changes_only
     store_action_name? true
-    store_action_inputs? true
+    store_action_inputs? false
     create_version_on_destroy? false
     ignore_attributes [:attach_ticket_hash, :inserted_at, :updated_at]
   end

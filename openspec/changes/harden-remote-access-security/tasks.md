@@ -245,7 +245,7 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
 
 ### 3.H Coverage Follow-Up (audit storage, recording object store, ticket entropy, registry binding, path leakage)
 
-- [ ] 3.H.1 [H] PaperTrail `store_action_inputs? true` on session + request resources persists `credential_rule_id` / `approval_id` / `metadata` in `*_versions` rows
+- [x] 3.H.1 [H] PaperTrail `store_action_inputs? true` on session + request resources persists `credential_rule_id` / `approval_id` / `metadata` in `*_versions` rows
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_session.ex:75`; `remote_access_request.ex:69` (commit: staging)
       Why: Audit table accumulates indirect-credential pointers that survive the lifetime of the source rows; if 4.8 / 3.H.3 turn out to be replayable refs, the audit log itself becomes a credential-replay corpus.
       Fix: Flip to `store_action_inputs? false` (preferred) or add `credential_rule_id`, `approval_id`, `metadata` to `ignore_attributes`; mirror the `attach_ticket_hash` exclusion
