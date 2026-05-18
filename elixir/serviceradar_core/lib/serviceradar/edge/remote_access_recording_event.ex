@@ -22,6 +22,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     :occurred_at,
     :byte_count,
     :payload_sha256,
+    :prior_event_hash,
     :payload_text,
     :payload_redacted,
     :redaction_reason,
@@ -39,6 +40,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     define :record, action: :record
     define :list_for_recording, action: :for_recording, args: [:recording_id]
     define :list_for_session, action: :for_session, args: [:session_id]
+
+    define :latest_before_sequence,
+      action: :latest_before_sequence,
+      args: [:recording_id, :sequence]
   end
 
   actions do
@@ -54,6 +59,13 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
       argument :session_id, :uuid, allow_nil?: false
       filter expr(session_id == ^arg(:session_id))
       prepare build(sort: [sequence: :asc, inserted_at: :asc])
+    end
+
+    read :latest_before_sequence do
+      argument :recording_id, :uuid, allow_nil?: false
+      argument :sequence, :integer, allow_nil?: false
+      filter expr(recording_id == ^arg(:recording_id) and sequence < ^arg(:sequence))
+      prepare build(sort: [sequence: :desc, inserted_at: :desc], limit: 1)
     end
 
     create :record do
@@ -114,6 +126,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     end
 
     attribute :payload_sha256, :string do
+      public? true
+    end
+
+    attribute :prior_event_hash, :string do
       public? true
     end
 

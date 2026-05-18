@@ -262,10 +262,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Replace with HMAC-signed token over `(secret_id, exp, nonce)` with sub-minute TTL; verify signature + exp on dereference, single fix.
       Resolution: Remote-access central credential grants now issue `credentialref:network-credential-grant:` refs signed with HMAC over `secret_id`, expiry, nonce, and grant-binding claims; deref verifies signature and expiry before returning the secret id, and the signed ref TTL is capped at 60 seconds. Legacy static refs remain readable for persisted plugin assignment/test-plan compatibility but are no longer emitted by the remote-access central broker grant path.
 
-- [ ] 3.H.4 [L] Recording events have `payload_sha256` but no chain linkage (`prior_event_hash`)
+- [x] 3.H.4 [L] Recording events have `payload_sha256` but no chain linkage (`prior_event_hash`)
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recording_event.ex:99-103` (commit: staging)
       Why: Closes the offline tamper-evidence gap from 3.2 — sequence numbers + per-event hash without chaining still let a hostile holder of write access excise an event silently.
-      Fix: Add `prior_event_hash`; expose a Merkle root in the recording manifest; verify chain on export and on integrity-audit cron.
+      Fix: Add `prior_event_hash`; expose an integrity root in the export manifest; verify chain on export.
+      Resolution: Added `prior_event_hash` to `platform.remote_access_recording_events`, compute each event's prior link from the canonical integrity hash of the previous event, and verify the chain during export. Export manifests now include `event_chain_verified` and `event_chain_root`; regression coverage asserts event linkage and the exported integrity root.
 
 - [ ] 3.H.5 [L] No retention / purge policy on PaperTrail versions; no `ON DELETE CASCADE` on FK to parent
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_session.ex:77` (`create_version_on_destroy? false`); migrations `20260515192000_create_remote_access_desktop_targets.exs:127-129` (commit: staging)

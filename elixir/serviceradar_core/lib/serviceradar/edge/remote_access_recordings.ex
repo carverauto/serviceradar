@@ -95,6 +95,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     RemoteAccessRecordingEvent.record(attrs, actor: system_actor(:event))
   end
 
+  @spec event_integrity_hash(RemoteAccessRecordingEvent.t()) :: String.t()
+  def event_integrity_hash(%RemoteAccessRecordingEvent{} = event) do
+    event
+    |> event_integrity_payload()
+    |> Jason.encode!()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
   @spec list_events(RemoteAccessRecording.t() | binary(), keyword()) ::
           {:ok, [RemoteAccessRecordingEvent.t()]} | {:error, term()}
   def list_events(recording_or_id, opts \\ [])
@@ -116,13 +125,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   def export(%RemoteAccessRecording{} = recording, opts) do
     with :ok <- authorize_export(opts),
-         {:ok, events} <- list_events(recording, opts) do
+         {:ok, events} <- list_events(recording, opts),
+         {:ok, event_integrity} <- verify_event_chain(events) do
       write_audit(:remote_access_recording_exported, recording, opts)
 
       {:ok,
        %{
          recording: recording,
-         manifest: export_manifest(recording, events),
+         manifest: export_manifest(recording, events, event_integrity),
          events: events
        }}
     end
@@ -389,16 +399,18 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     byte_count = event_byte_count(attrs, payload)
     metadata = event_metadata(attrs, payload)
     payload_decision = payload_decision(policy, stream, payload)
+    sequence = positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts)
 
     reject_nil(%{
       recording_id: recording.id,
       session_id: recording.session_id,
-      sequence: positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts),
+      sequence: sequence,
       stream: stream,
       event_type: event_type(attrs, stream),
       occurred_at: event_time(attrs),
       byte_count: byte_count,
       payload_sha256: payload_hash,
+      prior_event_hash: prior_event_hash(recording.id, sequence, opts),
       payload_text: payload_decision.text,
       payload_redacted: payload_decision.redacted?,
       redaction_reason: payload_decision.reason,
@@ -600,6 +612,37 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
+  defp prior_event_hash(_recording_id, sequence, _opts) when sequence <= 1, do: nil
+
+  defp prior_event_hash(recording_id, sequence, opts) do
+    recording_id
+    |> RemoteAccessRecordingEvent.latest_before_sequence(sequence, scope_opts(opts))
+    |> case do
+      {:ok, [event | _]} -> event_integrity_hash(event)
+      _ -> nil
+    end
+  end
+
+  defp event_integrity_payload(%RemoteAccessRecordingEvent{} = event) do
+    stringify_nested(%{
+      "id" => event.id,
+      "recording_id" => event.recording_id,
+      "session_id" => event.session_id,
+      "sequence" => event.sequence,
+      "stream" => format_atom(event.stream),
+      "event_type" => event.event_type,
+      "occurred_at" => format_datetime(event.occurred_at),
+      "byte_count" => event.byte_count,
+      "payload_sha256" => event.payload_sha256,
+      "payload_text" => event.payload_text,
+      "payload_redacted" => event.payload_redacted,
+      "redaction_reason" => event.redaction_reason,
+      "metadata" => event.metadata || %{},
+      "retention_expires_at" => format_datetime(event.retention_expires_at),
+      "prior_event_hash" => event.prior_event_hash
+    })
+  end
+
   defp content_persistence(policy) do
     if terminal_payloads_allowed?(policy), do: "terminal_payloads", else: "metadata"
   end
@@ -626,15 +669,38 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       value(policy, "record_outputs") not in [false, "false", "no", "0", 0]
   end
 
-  defp export_manifest(recording, events) do
+  defp export_manifest(recording, events, event_integrity) do
     recording.manifest
     |> normalize_policy()
     |> Map.merge(%{
       "exported_at" => DateTime.to_iso8601(RemoteAccessRecording.utc_now()),
       "export_event_count" => length(events),
       "export_contains_payload_text" => Enum.any?(events, &is_binary(&1.payload_text)),
-      "export_payloads_redacted" => Enum.any?(events, & &1.payload_redacted)
+      "export_payloads_redacted" => Enum.any?(events, & &1.payload_redacted),
+      "event_chain_verified" => Map.get(event_integrity, :verified?),
+      "event_chain_root" => Map.get(event_integrity, :root)
     })
+    |> reject_blank()
+  end
+
+  defp verify_event_chain(events) when is_list(events) do
+    events = Enum.sort_by(events, &{&1.sequence, &1.inserted_at || &1.occurred_at})
+
+    case verify_event_chain(events, nil) do
+      {:ok, nil} -> {:ok, %{verified?: true, root: nil}}
+      {:ok, last_hash} -> {:ok, %{verified?: true, root: last_hash}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp verify_event_chain([], previous_hash), do: {:ok, previous_hash}
+
+  defp verify_event_chain([event | rest], expected_prior_hash) do
+    if event.prior_event_hash == expected_prior_hash do
+      verify_event_chain(rest, event_integrity_hash(event))
+    else
+      {:error, :recording_integrity_check_failed}
+    end
   end
 
   defp authorize_export(opts) do

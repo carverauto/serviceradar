@@ -113,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       occurred_at: format_value(event.occurred_at),
       byte_count: event.byte_count,
       payload_sha256: event.payload_sha256,
+      prior_event_hash: event.prior_event_hash,
       payload_text: event.payload_text,
       payload_redacted: event.payload_redacted,
       redaction_reason: event.redaction_reason,

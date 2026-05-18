@@ -48,7 +48,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/events")
 
     body = json_response(conn, 200)
-    assert [%{"event_type" => "desktop_frame_metadata", "payload_redacted" => true}] = body["data"]
+
+    assert [
+             %{
+               "event_type" => "desktop_frame_metadata",
+               "payload_redacted" => true,
+               "prior_event_hash" => nil
+             }
+           ] = body["data"]
+
     refute inspect(body) =~ "very-secret"
   end
 
@@ -65,6 +73,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     refute Map.has_key?(body["data"]["manifest"], "storage_backend")
     refute Map.has_key?(body["data"]["manifest"], "storage_bucket")
     refute Map.has_key?(body["data"]["manifest"], "object_key")
+    assert body["data"]["manifest"]["event_chain_verified"] == true
+    assert is_binary(body["data"]["manifest"]["event_chain_root"])
     refute inspect(body) =~ "datasvc_object_store"
     refute inspect(body) =~ "remote-access-recordings"
     refute inspect(body) =~ "recording.jsonl"

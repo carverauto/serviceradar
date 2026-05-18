@@ -1221,6 +1221,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert input_event.payload_text == nil
     assert input_event.redaction_reason == "input_recording_disabled"
+    assert input_event.prior_event_hash == nil
 
     assert {:ok, output_event} =
              RemoteAccessRecordings.record_event(
@@ -1237,6 +1238,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert output_event.payload_text == "REDACTED"
     assert output_event.payload_redacted == true
     assert output_event.redaction_reason == "credential_redaction"
+
+    assert output_event.prior_event_hash ==
+             RemoteAccessRecordings.event_integrity_hash(input_event)
+
     refute inspect(output_event) =~ "very-secret"
 
     assert {:error, :forbidden} =
@@ -1250,6 +1255,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert export.manifest["export_event_count"] == 2
     assert export.manifest["export_contains_payload_text"] == true
+    assert export.manifest["event_chain_verified"] == true
+
+    assert export.manifest["event_chain_root"] ==
+             RemoteAccessRecordings.event_integrity_hash(output_event)
+
     assert Enum.map(export.events, & &1.sequence) == [1, 2]
 
     assert_receive {:remote_access_audit, export_audit}
