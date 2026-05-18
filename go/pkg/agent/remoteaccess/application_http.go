@@ -32,8 +32,12 @@ import (
 	"time"
 )
 
-const defaultApplicationHTTPTimeout = 30 * time.Second
-const tlsPolicyInsecureSkipVerify = "insecure_skip_verify"
+const (
+	defaultApplicationHTTPTimeout      = 30 * time.Second
+	defaultApplicationMaxRequestBytes  = 10 * 1024 * 1024
+	defaultApplicationMaxResponseBytes = 50 * 1024 * 1024
+	tlsPolicyInsecureSkipVerify        = "insecure_skip_verify"
+)
 
 var (
 	ErrApplicationMethodNotAllowed = errors.New("application method not allowed")
@@ -306,11 +310,19 @@ func readApplicationBody(body io.Reader, maxBytes int64) ([]byte, error) {
 }
 
 func maxRequestBytes(policy map[string]any) int64 {
-	return positivePolicyInt64(policy, "max_request_bytes")
+	if max := positivePolicyInt64(policy, "max_request_bytes"); max > 0 {
+		return max
+	}
+
+	return defaultApplicationMaxRequestBytes
 }
 
 func maxResponseBytes(policy map[string]any) int64 {
-	return positivePolicyInt64(policy, "max_response_bytes")
+	if max := positivePolicyInt64(policy, "max_response_bytes"); max > 0 {
+		return max
+	}
+
+	return defaultApplicationMaxResponseBytes
 }
 
 func positivePolicyInt64(policy map[string]any, key string) int64 {

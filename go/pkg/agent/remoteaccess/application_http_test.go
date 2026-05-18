@@ -216,6 +216,32 @@ func TestApplicationHTTPAdapterSendsRequestBodyAndRecordsByteCount(t *testing.T)
 	}
 }
 
+func TestApplicationHTTPAdapterEnforcesDefaultRequestBodyQuota(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("upstream should not be called when the default request quota is exceeded")
+	}))
+	defer server.Close()
+
+	adapter := newTestApplicationAdapter(t, server, ApplicationSchemeHTTP, nil)
+	adapter.open.AllowedMethods = []string{http.MethodPost}
+
+	if got := adapter.MaxRequestBodyBytes(); got != defaultApplicationMaxRequestBytes {
+		t.Fatalf("MaxRequestBodyBytes = %d, want %d", got, defaultApplicationMaxRequestBytes)
+	}
+
+	_, err := adapter.Execute(context.Background(), ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "session-1",
+		Method:    http.MethodPost,
+		Path:      "/allowed",
+	}, make([]byte, defaultApplicationMaxRequestBytes+1))
+	if !errors.Is(err, ErrApplicationRequestTooLarge) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrApplicationRequestTooLarge)
+	}
+}
+
 func TestApplicationHTTPAdapterUsesTLSVerificationAndQuota(t *testing.T) {
 	t.Parallel()
 
