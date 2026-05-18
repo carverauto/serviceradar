@@ -250,10 +250,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: Audit table accumulates indirect-credential pointers that survive the lifetime of the source rows; if 4.8 / 3.H.3 turn out to be replayable refs, the audit log itself becomes a credential-replay corpus.
       Fix: Flip to `store_action_inputs? false` (preferred) or add `credential_rule_id`, `approval_id`, `metadata` to `ignore_attributes`; mirror the `attach_ticket_hash` exclusion
 
-- [ ] 3.H.2 [M] Recording API + LiveView leak `storage_backend` / `storage_bucket` / `object_key` to the client
+- [x] 3.H.2 [M] Recording API + LiveView leak `storage_backend` / `storage_bucket` / `object_key` to the client
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_recording_controller.ex:88-106` (`:94-96`); `live/settings/remote_access_recordings_live.ex:169` (commit: staging)
       Why: Exposes the bastion's storage topology and encourages clients to construct direct object-store URLs — undermines 5.4 / 5.8 by giving the attacker an out-of-band path even if the controller is fixed.
       Fix: Strip these fields from the JSON view + LiveView render; only the controller-issued pre-signed URL (short-lived, per-actor) should reach the browser
+      Resolution: Recording controller responses now omit storage fields from both the recording object and exported manifest, and the recordings LiveView no longer renders storage backend/bucket/object-key details. Regression tests assert the fields and default storage strings do not reach the browser.
 
 - [ ] 3.H.3 [M] `SecretRefs.network_credential_ref/1` is plain prefix + UUID — no HMAC, no TTL, no nonce
       Where: `elixir/serviceradar_core/lib/serviceradar/plugins/secret_refs.ex:120-123`; consumed at `remote_access_central_credential_grants.ex:114` (commit: staging)

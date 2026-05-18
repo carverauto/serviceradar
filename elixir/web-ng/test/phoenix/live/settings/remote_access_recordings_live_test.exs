@@ -46,6 +46,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
     assert html =~ "REDACTED"
     assert html =~ "credential redaction"
     assert html =~ "Terminal payloads stored by policy"
+    refute html =~ "datasvc_object_store"
+    refute html =~ "remote-access-recordings"
+    refute html =~ "recording.jsonl"
     refute html =~ "very-secret"
   end
 

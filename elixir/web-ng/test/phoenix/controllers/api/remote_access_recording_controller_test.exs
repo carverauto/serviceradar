@@ -31,6 +31,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     body = json_response(conn, 200)
     assert body["data"]["manifest"]["protocol"] == "rdp"
     assert body["data"]["manifest"]["target_port"] == 3389
+    refute Map.has_key?(body["data"], "storage_backend")
+    refute Map.has_key?(body["data"], "storage_bucket")
+    refute Map.has_key?(body["data"], "object_key")
+    refute Map.has_key?(body["data"]["manifest"], "storage_backend")
+    refute Map.has_key?(body["data"]["manifest"], "storage_bucket")
+    refute Map.has_key?(body["data"]["manifest"], "object_key")
+    refute inspect(body) =~ "datasvc_object_store"
+    refute inspect(body) =~ "remote-access-recordings"
+    refute inspect(body) =~ "recording.jsonl"
   end
 
   test "RDP-only user can read RDP recording events", %{conn: conn, user: user} do
@@ -41,6 +50,24 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     body = json_response(conn, 200)
     assert [%{"event_type" => "desktop_frame_metadata", "payload_redacted" => true}] = body["data"]
     refute inspect(body) =~ "very-secret"
+  end
+
+  test "recording export does not expose storage identifiers", %{conn: conn, user: user} do
+    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
+    recording = recording_fixture(user, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/export")
+
+    body = json_response(conn, 200)
+    refute Map.has_key?(body["data"]["recording"], "storage_backend")
+    refute Map.has_key?(body["data"]["recording"], "storage_bucket")
+    refute Map.has_key?(body["data"]["recording"], "object_key")
+    refute Map.has_key?(body["data"]["manifest"], "storage_backend")
+    refute Map.has_key?(body["data"]["manifest"], "storage_bucket")
+    refute Map.has_key?(body["data"]["manifest"], "object_key")
+    refute inspect(body) =~ "datasvc_object_store"
+    refute inspect(body) =~ "remote-access-recordings"
+    refute inspect(body) =~ "recording.jsonl"
   end
 
   test "RDP-only user cannot read SSH recording metadata", %{conn: conn, user: user} do

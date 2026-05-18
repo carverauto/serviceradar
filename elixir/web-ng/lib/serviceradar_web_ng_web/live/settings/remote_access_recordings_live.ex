@@ -162,13 +162,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
         <.summary_item label="Failure" value={@recording.failure_reason || "-"} />
       </dl>
 
-      <div class="mt-4 grid gap-3 lg:grid-cols-2">
-        <div>
-          <div class="text-xs font-semibold uppercase text-base-content/60">Storage</div>
-          <div class="mt-1 break-all font-mono text-xs">
-            {@recording.storage_backend}/{@recording.storage_bucket}/{@recording.object_key}
-          </div>
-        </div>
+      <div class="mt-4">
         <div>
           <div class="text-xs font-semibold uppercase text-base-content/60">Content</div>
           <div class="mt-1 text-sm">{content_label(@recording.manifest)}</div>

@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       json(conn, %{
         data: %{
           recording: recording_json(export.recording),
-          manifest: export.manifest,
+          manifest: public_manifest(export.manifest),
           events: Enum.map(export.events, &event_json/1)
         }
       })
@@ -91,10 +91,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       session_id: recording.session_id,
       status: format_value(recording.status),
       policy: recording.policy || %{},
-      storage_backend: recording.storage_backend,
-      storage_bucket: recording.storage_bucket,
-      object_key: recording.object_key,
-      manifest: recording.manifest || %{},
+      manifest: public_manifest(recording.manifest),
       started_at: format_value(recording.started_at),
       completed_at: format_value(recording.completed_at),
       retention_expires_at: format_value(recording.retention_expires_at),
@@ -155,6 +152,18 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp format_value(value) when is_atom(value), do: Atom.to_string(value)
   defp format_value(value), do: value
+
+  defp public_manifest(manifest) when is_map(manifest) do
+    manifest
+    |> Map.delete("storage_backend")
+    |> Map.delete("storage_bucket")
+    |> Map.delete("object_key")
+    |> Map.delete(:storage_backend)
+    |> Map.delete(:storage_bucket)
+    |> Map.delete(:object_key)
+  end
+
+  defp public_manifest(_manifest), do: %{}
 
   defp get_scope(conn), do: conn.assigns[:current_scope]
 
