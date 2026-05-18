@@ -82,6 +82,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       :ok
     end
 
+    def send_application_request(pid, payload) do
+      send(pid, {:send_application_request, self(), payload})
+      :ok
+    end
+
     def send_file_transfer_data(pid, payload) do
       send(pid, {:send_file_transfer_data, self(), payload})
       :ok
@@ -101,6 +106,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       receive do
         {:send_input, caller, data} ->
           send(state.session.metadata["test_pid"], {:broker_input, caller, data})
+          loop(state)
+
+        {:send_application_request, caller, payload} ->
+          send(state.session.metadata["test_pid"], {:broker_application_request, caller, payload})
           loop(state)
 
         {:send_file_transfer_data, caller, payload} ->
@@ -667,6 +676,80 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert after_data.attached?
 
     RemoteAccessStreamHandler.terminate(:normal, after_data)
+  end
+
+  test "browser application request frames are forwarded to the broker after attach" do
+    {:ok, state} = init_state("session-app")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-app"), [opcode: :text]}, state)
+
+    payload = %{
+      type: "app_request",
+      request_id: "request-1",
+      method: "GET",
+      path: "/health",
+      query: "verbose=true",
+      headers: %{"accept" => ["text/plain"]}
+    }
+
+    assert {:ok, after_request} =
+             RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+    assert_receive {:broker_application_request, _caller,
+                    %{
+                      request_id: "request-1",
+                      method: "GET",
+                      path: "/health",
+                      query: "verbose=true",
+                      headers: %{"accept" => ["text/plain"]}
+                    }}
+
+    assert after_request.attached?
+
+    RemoteAccessStreamHandler.terminate(:normal, after_request)
+  end
+
+  test "broker application frames are forwarded as typed websocket messages" do
+    {:ok, state} = init_state("session-app-response")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-app-response"), [opcode: :text]}, state)
+
+    frame = %{
+      session_id: "session-app-response",
+      frame_type: "app_data",
+      data:
+        Jason.encode!(%{
+          request_id: "request-1",
+          session_id: "session-app-response",
+          direction: "response",
+          sequence: 1,
+          data: Base.encode64("pong"),
+          eof: true
+        })
+    }
+
+    assert {:push, {:text, response}, after_frame} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_application_frame, frame}, attached)
+
+    assert %{
+             "type" => "application",
+             "session_id" => "session-app-response",
+             "frame_type" => "app_data",
+             "payload" => %{
+               "request_id" => "request-1",
+               "data" => encoded,
+               "eof" => true
+             }
+           } = Jason.decode!(response)
+
+    assert Base.decode64!(encoded) == "pong"
+    assert after_frame.attached?
+    refute response =~ "srra_test_ticket"
+    refute response =~ "credential"
+
+    RemoteAccessStreamHandler.terminate(:normal, after_frame)
   end
 
   test "idle timeout expires session and renders explicit browser error" do

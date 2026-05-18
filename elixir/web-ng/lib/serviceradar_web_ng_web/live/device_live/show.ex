@@ -3403,6 +3403,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
+      |> assign(:can_remote_access_app, can_remote_access_app?(assigns.current_scope))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(
         :can_view_northbound_history,
@@ -3501,6 +3502,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               size="sm"
             >
               <.icon name="hero-key" class="size-4" /> SSH
+            </.ui_button>
+            <.ui_button
+              :if={@can_remote_access_app and not @device_deleted}
+              href={~p"/remote-access/targets"}
+              variant="outline"
+              size="sm"
+            >
+              <.icon name="hero-window" class="size-4" /> Apps
             </.ui_button>
             <.ui_button
               :if={@can_edit and not @editing}
@@ -11168,6 +11177,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp can_remote_access_device?(scope, device_row) do
     FeatureFlags.remote_access_ssh_enabled?() and ssh_capable_device?(device_row) and
       RBAC.can?(scope, "devices.remote_access.ssh.open")
+  end
+
+  defp can_remote_access_app?(scope) do
+    FeatureFlags.remote_access_app_enabled?() and RBAC.can?(scope, "devices.remote_access.app.open")
   end
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
