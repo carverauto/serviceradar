@@ -299,6 +299,42 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
     assert :ok = DesktopMediaSessionTracker.close_session("desktop-expired-1", "media-expired-1", "agent-1", %{})
   end
 
+  test "sweeps expired sessions and frees gateway capacity" do
+    Application.put_env(:serviceradar_agent_gateway, :desktop_media_max_sessions_per_gateway, 1)
+
+    expired_at = System.os_time(:second) - 60
+
+    assert {:ok, _expired} =
+             DesktopMediaSessionTracker.open_session(%{
+               desktop_session_id: "desktop-reaper-expired-1",
+               media_session_id: "media-reaper-expired-1",
+               media_ingest_id: "ingest-reaper-expired-1",
+               agent_id: "agent-reaper-1",
+               gateway_id: "gateway-1",
+               partition_id: "default",
+               target_id: "target-reaper-expired-1",
+               route_id: "route-reaper-expired-1",
+               lease_token: "lease-reaper-expired-1",
+               lease_expires_at_unix: expired_at
+             })
+
+    assert {:ok, active} =
+             DesktopMediaSessionTracker.open_session(session_attrs("desktop-reaper-active-1", "agent-reaper-2"))
+
+    assert active.desktop_session_id == "desktop-reaper-active-1"
+    assert DesktopMediaSessionTracker.fetch_session("desktop-reaper-expired-1") == nil
+    assert {:ok, 0} = DesktopMediaSessionTracker.sweep_expired_sessions()
+
+    assert_receive_telemetry(
+      [:serviceradar, :desktop_media, :session, :expired],
+      %{
+        relay_boundary: "agent_gateway",
+        desktop_session_id: "desktop-reaper-expired-1",
+        reason: "lease_expired"
+      }
+    )
+  end
+
   test "enforces per-agent and per-gateway desktop media session limits" do
     Application.put_env(:serviceradar_agent_gateway, :desktop_media_max_sessions_per_agent, 1)
     Application.put_env(:serviceradar_agent_gateway, :desktop_media_max_sessions_per_gateway, 2)
@@ -346,6 +382,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTrackerTest do
         [:serviceradar, :desktop_media, :session, :opened],
         [:serviceradar, :desktop_media, :session, :closing],
         [:serviceradar, :desktop_media, :session, :closed],
+        [:serviceradar, :desktop_media, :session, :expired],
         [:serviceradar, :desktop_media, :session, :saturation_denied]
       ],
       &__MODULE__.handle_telemetry_event/4,

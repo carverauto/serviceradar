@@ -16,6 +16,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   @default_max_ack_credit_bytes 2 * 1_048_576
   @default_max_sessions_per_agent 8
   @default_max_sessions_per_gateway 16
+  @default_sweep_interval_ms 5_000
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -53,13 +54,28 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     GenServer.call(__MODULE__, {:close_session_owned, desktop_session_id, media_session_id, agent_id, attrs})
   end
 
+  def sweep_expired_sessions do
+    GenServer.call(__MODULE__, :sweep_expired_sessions)
+  end
+
   @impl true
-  def init(_opts) do
-    {:ok, %{sessions: %{}}}
+  def init(opts) do
+    sweep_interval_ms =
+      opts
+      |> Keyword.get(
+        :sweep_interval_ms,
+        Application.get_env(:serviceradar_agent_gateway, :desktop_media_sweep_interval_ms)
+      )
+      |> normalize_sweep_interval_ms()
+
+    schedule_sweep(sweep_interval_ms)
+
+    {:ok, %{sessions: %{}, sweep_interval_ms: sweep_interval_ms}}
   end
 
   @impl true
   def handle_call({:open_session, attrs}, _from, state) do
+    state = sweep_expired_sessions(state)
     session = build_session(attrs)
 
     cond do
@@ -103,6 +119,13 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
 
   def handle_call({:fetch_session_owned, desktop_session_id, agent_id}, _from, state) do
     {:reply, fetch_session_for_owner(state, desktop_session_id, agent_id), state}
+  end
+
+  def handle_call(:sweep_expired_sessions, _from, state) do
+    updated = sweep_expired_sessions(state)
+    removed = map_size(state.sessions) - map_size(updated.sessions)
+
+    {:reply, {:ok, removed}, updated}
   end
 
   def handle_call({:record_frame_owned, desktop_session_id, media_session_id, agent_id, attrs}, _from, state) do
@@ -199,6 +222,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
     end
   end
 
+  @impl true
+  def handle_info(:sweep_expired_sessions, state) do
+    updated = sweep_expired_sessions(state)
+    schedule_sweep(Map.get(updated, :sweep_interval_ms, @default_sweep_interval_ms))
+
+    {:noreply, updated}
+  end
+
   defp build_session(attrs) do
     desktop_session_id = required_string!(attrs, :desktop_session_id)
     media_session_id = optional_string(attrs, :media_session_id)
@@ -284,7 +315,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   defp verify_active_session(%{status: "active"} = session) do
-    if session_expired?(session) do
+    if session_expired?(session, now_unix()) do
       {:error, :session_expired}
     else
       {:ok, session}
@@ -293,8 +324,8 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
 
   defp verify_active_session(_session), do: {:error, :session_closing}
 
-  defp session_expired?(session) do
-    normalize_uint(Map.get(session, :lease_expires_at_unix, 0)) <= now_unix()
+  defp session_expired?(session, now) do
+    normalize_uint(Map.get(session, :lease_expires_at_unix, 0)) <= now
   end
 
   defp verify_optional_media_ingest(session, media_ingest_id) do
@@ -477,4 +508,40 @@ defmodule ServiceRadarAgentGateway.DesktopMediaSessionTracker do
   end
 
   defp maybe_mark_closing_for_close_reason(session), do: session
+
+  defp sweep_expired_sessions(state) do
+    now = now_unix()
+
+    {expired, active} =
+      Enum.split_with(state.sessions, fn {_desktop_session_id, session} ->
+        stale_session?(session, now)
+      end)
+
+    Enum.each(expired, fn {_desktop_session_id, session} ->
+      log_session(:info, "Gateway desktop media expired", session)
+      emit_session_event(:expired, session, %{reason: expiry_reason(session, now)})
+    end)
+
+    Map.put(state, :sessions, Map.new(active))
+  end
+
+  defp stale_session?(session, now), do: session_expired?(session, now) or owner_pid_dead?(session)
+
+  defp owner_pid_dead?(%{owner_pid: owner_pid}) when is_pid(owner_pid), do: not Process.alive?(owner_pid)
+  defp owner_pid_dead?(_session), do: false
+
+  defp expiry_reason(session, now) do
+    if session_expired?(session, now), do: "lease_expired", else: "owner_pid_dead"
+  end
+
+  defp schedule_sweep(:disabled), do: :ok
+
+  defp schedule_sweep(interval_ms) do
+    Process.send_after(self(), :sweep_expired_sessions, interval_ms)
+    :ok
+  end
+
+  defp normalize_sweep_interval_ms(:disabled), do: :disabled
+  defp normalize_sweep_interval_ms(value) when is_integer(value) and value > 0, do: value
+  defp normalize_sweep_interval_ms(_value), do: @default_sweep_interval_ms
 end

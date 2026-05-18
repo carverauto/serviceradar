@@ -1070,10 +1070,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: After `fetch_session`, assert `session.agent_id == frame.agent_id` and `session.partition_id == frame.partition_id`; refuse + audit on mismatch. Mirror the heartbeat path at `:112`.
       Resolution: Frame ingest now re-checks the authenticated mTLS partition against the partition stored at session open and emits a `[:serviceradar, :desktop_media, :frame, :rejected]` telemetry audit event plus warning log on owner mismatch. `DesktopMediaFrameChunk` does not carry a `partition_id`, so the binding uses cert-derived partition rather than changing the wire protocol.
 
-- [ ] 6.6 [M] `DesktopMediaSessionTracker` has no expiry reaper
+- [x] 6.6 [M] `DesktopMediaSessionTracker` has no expiry reaper
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/desktop_media_session_tracker.ex:62-180` (working tree)
       Why: Crashed-agent leases stay in memory forever — unbounded growth + stale session-id reuse window.
       Fix: GenServer `handle_info(:sweep, ...)` every N seconds removing sessions with `lease_expires_at_unix <= now` or owner-pid dead; emit metric.
+      Resolution: Tracker now schedules `:sweep_expired_sessions`, prunes expired or dead-owner-pid sessions, emits `[:serviceradar, :desktop_media, :session, :expired]`, and sweeps before new admission so expired sessions do not hold capacity.
 
 - [ ] 6.7 [M] Control stream + media server don't re-validate the agent cert on each message
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/control_stream_session.ex:26-42, 139-170` (working tree)
