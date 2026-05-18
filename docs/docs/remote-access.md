@@ -77,6 +77,10 @@ SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 
 The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. File-backed secrets are usually easier to operate in Kubernetes.
 
+For production, prefer a secret-store backed file instead of a long-lived environment variable. With OpenBao, Vault, or a cloud KMS, run the signer beside an agent/template process that writes the current encrypted CA key into an in-memory volume such as `/run/secrets/serviceradar_ssh_ca`, then point `--ca-key-file` at that path. Keep the mount readable only by the signer user. The signer reports the key source class (`file` or `env`) in the certificate issue result so the audit event records how the CA key was loaded without exposing the key path or material. Rotate by updating the secret-store version, restarting or reloading the signer workload, changing `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`, and leaving both old and new public CA keys trusted on targets until the maximum certificate TTL has elapsed.
+
+The signer intentionally limits certificate power. By default it issues only the `permit-pty` OpenSSH extension and rejects caller-supplied critical options such as `force-command` and `source-address` unless the signer policy explicitly allows them. Use Ed25519 or ECDSA P-256+ CA keys; RSA CA keys must be at least 4096 bits and are signed with SHA-2 algorithms.
+
 Configure certificate policy with either a JSON environment variable or a mounted file:
 
 ```bash

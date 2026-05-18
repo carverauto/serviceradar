@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -32,6 +33,7 @@ import (
 const (
 	defaultCAKeyEnv          = "SERVICERADAR_SSH_CA_KEY"
 	defaultCAPassphraseEnv   = "SERVICERADAR_SSH_CA_PASSPHRASE"
+	defaultRequestFileEnv    = "SERVICERADAR_SSHCA_SIGN_REQUEST_FILE"
 	defaultMaxCertificateTTL = 8 * time.Hour
 )
 
@@ -56,6 +58,7 @@ type signResponse struct {
 	ExpiresAt   string `json:"expires_at"`
 	Fingerprint string `json:"fingerprint"`
 	Serial      uint64 `json:"serial"`
+	CAKeySource string `json:"ca_key_source,omitempty"`
 }
 
 func main() {
@@ -86,13 +89,13 @@ func run(
 		return 2
 	}
 
-	caKey, err := loadCAKey(caKeyFile, caKeyEnv, getenv)
+	caKey, caKeySource, err := loadCAKey(caKeyFile, caKeyEnv, getenv)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "sshca-signer: %v\n", err)
 		return 2
 	}
 
-	req, err := decodeRequest(stdin)
+	req, err := decodeRequest(stdin, getenv(defaultRequestFileEnv))
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "sshca-signer: %v\n", err)
 		return 2
@@ -120,6 +123,7 @@ func run(
 		ExpiresAt:   signed.ExpiresAt.UTC().Format(time.RFC3339),
 		Fingerprint: signed.PublicKeyFingerprint,
 		Serial:      signed.Certificate.Serial,
+		CAKeySource: caKeySource,
 	}
 	if err := json.NewEncoder(stdout).Encode(resp); err != nil {
 		_, _ = fmt.Fprintf(stderr, "sshca-signer: encode response: %v\n", err)
@@ -129,27 +133,39 @@ func run(
 	return 0
 }
 
-func loadCAKey(path, envName string, getenv func(string) string) ([]byte, error) {
+func loadCAKey(path, envName string, getenv func(string) string) ([]byte, string, error) {
 	if strings.TrimSpace(path) != "" {
 		key, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read CA key file: %w", err)
+			return nil, "", fmt.Errorf("read CA key file: %w", err)
 		}
-		return key, nil
+		return key, "file", nil
 	}
 
 	if strings.TrimSpace(envName) == "" {
-		return nil, errCAKeySourceRequired
+		return nil, "", errCAKeySourceRequired
 	}
 
 	key := []byte(getenv(envName))
 	if strings.TrimSpace(string(key)) == "" {
-		return nil, fmt.Errorf("%w in %s or --ca-key-file", errCAKeyRequired, envName)
+		return nil, "", fmt.Errorf("%w in %s or --ca-key-file", errCAKeyRequired, envName)
 	}
-	return key, nil
+	return key, "env", nil
 }
 
-func decodeRequest(stdin io.Reader) (signRequest, error) {
+func decodeRequest(stdin io.Reader, requestFile string) (signRequest, error) {
+	if strings.TrimSpace(requestFile) != "" {
+		data, err := os.ReadFile(requestFile)
+		if err != nil {
+			return signRequest{}, fmt.Errorf("read request file: %w", err)
+		}
+		return decodeRequestReader(bytes.NewReader(data))
+	}
+
+	return decodeRequestReader(stdin)
+}
+
+func decodeRequestReader(stdin io.Reader) (signRequest, error) {
 	var req signRequest
 	decoder := json.NewDecoder(stdin)
 	decoder.DisallowUnknownFields()
