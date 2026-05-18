@@ -642,6 +642,52 @@ func TestHandleConsoleFrameClosesTCPSessionWhenContextCancels(t *testing.T) {
 	t.Fatal("tcp adapter remained registered after control context cancellation")
 }
 
+func TestHandleConsoleFrameClosesTCPSessionAfterWriteQuotaError(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer, upstreamClosed := startAgentTCPReadCloseServer(t)
+	defer closeServer()
+
+	host, port := testNetHostPort(t, addr)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.TCPOpenPayload{
+		TargetID:           "tcp-target-1",
+		SessionID:          "tcp-session-1",
+		ConnectionID:       "conn-1",
+		UpstreamHost:       host,
+		UpstreamPort:       port,
+		IdleTimeoutSeconds: 30,
+		QuotaPolicy: map[string]any{
+			"max_bytes_in": 3,
+		},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPOpen, openPayload), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPProgress)
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPData, remoteaccess.TCPDataPayload{
+		SessionID:    "tcp-session-1",
+		ConnectionID: "conn-1",
+		Direction:    remoteaccess.TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("toolong"),
+	}), sender)
+
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPError)
+	if loop.tcpAdapter("tcp-session-1") != nil {
+		t.Fatal("tcp adapter remained registered after write quota error")
+	}
+
+	select {
+	case <-upstreamClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream TCP connection was not closed after write quota error")
+	}
+}
+
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 
@@ -776,4 +822,46 @@ func startAgentTCPEchoServer(t *testing.T) (string, func()) {
 			t.Fatal("tcp echo server did not stop")
 		}
 	}
+}
+
+func startAgentTCPReadCloseServer(t *testing.T) (string, func(), <-chan struct{}) {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+
+	accepted := make(chan net.Conn, 1)
+	upstreamClosed := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err != nil {
+			close(upstreamClosed)
+			return
+		}
+		accepted <- conn
+		_, _ = io.Copy(io.Discard, conn)
+		_ = conn.Close()
+		close(upstreamClosed)
+	}()
+
+	closeServer := func() {
+		_ = listener.Close()
+		select {
+		case conn := <-accepted:
+			_ = conn.Close()
+		default:
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("tcp read-close server did not stop")
+		}
+	}
+
+	return listener.Addr().String(), closeServer, upstreamClosed
 }

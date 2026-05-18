@@ -416,7 +416,9 @@ func (p *PushLoop) writeTCPAccess(frame *proto.ConsoleFrame, sender *controlStre
 			status = remoteaccess.TCPStatusQuotaExhausted
 		}
 		sendTCPError(sender, frame.GetSessionId(), "write_failed", err.Error(), status)
-		p.dropTCPAdapter(frame.GetSessionId())
+		if dropped := p.dropTCPAdapter(frame.GetSessionId()); dropped != nil {
+			_ = dropped.Close()
+		}
 		return
 	}
 
@@ -453,7 +455,9 @@ func (p *PushLoop) readTCPAccess(ctx context.Context, sessionID string, adapter 
 			case !errors.Is(err, remoteaccess.ErrTCPAdapterClosed):
 				sendTCPError(sender, sessionID, "read_failed", err.Error(), remoteaccess.TCPStatusFailed)
 			}
-			p.dropTCPAdapter(sessionID)
+			if dropped := p.dropTCPAdapter(sessionID); dropped != nil {
+				_ = dropped.Close()
+			}
 			return
 		}
 
