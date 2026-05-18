@@ -3,8 +3,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
 
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
+  alias ServiceRadar.Security.RateLimiter
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
+
+  setup do
+    on_exit(fn -> :ets.delete_all_objects(RateLimiter.__table__()) end)
+    :ets.delete_all_objects(RateLimiter.__table__())
+    :ok
+  end
 
   defmodule SignerStub do
     @moduledoc false
@@ -184,5 +191,36 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                },
                signer: ErrorSignerStub
              )
+  end
+
+  test "rate limits SSH certificate issuance per actor before signing" do
+    actor = %{id: "user-1", permissions: MapSet.new([@permission])}
+
+    attrs = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      public_key: "ssh-ed25519 AAAATEST",
+      target: %{device_uid: "device-1"},
+      allowed_principals: ["ubuntu"]
+    }
+
+    assert {:ok, _issued} =
+             RemoteAccessSSHCertificates.issue(actor, attrs,
+               signer: SignerStub,
+               test_pid: self(),
+               rate_limit: [limit: 1, window_seconds: 60]
+             )
+
+    assert_receive {:sign_user_certificate, _request}
+
+    assert {:error, {:ssh_certificate_rate_limited, retry_after}} =
+             RemoteAccessSSHCertificates.issue(actor, Map.put(attrs, :session_id, "session-2"),
+               signer: SignerStub,
+               test_pid: self(),
+               rate_limit: [limit: 1, window_seconds: 60]
+             )
+
+    assert retry_after >= 1
+    refute_receive {:sign_user_certificate, _request}
   end
 end

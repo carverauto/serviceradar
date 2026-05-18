@@ -8,7 +8,7 @@ The playbook installs:
 - `/etc/ssh/sshd_config.d/60-serviceradar-user-ca.conf`
 - optional `/etc/ssh/auth_principals/<user>` files
 
-It does not handle the CA private key. Keep the private key in the ServiceRadar signer secret store only.
+It does not handle the CA private key. Keep the private key in the ServiceRadar signer custody boundary only. For production, prefer an isolated signer backed by OpenBao Transit, Vault Transit, cloud KMS, or an HSM; the file/env-key signer is a bootstrap path, not the long-term custody model.
 
 ## ServiceRadar Launch Path
 

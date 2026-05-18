@@ -8,6 +8,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
   """
 
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
+  alias ServiceRadar.Security.RateLimiter
 
   @type sign_request :: %{
           public_key: String.t(),
@@ -35,6 +36,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
 
     with {:ok, signer} <- validate_signer(signer),
          {:ok, request} <- RemoteAccessSSHCertificatePolicy.authorize(actor, attrs, opts),
+         :ok <- enforce_rate_limit(request, opts),
          {:ok, signed} <- signer.sign_user_certificate(sign_request(request), opts) do
       {:ok, issue_result(request, signed)}
     end
@@ -55,6 +57,28 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
   end
 
   defp validate_signer(_signer), do: {:error, :ssh_certificate_signer_invalid}
+
+  defp enforce_rate_limit(request, opts) do
+    rate_limit_opts = Keyword.get(opts, :rate_limit, [])
+
+    if Keyword.get(rate_limit_opts, :enabled, true) do
+      case RateLimiter.check_and_record(
+             :remote_access_ssh_certificate_issue,
+             rate_limit_key(request),
+             rate_limit_opts
+           ) do
+        :ok -> :ok
+        {:error, retry_after} -> {:error, {:ssh_certificate_rate_limited, retry_after}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp rate_limit_key(request) do
+    actor_id = get_in(request, [:audit, :actor_id]) || "unknown-actor"
+    {actor_id, request.protocol}
+  end
 
   defp sign_request(request) do
     %{

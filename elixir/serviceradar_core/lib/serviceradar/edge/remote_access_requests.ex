@@ -180,6 +180,25 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     end
   end
 
+  @doc """
+  Revalidates a file-transfer approval before terminal agent outcome frames are accepted.
+  """
+  @spec authorize_file_transfer_completion(map(), keyword()) :: :ok | {:error, term()}
+  def authorize_file_transfer_completion(context, _opts \\ []) when is_map(context) do
+    with {:ok, approval_id} <- required_string(value(context, :approval_id), :approval_id),
+         {:ok, session_id} <- required_string(value(context, :session_id), :session_id),
+         {:ok, %RemoteAccessRequest{} = request} <-
+           get(approval_id, actor: SystemActor.system(:remote_access_file_transfer_authorize)),
+         :ok <- ensure_completion_approved(request),
+         :ok <- ensure_unexpired(request),
+         :ok <- ensure_completion_bound_to_session(request, session_id) do
+      :ok
+    else
+      {:error, :not_found} -> {:error, :approval_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp normalize_create_attrs(attrs, opts) do
     with {:ok, requested_by} <- requested_by(attrs, opts),
          {:ok, device_uid} <- required_string(value(attrs, :device_uid), :device_uid),
@@ -278,6 +297,24 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
   defp ensure_approved(%RemoteAccessRequest{status: :expired}), do: {:error, :approval_expired}
   defp ensure_approved(%RemoteAccessRequest{status: :consumed}), do: {:error, :approval_consumed}
   defp ensure_approved(_request), do: {:error, :approval_denied}
+
+  defp ensure_completion_approved(%RemoteAccessRequest{status: status})
+       when status in [:approved, :consumed], do: :ok
+
+  defp ensure_completion_approved(%RemoteAccessRequest{} = request), do: ensure_approved(request)
+
+  defp ensure_completion_bound_to_session(
+         %RemoteAccessRequest{status: :approved, session_id: nil},
+         _session_id
+       ), do: :ok
+
+  defp ensure_completion_bound_to_session(
+         %RemoteAccessRequest{session_id: session_id},
+         session_id
+       ), do: :ok
+
+  defp ensure_completion_bound_to_session(_request, _session_id),
+    do: {:error, :approval_session_mismatch}
 
   defp ensure_unexpired(%RemoteAccessRequest{expires_at: %DateTime{} = expires_at}) do
     if DateTime.after?(expires_at, RemoteAccessRequest.utc_now()),

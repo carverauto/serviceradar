@@ -145,27 +145,27 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
 
 ## 2. SSH Adapter, SSH CA & Certificate Issuance (Go + Elixir)
 
-- [ ] 2.1 [H] Proxmox console SSH error leaks raw `err.Error()` into the PTY stream
+- [x] 2.1 [H] Proxmox console SSH error leaks raw `err.Error()` into the PTY stream
       Where: `go/pkg/agent/proxmox_console_ssh.go:120` (commit: staging)
       Why: `err.Error()` may contain hostnames, authentication failure detail, or transport secrets; rendered to the operator's terminal it also gets recorded.
       Fix: Return a generic "SSH console unavailable" to the terminal; log full error server-side with audit context
 
-- [ ] 2.2 [M] TOCTOU between `File.write` / `File.chmod` and `System.cmd` in CA command signer
+- [x] 2.2 [M] TOCTOU between `File.write` / `File.chmod` and `System.cmd` in CA command signer
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_ssh_ca_command_signer.ex:83-91` (commit: staging)
       Why: Symlink/hardlink swap window on a shared temp dir lets a local attacker substitute payload before the signer reads it.
       Fix: Open with `[:write, :exclusive]` (atomic create) or use a `mkstemp`-style helper rooted in a per-process directory
 
-- [ ] 2.3 [L] Cert extension policy permits `force-command` / `source-address` without server-side validation
+- [x] 2.3 [L] Cert extension policy permits `force-command` / `source-address` without server-side validation
       Where: `go/pkg/remoteaccess/sshca/sshca.go:242-245` (commit: staging)
       Why: Callers can inject dangerous extensions; Elixir policy doesn't currently constrain them.
       Fix: Deny-list dangerous extensions in the Go signer unless the Elixir policy explicitly approves; document the contract
 
-- [ ] 2.4 [M] No per-actor rate limit / cap on certificate issuance
+- [x] 2.4 [M] No per-actor rate limit / cap on certificate issuance
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_ssh_certificate_policy.ex` (commit: staging)
       Why: Allows credential-stuff-then-issue spam to overwhelm audit, mask compromise, or backdoor via short-cert blizzard.
       Fix: Token-bucket per-actor (e.g. 10/min) backed by ETS/Redis; emit metric and audit on throttle
 
-- [ ] 2.5 [L] CA command signer launches via `/bin/sh -c` with positional substitutions
+- [x] 2.5 [L] CA command signer launches via `/bin/sh -c` with positional substitutions
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_ssh_ca_command_signer.ex:103-109` (commit: staging)
       Why: Fragile; one careless edit to the shell template reintroduces injection. Use `exec` rather than shell.
       Fix: `System.cmd/3` with explicit binary path + arg list, no shell
@@ -175,7 +175,7 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: A compromise of the host (or a leaked process dump) reveals the bastion-wide signing key.
       Fix: Add an OpenBao/Vault/KMS backend option and document rotation procedure; emit audit on key load
 
-- [ ] 2.7 [L] Signer accepts any parsed key type — no explicit allowlist of algorithms
+- [x] 2.7 [L] Signer accepts any parsed key type — no explicit allowlist of algorithms
       Where: `go/pkg/remoteaccess/sshca/sshca.go:85-105` (commit: staging)
       Why: Relies on `golang.org/x/crypto/ssh` defaults; a future regression could re-enable SHA-1.
       Fix: Explicit allowlist (Ed25519, ECDSA-P256+); reject RSA <4096; refuse SHA-1 signatures
@@ -195,27 +195,27 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
 
 ## 3. File Transfer + Enhanced Recording / eBPF (Go + Elixir)
 
-- [ ] 3.1 [H] Upload stream uses `context.Background()`, discarding session lifecycle
+- [x] 3.1 [H] Upload stream uses `context.Background()`, discarding session lifecycle
       Where: `go/pkg/agent/remote_file_transfer.go:55` (and goroutine at :154-169) (commit: staging)
       Why: When the parent session terminates the upload goroutine keeps writing — unbounded disk fill + no cancellation propagation.
       Fix: Thread the caller's session context through `HandleFileTransferFrame`; cancel goroutine on session end
 
-- [ ] 3.2 [H] `destroy` action on recordings (and file transfers) lacks user-actor RBAC, default-on
+- [x] 3.2 [H] `destroy` action on recordings (and file transfers) lacks user-actor RBAC, default-on
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recording.ex:109-111`; same pattern in `remote_access_file_transfer.ex:139-141` (commit: staging)
       Why: `defaults [:read, :destroy]` plus only a system-actor policy means any path that injects/bypasses scope reaches a successful destroy — recording tamper-evidence floor not enforced.
       Fix: Replace defaults with explicit `:destroy` action gated on a `recording.delete` RBAC permission and an audit log row
 
-- [ ] 3.3 [M] Recording-event read policy missing per-recording / per-session ownership filter
+- [x] 3.3 [M] Recording-event read policy missing per-recording / per-session ownership filter
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recording_event.ex:71-83` (commit: staging)
       Why: Index on `[session_id, sequence]` is non-unique with no FK; events can be enumerated even when the parent recording is unreadable to the actor.
       Fix: Add `filter expr(recording.actor_can_read)` (or equivalent join policy); add FK + ON DELETE CASCADE on `session_id`
 
-- [ ] 3.4 [M] eBPF kernel events stored without validation of `Argc`, NULs, UTF-8
+- [x] 3.4 [M] eBPF kernel events stored without validation of `Argc`, NULs, UTF-8
       Where: `go/pkg/agent/remoteaccess/enhanced_recording_ebpf.go:40-80`; `enhanced_recording_linux.go:110+` (commit: staging)
       Why: Kernel→userspace bytes are not part of the trust boundary that downstream JSON serialisation assumes; a malicious / buggy probe can poison the recording stream.
       Fix: Bound `Argc`, strip control bytes from `cString`, validate UTF-8 with replacement; add a fuzz target
 
-- [ ] 3.5 [M] File-transfer approval snapshot not re-validated at agent completion
+- [x] 3.5 [M] File-transfer approval snapshot not re-validated at agent completion
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_file_transfers.ex:329, 499` (commit: staging)
       Why: An approval revoked mid-transfer still lets the agent finalise the write because policy is captured once at request time.
       Fix: Require the agent to echo `approval_id` in the completion frame; core re-checks approval state before persisting bytes / metadata
@@ -225,7 +225,7 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: Operator only sees the loss counter on stop; ongoing recording can silently lose enhanced events.
       Fix: Emit periodic loss events when drop rate crosses threshold; expose to recording metadata
 
-- [ ] 3.7 [L] Symlink containment silently succeeds when `RealPath` fails
+- [x] 3.7 [L] Symlink containment silently succeeds when `RealPath` fails
       Where: `go/pkg/agent/remoteaccess/file_transfer_policy.go:196-207`; failure path in `sftp.go:209` (commit: staging)
       Why: `follow_inside_root` mode returns nil-error with empty `ResolvedPath`, bypassing the containment check.
       Fix: Treat `RealPath` failure as policy violation; reject the transfer.
@@ -312,7 +312,7 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: Lookup uses `attach_expires_at > now()` only; a stolen plaintext ticket can be replayed inside the TTL window. Combined with the broker frame-trust gap (4.4) this is a session hijack primitive.
       Fix: Transition to `:attached` on first consume inside an Ash transaction; reject any second consume with audit
 
-- [ ] 4.3 [H] Self-approval of access requests not enforced at the policy layer
+- [x] 4.3 [H] Self-approval of access requests not enforced at the policy layer
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_requests.ex:129, 266-270, 293-300` (commit: staging)
       Why: `reviewer_policy.allow_self_approval` defaults false but is not encoded as an Ash policy bypass — a requester holding a generic review permission could approve their own request via the `approve` action.
       Fix: Add `forbid_if expr(approver_id == requested_by)` to the approve policy unless `allow_self_approval` is true and explicit

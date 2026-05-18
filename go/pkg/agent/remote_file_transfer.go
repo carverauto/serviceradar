@@ -38,7 +38,7 @@ var (
 	errRemoteFileTransferUploadNotActive  = errors.New("remote file-transfer upload is not active")
 )
 
-func (p *PushLoop) handleFileTransferFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleFileTransferFrame(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
 	if frame.GetSessionId() == "" {
 		return
 	}
@@ -52,7 +52,7 @@ func (p *PushLoop) handleFileTransferFrame(frame *proto.ConsoleFrame, sender *co
 		p.remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(p.server)
 	}
 
-	p.remoteConsoleManager.HandleFileTransferFrame(context.Background(), frame, sender)
+	p.remoteConsoleManager.HandleFileTransferFrame(ctx, frame, sender)
 }
 
 func (m *proxmoxConsoleManager) HandleFileTransferFrame(
@@ -129,9 +129,11 @@ func (m *proxmoxConsoleManager) startUploadFileTransfer(
 	request remoteaccess.FileTransferRequestPayload,
 	sender proxmoxConsoleSender,
 ) {
+	ctx, cancel := context.WithCancel(ctx)
 	reader, writer := io.Pipe()
-	upload := &fileTransferUpload{writer: writer}
+	upload := &fileTransferUpload{writer: writer, cancel: cancel}
 	if !m.registerFileTransferUpload(request.SessionID, request.TransferID, upload) {
+		cancel()
 		_ = reader.Close()
 		_ = writer.Close()
 		sendFileTransferError(
@@ -143,6 +145,10 @@ func (m *proxmoxConsoleManager) startUploadFileTransfer(
 		)
 		return
 	}
+	go func() {
+		<-ctx.Done()
+		_ = writer.CloseWithError(ctx.Err())
+	}()
 
 	_ = sendFileTransferProgress(
 		sender,
@@ -265,6 +271,7 @@ func (m *proxmoxConsoleManager) executeFileTransferWithInput(
 
 type fileTransferUpload struct {
 	writer       *io.PipeWriter
+	cancel       context.CancelFunc
 	nextSequence uint64
 	nextOffset   int64
 }
@@ -347,6 +354,9 @@ func (m *proxmoxConsoleManager) unregisterFileTransferUpload(sessionID string, t
 	m.uploadMu.Unlock()
 
 	if ok {
+		if upload.cancel != nil {
+			upload.cancel()
+		}
 		_ = upload.writer.Close()
 	}
 }

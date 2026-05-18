@@ -170,6 +170,10 @@ func TestLinuxProcParsers(t *testing.T) {
 	if !ok || ip != "127.0.0.1" || port != 22 {
 		t.Fatalf("address = %q:%d ok=%v", ip, port, ok)
 	}
+	argv := parseCmdline(string([]byte{'s', 's', 'h', 0, '-', 'l', 0xff, '\n', 'a', 'l', 'i', 'c', 'e', 0}))
+	if len(argv) != 2 || argv[0] != "ssh" || argv[1] != "-l?alice" {
+		t.Fatalf("argv = %#v", argv)
+	}
 }
 
 func collectLinuxProcEvents(

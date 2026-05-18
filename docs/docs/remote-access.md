@@ -63,6 +63,14 @@ ssh-keygen -t ed25519 -f serviceradar_user_ca -C serviceradar-remote-access-ca
 
 Store `serviceradar_user_ca` as a private secret for the signer. Distribute only `serviceradar_user_ca.pub` to target hosts.
 
+Production deployments should keep the CA private key outside web-ng, core, and
+agent-gateway processes. The bundled `serviceradar-sshca-signer` supports a
+file-backed key for bootstrap and lab use, but the preferred production custody
+model is an isolated signer command/service backed by OpenBao Transit, Vault
+Transit, cloud KMS, or an HSM. That signer should expose the same bounded command
+interface, load the key inside the custody boundary, audit every signing request,
+and deny operation if the custody backend is unavailable.
+
 Configure the signer in the web-ng or core environment that approves remote access sessions:
 
 ```bash
@@ -75,7 +83,17 @@ SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 
 `SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED` defaults to `false`. Keep it disabled until targets, RBAC, host-key policy, and the SSH CA signer are ready; the device-details SSH action and remote-access session API are hidden or blocked while it is disabled.
 
-The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. File-backed secrets are usually easier to operate in Kubernetes.
+The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. Environment-variable custody is suitable only for development because process dumps, debug output, and host introspection can expose the key. File-backed Kubernetes secrets are a better bootstrap option, and OpenBao/Vault/KMS/HSM custody is the production target.
+
+Certificate issuance is rate limited per actor. The default bucket is
+`remote_access_ssh_certificate_issue` with a limit of 10 certificates per minute.
+Tune it in `ServiceRadar.Security.RateLimiter` config if your SSO/session pattern
+requires a different issuance rate, and alert on throttling because repeated
+denials can indicate credential stuffing or automation misuse.
+
+Rotate the SSH user CA by adding a new CA public key to target hosts, switching
+`SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` and signer key material, then removing
+the old public key after all certificates signed by the old CA have expired.
 
 Configure certificate policy with either a JSON environment variable or a mounted file:
 

@@ -117,7 +117,7 @@ func runProxmoxConsoleSSH(
 
 	session, err := dial(ctx, cfg)
 	if err != nil {
-		_, _ = bridge.WriteOutput(ctx, handle, []byte("Unable to open SSH console: "+err.Error()+"\r\n"))
+		_, _ = bridge.WriteOutput(ctx, handle, []byte("SSH console unavailable\r\n"))
 		return err
 	}
 	defer func() { _ = session.Close() }()

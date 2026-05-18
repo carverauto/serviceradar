@@ -402,6 +402,7 @@ func parseCmdline(value string) []string {
 	parts := strings.Split(value, "\x00")
 	out := make([]string, 0, len(parts))
 	for _, part := range parts {
+		part = sanitizeKernelString(part)
 		if part != "" {
 			out = append(out, part)
 		}

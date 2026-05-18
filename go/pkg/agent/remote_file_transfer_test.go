@@ -145,6 +145,45 @@ func TestHandleFileTransferFrameStreamsSFTPUploadForActiveSSHSession(t *testing.
 	}
 }
 
+func TestHandleFileTransferFrameCancelsUploadWithControlStreamContext(t *testing.T) {
+	t.Parallel()
+
+	manager := newRemoteConsoleManagerWithRoute("agent-1", "gateway-1", nil)
+	manager.setSSHConfig(testRemoteFileTransferSessionID, remoteaccess.SSHConfig{
+		Target: remoteaccess.SSHTarget{Host: "host.example", Port: 22},
+		Auth:   remoteaccess.SSHAuth{Username: "alice", PrivateKey: "key"},
+	})
+	manager.sftpDialer = func(context.Context, remoteaccess.SSHConfig) (remoteaccess.SFTPClient, error) {
+		return &fakeRemoteFileTransferSFTPClient{}, nil
+	}
+
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{remoteConsoleManager: manager}
+	ctx, cancel := context.WithCancel(t.Context())
+
+	loop.handleConsoleFrameWithContext(
+		ctx,
+		fileTransferRequestFrame(t, remoteaccess.FileTransferOperationUpload, testRemoteFileTransferPath+"/upload.txt"),
+		sender,
+	)
+	cancel()
+
+	errorFrame := waitForFileTransferFrame(t, stream, remoteaccess.FrameTypeFileTransferError)
+	var payload remoteaccess.FileTransferErrorPayload
+	if err := json.Unmarshal(errorFrame.GetData(), &payload); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if payload.Status != remoteaccess.FileTransferStatusFailed {
+		t.Fatalf("status = %q, want %q", payload.Status, remoteaccess.FileTransferStatusFailed)
+	}
+
+	waitFor(t, time.Second, func() bool {
+		_, ok := manager.getFileTransferUpload(testRemoteFileTransferSessionID, testRemoteFileTransferTransferID)
+		return !ok
+	})
+}
+
 func fileTransferRequestFrame(
 	t *testing.T,
 	operation remoteaccess.FileTransferOperation,

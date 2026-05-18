@@ -352,7 +352,7 @@ func (p *PushLoop) handleControlStream(
 		}
 
 		if frame := resp.GetConsoleFrame(); frame != nil {
-			p.handleConsoleFrame(frame, sender)
+			p.handleConsoleFrameWithContext(ctx, frame, sender)
 		}
 	}
 }
@@ -378,13 +378,17 @@ func (p *PushLoop) controlStreamHeartbeatLoop(ctx context.Context, sender *contr
 }
 
 func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+	p.handleConsoleFrameWithContext(context.Background(), frame, sender)
+}
+
+func (p *PushLoop) handleConsoleFrameWithContext(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
 	if frame.GetSessionId() == "" {
 		return
 	}
 
 	switch frame.GetFrameType() {
 	case remoteaccess.FrameTypeFileTransferRequest, remoteaccess.FrameTypeFileTransferData:
-		p.handleFileTransferFrame(frame, sender)
+		p.handleFileTransferFrame(ctx, frame, sender)
 		return
 	}
 
@@ -397,7 +401,7 @@ func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *control
 		p.remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(p.server)
 	}
 
-	p.remoteConsoleManager.HandleFrame(context.Background(), frame, sender)
+	p.remoteConsoleManager.HandleFrame(ctx, frame, sender)
 }
 
 func (p *PushLoop) agentID() string {

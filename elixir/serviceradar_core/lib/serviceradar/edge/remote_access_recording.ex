@@ -54,10 +54,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     define :complete, action: :complete
     define :fail, action: :fail
     define :expire, action: :expire
+    define :destroy_recording, action: :destroy
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      primary? true
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
@@ -106,7 +111,11 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
       authorize_if @remote_access_rdp_check
     end
 
-    policy action_type([:create, :update, :destroy]) do
+    policy action_type([:create, :update]) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action(:destroy) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end

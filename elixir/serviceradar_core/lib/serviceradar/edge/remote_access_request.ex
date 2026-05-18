@@ -126,7 +126,17 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
     end
 
     action_type_with_permission(:create, @ssh_open_check)
-    action_with_permission([:approve, :deny], @review_check)
+
+    policy action(:approve) do
+      forbid_if {ServiceRadar.Policies.Checks.ActorOwnsResourceUnlessPolicyAllows,
+                 attribute: :requested_by,
+                 policy_attribute: :reviewer_policy,
+                 allow_key: "allow_self_approval"}
+
+      authorize_if @review_check
+    end
+
+    action_with_permission(:deny, @review_check)
 
     policy action([:expire, :bind_session]) do
       authorize_if actor_attribute_equals(:role, :system)

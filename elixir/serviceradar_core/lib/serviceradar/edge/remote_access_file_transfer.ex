@@ -74,10 +74,15 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfer do
     define :fail, action: :fail
     define :cancel, action: :cancel
     define :quota_exhausted, action: :quota_exhausted
+    define :destroy_transfer, action: :destroy
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
+
+    destroy :destroy do
+      primary? true
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
@@ -136,7 +141,11 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfer do
     system_bypass()
     read_with_permission(@view_check)
 
-    policy action_type([:create, :update, :destroy]) do
+    policy action_type([:create, :update]) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action(:destroy) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end

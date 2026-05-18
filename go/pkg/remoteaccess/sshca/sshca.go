@@ -44,6 +44,8 @@ var (
 	ErrTTLExceedsMaximum    = errors.New("ssh certificate ttl exceeds maximum")
 	ErrInvalidValidity      = errors.New("ssh certificate validity window is invalid")
 	ErrPublicKeyIsCert      = errors.New("ssh public key must not be a certificate")
+	ErrUnsupportedCAKey     = errors.New("unsupported ssh ca private key algorithm")
+	ErrUnsupportedOption    = errors.New("unsupported ssh certificate option")
 )
 
 // CA signs OpenSSH user certificates with one ServiceRadar SSH user CA key.
@@ -100,6 +102,9 @@ func New(privateKey, passphrase []byte, opts ...Option) (*CA, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse ssh ca private key: %w", err)
 	}
+	if err := validateSignerAlgorithm(signer); err != nil {
+		return nil, err
+	}
 
 	return NewFromSigner(signer, opts...), nil
 }
@@ -151,6 +156,9 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 	if ca == nil || ca.signer == nil {
 		return nil, ErrCAPrivateKeyRequired
 	}
+	if err := validateSignerAlgorithm(ca.signer); err != nil {
+		return nil, err
+	}
 	if len(bytes.TrimSpace(req.PublicKey)) == 0 {
 		return nil, ErrPublicKeyRequired
 	}
@@ -197,6 +205,11 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 		}
 	}
 
+	permissions, err := certificatePermissions(req.CriticalOptions, req.Extensions)
+	if err != nil {
+		return nil, err
+	}
+
 	cert := &ssh.Certificate{
 		Key:             publicKey,
 		Serial:          serial,
@@ -205,10 +218,7 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 		ValidPrincipals: principals,
 		ValidAfter:      uint64(validAfter.Unix()),
 		ValidBefore:     uint64(expiresAt.Unix()),
-		Permissions: ssh.Permissions{
-			CriticalOptions: copyMap(req.CriticalOptions),
-			Extensions:      defaultExtensions(req.Extensions),
-		},
+		Permissions:     permissions,
 	}
 	if err := cert.SignCert(rand.Reader, ca.signer); err != nil {
 		return nil, fmt.Errorf("sign ssh user certificate: %w", err)
@@ -244,6 +254,29 @@ func defaultExtensions(values map[string]string) map[string]string {
 		return map[string]string{"permit-pty": ""}
 	}
 	return copyMap(values)
+}
+
+func certificatePermissions(criticalOptions, extensions map[string]string) (ssh.Permissions, error) {
+	if len(criticalOptions) > 0 {
+		return ssh.Permissions{}, fmt.Errorf("%w: critical options are not allowed", ErrUnsupportedOption)
+	}
+
+	for name, value := range extensions {
+		if name != "permit-pty" || value != "" {
+			return ssh.Permissions{}, fmt.Errorf("%w: %s", ErrUnsupportedOption, name)
+		}
+	}
+
+	return ssh.Permissions{Extensions: defaultExtensions(extensions)}, nil
+}
+
+func validateSignerAlgorithm(signer ssh.Signer) error {
+	switch signer.PublicKey().Type() {
+	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521:
+		return nil
+	default:
+		return fmt.Errorf("%w: %s", ErrUnsupportedCAKey, signer.PublicKey().Type())
+	}
 }
 
 func copyMap(values map[string]string) map[string]string {

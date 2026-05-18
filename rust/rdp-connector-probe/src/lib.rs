@@ -933,31 +933,37 @@ fn parse_registered_ca_bundle(
 ) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, String> {
     let trimmed = trim_ascii_whitespace(ca_bundle);
     if trimmed.is_empty() {
-        return Err("registered CA bundle is empty".to_owned());
+        return Err("ca_bundle_invalid: registered CA bundle is empty".to_owned());
     }
 
-    if trimmed
+    // Strict PEM only. Raw / DER / unknown bytes are refused with a structured
+    // reason so callers fail closed instead of forwarding garbage to rustls,
+    // which would later reject it with an opaque cert-validation error.
+    if !trimmed
         .windows(b"-----BEGIN CERTIFICATE-----".len())
         .any(|window| window == b"-----BEGIN CERTIFICATE-----")
     {
-        use rustls::pki_types::pem::PemObject as _;
-
-        let mut certificates = Vec::new();
-        for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(trimmed) {
-            certificates.push(
-                certificate.map_err(|err| format!("registered CA bundle PEM is invalid: {err}"))?,
-            );
-        }
-        if certificates.is_empty() {
-            return Err("registered CA bundle contains no certificates".to_owned());
-        }
-
-        return Ok(certificates);
+        return Err(
+            "ca_bundle_invalid: registered CA bundle is not PEM-encoded (missing \
+             -----BEGIN CERTIFICATE----- marker)"
+                .to_owned(),
+        );
     }
 
-    Ok(vec![rustls::pki_types::CertificateDer::from(
-        trimmed.to_vec(),
-    )])
+    use rustls::pki_types::pem::PemObject as _;
+
+    let mut certificates = Vec::new();
+    for certificate in rustls::pki_types::CertificateDer::pem_slice_iter(trimmed) {
+        certificates.push(
+            certificate
+                .map_err(|err| format!("ca_bundle_invalid: registered CA bundle PEM is invalid: {err}"))?,
+        );
+    }
+    if certificates.is_empty() {
+        return Err("ca_bundle_invalid: registered CA bundle contains no certificates".to_owned());
+    }
+
+    Ok(certificates)
 }
 
 fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
@@ -1447,18 +1453,23 @@ mod tests {
     }
 
     #[test]
-    fn registered_ca_bundle_builds_verified_tls_client_config_from_der() {
-        let probe = crate::build_verified_tls_client_config_for_registered_ca_bundle(
+    fn registered_ca_bundle_refuses_raw_der_bytes() {
+        // Audit finding 1.A2.1: raw DER (or any non-PEM body) must be refused
+        // with a structured ca_bundle_invalid reason. Previously the parser
+        // wrapped the bytes as a CertificateDer and handed them to rustls,
+        // which then failed opaquely at handshake time.
+        let err = crate::build_verified_tls_client_config_for_registered_ca_bundle(
             &fixture_server_cert_der(),
         )
-        .expect("verified TLS config");
+        .expect_err("raw DER must be refused");
 
-        assert_eq!(
-            probe,
-            VerifiedTlsClientConfigProbe {
-                trusted_root_count: 1,
-                resumption_disabled_for_credssp: true,
-            }
+        assert!(
+            err.starts_with("ca_bundle_invalid"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("not PEM-encoded"),
+            "error must explain the cause: {err}"
         );
     }
 
@@ -1487,8 +1498,21 @@ mod tests {
             crate::build_verified_tls_client_config_for_registered_ca_bundle(b"not a certificate")
                 .expect_err("invalid rejected");
 
-        assert_eq!(empty, "registered CA bundle is empty");
-        assert!(invalid.starts_with("registered CA bundle contains invalid certificate:"));
+        // Every rejection from the CA-bundle parser carries the
+        // ca_bundle_invalid prefix (audit finding 1.A2.1) so callers can
+        // map it to a structured operator-facing reason.
+        assert!(
+            empty.starts_with("ca_bundle_invalid"),
+            "unexpected empty-case error: {empty}"
+        );
+        assert!(
+            invalid.starts_with("ca_bundle_invalid"),
+            "unexpected invalid-case error: {invalid}"
+        );
+        assert!(
+            invalid.contains("not PEM-encoded"),
+            "non-PEM input must be rejected at the marker check: {invalid}"
+        );
     }
 
     #[test]
@@ -1918,5 +1942,52 @@ mod tests {
         pem.push_str("-----END CERTIFICATE-----\n");
 
         pem
+    }
+
+    #[test]
+    fn parse_registered_ca_bundle_rejects_empty_input() {
+        let err =
+            super::parse_registered_ca_bundle(b"").expect_err("empty CA bundle must be refused");
+        assert!(
+            err.starts_with("ca_bundle_invalid"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_registered_ca_bundle_rejects_raw_der_bytes() {
+        // Audit finding 1.A2.1: a CA bundle whose body lacks a PEM marker
+        // (raw DER, binary corruption, junk) MUST be refused with a structured
+        // ca_bundle_invalid reason instead of being wrapped as a CertificateDer
+        // and forwarded to rustls, which would later reject it opaquely.
+        let der = fixture_server_cert_der();
+        let err = super::parse_registered_ca_bundle(&der)
+            .expect_err("raw DER bytes must be refused, no fallback path");
+        assert!(
+            err.starts_with("ca_bundle_invalid"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("not PEM-encoded"),
+            "error must explain the cause: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_registered_ca_bundle_rejects_garbage_bytes() {
+        let err = super::parse_registered_ca_bundle(b"\x00\x01\x02not a certificate\xff\xfe")
+            .expect_err("non-PEM garbage must be refused");
+        assert!(
+            err.starts_with("ca_bundle_invalid"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_registered_ca_bundle_accepts_valid_pem() {
+        let pem = fixture_server_cert_pem();
+        let certs = super::parse_registered_ca_bundle(pem.as_bytes())
+            .expect("valid PEM bundle must parse");
+        assert_eq!(certs.len(), 1, "fixture is a single certificate");
     }
 }

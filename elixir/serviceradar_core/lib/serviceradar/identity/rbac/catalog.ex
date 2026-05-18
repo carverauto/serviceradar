@@ -116,6 +116,18 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.recordings.view_all",
+          label: "View all remote-access recordings",
+          description: "View remote-access recordings for sessions owned by other users",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.recordings.delete",
+          label: "Delete remote-access recordings",
+          description: "Delete remote-access recording manifests and replay events",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.files.list",
           label: "List remote files",
           description: "List directories and read metadata through remote-access file transfer",
@@ -150,6 +162,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Export retained remote file artifacts",
           description:
             "Export file-transfer content-audit artifacts when retention is explicitly enabled",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.file_transfers.delete",
+          label: "Delete remote file-transfer records",
+          description: "Delete remote-access file-transfer metadata records",
           default_roles: @admin_roles
         }
       ]

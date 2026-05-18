@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes"
 )
@@ -31,6 +32,7 @@ const (
 	enhancedTestSessionID       = "session-1"
 	enhancedTestRouterHost      = "router.example"
 	enhancedTestTerminalCommand = "whoami\r"
+	enhancedTestSanitizedPath   = "/usr/bin/?ssh"
 )
 
 func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) {
@@ -217,6 +219,50 @@ func TestNormalizeBPFCommandEvent(t *testing.T) {
 	if redacted.Argv[2] != enhancedMetadataRedacted {
 		t.Fatalf("redacted argv = %#v", redacted.Argv)
 	}
+}
+
+func TestNormalizeBPFCommandEventSanitizesKernelStrings(t *testing.T) {
+	t.Parallel()
+
+	raw := probes.CommandEvent{
+		Argc: uint32(probes.CommandMaxArgs + 10),
+	}
+	copy(raw.Path[:], []byte{'/', 'u', 's', 'r', '/', 'b', 'i', 'n', '/', 0xff, '\n', 's', 's', 'h'})
+	copy(raw.Argv[0][:], ProtocolSSH+"\x00ignore")
+	copy(raw.Argv[1][:], []byte{'-', 'l', 0xff, '\t', 'a', 'l', 'i', 'c', 'e'})
+	for index := 2; index < probes.CommandMaxArgs; index++ {
+		copy(raw.Argv[index][:], "arg")
+	}
+
+	event := normalizeBPFCommandEvent(raw, time.Unix(1700000000, 100))
+
+	if event.CommandPath != enhancedTestSanitizedPath {
+		t.Fatalf("command path = %q", event.CommandPath)
+	}
+	if len(event.Argv) != probes.CommandMaxArgs {
+		t.Fatalf("argv count = %d, want %d: %#v", len(event.Argv), probes.CommandMaxArgs, event.Argv)
+	}
+	if event.Argv[0] != ProtocolSSH || event.Argv[1] != "-l?alice" {
+		t.Fatalf("argv not sanitized: %#v", event.Argv)
+	}
+}
+
+func FuzzSanitizeKernelCString(f *testing.F) {
+	f.Add([]byte("ssh\x00ignored"))
+	f.Add([]byte{0xff, 0xfe, '\n', 's', 's', 'h'})
+	f.Add([]byte{})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		got := sanitizeKernelCString(data)
+		if !utf8.ValidString(got) {
+			t.Fatalf("sanitized string is not valid UTF-8: %q", got)
+		}
+		for _, r := range got {
+			if r < ' ' || r == 0x7f {
+				t.Fatalf("sanitized string retained control rune %q in %q", r, got)
+			}
+		}
+	})
 }
 
 func TestNormalizeBPFFileEvent(t *testing.T) {

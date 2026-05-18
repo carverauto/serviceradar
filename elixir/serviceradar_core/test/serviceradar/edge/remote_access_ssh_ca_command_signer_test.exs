@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
 
   alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 
-  test "signs a certificate by invoking an external command with JSON stdin" do
+  test "signs a certificate by invoking an external command with a JSON request file" do
     dir = tmp_dir()
     capture_path = Path.join(dir, "request.json")
 
@@ -13,7 +13,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
         "signer-success",
         """
         #!/bin/sh
-        cat > "$CAPTURE_PATH"
+        cat "$SERVICERADAR_SSHCA_SIGN_REQUEST_FILE" > "$CAPTURE_PATH"
         printf '%s\\n' '{"certificate":"ssh-ed25519-cert-v01@openssh.com AAAATEST","expires_at":"2026-05-09T13:00:00Z","fingerprint":"SHA256:test","serial":42}'
         """
       )
@@ -57,7 +57,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
         "signer-failed",
         """
         #!/bin/sh
-        cat >/dev/null
+        cat "$SERVICERADAR_SSHCA_SIGN_REQUEST_FILE" >/dev/null
         echo 'signer failed cleanly' >&2
         exit 17
         """
@@ -78,7 +78,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
         "signer-invalid-json",
         """
         #!/bin/sh
-        cat >/dev/null
+        cat "$SERVICERADAR_SSHCA_SIGN_REQUEST_FILE" >/dev/null
         printf 'not json'
         """
       )
@@ -98,7 +98,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
         "signer-missing-certificate",
         """
         #!/bin/sh
-        cat >/dev/null
+        cat "$SERVICERADAR_SSHCA_SIGN_REQUEST_FILE" >/dev/null
         printf '%s\\n' '{"expires_at":"2026-05-09T13:00:00Z"}'
         """
       )
@@ -118,7 +118,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
         "signer-oversized-certificate",
         """
         #!/bin/sh
-        cat >/dev/null
+        cat "$SERVICERADAR_SSHCA_SIGN_REQUEST_FILE" >/dev/null
         printf '{"certificate":"'
         head -c 65537 /dev/zero | tr '\\0' 'x'
         printf '"}'

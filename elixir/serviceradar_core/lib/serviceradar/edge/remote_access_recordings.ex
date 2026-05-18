@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
+  alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
 
@@ -19,6 +20,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   @default_storage_prefix "remote-access"
   @default_retention_days 30
   @export_permission "devices.remote_access.recordings.export"
+  @delete_permission "devices.remote_access.recordings.delete"
+  @view_all_permission "devices.remote_access.recordings.view_all"
 
   @spec ensure_for_session(map() | struct(), keyword()) ::
           {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
@@ -97,11 +100,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def list_events(recording_or_id, opts \\ [])
 
   def list_events(%RemoteAccessRecording{id: recording_id}, opts) do
-    list_events(recording_id, opts)
+    list_events_for_authorized_recording(recording_id, opts)
   end
 
   def list_events(recording_id, opts) when is_binary(recording_id) do
-    RemoteAccessRecordingEvent.list_for_recording(recording_id, scope_opts(opts))
+    with {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:event_lookup)) do
+      list_events_for_authorized_recording(recording, opts)
+    end
   end
 
   @spec export(RemoteAccessRecording.t() | binary(), keyword()) ::
@@ -127,6 +133,28 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
          {:ok, %RemoteAccessRecording{} = recording} <-
            RemoteAccessRecording.get_by_id(recording_id, scope_opts(opts)) do
       export(recording, opts)
+    end
+  end
+
+  @spec delete(RemoteAccessRecording.t() | binary(), keyword()) ::
+          {:ok, RemoteAccessRecording.t()} | {:error, term()}
+  def delete(recording_or_id, opts \\ [])
+
+  def delete(%RemoteAccessRecording{} = recording, opts) do
+    with :ok <- authorize_delete(opts),
+         :ok <- RemoteAccessRecording.destroy_recording(recording, actor: system_actor(:delete)) do
+      write_audit(:remote_access_recording_deleted, recording, opts)
+      {:ok, recording}
+    end
+  end
+
+  def delete(recording_id, opts) when is_binary(recording_id) do
+    with :ok <- authorize_delete(opts),
+         {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:delete_lookup)),
+         :ok <- RemoteAccessRecording.destroy_recording(recording, actor: system_actor(:delete)) do
+      write_audit(:remote_access_recording_deleted, recording, opts)
+      {:ok, recording}
     end
   end
 
@@ -156,6 +184,74 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       {:ok, recording}
     end
   end
+
+  defp list_events_for_authorized_recording(
+         %RemoteAccessRecording{id: recording_id} = recording,
+         opts
+       ) do
+    with :ok <- authorize_recording_read(recording, opts) do
+      RemoteAccessRecordingEvent.list_for_recording(recording_id,
+        actor: system_actor(:event_read)
+      )
+    end
+  end
+
+  defp list_events_for_authorized_recording(recording_id, opts) when is_binary(recording_id) do
+    with {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:event_lookup)) do
+      list_events_for_authorized_recording(recording, opts)
+    end
+  end
+
+  defp authorize_recording_read(recording, opts) do
+    case export_actor(opts) do
+      %{role: :system} = actor ->
+        authorize_recording_read_for_actor(recording, actor)
+
+      %{role: "system"} = actor ->
+        authorize_recording_read_for_actor(recording, actor)
+
+      nil ->
+        {:error, :forbidden}
+
+      actor ->
+        authorize_recording_read_for_actor(recording, actor)
+    end
+  end
+
+  defp authorize_recording_read_for_actor(_recording, %{role: role})
+       when role in [:system, "system"], do: :ok
+
+  defp authorize_recording_read_for_actor(recording, actor) do
+    cond do
+      RBAC.has_permission?(actor, @view_all_permission) ->
+        :ok
+
+      actor_uuid(actor) == nil ->
+        {:error, :forbidden}
+
+      true ->
+        authorize_session_owner(recording, actor)
+    end
+  end
+
+  defp authorize_session_owner(recording, actor) do
+    with {:ok, %RemoteAccessSession{} = session} <-
+           RemoteAccessSession.get_by_id(recording.session_id,
+             actor: system_actor(:event_session_lookup)
+           ) do
+      if session.requested_by == actor_uuid(actor), do: :ok, else: {:error, :forbidden}
+    end
+  end
+
+  defp actor_uuid(%{id: id}) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp actor_uuid(_actor), do: nil
 
   defp finish_attrs(recording, attrs) do
     now = RemoteAccessRecording.utc_now()
@@ -557,6 +653,22 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
+  defp authorize_delete(opts) do
+    case export_actor(opts) do
+      %{role: :system} ->
+        :ok
+
+      %{role: "system"} ->
+        :ok
+
+      nil ->
+        {:error, :forbidden}
+
+      actor ->
+        if RBAC.has_permission?(actor, @delete_permission), do: :ok, else: {:error, :forbidden}
+    end
+  end
+
   defp export_actor(opts) do
     Keyword.get(opts, :actor) ||
       Keyword.get(opts, :audit_actor) ||
@@ -647,12 +759,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   end
 
   defp audit_severity(:remote_access_recording_failed), do: :high
+  defp audit_severity(:remote_access_recording_deleted), do: :high
   defp audit_severity(_action), do: :medium
 
   defp action_suffix(:remote_access_recording_created), do: "created"
   defp action_suffix(:remote_access_recording_active), do: "active"
   defp action_suffix(:remote_access_recording_completed), do: "completed"
   defp action_suffix(:remote_access_recording_failed), do: "failed"
+  defp action_suffix(:remote_access_recording_deleted), do: "deleted"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp system_actor(suffix), do: SystemActor.system(:"remote_access_recording_#{suffix}")

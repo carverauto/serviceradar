@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -165,6 +166,28 @@ func TestSignUserCertificateRejectsInvalidRequests(t *testing.T) {
 			},
 			want: ErrInvalidValidity,
 		},
+		{
+			name: "critical options",
+			req: UserCertificateRequest{
+				PublicKey:       validPublicKey,
+				KeyID:           "session-1",
+				Principals:      []string{"root"},
+				TTL:             time.Minute,
+				CriticalOptions: map[string]string{"force-command": "whoami"},
+			},
+			want: ErrUnsupportedOption,
+		},
+		{
+			name: "unsafe extension",
+			req: UserCertificateRequest{
+				PublicKey:  validPublicKey,
+				KeyID:      "session-1",
+				Principals: []string{"root"},
+				TTL:        time.Minute,
+				Extensions: map[string]string{"permit-port-forwarding": ""},
+			},
+			want: ErrUnsupportedOption,
+		},
 	}
 
 	for _, tt := range tests {
@@ -176,6 +199,31 @@ func TestSignUserCertificateRejectsInvalidRequests(t *testing.T) {
 				t.Fatalf("error = %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSignUserCertificateRejectsUnsupportedCAKeyAlgorithm(t *testing.T) {
+	t.Parallel()
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	rsaSigner, err := ssh.NewSignerFromKey(rsaKey)
+	if err != nil {
+		t.Fatalf("new rsa signer: %v", err)
+	}
+	userSigner, _ := newTestSigner(t)
+
+	ca := NewFromSigner(rsaSigner)
+	_, err = ca.SignUserCertificate(UserCertificateRequest{
+		PublicKey:  ssh.MarshalAuthorizedKey(userSigner.PublicKey()),
+		KeyID:      "session-1",
+		Principals: []string{"root"},
+		TTL:        time.Minute,
+	})
+	if !errors.Is(err, ErrUnsupportedCAKey) {
+		t.Fatalf("error = %v, want %v", err, ErrUnsupportedCAKey)
 	}
 }
 

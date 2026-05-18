@@ -26,6 +26,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/proto"
+	goproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -843,22 +844,7 @@ func cloneDesktopMediaClientMessageForTest(msg *proto.DesktopMediaClientMessage)
 		return nil
 	}
 
-	clone := *msg
-	switch message := msg.GetMessage().(type) {
-	case *proto.DesktopMediaClientMessage_Frame:
-		frame := *message.Frame
-		frame.Metadata = append([]byte(nil), frame.Metadata...)
-		frame.Payload = append([]byte(nil), frame.Payload...)
-		clone.Message = &proto.DesktopMediaClientMessage_Frame{Frame: &frame}
-	case *proto.DesktopMediaClientMessage_Close:
-		closeMsg := *message.Close
-		clone.Message = &proto.DesktopMediaClientMessage_Close{Close: &closeMsg}
-	case *proto.DesktopMediaClientMessage_Heartbeat:
-		heartbeat := *message.Heartbeat
-		clone.Message = &proto.DesktopMediaClientMessage_Heartbeat{Heartbeat: &heartbeat}
-	}
-
-	return &clone
+	return goproto.Clone(msg).(*proto.DesktopMediaClientMessage)
 }
 
 func (s *fakeDesktopMediaStream) Recv() (*proto.DesktopMediaServerMessage, error) {

@@ -194,9 +194,12 @@ func enforceSymlinkPolicy(input FileTransferPolicyInput, policy FileTransferPoli
 	case FileTransferSymlinkAllow:
 		return nil
 	case FileTransferSymlinkFollowInsideRoot:
+		if strings.TrimSpace(input.ResolvedPath) == "" {
+			return fmt.Errorf("%w: unresolved symlink", ErrFileTransferPolicyDenied)
+		}
 		resolved, err := normalizeRemotePath(input.ResolvedPath)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: resolved symlink path", ErrFileTransferPolicyDenied)
 		}
 		if !pathAllowed(resolved, policy.AllowedPathRules) || pathDenied(resolved, policy.DeniedPathRules) {
 			return fmt.Errorf("%w: resolved symlink path", ErrFileTransferPolicyDenied)

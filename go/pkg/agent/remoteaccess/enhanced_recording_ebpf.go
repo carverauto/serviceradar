@@ -17,7 +17,6 @@
 package remoteaccess
 
 import (
-	"bytes"
 	"encoding/binary"
 	"net/netip"
 	"strconv"
@@ -38,17 +37,14 @@ const (
 )
 
 func normalizeBPFCommandEvent(raw probes.CommandEvent, observedAt time.Time) EnhancedEvent {
-	argc := int(raw.Argc)
-	if argc > probes.CommandMaxArgs {
-		argc = probes.CommandMaxArgs
-	}
-	if argc < 0 {
-		argc = 0
+	argc := probes.CommandMaxArgs
+	if raw.Argc <= uint32(probes.CommandMaxArgs) {
+		argc = int(raw.Argc)
 	}
 
 	argv := make([]string, 0, argc)
 	for index := 0; index < argc; index++ {
-		arg := cString(raw.Argv[index][:])
+		arg := sanitizeKernelCString(raw.Argv[index][:])
 		if arg == "" {
 			break
 		}
@@ -66,7 +62,7 @@ func normalizeBPFCommandEvent(raw probes.CommandEvent, observedAt time.Time) Enh
 		PID:               int(raw.PID),
 		UID:               int(raw.UID),
 		GID:               int(raw.GID),
-		CommandPath:       cString(raw.Path[:]),
+		CommandPath:       sanitizeKernelCString(raw.Path[:]),
 		Argv:              argv,
 		Result:            result,
 		Metadata: map[string]string{
@@ -92,7 +88,7 @@ func normalizeBPFFileEvent(raw probes.FileEvent, observedAt time.Time) EnhancedE
 		PID:               int(raw.PID),
 		UID:               int(raw.UID),
 		GID:               int(raw.GID),
-		FilePath:          cString(raw.Path[:]),
+		FilePath:          sanitizeKernelCString(raw.Path[:]),
 		FileOperation:     bpfFileOperation(raw.Operation),
 		Result:            result,
 		Metadata: map[string]string{
@@ -165,14 +161,4 @@ func bpfNetworkAddress(raw probes.NetworkEvent) string {
 	default:
 		return ""
 	}
-}
-
-func cString(data []byte) string {
-	if len(data) == 0 {
-		return ""
-	}
-	if index := bytes.IndexByte(data, 0); index >= 0 {
-		data = data[:index]
-	}
-	return string(data)
 }

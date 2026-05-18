@@ -32,6 +32,7 @@ import (
 const (
 	defaultCAKeyEnv          = "SERVICERADAR_SSH_CA_KEY"
 	defaultCAPassphraseEnv   = "SERVICERADAR_SSH_CA_PASSPHRASE"
+	defaultRequestFileEnv    = "SERVICERADAR_SSHCA_SIGN_REQUEST_FILE"
 	defaultMaxCertificateTTL = 8 * time.Hour
 )
 
@@ -92,7 +93,14 @@ func run(
 		return 2
 	}
 
-	req, err := decodeRequest(stdin)
+	requestReader, closeRequest, err := signerRequestReader(stdin, getenv(defaultRequestFileEnv))
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "sshca-signer: %v\n", err)
+		return 2
+	}
+	defer closeRequest()
+
+	req, err := decodeRequest(requestReader)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "sshca-signer: %v\n", err)
 		return 2
@@ -147,6 +155,20 @@ func loadCAKey(path, envName string, getenv func(string) string) ([]byte, error)
 		return nil, fmt.Errorf("%w in %s or --ca-key-file", errCAKeyRequired, envName)
 	}
 	return key, nil
+}
+
+func signerRequestReader(stdin io.Reader, requestFile string) (io.Reader, func(), error) {
+	requestFile = strings.TrimSpace(requestFile)
+	if requestFile == "" {
+		return stdin, func() {}, nil
+	}
+
+	file, err := os.Open(requestFile)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("read request file: %w", err)
+	}
+
+	return file, func() { _ = file.Close() }, nil
 }
 
 func decodeRequest(stdin io.Reader) (signRequest, error) {

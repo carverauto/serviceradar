@@ -170,6 +170,7 @@ func TestEvaluateFileTransferPolicySymlinkModes(t *testing.T) {
 		{name: "default deny", wantAllowed: false},
 		{name: "explicit deny", mode: FileTransferSymlinkDeny, wantAllowed: false},
 		{name: "follow inside root", mode: FileTransferSymlinkFollowInsideRoot, resolved: "/srv/data/real/report.txt", wantAllowed: true},
+		{name: "follow unresolved symlink", mode: FileTransferSymlinkFollowInsideRoot, wantAllowed: false},
 		{name: "follow outside root", mode: FileTransferSymlinkFollowInsideRoot, resolved: "/etc/passwd", wantAllowed: false},
 		{name: "allow", mode: FileTransferSymlinkAllow, wantAllowed: true},
 	}

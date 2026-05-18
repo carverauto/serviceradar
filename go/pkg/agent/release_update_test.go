@@ -23,7 +23,10 @@ import (
 	"time"
 )
 
-const testReleaseCommandID = "00000000-0000-4000-8000-000000000123"
+const (
+	testReleaseCommandID                     = "00000000-0000-4000-8000-000000000123"
+	testReleaseHelperReadyReasonNotValidated = "live_auth_media_demo_not_validated"
+)
 
 func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
 	binaryData := []byte("#!/bin/sh\necho release\n")
@@ -440,14 +443,14 @@ func TestStageAgentReleaseRejectsRDPCapabilityWithoutReadinessMetadata(t *testin
 		{
 			name: "connector readiness reason present for ready artifact",
 			mutate: func(artifact *releaseArtifactPayload) {
-				artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "live_auth_media_demo_not_validated"
+				artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = testReleaseHelperReadyReasonNotValidated
 			},
 		},
 		{
 			name: "connector not ready without experimental phase",
 			mutate: func(artifact *releaseArtifactPayload) {
 				artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
-				artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "live_auth_media_demo_not_validated"
+				artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = testReleaseHelperReadyReasonNotValidated
 			},
 		},
 	}
@@ -481,7 +484,7 @@ func TestStageAgentReleaseRejectsHelperInstallWhenRDPConnectorNotReady(t *testin
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
 	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
-	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "live_auth_media_demo_not_validated"
+	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = testReleaseHelperReadyReasonNotValidated
 	payload := signedReleasePayload(t, binaryData, artifact)
 	payload.HelperInstall = &releaseHelperInstall{
 		Enabled:    true,
@@ -505,7 +508,7 @@ func TestStageAgentReleaseAcceptsRDPArtifactMarkedConnectorNotReadyWithoutHelper
 	artifact := validRDPReleaseArtifact(server.URL+"/serviceradar-agent-rdp", digestHex(binaryData))
 	artifact.DeploymentRequirements[releaseRequirementHelperReady] = false
 	artifact.DeploymentRequirements[releaseRequirementReleasePhase] = releaseReleasePhaseExperimental
-	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = "live_auth_media_demo_not_validated"
+	artifact.DeploymentRequirements[releaseRequirementHelperReadyReason] = testReleaseHelperReadyReasonNotValidated
 	payload := signedReleasePayload(t, binaryData, artifact)
 
 	_, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
