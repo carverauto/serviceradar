@@ -1099,10 +1099,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: Floating tags weaken supply-chain stance.
       Fix: Pin all `uses:` to full commit SHAs with a `# <action>@<tag>` comment.
 
-- [ ] 6.11 [M] Authentik OIDC fixture prints `client_secret` in fixture JSON / shell var
+- [x] 6.11 [M] Authentik OIDC fixture prints `client_secret` in fixture JSON / shell var
       Where: `scripts/authentik-remote-access-oidc-fixture.py:52-70`; `scripts/remote-access-authentik-oidc-ssh-smoke.sh:102-114` (working tree)
       Why: Test-only secret, but persists in test logs / CI artefacts; reusable against the dev Authentik instance.
       Fix: Strip `client_secret` from emitted JSON with `jq 'del(.client_secret)'`; unset shell var after use; rotate the dev provider secret per run.
+      Resolution: The wrapper now generates a per-run client secret and passes it into fixture provisioning; the fixture JSON no longer emits `client_secret`, and the wrapper unsets the secret-bearing shell variable after token exchange / smoke-script use.
 
 - [ ] 6.12 [L] `release.yml` triggers on any `v*` tag push with no required approval gate
       Where: `.forgejo/workflows/release.yml:17-21` (working tree / staging)

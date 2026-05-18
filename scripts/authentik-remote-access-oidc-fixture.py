@@ -24,6 +24,7 @@ REDIRECT_URI = os.environ.get(
 USERNAME = os.environ.get("SR_AUTHENTIK_SMOKE_USERNAME", "serviceradar-remote-access-smoke")
 EMAIL = os.environ.get("SR_AUTHENTIK_SMOKE_EMAIL", USERNAME + "@example.test")
 GROUP_NAME = os.environ.get("SR_AUTHENTIK_SMOKE_GROUP", "serviceradar-remote-access-smoke")
+CLIENT_SECRET = os.environ.get("SR_AUTHENTIK_SMOKE_CLIENT_SECRET") or generate_id(96)
 NONCE = os.environ.get("SR_AUTHENTIK_SMOKE_NONCE") or generate_id()
 DISCOVERY_BASE = os.environ.get("SR_AUTHENTIK_SMOKE_DISCOVERY_BASE", "https://auth.carverauto.dev")
 
@@ -57,7 +58,7 @@ def provision():
             "invalidation_flow": template.invalidation_flow,
             "client_type": "confidential",
             "client_id": generate_id(40),
-            "client_secret": generate_id(96),
+            "client_secret": CLIENT_SECRET,
             "_redirect_uris": [{"url": REDIRECT_URI, "matching_mode": "strict"}],
             "include_claims_in_id_token": True,
             "access_code_validity": "minutes=5",
@@ -115,7 +116,6 @@ def provision():
         "action": "provision",
         "application_slug": app.slug,
         "client_id": provider.client_id,
-        "client_secret": provider.client_secret,
         "discovery_url": discovery_url,
         "redirect_uri": REDIRECT_URI,
         "code": auth_code.code,

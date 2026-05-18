@@ -55,6 +55,8 @@ TMP_DIR="$(mktemp -d)"
 SSHD_PID=""
 
 cleanup() {
+  unset CLIENT_SECRET OIDC_CLIENT_SECRET
+
   if [[ -n "$SSHD_PID" ]]; then
     kill "$SSHD_PID" >/dev/null 2>&1 || true
     wait "$SSHD_PID" >/dev/null 2>&1 || true
@@ -87,6 +89,7 @@ go build -o "$TMP_DIR/serviceradar-sshca-signer" ./go/cmd/tools/sshca-signer
 
 echo "==> Provisioning disposable Authentik OIDC app and authorization code"
 NONCE="$(openssl rand -hex 24 2>/dev/null || date +%s%N)"
+CLIENT_SECRET="$(openssl rand -base64 72 2>/dev/null | tr -d '\n' || date +%s%N)"
 FIXTURE_OUTPUT="$(
   kubectl -n "$AUTHENTIK_NAMESPACE" exec -i "$AUTHENTIK_DEPLOYMENT" -- env \
     SR_AUTHENTIK_SMOKE_ACTION=provision \
@@ -95,6 +98,7 @@ FIXTURE_OUTPUT="$(
     SR_AUTHENTIK_SMOKE_GROUP="$SMOKE_GROUP" \
     SR_AUTHENTIK_SMOKE_USERNAME="${SERVICERADAR_AUTHENTIK_SMOKE_USERNAME:-serviceradar-remote-access-smoke}" \
     SR_AUTHENTIK_SMOKE_EMAIL="${SERVICERADAR_AUTHENTIK_SMOKE_EMAIL:-serviceradar-remote-access-smoke@example.test}" \
+    SR_AUTHENTIK_SMOKE_CLIENT_SECRET="$CLIENT_SECRET" \
     SR_AUTHENTIK_SMOKE_NONCE="$NONCE" \
     SR_AUTHENTIK_SMOKE_DISCOVERY_BASE="$AUTHENTIK_BASE_URL" \
     ak shell < "$ROOT_DIR/scripts/authentik-remote-access-oidc-fixture.py"
@@ -107,7 +111,6 @@ if [[ -z "$FIXTURE_JSON" ]]; then
 fi
 
 CLIENT_ID="$(printf '%s' "$FIXTURE_JSON" | json_field client_id)"
-CLIENT_SECRET="$(printf '%s' "$FIXTURE_JSON" | json_field client_secret)"
 DISCOVERY_URL="$(printf '%s' "$FIXTURE_JSON" | json_field discovery_url)"
 REDIRECT_URI="$(printf '%s' "$FIXTURE_JSON" | json_field redirect_uri)"
 AUTH_CODE="$(printf '%s' "$FIXTURE_JSON" | json_field code)"
@@ -131,6 +134,8 @@ TOKEN_JSON="$(
     --data-urlencode "client_secret=$CLIENT_SECRET" \
     --data-urlencode "redirect_uri=$REDIRECT_URI"
 )"
+OIDC_CLIENT_SECRET="$CLIENT_SECRET"
+unset CLIENT_SECRET
 ID_TOKEN="$(printf '%s' "$TOKEN_JSON" | jq -r '.id_token')"
 if [[ -z "$ID_TOKEN" || "$ID_TOKEN" == "null" ]]; then
   echo "$TOKEN_JSON" >&2
@@ -143,7 +148,7 @@ echo "==> Verifying Authentik token and issuing ServiceRadar SSH certificate"
   cd "$ROOT_DIR/elixir/web-ng"
   MIX_ENV=test \
   SERVICERADAR_AUTHENTIK_OIDC_CLIENT_ID="$CLIENT_ID" \
-  SERVICERADAR_AUTHENTIK_OIDC_CLIENT_SECRET="$CLIENT_SECRET" \
+  SERVICERADAR_AUTHENTIK_OIDC_CLIENT_SECRET="$OIDC_CLIENT_SECRET" \
   SERVICERADAR_AUTHENTIK_OIDC_DISCOVERY_URL="$DISCOVERY_URL" \
   SERVICERADAR_AUTHENTIK_OIDC_ID_TOKEN="$ID_TOKEN" \
   SERVICERADAR_AUTHENTIK_OIDC_NONCE="$NONCE" \
@@ -156,6 +161,7 @@ echo "==> Verifying Authentik token and issuing ServiceRadar SSH certificate"
   SERVICERADAR_REMOTE_ACCESS_TARGET_HOST="$SSH_TARGET_HOST" \
   mix run ../../scripts/remote_access_authentik_oidc_ssh_smoke.exs
 )
+unset OIDC_CLIENT_SECRET
 
 if [[ -z "$SSH_TARGET_PORT" ]]; then
   require sshd
