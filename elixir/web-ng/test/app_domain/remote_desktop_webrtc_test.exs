@@ -9,10 +9,14 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCTest do
 
   setup do
     previous = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_ice_servers)
+    previous_secret = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_shared_secret)
+    previous_ttl = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_credential_ttl_seconds)
     :persistent_term.erase(@warning_key)
 
     on_exit(fn ->
       restore_env(:remote_access_desktop_webrtc_ice_servers, previous)
+      restore_env(:remote_access_desktop_webrtc_turn_shared_secret, previous_secret)
+      restore_env(:remote_access_desktop_webrtc_turn_credential_ttl_seconds, previous_ttl)
       :persistent_term.erase(@warning_key)
     end)
 
@@ -54,6 +58,55 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTCTest do
     refute log =~ "TURN credentials should be ephemeral"
   end
 
+  test "mints per-session TURN REST credentials from a shared secret" do
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_credential_ttl_seconds, 90)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_ice_servers, [
+      %{
+        urls: ["turn:turn.example.com:3478"],
+        turn_shared_secret: "turn-rest-secret",
+        username: "static-user",
+        credential: "static-password"
+      }
+    ])
+
+    now = System.system_time(:second)
+
+    assert [%{username: username, credential: credential} = server] =
+             RemoteDesktopWebRTC.ice_servers(session_id: "session-1")
+
+    assert server.urls == ["turn:turn.example.com:3478"]
+    refute Map.has_key?(server, :turn_shared_secret)
+    refute credential == "static-password"
+    assert [expires_at, "session-1"] = String.split(username, ":", parts: 2)
+    assert {expires_at, ""} = Integer.parse(expires_at)
+    assert expires_at >= now + 85
+    assert expires_at <= now + 90
+    assert credential == expected_turn_credential("turn-rest-secret", username)
+  end
+
+  test "caps TURN REST credential TTL to one hour" do
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_shared_secret, "global-turn-secret")
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_credential_ttl_seconds, 86_400)
+
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_ice_servers, [
+      %{urls: ["turns:turn.example.com:5349"]}
+    ])
+
+    now = System.system_time(:second)
+    assert [%{username: username, credential: credential}] = RemoteDesktopWebRTC.ice_servers(session_id: "session-2")
+    assert [expires_at, "session-2"] = String.split(username, ":", parts: 2)
+    assert {expires_at, ""} = Integer.parse(expires_at)
+    assert expires_at <= now + 3_600
+    assert credential == expected_turn_credential("global-turn-secret", username)
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp expected_turn_credential(shared_secret, username) do
+    :hmac
+    |> :crypto.mac(:sha, shared_secret, username)
+    |> Base.encode64()
+  end
 end

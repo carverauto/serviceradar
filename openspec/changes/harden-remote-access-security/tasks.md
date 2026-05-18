@@ -534,7 +534,7 @@ Result: the server is **mostly a pass-through** — the codec / fingerprint / IC
       Why: Unverified delegation; mDNS-name leakage from the agent network is a low-volume info leak today.
       Fix: Confirm ExWebRTC rejects unresolved `.local`, or add an explicit filter.
 
-- [ ] 5.K.5 [H] TURN credentials read from app config — no per-session ephemeral / TTL enforcement
+- [x] 5.K.5 [H] TURN credentials read from app config — no per-session ephemeral / TTL enforcement
       Where: `elixir/web-ng/lib/serviceradar_web_ng/remote_desktop_webrtc.ex:74-127` (working tree)
       Why: Static creds embedded in `RTCConfiguration` reach every browser; if any session/log leaks the config block, TURN is exfilable. Promotes 5.E2.6.
       Fix: Mint per-session HMAC TURN creds (`<exp>:<actor>` username, HMAC-SHA1 over a server-side key) with TTL ≤ 1 h; rotate signing key on a schedule.

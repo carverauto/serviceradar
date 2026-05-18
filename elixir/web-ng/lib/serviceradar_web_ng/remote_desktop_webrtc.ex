@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   @webrtc_transport "webrtc_desktop_media"
   @turn_credential_warning_key {__MODULE__, :turn_static_credential_warning_emitted}
+  @default_turn_credential_ttl_seconds 3_600
+  @max_turn_credential_ttl_seconds 3_600
 
   def transport_name, do: @webrtc_transport
 
@@ -23,7 +25,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
       desktop_webrtc_enabled: enabled?(),
       desktop_webrtc_transport: if(enabled?(), do: @webrtc_transport),
       desktop_webrtc_signaling_path: if(enabled?(), do: signaling_path(session_id)),
-      desktop_webrtc_ice_servers: if(enabled?(), do: ice_servers(), else: [])
+      desktop_webrtc_ice_servers: if(enabled?(), do: ice_servers(session_id: session_id), else: [])
     }
   end
 
@@ -42,7 +44,10 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   def create_session(session_id, opts) when is_binary(session_id) do
     if enabled?() do
-      manager().create_session(session_id, Keyword.put_new(opts, :ice_servers, ice_servers()))
+      manager().create_session(
+        session_id,
+        Keyword.put_new(opts, :ice_servers, ice_servers(Keyword.put(opts, :session_id, session_id)))
+      )
     else
       {:error, "desktop webrtc remote access is unavailable"}
     end
@@ -74,11 +79,12 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     end
   end
 
-  def ice_servers do
+  def ice_servers(opts \\ []) do
     :serviceradar_web_ng
     |> Application.get_env(:remote_access_desktop_webrtc_ice_servers, [])
     |> Enum.map(&normalize_ice_server/1)
     |> Enum.reject(&is_nil/1)
+    |> Enum.map(&mint_turn_credentials(&1, opts))
     |> tap(&warn_on_unfresh_turn_credentials/1)
   end
 
@@ -122,7 +128,14 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
       %{
         urls: urls,
         username: optional_string(Map.get(server, :username) || Map.get(server, "username")),
-        credential: optional_string(Map.get(server, :credential) || Map.get(server, "credential"))
+        credential: optional_string(Map.get(server, :credential) || Map.get(server, "credential")),
+        turn_shared_secret:
+          optional_string(
+            Map.get(server, :turn_shared_secret) ||
+              Map.get(server, "turn_shared_secret") ||
+              Map.get(server, :shared_secret) ||
+              Map.get(server, "shared_secret")
+          )
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -141,6 +154,65 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
       "" -> nil
       trimmed -> trimmed
     end
+  end
+
+  defp mint_turn_credentials(%{urls: urls} = server, opts) when is_list(urls) do
+    if Enum.any?(urls, &turn_url?/1) do
+      case turn_shared_secret(server) do
+        nil ->
+          Map.delete(server, :turn_shared_secret)
+
+        shared_secret ->
+          username = "#{turn_credential_expires_at()}:#{turn_credential_subject(opts)}"
+
+          server
+          |> Map.delete(:turn_shared_secret)
+          |> Map.put(:username, username)
+          |> Map.put(:credential, turn_credential(shared_secret, username))
+      end
+    else
+      Map.delete(server, :turn_shared_secret)
+    end
+  end
+
+  defp mint_turn_credentials(server, _opts), do: Map.delete(server, :turn_shared_secret)
+
+  defp turn_shared_secret(server) do
+    server[:turn_shared_secret] ||
+      optional_string(Application.get_env(:serviceradar_web_ng, :remote_access_desktop_webrtc_turn_shared_secret))
+  end
+
+  defp turn_credential_expires_at do
+    System.system_time(:second) + turn_credential_ttl_seconds()
+  end
+
+  defp turn_credential_ttl_seconds do
+    :serviceradar_web_ng
+    |> Application.get_env(
+      :remote_access_desktop_webrtc_turn_credential_ttl_seconds,
+      @default_turn_credential_ttl_seconds
+    )
+    |> case do
+      seconds when is_integer(seconds) and seconds > 0 -> min(seconds, @max_turn_credential_ttl_seconds)
+      _other -> @default_turn_credential_ttl_seconds
+    end
+  end
+
+  defp turn_credential_subject(opts) do
+    opts
+    |> Keyword.get(:scope)
+    |> case do
+      %{user: %{id: id}} when not is_nil(id) -> id
+      _other -> Keyword.get(opts, :session_id, "desktop")
+    end
+    |> to_string()
+    |> String.replace(":", "_")
+  end
+
+  defp turn_credential(shared_secret, username) do
+    :hmac
+    |> :crypto.mac(:sha, shared_secret, username)
+    |> Base.encode64()
   end
 
   defp warn_on_unfresh_turn_credentials(servers) do
