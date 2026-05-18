@@ -1087,10 +1087,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: `ironrdp` is crypto/protocol code; floating minor lets a future `cargo update` swap behaviour silently.
       Fix: Add a `# audited <date>, RUSTSEC-clean` comment on each pinned line and add `cargo-deny`/`cargo-audit` to CI (see 6.9).
 
-- [ ] 6.9 [H] AGPL guardrail `check-teleport-license-paths.sh` is not invoked by any CI workflow
+- [x] 6.9 [H] AGPL guardrail `check-teleport-license-paths.sh` is not invoked by any CI workflow
       Where: `scripts/check-teleport-license-paths.sh` exists, `.forgejo/workflows/*` doesn't call it (working tree / staging)
       Why: The whole "no AGPL transitive Teleport import" guarantee in `expand-remote-access-teleport-parity` is enforced only by convention. Any contributor adds an offending import → it lands.
       Fix: New workflow `.forgejo/workflows/license-check.yml` running the script on every PR; fail build on non-zero exit; cache the Teleport checkout
+      Resolution: Added `.forgejo/workflows/license-check.yml`, which runs on PRs, protected-branch pushes, and manual dispatch, caches a Teleport checkout, installs Go from `go.mod`, discovers ServiceRadar's actual Teleport Go imports, and invokes `scripts/check-teleport-license-paths.sh` only when such imports exist.
 
 - [ ] 6.10 [L] Mixed action-pinning style — some `@v4`, some pinned SHAs
       Where: `.forgejo/workflows/release.yml`, `.forgejo/workflows/palisade-publish.yml` (working tree / staging)
