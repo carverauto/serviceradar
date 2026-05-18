@@ -18,10 +18,12 @@ defmodule ServiceRadarWebNGWeb.Router do
          "style-src 'self' 'unsafe-inline'; " <>
          "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; " <>
          "font-src 'self' data:; " <>
+         "media-src 'none'; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
          "child-src blob:; " <>
          "frame-src #{@frame_src}; " <>
+         "frame-ancestors 'none'; " <>
          "object-src 'none'; " <>
          "base-uri 'self'; " <>
          "form-action 'self'"
@@ -31,10 +33,12 @@ defmodule ServiceRadarWebNGWeb.Router do
                   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " <>
                   "img-src 'self' data: https:; " <>
                   "font-src 'self' data: https://fonts.gstatic.com; " <>
+                  "media-src 'none'; " <>
                   "connect-src 'self' https: wss:; " <>
                   "worker-src 'self' blob:; " <>
                   "child-src blob:; " <>
                   "frame-src #{@frame_src}; " <>
+                  "frame-ancestors 'none'; " <>
                   "object-src 'none'; " <>
                   "base-uri 'self'; " <>
                   "form-action 'self'"

@@ -475,10 +475,11 @@ Overall: the browser path is well-built — frame parsing fail-closed, DataChann
       Fix: Strict allowlist (`['avc1','vp8','vp09','av01']`); empty return → fail rendering and close the session.
       Resolution: WebCodecs renderer configuration now uses a strict `avc1`/`vp8`/`vp09`/`av01` codec-string allowlist and throws on disallowed encodings; the React session component closes the viewer when renderer frame application fails. Tests cover normalization and rejected codec strings.
 
-- [ ] 5.E2.4 [L] CSP doesn't explicitly set `media-src 'none'` / `frame-ancestors 'none'`
+- [x] 5.E2.4 [L] CSP doesn't explicitly set `media-src 'none'` / `frame-ancestors 'none'`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex:16-27` (working tree)
       Why: `default-src 'self'` covers media-src by inheritance; explicit `'none'` is defence-in-depth and prevents accidental relaxation.
       Fix: Add `media-src 'none'; frame-ancestors 'none'; display-capture 'none'` (Permissions-Policy) to the desktop-session response.
+      Resolution: Browser and API-doc CSP policies now include explicit `media-src 'none'` and `frame-ancestors 'none'`; the default Permissions-Policy now denies `display-capture=()`. Header tests assert the new CSP and Permissions-Policy directives.
 
 - [x] 5.E2.5 [L] Decoded `VideoFrame` not validated against canvas dimensions before `drawImage`
       Where: `elixir/web-ng/assets/js/lib/remote_desktop/renderer_runtime.js:142-147` (working tree)
@@ -486,10 +487,11 @@ Overall: the browser path is well-built — frame parsing fail-closed, DataChann
       Fix: Optional assert on `displayWidth/displayHeight` vs configured target size; close session on drift > threshold.
       Resolution: WebCodecs output now verifies decoded `VideoFrame.displayWidth/displayHeight` against the canvas render target before `drawImage`; mismatches throw, close the decoded frame, and are surfaced through the same renderer-error close path. Regression coverage asserts mismatch rejection.
 
-- [ ] 5.E2.6 [L] TURN credential freshness not validated at runtime
+- [x] 5.E2.6 [L] TURN credential freshness not validated at runtime
       Where: `elixir/web-ng/lib/serviceradar_web_ng/remote_desktop_webrtc.ex:89-127` (working tree)
       Why: Static TURN creds embedded in app config are an exfil/replay primitive if the config leaks.
       Fix: Either enforce time-bound usernames (`<unix-ts>:<actor>`) at config-load, or document that TURN credentials must be rotated by a deployment-layer process; emit warning at startup if rotation marker absent.
+      Resolution: Remote desktop WebRTC ICE server normalization now warns once when configured TURN/TURNS credentials are static or expired by the `<unix-ts>:<actor>` username convention, while accepting fresh time-bound usernames without warning. Tests cover static-warning and fresh-username paths.
 
 **Positives (E2):**
 - Frame parser validates magic, version, flag allowlist, reserved bytes, length bounds and trailing-bytes; throws on any error and the call-site closes the session — model implementation of the "fail closed on malformed media" commit (`1ad1907c4`).

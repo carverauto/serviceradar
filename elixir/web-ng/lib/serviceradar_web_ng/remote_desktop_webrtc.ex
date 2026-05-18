@@ -5,7 +5,10 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
 
   alias ServiceRadarWebNG.RemoteDesktopWebRTCSignalingManager
 
+  require Logger
+
   @webrtc_transport "webrtc_desktop_media"
+  @turn_credential_warning_key {__MODULE__, :turn_static_credential_warning_emitted}
 
   def transport_name, do: @webrtc_transport
 
@@ -76,6 +79,7 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
     |> Application.get_env(:remote_access_desktop_webrtc_ice_servers, [])
     |> Enum.map(&normalize_ice_server/1)
     |> Enum.reject(&is_nil/1)
+    |> tap(&warn_on_unfresh_turn_credentials/1)
   end
 
   defp manager do
@@ -138,4 +142,43 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
       trimmed -> trimmed
     end
   end
+
+  defp warn_on_unfresh_turn_credentials(servers) do
+    if Enum.any?(servers, &unfresh_turn_credentials?/1) &&
+         :persistent_term.get(@turn_credential_warning_key, false) == false do
+      :persistent_term.put(@turn_credential_warning_key, true)
+
+      Logger.warning(
+        "Remote desktop WebRTC TURN credentials should be ephemeral; configure time-bound TURN usernames or rotate credentials outside ServiceRadar"
+      )
+    end
+  end
+
+  defp unfresh_turn_credentials?(%{urls: urls} = server) when is_list(urls) do
+    Enum.any?(urls, &turn_url?/1) && has_turn_credentials?(server) && not time_bound_turn_username?(server[:username])
+  end
+
+  defp unfresh_turn_credentials?(_server), do: false
+
+  defp turn_url?(url) when is_binary(url) do
+    url
+    |> String.trim()
+    |> String.downcase()
+    |> then(&(String.starts_with?(&1, "turn:") || String.starts_with?(&1, "turns:")))
+  end
+
+  defp turn_url?(_url), do: false
+
+  defp has_turn_credentials?(server) do
+    is_binary(server[:username]) && server[:username] != "" && is_binary(server[:credential]) && server[:credential] != ""
+  end
+
+  defp time_bound_turn_username?(username) when is_binary(username) do
+    case username |> String.split(":", parts: 2) |> List.first() |> Integer.parse() do
+      {expires_at_unix, ""} -> expires_at_unix > System.system_time(:second)
+      _other -> false
+    end
+  end
+
+  defp time_bound_turn_username?(_username), do: false
 end
