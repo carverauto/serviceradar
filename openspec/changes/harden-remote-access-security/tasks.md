@@ -398,10 +398,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Scope read on `RemoteAccessRecording` via session → target → actor's device-level permission; deny if actor wasn't the original session actor unless an explicit `recordings.view_all` is held
       Resolution: Recording API show/events/export and the recordings LiveView now load the backing session and require the actor to match `session.requested_by`, unless the actor has `devices.remote_access.recordings.view_all`. Existing protocol-specific open permissions still gate protocol visibility, and cross-user misses return not-found to avoid exposing recording IDs.
 
-- [ ] 5.5 [H] CSRF protection on mutating JSON APIs relies on convention, not enforcement
+- [x] 5.5 [H] CSRF protection on mutating JSON APIs relies on convention, not enforcement
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex:307-379` (api_auth pipeline); `:880` `skip_csrf_protection_for_bearer_auth` (commit: staging)
       Why: Cookie-auth POSTs are covered by `:protect_from_forgery` only if every mutating endpoint lives in `:api_auth`. A pipeline mistake silently disables CSRF.
       Fix: Add a CI lint (or a runtime guard) that fails the build if a `post|put|patch|delete` route on the remote-access surface isn't routed through a pipeline that includes `:protect_from_forgery`
+      Resolution: Added a static router regression test that parses `router.ex`, asserts `:api_auth` still includes `:protect_from_forgery`, and fails if any mutating `/remote-access...` API route is declared outside the `:api_auth` pipeline.
 
 - [ ] 5.6 [M] Host-key fingerprints / target labels rendered in EEx assumed safe
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/remote_access_host_keys_live.ex:230, 242, 310, 323` (commit: staging)
