@@ -10,6 +10,42 @@ The playbook installs:
 
 It does not handle the CA private key. Keep the private key in the ServiceRadar signer custody boundary only. For production, prefer an isolated signer backed by OpenBao Transit, Vault Transit, cloud KMS, or an HSM; the file/env-key signer is a bootstrap path, not the long-term custody model.
 
+## CA Private-Key Custody
+
+Treat the SSH user CA private key as a signing authority, not as an agent
+credential. It must not be copied to ServiceRadar agents, target hosts, AWX
+inventory variables, or playbook `extra_vars`.
+
+The production pattern is:
+
+1. Keep the CA private key inside a dedicated signer boundary backed by OpenBao
+   Transit, Vault Transit, cloud KMS, or an HSM.
+2. Configure ServiceRadar to call that signer through
+   `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND`.
+3. Have the signer consume `SERVICERADAR_SSHCA_SIGN_REQUEST_FILE`, apply the
+   same bounded JSON request/response contract as `serviceradar-sshca-signer`,
+   and return only the signed OpenSSH user certificate on stdout.
+4. Emit signer-side audit records for key load, key id, actor/session metadata,
+   requested principals, TTL, and denial reasons.
+
+The bundled `serviceradar-sshca-signer` is for bootstrap and lab use when the CA
+key is supplied from a file or environment variable. If you use it during
+bootstrap, pass `--audit-file /var/log/serviceradar/sshca-signer-audit.jsonl`
+or set `SERVICERADAR_SSHCA_AUDIT_FILE` so key-load events are appended outside
+stdout. The audit event records the source kind (`file` or `env`) and CA public
+key fingerprint, never the private key material or file path.
+
+Rotation procedure:
+
+1. Generate or provision a new CA key in the signer custody backend.
+2. Distribute the new CA public key to targets while keeping the old public key
+   trusted.
+3. Switch `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` and the signer backend/key
+   reference to the new CA.
+4. Wait longer than the maximum certificate TTL.
+5. Remove the old CA public key from targets and archive the old signer audit
+   stream.
+
 ## ServiceRadar Launch Path
 
 ServiceRadar's Ansible integration runs playbooks through a registered AWX/AAP controller. Operators normally do not run `ansible-playbook` by hand.

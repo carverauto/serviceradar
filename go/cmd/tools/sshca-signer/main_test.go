@@ -23,16 +23,20 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
 )
 
+const testCAKeyEnv = "SR_TEST_CA_KEY"
+
 func TestRunSignsCertificateFromJSONRequest(t *testing.T) {
 	t.Parallel()
 
-	_, caPrivateKey := newTestSigner(t)
+	caSigner, caPrivateKey := newTestSigner(t)
 	userSigner, _ := newTestSigner(t)
 
 	request := signRequest{
@@ -49,12 +53,12 @@ func TestRunSignsCertificateFromJSONRequest(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := run(
-		[]string{"--ca-key-env=SR_TEST_CA_KEY", "--max-ttl=1h"},
+		[]string{"--ca-key-env=" + testCAKeyEnv, "--max-ttl=1h"},
 		stdin,
 		&stdout,
 		&stderr,
 		func(key string) string {
-			if key == "SR_TEST_CA_KEY" {
+			if key == testCAKeyEnv {
 				return string(privateKeyPEM(t, caPrivateKey))
 			}
 			return ""
@@ -78,6 +82,12 @@ func TestRunSignsCertificateFromJSONRequest(t *testing.T) {
 	if response.ExpiresAt == "" {
 		t.Fatal("expires_at is empty")
 	}
+	if response.CAKeySource != caKeySourceEnv {
+		t.Fatalf("ca_key_source = %q, want %q", response.CAKeySource, caKeySourceEnv)
+	}
+	if response.CAKeyFingerprint != ssh.FingerprintSHA256(caSigner.PublicKey()) {
+		t.Fatalf("ca_key_fingerprint = %q", response.CAKeyFingerprint)
+	}
 
 	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(response.Certificate))
 	if err != nil {
@@ -100,7 +110,7 @@ func TestRunRejectsMissingCAKey(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	exitCode := run(
-		[]string{"--ca-key-env=SR_TEST_CA_KEY"},
+		[]string{"--ca-key-env=" + testCAKeyEnv},
 		strings.NewReader(`{}`),
 		&stdout,
 		&stderr,
@@ -114,6 +124,64 @@ func TestRunRejectsMissingCAKey(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestRunWritesCAKeyLoadAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	caSigner, caPrivateKey := newTestSigner(t)
+	userSigner, _ := newTestSigner(t)
+	auditFile := filepath.Join(t.TempDir(), "sshca-audit.jsonl")
+
+	request := signRequest{
+		PublicKey:  strings.TrimSpace(string(ssh.MarshalAuthorizedKey(userSigner.PublicKey()))),
+		KeyID:      "sr:remote-access:session-2:user-1:agent-1:ssh:device-1",
+		Principals: []string{"ubuntu"},
+		TTLSeconds: 300,
+	}
+	stdin := new(bytes.Buffer)
+	if err := json.NewEncoder(stdin).Encode(request); err != nil {
+		t.Fatalf("encode request: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := run(
+		[]string{"--ca-key-env=" + testCAKeyEnv, "--audit-file=" + auditFile},
+		stdin,
+		&stdout,
+		&stderr,
+		func(key string) string {
+			if key == testCAKeyEnv {
+				return string(privateKeyPEM(t, caPrivateKey))
+			}
+			return ""
+		},
+	)
+	if exitCode != 0 {
+		t.Fatalf("run exit code = %d, stderr = %s", exitCode, stderr.String())
+	}
+
+	auditBytes, err := os.ReadFile(auditFile)
+	if err != nil {
+		t.Fatalf("read audit file: %v", err)
+	}
+
+	var event map[string]any
+	if err := json.Unmarshal(auditBytes, &event); err != nil {
+		t.Fatalf("decode audit event: %v", err)
+	}
+	if event["event"] != auditEventCAKeyLoaded {
+		t.Fatalf("event = %v, want %q", event["event"], auditEventCAKeyLoaded)
+	}
+	if event["ca_key_source"] != caKeySourceEnv {
+		t.Fatalf("ca_key_source = %v, want %q", event["ca_key_source"], caKeySourceEnv)
+	}
+	if event["ca_key_fingerprint"] != ssh.FingerprintSHA256(caSigner.PublicKey()) {
+		t.Fatalf("ca_key_fingerprint = %v", event["ca_key_fingerprint"])
+	}
+	if _, exists := event["ca_key_path"]; exists {
+		t.Fatal("audit event leaked ca_key_path")
 	}
 }
 

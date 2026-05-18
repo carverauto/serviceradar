@@ -27,19 +27,30 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/remoteaccess/sshca"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
 	defaultCAKeyEnv          = "SERVICERADAR_SSH_CA_KEY"
 	defaultCAPassphraseEnv   = "SERVICERADAR_SSH_CA_PASSPHRASE"
 	defaultRequestFileEnv    = "SERVICERADAR_SSHCA_SIGN_REQUEST_FILE"
+	defaultAuditFileEnv      = "SERVICERADAR_SSHCA_AUDIT_FILE"
 	defaultMaxCertificateTTL = 8 * time.Hour
+	caKeySourceEnv           = "env"
+	caKeySourceFile          = "file"
+	auditEventCAKeyLoaded    = "ssh_ca_key_loaded"
 )
 
 var (
 	errCAKeySourceRequired = errors.New("CA key source is required")
 	errCAKeyRequired       = errors.New("CA key is required")
+	errAuditEventWrite     = errors.New("write ssh ca signer audit event")
 )
+
+type caKeyMaterial struct {
+	key    []byte
+	source string
+}
 
 type signRequest struct {
 	PublicKey       string            `json:"public_key"`
@@ -53,10 +64,12 @@ type signRequest struct {
 }
 
 type signResponse struct {
-	Certificate string `json:"certificate"`
-	ExpiresAt   string `json:"expires_at"`
-	Fingerprint string `json:"fingerprint"`
-	Serial      uint64 `json:"serial"`
+	Certificate      string `json:"certificate"`
+	ExpiresAt        string `json:"expires_at"`
+	Fingerprint      string `json:"fingerprint"`
+	Serial           uint64 `json:"serial"`
+	CAKeySource      string `json:"ca_key_source,omitempty"`
+	CAKeyFingerprint string `json:"ca_key_fingerprint,omitempty"`
 }
 
 func main() {
@@ -74,6 +87,7 @@ func run(
 		caKeyFile        string
 		caKeyEnv         string
 		caPassphraseEnv  string
+		auditFile        string
 		maxCertificateTT time.Duration
 	)
 
@@ -82,9 +96,14 @@ func run(
 	flags.StringVar(&caKeyFile, "ca-key-file", "", "path to the OpenSSH/PEM SSH CA private key")
 	flags.StringVar(&caKeyEnv, "ca-key-env", defaultCAKeyEnv, "environment variable containing the SSH CA private key")
 	flags.StringVar(&caPassphraseEnv, "ca-passphrase-env", defaultCAPassphraseEnv, "environment variable containing the SSH CA private key passphrase")
+	flags.StringVar(&auditFile, "audit-file", "", "path to append JSONL SSH CA signer audit events; defaults to SERVICERADAR_SSHCA_AUDIT_FILE")
 	flags.DurationVar(&maxCertificateTT, "max-ttl", defaultMaxCertificateTTL, "maximum certificate TTL")
 	if err := flags.Parse(args); err != nil {
 		return 2
+	}
+
+	if strings.TrimSpace(auditFile) == "" {
+		auditFile = getenv(defaultAuditFileEnv)
 	}
 
 	caKey, err := loadCAKey(caKeyFile, caKeyEnv, getenv)
@@ -111,10 +130,15 @@ func run(
 		return 2
 	}
 
-	ca, err := sshca.New(caKey, []byte(getenv(caPassphraseEnv)), sshca.WithMaxTTL(maxCertificateTT))
+	ca, err := sshca.New(caKey.key, []byte(getenv(caPassphraseEnv)), sshca.WithMaxTTL(maxCertificateTT))
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "sshca-signer: initialize signer: %v\n", err)
 		return 2
+	}
+	caKeyFingerprint := ssh.FingerprintSHA256(ca.PublicKey())
+	if err := appendAuditEvent(auditFile, caKey.source, ca.PublicKey().Type(), caKeyFingerprint, maxCertificateTT); err != nil {
+		_, _ = fmt.Fprintf(stderr, "sshca-signer: %v\n", err)
+		return 1
 	}
 
 	signed, err := ca.SignUserCertificate(sshReq)
@@ -124,10 +148,12 @@ func run(
 	}
 
 	resp := signResponse{
-		Certificate: strings.TrimSpace(string(signed.AuthorizedKey)),
-		ExpiresAt:   signed.ExpiresAt.UTC().Format(time.RFC3339),
-		Fingerprint: signed.PublicKeyFingerprint,
-		Serial:      signed.Certificate.Serial,
+		Certificate:      strings.TrimSpace(string(signed.AuthorizedKey)),
+		ExpiresAt:        signed.ExpiresAt.UTC().Format(time.RFC3339),
+		Fingerprint:      signed.PublicKeyFingerprint,
+		Serial:           signed.Certificate.Serial,
+		CAKeySource:      caKey.source,
+		CAKeyFingerprint: caKeyFingerprint,
 	}
 	if err := json.NewEncoder(stdout).Encode(resp); err != nil {
 		_, _ = fmt.Fprintf(stderr, "sshca-signer: encode response: %v\n", err)
@@ -137,24 +163,60 @@ func run(
 	return 0
 }
 
-func loadCAKey(path, envName string, getenv func(string) string) ([]byte, error) {
+func loadCAKey(path, envName string, getenv func(string) string) (caKeyMaterial, error) {
 	if strings.TrimSpace(path) != "" {
 		key, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read CA key file: %w", err)
+			return caKeyMaterial{}, fmt.Errorf("read CA key file: %w", err)
 		}
-		return key, nil
+		return caKeyMaterial{key: key, source: caKeySourceFile}, nil
 	}
 
 	if strings.TrimSpace(envName) == "" {
-		return nil, errCAKeySourceRequired
+		return caKeyMaterial{}, errCAKeySourceRequired
 	}
 
 	key := []byte(getenv(envName))
 	if strings.TrimSpace(string(key)) == "" {
-		return nil, fmt.Errorf("%w in %s or --ca-key-file", errCAKeyRequired, envName)
+		return caKeyMaterial{}, fmt.Errorf("%w in %s or --ca-key-file", errCAKeyRequired, envName)
 	}
-	return key, nil
+	return caKeyMaterial{key: key, source: caKeySourceEnv}, nil
+}
+
+func appendAuditEvent(path, source, keyType, fingerprint string, maxTTL time.Duration) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("%w: %w", errAuditEventWrite, err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = file.Close()
+		}
+	}()
+
+	event := map[string]any{
+		"event":              auditEventCAKeyLoaded,
+		"timestamp":          time.Now().UTC().Format(time.RFC3339Nano),
+		"ca_key_source":      source,
+		"ca_key_type":        keyType,
+		"ca_key_fingerprint": fingerprint,
+		"max_ttl_seconds":    int64(maxTTL.Seconds()),
+	}
+	if err := json.NewEncoder(file).Encode(event); err != nil {
+		return fmt.Errorf("%w: %w", errAuditEventWrite, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("%w: %w", errAuditEventWrite, err)
+	}
+	closed = true
+
+	return nil
 }
 
 func signerRequestReader(stdin io.Reader, requestFile string) (io.Reader, func(), error) {

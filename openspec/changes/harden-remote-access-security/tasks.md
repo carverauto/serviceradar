@@ -170,10 +170,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: Fragile; one careless edit to the shell template reintroduces injection. Use `exec` rather than shell.
       Fix: `System.cmd/3` with explicit binary path + arg list, no shell
 
-- [ ] 2.6 [L] CA private key custody is env-var / file with no HSM/KMS path documented
+- [x] 2.6 [L] CA private key custody is env-var / file with no HSM/KMS path documented
       Where: `go/cmd/tools/sshca-signer/main.go:89-106`; `docs/ansible/remote-access-ssh-ca/README.md` (commit: staging)
       Why: A compromise of the host (or a leaked process dump) reveals the bastion-wide signing key.
       Fix: Add an OpenBao/Vault/KMS backend option and document rotation procedure; emit audit on key load
+      Resolution: ServiceRadar's external command signer is the production KMS/HSM boundary: operators can replace the bootstrap file/env signer with an OpenBao/Vault Transit, cloud KMS, or HSM-backed signer that implements the same bounded JSON contract. The bootstrap `serviceradar-sshca-signer` now exposes CA public-key fingerprint/source metadata in its response and supports `--audit-file` / `SERVICERADAR_SSHCA_AUDIT_FILE` for JSONL key-load audit without polluting stdout. Operator docs now cover custody, signer wrapping, and overlapping CA rotation.
 
 - [x] 2.7 [L] Signer accepts any parsed key type — no explicit allowlist of algorithms
       Where: `go/pkg/remoteaccess/sshca/sshca.go:85-105` (commit: staging)

@@ -71,13 +71,21 @@ Transit, cloud KMS, or an HSM. That signer should expose the same bounded comman
 interface, load the key inside the custody boundary, audit every signing request,
 and deny operation if the custody backend is unavailable.
 
+The command-signer boundary is the ServiceRadar KMS/HSM integration point. A
+production signer wrapper can keep a non-exportable key in OpenBao/Vault Transit,
+cloud KMS, or an HSM and implement the same stdin/request-file JSON contract as
+`serviceradar-sshca-signer`. ServiceRadar should receive only the signed
+certificate response. If the bootstrap signer is used with a file or environment
+key, configure `--audit-file` or `SERVICERADAR_SSHCA_AUDIT_FILE` so the signer
+records CA key-load events without writing audit data to stdout.
+
 Configure the signer in the web-ng or core environment that approves remote access sessions:
 
 ```bash
 SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED=true
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED=true
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND=serviceradar-sshca-signer
-SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secrets/serviceradar_ssh_ca","--max-ttl","8h"]'
+SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secrets/serviceradar_ssh_ca","--max-ttl","8h","--audit-file","/var/log/serviceradar/sshca-signer-audit.jsonl"]'
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 ```
 
