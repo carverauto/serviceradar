@@ -556,6 +556,9 @@ defmodule Monitoring.ConsoleFrame do
   field(:rows, 5, type: :uint32)
   field(:reason, 6, type: :string)
   field(:timestamp, 7, type: :int64)
+  field(:seq, 8, type: :uint64)
+  field(:payload_sha256, 9, type: :string, json_name: "payloadSha256")
+  field(:signature, 10, type: :string)
 end
 
 defmodule Monitoring.ControlStreamRequest do

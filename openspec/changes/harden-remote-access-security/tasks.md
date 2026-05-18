@@ -321,10 +321,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: `reviewer_policy.allow_self_approval` defaults false but is not encoded as an Ash policy bypass — a requester holding a generic review permission could approve their own request via the `approve` action.
       Fix: Add `forbid_if expr(approver_id == requested_by)` to the approve policy unless `allow_self_approval` is true and explicit
 
-- [ ] 4.4 [H] Broker accepts agent frames using string equality on `session_id` / `agent_id` — no cryptographic binding
+- [x] 4.4 [H] Broker accepts agent frames using string equality on `session_id` / `agent_id` — no cryptographic binding
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_broker.ex:185-248` (`owns_remote_access_frame?`) (commit: staging)
       Why: A compromised or impersonating agent that knows / guesses an active `(session_id, agent_id)` pair can inject control / media frames; broker has no per-frame signature.
       Fix: Mint a per-session HMAC key when the broker accepts an agent; require every frame carry an HMAC over `(session_id, agent_id, seq, payload_hash)`; verify before routing
+      Resolution: Broker open frames now include a per-session `frame_auth` HMAC key, agent-to-broker `ConsoleFrame` messages carry `seq`, `payload_sha256`, and `signature`, and the broker verifies route binding, monotonic sequence, payload hash, and HMAC before routing terminal, file-transfer, enhanced-recording, or close frames. The Go agent signs remote-access console and file-transfer responses with the same session signer.
 
 - [ ] 4.5 [H] Host-key `:conflict` keys can be manually promoted to `:trusted` without rotation audit
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_host_keys.ex:145-176`; `remote_access_host_key.ex:131-134` (commit: staging)
@@ -341,10 +342,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: Concurrent attach attempts on the same approval can both pass the state check before the partial unique constraint catches the second write; the loser may have already triggered side effects (session creation, audit row).
       Fix: Wrap in Ash transaction with `pg_advisory_xact_lock` keyed on approval_id, or use a strict state transition with optimistic locking on `consumed_at`
 
-- [ ] 4.8 [M] Credential grant `secret_ref` not provably signed/short-lived
+- [x] 4.8 [M] Credential grant `secret_ref` not provably signed/short-lived
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_central_credential_grants.ex:114` (commit: staging)
       Why: The ref is sent in the open-frame metadata and could be replayed if any layer logs it; spec doesn't guarantee it's HMAC-signed with a sub-minute TTL.
       Fix: Verify `SecretRefs.network_credential_ref/1` returns an HMAC-signed, timestamped opaque token; refuse deref on replay or expiry. If not, switch implementation
+      Resolution: Closed by 3.H.3. Remote-access central credential grants now emit HMAC-signed `credentialref:network-credential-grant:` refs with expiry, nonce, binding claims, replay rejection, and a maximum 60-second TTL.
 
 - [ ] 4.9 [M] Desktop-target redaction uses field-allowlist `@fields`; new fields default to un-redacted
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/changes/redact_desktop_target_policy.ex:34-44` (working tree)

@@ -61,6 +61,8 @@ type proxmoxConsoleManager struct {
 	opener          proxmoxConsoleOpener
 	manager         *remoteaccess.Manager
 	sshOptions      remoteaccess.SSHOpenOptions
+	frameAuthMu     sync.Mutex
+	frameAuth       map[string]*remoteaccess.FrameAuthenticator
 	sshMu           sync.Mutex
 	sshConfig       map[string]remoteaccess.SSHConfig
 	desktopMu       sync.Mutex
@@ -92,6 +94,7 @@ func newProxmoxConsoleManagerWithRoute(agentID string, gatewayID string, _ logge
 	manager := &proxmoxConsoleManager{
 		agentID:         agentID,
 		gatewayID:       gatewayID,
+		frameAuth:       make(map[string]*remoteaccess.FrameAuthenticator),
 		sshConfig:       make(map[string]remoteaccess.SSHConfig),
 		desktopSessions: make(map[string]desktopConsoleSession),
 		uploads:         make(map[string]*fileTransferUpload),
@@ -126,9 +129,18 @@ func (m *proxmoxConsoleManager) HandleFrame(ctx context.Context, frame *proto.Co
 		return
 	}
 
+	sender = m.signingSender(sender)
+
 	var remoteSender remoteaccess.Sender
 	if sender != nil {
 		remoteSender = proxmoxConsoleRemoteSender{sender: sender}
+	}
+
+	if frame.GetFrameType() == consoleFrameTypeOpen {
+		if err := m.registerFrameAuthenticator(frame); err != nil {
+			sendProxmoxConsoleRemoteError(remoteSender, frame.GetSessionId(), err.Error())
+			return
+		}
 	}
 
 	if frame.GetFrameType() == consoleFrameTypeOpen && isDesktopProtocol(consoleFrameProtocol(frame)) {
@@ -431,6 +443,31 @@ type proxmoxConsoleRemoteSender struct {
 	sender proxmoxConsoleSender
 }
 
+type signingProxmoxConsoleSender struct {
+	manager *proxmoxConsoleManager
+	sender  proxmoxConsoleSender
+}
+
+func (m *proxmoxConsoleManager) signingSender(sender proxmoxConsoleSender) proxmoxConsoleSender {
+	if m == nil || sender == nil {
+		return sender
+	}
+
+	return signingProxmoxConsoleSender{manager: m, sender: sender}
+}
+
+func (s signingProxmoxConsoleSender) Send(req *proto.ControlStreamRequest) error {
+	if req == nil {
+		return s.sender.Send(req)
+	}
+
+	if frame := req.GetConsoleFrame(); frame != nil {
+		s.manager.signConsoleFrame(frame)
+	}
+
+	return s.sender.Send(req)
+}
+
 func (s proxmoxConsoleRemoteSender) SendFrame(frame remoteaccess.Frame) error {
 	return s.sender.Send(consoleControlFrame(
 		frame.SessionID,
@@ -439,6 +476,9 @@ func (s proxmoxConsoleRemoteSender) SendFrame(frame remoteaccess.Frame) error {
 		frame.Reason,
 		frame.Cols,
 		frame.Rows,
+		frame.Seq,
+		frame.PayloadSHA256,
+		frame.Signature,
 	))
 }
 
@@ -449,16 +489,76 @@ func (m *proxmoxConsoleManager) proxmoxConsoleRemoteFrame(frame *proto.ConsoleFr
 	}
 
 	return remoteaccess.Frame{
+		SessionID:     frame.GetSessionId(),
+		Protocol:      consoleFrameProtocol(frame),
+		FrameType:     frame.GetFrameType(),
+		Data:          frame.GetData(),
+		Cols:          frame.GetCols(),
+		Rows:          frame.GetRows(),
+		Reason:        frame.GetReason(),
+		Timestamp:     frame.GetTimestamp(),
+		Seq:           frame.GetSeq(),
+		PayloadSHA256: frame.GetPayloadSha256(),
+		Signature:     frame.GetSignature(),
+		Metadata:      metadata,
+	}
+}
+
+func (m *proxmoxConsoleManager) registerFrameAuthenticator(frame *proto.ConsoleFrame) error {
+	auth, err := remoteaccess.NewFrameAuthenticatorFromOpenPayload(frame.GetData())
+	if err != nil {
+		return err
+	}
+	if auth == nil {
+		return nil
+	}
+
+	m.frameAuthMu.Lock()
+	m.frameAuth[frame.GetSessionId()] = auth
+	m.frameAuthMu.Unlock()
+
+	return nil
+}
+
+func (m *proxmoxConsoleManager) signConsoleFrame(frame *proto.ConsoleFrame) {
+	if m == nil || frame == nil || frame.GetSessionId() == "" {
+		return
+	}
+
+	auth := m.frameAuthenticator(frame.GetSessionId())
+	if auth == nil {
+		return
+	}
+
+	signed := auth.Sign(remoteaccess.Frame{
 		SessionID: frame.GetSessionId(),
-		Protocol:  consoleFrameProtocol(frame),
 		FrameType: frame.GetFrameType(),
 		Data:      frame.GetData(),
 		Cols:      frame.GetCols(),
 		Rows:      frame.GetRows(),
 		Reason:    frame.GetReason(),
-		Timestamp: frame.GetTimestamp(),
-		Metadata:  metadata,
+	}, m.agentID)
+
+	frame.Seq = signed.Seq
+	frame.PayloadSha256 = signed.PayloadSHA256
+	frame.Signature = signed.Signature
+
+	if frame.GetFrameType() == consoleFrameTypeClose {
+		m.deleteFrameAuthenticator(frame.GetSessionId())
 	}
+}
+
+func (m *proxmoxConsoleManager) frameAuthenticator(sessionID string) *remoteaccess.FrameAuthenticator {
+	m.frameAuthMu.Lock()
+	defer m.frameAuthMu.Unlock()
+
+	return m.frameAuth[sessionID]
+}
+
+func (m *proxmoxConsoleManager) deleteFrameAuthenticator(sessionID string) {
+	m.frameAuthMu.Lock()
+	delete(m.frameAuth, sessionID)
+	m.frameAuthMu.Unlock()
 }
 
 func routeMetadata(agentID string, gatewayID string) map[string]string {
@@ -504,13 +604,16 @@ func consoleFrameProtocol(frame *proto.ConsoleFrame) string {
 
 func remoteAccessConsoleFrame(frame remoteaccess.Frame) *proto.ConsoleFrame {
 	return &proto.ConsoleFrame{
-		SessionId: frame.SessionID,
-		FrameType: frame.FrameType,
-		Data:      frame.Data,
-		Cols:      frame.Cols,
-		Rows:      frame.Rows,
-		Reason:    frame.Reason,
-		Timestamp: frame.Timestamp,
+		SessionId:     frame.SessionID,
+		FrameType:     frame.FrameType,
+		Data:          frame.Data,
+		Cols:          frame.Cols,
+		Rows:          frame.Rows,
+		Reason:        frame.Reason,
+		Timestamp:     frame.Timestamp,
+		Seq:           frame.Seq,
+		PayloadSha256: frame.PayloadSHA256,
+		Signature:     frame.Signature,
 	}
 }
 
@@ -641,17 +744,23 @@ func consoleControlFrame(
 	reason string,
 	cols uint32,
 	rows uint32,
+	seq uint64,
+	payloadSHA256 string,
+	signature string,
 ) *proto.ControlStreamRequest {
 	return &proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_ConsoleFrame{
 			ConsoleFrame: &proto.ConsoleFrame{
-				SessionId: sessionID,
-				FrameType: frameType,
-				Data:      data,
-				Cols:      cols,
-				Rows:      rows,
-				Reason:    reason,
-				Timestamp: time.Now().Unix(),
+				SessionId:     sessionID,
+				FrameType:     frameType,
+				Data:          data,
+				Cols:          cols,
+				Rows:          rows,
+				Reason:        reason,
+				Timestamp:     time.Now().Unix(),
+				Seq:           seq,
+				PayloadSha256: payloadSHA256,
+				Signature:     signature,
 			},
 		},
 	}

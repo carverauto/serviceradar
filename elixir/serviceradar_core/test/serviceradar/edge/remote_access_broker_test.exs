@@ -326,20 +326,24 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert %{"target" => %{"device_uid" => "device-1", "host" => "10.0.0.20", "port" => 2022}} =
              Jason.decode!(frame.data)
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-struct-1", agent_id: "agent-1", frame_type: "ready"}}
-    )
+    auth = frame_auth_from_open(frame)
+
+    auth =
+      send_signed_frame(pid, auth, %{
+        session_id: "session-struct-1",
+        agent_id: "agent-1",
+        frame_type: "ready"
+      })
 
     assert_receive {:remote_access_ready, "session-struct-1"}
     assert_receive {:lifecycle, :activate_session, "session-struct-1"}
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-struct-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
-    )
+    send_signed_frame(pid, auth, %{
+      session_id: "session-struct-1",
+      agent_id: "agent-1",
+      frame_type: "close",
+      reason: "done"
+    })
 
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:lifecycle, :close_session, "session-struct-1", close_opts}
@@ -361,23 +365,27 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           required_gateway_node: self()}}
       )
 
-    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
     assert_receive {:audit, open_audit}
     assert open_audit[:action] == :remote_access_session_opened
+    auth = frame_auth_from_open(frame)
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "hello"}}
-    )
+    auth =
+      send_signed_frame(pid, auth, %{
+        session_id: "session-1",
+        agent_id: "agent-1",
+        frame_type: "data",
+        data: "hello"
+      })
 
     assert_receive {:remote_access_data, "hello"}
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
-    )
+    send_signed_frame(pid, auth, %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "close",
+      reason: "done"
+    })
 
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:audit, closed_audit}
@@ -400,7 +408,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           required_gateway_node: self()}}
       )
 
-    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = open_frame, _opts}
     assert_receive {:audit, open_audit}
     assert open_audit[:action] == :remote_access_session_opened
 
@@ -411,10 +419,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       data: Jason.encode!(%{transfer_id: "transfer-1", status: "completed", entries: []})
     }
 
-    send(pid, {:remote_access_frame, frame})
+    {signed_frame, _auth} = sign_frame(frame_auth_from_open(open_frame), frame)
+    send(pid, {:remote_access_frame, signed_frame})
 
-    assert_receive {:remote_access_file_transfer_frame, ^frame}
-    assert_receive {:file_transfer_agent_frame, ^frame, frame_opts}
+    assert_receive {:remote_access_file_transfer_frame, ^signed_frame}
+    assert_receive {:file_transfer_agent_frame, ^signed_frame, frame_opts}
     assert frame_opts[:audit_writer] == AuditWriterStub
     refute_receive {:remote_access_data, _payload}
   end
@@ -608,16 +617,19 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           required_gateway_node: self()}}
       )
 
-    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
     assert_receive {:audit, open_audit}
     assert open_audit[:action] == :remote_access_session_opened
     assert_receive {:recording_create, ^session, recording_opts}
     refute inspect(recording_opts) =~ "must-not-be-used"
+    auth = frame_auth_from_open(frame)
 
-    send(
-      pid,
-      {:remote_access_frame, %{session_id: "session-1", agent_id: "agent-1", frame_type: "ready"}}
-    )
+    auth =
+      send_signed_frame(pid, auth, %{
+        session_id: "session-1",
+        agent_id: "agent-1",
+        frame_type: "ready"
+      })
 
     assert_receive {:remote_access_ready, "session-1"}
     assert_receive {:recording_active, %{id: "recording-1"}, _opts}
@@ -630,19 +642,22 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:audit, input_audit}
     assert input_audit[:details].input_bytes == 7
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "root\n"}}
-    )
+    auth =
+      send_signed_frame(pid, auth, %{
+        session_id: "session-1",
+        agent_id: "agent-1",
+        frame_type: "data",
+        data: "root\n"
+      })
 
     assert_receive {:remote_access_data, "root\n"}
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
-    )
+    send_signed_frame(pid, auth, %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "close",
+      reason: "done"
+    })
 
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:recording_complete, %{id: "recording-1"}, stats, _opts}
@@ -703,9 +718,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           required_gateway_node: self()}}
       )
 
-    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
     assert_receive {:audit, open_audit}
     assert open_audit[:action] == :remote_access_session_opened
+    auth = frame_auth_from_open(frame)
 
     send(
       pid,
@@ -741,19 +757,22 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute_receive {:remote_access_data, _data}, 50
     refute_receive {:remote_access_closed, _reason}, 50
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "owned"}}
-    )
+    auth =
+      send_signed_frame(pid, auth, %{
+        session_id: "session-1",
+        agent_id: "agent-1",
+        frame_type: "data",
+        data: "owned"
+      })
 
     assert_receive {:remote_access_data, "owned"}
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "close", reason: "done"}}
-    )
+    send_signed_frame(pid, auth, %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "close",
+      reason: "done"
+    })
 
     assert_receive {:remote_access_closed, "done"}
   end
@@ -785,15 +804,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
           required_gateway_node: self()}}
       )
 
-    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
     assert_receive {:audit, open_audit}
     assert open_audit[:action] == :remote_access_session_opened
+    auth = frame_auth_from_open(frame)
 
-    send(
-      pid,
-      {:remote_access_frame,
-       %{session_id: "session-1", agent_id: "agent-1", frame_type: "desktop.secret"}}
-    )
+    send_signed_frame(pid, auth, %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "desktop.secret"
+    })
 
     assert_receive {:audit, reject_audit}
     assert reject_audit[:action] == :remote_access_session_frame_rejected
@@ -1111,4 +1131,50 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       }
     }
   end
+
+  defp frame_auth_from_open(%{data: data}) do
+    %{"frame_auth" => %{"key" => key}} = Jason.decode!(data)
+    {:ok, decoded_key} = Base.url_decode64(key, padding: false)
+    %{key: decoded_key, seq: 0}
+  end
+
+  defp send_signed_frame(pid, auth, frame) do
+    {frame, auth} = sign_frame(auth, frame)
+    send(pid, {:remote_access_frame, frame})
+    auth
+  end
+
+  defp sign_frame(auth, frame) do
+    seq = auth.seq + 1
+    payload_hash = :sha256 |> :crypto.hash(frame_data(frame)) |> Base.encode16(case: :lower)
+
+    signature =
+      :hmac
+      |> :crypto.mac(:sha256, auth.key, canonical_frame_binding(frame, seq, payload_hash))
+      |> Base.url_encode64(padding: false)
+
+    {
+      Map.merge(frame, %{seq: seq, payload_sha256: payload_hash, signature: signature}),
+      %{auth | seq: seq}
+    }
+  end
+
+  defp canonical_frame_binding(frame, seq, payload_hash) do
+    Enum.join(
+      [
+        "serviceradar.remote_access.frame.v1",
+        Map.get(frame, :session_id) || Map.get(frame, "session_id") || "",
+        Map.get(frame, :agent_id) || Map.get(frame, "agent_id") || "",
+        Integer.to_string(seq),
+        Map.get(frame, :frame_type) || Map.get(frame, "frame_type") || "",
+        Integer.to_string(Map.get(frame, :cols) || Map.get(frame, "cols") || 0),
+        Integer.to_string(Map.get(frame, :rows) || Map.get(frame, "rows") || 0),
+        Map.get(frame, :reason) || Map.get(frame, "reason") || "",
+        payload_hash
+      ],
+      "\n"
+    )
+  end
+
+  defp frame_data(frame), do: Map.get(frame, :data) || Map.get(frame, "data") || ""
 end

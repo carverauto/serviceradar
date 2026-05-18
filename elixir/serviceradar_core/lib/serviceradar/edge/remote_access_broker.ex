@@ -32,6 +32,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @default_credential_mode "user_present"
   @default_terminal_type "xterm-256color"
   @default_ssh_host_key_policy "known_hosts"
+  @frame_auth_algorithm "hmac-sha256-v1"
+  @frame_auth_domain "serviceradar.remote_access.frame.v1"
   @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
   @file_transfer_frame_types ~w(
     file_transfer_progress
@@ -82,6 +84,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   def init({session, owner, opts}) do
     Process.monitor(owner)
     :ok = pubsub(opts).subscribe(session_id(session))
+    frame_auth = new_frame_auth()
 
     state = %{
       session: session,
@@ -96,6 +99,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       recordings: Keyword.get(opts, :recordings, RemoteAccessRecordings),
       recording: nil,
       recording_stats: %{input_bytes: 0, output_bytes: 0, event_count: 0},
+      frame_auth: frame_auth,
       pubsub: pubsub(opts),
       closed?: false
     }
@@ -103,7 +107,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     cols = Keyword.get(opts, :cols)
     rows = Keyword.get(opts, :rows)
 
-    case open_frame_data(session, opts) do
+    case open_frame_data(session, opts, frame_auth) do
       {:ok, data} ->
         case send_frame(state, "open", data, cols, rows, nil) do
           :ok ->
@@ -185,10 +189,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @impl true
   def handle_info({:remote_access_frame, frame}, state) when is_map(frame) do
-    if owns_remote_access_frame?(state.session, frame) do
-      handle_remote_access_frame(frame, state)
-    else
-      {:noreply, state}
+    case verify_remote_access_frame(frame, state) do
+      {:ok, state} ->
+        handle_remote_access_frame(frame, state)
+
+      {:error, reason, state} ->
+        reject_remote_access_frame(frame, state, reason)
+        {:noreply, state}
     end
   end
 
@@ -253,9 +260,98 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     _kind, _reason -> :ok
   end
 
-  defp owns_remote_access_frame?(session, frame) do
-    string_value(frame, "session_id") == session_id(session) and
-      string_value(frame, "agent_id") == agent_id(session)
+  defp verify_remote_access_frame(frame, state) do
+    cond do
+      string_value(frame, "session_id") != session_id(state.session) ->
+        {:error, :route_binding_mismatch, state}
+
+      string_value(frame, "agent_id") != agent_id(state.session) ->
+        {:error, :route_binding_mismatch, state}
+
+      true ->
+        verify_frame_auth(frame, state)
+    end
+  end
+
+  defp verify_frame_auth(frame, %{frame_auth: %{key: key, last_seq: last_seq}} = state) do
+    with {:ok, seq} <- frame_auth_seq(frame),
+         :ok <- frame_auth_replay_check(seq, last_seq),
+         {:ok, payload_hash} <- frame_payload_hash(frame),
+         :ok <- verify_frame_payload_hash(frame, payload_hash),
+         :ok <- verify_frame_signature(frame, key, seq, payload_hash) do
+      {:ok, put_in(state.frame_auth.last_seq, seq)}
+    else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp frame_auth_seq(frame) do
+    case map_value(frame, "seq") do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _value -> {:error, :missing_frame_auth}
+    end
+  end
+
+  defp frame_auth_replay_check(seq, last_seq) when seq > last_seq, do: :ok
+  defp frame_auth_replay_check(_seq, _last_seq), do: {:error, :frame_auth_replay}
+
+  defp frame_payload_hash(frame) do
+    hash = :sha256 |> :crypto.hash(frame_data(frame)) |> Base.encode16(case: :lower)
+
+    {:ok, hash}
+  end
+
+  defp verify_frame_payload_hash(frame, payload_hash) do
+    case string_value(frame, "payload_sha256") do
+      nil -> {:error, :missing_frame_auth}
+      ^payload_hash -> :ok
+      _other -> {:error, :invalid_frame_payload_hash}
+    end
+  end
+
+  defp verify_frame_signature(frame, key, seq, payload_hash) do
+    expected =
+      :hmac
+      |> :crypto.mac(:sha256, key, canonical_frame_binding(frame, seq, payload_hash))
+      |> Base.url_encode64(padding: false)
+
+    case string_value(frame, "signature") do
+      nil ->
+        {:error, :missing_frame_auth}
+
+      signature when byte_size(signature) == byte_size(expected) ->
+        if :crypto.hash_equals(signature, expected),
+          do: :ok,
+          else: {:error, :invalid_frame_signature}
+
+      _other ->
+        {:error, :invalid_frame_signature}
+    end
+  end
+
+  defp canonical_frame_binding(frame, seq, payload_hash) do
+    Enum.join(
+      [
+        @frame_auth_domain,
+        string_value(frame, "session_id") || "",
+        string_value(frame, "agent_id") || "",
+        Integer.to_string(seq),
+        string_value(frame, "frame_type") || "",
+        Integer.to_string(uint32(map_value(frame, "cols"))),
+        Integer.to_string(uint32(map_value(frame, "rows"))),
+        string_value(frame, "reason") || "",
+        payload_hash
+      ],
+      "\n"
+    )
+  end
+
+  defp frame_data(frame) do
+    case map_value(frame, "data") do
+      data when is_binary(data) -> data
+      nil -> ""
+      data -> to_string(data)
+    end
   end
 
   defp reject_remote_access_frame(frame, state, reason) do
@@ -649,17 +745,17 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp frame_type_label(frame_type), do: frame_type |> inspect() |> String.slice(0, 120)
 
-  defp open_frame_data(session, opts) do
+  defp open_frame_data(session, opts, frame_auth) do
     protocol = string_option(session, opts, "protocol", @default_protocol)
 
     if protocol in ["rdp", "desktop"] do
-      rdp_open_frame_data(session, opts, protocol)
+      rdp_open_frame_data(session, opts, protocol, frame_auth)
     else
-      ssh_open_frame_data(session, opts, protocol)
+      ssh_open_frame_data(session, opts, protocol, frame_auth)
     end
   end
 
-  defp ssh_open_frame_data(session, opts, protocol) do
+  defp ssh_open_frame_data(session, opts, protocol, frame_auth) do
     session_metadata = metadata(session)
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
@@ -690,7 +786,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           timeout_ms: int_option(session, opts, "timeout_ms"),
           ssh_host_key_policy: ssh_host_key_policy,
           recording_policy: policy_option(session, opts, "recording_policy"),
-          enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy")
+          enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy"),
+          frame_auth: frame_auth_open_payload(frame_auth)
         }
         |> Enum.reject(fn {_key, value} -> blank?(value) end)
         |> Map.new()
@@ -700,7 +797,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     end
   end
 
-  defp rdp_open_frame_data(session, opts, protocol) do
+  defp rdp_open_frame_data(session, opts, protocol, frame_auth) do
     session_metadata = metadata(session)
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     target = target(session, opts_metadata, session_metadata)
@@ -751,7 +848,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
               recording: desktop_recording_policy(session),
               metadata: desktop_target_metadata(session_metadata)
             },
-            credential_grant: desktop_credential_grant(opts_metadata, session_metadata)
+            credential_grant: desktop_credential_grant(opts_metadata, session_metadata),
+            frame_auth: frame_auth_open_payload(frame_auth)
           }
           |> reject_blank_map()
           |> Jason.encode!()
@@ -776,6 +874,24 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       lease_token: desktop_media_lease_token(),
       encoding_hint: "srdp"
     })
+  end
+
+  defp new_frame_auth do
+    key = :crypto.strong_rand_bytes(32)
+
+    %{
+      key: key,
+      key_b64: Base.url_encode64(key, padding: false),
+      last_seq: 0
+    }
+  end
+
+  defp frame_auth_open_payload(frame_auth) do
+    %{
+      alg: @frame_auth_algorithm,
+      key: frame_auth.key_b64,
+      required: true
+    }
   end
 
   defp desktop_media_lease_token do

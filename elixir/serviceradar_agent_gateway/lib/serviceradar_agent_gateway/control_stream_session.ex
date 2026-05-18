@@ -374,6 +374,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
         rows: frame.rows,
         reason: frame.reason,
         timestamp: frame.timestamp,
+        seq: frame.seq,
+        payload_sha256: frame.payload_sha256,
+        signature: frame.signature,
         agent_id: state.agent_id,
         partition_id: state.partition_id,
         gateway_node: state.gateway_node
@@ -406,7 +409,10 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
          cols: uint32(map_value(frame, :cols)),
          rows: uint32(map_value(frame, :rows)),
          reason: map_value(frame, :reason) || "",
-         timestamp: timestamp(map_value(frame, :timestamp))
+         timestamp: timestamp(map_value(frame, :timestamp)),
+         seq: uint64(map_value(frame, :seq)),
+         payload_sha256: map_value(frame, :payload_sha256) || "",
+         signature: map_value(frame, :signature) || ""
        }}
     end
   end
@@ -419,6 +425,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp uint32(value) when is_integer(value) and value > 0, do: min(value, 65_535)
   defp uint32(_value), do: 0
+
+  defp uint64(value) when is_integer(value) and value > 0, do: value
+  defp uint64(_value), do: 0
 
   defp timestamp(value) when is_integer(value) and value > 0, do: value
   defp timestamp(_value), do: System.system_time(:second)

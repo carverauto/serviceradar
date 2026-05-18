@@ -55,15 +55,18 @@ var (
 // It intentionally mirrors the OpenSpec frame vocabulary before protobuf
 // compatibility wrappers map it to existing ConsoleFrame traffic.
 type Frame struct {
-	SessionID string
-	Protocol  string
-	FrameType string
-	Data      []byte
-	Cols      uint32
-	Rows      uint32
-	Reason    string
-	Timestamp int64
-	Metadata  map[string]string
+	SessionID     string
+	Protocol      string
+	FrameType     string
+	Data          []byte
+	Cols          uint32
+	Rows          uint32
+	Reason        string
+	Timestamp     int64
+	Seq           uint64
+	PayloadSHA256 string
+	Signature     string
+	Metadata      map[string]string
 }
 
 // Sender emits frames back to the gateway/control-plane route.

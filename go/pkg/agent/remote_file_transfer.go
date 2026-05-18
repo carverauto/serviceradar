@@ -64,6 +64,8 @@ func (m *proxmoxConsoleManager) HandleFileTransferFrame(
 		return
 	}
 
+	sender = m.signingSender(sender)
+
 	if frame.GetFrameType() == remoteaccess.FrameTypeFileTransferData {
 		m.handleFileTransferDataFrame(frame, sender)
 		return
@@ -465,7 +467,7 @@ func sendJSONFileTransferFrame(
 		return err
 	}
 
-	return sender.Send(consoleControlFrame(sessionID, frameType, data, "", 0, 0))
+	return sender.Send(consoleControlFrame(sessionID, frameType, data, "", 0, 0, 0, "", ""))
 }
 
 type fileTransferOutcomeResponse struct {

@@ -34,6 +34,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
              session_id: session_id,
              frame_type: "data",
              data: "hello",
+             seq: 7,
+             payload_sha256: "payload-hash",
+             signature: "frame-signature",
              timestamp: 123
            }}
       },
@@ -45,6 +48,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       session_id: ^session_id,
                       frame_type: "data",
                       data: "hello",
+                      seq: 7,
+                      payload_sha256: "payload-hash",
+                      signature: "frame-signature",
                       agent_id: "agent-owned",
                       partition_id: "partition-a"
                     }}
@@ -54,6 +60,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       session_id: ^session_id,
                       frame_type: "data",
                       data: "hello",
+                      seq: 7,
+                      payload_sha256: "payload-hash",
+                      signature: "frame-signature",
                       agent_id: "agent-owned",
                       partition_id: "partition-a"
                     }}
