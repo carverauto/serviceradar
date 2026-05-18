@@ -89,7 +89,7 @@ type armisDevice struct {
 	MacAddress        string                   `json:"macAddress"`
 	MacAddresses      []string                 `json:"mac_addresses"`
 	Name              string                   `json:"name"`
-	Names             []string                 `json:"names"`
+	Names             armisStringList          `json:"names"`
 	Display           string                   `json:"display"`
 	Type              string                   `json:"type"`
 	Category          string                   `json:"category"`
@@ -112,6 +112,36 @@ type armisDevice struct {
 	SerialNumbers     []string                 `json:"serial_numbers"`
 	Site              map[string]interface{}   `json:"site"`
 	Visibility        string                   `json:"visibility"`
+}
+
+type armisStringList []string
+
+func (l *armisStringList) UnmarshalJSON(data []byte) error {
+	if strings.TrimSpace(string(data)) == "null" {
+		*l = nil
+		return nil
+	}
+
+	var values []string
+	if err := json.Unmarshal(data, &values); err == nil {
+		*l = values
+		return nil
+	}
+
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+
+	value = strings.TrimSpace(value)
+	if value == "" {
+		*l = nil
+		return nil
+	}
+
+	*l = armisStringList{value}
+
+	return nil
 }
 
 type armisSearchResponse struct {
@@ -965,13 +995,17 @@ func buildArmisUpdate(server *Server, runner *syncSourceRunner, device armisDevi
 		"device_id":  fmt.Sprintf("%s:%s", context.partition, ipAddress),
 		"ip":         ipAddress,
 		"source":     armisSourceType,
-		"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		"timestamp":  formatArmisSecondTimestamp(time.Now()),
 		"metadata":   metadata,
 	}
 
 	addArmisTopLevelFields(update, device)
 
 	return update
+}
+
+func formatArmisSecondTimestamp(t time.Time) string {
+	return t.UTC().Truncate(time.Second).Format(time.RFC3339)
 }
 
 type armisUpdateContext struct {
@@ -1108,10 +1142,10 @@ func addArmisTopLevelFields(update map[string]interface{}, device armisDevice) {
 		update["network_interfaces"] = device.NetworkInterfaces
 	}
 	if firstSeen := device.effectiveFirstSeen(); !firstSeen.IsZero() {
-		update["first_seen_time"] = firstSeen.UTC().Format(time.RFC3339Nano)
+		update["first_seen_time"] = formatArmisSecondTimestamp(firstSeen)
 	}
 	if lastSeen := device.effectiveLastSeen(); !lastSeen.IsZero() {
-		update["last_seen_time"] = lastSeen.UTC().Format(time.RFC3339Nano)
+		update["last_seen_time"] = formatArmisSecondTimestamp(lastSeen)
 	}
 	if riskLevel := device.effectiveRiskLevel(); riskLevel > 0 {
 		update["risk_score"] = riskLevel

@@ -71,8 +71,8 @@ func TestBuildArmisUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 	t.Parallel()
 
 	purdue := 2.5
-	firstSeen := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
-	lastSeen := time.Date(2026, 5, 14, 4, 5, 6, 0, time.UTC)
+	firstSeen := time.Date(2026, 5, 14, 1, 2, 3, 246357000, time.UTC)
+	lastSeen := time.Date(2026, 5, 14, 4, 5, 6, 987654321, time.UTC)
 	server := &Server{config: &ServerConfig{AgentID: "agent-1", Partition: "default"}}
 	runner := &syncSourceRunner{config: models.SourceConfig{Type: armisSourceType}}
 
@@ -162,10 +162,17 @@ func TestBuildArmisUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 		}
 	}
 
-	if update["first_seen_time"] != firstSeen.Format(time.RFC3339Nano) {
+	if update["first_seen_time"] != "2026-05-14T01:02:03Z" {
 		t.Fatalf("first_seen_time = %q", update["first_seen_time"])
 	}
-	if update["last_seen_time"] != lastSeen.Format(time.RFC3339Nano) {
+	if update["last_seen_time"] != "2026-05-14T04:05:06Z" {
 		t.Fatalf("last_seen_time = %q", update["last_seen_time"])
+	}
+	timestamp, ok := update["timestamp"].(string)
+	if !ok {
+		t.Fatalf("timestamp has type %T, want string", update["timestamp"])
+	}
+	if strings.Contains(timestamp, ".") {
+		t.Fatalf("timestamp = %q, want second precision", timestamp)
 	}
 }

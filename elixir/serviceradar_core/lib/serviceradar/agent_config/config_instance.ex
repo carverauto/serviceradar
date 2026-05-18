@@ -57,7 +57,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
 
     update :mark_delivered do
       accept []
-      change set_attribute(:last_delivered_at, &DateTime.utc_now/0)
+      change set_attribute(:last_delivered_at, &__MODULE__.utc_now_second/0)
       change set_attribute(:delivery_count, expr(delivery_count + 1))
     end
 
@@ -172,4 +172,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   identities do
     identity :unique_config_per_agent, [:config_type, :partition, :agent_id]
   end
+
+  @doc false
+  def utc_now_second, do: DateTime.truncate(DateTime.utc_now(), :second)
 end
