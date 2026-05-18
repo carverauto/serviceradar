@@ -20,6 +20,7 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.ObanFailureEventReporter
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -46,8 +47,13 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   """
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    failure_reschedule_seconds =
+      Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
+
     if ObanSupport.available?() do
-      if check_existing_job() do
+      if check_existing_job(failure_reschedule_seconds) do
         {:ok, :already_scheduled}
       else
         %{} |> new() |> ObanSupport.safe_insert()
@@ -57,11 +63,16 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     end
   end
 
-  defp check_existing_job do
+  defp check_existing_job(failure_reschedule_seconds) do
+    cooldown_started_at =
+      DateTime.add(DateTime.utc_now(), -max(failure_reschedule_seconds, 3_600), :second)
+
     query =
       from(j in Oban.Job,
         where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where:
+          j.state in ["available", "scheduled", "executing", "retryable"] or
+            (j.state in ["completed", "discarded"] and j.attempted_at >= ^cooldown_started_at),
         limit: 1
       )
 
@@ -93,25 +104,56 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
     else
       record_mmdb_attempt(settings, actor, now)
 
-      File.mkdir_p!(dir)
+      case prepare_download_dir(dir, settings, actor, now, job, failure_reschedule_seconds) do
+        :ok ->
+          results =
+            Enum.map(files, fn {name, url} ->
+              dest = Path.join(dir, name)
+              download_file(url, dest, timeout_ms)
+            end)
 
-      results =
-        Enum.map(files, fn {name, url} ->
-          dest = Path.join(dir, name)
-          download_file(url, dest, timeout_ms)
-        end)
+          if Enum.any?(results, &match?({:error, _}, &1)) do
+            record_mmdb_failure(settings, actor, now, "download_failed")
+            record_handled_failure_event(job, "GeoLite MMDB download failed")
+            ObanSupport.safe_insert(new(%{}, schedule_in: max(failure_reschedule_seconds, 3_600)))
+            :ok
+          else
+            # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
+            _ = GeoIP.reload()
+            record_mmdb_success(settings, actor, now)
+            ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
+            :ok
+          end
 
-      if Enum.any?(results, &match?({:error, _}, &1)) do
-        record_mmdb_failure(settings, actor, now, "download_failed")
-        ObanSupport.safe_insert(new(%{}, schedule_in: max(failure_reschedule_seconds, 3_600)))
-        :ok
-      else
-        # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
-        _ = GeoIP.reload()
-        record_mmdb_success(settings, actor, now)
-        ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 3_600)))
-        :ok
+        :skip ->
+          :ok
       end
+    end
+  end
+
+  defp prepare_download_dir(dir, settings, actor, now, job, failure_reschedule_seconds) do
+    case File.mkdir_p(dir) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        error = "directory_unavailable: #{inspect(reason)}"
+
+        Logger.warning("GeoLite MMDB directory unavailable",
+          dir: dir,
+          error: inspect(reason)
+        )
+
+        record_mmdb_failure(settings, actor, now, error)
+
+        record_handled_failure_event(job, %File.Error{
+          reason: reason,
+          action: "make directory",
+          path: dir
+        })
+
+        ObanSupport.safe_insert(new(%{}, schedule_in: max(failure_reschedule_seconds, 3_600)))
+        :skip
     end
   end
 
@@ -201,6 +243,16 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   end
 
   defp record_mmdb_failure(_settings, _actor, _now, _err), do: :ok
+
+  defp record_handled_failure_event(%Oban.Job{} = job, %File.Error{} = error) do
+    _ = ObanFailureEventReporter.record_job_failure(job, :error, error)
+    :ok
+  end
+
+  defp record_handled_failure_event(%Oban.Job{} = job, message) when is_binary(message) do
+    _ = ObanFailureEventReporter.record_job_failure(job, :error, %RuntimeError{message: message})
+    :ok
+  end
 
   defp recently_succeeded?(%NetflowSettings{} = s, %DateTime{} = now, seconds)
        when is_integer(seconds) and seconds > 0 do

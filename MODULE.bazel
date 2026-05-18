@@ -812,9 +812,9 @@ http_file(
 
 http_file(
     name = "debian_libpq_dev_amd64_deb",
-    sha256 = "9d3009c8e8fa42f8dbfa4d2fb6a780f32a08c28586e2207a03b315568635a7db",
+    sha256 = "59d348c5a42d2ea3aa62ef4fbbea9bda8f643ac28a752ce1917606643761d38a",
     urls = [
-        "https://ftp.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.15-0+deb12u1_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/p/postgresql-15/libpq-dev_15.18-0+deb12u1_amd64.deb",
     ],
 )
 
@@ -1013,17 +1013,17 @@ http_file(
 
 http_file(
     name = "debian_openssl_amd64_deb",
-    sha256 = "405385cc86a4dc3ad084fe7f9ec38f0583a4ae75695e7719d244e675687fe728",
+    sha256 = "c19e67a0f6d6891df6094ea2bb6a09b85f3c9981f35c1940d4e7e68346a96d2d",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.18-1~deb12u1_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/o/openssl/openssl_3.0.20-1~deb12u1_amd64.deb",
     ],
 )
 
 http_file(
     name = "debian_libssl3_amd64_deb",
-    sha256 = "4eaee9db5a113b991a72eefe41965400a1efc97a560678edb5ddd978ccc8b083",
+    sha256 = "4fae7e5825e1bb9eaeb6c2679c3d4fce93431d1105426af6de7469f000d3b7f2",
     urls = [
-        "https://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.18-1~deb12u1_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/o/openssl/libssl3_3.0.20-1~deb12u1_amd64.deb",
     ],
 )
 

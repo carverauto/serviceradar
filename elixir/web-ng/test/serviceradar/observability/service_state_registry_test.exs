@@ -47,6 +47,20 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert %{"plugin_type" => "streaming"} = Jason.decode!(state.details)
   end
 
+  test "reconcile_plugin_assignments backfills enabled assignment service rows" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.camera_stream.v1")
+    _assignment = assignment_fixture(agent.uid, package.id)
+
+    assert {:ok, count} = ServiceStateRegistry.reconcile_plugin_assignments()
+    assert count >= 1
+
+    state = service_state_for(agent, package.name)
+    assert state.available == true
+    assert state.message == "streaming plugin ready"
+  end
+
   test "agent-reported plugin status updates the plugin service row" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -66,6 +80,35 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     state = service_state_for(agent, "UniFi")
     assert state.available == false
     assert state.message == "plugin failed"
+  end
+
+  test "agent-reported plugin status preserves payload details for service cards" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+
+    payload = %{
+      "status" => "OK",
+      "summary" => "plugin ok",
+      "labels" => %{"plugin_id" => "unifi-protect-camera"},
+      "display" => [%{"widget" => "stat_card", "label" => "Cameras", "value" => "12"}]
+    }
+
+    assert :ok =
+             ServiceStateRegistry.upsert_from_status(%{
+               agent_id: agent.uid,
+               gateway_id: agent.gateway_id,
+               partition: "default",
+               service_type: "plugin",
+               service_name: "UniFi Protect",
+               available: true,
+               message: Jason.encode!(payload),
+               observed_at: DateTime.utc_now()
+             })
+
+    state = service_state_for(agent, "UniFi Protect")
+    assert state.available == true
+    assert state.message == "plugin ok"
+    assert Jason.decode!(state.details)["display"] == payload["display"]
   end
 
   defp service_state_for(agent, service_name) do

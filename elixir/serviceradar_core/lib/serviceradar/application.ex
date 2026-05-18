@@ -87,6 +87,7 @@ defmodule ServiceRadar.Application do
 
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
+        oban_failure_event_reporter_child(),
 
         # AshOban schedulers for Ash resource triggers
         ash_oban_scheduler_children(),
@@ -215,6 +216,17 @@ defmodule ServiceRadar.Application do
         nil -> nil
         oban_config when is_list(oban_config) -> {Oban, oban_config}
       end
+    end
+  end
+
+  defp oban_failure_event_reporter_child do
+    enabled =
+      repo_enabled?() &&
+        Application.get_env(:serviceradar_core, :oban_enabled, true) &&
+        Application.get_env(:serviceradar_core, :oban_failure_events_enabled, true)
+
+    if enabled do
+      ServiceRadar.Observability.ObanFailureEventReporter
     end
   end
 
