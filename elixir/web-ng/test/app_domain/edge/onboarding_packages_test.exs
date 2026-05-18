@@ -309,7 +309,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
           # This is acceptable for unit tests
           assert true
 
-        {:error, _} = error ->
+        {:error, _} ->
           # Other errors (like missing PKI) are acceptable in unit tests
           assert true
       end
@@ -333,6 +333,23 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       # Verify the function completed without argument errors
       assert is_tuple(result)
       assert elem(result, 0) in [:ok, :error]
+    end
+  end
+
+  describe "create_with_gateway_cert/2" do
+    test "rejects partition mismatch before gateway RPC", _context do
+      attrs = %{
+        label: "agent-partition-mismatch",
+        component_type: :agent,
+        component_id: "agent-partition-mismatch",
+        gateway_id: "gateway-1",
+        site: "partition-b"
+      }
+
+      actor = Map.put(@actor, :partition_id, "partition-a")
+
+      assert {:error, :partition_not_authorized} =
+               OnboardingPackages.create_with_gateway_cert(attrs, actor: actor)
     end
   end
 

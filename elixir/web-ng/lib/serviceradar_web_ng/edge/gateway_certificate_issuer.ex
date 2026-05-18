@@ -65,6 +65,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
     issuer_module = Keyword.get(opts, :cert_issuer_module, ServiceRadarAgentGateway.CertIssuer)
 
     rpc_opts = maybe_put([], :validity_days, validity_days)
+    rpc_opts = maybe_put(rpc_opts, :authorized_partition_id, Keyword.get(opts, :authorized_partition_id))
 
     case :rpc.call(
            node,

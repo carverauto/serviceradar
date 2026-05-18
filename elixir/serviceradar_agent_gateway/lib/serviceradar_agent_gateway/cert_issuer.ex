@@ -21,6 +21,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     component_type = normalize_component_type(component_type)
 
     with :ok <- validate_component_type(component_type),
+         :ok <- authorize_partition(partition_id, opts),
          {:ok, validity_days} <- validate_validity_days(opts),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
       generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts)
@@ -53,6 +54,28 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp validate_component_type(:agent), do: :ok
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
+
+  defp authorize_partition(partition_id, opts) do
+    authorized_partition_id =
+      opts
+      |> Keyword.get(:authorized_partition_id)
+      |> normalize_partition_id()
+
+    cond do
+      is_nil(authorized_partition_id) -> :ok
+      authorized_partition_id == partition_id -> :ok
+      true -> {:error, :partition_not_authorized}
+    end
+  end
+
+  defp normalize_partition_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_partition_id(nil), do: nil
+  defp normalize_partition_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_partition_id()
+  defp normalize_partition_id(_value), do: nil
 
   defp validate_validity_days(opts) do
     validity_days = Keyword.get(opts, :validity_days, @default_validity_days)

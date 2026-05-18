@@ -169,12 +169,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     with true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
          true <- (is_binary(component_id) and component_id != "") or {:error, :invalid_identity},
+         :ok <- authorize_partition(partition_id, opts),
          {:ok, bundle} <-
            GatewayCertificateIssuer.issue_agent_bundle(
              gateway_id,
              component_id,
              partition_id,
-             opts
+             Keyword.put(opts, :authorized_partition_id, actor_partition_id(opts))
            ),
          {:ok, result} = ok <-
            AshPackages.create_with_bundle(attrs, bundle.bundle_pem, bundle, opts) do
@@ -277,6 +278,35 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     opts
   end
+
+  defp authorize_partition(partition_id, opts) do
+    actor_partition_id = actor_partition_id(opts)
+
+    cond do
+      is_nil(actor_partition_id) -> :ok
+      actor_partition_id == partition_id -> :ok
+      true -> {:error, :partition_not_authorized}
+    end
+  end
+
+  defp actor_partition_id(opts) do
+    opts
+    |> Keyword.get(:actor)
+    |> case do
+      %{partition_id: partition_id} -> normalize_partition_id(partition_id)
+      %{"partition_id" => partition_id} -> normalize_partition_id(partition_id)
+      _actor -> nil
+    end
+  end
+
+  defp normalize_partition_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_partition_id(nil), do: nil
+  defp normalize_partition_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_partition_id()
+  defp normalize_partition_id(_value), do: nil
 
   defp normalize_filters(filters) do
     filters

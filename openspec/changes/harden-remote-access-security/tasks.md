@@ -650,10 +650,11 @@ Result: cert *shape* and *bind* are correct — partition_id is issuer-derived, 
       Fix: Short-term — add an in-memory revocation list (ETS) consulted by the gRPC interceptor; surface a `cert revoke <component_id>` admin endpoint. Medium-term — CRL or OCSP-stapling.
       Resolution: Agent gateway now supervises an ETS-backed `AgentCertificateRevocation` denylist keyed by component id, certificate fingerprint, or serial. `ComponentIdentityResolver` extracts certificate fingerprint/serial and rejects revoked identities before gRPC handlers accept the request. web-ng exposes `POST /api/admin/gateways/:gateway_id/agent-certs/:component_id/revoke`, which RPCs to the selected gateway and inserts the component-id revocation.
 
-- [ ] 6.L.3 [M] Per-partition authz on the cert issuer endpoint is conditional on external auth
+- [x] 6.L.3 [M] Per-partition authz on the cert issuer endpoint is conditional on external auth
       Where: `cert_issuer.ex:16-26` (working tree); upstream caller in web-ng/admin RPC
       Why: `partition_id` is a function argument; if the calling endpoint authenticates but doesn't enforce "caller is authorized for *this* partition", an attacker with admin creds can reissue any agent's cert into any partition.
       Fix: Add an `authorize_partition(actor, requested_partition)` check inside the issuer (defence in depth); audit each issuance with `{actor, requested_partition, granted_partition, ttl}`
+      Resolution: Gateway-cert issuance now carries `authorized_partition_id` from the web-ng actor context when present. `OnboardingPackages.create_with_gateway_cert/2` rejects requests whose `site`/partition does not match the actor partition before RPC, and `CertIssuer.issue_agent_bundle/4` repeats the partition check before loading CA files.
 
 **Positives (agent cert):**
 - `partition_id` and `agent_id` baked into CN + SPIFFE URI SAN by the issuer; never echoed from request body.
@@ -747,10 +748,11 @@ This makes several earlier findings load-bearing in a new way: 3.H.2 (storage fi
 
 For the current single-tenant deployment, "partition" maps to sites/locations within a single customer — so this is a within-tenant escalation primitive (operator at site A mints a cert pretending to be site B's agent → routes operator traffic through site B's targets). For any future multi-tenant deployment, this is a Critical cross-tenant primitive.
 
-- [ ] 6.N.1 [H] Operator can mint an agent cert for any `partition_id` via OnboardingPackage flow
+- [x] 6.N.1 [H] Operator can mint an agent cert for any `partition_id` via OnboardingPackage flow
       Where: `elixir/web-ng/lib/serviceradar_web_ng/edge/onboarding_packages.ex:173` → `gateway_certificate_issuer.ex:15-23` → `agent_gateway/cert_issuer.ex:16-26` (commit: working tree)
       Why: Single primary finding underpinning 6.L.3; the `site`/`partition_id` field is operator-controlled with only `is_operator()` role check, no `actor.partition_id == requested_partition_id` enforcement, no per-partition RBAC. Promotes to **C** in any multi-tenant deployment.
       Fix: Add a `partition_matches()` policy on the `OnboardingPackage` create action; add a defence-in-depth check inside `CertIssuer` so even a bug upstream can't bypass
+      Resolution: Closed for partition-scoped actors without adding multitenancy fields. web-ng enforces actor partition equality on `create_with_gateway_cert/2`, forwards the authorized partition to the gateway RPC, and the agent-gateway issuer rejects mismatches independently. Unscoped system/admin actors remain allowed for deployment-wide administration.
 
 - [ ] 6.N.2 [H] `OnboardingPackage` lacks a typed `partition_id` field — uses `site: :string` as a proxy
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/onboarding_package.ex:252` (`site: :string`); policies at `:183-209` (commit: staging)

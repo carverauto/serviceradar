@@ -52,6 +52,16 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
   end
 
+  test "rejects partition mismatch before loading CA files" do
+    assert {:error, :partition_not_authorized} =
+             CertIssuer.issue_agent_bundle(
+               "agent-1",
+               "partition-b",
+               :agent,
+               authorized_partition_id: "partition-a"
+             )
+  end
+
   test "allows explicit long TTL opt-in" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-long-ttl-test")
 
