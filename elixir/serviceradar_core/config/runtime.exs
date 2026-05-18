@@ -874,7 +874,8 @@ if config_env() == :prod do
           queue: :maintenance},
          {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
          {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
-         {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
+         {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+         {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance}
        ]}
     ],
     peer: Oban.Peers.Database

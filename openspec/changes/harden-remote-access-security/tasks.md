@@ -268,10 +268,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Add `prior_event_hash`; expose an integrity root in the export manifest; verify chain on export.
       Resolution: Added `prior_event_hash` to `platform.remote_access_recording_events`, compute each event's prior link from the canonical integrity hash of the previous event, and verify the chain during export. Export manifests now include `event_chain_verified` and `event_chain_root`; regression coverage asserts event linkage and the exported integrity root.
 
-- [ ] 3.H.5 [L] No retention / purge policy on PaperTrail versions; no `ON DELETE CASCADE` on FK to parent
+- [x] 3.H.5 [L] No retention / purge policy on PaperTrail versions; no `ON DELETE CASCADE` on FK to parent
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_session.ex:77` (`create_version_on_destroy? false`); migrations `20260515192000_create_remote_access_desktop_targets.exs:127-129` (commit: staging)
       Why: Orphaned audit rows accumulate indefinitely and (per 3.H.1) carry credential pointers; "no version on destroy" doesn't prune prior versions.
       Fix: Add `ON DELETE CASCADE` on PaperTrail FKs; schedule an Oban job to purge versions > N days (per-resource policy)
+      Resolution: Added cascading PaperTrail source FKs for remote access session/request/desktop-target/host-key version tables, plus a daily maintenance Oban worker with per-table retention settings. Regression coverage asserts session/request version rows cascade when their parent rows are removed.
 
 - [x] 3.H.6 [L] Broker registry registration not bound to caller pid on re-register
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_broker_registry.ex:17-29` (commit: staging)

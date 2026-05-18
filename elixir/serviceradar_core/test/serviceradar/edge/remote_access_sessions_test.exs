@@ -766,6 +766,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute inspect(session_action_inputs) =~ approved.id
     refute inspect(request_action_inputs) =~ "private_key"
     refute inspect(session_action_inputs) =~ "private_key"
+
+    assert version_count("remote_access_request_versions", approved.id) > 0
+    assert version_count("remote_access_session_versions", session.id) > 0
+
+    Repo.query!("DELETE FROM platform.remote_access_requests WHERE id = $1::text::uuid", [
+      approved.id
+    ])
+
+    Repo.query!("DELETE FROM platform.remote_access_sessions WHERE id = $1::text::uuid", [
+      session.id
+    ])
+
+    assert version_count("remote_access_request_versions", approved.id) == 0
+    assert version_count("remote_access_session_versions", session.id) == 0
   end
 
   test "RDP approvals are scoped to the selected desktop target and agent route" do
@@ -1380,6 +1394,21 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
       )
 
     Enum.map(rows, fn [action_inputs] -> action_inputs end)
+  end
+
+  defp version_count(table, source_id)
+       when table in ["remote_access_request_versions", "remote_access_session_versions"] do
+    %Postgrex.Result{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT COUNT(*)
+        FROM platform.#{table}
+        WHERE version_source_id = $1::text::uuid
+        """,
+        [source_id]
+      )
+
+    count
   end
 
   defp private_key_fixture do
