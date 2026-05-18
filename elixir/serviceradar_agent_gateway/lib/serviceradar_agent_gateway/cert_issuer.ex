@@ -169,6 +169,22 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
         key_pem = File.read!(key_path)
         ca_chain_pem = File.read!(ca_cert)
 
+        spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+        certificate_fingerprint = certificate_fingerprint(cert_pem)
+
+        emit_issuance_audit(
+          opts,
+          component_id: component_id,
+          component_type: component_type,
+          requested_partition_id: partition_id,
+          granted_partition_id: partition_id,
+          authorized_partition_id: normalize_partition_id(Keyword.get(opts, :authorized_partition_id)),
+          validity_days: validity_days,
+          certificate_fingerprint: certificate_fingerprint,
+          cn: cn,
+          spiffe_id: spiffe_id
+        )
+
         bundle_pem = build_bundle(cert_pem, key_pem, ca_chain_pem)
 
         {:ok,
@@ -177,9 +193,10 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            certificate_pem: cert_pem,
            private_key_pem: key_pem,
            ca_chain_pem: ca_chain_pem,
-           spiffe_id: build_spiffe_id(component_type, partition_id, component_id),
+           spiffe_id: spiffe_id,
            cn: cn,
-           validity_days: validity_days
+           validity_days: validity_days,
+           certificate_fingerprint: certificate_fingerprint
          }}
       end
     rescue
@@ -252,6 +269,46 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp build_spiffe_id(component_type, partition_id, component_id) do
     "spiffe://serviceradar.local/#{component_type}/#{partition_id}/#{component_id}"
   end
+
+  defp certificate_fingerprint(cert_pem) do
+    cert_pem
+    |> :public_key.pem_decode()
+    |> Enum.find_value(fn
+      {:Certificate, der, _} -> der
+      _ -> nil
+    end)
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp emit_issuance_audit(opts, details) do
+    event = %{
+      action: :agent_certificate_issue,
+      resource_type: "agent_certificate",
+      resource_id: Keyword.fetch!(details, :component_id),
+      resource_name: Keyword.fetch!(details, :cn),
+      actor: audit_actor(opts),
+      details: Map.new(details),
+      severity: audit_severity(Keyword.fetch!(details, :validity_days))
+    }
+
+    case Keyword.get(opts, :audit_writer, ServiceRadarAgentGateway.CertIssuanceAudit) do
+      writer when is_function(writer, 1) -> writer.(event)
+      nil -> :ok
+      writer when is_atom(writer) -> writer.write(event)
+    end
+  rescue
+    error ->
+      Logger.warning("[CertIssuer] Certificate issuance audit failed: #{inspect(error)}")
+      :ok
+  end
+
+  defp audit_actor(opts) do
+    Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor) || %{id: "system", email: "system@serviceradar.local"}
+  end
+
+  defp audit_severity(validity_days) when validity_days > 7, do: :medium
+  defp audit_severity(_validity_days), do: :informational
 
   defp write_extfile(path, component_type, partition_id, component_id, cn) do
     spiffe_id = build_spiffe_id(component_type, partition_id, component_id)

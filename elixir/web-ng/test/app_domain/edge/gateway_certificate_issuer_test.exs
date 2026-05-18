@@ -5,7 +5,34 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
 
   defmodule IssueProbe do
     @moduledoc false
-    def issue_agent_bundle(_component_id, _partition_id, :agent, _opts), do: {:error, :ca_not_available}
+    @table __MODULE__
+
+    def reset do
+      ensure_table()
+      :ets.delete_all_objects(@table)
+    end
+
+    def issue_agent_bundle(component_id, partition_id, :agent, opts) do
+      ensure_table()
+      :ets.insert(@table, {:last_issue, {component_id, partition_id, opts}})
+      {:error, :ca_not_available}
+    end
+
+    def last_issue do
+      ensure_table()
+
+      case :ets.lookup(@table, :last_issue) do
+        [{:last_issue, value}] -> value
+        [] -> nil
+      end
+    end
+
+    defp ensure_table do
+      case :ets.info(@table) do
+        :undefined -> :ets.new(@table, [:named_table, :public])
+        _info -> @table
+      end
+    end
   end
 
   defmodule RevokeProbe do
@@ -41,6 +68,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
   end
 
   setup do
+    IssueProbe.reset()
     RevokeProbe.reset()
     :ok
   end
@@ -64,8 +92,14 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
                gateway_id,
                "test-agent",
                "default",
-               cert_issuer_module: IssueProbe
+               cert_issuer_module: IssueProbe,
+               authorized_partition_id: "default",
+               actor: %{id: "operator-1", email: "operator@example.test"}
              )
+
+    assert {"test-agent", "default", opts} = IssueProbe.last_issue()
+    assert Keyword.fetch!(opts, :authorized_partition_id) == "default"
+    assert Keyword.fetch!(opts, :audit_actor) == %{id: "operator-1", email: "operator@example.test"}
   end
 
   test "revokes agent certificates on the selected gateway" do

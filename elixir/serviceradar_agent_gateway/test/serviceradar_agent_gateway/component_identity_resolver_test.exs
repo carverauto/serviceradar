@@ -23,7 +23,8 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
         :agent,
         ca_cert_file: ca_cert,
         ca_key_file: ca_key,
-        temp_parent_dir: parent_dir
+        temp_parent_dir: parent_dir,
+        audit_writer: nil
       )
 
     %{cert_der: certificate_der!(bundle.certificate_pem)}

@@ -20,11 +20,13 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
              )
 
     assert bundle.cn == "agent-1.default.serviceradar"
     assert bundle.validity_days == 1
+    assert String.length(bundle.certificate_fingerprint) == 64
     assert bundle.private_key_pem =~ "PRIVATE KEY"
     assert bundle.certificate_pem =~ "CERTIFICATE"
 
@@ -81,10 +83,69 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                ca_key_file: ca_key,
                temp_parent_dir: parent_dir,
                validity_days: CertIssuer.max_validity_days() + 1,
-               allow_long_ttl?: true
+               allow_long_ttl?: true,
+               audit_writer: nil
              )
 
     assert bundle.validity_days == CertIssuer.max_validity_days() + 1
+  end
+
+  test "emits certificate issuance audit without certificate or private key material" do
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-audit-test")
+    test_pid = self()
+
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    actor = %{id: "operator-1", email: "operator@example.test"}
+
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    audit_writer = fn event ->
+      send(test_pid, {:cert_issuance_audit, event})
+      :ok
+    end
+
+    assert {:ok, bundle} =
+             CertIssuer.issue_agent_bundle(
+               "agent-audit",
+               "partition-a",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               authorized_partition_id: "partition-a",
+               audit_actor: actor,
+               audit_writer: audit_writer
+             )
+
+    assert_receive {:cert_issuance_audit, event}
+
+    assert event.action == :agent_certificate_issue
+    assert event.resource_type == "agent_certificate"
+    assert event.resource_id == "agent-audit"
+    assert event.resource_name == "agent-audit.partition-a.serviceradar"
+    assert event.actor == actor
+    assert event.severity == :informational
+
+    assert event.details == %{
+             authorized_partition_id: "partition-a",
+             certificate_fingerprint: bundle.certificate_fingerprint,
+             cn: "agent-audit.partition-a.serviceradar",
+             component_id: "agent-audit",
+             component_type: :agent,
+             granted_partition_id: "partition-a",
+             requested_partition_id: "partition-a",
+             spiffe_id: "spiffe://serviceradar.local/agent/partition-a/agent-audit",
+             validity_days: 1
+           }
+
+    refute Map.has_key?(event.details, :private_key_pem)
+    refute Map.has_key?(event.details, :certificate_pem)
+    refute Map.has_key?(event.details, :bundle_pem)
+    refute inspect(event) =~ "PRIVATE KEY"
+    refute inspect(event) =~ "CERTIFICATE-----"
   end
 
   defp generate_ca_bundle(ca_cert, ca_key) do

@@ -764,10 +764,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: Token-gated path, but skipping Ash policies means a leaked download token + a *guessed* package id grants delivery for any partition's package — combined with 6.N.7 (no single-use) this is replayable.
       Fix: `authorize?: true` with a `token_actor` (the token's payload carries an actor identity bound to the partition); reject if `package.partition_id != actor.partition_id`
 
-- [ ] 6.N.4 [M] Cert issuance not recorded — no `{actor, requested_partition_id, granted_partition_id, ttl, fingerprint}` audit row
+- [x] 6.N.4 [M] Cert issuance not recorded — no `{actor, requested_partition_id, granted_partition_id, ttl, fingerprint}` audit row
       Where: `cert_issuer.ex:16-26` (no audit emit) (working tree)
       Why: OnboardingPackage events log token lifecycle but not the cert mint. If 6.N.1 is exploited, there's no forensic trace tying a cert to the operator who minted it.
       Fix: Emit an audit event with the full mint context; index by `(actor, partition_id)` for compliance review
+      Resolution: Gateway cert issuance now emits a shared audit-stream event on every successful mint with actor, component id/type, requested/granted/authorized partition, TTL, CN, SPIFFE ID, and SHA-256 certificate fingerprint. web-ng forwards the package creator actor through the gateway RPC, and tests assert private keys / cert PEM / bundles are excluded from audit metadata.
 
 - [x] 6.N.5 [M] Bootstrap token payload doesn't carry `partition_id` — server-side cross-check missing
       Where: `go/pkg/edgeonboarding/token.go:36-91`; consumer in `edge_controller.ex:195-227` (commit: staging)
@@ -779,7 +780,7 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Where: `cert_issuer.ex:12, 69` (working tree)
       Why: Compounds 6.L.1 — an operator can extend their already-too-long cert TTL further with no audit / approval gate.
       Fix: Hard cap (e.g. 30 d) at the issuer; require admin approval above default; audit every override
-      Partial: Issuer now enforces a 30-day cap unless `allow_long_ttl?: true`; explicit admin approval and structured audit remain open because the gateway issuer currently has no user/package actor context.
+      Partial: Issuer now enforces a 30-day cap unless `allow_long_ttl?: true`; structured mint audit is covered by 6.N.4. Explicit admin approval above the default remains open.
 
 - [x] 6.N.7 [M] Bootstrap token has TTL but **no single-use enforcement** in DB
       Where: `onboarding_packages.ex:202-244, 399`; no `download_token_consumed_at` column (commit: staging)
@@ -816,7 +817,7 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
 - Q4 token validation: signature ✓, TTL ✓, single-use ✗ (6.N.7), partition binding ✗ (6.N.5).
 - Q5 reissue partition-locked: **REFUTED** — caller can request any partition.
 - Q6 renewal grace: no revocation → old cert remains valid (6.L.2 + 6.N.10).
-- Q7 audit: package events ✓, cert mint event ✗ (6.N.4).
+- Q7 audit: package events ✓, cert mint event ✓ (6.N.4).
 - Q8 operator escalation: no documented bypass; the role-only authz **is** the bug.
 - Q9 bootstrap key custody: env-var `SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY`; rotation procedure not visible.
 - Q10 CSR validation: subject from caller-supplied fields, no policy binding (6.N.9).

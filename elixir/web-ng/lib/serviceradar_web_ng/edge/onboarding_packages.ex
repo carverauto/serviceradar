@@ -175,7 +175,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
              gateway_id,
              component_id,
              partition_id,
-             Keyword.put(opts, :authorized_partition_id, actor_partition_id(opts))
+             opts
+             |> Keyword.put(:authorized_partition_id, actor_partition_id(opts))
+             |> Keyword.put(:audit_actor, Keyword.get(opts, :actor))
            ),
          {:ok, result} = ok <-
            AshPackages.create_with_bundle(attrs, bundle.bundle_pem, bundle, opts) do
