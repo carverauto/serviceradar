@@ -161,6 +161,30 @@ func TestSFTPAdapterDeniesBeforeOpeningFile(t *testing.T) {
 	}
 }
 
+func TestSFTPAdapterDeniesSymlinkWhenRealPathFails(t *testing.T) {
+	t.Parallel()
+
+	client := newFakeSFTPClient()
+	client.symlinks["/srv/data/link"] = true
+	client.realPathErr = os.ErrPermission
+	adapter := testSFTPAdapter(client, FileTransferOperationDownload)
+	adapter.Policy.SymlinkMode = FileTransferSymlinkFollowInsideRoot
+
+	_, err := adapter.Execute(
+		t.Context(),
+		SSHConfig{},
+		testSFTPRequest(FileTransferOperationDownload, "/srv/data/link"),
+		nil,
+		io.Discard,
+	)
+	if !errors.Is(err, ErrFileTransferPolicyDenied) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrFileTransferPolicyDenied)
+	}
+	if slices.Contains(client.ops, "open:/srv/data/link") {
+		t.Fatalf("opened unresolved symlink, ops = %#v", client.ops)
+	}
+}
+
 func testSFTPAdapter(client *fakeSFTPClient, operations ...FileTransferOperation) SFTPAdapter {
 	return SFTPAdapter{
 		Dial: func(context.Context, SSHConfig) (SFTPClient, error) {
@@ -197,16 +221,19 @@ func renameSFTPRequest(path string, destination string) FileTransferRequestPaylo
 }
 
 type fakeSFTPClient struct {
-	files  map[string][]byte
-	dirs   map[string][]os.FileInfo
-	ops    []string
-	closed bool
+	files       map[string][]byte
+	dirs        map[string][]os.FileInfo
+	symlinks    map[string]bool
+	realPathErr error
+	ops         []string
+	closed      bool
 }
 
 func newFakeSFTPClient() *fakeSFTPClient {
 	return &fakeSFTPClient{
-		files: make(map[string][]byte),
-		dirs:  make(map[string][]os.FileInfo),
+		files:    make(map[string][]byte),
+		dirs:     make(map[string][]os.FileInfo),
+		symlinks: make(map[string]bool),
 	}
 }
 
@@ -231,6 +258,10 @@ func (c *fakeSFTPClient) Create(path string) (SFTPFile, error) {
 }
 
 func (c *fakeSFTPClient) Lstat(path string) (os.FileInfo, error) {
+	if c.symlinks[path] {
+		return fakeFileInfo{name: pathBase(path), mode: os.ModeSymlink}, nil
+	}
+
 	return c.Stat(path)
 }
 
@@ -261,6 +292,11 @@ func (c *fakeSFTPClient) ReadDir(path string) ([]os.FileInfo, error) {
 }
 
 func (c *fakeSFTPClient) RealPath(path string) (string, error) {
+	c.ops = append(c.ops, "realpath:"+path)
+	if c.realPathErr != nil {
+		return "", c.realPathErr
+	}
+
 	return path, nil
 }
 
