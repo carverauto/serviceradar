@@ -39,6 +39,7 @@ var ErrEnhancedRecordingTargetBoundaryRequired = errors.New("target-side enhance
 
 const (
 	EnhancedExecutionManagedTarget = "managed_target"
+	enhancedPolicyModeHostEvents   = "host_events"
 )
 
 // EnhancedRecordingPolicy is the agent-visible subset of the platform policy.
@@ -127,7 +128,7 @@ func enhancedRecordingEnabled(policy EnhancedRecordingPolicy) bool {
 		return true
 	}
 	switch strings.TrimSpace(strings.ToLower(policy.Mode)) {
-	case "bpf", "enhanced", "command", "host_events":
+	case "bpf", "enhanced", "command", enhancedPolicyModeHostEvents:
 		return true
 	default:
 		return false

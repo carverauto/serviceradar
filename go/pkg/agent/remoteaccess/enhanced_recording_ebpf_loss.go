@@ -82,10 +82,13 @@ func (tracker *bpfLossTracker) emitOrCountBackpressure(events chan<- EnhancedEve
 		return
 	}
 
+	tracker.emitLossEvents(events)
+
 	select {
 	case events <- event:
 	default:
 		tracker.backpressureDrops[event.EventType]++
+		tracker.emitLossEvents(events)
 	}
 }
 
@@ -103,6 +106,34 @@ func (tracker *bpfLossTracker) drainLossEvents() []EnhancedEvent {
 		return nil
 	}
 
+	events := tracker.lossEvents()
+	for _, event := range events {
+		tracker.resetLossFamily(event.Metadata[enhancedBPFLossEventFamily])
+	}
+
+	return events
+}
+
+func (tracker *bpfLossTracker) emitLossEvents(events chan<- EnhancedEvent) int {
+	if tracker == nil {
+		return 0
+	}
+
+	sent := 0
+	for _, event := range tracker.lossEvents() {
+		select {
+		case events <- event:
+			tracker.resetLossFamily(event.Metadata[enhancedBPFLossEventFamily])
+			sent++
+		default:
+			return sent
+		}
+	}
+
+	return sent
+}
+
+func (tracker *bpfLossTracker) lossEvents() []EnhancedEvent {
 	families := make(map[string]struct{})
 	for family := range tracker.kernelDrops {
 		families[family] = struct{}{}
@@ -145,12 +176,14 @@ func (tracker *bpfLossTracker) drainLossEvents() []EnhancedEvent {
 			DroppedEvents:     totalDrops,
 			Metadata:          metadata,
 		})
-
-		delete(tracker.kernelDrops, family)
-		delete(tracker.parserFailures, family)
-		delete(tracker.backpressureDrops, family)
-		delete(tracker.backpressureHighMax, family)
 	}
 
 	return events
+}
+
+func (tracker *bpfLossTracker) resetLossFamily(family string) {
+	delete(tracker.kernelDrops, family)
+	delete(tracker.parserFailures, family)
+	delete(tracker.backpressureDrops, family)
+	delete(tracker.backpressureHighMax, family)
 }

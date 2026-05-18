@@ -220,7 +220,7 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Why: An approval revoked mid-transfer still lets the agent finalise the write because policy is captured once at request time.
       Fix: Require the agent to echo `approval_id` in the completion frame; core re-checks approval state before persisting bytes / metadata
 
-- [ ] 3.6 [L] eBPF ring-buffer / channel-drop losses not surfaced in-band
+- [x] 3.6 [L] eBPF ring-buffer / channel-drop losses not surfaced in-band
       Where: `go/pkg/agent/remoteaccess/enhanced_recording_ebpf_loss.go:75-90`; `enhanced_recording_linux.go:350-360` (commit: staging)
       Why: Operator only sees the loss counter on stop; ongoing recording can silently lose enhanced events.
       Fix: Emit periodic loss events when drop rate crosses threshold; expose to recording metadata

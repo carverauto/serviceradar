@@ -419,3 +419,60 @@ func TestBPFLossTrackerEmitsCounters(t *testing.T) {
 		t.Fatalf("loss tracker should drain counters, got %#v", got)
 	}
 }
+
+func TestBPFLossTrackerEmitsInBandAfterBackpressure(t *testing.T) {
+	t.Parallel()
+
+	tracker := newBPFLossTracker(func() time.Time { return time.Unix(1700000004, 9) })
+	events := make(chan EnhancedEvent, 1)
+
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventCommand})
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventCommand})
+
+	first := <-events
+	if first.EventType != EnhancedEventCommand {
+		t.Fatalf("first event = %#v", first)
+	}
+
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventFile})
+
+	loss := <-events
+	if loss.EventType != EnhancedEventLoss {
+		t.Fatalf("loss event type = %q", loss.EventType)
+	}
+	if loss.DroppedEvents != 1 {
+		t.Fatalf("dropped events = %d, want 1", loss.DroppedEvents)
+	}
+	if loss.Metadata[enhancedBPFLossEventFamily] != EnhancedEventCommand ||
+		loss.Metadata[enhancedBPFLossBackpressure] != "1" {
+		t.Fatalf("loss metadata = %#v", loss.Metadata)
+	}
+}
+
+func TestBPFLossTrackerRetainsCountersWhenLossEventCannotQueue(t *testing.T) {
+	t.Parallel()
+
+	tracker := newBPFLossTracker(func() time.Time { return time.Unix(1700000005, 10) })
+	tracker.addKernelCounters(EnhancedEventNetwork, probes.LossCounters{KernelDrops: 4})
+
+	events := make(chan EnhancedEvent, 1)
+	events <- EnhancedEvent{EventType: EnhancedEventCommand}
+
+	if sent := tracker.emitLossEvents(events); sent != 0 {
+		t.Fatalf("sent loss events = %d, want 0", sent)
+	}
+
+	<-events
+
+	if sent := tracker.emitLossEvents(events); sent != 1 {
+		t.Fatalf("sent loss events after drain = %d, want 1", sent)
+	}
+
+	loss := <-events
+	if loss.EventType != EnhancedEventLoss || loss.DroppedEvents != 4 {
+		t.Fatalf("loss = %#v", loss)
+	}
+	if got := tracker.drainLossEvents(); len(got) != 0 {
+		t.Fatalf("loss tracker should drain after successful in-band emit, got %#v", got)
+	}
+}

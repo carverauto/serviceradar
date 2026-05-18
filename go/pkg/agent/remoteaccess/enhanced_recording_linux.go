@@ -34,6 +34,8 @@ const (
 	defaultLinuxProcRoot        = "/proc"
 	defaultLinuxProcPoll        = 500 * time.Millisecond
 	defaultLinuxProcEventBuffer = 128
+	enhancedSourceLinuxProcFS   = "linux_procfs"
+	enhancedProcFSCollectorName = "serviceradar_agent_procfs"
 )
 
 var errLinuxProcRootUnavailable = errors.New("linux procfs unavailable")
@@ -337,10 +339,19 @@ func (source *LinuxProcEnhancedEventSource) emit(
 	events chan<- EnhancedEvent,
 	event EnhancedEvent,
 ) {
+	if emitEnhancedEvent(events, event) {
+		return
+	}
+
+	state.dropped++
+}
+
+func emitEnhancedEvent(events chan<- EnhancedEvent, event EnhancedEvent) bool {
 	select {
 	case events <- event:
+		return true
 	default:
-		state.dropped++
+		return false
 	}
 }
 
@@ -357,13 +368,15 @@ func (source *LinuxProcEnhancedEventSource) emitLoss(
 		TimestampUnixNano: source.now().UnixNano(),
 		DroppedEvents:     state.dropped,
 		Metadata: map[string]string{
-			"source":      "linux_procfs",
+			"source":      enhancedSourceLinuxProcFS,
 			"bpf":         enhancedMetadataFalse,
+			"collector":   enhancedProcFSCollectorName,
 			"policy_mode": session.Policy.Mode,
 		},
 	}
-	state.dropped = 0
-	source.emit(state, events, loss)
+	if emitEnhancedEvent(events, loss) {
+		state.dropped = 0
+	}
 }
 
 type linuxProcProcess struct {

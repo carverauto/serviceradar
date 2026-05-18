@@ -123,7 +123,7 @@ func TestLinuxProcEnhancedEventSourceEmitsProcfsEvents(t *testing.T) {
 		SessionID: "session-1",
 		Policy: EnhancedRecordingPolicy{
 			Enabled:                 true,
-			Mode:                    "host_events",
+			Mode:                    enhancedPolicyModeHostEvents,
 			IncludeCommandArguments: true,
 			IncludeFilePaths:        true,
 			IncludeNetworkAddresses: true,
@@ -153,6 +153,38 @@ func TestLinuxProcEnhancedEventSourceEmitsProcfsEvents(t *testing.T) {
 	if network.SourceAddress != "127.0.0.1" || network.SourcePort != 22 ||
 		network.DestinationAddress != "127.0.0.2" || network.DestinationPort != 49153 {
 		t.Fatalf("network event = %#v", network)
+	}
+}
+
+func TestLinuxProcLossRetainsCountersUntilQueued(t *testing.T) {
+	t.Parallel()
+
+	source := NewLinuxProcEnhancedEventSource()
+	state := newLinuxProcState()
+	state.dropped = 5
+	events := make(chan EnhancedEvent, 1)
+	events <- EnhancedEvent{EventType: EnhancedEventCommand}
+	session := EnhancedRecordingSession{Policy: EnhancedRecordingPolicy{Mode: enhancedPolicyModeHostEvents}}
+
+	source.emitLoss(session, state, events)
+	if state.dropped != 5 {
+		t.Fatalf("dropped count after full channel = %d, want 5", state.dropped)
+	}
+
+	<-events
+	source.emitLoss(session, state, events)
+	if state.dropped != 0 {
+		t.Fatalf("dropped count after queued loss = %d, want 0", state.dropped)
+	}
+
+	loss := <-events
+	if loss.EventType != EnhancedEventLoss || loss.DroppedEvents != 5 {
+		t.Fatalf("loss event = %#v", loss)
+	}
+	if loss.Metadata["source"] != enhancedSourceLinuxProcFS ||
+		loss.Metadata["collector"] != enhancedProcFSCollectorName ||
+		loss.Metadata["policy_mode"] != enhancedPolicyModeHostEvents {
+		t.Fatalf("loss metadata = %#v", loss.Metadata)
 	}
 }
 
