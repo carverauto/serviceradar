@@ -64,6 +64,30 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
   end
 
+  test "rejects unsafe certificate identity tokens before loading CA files" do
+    assert {:error, :invalid_component_id} =
+             CertIssuer.issue_agent_bundle("agent.prod", "default", :agent)
+
+    assert {:error, :invalid_component_id} =
+             CertIssuer.issue_agent_bundle(" agent-1", "default", :agent)
+
+    assert {:error, :invalid_partition_id} =
+             CertIssuer.issue_agent_bundle("agent-1", "partition/prod", :agent)
+
+    assert {:error, :invalid_partition_id} =
+             CertIssuer.issue_agent_bundle("agent-1", "partition\nprod", :agent)
+  end
+
+  test "rejects component mismatch before loading CA files" do
+    assert {:error, :component_not_authorized} =
+             CertIssuer.issue_agent_bundle(
+               "agent-b",
+               "partition-a",
+               :agent,
+               authorized_component_id: "agent-a"
+             )
+  end
+
   test "rejects partition mismatch before loading CA files" do
     assert {:error, :partition_not_authorized} =
              CertIssuer.issue_agent_bundle(
@@ -141,6 +165,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert event.severity == :informational
 
     assert event.details == %{
+             authorized_component_id: nil,
              authorized_partition_id: "partition-a",
              certificate_fingerprint: bundle.certificate_fingerprint,
              cn: "agent-audit.partition-a.serviceradar",

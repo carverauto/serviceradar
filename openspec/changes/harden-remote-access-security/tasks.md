@@ -795,10 +795,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: ETS/Redis token bucket per actor; per-partition quota with admin-override audit
       Resolution: Gateway-backed onboarding now checks the shared cluster-aware rate limiter before package creation / cert issuance, with separate actor and partition buckets. Admin/system quota overrides are explicit via `quota_override_by` and emit a structured audit event; the LiveView surfaces quota denials with retry timing. Focused DB-backed tests cover actor and partition quota enforcement.
 
-- [ ] 6.N.9 [M] CSR generated using user-supplied `component_id` / `partition_id` with no policy-binding check
+- [x] 6.N.9 [M] CSR generated using user-supplied `component_id` / `partition_id` with no policy-binding check
       Where: `cert_issuer.ex:67-92` (working tree)
       Why: Subject-substitution risk — caller dictates the CN / SPIFFE ID that the cert will carry, with no proof the caller is allowed to claim those values.
       Fix: Issuer derives CN / SPIFFE from the *authenticated caller's* identity (gRPC peer cert / actor context); refuses to use caller-supplied fields when they conflict.
+      Resolution: The gateway issuer now validates component and partition subject tokens before loading CA files, rejecting dots, slashes, controls, whitespace, empties, and overlong values that would corrupt CN/SPIFFE parsing. It also accepts `authorized_component_id` and `authorized_partition_id` context and refuses mismatches before signing. web-ng forwards the authorized component id alongside the partition context when requesting an agent bundle, and audit details include the authorized component id.
 
 - [ ] 6.N.10 [L] No renewal-time revocation of the predecessor cert (pairs with 6.L.2)
       Where: `cert_issuer.ex` (working tree)

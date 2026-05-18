@@ -11,6 +11,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   @default_cert_dir "/etc/serviceradar/certs"
   @default_validity_days 1
   @max_validity_days 30
+  @identity_token_regex ~r/\A[A-Za-z0-9_-]+\z/
 
   @spec issue_agent_bundle(String.t(), String.t(), atom() | String.t(), keyword()) ::
           {:ok, map()} | {:error, atom() | term()}
@@ -21,7 +22,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     component_type = normalize_component_type(component_type)
 
     with :ok <- validate_component_type(component_type),
-         :ok <- authorize_partition(partition_id, opts),
+         :ok <- validate_identity_tokens(component_id, partition_id),
+         :ok <- authorize_identity(component_id, partition_id, opts),
          {:ok, validity_days} <- validate_validity_days(opts),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
       generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts)
@@ -55,11 +57,46 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp validate_component_type(:agent), do: :ok
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
 
+  defp validate_identity_tokens(component_id, partition_id) do
+    with :ok <- validate_identity_token(component_id, :invalid_component_id) do
+      validate_identity_token(partition_id, :invalid_partition_id)
+    end
+  end
+
+  defp validate_identity_token(value, error) do
+    trimmed = String.trim(value)
+
+    if value == trimmed and byte_size(value) in 1..128 and Regex.match?(@identity_token_regex, value) do
+      :ok
+    else
+      {:error, error}
+    end
+  end
+
+  defp authorize_identity(component_id, partition_id, opts) do
+    with :ok <- authorize_component(component_id, opts) do
+      authorize_partition(partition_id, opts)
+    end
+  end
+
+  defp authorize_component(component_id, opts) do
+    authorized_component_id =
+      opts
+      |> Keyword.get(:authorized_component_id)
+      |> normalize_identity_id()
+
+    cond do
+      is_nil(authorized_component_id) -> :ok
+      authorized_component_id == component_id -> :ok
+      true -> {:error, :component_not_authorized}
+    end
+  end
+
   defp authorize_partition(partition_id, opts) do
     authorized_partition_id =
       opts
       |> Keyword.get(:authorized_partition_id)
-      |> normalize_partition_id()
+      |> normalize_identity_id()
 
     cond do
       is_nil(authorized_partition_id) -> :ok
@@ -68,14 +105,14 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp normalize_partition_id(value) when is_binary(value) do
+  defp normalize_identity_id(value) when is_binary(value) do
     value = String.trim(value)
     if value == "", do: nil, else: value
   end
 
-  defp normalize_partition_id(nil), do: nil
-  defp normalize_partition_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_partition_id()
-  defp normalize_partition_id(_value), do: nil
+  defp normalize_identity_id(nil), do: nil
+  defp normalize_identity_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_identity_id()
+  defp normalize_identity_id(_value), do: nil
 
   defp validate_validity_days(opts) do
     validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
@@ -191,7 +228,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
           component_type: component_type,
           requested_partition_id: partition_id,
           granted_partition_id: partition_id,
-          authorized_partition_id: normalize_partition_id(Keyword.get(opts, :authorized_partition_id)),
+          authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
+          authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
           validity_days: validity_days,
           long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
           certificate_fingerprint: certificate_fingerprint,

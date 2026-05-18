@@ -179,6 +179,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
              component_id,
              partition_id,
              opts
+             |> Keyword.put(:authorized_component_id, component_id)
              |> Keyword.put(:authorized_partition_id, actor_partition_id(opts))
              |> Keyword.put(:audit_actor, Keyword.get(opts, :actor))
            ),

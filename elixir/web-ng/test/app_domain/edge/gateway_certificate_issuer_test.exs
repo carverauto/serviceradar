@@ -93,11 +93,13 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
                "test-agent",
                "default",
                cert_issuer_module: IssueProbe,
+               authorized_component_id: "test-agent",
                authorized_partition_id: "default",
                actor: %{id: "operator-1", email: "operator@example.test"}
              )
 
     assert {"test-agent", "default", opts} = IssueProbe.last_issue()
+    assert Keyword.fetch!(opts, :authorized_component_id) == "test-agent"
     assert Keyword.fetch!(opts, :authorized_partition_id) == "default"
     assert Keyword.fetch!(opts, :audit_actor) == %{id: "operator-1", email: "operator@example.test"}
   end
