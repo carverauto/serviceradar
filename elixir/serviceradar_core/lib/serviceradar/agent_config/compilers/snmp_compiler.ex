@@ -59,6 +59,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.SNMPProfiles.CredentialResolver
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
@@ -257,6 +258,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     "ip" => :ip,
     "gateway_id" => :gateway_id,
     "agent_id" => :agent_id,
+    "is_active" => :is_active,
+    "active" => :is_active,
+    "is_managed" => :is_managed,
+    "managed" => :is_managed,
     "vendor_name" => :vendor_name,
     "model" => :model,
     "type" => :type,
@@ -277,6 +282,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         field_mappings: @interface_field_map,
         allow_existing_atom_fields?: false,
         tag_fields?: false,
+        default_active?: false,
         log_prefix: "SNMPCompiler"
       )
       |> Ash.Query.distinct(:device_id)
@@ -288,6 +294,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         interfaces
         |> Enum.map(& &1.device)
         |> Enum.reject(&is_nil/1)
+        |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
         |> Enum.uniq_by(& &1.uid)
 
       {:error, reason} ->

@@ -486,6 +486,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         network_interfaces: update.network_interfaces || [],
         is_available: update.is_available,
         is_managed: true,
+        is_active: true,
         owner: owner,
         metadata: metadata,
         tags: update.tags || %{},

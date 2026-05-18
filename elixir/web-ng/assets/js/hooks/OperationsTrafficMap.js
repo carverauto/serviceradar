@@ -222,7 +222,6 @@ function normalizeTrafficLinks(rawLinks, mapView) {
         laneOffset: (idx % 5) - 2,
       }
     })
-    .filter((link) => mapView !== "netflow" || link.geoMapped)
     .filter((link) => link.from[0] !== link.to[0] || link.from[1] !== link.to[1])
 }
 
@@ -757,6 +756,8 @@ function endpointNodes(links, mapView = "topology_traffic") {
 }
 
 export default {
+  _normalizeTrafficLinks: normalizeTrafficLinks,
+
   mounted() {
     this.links = []
     this.topologyLinks = []

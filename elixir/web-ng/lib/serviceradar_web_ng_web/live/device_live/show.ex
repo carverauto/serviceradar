@@ -712,7 +712,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:device_logs, [])
     |> assign(:logs_pagination, %{})
     |> assign(:logs_error, nil)
-    |> assign(:logs_loading, connected?(socket))
+    |> assign(:logs_loading, false)
     |> assign(:logs_request_ref, request_ref)
     |> assign(:logs_cursor, cursor)
     |> assign(:has_logs, true)
@@ -1469,6 +1469,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  def handle_event("mark_device_active", _params, socket) do
+    update_device_active_state(socket, true)
+  end
+
+  def handle_event("mark_device_inactive", _params, socket) do
+    update_device_active_state(socket, false)
+  end
+
   def handle_event("toggle_aliases", _params, socket) do
     show_stale = not socket.assigns.show_stale_aliases
     scope = socket.assigns.current_scope
@@ -1796,7 +1804,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("run_task_for_interface_selection", _params, socket) do
     cond do
       not can_launch_northbound_actions?(socket.assigns.current_scope) ->
-        {:noreply, put_flash(socket, :error, "You are not authorized to launch tasks.")}
+        {:noreply, put_flash(socket, :error, northbound_launch_permission_error())}
 
       MapSet.size(socket.assigns.selected_interfaces) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one interface before Run Task.")}
@@ -2201,6 +2209,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_launch_northbound_actions?(scope) do
     RBAC.can?(scope, "northbound.actions.launch")
+  end
+
+  defp northbound_launch_permission_error do
+    "You are not authorized to launch tasks. Missing permission: northbound.actions.launch."
   end
 
   defp open_northbound_interface_action_modal(socket, nil) do
@@ -3398,6 +3410,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
+      |> assign(:device_active, device_active_state(device_row, row_metadata(device_row)))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
@@ -3452,6 +3465,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               >
                 <.icon name="hero-archive-box" class="size-3" /> Deleted
               </span>
+              <span
+                :if={@device_active == false}
+                class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning"
+              >
+                <.icon name="hero-pause-circle" class="size-3" /> Out of service
+              </span>
             </span>
           </:subtitle>
           <:actions>
@@ -3499,6 +3518,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               phx-confirm="Restore this device to the active inventory?"
             >
               <.icon name="hero-arrow-path" class="size-4" /> Restore
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage and not @device_deleted and @device_active == false}
+              phx-click="mark_device_active"
+              variant="outline"
+              size="sm"
+              phx-confirm="Return this device to service?"
+            >
+              <.icon name="hero-play-circle" class="size-4" /> In service
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage and not @device_deleted and @device_active != false}
+              phx-click="mark_device_inactive"
+              variant="outline"
+              size="sm"
+              phx-confirm="Mark this device out of service? Operational events and alerts for it will be suppressed."
+            >
+              <.icon name="hero-pause-circle" class="size-4" /> Out of service
             </.ui_button>
             <.ui_button
               :if={@can_manage and not @device_deleted}
@@ -4100,6 +4137,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 :if={is_list(@agent_availability)}
                 rows={@agent_availability}
                 device_row={@device_row}
+                sweep_results={@sweep_results}
               />
 
               <.healthcheck_section
@@ -4790,6 +4828,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp row_metadata(_row), do: %{}
+
   defp format_prop_value(nil), do: "—"
   defp format_prop_value(""), do: "—"
   defp format_prop_value(true), do: "Yes"
@@ -5029,14 +5069,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             mono: true
           )
         ]),
-        metadata_group("UniFi", "hero-wifi", [
-          metadata_item("Controller", metadata_lookup(metadata, "controller_name")),
-          metadata_item("Controller URL", metadata_lookup(metadata, "controller_url"), mono: true),
-          metadata_item("API names", metadata_lookup(metadata, "unifi_api_names")),
-          metadata_item("API URLs", metadata_lookup(metadata, "unifi_api_urls"), mono: true),
-          metadata_item("Role", metadata_lookup(metadata, "device_role")),
-          metadata_item("Bridge ports", metadata_lookup(metadata, "bridge_port_count"))
-        ]),
+        metadata_vendor_group(
+          "UniFi",
+          "hero-wifi",
+          metadata,
+          [
+            metadata_item("Controller", metadata_lookup(metadata, "controller_name")),
+            metadata_item("Role", metadata_lookup(metadata, "device_role")),
+            metadata_item("Bridge ports", metadata_lookup(metadata, "bridge_port_count"))
+          ],
+          ["controller_name", "controller_url", "unifi_api_names", "unifi_api_urls"]
+        ),
         metadata_group("SNMP", "hero-radio", [
           metadata_item("Name", metadata_first_value(metadata, ["snmp_name", "sys_name"])),
           metadata_item("Location", metadata_first_value(metadata, ["snmp_location", "sys_location"])),
@@ -5048,10 +5091,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           ),
           metadata_item("Description", metadata_first_value(metadata, ["snmp_description", "sys_descr"]))
         ]),
-        metadata_group("MikroTik", "hero-cpu-chip", [
-          metadata_item("API names", metadata_lookup(metadata, "mikrotik_api_names")),
-          metadata_item("API URLs", metadata_lookup(metadata, "mikrotik_api_urls"), mono: true)
-        ]),
+        metadata_vendor_group(
+          "MikroTik",
+          "hero-cpu-chip",
+          metadata,
+          [
+            metadata_item("API names", metadata_lookup(metadata, "mikrotik_api_names"))
+          ],
+          ["mikrotik_api_names", "mikrotik_api_urls"]
+        ),
         metadata_group("Proxmox", "hero-cube-transparent", [
           metadata_item("Candidate probe", metadata_lookup(metadata, "proxmox_candidate_probe_enabled"))
         ]),
@@ -5064,12 +5112,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("Classification", "hero-tag", [
           metadata_item("Source", metadata_lookup(metadata, "classification_source")),
           metadata_item("Confidence", metadata_lookup(metadata, "classification_confidence")),
-          metadata_item("Reason", metadata_lookup(metadata, "classification_reason")),
-          metadata_item("Rule", metadata_lookup(metadata, "classification_rule_id"), mono: true)
-        ]),
-        metadata_group("Aliases", "hero-arrows-right-left", [
-          metadata_item("IP addresses", metadata_aliases(metadata, "alt_ip")),
-          metadata_item("MAC addresses", metadata_aliases(metadata, "alt_mac"), mono: true)
+          metadata_item("Reason", metadata_lookup(metadata, "classification_reason"))
         ]),
         metadata_group("Armis", "hero-shield-check", [
           metadata_item(
@@ -5108,7 +5151,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             "Location",
             summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
           ),
-          metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "source_tags", "tags"]))
+          metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
         ]),
         metadata_group("Inventory", "hero-identification", [
           metadata_item("Manufacturer", metadata_lookup(metadata, "manufacturer")),
@@ -5121,8 +5164,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           metadata_item("Available count", metadata_lookup(metadata, "scan_available_count")),
           metadata_item("Unavailable count", metadata_lookup(metadata, "scan_unavailable_count")),
           metadata_item("Availability", metadata_lookup(metadata, "scan_availability_percent"))
-        ]),
-        metadata_other_summary_group(metadata)
+        ])
       ],
       &(&1.items == [])
     )
@@ -5130,6 +5172,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp metadata_group(title, icon, items) do
     %{title: title, icon: icon, items: Enum.reject(items, &is_nil/1)}
+  end
+
+  defp metadata_vendor_group(title, icon, metadata, items, source_keys) do
+    if metadata_source_evidence?(metadata, source_keys) do
+      metadata_group(title, icon, items)
+    else
+      metadata_group(title, icon, [])
+    end
+  end
+
+  defp metadata_source_evidence?(metadata, source_keys) when is_map(metadata) and is_list(source_keys) do
+    metadata
+    |> metadata_source_names()
+    |> Enum.any?(fn source ->
+      Enum.any?(source_keys, fn key -> String.contains?(source, metadata_source_token(key)) end)
+    end)
+  end
+
+  defp metadata_source_evidence?(_metadata, _source_keys), do: false
+
+  defp metadata_source_names(metadata) when is_map(metadata) do
+    metadata
+    |> Map.take(["source", "classification_source", "integration_type", "identity_source"])
+    |> Map.values()
+    |> Enum.flat_map(&metadata_source_name_values/1)
+    |> Enum.map(&String.downcase/1)
+  end
+
+  defp metadata_source_name_values(value) when is_binary(value), do: [value]
+
+  defp metadata_source_name_values(values) when is_list(values) do
+    values
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp metadata_source_name_values(_), do: []
+
+  defp metadata_source_token(key) when is_binary(key) do
+    key
+    |> String.split("_", parts: 2)
+    |> List.first()
   end
 
   defp metadata_item(label, value, opts \\ []) do
@@ -5190,153 +5274,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp metadata_count_label(count) when is_integer(count) and count > 0 do
-    "#{count} #{if count == 1, do: "key", else: "keys"}"
-  end
-
-  defp metadata_count_label(_count), do: nil
-
-  defp metadata_other_summary_group(metadata) when is_map(metadata) do
-    visible_count =
-      metadata
-      |> Enum.reject(fn {key, _value} -> metadata_detail_hidden_key?(to_string(key)) end)
-      |> Enum.reject(fn {key, _value} -> metadata_detail_curated_key?(to_string(key)) end)
-      |> Enum.count(fn {_key, value} -> metadata_present?(value) end)
-
-    metadata_group("Other Metadata", "hero-list-bullet", [
-      metadata_item("Additional keys", metadata_count_label(visible_count))
-    ])
-  end
-
-  defp metadata_other_summary_group(_metadata), do: metadata_group("Other Metadata", "hero-list-bullet", [])
-
-  defp metadata_detail_hidden_key?(key) do
-    String.starts_with?(key, "_") or
-      String.starts_with?(key, "debug_") or
-      String.starts_with?(key, "raw_") or
-      key in ["debug_unifi_payload", "device_id"] or
-      String.starts_with?(key, "scan_available_ip_") or
-      String.starts_with?(key, "scan_unavailable_ip_") or
-      String.starts_with?(key, "alt_ip:") or
-      String.starts_with?(key, "alt_mac:")
-  end
-
-  defp metadata_detail_curated_key?(key) do
-    key in metadata_curated_keys()
-  end
-
-  defp metadata_curated_keys do
-    ~w(
-      account
-      armis_boundary_names
-      armis_category
-      armis_device_id
-      armis_risk_level
-      armis_risk_score
-      armis_serial_numbers
-      armis_tags
-      armis_type
-      armis_visibility
-      boundary_names
-      bridge_port_count
-      bridge_base_mac
-      category
-      classification_confidence
-      classification_reason
-      classification_rule_id
-      classification_source
-      controller_name
-      controller_url
-      device_role_confidence
-      device_role_source
-      device_role
-      device_role_name
-      device_status
-      device_type
-      discovery_id
-      discovery_time
-      identity_source
-      identity_state
-      identity_mac_kind
-      integration_id
-      integration_type
-      ip_forwarding
-      location
-      location_name
-      manufacturer
-      mapper_job_id
-      mapper_job_name
-      mikrotik_api_names
-      mikrotik_api_urls
-      model
-      netbox_device_id
-      netbox_tags
-      operating_system
-      platform
-      platform_name
-      proxmox_candidate_probe_enabled
-      purdue_level
-      query_label
-      rack
-      rack_name
-      risk_score
-      role
-      scan_availability_percent
-      scan_available_count
-      scan_available_ips
-      scan_unavailable_count
-      scan_unavailable_ips
-      serial_number
-      serial_numbers
-      site
-      site_name
-      site_slug
-      snmp_description
-      snmp_fingerprint
-      snmp_location
-      snmp_name
-      snmp_owner
-      source_device_id
-      source_tags
-      source
-      status
-      stp_forwarding_port_count
-      sweep_consecutive_failures
-      sweep_mapper_promotion
-      sync_run_id
-      sync_service_id
-      sync_total_devices
-      sys_contact
-      sys_descr
-      sys_location
-      sys_name
-      sys_object_id
-      sys_owner
-      tags
-      tenant
-      tenant_name
-      type
-      unifi_api_names
-      unifi_api_urls
-      uptime
-      visibility
-    )
-  end
-
-  defp metadata_aliases(metadata, prefix) when is_map(metadata) and is_binary(prefix) do
-    marker = prefix <> ":"
-
-    metadata
-    |> Map.keys()
-    |> Enum.map(&to_string/1)
-    |> Enum.filter(&String.starts_with?(&1, marker))
-    |> Enum.map(&String.replace_prefix(&1, marker, ""))
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.sort()
-  end
-
-  defp metadata_aliases(_metadata, _prefix), do: []
-
   defp metadata_present?(nil), do: false
 
   defp metadata_present?(value) when is_binary(value) do
@@ -5392,6 +5329,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         :if={@has_compliance}
         risk_level={@risk_level}
         risk_score={@risk_score}
+        is_active={@is_active}
         is_managed={@is_managed}
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
@@ -5420,11 +5358,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_managed = Map.get(assigns.device_row, "is_managed")
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
+    is_active = device_active_state(assigns.device_row, metadata)
     discovery_metadata_fields = discovery_metadata_fields(metadata)
 
     has_os = map_present?(os)
     has_hw = map_present?(hw_info)
-    has_compliance = compliance_present?(risk_level, risk_score, is_managed, is_compliant)
+    has_compliance = compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant)
     has_discovery_metadata = discovery_metadata_fields != []
     has_any = has_os or has_hw or has_compliance or has_discovery_metadata
 
@@ -5433,6 +5372,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:hw_info, hw_info)
     |> assign(:risk_level, risk_level)
     |> assign(:risk_score, risk_score)
+    |> assign(:is_active, is_active)
     |> assign(:is_managed, is_managed)
     |> assign(:is_compliant, is_compliant)
     |> assign(:is_trusted, is_trusted)
@@ -5446,9 +5386,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp map_present?(value), do: is_map(value) and map_size(value) > 0
 
-  defp compliance_present?(risk_level, risk_score, is_managed, is_compliant) do
-    not is_nil(risk_level) or not is_nil(risk_score) or not is_nil(is_managed) or not is_nil(is_compliant)
+  defp compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant) do
+    not is_nil(risk_level) or not is_nil(risk_score) or not is_nil(is_active) or
+      not is_nil(is_managed) or not is_nil(is_compliant)
   end
+
+  defp device_active_state(row, metadata) when is_map(row) do
+    row
+    |> Map.get("is_active")
+    |> normalize_bool()
+    |> case do
+      nil ->
+        metadata
+        |> metadata_first_value(["armis_is_active", "is_active", "active", "in_service"])
+        |> normalize_bool()
+
+      value ->
+        value
+    end
+  end
+
+  defp device_active_state(_row, metadata) do
+    metadata
+    |> metadata_first_value(["armis_is_active", "is_active", "active", "in_service"])
+    |> normalize_bool()
+  end
+
+  defp normalize_bool(value) when is_boolean(value), do: value
+  defp normalize_bool(1), do: true
+  defp normalize_bool(0), do: false
+
+  defp normalize_bool(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      value when value in ["true", "yes", "y", "1", "active", "in_service", "in-service"] -> true
+      value when value in ["false", "no", "n", "0", "inactive", "out_of_service", "out-of-service"] -> false
+      _ -> nil
+    end
+  end
+
+  defp normalize_bool(_), do: nil
 
   attr(:os, :map, required: true)
 
@@ -5557,6 +5533,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:risk_level, :string, default: nil)
   attr(:risk_score, :any, default: nil)
+  attr(:is_active, :boolean, default: nil)
   attr(:is_managed, :boolean, default: nil)
   attr(:is_compliant, :boolean, default: nil)
   attr(:is_trusted, :boolean, default: nil)
@@ -5576,6 +5553,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={@risk_level} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Risk Level:</span>
             <.risk_badge level={@risk_level} />
+          </div>
+          <div :if={not is_nil(@is_active)} class="flex items-center gap-2">
+            <span class="text-xs text-base-content/60">In Service:</span>
+            <.bool_badge value={@is_active} />
           </div>
           <div :if={not is_nil(@is_managed)} class="flex items-center gap-2">
             <span class="text-xs text-base-content/60">Managed:</span>
@@ -8871,14 +8852,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:rows, :list, required: true)
   attr(:device_row, :map, default: %{})
+  attr(:sweep_results, :map, default: nil)
 
   def agent_availability_section(assigns) do
     primary_agent_id = device_availability_source_agent_id(assigns.device_row)
+    {display_rows, availability_source} = availability_display_rows(assigns.rows, assigns.sweep_results)
 
     assigns =
       assigns
       |> assign(:primary_agent_id, primary_agent_id)
-      |> assign(:row_count, length(assigns.rows))
+      |> assign(:display_rows, display_rows)
+      |> assign(:availability_source, availability_source)
+      |> assign(:row_count, length(display_rows))
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100">
@@ -8889,7 +8874,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <span class="text-sm font-semibold">Agent Availability</span>
             <span :if={@row_count > 0} class="text-xs text-base-content/50">({@row_count})</span>
           </div>
-          <form :if={@rows != []} phx-change="set_availability_source" class="flex items-center gap-2">
+          <form
+            :if={@availability_source == :canonical}
+            phx-change="set_availability_source"
+            class="flex items-center gap-2"
+          >
             <label for="availability-source-agent" class="text-xs text-base-content/60">
               Canonical source
             </label>
@@ -8899,23 +8888,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               class="select select-bordered select-xs w-48"
             >
               <option value="" selected={!present?(@primary_agent_id)}>Fallback</option>
-              <%= for row <- @rows do %>
+              <%= for row <- @display_rows do %>
                 <option value={row.agent_id} selected={row.agent_id == @primary_agent_id}>
                   {availability_agent_label(row)}
                 </option>
               <% end %>
             </select>
           </form>
-          <div :if={@rows == []} class="text-xs text-base-content/60">Canonical source: fallback</div>
+          <div
+            :if={@availability_source == :sweep_history}
+            class="text-xs text-base-content/60"
+          >
+            Source: recent sweep history
+          </div>
+          <div :if={@availability_source == :none} class="text-xs text-base-content/60">
+            Canonical source: fallback
+          </div>
         </div>
       </div>
 
       <div class="p-4">
-        <div :if={@rows == []} class="text-sm text-base-content/60">
+        <div :if={@display_rows == []} class="text-sm text-base-content/60">
           No per-agent sweep availability has been recorded for this device yet.
         </div>
 
-        <div :if={@rows != []} class="overflow-x-auto">
+        <div :if={@display_rows != []} class="overflow-x-auto">
           <table class="table table-xs">
             <thead>
               <tr class="text-xs text-base-content/60">
@@ -8928,13 +8925,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </tr>
             </thead>
             <tbody>
-              <%= for row <- @rows do %>
+              <%= for row <- @display_rows do %>
                 <tr class="hover:bg-base-200/40">
                   <td>
                     <div class="flex items-center gap-2">
                       <span class="font-mono text-xs">{availability_agent_label(row)}</span>
                       <span
-                        :if={row.agent_id == @primary_agent_id}
+                        :if={@availability_source == :canonical and row.agent_id == @primary_agent_id}
                         class="badge badge-primary badge-xs"
                       >
                         source
@@ -8973,6 +8970,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp device_availability_source_agent_id(_), do: nil
+
+  defp availability_display_rows(rows, _sweep_results) when is_list(rows) and rows != [] do
+    {rows, :canonical}
+  end
+
+  defp availability_display_rows(_rows, %{results: results}) when is_list(results) do
+    results
+    |> Enum.map(&availability_row_from_sweep/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> {[], :none}
+      rows -> {rows, :sweep_history}
+    end
+  end
+
+  defp availability_display_rows(_rows, _sweep_results), do: {[], :none}
+
+  defp availability_row_from_sweep(result) do
+    agent_id = get_sweep_agent_id(result)
+
+    if agent_id == "—" do
+      nil
+    else
+      %{
+        agent_id: agent_id,
+        agent_name: nil,
+        is_available: Map.get(result, :status) == :available,
+        checked_at: Map.get(result, :inserted_at),
+        response_time_ms: Map.get(result, :response_time_ms),
+        open_ports: Map.get(result, :open_ports) || [],
+        sweep_modes_results: Map.get(result, :sweep_modes_results) || %{}
+      }
+    end
+  end
 
   defp availability_agent_label(%{agent_name: name, agent_id: agent_id}) when is_binary(name) and name != "" do
     "#{name} (#{truncate_agent_id(agent_id)})"
@@ -11830,4 +11861,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:error, List.first(errors) || :bulk_update_failed}
     end
   end
+
+  defp update_device_active_state(socket, active?) do
+    scope = socket.assigns.current_scope
+    device_uid = socket.assigns.device_uid
+
+    with {:ok, device} <- load_device(scope, device_uid),
+         {:ok, _updated} <- set_device_active_state(device, active?, scope) do
+      message = if active?, do: "Device returned to service", else: "Device marked out of service"
+
+      {:noreply,
+       socket
+       |> put_flash(:info, message)
+       |> push_patch(to: device_show_path(socket, device_uid))}
+    else
+      {:error, reason} ->
+        action = if active?, do: "return device to service", else: "mark device out of service"
+        Logger.error("Device active lifecycle update failed for #{device_uid}: #{inspect(reason)}")
+
+        {:noreply, put_flash(socket, :error, "Failed to #{action}: #{format_ash_error(reason)}")}
+    end
+  end
+
+  defp set_device_active_state(device, true, scope), do: Device.mark_active(device, scope: scope)
+  defp set_device_active_state(device, false, scope), do: Device.mark_inactive(device, scope: scope)
 end

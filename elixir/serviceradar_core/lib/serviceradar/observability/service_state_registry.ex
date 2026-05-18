@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   @streaming_plugin_capability "camera_media_stream"
   @streaming_plugin_output "serviceradar.camera_stream.v1"
+  @plugin_result_output "serviceradar.plugin_result.v1"
 
   @spec upsert_from_status(map()) :: :ok
   def upsert_from_status(status) when is_map(status) do
@@ -253,12 +254,17 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
          %PluginAssignment{} = assignment,
          %PluginPackage{} = package
        ) do
-    assignment.enabled == true and streaming_plugin_package?(package)
+    assignment.enabled == true and
+      (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
 
   defp streaming_plugin_package?(%PluginPackage{} = package) do
     package.outputs == @streaming_plugin_output or
       Enum.member?(effective_capabilities(package), @streaming_plugin_capability)
+  end
+
+  defp plugin_result_package?(%PluginPackage{} = package) do
+    package.outputs == @plugin_result_output
   end
 
   defp effective_capabilities(%PluginPackage{} = package) do
@@ -277,22 +283,37 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
          agent,
          %PluginPackage{} = package
        ) do
+    plugin_type = assignment_plugin_type(package)
+    {available, message} = assignment_initial_state(plugin_type)
+
     agent
     |> identity_from_agent(package.name, "plugin", assignment.agent_uid)
     |> Map.merge(%{
-      available: true,
-      message: "streaming plugin ready",
+      available: available,
+      message: message,
       details:
         FieldParser.encode_json(%{
           "assignment_id" => to_string(assignment.id),
           "plugin_id" => package.plugin_id,
           "package_id" => package.id,
-          "plugin_type" => "streaming"
+          "plugin_type" => plugin_type,
+          "package_version" => package.version
         }),
       last_observed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
       state: "active"
     })
   end
+
+  defp assignment_plugin_type(%PluginPackage{} = package) do
+    cond do
+      streaming_plugin_package?(package) -> "streaming"
+      plugin_result_package?(package) -> "scheduled"
+      true -> "plugin"
+    end
+  end
+
+  defp assignment_initial_state("streaming"), do: {true, "streaming plugin ready"}
+  defp assignment_initial_state(_), do: {false, "plugin assignment pending result"}
 
   defp upsert_service_state(attrs, actor) when is_map(attrs) do
     ServiceState

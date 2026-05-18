@@ -30,8 +30,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {"Connected Agents", "connected"},
     {"Custom Agent IDs", "custom"}
   ]
-  @repo_release_page_size 10
-  @repo_release_fetch_limit 50
+  @visible_release_limit 5
   @rollout_page_size 10
 
   @impl true
@@ -50,11 +49,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
        |> assign(:current_path, "/settings/agents/releases")
        |> assign(:artifact_formats, @artifact_formats)
        |> assign(:cohort_options, @cohort_options)
+       |> assign(:visible_release_limit, @visible_release_limit)
        |> assign(:release_import_form, release_import_form())
        |> assign(:recent_repo_releases, [])
        |> assign(:recent_repo_release_error, nil)
-       |> assign(:repo_release_page, 1)
-       |> assign(:repo_release_page_size, @repo_release_page_size)
        |> assign(:release_form, release_form())
        |> assign(:rollout_form, rollout_form())
        |> assign(:releases, [])
@@ -165,12 +163,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       |> Map.put("release_tag", release_tag)
 
     handle_event("import_repo_release", %{"release_import" => params}, socket)
-  end
-
-  def handle_event("repo_release_page", %{"page" => page}, socket) do
-    page = clamp_page(page, length(socket.assigns.recent_repo_releases), @repo_release_page_size)
-
-    {:noreply, assign(socket, :repo_release_page, page)}
   end
 
   def handle_event("rollout_page", %{"page" => page}, socket) do
@@ -329,11 +321,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     {recent_repo_releases, recent_repo_release_error} =
       load_recent_repo_releases(release_import_form.params || %{})
 
-    repo_release_page =
-      socket.assigns
-      |> Map.get(:repo_release_page, 1)
-      |> clamp_page(length(recent_repo_releases), @repo_release_page_size)
-
     rollout_page =
       socket.assigns
       |> Map.get(:rollout_page, 1)
@@ -358,7 +345,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> assign(:release_import_form, release_import_form)
     |> assign(:recent_repo_releases, recent_repo_releases)
     |> assign(:recent_repo_release_error, recent_repo_release_error)
-    |> assign(:repo_release_page, repo_release_page)
     |> assign(:release_form, normalize_release_form(socket.assigns.release_form))
     |> assign(:rollout_form, rollout_form)
     |> assign(:rollout_preview, rollout_preview)
@@ -384,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     AgentRelease
     |> Ash.Query.for_read(:read, %{})
     |> Ash.Query.sort(published_at: :desc, inserted_at: :desc)
-    |> Ash.Query.limit(25)
+    |> Ash.Query.limit(@visible_release_limit)
     |> Ash.read(scope: scope)
     |> case do
       {:ok, releases} -> releases
@@ -604,7 +590,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             Recent Repository Releases
                           </div>
                           <div class="text-xs text-base-content/60">
-                            Recent releases are discovered automatically from the selected Forgejo repository.
+                            Showing the latest {@visible_release_limit} releases from the selected Forgejo repository.
                           </div>
                         </div>
                         <span class="text-xs text-base-content/50">
@@ -637,7 +623,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             </tr>
                           </thead>
                           <tbody>
-                            <%= for release <- paginated_items(@recent_repo_releases, @repo_release_page, @repo_release_page_size) do %>
+                            <%= for release <- @recent_repo_releases do %>
                               <tr id={"repo-release-#{release.tag}"}>
                                 <td>
                                   <div class="flex flex-col gap-1">
@@ -707,13 +693,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             <% end %>
                           </tbody>
                         </table>
-                        <.pagination_controls
-                          id_prefix="repo-release"
-                          event="repo_release_page"
-                          page={@repo_release_page}
-                          total_items={length(@recent_repo_releases)}
-                          page_size={@repo_release_page_size}
-                        />
                       </div>
                     </div>
 
@@ -1052,7 +1031,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         </td>
                         <td>
                           <button
-                            id={"use-release-#{release.version}"}
+                            id={"use-release-#{dom_id_fragment(release.version)}"}
                             type="button"
                             phx-click="use_release"
                             phx-value-version={release.version}
@@ -1510,7 +1489,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       socket
       |> assign(:recent_repo_releases, recent_repo_releases)
       |> assign(:recent_repo_release_error, recent_repo_release_error)
-      |> assign(:repo_release_page, 1)
     else
       socket
     end
@@ -1529,7 +1507,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp normalize_repo_source_value(value), do: value
 
   defp load_recent_repo_releases(params) when is_map(params) do
-    case ReleaseSourceImporter.list_recent_releases(params, @repo_release_fetch_limit) do
+    case ReleaseSourceImporter.list_recent_releases(params, @visible_release_limit) do
       {:ok, releases} -> {releases, nil}
       {:error, reason} -> {[], format_error(reason)}
     end
@@ -1862,6 +1840,17 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp release_provider_label("forgejo"), do: "Forgejo Releases"
   defp release_provider_label(_provider), do: "Repository Release"
+
+  defp dom_id_fragment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "item"
+      fragment -> fragment
+    end
+  end
 
   defp release_source_summary(%{metadata: %{"source" => %{} = source}}) do
     provider =

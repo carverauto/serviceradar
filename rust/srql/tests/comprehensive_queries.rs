@@ -137,6 +137,15 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // is_active:false -> beta remains queryable but is out of service
+            query: "in:devices is_active:false",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-beta");
+                assert_eq!(body["results"][0]["is_active"], false);
+            })),
+        },
+        TestCase {
             // Per-agent latest availability: agent-1 sees alpha and beta as reachable.
             query: "in:devices available_from_agent:agent-1 sort:uid:asc",
             expected_count: 2,

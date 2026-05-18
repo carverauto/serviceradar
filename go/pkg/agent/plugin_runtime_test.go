@@ -943,6 +943,32 @@ func TestNormalizePluginPayloadRejectsInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestNormalizePluginPayloadMapsFailedStatus(t *testing.T) {
+	const expectedStatus = "CRITICAL"
+
+	pl := &PushLoop{}
+	result := PluginResult{
+		Payload: []byte(`{"status":"failed","summary":"plugin execution failed"}`),
+	}
+
+	data, available, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if available {
+		t.Fatalf("expected available=false for failed status")
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("failed to unmarshal payload: %v", err)
+	}
+
+	if payload["status"] != expectedStatus {
+		t.Fatalf("expected %s status, got %#v", expectedStatus, payload["status"])
+	}
+}
+
 func TestBuildPluginErrorPayload(t *testing.T) {
 	pl := &PushLoop{}
 	result := PluginResult{

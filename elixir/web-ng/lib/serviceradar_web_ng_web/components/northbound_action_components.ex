@@ -336,6 +336,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp action_state_label(state), do: ActionForm.humanize(state)
 
   defp target_status_label(nil), do: "Target Pending"
+  defp target_status_label(:result_fetching), do: "Target Result fetching"
   defp target_status_label(status), do: "Target #{ActionForm.humanize(status)}"
 
   defp history_target_label(entry) do
@@ -355,7 +356,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   end
 
   defp history_summary(entry) do
-    Enum.find(
+    Enum.find_value(
       [
         Map.get(entry, :error_message),
         history_progress_summary(entry),
@@ -363,9 +364,14 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         summary_value(Map.get(entry, :result_summary)),
         Map.get(entry, :external_correlation_id)
       ],
-      &ActionForm.present_text?/1
+      &summary_candidate/1
     )
   end
+
+  defp summary_candidate(value) when is_binary(value), do: present_summary_text(value)
+  defp summary_candidate(value) when is_atom(value), do: value |> Atom.to_string() |> present_summary_text()
+  defp summary_candidate(value) when is_number(value), do: to_string(value)
+  defp summary_candidate(_value), do: nil
 
   defp summary_value(%{} = map) do
     Enum.find_value(

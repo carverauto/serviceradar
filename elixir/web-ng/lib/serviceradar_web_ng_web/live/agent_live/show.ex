@@ -237,16 +237,39 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp hydrate_agent_release_fields(nil, _targets), do: nil
   defp hydrate_agent_release_fields(agent, []), do: agent
 
-  defp hydrate_agent_release_fields(agent, [latest | _]) when is_map(agent) do
+  defp hydrate_agent_release_fields(agent, targets) when is_map(agent) do
+    latest = preferred_release_target(agent, targets)
+
     agent
-    |> put_if_blank("release_rollout_state", latest.status)
-    |> put_if_blank("desired_version", latest.desired_version)
+    |> maybe_put_release_field("release_rollout_state", latest.status)
+    |> maybe_put_release_field("desired_version", latest.desired_version)
     |> put_if_blank("version", latest.current_version)
-    |> put_if_blank(
+    |> maybe_put_release_field(
       "last_update_at",
       latest.updated_at || latest.completed_at || latest.dispatched_at || latest.inserted_at
     )
-    |> put_if_blank("last_update_error", latest.last_error)
+    |> maybe_put_release_field("last_update_error", latest.last_error)
+  end
+
+  defp preferred_release_target(agent, targets) do
+    current_version = Map.get(agent, "version")
+
+    Enum.find(targets, fn target ->
+      target.status == :healthy and version_matches?(target.current_version, current_version)
+    end) ||
+      Enum.find(targets, fn target ->
+        target.status in [:pending, :dispatched, :downloading, :verifying, :staged, :restarting]
+      end) ||
+      List.first(targets)
+  end
+
+  defp maybe_put_release_field(map, key, value) do
+    if stale_release_field?(map, key), do: Map.put(map, key, value), else: put_if_blank(map, key, value)
+  end
+
+  defp stale_release_field?(map, _key) do
+    version_matches?(Map.get(map, "version"), Map.get(map, "desired_version")) and
+      Map.get(map, "release_rollout_state") in ["failed", :failed, "rolled_back", :rolled_back]
   end
 
   defp put_if_blank(map, _key, value) when value in [nil, ""], do: map
@@ -258,6 +281,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       _ -> map
     end
   end
+
+  defp version_matches?(left, right) when is_binary(left) and is_binary(right) do
+    String.trim(left) != "" and String.trim(left) == String.trim(right)
+  end
+
+  defp version_matches?(_, _), do: false
 
   defp agent_release_handoff_path(agent) do
     uid = Map.get(agent, "uid") || Map.get(agent, "agent_id")

@@ -65,12 +65,8 @@ jobs:
           path: |
             ~/.hex
             ~/.mix
-            elixir/connection/deps
-            elixir/connection/_build
             elixir/datasvc/deps
             elixir/datasvc/_build
-            elixir/elixir_uuid/deps
-            elixir/elixir_uuid/_build
             elixir/palisade/deps
             elixir/palisade/_build
             elixir/serviceradar_agent_gateway/deps
@@ -99,9 +95,7 @@ jobs:
             echo "::endgroup::"
           }
 
-          run_quality connection elixir/connection
           run_quality datasvc elixir/datasvc
-          run_quality elixir_uuid elixir/elixir_uuid
           run_quality palisade elixir/palisade
           run_quality serviceradar_agent_gateway elixir/serviceradar_agent_gateway
           run_quality serviceradar_core elixir/serviceradar_core

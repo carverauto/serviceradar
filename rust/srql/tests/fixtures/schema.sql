@@ -48,6 +48,7 @@ CREATE TABLE ocsf_devices (
     availability_source_agent_id TEXT,
     discovery_sources   TEXT[],
     is_available        BOOLEAN,
+    is_active           BOOLEAN     NOT NULL DEFAULT TRUE,
     metadata            JSONB,
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,

@@ -67,7 +67,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
             if String.contains?(url, "/v1.0.0/") do
               PluginPackageLiveTest.old_index()
             else
-              PluginPackageLiveTest.index()
+              Application.get_env(
+                :serviceradar_web_ng,
+                :plugin_live_test_index,
+                PluginPackageLiveTest.index()
+              )
             end
 
           {:ok, %Req.Response{status: 200, body: Jason.encode!(body)}}
@@ -98,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
     original_bundle = Application.get_env(:serviceradar_web_ng, :plugin_live_test_bundle)
     original_signature = Application.get_env(:serviceradar_web_ng, :plugin_live_test_signature)
+    original_index = Application.get_env(:serviceradar_web_ng, :plugin_live_test_index)
 
     store_name = :"sr_plugin_live_test_#{System.unique_integer([:positive])}"
     {:ok, _store} = ServiceRadarWebNG.PluginStorageTestClient.start_link(store_name)
@@ -145,6 +150,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       restore_env(:plugin_storage, original_storage)
       restore_env(:plugin_live_test_bundle, original_bundle)
       restore_env(:plugin_live_test_signature, original_signature)
+      restore_env(:plugin_live_test_index, original_index)
     end)
 
     %{conn: log_in_user(conn, user), actor: actor_for_user(user)}
@@ -189,6 +195,57 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "Old First-party Plugin"
     assert html =~ "v1.0.0"
     refute html =~ "Live First-party Plugin"
+  end
+
+  test "first-party repository plugins are paginated ten at a time", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :plugin_live_test_index, index_with_plugins(12))
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    html =
+      lv
+      |> element("button[phx-click='sync_first_party_catalog']")
+      |> render_click()
+
+    assert html =~ "Showing 1-10 of 12"
+    assert html =~ "Catalog Plugin 01"
+    assert html =~ "Catalog Plugin 10"
+    refute html =~ "Catalog Plugin 11"
+    refute html =~ "Catalog Plugin 12"
+
+    html =
+      lv
+      |> element("#first-party-catalog-next-page")
+      |> render_click()
+
+    assert html =~ "Showing 11-12 of 12"
+    assert html =~ "Catalog Plugin 11"
+    assert html =~ "Catalog Plugin 12"
+    refute html =~ "Catalog Plugin 01"
+  end
+
+  test "installed plugin packages are paginated ten at a time", %{conn: conn, actor: actor} do
+    for index <- 1..12 do
+      create_upload_package!(actor, index)
+    end
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins")
+
+    assert html =~ "Showing 1-10 of 12"
+    assert html =~ "Installed Plugin 12"
+    assert html =~ "Installed Plugin 03"
+    refute html =~ "Installed Plugin 02"
+    refute html =~ "Installed Plugin 01"
+
+    html =
+      lv
+      |> element("#plugin-packages-next-page")
+      |> render_click()
+
+    assert html =~ "Showing 11-12 of 12"
+    assert html =~ "Installed Plugin 02"
+    assert html =~ "Installed Plugin 01"
+    refute html =~ "Installed Plugin 12"
   end
 
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do
@@ -330,6 +387,28 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     }
   end
 
+  def index_with_plugins(count) do
+    %{
+      "schema_version" => 1,
+      "plugins" =>
+        Enum.map(1..count, fn index ->
+          suffix = index |> Integer.to_string() |> String.pad_leading(2, "0")
+
+          %{
+            "plugin_id" => "catalog-plugin-#{suffix}",
+            "name" => "Catalog Plugin #{suffix}",
+            "version" => "2.0.#{index}",
+            "bundle_url" =>
+              "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v2.0.0/catalog-plugin-#{suffix}.zip",
+            "upload_signature_url" =>
+              "https://code.carverauto.dev/carverauto/serviceradar/releases/download/v2.0.0/catalog-plugin-#{suffix}.upload-signature.json",
+            "bundle_digest" => Storage.sha256("catalog plugin #{suffix}"),
+            "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-catalog-#{suffix}:v2.0.#{index}"
+          }
+        end)
+    }
+  end
+
   def bundle do
     case Application.get_env(:serviceradar_web_ng, :plugin_live_test_bundle) ||
            Process.get(:live_first_party_bundle) do
@@ -390,4 +469,38 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp create_upload_package!(actor, index) do
+    suffix = index |> Integer.to_string() |> String.pad_leading(2, "0")
+    plugin_id = "installed-plugin-#{suffix}-#{System.unique_integer([:positive])}"
+
+    manifest = %{
+      "id" => plugin_id,
+      "name" => "Installed Plugin #{suffix}",
+      "version" => "1.0.#{index}",
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "outputs" => "serviceradar.plugin_result.v1",
+      "capabilities" => ["submit_result"],
+      "resources" => %{
+        "requested_memory_mb" => 32,
+        "requested_cpu_ms" => 100,
+        "max_open_connections" => 1
+      }
+    }
+
+    assert {:ok, package} =
+             Packages.create(
+               %{
+                 manifest: manifest,
+                 config_schema: %{},
+                 signature: %{},
+                 source_type: :upload,
+                 content_hash: "sha256:#{plugin_id}"
+               },
+               actor: actor
+             )
+
+    package
+  end
 end

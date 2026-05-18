@@ -169,5 +169,32 @@ defmodule ServiceRadar.Camera.RelaySourceResolverTest do
                  camera_profile_fetcher: fetcher
                )
     end
+
+    test "rejects inventory relay for inactive source devices" do
+      camera_source_id = Ecto.UUID.generate()
+      stream_profile_id = Ecto.UUID.generate()
+
+      fetcher = fn ^camera_source_id, ^stream_profile_id ->
+        {:ok,
+         %{
+           source_url_override: "rtsp://camera.local/override",
+           camera_source: %{
+             device_uid: "sr:inactive-camera",
+             source_url: "rtsp://camera.local/fallback"
+           }
+         }}
+      end
+
+      assert {:error, "camera source device is inactive"} =
+               RelaySourceResolver.resolve_start_payload(
+                 %{
+                   relay_session_id: "relay-1",
+                   camera_source_id: camera_source_id,
+                   stream_profile_id: stream_profile_id
+                 },
+                 camera_profile_fetcher: fetcher,
+                 device_lifecycle_active?: fn "sr:inactive-camera" -> false end
+               )
+    end
   end
 end

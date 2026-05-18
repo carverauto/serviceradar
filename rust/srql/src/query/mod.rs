@@ -911,6 +911,10 @@ mod tests {
         let (sql, _) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
         let lower = sql.to_lowercase();
 
+        assert!(
+            lower.contains("coalesce(\"ocsf_devices\".\"is_active\", true) = true"),
+            "expected default active-device predicate, got: {sql}"
+        );
         assert!(lower.contains("split_part(ip, ',', 1)"));
         assert!(lower.contains("pg_input_is_valid"));
         assert!(
@@ -920,6 +924,26 @@ mod tests {
         assert!(
             !lower.contains("nullif(ip, '')::inet"),
             "default device ordering should not cast malformed IP strings directly, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_include_inactive_suppresses_default_active_filter() {
+        let query = "in:devices include_inactive:true";
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            !lower.contains("coalesce(\"ocsf_devices\".\"is_active\", true) = true"),
+            "include_inactive:true should not add default active predicate, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .all(|param| !matches!(param, BindParam::Bool(_))),
+            "include_inactive is a control token and should not bind a bool param, got: {params:?}"
         );
     }
 
@@ -1449,6 +1473,41 @@ mod tests {
         assert!(
             lower.contains("is_available"),
             "expected is_available column in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_docs_example_active_false() {
+        let query = "in:devices is_active:false";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build SQL for active state query");
+        assert!(
+            sql.to_lowercase()
+                .contains("coalesce(\"ocsf_devices\".\"is_active\", true) = $1"),
+            "expected SQL to include active lifecycle predicate, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .any(|param| matches!(param, BindParam::Bool(false))),
+            "expected false active-state bind param, got: {params:?}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_group_by_active_state() {
+        let query = "in:devices stats:count() as count by is_active";
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("coalesce(is_active, true)"),
+            "expected active lifecycle column in SQL, got: {sql}"
         );
     }
 

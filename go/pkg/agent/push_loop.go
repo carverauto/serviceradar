@@ -1948,7 +1948,7 @@ func (p *PushLoop) normalizePluginPayload(
 	if !ok {
 		return nil, false, errPluginMissingStatus
 	}
-	status := strings.ToUpper(strings.TrimSpace(statusRaw))
+	status := normalizePluginStatus(statusRaw)
 	if !isValidPluginStatus(status) {
 		return nil, false, fmt.Errorf("%w: %s", errPluginInvalidStatus, statusRaw)
 	}
@@ -2078,20 +2078,36 @@ func pluginServiceName(result PluginResult) string {
 	return "plugin"
 }
 
+const (
+	pluginStatusOK       = "OK"
+	pluginStatusWarning  = "WARNING"
+	pluginStatusCritical = "CRITICAL"
+	pluginStatusUnknown  = "UNKNOWN"
+)
+
 func isValidPluginStatus(status string) bool {
 	switch status {
-	case "OK", "WARNING", "CRITICAL", "UNKNOWN":
+	case pluginStatusOK, pluginStatusWarning, pluginStatusCritical, pluginStatusUnknown:
 		return true
 	default:
 		return false
 	}
 }
 
+func normalizePluginStatus(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FAILED", "FAIL", "ERROR":
+		return pluginStatusCritical
+	default:
+		return strings.ToUpper(strings.TrimSpace(status))
+	}
+}
+
 func pluginStatusAvailable(status string) bool {
 	switch status {
-	case "OK", "WARNING":
+	case pluginStatusOK, pluginStatusWarning:
 		return true
-	case "CRITICAL", "UNKNOWN":
+	case pluginStatusCritical, pluginStatusUnknown:
 		return false
 	default:
 		return false

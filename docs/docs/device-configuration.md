@@ -11,6 +11,16 @@ ServiceRadar can collect data from network devices through multiple protocols:
 - **SNMP Traps**: Event notifications from devices
 - **ICMP**: Network reachability testing
 
+## Device Details Metadata
+
+The device details page groups enrichment metadata by source instead of dumping raw integration keys. SNMP, Armis, UniFi, MikroTik, Proxmox, NetBox, discovery, classification, inventory, and sweep fields are shown in separate sections when there is evidence that the source actually contributed useful data.
+
+Redundant alias summaries and opaque "additional metadata keys" counts are intentionally hidden. IP aliases are shown in the dedicated IP Aliases table, and raw/debug payload keys stay out of the details card.
+
+The Logs tab runs a bounded `in:logs device_id:"..." time:last_24h` SRQL query and shows a zero-row state immediately while the query completes. Use the "Open full logs view" link when operators need broader log filtering.
+
+Northbound task results are shown in the device Task History section. Launch feedback should tell operators to watch Task History, and target summaries should omit nil or unavailable fields.
+
 ## SNMP Configuration
 
 ### SNMP Prerequisites

@@ -92,6 +92,31 @@ describe("OperationsTrafficMap netflow panning", () => {
   })
 })
 
+describe("OperationsTrafficMap netflow links", () => {
+  it("keeps non-GeoIP conversations using topology fallback points", () => {
+    const [link] = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {
+          source_label: "10.0.0.10",
+          target_label: "10.0.0.20",
+          topology_from: [-120, 20],
+          topology_to: [-90, 30],
+          bytes: 1024,
+        },
+      ],
+      "netflow",
+    )
+
+    expect(link).toMatchObject({
+      from: [-120, 20],
+      to: [-90, 30],
+      sourceLabel: "10.0.0.10",
+      targetLabel: "10.0.0.20",
+      geoMapped: false,
+    })
+  })
+})
+
 describe("OperationsTrafficMap netflow details dismissal", () => {
   it("removes node details when the SVG background is clicked", () => {
     const remove = vi.fn()

@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "MATCH (b:Device {id: bi.device_id})"
 
     assert query =~
-             "toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual']"
+             "coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual']"
   end
 
   test "topology_links_query/0 stays on the canonical-plus-mapper read model even if legacy flag is set false" do
@@ -64,6 +64,19 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     assert query =~ "telemetry_eligible: false"
     assert query =~ "telemetry_source: 'none'"
     assert query =~ "evidence_class: coalesce(r.evidence_class, 'endpoint-attachment')"
+  end
+
+  test "topology_diagnostics_query/0 exposes canonical edge health counters" do
+    query = RuntimeGraph.topology_diagnostics_query()
+
+    assert query =~ "canonical_edges"
+    assert query =~ "backbone_candidates"
+    assert query =~ "attachment_candidates"
+    assert query =~ "missing_relation_type"
+    assert query =~ "missing_evidence_class"
+    assert query =~ "missing_endpoint_ids"
+    assert query =~ "non_canonical_endpoint_ids"
+    assert query =~ "missing_observed_at"
   end
 
   test "virtualization_inventory_links_query/0 projects host-to-guest inventory as hosted topology" do
