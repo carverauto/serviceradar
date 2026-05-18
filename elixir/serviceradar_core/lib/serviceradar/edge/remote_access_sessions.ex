@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ValueUtils
+  alias ServiceRadar.Repo
 
   @default_attach_ttl_seconds 60
   @default_idle_timeout_seconds 900
@@ -108,10 +109,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     system_opts = [actor: SystemActor.system(:remote_access_ticket)]
 
     with {:ok, ticket_hash} <- hash_ticket(ticket),
-         {:ok, %RemoteAccessSession{} = session} <-
-           RemoteAccessSession.get_by_attach_ticket_hash(ticket_hash, system_opts),
-         :ok <- ensure_session_match(session, Keyword.get(opts, :session_id)),
-         {:ok, attached} <- RemoteAccessSession.attach(session, %{}, system_opts) do
+         {:ok, attached} <-
+           consume_attach_ticket(ticket_hash, Keyword.get(opts, :session_id), system_opts) do
       write_audit(:remote_access_session_attach, attached, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -120,9 +119,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
       {:ok, attached}
     else
-      {:ok, nil} ->
-        {:error, :invalid_or_expired_ticket}
-
       {:error, error} ->
         if not_found_error?(error),
           do: {:error, :invalid_or_expired_ticket},
@@ -130,6 +126,54 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
       error ->
         error
+    end
+  end
+
+  defp consume_attach_ticket(ticket_hash, expected_session_id, system_opts) do
+    case Repo.transaction(fn ->
+           case lock_attach_session(ticket_hash, expected_session_id, system_opts) do
+             {:ok, session} ->
+               attach_opts = Keyword.put(system_opts, :return_notifications?, true)
+
+               case RemoteAccessSession.attach(session, %{}, attach_opts) do
+                 {:ok, attached, notifications} -> {attached, notifications}
+                 {:error, error} -> Repo.rollback(error)
+               end
+
+             {:error, error} ->
+               Repo.rollback(error)
+           end
+         end) do
+      {:ok, {%RemoteAccessSession{} = attached, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, attached}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp lock_attach_session(ticket_hash, expected_session_id, system_opts) do
+    query =
+      RemoteAccessSession
+      |> Ash.Query.for_read(
+        :by_attach_ticket_hash,
+        %{attach_ticket_hash: ticket_hash},
+        system_opts
+      )
+      |> Ash.Query.lock(:for_update)
+
+    case Ash.read_one(query, system_opts) do
+      {:ok, nil} ->
+        {:error, :invalid_or_expired_ticket}
+
+      {:ok, %RemoteAccessSession{} = session} ->
+        with :ok <- ensure_session_match(session, expected_session_id), do: {:ok, session}
+
+      {:error, error} ->
+        if not_found_error?(error),
+          do: {:error, :invalid_or_expired_ticket},
+          else: {:error, error}
     end
   end
 
