@@ -890,10 +890,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: Operator gets a confusing error mid-playback instead of a clean `410 Gone` + audit linkage.
       Fix: Add `:deleted` state; transition before any storage-side removal; playback path checks status first.
 
-- [ ] 3.O.12 [M] `record_event` trusts `attrs["session_id"]` instead of `recording.session_id`
+- [x] 3.O.12 [M] `record_event` trusts `attrs["session_id"]` instead of `recording.session_id`
       Where: `remote_access_recordings.ex:90-93` (commit: staging)
       Why: A broker bug or replayed frame could insert an event with a foreign `session_id`; unique constraint `(recording_id, sequence)` doesn't catch it.
       Fix: Always overwrite with `recording.session_id`; ignore the input field.
+      Resolution: Current event construction persists `session_id: recording.session_id`; controller regression coverage now records an event with a spoofed `session_id` attr and asserts the API returns the authoritative recording session id.
 
 - [ ] 3.O.13 [L] Redaction-decision metadata is captured at record-time; policy edits don't retro-apply (consistency, not security)
       Where: `remote_access_recordings.ex:288-312` (commit: staging)

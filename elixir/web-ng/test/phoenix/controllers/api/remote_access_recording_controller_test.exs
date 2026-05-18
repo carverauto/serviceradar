@@ -48,12 +48,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/events")
 
     body = json_response(conn, 200)
+    recording_session_id = recording.session_id
 
     assert [
              %{
                "event_type" => "desktop_frame_metadata",
                "payload_redacted" => true,
-               "prior_event_hash" => nil
+               "prior_event_hash" => nil,
+               "session_id" => ^recording_session_id
              }
            ] = body["data"]
 
@@ -179,6 +181,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
           stream: :output,
           event_type: event_type(protocol),
           data: "token=PVEAPIToken=very-secret\n",
+          session_id: Ecto.UUID.generate(),
           sequence: 1
         },
         actor: system_actor()
