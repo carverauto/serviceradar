@@ -17,6 +17,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
           stream: GRPC.Server.Stream.t(),
           agent_id: String.t() | nil,
           partition_id: String.t() | nil,
+          registered_identity: map() | nil,
           capabilities: [String.t()],
           commands: %{optional(String.t()) => map()},
           registry_key: term() | nil,
@@ -27,12 +28,12 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     GenServer.start_link(__MODULE__, opts)
   end
 
-  def register(pid, agent_id, partition_id, capabilities) do
-    GenServer.call(pid, {:register, agent_id, partition_id, capabilities})
+  def register(pid, agent_id, partition_id, capabilities, identity_context \\ nil) do
+    GenServer.call(pid, {:register, agent_id, partition_id, capabilities, identity_context})
   end
 
-  def handle_message(pid, %Monitoring.ControlStreamRequest{} = message) do
-    GenServer.cast(pid, {:message, message})
+  def handle_message(pid, %Monitoring.ControlStreamRequest{} = message, identity_context \\ nil) do
+    GenServer.cast(pid, {:message, message, identity_context})
   end
 
   def send_command(pid, %Monitoring.CommandRequest{} = command, context \\ %{}) do
@@ -56,6 +57,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        stream: stream,
        agent_id: nil,
        partition_id: nil,
+       registered_identity: nil,
        capabilities: [],
        commands: %{},
        registry_key: nil,
@@ -64,7 +66,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   @impl true
-  def handle_call({:register, agent_id, partition_id, capabilities}, _from, state) do
+  def handle_call({:register, agent_id, partition_id, capabilities, identity_context}, _from, state) do
     metadata = %{
       agent_id: agent_id,
       partition_id: partition_id,
@@ -82,6 +84,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
        state
        | agent_id: agent_id,
          partition_id: partition_id,
+         registered_identity: normalize_identity_context(identity_context, agent_id, partition_id),
          capabilities: capabilities,
          registry_key: key
      }}
@@ -136,36 +139,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   @impl true
-  def handle_cast({:message, %Monitoring.ControlStreamRequest{} = message}, state) do
-    case message.payload do
-      {:command_ack, ack} ->
-        log_command_ack(state, ack)
-        broadcast_ack(ack, state)
-        {:noreply, state}
+  def handle_cast({:message, %Monitoring.ControlStreamRequest{} = message, identity_context}, state) do
+    case verify_message_identity(state, identity_context) do
+      :ok ->
+        handle_verified_message(message, state)
 
-      {:command_progress, progress} ->
-        log_command_progress(state, progress)
-        broadcast_progress(progress, state)
-        {:noreply, state}
-
-      {:command_result, result} ->
-        {command_meta, commands} = Map.pop(state.commands, result.command_id, %{})
-        broadcast_result(result, command_meta, state)
-        {:noreply, %{state | commands: commands}}
-
-      {:config_ack, ack} ->
-        Logger.debug("Agent config ack: agent_id=#{state.agent_id} version=#{ack.config_version}")
-        {:noreply, state}
-
-      {:console_frame, frame} ->
-        broadcast_console_frame(frame, state)
-        {:noreply, state}
-
-      {:hello, _hello} ->
-        refresh_control_registration(state)
-
-      nil ->
-        {:noreply, state}
+      {:error, reason} ->
+        audit_message_identity_rejection(reason, state, identity_context)
+        {:stop, :normal, state}
     end
   end
 
@@ -215,6 +196,98 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     Logger.debug("Refreshed control stream registration for agent #{state.agent_id}")
     {:noreply, %{state | registry_key: key}}
   end
+
+  defp handle_verified_message(%Monitoring.ControlStreamRequest{} = message, state) do
+    case message.payload do
+      {:command_ack, ack} ->
+        log_command_ack(state, ack)
+        broadcast_ack(ack, state)
+        {:noreply, state}
+
+      {:command_progress, progress} ->
+        log_command_progress(state, progress)
+        broadcast_progress(progress, state)
+        {:noreply, state}
+
+      {:command_result, result} ->
+        {command_meta, commands} = Map.pop(state.commands, result.command_id, %{})
+        broadcast_result(result, command_meta, state)
+        {:noreply, %{state | commands: commands}}
+
+      {:config_ack, ack} ->
+        Logger.debug("Agent config ack: agent_id=#{state.agent_id} version=#{ack.config_version}")
+        {:noreply, state}
+
+      {:console_frame, frame} ->
+        broadcast_console_frame(frame, state)
+        {:noreply, state}
+
+      {:hello, _hello} ->
+        refresh_control_registration(state)
+
+      nil ->
+        {:noreply, state}
+    end
+  end
+
+  defp normalize_identity_context(nil, _agent_id, _partition_id), do: nil
+
+  defp normalize_identity_context(identity_context, agent_id, partition_id) when is_map(identity_context) do
+    %{
+      component_id: Map.get(identity_context, :component_id, agent_id),
+      partition_id: Map.get(identity_context, :partition_id, partition_id),
+      component_type: Map.get(identity_context, :component_type),
+      cert_fingerprint_sha256: Map.get(identity_context, :cert_fingerprint_sha256)
+    }
+  end
+
+  defp verify_message_identity(%{registered_identity: nil}, _identity_context), do: :ok
+  defp verify_message_identity(_state, nil), do: {:error, :missing_identity_context}
+
+  defp verify_message_identity(%{registered_identity: registered}, identity_context) when is_map(identity_context) do
+    identity_context = normalize_identity_context(identity_context, nil, nil)
+
+    cond do
+      identity_context.component_id != registered.component_id ->
+        {:error, :component_id_mismatch}
+
+      identity_context.partition_id != registered.partition_id ->
+        {:error, :partition_id_mismatch}
+
+      identity_context.component_type != registered.component_type ->
+        {:error, :component_type_mismatch}
+
+      identity_context.cert_fingerprint_sha256 != registered.cert_fingerprint_sha256 ->
+        {:error, :certificate_fingerprint_mismatch}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp verify_message_identity(_state, _identity_context), do: {:error, :invalid_identity_context}
+
+  defp audit_message_identity_rejection(reason, state, identity_context) do
+    metadata = %{
+      reason: reason,
+      agent_id: state.agent_id,
+      partition_id: state.partition_id,
+      identity_component_id: map_identity_value(identity_context, :component_id),
+      identity_partition_id: map_identity_value(identity_context, :partition_id),
+      identity_component_type: map_identity_value(identity_context, :component_type)
+    }
+
+    :telemetry.execute(
+      [:serviceradar, :control_stream, :message, :rejected],
+      %{count: 1},
+      metadata
+    )
+
+    Logger.warning("Rejected control stream message identity", Map.to_list(metadata))
+  end
+
+  defp map_identity_value(identity_context, key) when is_map(identity_context), do: Map.get(identity_context, key)
+  defp map_identity_value(_identity_context, _key), do: nil
 
   defp unregister_legacy_session_key({:agent_control, agent_id, _node}) do
     ProcessRegistry.unregister({:agent_control, agent_id})

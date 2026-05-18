@@ -282,12 +282,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   """
   @spec control_stream(Enumerable.t(), GRPC.Server.Stream.t()) :: :ok
   def control_stream(request_stream, stream) do
-    identity = extract_identity_from_stream(stream)
+    identity_context = extract_identity_context_from_stream(stream)
 
     session_pid =
       request_stream
       |> Enum.reduce_while({:awaiting_hello, nil}, fn message, state ->
-        handle_control_stream_message(message, state, identity, stream)
+        handle_control_stream_message(message, state, identity_context, stream)
       end)
       |> control_session_pid()
 
@@ -874,14 +874,32 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # Returns component_id, partition_id, and component_type.
   # Deployment isolation is handled by infrastructure (NATS credentials, DB search_path).
   defp extract_identity_from_stream(stream) do
+    stream
+    |> extract_identity_context_from_stream()
+    |> Map.fetch!(:identity)
+  end
+
+  defp extract_identity_context_from_stream(stream) do
     with {:ok, cert_der} <- get_peer_cert(stream),
          {:ok, identity} <- ComponentIdentityResolver.resolve_from_cert(cert_der) do
-      identity
+      %{
+        identity: identity,
+        component_id: Map.get(identity, :component_id),
+        partition_id: Map.get(identity, :partition_id),
+        component_type: Map.get(identity, :component_type),
+        cert_fingerprint_sha256: cert_fingerprint_sha256(cert_der)
+      }
     else
       {:error, reason} ->
         Logger.warning("Certificate validation failed: #{inspect(reason)}")
         raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
     end
+  end
+
+  defp cert_fingerprint_sha256(cert_der) do
+    cert_der
+    |> :crypto.hash(:sha256)
+    |> Base.encode16(case: :lower)
   end
 
   # Get the peer certificate from the gRPC stream
@@ -1161,10 +1179,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       message: "final chunk_index does not match total_chunks"
   end
 
-  defp handle_control_stream_message(message, {:awaiting_hello, nil}, identity, stream) do
+  defp handle_control_stream_message(message, {:awaiting_hello, nil}, identity_context, stream) do
     case message.payload do
       {:hello, %Monitoring.ControlStreamHello{} = hello} ->
-        {:cont, {:ready, initialize_control_session(hello, identity, stream)}}
+        {:cont, {:ready, initialize_control_session(hello, identity_context, stream)}}
 
       _ ->
         raise GRPC.RPCError,
@@ -1173,12 +1191,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
-  defp handle_control_stream_message(message, {:ready, session}, _identity, _stream) do
-    ControlStreamSession.handle_message(session, message)
+  defp handle_control_stream_message(message, {:ready, session}, identity_context, _stream) do
+    ControlStreamSession.handle_message(session, message, identity_context)
     {:cont, {:ready, session}}
   end
 
-  defp initialize_control_session(hello, identity, stream) do
+  defp initialize_control_session(hello, identity_context, stream) do
+    identity = Map.fetch!(identity_context, :identity)
     agent_id = required_agent_id(hello.agent_id)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
@@ -1193,11 +1212,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     track_connected_agent(agent_id, partition_id, hello, source_ip)
 
     {:ok, session} = ControlStreamSession.start_link(stream: stream)
-    register_control_session(session, agent_id, partition_id, capabilities)
+    register_control_session(session, agent_id, partition_id, capabilities, identity_context)
   end
 
-  defp register_control_session(session, agent_id, partition_id, capabilities) do
-    case ControlStreamSession.register(session, agent_id, partition_id, capabilities) do
+  defp register_control_session(session, agent_id, partition_id, capabilities, identity_context) do
+    case ControlStreamSession.register(session, agent_id, partition_id, capabilities, identity_context) do
       :ok ->
         Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")
         reconcile_agent_release(agent_id)

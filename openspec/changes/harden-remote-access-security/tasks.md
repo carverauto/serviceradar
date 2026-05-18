@@ -1076,10 +1076,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: GenServer `handle_info(:sweep, ...)` every N seconds removing sessions with `lease_expires_at_unix <= now` or owner-pid dead; emit metric.
       Resolution: Tracker now schedules `:sweep_expired_sessions`, prunes expired or dead-owner-pid sessions, emits `[:serviceradar, :desktop_media, :session, :expired]`, and sweeps before new admission so expired sessions do not hold capacity.
 
-- [ ] 6.7 [M] Control stream + media server don't re-validate the agent cert on each message
+- [x] 6.7 [M] Control stream + media server don't re-validate the agent cert on each message
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/control_stream_session.ex:26-42, 139-170` (working tree)
       Why: After `register/1` the session implicitly trusts subsequent `handle_cast({:message, ...})` deliveries. A different agent reaching the same GenServer (eg via process-name reuse / supervisor restart race) sends commands as the registered one.
       Fix: Stash `registered_cert_der` + `registered_agent_id` at register-time and compare on every inbound message; mismatch → terminate + audit.
+      Resolution: Control stream registration now stores an mTLS identity context including component id, partition, component type, and SHA-256 cert fingerprint. AgentGatewayServer passes that context with every message delivered to the session; missing or mismatched context emits `[:serviceradar, :control_stream, :message, :rejected]` and terminates the session. Desktop media already extracts the stream certificate per inbound media/control call; 6.5 added the missing partition/session binding.
 
 - [ ] 6.8 [L] Cargo additions (`ironrdp-core 0.1.5`, `ironrdp-pdu 0.7`, `md-5`) not pinned with rationale
       Where: `Cargo.lock` (working tree); `rust/rdp-adapter/Cargo.toml`
