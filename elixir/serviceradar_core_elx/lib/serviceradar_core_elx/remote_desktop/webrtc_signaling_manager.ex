@@ -301,7 +301,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
         state
       ) do
     case fetch_session_by_signaling(state, signaling_pid) do
-      {:ok, session} ->
+      {:ok, %{pending_reply_to: from} = session} when not is_nil(from) ->
         updated =
           session
           |> refresh_session(state.session_ttl_ms)
@@ -312,6 +312,10 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
 
         maybe_reply_offer(session.pending_reply_to, updated)
         {:noreply, put_session(state, updated)}
+
+      {:ok, session} ->
+        emit_signal_rejection(:sdp_offer, session, :renegotiation_rejected)
+        {:noreply, state}
 
       :error ->
         {:noreply, state}

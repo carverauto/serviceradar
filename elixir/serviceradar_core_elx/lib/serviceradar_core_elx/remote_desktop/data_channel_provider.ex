@@ -10,6 +10,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
 
   use GenServer
 
+  alias ExWebRTC.DataChannel
   alias ExWebRTC.ICECandidate
   alias ExWebRTC.PeerConnection
   alias ExWebRTC.SessionDescription
@@ -21,6 +22,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   @media_channel "desktop-media"
   @control_channel "desktop-control"
   @ack_message_type "desktop_media_ack"
+  @max_data_channel_count 4
+  @max_data_channel_message_bytes 16 * 1024 * 1024
   @default_registry __MODULE__.Registry
   @default_supervisor __MODULE__.Supervisor
 
@@ -77,6 +80,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
       ice_servers: Keyword.get(opts, :ice_servers, []),
       media_ref: nil,
       media_open?: false,
+      data_channel_refs: MapSet.new(),
       peer_connection: nil,
       peer_connection_module: Keyword.get(opts, :peer_connection, PeerConnection),
       registry: Keyword.get(opts, :registry, @default_registry),
@@ -99,7 +103,14 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
          {:ok, offer} <- state.peer_connection_module.create_offer(pc),
          :ok <- state.peer_connection_module.set_local_description(pc, offer),
          :ok <- Signaling.signal(state.signaling, offer) do
-      {:noreply, %{state | peer_connection: pc, media_ref: media_channel.ref, control_ref: control_channel.ref}}
+      {:noreply,
+       %{
+         state
+         | peer_connection: pc,
+           media_ref: media_channel.ref,
+           control_ref: control_channel.ref,
+           data_channel_refs: MapSet.new([media_channel.ref, control_channel.ref])
+       }}
     else
       {:error, reason} -> {:stop, reason, state}
     end
@@ -108,8 +119,10 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   @impl true
   def handle_call({:forward_frame, frame}, _from, %{media_open?: true, media_ref: media_ref} = state) do
     reply =
-      with {:ok, iodata} <- MediaFrameEnvelope.encode_iodata(frame) do
-        state.peer_connection_module.send_data(state.peer_connection, media_ref, IO.iodata_to_binary(iodata), :binary)
+      with {:ok, iodata} <- MediaFrameEnvelope.encode_iodata(frame),
+           payload = IO.iodata_to_binary(iodata),
+           :ok <- validate_data_channel_message_size(payload) do
+        state.peer_connection_module.send_data(state.peer_connection, media_ref, payload, :binary)
       end
 
     {:reply, reply, state}
@@ -156,6 +169,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
     {:noreply, state}
   end
 
+  def handle_info({:ex_webrtc, _pc, {:data_channel, %DataChannel{} = channel}}, state) do
+    emit_data_channel_rejection(:unexpected_data_channel, state)
+    _ = state.peer_connection_module.close_data_channel(state.peer_connection, channel.ref)
+
+    {:noreply, state}
+  end
+
   def handle_info({:ex_webrtc, _pc, {:data_channel_state_change, ref, :open}}, state) do
     {:noreply, set_channel_open(state, ref, true)}
   end
@@ -180,7 +200,16 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   end
 
   defp create_data_channel(peer_connection, pc, label) do
-    peer_connection.create_data_channel(pc, label, ordered: true)
+    peer_connection.create_data_channel(pc, label, ordered: true, protocol: "srdp")
+  end
+
+  defp validate_data_channel_message_size(data) when byte_size(data) <= @max_data_channel_message_bytes, do: :ok
+
+  defp validate_data_channel_message_size(_data), do: {:error, :data_channel_message_too_large}
+
+  defp route_control_message(data, state) when is_binary(data) and byte_size(data) > @max_data_channel_message_bytes do
+    emit_data_channel_rejection(:message_too_large, state)
+    :ignore
   end
 
   defp route_control_message(data, state) when is_binary(data) do
@@ -239,6 +268,21 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
         reason: reason,
         session_id: state.session_id,
         signal_type: signal_type,
+        viewer_session_id: state.viewer_session_id
+      }
+    )
+  end
+
+  defp emit_data_channel_rejection(reason, state) do
+    :telemetry.execute(
+      [:serviceradar_core_elx, :remote_desktop, :webrtc, :data_channel_rejected],
+      %{count: 1},
+      %{
+        current_channels: MapSet.size(state.data_channel_refs),
+        max_channels: @max_data_channel_count,
+        max_message_bytes: @max_data_channel_message_bytes,
+        reason: reason,
+        session_id: state.session_id,
         viewer_session_id: state.viewer_session_id
       }
     )

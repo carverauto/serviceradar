@@ -539,12 +539,12 @@ Result: the server is **mostly a pass-through** — the codec / fingerprint / IC
       Why: Static creds embedded in `RTCConfiguration` reach every browser; if any session/log leaks the config block, TURN is exfilable. Promotes 5.E2.6.
       Fix: Mint per-session HMAC TURN creds (`<exp>:<actor>` username, HMAC-SHA1 over a server-side key) with TTL ≤ 1 h; rotate signing key on a schedule.
 
-- [ ] 5.K.6 [M] DataChannel created with `ordered: true` but no `max_message_size` / `max_channels`
+- [x] 5.K.6 [M] DataChannel created with `ordered: true` but no `max_message_size` / `max_channels`
       Where: `data_channel_provider.ex:160-162` (working tree)
       Why: Unbounded channel proliferation or oversized message → resource exhaustion on the gateway.
       Fix: Set `max_message_size: 16 * 1024 * 1024` (matches RDP media frame cap), `max_channels: 4`; refuse extras.
 
-- [ ] 5.K.7 [M] SDP renegotiation not state-machine-gated — multiple offers accepted
+- [x] 5.K.7 [M] SDP renegotiation not state-machine-gated — multiple offers accepted
       Where: `webrtc_signaling_manager.ex:285-304` (working tree)
       Why: A second `:sdp_offer` adds media sections to an already-attached session; can introduce new codecs / candidates mid-stream undetected by RBAC.
       Fix: After first offer/answer pair lands, transition to `:answered` state and refuse further offers; require a fresh session for renegotiation.

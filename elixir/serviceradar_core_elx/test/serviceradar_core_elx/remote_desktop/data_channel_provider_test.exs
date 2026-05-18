@@ -22,6 +22,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
     def set_local_description(pid, offer), do: GenServer.call(pid, {:set_local_description, offer})
     def set_remote_description(pid, answer), do: GenServer.call(pid, {:set_remote_description, answer})
     def add_ice_candidate(pid, candidate), do: GenServer.call(pid, {:add_ice_candidate, candidate})
+    def close_data_channel(pid, channel_ref), do: GenServer.call(pid, {:close_data_channel, channel_ref})
     def send_data(pid, channel_ref, data, data_type), do: GenServer.call(pid, {:send_data, channel_ref, data, data_type})
     def close(pid), do: GenServer.stop(pid, :normal)
 
@@ -66,6 +67,11 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
 
     def handle_call({:add_ice_candidate, candidate}, _from, state) do
       send(state.test_pid, {:pc_add_ice_candidate, self(), candidate})
+      {:reply, :ok, state}
+    end
+
+    def handle_call({:close_data_channel, channel_ref}, _from, state) do
+      send(state.test_pid, {:pc_close_data_channel, self(), channel_ref})
       {:reply, :ok, state}
     end
 
@@ -125,8 +131,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
 
     assert_receive {:pc_started, pc, opts}
     assert opts[:controlling_process]
-    assert_receive {:pc_create_data_channel, ^pc, "desktop-media", _media_ref, [ordered: true]}
-    assert_receive {:pc_create_data_channel, ^pc, "desktop-control", _control_ref, [ordered: true]}
+    assert_receive {:pc_create_data_channel, ^pc, "desktop-media", _media_ref, [ordered: true, protocol: "srdp"]}
+    assert_receive {:pc_create_data_channel, ^pc, "desktop-control", _control_ref, [ordered: true, protocol: "srdp"]}
     assert_receive {:pc_create_offer, ^pc}
     assert_receive {:pc_set_local_description, ^pc, %SessionDescription{type: :offer}}
 
@@ -201,6 +207,36 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
                     _metadata}
 
     assert candidate == "candidate:1 1 UDP 1 8.8.8.8 5000 typ srflx"
+  end
+
+  test "refuses remote-created DataChannels", ctx do
+    signaling = new_signaling()
+
+    assert :ok =
+             DataChannelProvider.add_webrtc_viewer("desktop-6", "viewer-6", signaling,
+               registry: ctx.registry,
+               supervisor: ctx.supervisor,
+               peer_connection: PeerConnectionStub
+             )
+
+    assert_receive {:pc_started, pc, _opts}
+    {:ok, provider_pid} = lookup(ctx.registry, "desktop-6", "viewer-6")
+
+    channel = %DataChannel{
+      id: 7,
+      label: "unexpected",
+      max_packet_life_time: nil,
+      max_retransmits: nil,
+      ordered: :ordered,
+      protocol: "",
+      ready_state: :open,
+      ref: make_ref()
+    }
+
+    send(provider_pid, {:ex_webrtc, pc, {:data_channel, channel}})
+
+    assert_receive {:pc_close_data_channel, ^pc, channel_ref}
+    assert channel_ref == channel.ref
   end
 
   test "sends SRDP media frames only after the media DataChannel opens", ctx do

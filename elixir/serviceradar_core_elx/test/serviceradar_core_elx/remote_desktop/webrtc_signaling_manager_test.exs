@@ -150,6 +150,33 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
              WebRTCSignalingManager.add_ice_candidate(session_id, viewer_session_id, candidate, server: server_name)
   end
 
+  test "ignores duplicate SDP offers after the initial offer is created" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name, session_tracker: SessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
+    )
+
+    assert {:ok,
+            %{viewer_session_id: viewer_session_id, signaling_state: "offer_created", offer_sdp: "v=0\r\ndesktop-offer"}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name)
+
+    %{sessions: %{^viewer_session_id => session}} = :sys.get_state(server_name)
+
+    :ok =
+      Signaling.signal(
+        session.signaling,
+        %{"type" => "sdp_offer", "data" => %{"type" => "offer", "sdp" => "v=0\r\nsecond-offer"}}
+      )
+
+    %{sessions: %{^viewer_session_id => updated}} = :sys.get_state(server_name)
+
+    assert updated.offer_sdp == "v=0\r\ndesktop-offer"
+    assert updated.signaling_state == "offer_created"
+  end
+
   test "rejects untrusted answers and browser ICE candidates before forwarding to ExWebRTC" do
     session_id = Ecto.UUID.generate()
     server_name = unique_server_name()
