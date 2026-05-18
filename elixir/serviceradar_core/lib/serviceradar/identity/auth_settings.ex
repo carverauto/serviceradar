@@ -96,6 +96,10 @@ defmodule ServiceRadar.Identity.AuthSettings do
       change fn changeset, _context ->
         maybe_encrypt_secret(changeset, :oidc_client_secret, :oidc_client_secret_encrypted)
       end
+
+      validate fn changeset, _context ->
+        validate_passive_proxy_verification_material(changeset)
+      end
     end
 
     read :get_singleton do
@@ -141,6 +145,10 @@ defmodule ServiceRadar.Identity.AuthSettings do
 
                {:ok, result}
              end)
+
+      validate fn changeset, _context ->
+        validate_passive_proxy_verification_material(changeset)
+      end
     end
   end
 
@@ -167,6 +175,23 @@ defmodule ServiceRadar.Identity.AuthSettings do
         Ash.Changeset.change_attribute(changeset, encrypted_attr, value)
     end
   end
+
+  defp validate_passive_proxy_verification_material(changeset) do
+    enabled? = Ash.Changeset.get_attribute(changeset, :is_enabled)
+    mode = Ash.Changeset.get_attribute(changeset, :mode)
+    jwks_url = Ash.Changeset.get_attribute(changeset, :jwt_jwks_url)
+    public_key_pem = Ash.Changeset.get_attribute(changeset, :jwt_public_key_pem)
+
+    if enabled? == true and mode == :passive_proxy and blank?(jwks_url) and blank?(public_key_pem) do
+      {:error,
+       field: :jwt_jwks_url,
+       message: "passive proxy authentication requires a JWKS URL or public key PEM"}
+    else
+      :ok
+    end
+  end
+
+  defp blank?(value), do: is_nil(value) or (is_binary(value) and String.trim(value) == "")
 
   attributes do
     uuid_primary_key :id

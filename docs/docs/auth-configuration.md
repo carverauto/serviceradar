@@ -62,10 +62,12 @@ Use this when an upstream gateway authenticates users and injects a JWT on reque
 Configure under **Settings -> Authentication**:
 
 - JWT header name (default: `Authorization`)
-- JWKS URL (preferred) or a static public key (PEM)
+- JWKS URL (preferred) or a static public key (PEM). One of these is required before Gateway Proxy mode can be enabled.
 - Optional issuer (`iss`) and audience (`aud`) validation
 
-In this mode, users are JIT-provisioned from claims when they first access ServiceRadar through the gateway.
+In this mode, web-ng verifies the gateway JWT signature and required identity claims before creating a normal ServiceRadar browser session for Phoenix LiveView navigation. Direct access without either a verified gateway JWT or an existing ServiceRadar session is denied by the normal authenticated-route guardrails. The documented administrator escape hatch remains `GET /auth/local` and `POST /auth/local/sign-in`.
+
+Gateway JWTs must include the mapped `email` and `sub` claims. New users are JIT-provisioned with the viewer role by default when they first access ServiceRadar through the gateway.
 
 ## Claim Mappings
 
@@ -82,4 +84,3 @@ Dot-notation is supported for nested claims (example: `user.email`).
 SSO redirect URIs and SAML metadata are built from the configured web-ng base URL.
 
 If your IdP redirect URI or SAML metadata URLs are wrong, verify `PHX_HOST` (Helm/Docker Compose set this) matches the externally reachable hostname.
-

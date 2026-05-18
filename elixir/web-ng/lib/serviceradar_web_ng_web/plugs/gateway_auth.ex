@@ -38,10 +38,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.User
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
+  alias ServiceRadarWebNGWeb.UserAuth
 
   require Logger
 
@@ -96,6 +96,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   defp verify_and_decode_jwt(token, settings) do
     with {:ok, claims} <- decode_jwt(token),
          :ok <- verify_signature(token, settings),
+         :ok <- verify_required_identity_claims(claims, settings),
          :ok <- verify_claims(claims, settings) do
       {:ok, claims}
     end
@@ -268,6 +269,21 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   defp audience_matches?(aud, expected) when is_binary(aud), do: aud == expected
   defp audience_matches?(aud, expected) when is_list(aud), do: expected in aud
 
+  defp verify_required_identity_claims(claims, settings) do
+    user_info = extract_user_info(claims, settings)
+
+    cond do
+      blank?(user_info.email) ->
+        {:error, :missing_email_claim}
+
+      blank?(user_info.external_id) ->
+        {:error, :missing_subject_claim}
+
+      true ->
+        :ok
+    end
+  end
+
   defp handle_authenticated_request(conn, claims, settings) do
     # Extract user info from claims
     user_info = extract_user_info(claims, settings)
@@ -281,8 +297,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
         # Trigger auth hooks
         Hooks.on_user_authenticated(user, claims)
 
-        # Set up the connection with user context
-        scope = Scope.for_user(user)
+        identity_claims = UserAuth.sanitize_identity_claims(claims)
+        scope = UserAuth.scope_for_user(user, identity_claims: identity_claims)
 
         actor_map = %{
           id: user.id,
@@ -290,11 +306,18 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
           email: user.email
         }
 
-        conn
-        |> assign(:current_scope, scope)
-        |> assign(:current_user, user)
-        |> assign(:ash_actor, actor_map)
-        |> Ash.PlugHelpers.set_actor(actor_map)
+        case UserAuth.put_user_session(conn, user, %{"identity_claims" => claims}) do
+          {:ok, conn} ->
+            conn
+            |> assign(:current_scope, scope)
+            |> assign(:current_user, user)
+            |> assign(:ash_actor, actor_map)
+            |> Ash.PlugHelpers.set_actor(actor_map)
+
+          {:error, reason} ->
+            Logger.error("Failed to establish gateway user session: #{inspect(reason)}")
+            send_unauthorized(conn, "Unable to establish gateway session")
+        end
 
       {:error, reason} ->
         Logger.error("Failed to provision gateway user: #{inspect(reason)}")
@@ -303,7 +326,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   end
 
   defp extract_user_info(claims, settings) do
-    mappings = settings.claim_mappings || %{"email" => "email", "name" => "name", "sub" => "sub"}
+    mappings = Map.get(settings, :claim_mappings) || Map.get(settings, "claim_mappings") || default_claim_mappings()
 
     %{
       email: get_claim(claims, mappings["email"] || "email"),
@@ -311,6 +334,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
       external_id: get_claim(claims, mappings["sub"] || "sub")
     }
   end
+
+  defp default_claim_mappings, do: %{"email" => "email", "name" => "name", "sub" => "sub"}
 
   defp get_claim(claims, path) when is_binary(path) do
     path
@@ -324,6 +349,14 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
   end
 
   defp find_or_create_user(%{email: email, name: name, external_id: external_id}) do
+    if blank?(email) or blank?(external_id) do
+      {:error, :missing_required_claims}
+    else
+      find_or_create_user_with_claims(email, name, external_id)
+    end
+  end
+
+  defp find_or_create_user_with_claims(email, name, external_id) do
     actor = SystemActor.system(:gateway_auth)
 
     # First, try to find by external_id
@@ -413,4 +446,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.GatewayAuth do
         |> halt()
     end
   end
+
+  defp blank?(value), do: is_nil(value) or (is_binary(value) and String.trim(value) == "")
 end
