@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.67
+
+Armis sync resilience and timestamp precision fixes.
+
+## Whats New
+
+**1.2.67**
+- Fixed Armis discovery sync failures when the Armis API returns a scalar device `names` value instead of the documented list format.
+- Normalized Armis sync timestamps to second precision before inventory ingestion so sub-second `first_seen`, `last_seen`, and agent observation times do not violate `:utc_datetime` resource fields.
+- Fixed integration sync status and agent config dispatch timestamp writes so recent sync and config delivery details can be recorded without microsecond precision errors.
+
 # ServiceRadar v1.2.66
 
 Long-running northbound actions, device details UX, and inventory enrichment fixes.
