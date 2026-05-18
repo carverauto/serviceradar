@@ -416,10 +416,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Reject any segment containing `..` or `.` after split; reject NUL / control bytes
       Resolution: `path` and `destination_path` normalization now rejects ASCII control bytes, NUL bytes, and `.` / `..` path segments before permission checks or broker dispatch. Controller tests cover traversal and control-byte inputs for both source and rename destination paths.
 
-- [ ] 5.8 [M] Recording export only checks export permission, not view permission
+- [x] 5.8 [M] Recording export only checks export permission, not view permission
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_recording_controller.ex:50-73`; LiveView export button at `:77` (commit: staging)
       Why: An actor holding `recordings.export` but not `recordings.view` can still pull the bytes; should require both. Combined with 5.4 this widens the IDOR.
       Fix: Add `require_recording_view_permission(conn, recording)` before export
+      Resolution: Covered by the 5.4 recording authorization fix. API export now requires `devices.remote_access.recordings.export` and then runs the same per-recording view check used by show/events; the LiveView export button is shown only for a selected recording that passed `ensure_recording_allowed/2`.
 
 - [ ] 5.9 [L] SSH hook parses `data-props` JSON without prop allowlist
       Where: `elixir/web-ng/assets/js/hooks/RemoteAccessSSHConsole.js:24-33` (commit: staging)
