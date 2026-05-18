@@ -10,6 +10,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerRegistry do
 
   alias ServiceRadar.ProcessRegistry
 
+  require Logger
+
   @type metadata :: map()
   @registry_type :remote_access_broker
 
@@ -19,10 +21,22 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerRegistry do
     registry = Keyword.get(opts, :registry, ProcessRegistry)
 
     if registry_available?(registry) do
-      session_id
-      |> key()
-      |> registry.register(register_metadata(metadata))
-      |> normalize_register_result()
+      registry_key = key(session_id)
+      caller_pid = self()
+
+      case registration_owner(registry.lookup(registry_key), caller_pid) do
+        :unregistered ->
+          registry_key
+          |> registry.register(register_metadata(metadata, caller_pid))
+          |> normalize_register_result(caller_pid)
+
+        :owned ->
+          :ok
+
+        {:taken, owner_pid} ->
+          log_registration_conflict(session_id, owner_pid, caller_pid)
+          {:error, {:already_registered, owner_pid}}
+      end
     else
       :ok
     end
@@ -47,7 +61,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerRegistry do
     registry = Keyword.get(opts, :registry, ProcessRegistry)
 
     if registry_available?(registry) do
-      registry.unregister(key(session_id))
+      registry_key = key(session_id)
+
+      case registration_owner(registry.lookup(registry_key), self()) do
+        :owned -> registry.unregister(registry_key)
+        _other -> :ok
+      end
     else
       :ok
     end
@@ -55,28 +74,59 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerRegistry do
 
   defp key(session_id), do: {@registry_type, session_id}
 
-  defp register_metadata(metadata) do
+  defp register_metadata(metadata, caller_pid) do
     metadata
     |> Map.put(:type, @registry_type)
+    |> Map.put(:broker_pid, caller_pid)
     |> Map.put(:registered_at, DateTime.utc_now())
   end
 
-  defp normalize_register_result({:ok, _pid}), do: :ok
+  defp normalize_register_result({:ok, _pid}, _caller_pid), do: :ok
 
-  defp normalize_register_result({:error, {:already_registered, pid}}),
+  defp normalize_register_result({:error, {:already_registered, pid}}, pid), do: :ok
+
+  defp normalize_register_result({:error, {:already_registered, pid}}, _caller_pid),
     do: {:error, {:already_registered, pid}}
 
-  defp normalize_register_result({:error, reason}), do: {:error, reason}
-  defp normalize_register_result(other), do: {:error, other}
+  defp normalize_register_result({:error, reason}, _caller_pid), do: {:error, reason}
+  defp normalize_register_result(other, _caller_pid), do: {:error, other}
+
+  defp registration_owner(entries, caller_pid) when is_list(entries) do
+    live_entries = Enum.filter(entries, fn {pid, _metadata} -> live_pid?(pid) end)
+
+    cond do
+      owner_pid =
+          Enum.find_value(live_entries, fn {pid, _metadata} -> pid != caller_pid && pid end) ->
+        {:taken, owner_pid}
+
+      Enum.any?(live_entries, fn {pid, _metadata} -> pid == caller_pid end) ->
+        :owned
+
+      true ->
+        :unregistered
+    end
+  end
+
+  defp registration_owner(_entries, _caller_pid), do: :unregistered
 
   defp find_live_broker(entries) when is_list(entries) do
-    case Enum.find(entries, fn {pid, _metadata} -> is_pid(pid) and Process.alive?(pid) end) do
+    case Enum.find(entries, fn {pid, _metadata} -> live_pid?(pid) end) do
       {pid, metadata} -> {:ok, pid, metadata}
       nil -> {:error, :broker_not_found}
     end
   end
 
   defp find_live_broker(_other), do: {:error, :broker_not_found}
+
+  defp live_pid?(pid), do: is_pid(pid) and Process.alive?(pid)
+
+  defp log_registration_conflict(session_id, owner_pid, caller_pid) do
+    Logger.warning("Rejected remote-access broker registry takeover",
+      session_id: session_id,
+      owner_pid: inspect(owner_pid),
+      caller_pid: inspect(caller_pid)
+    )
+  end
 
   defp registry_available?(registry) do
     Code.ensure_loaded?(registry) and

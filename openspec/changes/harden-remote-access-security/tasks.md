@@ -270,7 +270,7 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Why: Orphaned audit rows accumulate indefinitely and (per 3.H.1) carry credential pointers; "no version on destroy" doesn't prune prior versions.
       Fix: Add `ON DELETE CASCADE` on PaperTrail FKs; schedule an Oban job to purge versions > N days (per-resource policy)
 
-- [ ] 3.H.6 [L] Broker registry registration not bound to caller pid on re-register
+- [x] 3.H.6 [L] Broker registry registration not bound to caller pid on re-register
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_broker_registry.ex:17-29` (commit: staging)
       Why: Complements 4.4 — even if frames are signed, a different process re-registering under the same `session_id` can intercept future routes.
       Fix: First register stashes pid; subsequent register for same session_id requires matching pid (or explicit takeover audit); log + emit metric on mismatch.
