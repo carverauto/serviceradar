@@ -275,62 +275,152 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   @spec execute_batches(IntegrationSource.t() | map(), [collapsed_candidate()], keyword()) ::
           {:ok, map()} | {:error, map()}
   def execute_batches(source, candidates, opts \\ []) do
-    with :ok <- northbound_ready?(source, opts),
-         {:ok, token} <- fetch_access_token(source, opts) do
-      request = Keyword.get(opts, :request, &default_request/5)
-      custom_field = custom_field(source)
-      batches = batch_candidates(candidates, batch_size(source))
+    with :ok <- northbound_ready?(source, opts) do
+      do_execute_batches(source, candidates, opts)
+    end
+  end
 
-      initial = %{
-        device_count: length(candidates),
-        updated_count: 0,
-        skipped_count: 0,
-        error_count: 0,
-        batch_count: length(batches),
-        errors: []
-      }
+  defp do_execute_batches(source, [], _opts) do
+    Logger.info("Skipping Armis northbound bulk update because no candidates were loaded",
+      integration_source_id: inspect(Map.get(source, :id))
+    )
 
-      result =
-        Enum.reduce_while(batches, initial, fn batch, acc ->
-          payload = build_bulk_payload(custom_field, batch)
+    {:ok,
+     %{
+       device_count: 0,
+       updated_count: 0,
+       skipped_count: 0,
+       error_count: 0,
+       batch_count: 0,
+       errors: []
+     }}
+  end
 
-          case request.(
-                 "/api/v1/devices/custom-properties/_bulk/",
-                 :post,
-                 request_headers(token),
-                 payload,
-                 request_options(source)
-               ) do
-            {:ok, %{status: status}} when status in 200..299 ->
-              {:cont, %{acc | updated_count: acc.updated_count + length(batch)}}
+  defp do_execute_batches(source, candidates, opts) do
+    request = Keyword.get(opts, :request, &default_request/5)
+    custom_field = custom_field(source)
+    batches = batch_candidates(candidates, batch_size(source))
 
-            {:ok, %{status: status, body: body}} ->
-              error = %{batch_size: length(batch), reason: {:unexpected_status, status, body}}
+    Logger.info("Fetching Armis northbound access token",
+      integration_source_id: inspect(Map.get(source, :id)),
+      endpoint: Map.get(source, :endpoint),
+      device_count: length(candidates),
+      batch_count: length(batches),
+      custom_field: custom_field
+    )
 
-              {:halt,
-               %{
-                 acc
-                 | error_count: acc.error_count + length(batch),
-                   errors: acc.errors ++ [error]
-               }}
+    case fetch_access_token(source, opts) do
+      {:ok, token} ->
+        Logger.info("Fetched Armis northbound access token",
+          integration_source_id: inspect(Map.get(source, :id)),
+          batch_count: length(batches)
+        )
 
-            {:error, reason} ->
-              error = %{batch_size: length(batch), reason: reason}
+        execute_bulk_batches(source, candidates, batches, custom_field, token, request)
 
-              {:halt,
-               %{
-                 acc
-                 | error_count: acc.error_count + length(batch),
-                   errors: acc.errors ++ [error]
-               }}
-          end
-        end)
+      {:error, reason} ->
+        Logger.warning("Failed to fetch Armis northbound access token",
+          integration_source_id: inspect(Map.get(source, :id)),
+          reason: inspect(reason)
+        )
 
-      if result.errors == [] do
-        {:ok, result}
-      else
-        {:error, result}
-      end
+        {:error,
+         %{
+           device_count: length(candidates),
+           updated_count: 0,
+           skipped_count: 0,
+           error_count: max(length(candidates), 1),
+           batch_count: length(batches),
+           errors: [%{reason: reason}]
+         }}
+    end
+  end
+
+  defp execute_bulk_batches(source, candidates, batches, custom_field, token, request) do
+    initial = %{
+      device_count: length(candidates),
+      updated_count: 0,
+      skipped_count: 0,
+      error_count: 0,
+      batch_count: length(batches),
+      errors: []
+    }
+
+    result =
+      batches
+      |> Enum.with_index(1)
+      |> Enum.reduce_while(initial, fn {batch, batch_number}, acc ->
+        payload = build_bulk_payload(custom_field, batch)
+
+        Logger.info("Sending Armis northbound bulk update batch",
+          integration_source_id: inspect(Map.get(source, :id)),
+          batch_number: batch_number,
+          batch_count: length(batches),
+          batch_size: length(batch),
+          payload_shape: bulk_payload_shape(payload)
+        )
+
+        case request.(
+               "/api/v1/devices/custom-properties/_bulk/",
+               :post,
+               request_headers(token),
+               payload,
+               request_options(source)
+             ) do
+          {:ok, %{status: status}} when status in 200..299 ->
+            Logger.info("Armis northbound bulk update batch accepted",
+              integration_source_id: inspect(Map.get(source, :id)),
+              batch_number: batch_number,
+              batch_count: length(batches),
+              batch_size: length(batch),
+              status: status
+            )
+
+            {:cont, %{acc | updated_count: acc.updated_count + length(batch)}}
+
+          {:ok, %{status: status, body: body}} ->
+            Logger.warning("Armis northbound bulk update batch rejected",
+              integration_source_id: inspect(Map.get(source, :id)),
+              batch_number: batch_number,
+              batch_count: length(batches),
+              batch_size: length(batch),
+              status: status,
+              response_body: inspect(body)
+            )
+
+            error = %{batch_size: length(batch), reason: {:unexpected_status, status, body}}
+
+            {:halt,
+             %{
+               acc
+               | error_count: acc.error_count + length(batch),
+                 errors: acc.errors ++ [error]
+             }}
+
+          {:error, reason} ->
+            Logger.warning("Armis northbound bulk update batch failed",
+              integration_source_id: inspect(Map.get(source, :id)),
+              batch_number: batch_number,
+              batch_count: length(batches),
+              batch_size: length(batch),
+              reason: inspect(reason)
+            )
+
+            error = %{batch_size: length(batch), reason: reason}
+
+            {:halt,
+             %{
+               acc
+               | error_count: acc.error_count + length(batch),
+                 errors: acc.errors ++ [error]
+             }}
+        end
+      end)
+
+    if result.errors == [] do
+      {:ok, result}
+    else
+      {:error, result}
     end
   end
 
@@ -480,14 +570,41 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   def build_bulk_payload(custom_field, candidates)
       when is_binary(custom_field) and custom_field != "" do
     Enum.map(candidates, fn candidate ->
-      %{
-        "id" => candidate.armis_device_id,
-        "customProperties" => %{
-          custom_field => candidate.is_available
-        }
-      }
+      case parse_armis_device_id(candidate.armis_device_id) do
+        {:ok, device_id} ->
+          %{
+            "upsert" => %{
+              "deviceId" => device_id,
+              "key" => custom_field,
+              "value" => candidate.is_available
+            }
+          }
+
+        :error ->
+          %{
+            "id" => candidate.armis_device_id,
+            "customProperties" => %{
+              custom_field => candidate.is_available
+            }
+          }
+      end
     end)
   end
+
+  defp parse_armis_device_id(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_armis_device_id(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {device_id, ""} -> {:ok, device_id}
+      _ -> :error
+    end
+  end
+
+  defp parse_armis_device_id(_), do: :error
+
+  defp bulk_payload_shape([%{"upsert" => _} | _]), do: "upsert"
+  defp bulk_payload_shape([%{"id" => _, "customProperties" => _} | _]), do: "customProperties"
+  defp bulk_payload_shape(_), do: "unknown"
 
   defp compact_unique(values) do
     values
@@ -947,10 +1064,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp request_headers(token) do
     %{
-      "authorization" => "Bearer #{token}",
+      "authorization" => authorization_header(token),
       "content-type" => "application/json",
       "accept" => "application/json"
     }
+  end
+
+  defp authorization_header(token) when is_binary(token) do
+    token = String.trim(token)
+
+    if String.starts_with?(String.downcase(token), "bearer ") do
+      token
+    else
+      "Bearer #{token}"
+    end
   end
 
   defp request_options(source) do

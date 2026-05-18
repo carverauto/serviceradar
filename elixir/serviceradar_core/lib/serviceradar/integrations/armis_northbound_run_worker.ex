@@ -64,10 +64,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
             :ok
 
-          {:error, _result} ->
+          {:error, result} ->
             Logger.warning("Armis northbound job recorded failure",
               integration_source_id: integration_source_id,
-              oban_job_id: oban_job_id
+              oban_job_id: oban_job_id,
+              reason: failure_reason(result),
+              device_count: failure_count(result, :device_count),
+              updated_count: failure_count(result, :updated_count),
+              error_count: failure_count(result, :error_count)
             )
 
             :ok
@@ -108,6 +112,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       _ -> []
     end
   end
+
+  defp failure_reason(%{result: %{error_message: message}}) when is_binary(message), do: message
+  defp failure_reason(%{result: %{errors: errors}}), do: inspect(errors)
+  defp failure_reason(reason), do: inspect(reason)
+
+  defp failure_count(%{result: result}, key) when is_map(result), do: Map.get(result, key)
+  defp failure_count(_result, _key), do: nil
 
   defp runner do
     Application.get_env(
