@@ -156,6 +156,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
       assert result.package.status == :delivered
       assert result.package.delivered_at
+      assert result.package.download_token_consumed_at
       assert result.join_token == created.join_token
     end
 

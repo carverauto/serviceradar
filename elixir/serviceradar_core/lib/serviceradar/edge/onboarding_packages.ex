@@ -207,15 +207,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?),
          :ok <- verify_deliverable(package),
          :ok <- verify_download_token(package, download_token) do
-      # Decrypt join token
-      join_token = Crypto.decrypt(package.join_token_ciphertext)
-
-      # Decrypt bundle if present
-      bundle_pem =
-        if package.bundle_ciphertext do
-          Crypto.decrypt(package.bundle_ciphertext)
-        end
-
       # Update package status to delivered using Ash state machine
       case package
            |> Ash.Changeset.for_update(:deliver, %{},
@@ -224,6 +215,14 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            )
            |> Ash.update() do
         {:ok, updated_package} ->
+          # Decrypt package secrets only after the single-use consume transition succeeds.
+          join_token = Crypto.decrypt(updated_package.join_token_ciphertext)
+
+          bundle_pem =
+            if updated_package.bundle_ciphertext do
+              Crypto.decrypt(updated_package.bundle_ciphertext)
+            end
+
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
             actor: get_actor_name(actor),
@@ -238,7 +237,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            }}
 
         {:error, error} ->
-          {:error, error}
+          handle_deliver_update_error(package_id, actor, authorize?, error)
       end
     end
   end
@@ -381,6 +380,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   defp verify_deliverable(package) do
     cond do
+      not is_nil(package.download_token_consumed_at) -> {:error, :already_delivered}
       package.status == :revoked -> {:error, :revoked}
       package.status == :deleted -> {:error, :deleted}
       package.status == :delivered -> {:error, :already_delivered}
@@ -412,6 +412,19 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       {:error, :already_revoked}
     else
       :ok
+    end
+  end
+
+  defp handle_deliver_update_error(package_id, actor, authorize?, error) do
+    case get(package_id, actor: actor, authorize?: authorize?) do
+      {:ok, package} ->
+        case verify_deliverable(package) do
+          :ok -> {:error, error}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -780,10 +780,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Hard cap (e.g. 30 d) at the issuer; require admin approval above default; audit every override
       Partial: Issuer now enforces a 30-day cap unless `allow_long_ttl?: true`; explicit admin approval and structured audit remain open because the gateway issuer currently has no user/package actor context.
 
-- [ ] 6.N.7 [M] Bootstrap token has TTL but **no single-use enforcement** in DB
+- [x] 6.N.7 [M] Bootstrap token has TTL but **no single-use enforcement** in DB
       Where: `onboarding_packages.ex:202-244, 399`; no `download_token_consumed_at` column (commit: staging)
       Why: Leaked token usable until TTL expiry; pairs with 6.N.3 + 6.N.5 for replay across partitions.
       Fix: Add `download_token_consumed_at`; deliver action sets it atomically; subsequent attempts rejected
+      Resolution: Added `download_token_consumed_at`, required `status == :issued and is_nil(download_token_consumed_at)` on the Ash deliver update, and delayed package secret decryption until after the consume transition succeeds.
 
 - [ ] 6.N.8 [H] No per-partition allowlist / quota on package + cert issuance
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/live/admin/edge_package_live/index.ex:158-178` (commit: staging)

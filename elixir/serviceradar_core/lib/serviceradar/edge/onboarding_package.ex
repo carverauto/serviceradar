@@ -146,8 +146,10 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     update :deliver do
       description "Mark package as delivered (downloaded)"
+      change filter(expr(status == :issued and is_nil(download_token_consumed_at)))
       change transition_state(:delivered)
-      change set_attribute(:delivered_at, &DateTime.utc_now/0)
+      change set_attribute(:delivered_at, &__MODULE__.utc_now_second/0)
+      change set_attribute(:download_token_consumed_at, &__MODULE__.utc_now_second/0)
     end
 
     update :activate do
@@ -318,6 +320,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       description "Download token expiration time"
     end
 
+    attribute :download_token_consumed_at, :utc_datetime do
+      public? true
+      description "When the single-use download token was consumed"
+    end
+
     attribute :created_by, :string do
       default "system"
       public? true
@@ -397,5 +404,10 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     calculate :download_expired,
               :boolean,
               expr(not is_nil(download_token_expires_at) and download_token_expires_at < now())
+  end
+
+  @doc false
+  def utc_now_second do
+    DateTime.truncate(DateTime.utc_now(), :second)
   end
 end
