@@ -758,6 +758,57 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:remote_access_closed, "done"}
   end
 
+  test "rejects owned remote-access frames with unknown frame types" do
+    session = session_fixture()
+    telemetry_handler_id = "remote-access-frame-rejected-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        telemetry_handler_id,
+        [:serviceradar, :remote_access, :broker, :frame_rejected],
+        fn event, measurements, metadata, owner ->
+          send(owner, {:telemetry, event, measurements, metadata})
+        end,
+        self()
+      )
+
+    on_exit(fn -> :telemetry.detach(telemetry_handler_id) end)
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "desktop.secret"}}
+    )
+
+    assert_receive {:audit, reject_audit}
+    assert reject_audit[:action] == :remote_access_session_frame_rejected
+    assert reject_audit[:severity] == :high
+    assert reject_audit[:details].frame_type == "desktop.secret"
+    assert reject_audit[:details].failure_reason == "unknown_frame_type"
+
+    assert_receive {:telemetry, [:serviceradar, :remote_access, :broker, :frame_rejected],
+                    %{count: 1}, telemetry_metadata}
+
+    assert telemetry_metadata.frame_type == "desktop.secret"
+    assert telemetry_metadata.reason == "unknown_frame_type"
+    refute_receive {:remote_access_data, _data}, 50
+  end
+
   test "opens from a user-present credential grant without persisted session SSH metadata" do
     session = %{
       id: "session-1",

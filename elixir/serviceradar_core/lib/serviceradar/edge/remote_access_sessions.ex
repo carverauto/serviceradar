@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ValueUtils
+  alias ServiceRadar.Repo
 
   @default_attach_ttl_seconds 60
   @default_idle_timeout_seconds 900
@@ -105,13 +106,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   @spec attach_with_ticket(String.t(), keyword()) ::
           {:ok, RemoteAccessSession.t()} | {:error, term()}
   def attach_with_ticket(ticket, opts \\ []) when is_binary(ticket) do
-    system_opts = [actor: SystemActor.system(:remote_access_ticket)]
-
     with {:ok, ticket_hash} <- hash_ticket(ticket),
-         {:ok, %RemoteAccessSession{} = session} <-
-           RemoteAccessSession.get_by_attach_ticket_hash(ticket_hash, system_opts),
-         :ok <- ensure_session_match(session, Keyword.get(opts, :session_id)),
-         {:ok, attached} <- RemoteAccessSession.attach(session, %{}, system_opts) do
+         {:ok, expected_session_id} <-
+           normalize_expected_session_id(Keyword.get(opts, :session_id)),
+         {:ok, attached} <- consume_attach_ticket(ticket_hash, expected_session_id) do
       write_audit(:remote_access_session_attach, attached, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -120,13 +118,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
       {:ok, attached}
     else
-      {:ok, nil} ->
-        {:error, :invalid_or_expired_ticket}
-
       {:error, error} ->
-        if not_found_error?(error),
-          do: {:error, :invalid_or_expired_ticket},
-          else: {:error, error}
+        if invalid_attach_ticket_error?(error) do
+          write_attach_denial_audit(:invalid_or_expired_ticket, opts)
+          {:error, :invalid_or_expired_ticket}
+        else
+          {:error, error}
+        end
 
       error ->
         error
@@ -741,12 +739,69 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp hash_ticket(_ticket), do: {:error, :invalid_ticket}
 
-  defp ensure_session_match(_session, nil), do: :ok
+  defp normalize_expected_session_id(nil), do: {:ok, nil}
 
-  defp ensure_session_match(%{id: id}, expected_id) do
-    if to_string(id) == to_string(expected_id),
-      do: :ok,
-      else: {:error, :invalid_or_expired_ticket}
+  defp normalize_expected_session_id(expected_id) do
+    case Ecto.UUID.cast(to_string(expected_id)) do
+      {:ok, id} -> {:ok, Ecto.UUID.dump!(id)}
+      :error -> {:error, :invalid_or_expired_ticket}
+    end
+  end
+
+  defp consume_attach_ticket(ticket_hash, expected_session_id) do
+    system_opts = [actor: SystemActor.system(:remote_access_ticket)]
+
+    fn ->
+      case Repo.query(lock_attach_ticket_sql(), [ticket_hash, expected_session_id]) do
+        {:ok, %{num_rows: 1, rows: [[session_id]]}} ->
+          with {:ok, %RemoteAccessSession{} = session} <-
+                 RemoteAccessSession.get_by_id(session_id, system_opts),
+               {:ok, %RemoteAccessSession{} = attached, notifications} <-
+                 RemoteAccessSession.attach(
+                   session,
+                   %{},
+                   Keyword.put(system_opts, :return_notifications?, true)
+                 ) do
+            {attached, notifications}
+          else
+            {:error, error} -> Repo.rollback(error)
+          end
+
+        {:ok, %{num_rows: 0}} ->
+          Repo.rollback(:invalid_or_expired_ticket)
+
+        {:error, error} ->
+          Repo.rollback(error)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessSession{} = session, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, session}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp lock_attach_ticket_sql do
+    """
+    SELECT id::text
+    FROM platform.remote_access_sessions
+    WHERE attach_ticket_hash = $1
+      AND status = 'requested'
+      AND attach_expires_at > (now() AT TIME ZONE 'utc')
+      AND ($2::uuid IS NULL OR id = $2::uuid)
+    FOR UPDATE
+    """
+  end
+
+  defp invalid_attach_ticket_error?(:invalid_ticket), do: true
+  defp invalid_attach_ticket_error?(:invalid_or_expired_ticket), do: true
+
+  defp invalid_attach_ticket_error?(error) do
+    not_found_error?(error)
   end
 
   defp maybe_bind_access_request(%{access_request_id: nil}, _session, _opts), do: {:ok, nil}
@@ -825,6 +880,27 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     )
   end
 
+  defp write_attach_denial_audit(reason, opts) do
+    session_id = Keyword.get(opts, :session_id)
+    resource_id = if is_nil(session_id), do: "unknown", else: to_string(session_id)
+    audit_writer = Keyword.get(opts, :audit_writer, AuditWriter)
+
+    audit_writer.write_async(
+      action: :remote_access_session_attach_denied,
+      resource_type: "remote_access_session",
+      resource_id: resource_id,
+      resource_name: resource_id,
+      actor: audit_actor(opts),
+      details:
+        CredentialRedactor.redact(%{
+          session_id: session_id,
+          failure_reason: format_atom(reason)
+        }),
+      severity: :high,
+      message: "Remote access session attach denied"
+    )
+  end
+
   defp audit_action(:request_close), do: :remote_access_session_close_requested
   defp audit_action(:close), do: :remote_access_session_closed
   defp audit_action(:expire), do: :remote_access_session_expired
@@ -841,6 +917,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp audit_severity(:remote_access_session_failed), do: :high
   defp audit_severity(:remote_access_session_denied), do: :high
+  defp audit_severity(:remote_access_session_attach_denied), do: :high
   defp audit_severity(_action), do: :medium
 
   defp denial_decision(:approval_required), do: "approval_required"
@@ -853,6 +930,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp action_suffix(:remote_access_session_create), do: "created"
   defp action_suffix(:remote_access_session_attach), do: "attached"
+  defp action_suffix(:remote_access_session_attach_denied), do: "attach denied"
   defp action_suffix(:remote_access_session_close_requested), do: "close requested"
   defp action_suffix(:remote_access_session_closed), do: "closed"
   defp action_suffix(:remote_access_session_expired), do: "expired"

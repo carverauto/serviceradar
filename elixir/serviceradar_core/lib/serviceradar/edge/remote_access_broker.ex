@@ -19,6 +19,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Events.AuditWriter
 
+  require Logger
+
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
   @callback send_desktop_control(pid(), map()) :: :ok | {:error, term()}
@@ -228,7 +230,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:stop, :normal, %{state | closed?: true}}
   end
 
-  defp handle_remote_access_frame(_frame, state), do: {:noreply, state}
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when is_binary(frame_type) do
+    reject_remote_access_frame(frame, state, :unknown_frame_type)
+    {:noreply, state}
+  end
+
+  defp handle_remote_access_frame(frame, state) do
+    reject_remote_access_frame(frame, state, :missing_frame_type)
+    {:noreply, state}
+  end
 
   defp handle_file_transfer_frame(frame, state) do
     state.file_transfers.handle_agent_frame(frame,
@@ -245,6 +256,30 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp owns_remote_access_frame?(session, frame) do
     string_value(frame, "session_id") == session_id(session) and
       string_value(frame, "agent_id") == agent_id(session)
+  end
+
+  defp reject_remote_access_frame(frame, state, reason) do
+    frame_type = frame_type_label(string_value(frame, "frame_type"))
+
+    metadata = %{
+      session_id: session_id(state.session),
+      agent_id: agent_id(state.session),
+      frame_type: frame_type,
+      reason: Atom.to_string(reason)
+    }
+
+    Logger.warning("Rejected remote access frame", Map.to_list(metadata))
+
+    :telemetry.execute(
+      [:serviceradar, :remote_access, :broker, :frame_rejected],
+      %{count: 1},
+      metadata
+    )
+
+    write_audit(state, :remote_access_session_frame_rejected, %{
+      frame_type: frame_type,
+      failure_reason: Atom.to_string(reason)
+    })
   end
 
   @impl true
@@ -563,6 +598,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp close_action(_frame_type), do: :remote_access_session_closed
 
   defp audit_severity(:remote_access_session_failed), do: :high
+  defp audit_severity(:remote_access_session_frame_rejected), do: :high
   defp audit_severity(_action), do: :medium
 
   defp audit_suffix(:remote_access_session_opened), do: "opened"
@@ -571,6 +607,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp audit_suffix(:remote_access_session_close_requested), do: "close requested"
   defp audit_suffix(:remote_access_session_closed), do: "closed"
   defp audit_suffix(:remote_access_session_failed), do: "failed"
+  defp audit_suffix(:remote_access_session_frame_rejected), do: "frame rejected"
   defp audit_suffix(action), do: Atom.to_string(action)
 
   defp lifecycle_for(%RemoteAccessSession{}), do: RemoteAccessSessions
@@ -604,6 +641,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> inspect()
     |> String.slice(0, 500)
   end
+
+  defp frame_type_label(nil), do: "missing"
+
+  defp frame_type_label(frame_type) when is_binary(frame_type),
+    do: String.slice(frame_type, 0, 120)
+
+  defp frame_type_label(frame_type), do: frame_type |> inspect() |> String.slice(0, 120)
 
   defp open_frame_data(session, opts) do
     protocol = string_option(session, opts, "protocol", @default_protocol)

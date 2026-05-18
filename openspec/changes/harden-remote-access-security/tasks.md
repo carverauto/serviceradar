@@ -307,7 +307,7 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Why: Isolation depends entirely on Ash policy + schema prefix. If a policy is bypassed or actor lacks a tenant binding, cross-tenant reads become possible. Same concern applies to broker/target/grant lookups built on session_id.
       Fix: Confirm tenancy model (attribute vs prefix-per-tenant). If attribute: add `tenant_id` + multitenancy block + include it in unique indexes. If prefix: add a regression test that proves cross-prefix queries fail closed and document the model in `design.md`
 
-- [ ] 4.2 [C] Session attach ticket is single-window but not single-use
+- [x] 4.2 [C] Session attach ticket is single-window but not single-use
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_sessions.ex:107-134` (commit: staging)
       Why: Lookup uses `attach_expires_at > now()` only; a stolen plaintext ticket can be replayed inside the TTL window. Combined with the broker frame-trust gap (4.4) this is a session hijack primitive.
       Fix: Transition to `:attached` on first consume inside an Ash transaction; reject any second consume with audit
@@ -347,7 +347,7 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Why: A future contributor adding a credential-bearing field forgets to update the allowlist โ’ secret returns via read action.
       Fix: Invert to a denylist + structural rule: strip everything matching the credential redactor heuristic, plus any field not on an explicit non-secret allowlist. Add property-based test.
 
-- [ ] 4.10 [L] Broker silently ignores unknown frame types
+- [x] 4.10 [L] Broker silently ignores unknown frame types
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_broker.ex:185-231` (commit: staging)
       Why: Hides protocol-confusion attempts; future frame types added agent-side land in production with no operator visibility.
       Fix: Log at WARN with `(session_id, agent_id, frame_type)`; emit a metric; reject on a hard-protocol-violation list

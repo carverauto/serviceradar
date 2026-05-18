@@ -118,6 +118,60 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                session_id: session.id,
                audit_writer: AuditSink
              )
+
+    assert_receive {:remote_access_audit, attach_denial_audit}
+    assert attach_denial_audit[:action] == :remote_access_session_attach_denied
+    refute inspect(attach_denial_audit) =~ ticket
+  end
+
+  test "attach ticket consume is atomic under concurrent replay" do
+    uid = unique_uid("ticket-race")
+    insert_device!(uid, agent_id: "agent-ticket-race", gateway_id: "gateway-ticket-race")
+
+    assert {:ok, %{session: session, ticket: ticket}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present"},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    owner = self()
+
+    results =
+      1..4
+      |> Enum.map(fn _attempt ->
+        Task.async(fn ->
+          Process.put(:remote_access_audit_owner, owner)
+
+          RemoteAccessSessions.attach_with_ticket(ticket,
+            session_id: session.id,
+            audit_writer: AuditSink
+          )
+        end)
+      end)
+      |> Enum.map(&Task.await(&1, 15_000))
+
+    assert 1 ==
+             Enum.count(results, fn
+               {:ok, %RemoteAccessSession{status: :attached}} -> true
+               _other -> false
+             end)
+
+    assert 3 == Enum.count(results, &(&1 == {:error, :invalid_or_expired_ticket}))
+
+    audits =
+      for _ <- 1..4 do
+        assert_receive {:remote_access_audit, audit}, 1_000
+        audit
+      end
+
+    assert 1 == Enum.count(audits, &(&1[:action] == :remote_access_session_attach))
+    assert 3 == Enum.count(audits, &(&1[:action] == :remote_access_session_attach_denied))
+    refute inspect(audits) =~ ticket
   end
 
   test "generic SSH rejects agent-local reusable credential custody" do
