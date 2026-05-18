@@ -19,8 +19,8 @@
 ## 4. UI, Recording, And Audit
 - [ ] 4.1 Add operator/user UI for launching registered application access sessions.
 - [ ] 4.2 Add TCP launch UI only for targets with an explicit browser renderer or documented client workflow.
-- [ ] 4.3 Persist lifecycle, request/response metadata, byte counts, failures, and policy decisions without storing bodies by default.
-- [ ] 4.4 Emit audit and replay events for allowed, started, request, response, denied, failed, closed, and quota-exhausted states.
+- [x] 4.3 Persist lifecycle, request/response metadata, byte counts, failures, and policy decisions without storing bodies by default.
+- [x] 4.4 Emit audit and replay events for allowed, started, request, response, denied, failed, closed, and quota-exhausted states.
 
 ## 5. Validation And Demo
 - [ ] 5.1 Add unit tests for resource normalization, override rejection, SSRF controls, header policy, upstream TLS, redirects, quotas, approval, and recording redaction.

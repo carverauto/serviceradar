@@ -59,6 +59,11 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
       send(opts[:audit_actor].test_pid, {:recording_failed, recording, reason, stats, opts})
       {:ok, Map.merge(recording, stats)}
     end
+
+    def record_event(recording, attrs, opts) do
+      send(opts[:audit_actor].test_pid, {:recording_event, recording, attrs, opts})
+      {:ok, attrs}
+    end
   end
 
   defmodule FileTransfersStub do
@@ -672,6 +677,151 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     refute inspect(stats) =~ "whoami"
     refute inspect(stats) =~ "root"
     refute inspect(stats) =~ "must-not-be-used"
+  end
+
+  test "application frames record metadata and byte counts without retaining bodies" do
+    body = "body"
+    encoded_body = Base.encode64(body)
+
+    session =
+      Map.merge(session_fixture(), %{
+        protocol: :app,
+        adapter: :application,
+        target_host: "app.internal.example",
+        target_port: 8443,
+        recording_policy: %{"enabled" => true},
+        metadata: %{
+          "target_id" => "app-target-1",
+          "target_type" => "application",
+          "upstream_scheme" => "https"
+        }
+      })
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          recordings: RecordingStub,
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "app_open"}, _opts}
+    assert_receive {:recording_create, ^session, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    frame = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "app_data",
+      data:
+        Jason.encode!(%{
+          request_id: "req-1",
+          session_id: "session-1",
+          direction: "response",
+          sequence: 1,
+          data: encoded_body,
+          eof: true
+        })
+    }
+
+    send(pid, {:remote_access_frame, frame})
+
+    assert_receive {:remote_access_application_frame, ^frame}
+    assert_receive {:recording_event, %{id: "recording-1"}, event_attrs, _opts}
+    assert event_attrs.stream == :application
+    assert event_attrs.event_type == "app_data"
+    assert event_attrs.metadata.body_bytes == 4
+    refute Map.has_key?(event_attrs, :data)
+    refute inspect(event_attrs) =~ encoded_body
+
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_application_data
+    assert audit[:details].body_bytes == 4
+    refute inspect(audit) =~ encoded_body
+
+    send(
+      pid,
+      {:remote_access_frame,
+       %{
+         session_id: "session-1",
+         agent_id: "agent-1",
+         frame_type: "app_close",
+         data: Jason.encode!(%{session_id: "session-1", reason: "done"})
+       }}
+    )
+
+    assert_receive {:remote_access_closed, "done"}
+    assert_receive {:recording_complete, %{id: "recording-1"}, stats, _opts}
+    assert stats.output_bytes == 4
+    assert stats.event_count == 2
+  end
+
+  test "TCP quota failures are audited and recorded as metadata only" do
+    session =
+      Map.merge(session_fixture(), %{
+        protocol: :tcp,
+        adapter: :tcp,
+        target_host: "10.0.20.15",
+        target_port: 5432,
+        recording_policy: %{"enabled" => true},
+        metadata: %{"target_id" => "tcp-target-1", "target_type" => "tcp"}
+      })
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          recordings: RecordingStub,
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "tcp_open"}, _opts}
+    assert_receive {:recording_create, ^session, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    frame = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "tcp_error",
+      data:
+        Jason.encode!(%{
+          session_id: "session-1",
+          connection_id: "session-1:tcp",
+          status: "quota_exhausted",
+          code: "quota_exhausted",
+          message: "bytes out quota exceeded"
+        })
+    }
+
+    send(pid, {:remote_access_frame, frame})
+
+    assert_receive {:remote_access_tcp_frame, ^frame}
+    assert_receive {:recording_event, %{id: "recording-1"}, event_attrs, _opts}
+    assert event_attrs.stream == :tcp
+    assert event_attrs.event_type == "tcp_error"
+    assert event_attrs.metadata.status == "quota_exhausted"
+    refute Map.has_key?(event_attrs, :data)
+
+    assert_receive {:audit, audit}
+    assert audit[:action] == :remote_access_tcp_quota_exhausted
+    assert audit[:details].status == "quota_exhausted"
+
+    assert_receive {:remote_access_closed, "bytes out quota exceeded"}
+
+    assert_receive {:recording_failed, %{id: "recording-1"}, "bytes out quota exceeded", stats,
+                    _opts}
+
+    assert stats.event_count == 1
   end
 
   test "open frame carries sanitized recording policies for agent-side gates" do
