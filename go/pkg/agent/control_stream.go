@@ -401,6 +401,10 @@ func (p *PushLoop) handleConsoleFrame(ctx context.Context, frame *proto.ConsoleF
 		p.handleFileTransferFrame(ctx, frame, sender)
 		return
 	}
+	if isApplicationAccessFrameType(frame.GetFrameType()) || isTCPAccessFrameType(frame.GetFrameType()) {
+		p.handleAppTCPFrame(ctx, frame, sender)
+		return
+	}
 
 	if p.remoteConsoleManager == nil {
 		p.remoteConsoleManager = newRemoteConsoleManagerWithRoute(

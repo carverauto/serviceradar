@@ -7,12 +7,12 @@
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add RBAC permissions for opening app access, opening TCP access, managing app/TCP targets, approving sensitive access, and exporting recordings.
 - [x] 2.2 Add browser/API endpoints that accept only target/session intent and reject upstream route, host, port, SNI, Host header, credential, TLS, quota, approval, and recording overrides.
-- [ ] 2.3 Add policy evaluation for allowed methods, path prefixes, redirects, header rules, cookie isolation, upstream TLS, quotas, approval, and recording.
-- [ ] 2.4 Add approval-required handling for sensitive apps, insecure upstream TLS exceptions, broad path access, upload-enabled apps, and TCP targets.
+- [x] 2.3 Add policy evaluation for allowed methods, path prefixes, redirects, header rules, cookie isolation, upstream TLS, quotas, approval, and recording.
+- [x] 2.4 Add approval-required handling for sensitive apps, insecure upstream TLS exceptions, broad path access, upload-enabled apps, and TCP targets.
 
 ## 3. Routing And Agent Adapters
-- [ ] 3.1 Add gateway/agent routing for application and TCP access frames over the selected remote-access session route.
-- [ ] 3.2 Add an agent HTTP/HTTPS adapter that dials only registered upstreams and enforces Host/SNI/TLS/header/path/method policy.
+- [x] 3.1 Add gateway/agent routing for application and TCP access frames over the selected remote-access session route.
+- [x] 3.2 Add an agent HTTP/HTTPS adapter that dials only registered upstreams and enforces Host/SNI/TLS/header/path/method policy.
 - [ ] 3.3 Add a constrained agent TCP adapter for registered targets with idle timeout, byte quotas, and connection lifecycle frames.
 - [ ] 3.4 Advertise `remote_access.app` and `remote_access.tcp` only when local policy enforcement is available.
 
@@ -24,7 +24,7 @@
 
 ## 5. Validation And Demo
 - [ ] 5.1 Add unit tests for resource normalization, override rejection, SSRF controls, header policy, upstream TLS, redirects, quotas, approval, and recording redaction.
-- [ ] 5.2 Add gateway/agent route-binding tests for app/TCP frames.
+- [x] 5.2 Add gateway/agent route-binding tests for app/TCP frames.
 - [ ] 5.3 Add agent adapter tests against local HTTP, HTTPS with test CA, redirect, and raw TCP test servers.
 - [ ] 5.4 Add demo proof with a private HTTP echo target reachable only from an agent.
 - [ ] 5.5 Run focused Go and Elixir tests plus OpenSpec validation.

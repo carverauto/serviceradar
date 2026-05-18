@@ -132,6 +132,8 @@ type PushLoop struct {
 	mtrBulkJobSem             chan struct{}
 	cameraRelayManager        *cameraRelayManager
 	remoteConsoleManager      *remoteConsoleManager
+	applicationHTTPMu         sync.Mutex
+	applicationHTTPSessions   map[string]*remoteaccess.ApplicationHTTPAdapter
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex

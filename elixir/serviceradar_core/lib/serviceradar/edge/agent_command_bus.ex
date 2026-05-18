@@ -564,6 +564,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     entries
     |> Enum.uniq_by(fn {pid, metadata} -> {pid, gateway_node_from_metadata(metadata)} end)
     |> Enum.filter(&valid_control_session_entry?(&1, agent_id))
+    |> Enum.filter(&required_gateway_node_match?(&1, required_gateway_node))
     |> Enum.sort_by(fn {_pid, metadata} ->
       control_session_preference(metadata, required_gateway_node)
     end)
@@ -572,6 +573,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       [] -> {:error, {:agent_offline, agent_id}}
     end
   end
+
+  defp required_gateway_node_match?(_entry, nil), do: true
+
+  defp required_gateway_node_match?({_pid, metadata}, required_gateway_node),
+    do: gateway_node_from_metadata(metadata) == required_gateway_node
 
   defp control_session_preference(metadata, required_gateway_node) do
     cond do
