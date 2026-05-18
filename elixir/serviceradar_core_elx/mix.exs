@@ -44,6 +44,11 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:grpc, "~> 0.9"},
       {:membrane_core, "1.2.6"},
       {:membrane_webrtc_plugin, "~> 0.26.3"},
+      # Keep transitive MPEG-TS deps on Elixir 1.19-compatible releases without
+      # patching vendored Boombox or upstream Hex packages. Boombox still needs
+      # SRT on its compatible 0.1.x line.
+      {:membrane_mpeg_ts_plugin, "~> 2.4", override: true},
+      {:mpeg_ts, "~> 3.3", override: true},
       {:boombox, path: "vendor/boombox"},
       {:bandit, "~> 1.10"},
       {:plug, "~> 1.18"},
