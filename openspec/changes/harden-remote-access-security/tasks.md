@@ -1094,10 +1094,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: New workflow `.forgejo/workflows/license-check.yml` running the script on every PR; fail build on non-zero exit; cache the Teleport checkout
       Resolution: Added `.forgejo/workflows/license-check.yml`, which runs on PRs, protected-branch pushes, and manual dispatch, caches a Teleport checkout, installs Go from `go.mod`, discovers ServiceRadar's actual Teleport Go imports, and invokes `scripts/check-teleport-license-paths.sh` only when such imports exist.
 
-- [ ] 6.10 [L] Mixed action-pinning style — some `@v4`, some pinned SHAs
+- [x] 6.10 [L] Mixed action-pinning style — some `@v4`, some pinned SHAs
       Where: `.forgejo/workflows/release.yml`, `.forgejo/workflows/palisade-publish.yml` (working tree / staging)
       Why: Floating tags weaken supply-chain stance.
       Fix: Pin all `uses:` to full commit SHAs with a `# <action>@<tag>` comment.
+      Resolution: Pinned Palisade's cache action to the repository-standard SHA and annotated every release/Palisade pinned action with the upstream tag it was resolved from.
 
 - [x] 6.11 [M] Authentik OIDC fixture prints `client_secret` in fixture JSON / shell var
       Where: `scripts/authentik-remote-access-oidc-fixture.py:52-70`; `scripts/remote-access-authentik-oidc-ssh-smoke.sh:102-114` (working tree)

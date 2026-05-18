@@ -50,16 +50,16 @@ jobs:
       MIX_ENV: test
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
 
       - name: Setup Beam
-        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93 # erlef/setup-beam@v1.24.0
         with:
           otp-version: "28.1"
           elixir-version: "1.19.4"
 
       - name: Cache deps + _build
-        uses: actions/cache@v4
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # actions/cache@v5.0.4
         with:
           path: |
             elixir/palisade/deps
