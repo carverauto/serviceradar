@@ -1,3 +1,22 @@
+# ServiceRadar v1.2.68
+
+Armis northbound recovery, inventory metadata cleanup, plugin status durability, and CI audit fixes.
+
+## Whats New
+
+**1.2.68**
+- Fixed remaining timestamp precision mismatches in Armis/config-dispatch and sweep availability paths so persisted integration and device availability timestamps match their Ecto field precision.
+- Restored Armis northbound bulk execution visibility with runner logs for candidate loading, update/skip counts, run completion, and failure paths.
+- Fixed Armis northbound scheduling so overlapping stale `Running` rows are timed out consistently and only one active run is allowed for a source.
+- Fixed Armis-imported device type rendering in `/devices` by falling back to integration metadata when the canonical type column is empty.
+- Cleaned up Armis device details by removing redundant Discovery Details and Operating System cards, linking Sync Service to integration details, linking Armis Device ID to the Armis inventory URL, and dropping misleading per-batch total device metadata.
+- Fixed Armis integration source device counts so paged syncs report the total distinct imported devices for the source instead of the last batch size.
+- Preserved the last reported plugin status during assignment reconciliation so `/services` does not overwrite real plugin results with `plugin assignment pending result`.
+- Added an audit event detail page so CSP and security events can be opened and inspected from the audit event list.
+- Moved web-ng maintenance workers to a dedicated `web_maintenance` Oban queue so core-elx no longer attempts to run unknown `ServiceRadarWebNG.*` worker modules.
+- Gated GeoLite and IPinfo MMDB download workers behind explicit Helm/runtime enable flags and defaulted GeoIP enrichment off when MMDB storage is not configured.
+- Updated the datasvc `cowlib` lock to 2.16.1 and added a narrow audit ignore for the remaining low-severity cookie encoder advisory that has no patched release.
+
 # ServiceRadar v1.2.67
 
 Armis integration recovery, plugin status visibility, and release pipeline fixes.
