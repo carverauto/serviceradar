@@ -90,6 +90,9 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
       validity_days > @max_validity_days and Keyword.get(opts, :allow_long_ttl?, false) != true ->
         {:error, :validity_days_exceeds_limit}
 
+      validity_days > @default_validity_days and not long_ttl_approved?(opts) ->
+        {:error, :long_ttl_approval_required}
+
       true ->
         if validity_days > 7 do
           Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
@@ -116,6 +119,16 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
       true -> {:ok, ca_cert, ca_key}
     end
   end
+
+  defp long_ttl_approved?(opts) do
+    opts
+    |> Keyword.get(:long_ttl_approved_by)
+    |> admin_or_system_actor?()
+  end
+
+  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(%{"role" => role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(_actor), do: false
 
   defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts) do
     cn = "#{component_id}.#{partition_id}.serviceradar"
@@ -180,6 +193,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
           granted_partition_id: partition_id,
           authorized_partition_id: normalize_partition_id(Keyword.get(opts, :authorized_partition_id)),
           validity_days: validity_days,
+          long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
           certificate_fingerprint: certificate_fingerprint,
           cn: cn,
           spiffe_id: spiffe_id
@@ -306,6 +320,12 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp audit_actor(opts) do
     Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor) || %{id: "system", email: "system@serviceradar.local"}
   end
+
+  defp actor_identifier(nil), do: nil
+  defp actor_identifier(%{id: id}) when not is_nil(id), do: to_string(id)
+  defp actor_identifier(%{"id" => id}) when not is_nil(id), do: to_string(id)
+  defp actor_identifier(actor) when is_binary(actor), do: actor
+  defp actor_identifier(_actor), do: nil
 
   defp audit_severity(validity_days) when validity_days > 7, do: :medium
   defp audit_severity(_validity_days), do: :informational

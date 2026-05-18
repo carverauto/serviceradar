@@ -777,11 +777,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Add `partition_id` to the token payload (bump to `edgepkg-v3`); enforce equality on delivery
       Resolution: Added `edgepkg-v3` tokens with `partition_id`; web-ng now verifies signed token package id and partition/site before delivery; Go bootstrap clients send the signed token back with the raw download token.
 
-- [ ] 6.N.6 [M] No max cap or admin approval on `validity_days` — default 365 d (see 6.L.1) is operator-overridable upward
+- [x] 6.N.6 [M] No max cap or admin approval on `validity_days` — default 365 d (see 6.L.1) is operator-overridable upward
       Where: `cert_issuer.ex:12, 69` (working tree)
       Why: Compounds 6.L.1 — an operator can extend their already-too-long cert TTL further with no audit / approval gate.
       Fix: Hard cap (e.g. 30 d) at the issuer; require admin approval above default; audit every override
-      Partial: Issuer now enforces a 30-day cap unless `allow_long_ttl?: true`; structured mint audit is covered by 6.N.4. Explicit admin approval above the default remains open.
+      Resolution: Issuer now enforces a 30-day cap unless `allow_long_ttl?: true`, rejects any TTL above the default unless `long_ttl_approved_by` is an admin/system actor, and records the approval actor id in the 6.N.4 mint audit details. web-ng forwards the approval context through the gateway RPC for future admin flows.
 
 - [x] 6.N.7 [M] Bootstrap token has TTL but **no single-use enforcement** in DB
       Where: `onboarding_packages.ex:202-244, 399`; no `download_token_consumed_at` column (commit: staging)

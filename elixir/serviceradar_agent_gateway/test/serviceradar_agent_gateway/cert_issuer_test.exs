@@ -54,6 +54,16 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
   end
 
+  test "requires admin approval for certificate TTL above the default" do
+    assert {:error, :long_ttl_approval_required} =
+             CertIssuer.issue_agent_bundle(
+               "agent-1",
+               "default",
+               :agent,
+               validity_days: CertIssuer.default_validity_days() + 1
+             )
+  end
+
   test "rejects partition mismatch before loading CA files" do
     assert {:error, :partition_not_authorized} =
              CertIssuer.issue_agent_bundle(
@@ -84,6 +94,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                temp_parent_dir: parent_dir,
                validity_days: CertIssuer.max_validity_days() + 1,
                allow_long_ttl?: true,
+               long_ttl_approved_by: %{id: "admin-1", role: :admin},
                audit_writer: nil
              )
 
@@ -136,6 +147,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              component_id: "agent-audit",
              component_type: :agent,
              granted_partition_id: "partition-a",
+             long_ttl_approved_by: nil,
              requested_partition_id: "partition-a",
              spiffe_id: "spiffe://serviceradar.local/agent/partition-a/agent-audit",
              validity_days: 1
