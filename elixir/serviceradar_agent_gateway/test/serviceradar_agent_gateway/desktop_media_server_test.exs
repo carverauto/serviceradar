@@ -537,6 +537,72 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
     assert session.sent_bytes == 0
   end
 
+  test "desktop media stream rejects frames when certificate partition does not match the session" do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :desktop_media_frame_forwarder,
+      DesktopMediaFrameForwarderStub
+    )
+
+    stream = test_stream(test_pid: self())
+    open_response = open_desktop_session!("desktop-stream-partition-mismatch-1", "media-stream-partition-1", stream)
+
+    handler_id = {__MODULE__, self(), :desktop_media_frame_rejected}
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :desktop_media, :frame, :rejected],
+      fn event, measurements, metadata, _config ->
+        send(self(), {:desktop_media_frame_rejected, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    rewrite_desktop_session!("desktop-stream-partition-mismatch-1", fn session ->
+      %{session | partition_id: "other-partition"}
+    end)
+
+    assert_raise GRPC.RPCError, ~r/desktop media session partition mismatch/, fn ->
+      DesktopMediaServer.stream_desktop_media(
+        [
+          %Desktopmedia.DesktopMediaClientMessage{
+            message:
+              {:frame,
+               %Desktopmedia.DesktopMediaFrameChunk{
+                 desktop_session_id: "desktop-stream-partition-mismatch-1",
+                 media_session_id: "media-stream-partition-1",
+                 media_ingest_id: open_response.media_ingest_id,
+                 agent_id: "agent-1",
+                 sequence: 1,
+                 payload: <<1>>
+               }}
+          }
+        ],
+        stream
+      )
+    end
+
+    assert_receive {:desktop_media_frame_rejected, [:serviceradar, :desktop_media, :frame, :rejected],
+                    %{payload_bytes: 1, sequence: 1},
+                    %{
+                      agent_id: "agent-1",
+                      certificate_partition_id: "default",
+                      desktop_session_id: "desktop-stream-partition-mismatch-1",
+                      reason: :partition_id_mismatch,
+                      session_partition_id: "other-partition"
+                    }}
+
+    refute_receive {:forward_desktop_media_frame, _frame, _session}
+
+    assert {:ok, session} =
+             DesktopMediaSessionTracker.fetch_session("desktop-stream-partition-mismatch-1", "agent-1")
+
+    assert session.last_sequence == 0
+    assert session.sent_bytes == 0
+  end
+
   test "desktop media stream rejects frames after the session starts closing" do
     stream = test_stream()
     open_response = open_desktop_session!("desktop-stream-closing-1", "media-stream-closing-1", stream)
@@ -652,10 +718,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServerTest do
   defp expire_desktop_session!(desktop_session_id) do
     expired_at = System.os_time(:second) - 60
 
+    rewrite_desktop_session!(desktop_session_id, fn session ->
+      %{session | lease_expires_at_unix: expired_at}
+    end)
+  end
+
+  defp rewrite_desktop_session!(desktop_session_id, rewrite_fun) when is_function(rewrite_fun, 1) do
     :sys.replace_state(DesktopMediaSessionTracker, fn state ->
-      update_in(state, [:sessions, desktop_session_id], fn session ->
-        %{session | lease_expires_at_unix: expired_at}
-      end)
+      update_in(state, [:sessions, desktop_session_id], rewrite_fun)
     end)
   end
 

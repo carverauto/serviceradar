@@ -233,12 +233,14 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     agent_id = required_agent_id(frame.agent_id)
     identity = extract_identity_from_stream(stream)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
 
     desktop_session_id = required_string(frame.desktop_session_id, "desktop_session_id")
     media_session_id = required_string(frame.media_session_id, "media_session_id")
 
     case session_tracker().fetch_session(desktop_session_id, agent_id) do
       {:ok, %{media_session_id: ^media_session_id} = session} ->
+        enforce_frame_owner!(frame, session, agent_id, partition_id)
         enforce_frame_media_ingest!(frame, session)
         enforce_active_media_session!(session)
         enforce_frame_size!(frame, session)
@@ -258,6 +260,59 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
       reraise GRPC.RPCError.exception(status: :invalid_argument, message: Exception.message(error)),
               __STACKTRACE__
   end
+
+  defp enforce_frame_owner!(frame, session, agent_id, partition_id) do
+    cond do
+      session.agent_id != agent_id ->
+        reject_frame_owner!(
+          frame,
+          session,
+          :agent_id_mismatch,
+          agent_id: agent_id,
+          certificate_partition_id: partition_id
+        )
+
+      session.partition_id != partition_id ->
+        reject_frame_owner!(
+          frame,
+          session,
+          :partition_id_mismatch,
+          agent_id: agent_id,
+          certificate_partition_id: partition_id
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp reject_frame_owner!(frame, session, reason, metadata) do
+    metadata =
+      Keyword.merge(metadata,
+        reason: reason,
+        desktop_session_id: frame.desktop_session_id,
+        media_session_id: frame.media_session_id,
+        media_ingest_id: frame.media_ingest_id,
+        session_agent_id: session.agent_id,
+        session_partition_id: session.partition_id
+      )
+
+    :telemetry.execute(
+      [:serviceradar, :desktop_media, :frame, :rejected],
+      %{
+        sequence: frame.sequence,
+        payload_bytes: frame_byte_count(frame)
+      },
+      Map.new(metadata)
+    )
+
+    Logger.warning("Rejected desktop media frame owner binding", metadata)
+
+    raise GRPC.RPCError, status: :permission_denied, message: frame_owner_error_message(reason)
+  end
+
+  defp frame_owner_error_message(:agent_id_mismatch), do: "desktop media session owner mismatch"
+  defp frame_owner_error_message(:partition_id_mismatch), do: "desktop media session partition mismatch"
 
   defp enforce_frame_media_ingest!(frame, session) do
     if default_ack_id(frame.media_ingest_id, session.media_ingest_id) != session.media_ingest_id do
