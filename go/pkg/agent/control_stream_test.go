@@ -2,8 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -303,7 +309,7 @@ func TestHandleConsoleFrameRoutesAppTCPFramesFailClosed(t *testing.T) {
 			sessionID:     "app-session-1",
 			inFrameType:   remoteaccess.FrameTypeApplicationOpen,
 			outFrameType:  remoteaccess.FrameTypeApplicationError,
-			messageSubstr: "application access adapter unavailable",
+			messageSubstr: "invalid_open_payload",
 		},
 		{
 			name:          "tcp",
@@ -348,6 +354,64 @@ func TestHandleConsoleFrameRoutesAppTCPFramesFailClosed(t *testing.T) {
 	}
 }
 
+func TestHandleConsoleFrameExecutesApplicationHTTPRequest(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "private-app.internal" {
+			t.Fatalf("Host = %q, want private-app.internal", r.Host)
+		}
+		if r.URL.Path != "/allowed" {
+			t.Fatalf("Path = %q, want /allowed", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	host, port := testServerHostPort(t, server.URL)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.ApplicationOpenPayload{
+		TargetID:            "app-target-1",
+		SessionID:           "app-session-1",
+		Scheme:              remoteaccess.ApplicationSchemeHTTP,
+		UpstreamHost:        host,
+		UpstreamPort:        port,
+		HostHeader:          "private-app.internal",
+		AllowedMethods:      []string{"GET"},
+		AllowedPathPrefixes: []string{"/allowed"},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+	assertApplicationConsoleFrame(t, stream.sent[0], remoteaccess.FrameTypeApplicationProgress)
+
+	requestPayload := remoteaccess.ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Method:    "GET",
+		Path:      "/allowed",
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationRequest, requestPayload), sender)
+
+	if len(stream.sent) != 4 {
+		t.Fatalf("sent frame count = %d, want 4", len(stream.sent))
+	}
+	assertApplicationConsoleFrame(t, stream.sent[1], remoteaccess.FrameTypeApplicationResponseMetadata)
+	dataFrame := assertApplicationConsoleFrame(t, stream.sent[2], remoteaccess.FrameTypeApplicationData)
+	assertApplicationConsoleFrame(t, stream.sent[3], remoteaccess.FrameTypeApplicationProgress)
+
+	var dataPayload remoteaccess.ApplicationDataPayload
+	if err := json.Unmarshal(dataFrame.GetData(), &dataPayload); err != nil {
+		t.Fatalf("unmarshal application data: %v", err)
+	}
+	if string(dataPayload.Data) != "ok" {
+		t.Fatalf("Data = %q, want ok", string(dataPayload.Data))
+	}
+}
+
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 
@@ -371,4 +435,57 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	if !slices.Contains(withBPF, remoteaccess.CapabilityRemoteAccessBPF) {
 		t.Fatalf("BPF capabilities missing %q: %#v", remoteaccess.CapabilityRemoteAccessBPF, withBPF)
 	}
+}
+
+func jsonConsoleFrame(t *testing.T, sessionID string, frameType string, payload any) *proto.ConsoleFrame {
+	t.Helper()
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	return &proto.ConsoleFrame{
+		SessionId: sessionID,
+		FrameType: frameType,
+		Data:      data,
+	}
+}
+
+func assertApplicationConsoleFrame(t *testing.T, req *proto.ControlStreamRequest, frameType string) *proto.ConsoleFrame {
+	t.Helper()
+
+	frame := req.GetConsoleFrame()
+	if frame == nil {
+		t.Fatal("expected console frame")
+	}
+	if frame.GetSessionId() != "app-session-1" {
+		t.Fatalf("SessionId = %q, want app-session-1", frame.GetSessionId())
+	}
+	if frame.GetFrameType() != frameType {
+		t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), frameType)
+	}
+
+	return frame
+}
+
+func testServerHostPort(t *testing.T, rawURL string) (string, int) {
+	t.Helper()
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+
+	host, portText, err := net.SplitHostPort(parsed.Host)
+	if err != nil {
+		t.Fatalf("split server host port: %v", err)
+	}
+
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	return host, port
 }

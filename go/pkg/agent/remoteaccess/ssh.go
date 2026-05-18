@@ -456,9 +456,11 @@ func SSHHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, err
 	return sshHostKeyCallback(policy, knownHostsPath)
 }
 
+const sshHostKeyPolicySkipVerify = "skip_verify"
+
 func sshHostKeyCallback(policy, knownHostsPath string) (ssh.HostKeyCallback, error) {
 	switch strings.TrimSpace(policy) {
-	case "skip_verify":
+	case sshHostKeyPolicySkipVerify:
 		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicit operator policy for scoped agent-side SSH testing
 	case "known_hosts", "":
 		return knownHostsCallback(knownHostsPath)
