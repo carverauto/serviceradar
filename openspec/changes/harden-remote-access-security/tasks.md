@@ -422,10 +422,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Add `require_recording_view_permission(conn, recording)` before export
       Resolution: Covered by the 5.4 recording authorization fix. API export now requires `devices.remote_access.recordings.export` and then runs the same per-recording view check used by show/events; the LiveView export button is shown only for a selected recording that passed `ensure_recording_allowed/2`.
 
-- [ ] 5.9 [L] SSH hook parses `data-props` JSON without prop allowlist
+- [x] 5.9 [L] SSH hook parses `data-props` JSON without prop allowlist
       Where: `elixir/web-ng/assets/js/hooks/RemoteAccessSSHConsole.js:24-33` (commit: staging)
       Why: Defence-in-depth — if a future LiveView interpolates user data into the props dataset, malformed JSON becomes a vector.
       Fix: Validate parsed object against an explicit prop schema; reject unknown keys.
+      Resolution: `RemoteAccessSSHConsole` now schema-validates dataset props, rejects non-object JSON, unknown keys, and wrong primitive types, and only forwards known string/boolean props plus the internally supplied terminal module loader. Added a focused Vitest hook test and included it in the asset test script.
 
 - [ ] 5.10 [L] Stream handler silently drops unknown messages
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/channels/remote_access_stream_handler.ex:117-150, 144-148` (commit: staging)
