@@ -41,6 +41,7 @@ var (
 	ErrApplicationRequestTooLarge  = errors.New("application request body exceeds quota")
 	ErrApplicationResponseTooLarge = errors.New("application response body exceeds quota")
 	ErrApplicationAdapterNil       = errors.New("application http adapter is nil")
+	ErrApplicationSessionMismatch  = errors.New("application request session does not match open session")
 )
 
 type ApplicationHTTPAdapterOptions struct {
@@ -109,6 +110,9 @@ func (a *ApplicationHTTPAdapter) Execute(
 	if err := request.Validate(); err != nil {
 		return ApplicationHTTPResult{}, err
 	}
+	if request.SessionID != a.open.SessionID {
+		return ApplicationHTTPResult{}, ErrApplicationSessionMismatch
+	}
 	if err := a.authorizeRequest(request, int64(len(body))); err != nil {
 		return ApplicationHTTPResult{}, err
 	}
@@ -130,6 +134,15 @@ func (a *ApplicationHTTPAdapter) Execute(
 	}
 
 	return a.result(request, resp, responseBody), nil
+}
+
+func (a *ApplicationHTTPAdapter) Close() {
+	if a == nil || a.client == nil {
+		return
+	}
+	if transport, ok := a.client.Transport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
 }
 
 func (a *ApplicationHTTPAdapter) authorizeRequest(request ApplicationRequestPayload, bodyBytes int64) error {
@@ -211,10 +224,13 @@ func (a *ApplicationHTTPAdapter) result(
 }
 
 func methodAllowed(method string, allowed []string) bool {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == http.MethodConnect {
+		return false
+	}
 	if len(allowed) == 0 {
 		return true
 	}
-	method = strings.ToUpper(strings.TrimSpace(method))
 	for _, candidate := range allowed {
 		if method == strings.ToUpper(strings.TrimSpace(candidate)) {
 			return true
@@ -255,7 +271,7 @@ func denyApplicationHeader(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
 		"te", "trailer", "transfer-encoding", "upgrade", "authorization", "cookie",
-		"x-forwarded-for", "x-forwarded-host", "x-forwarded-proto":
+		"set-cookie", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto":
 		return true
 	default:
 		return false

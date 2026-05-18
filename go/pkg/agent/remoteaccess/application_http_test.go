@@ -48,6 +48,7 @@ func TestApplicationHTTPAdapterEnforcesRegisteredTargetPolicy(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Set-Cookie", "private_session=secret")
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer server.Close()
@@ -71,6 +72,9 @@ func TestApplicationHTTPAdapterEnforcesRegisteredTargetPolicy(t *testing.T) {
 
 	if result.Metadata.StatusCode != http.StatusOK {
 		t.Fatalf("StatusCode = %d, want 200", result.Metadata.StatusCode)
+	}
+	if got := http.Header(result.Metadata.Headers).Get("Set-Cookie"); got != "" {
+		t.Fatalf("Set-Cookie should be stripped from response metadata, got %q", got)
 	}
 	if string(result.Data.Data) != "ok" {
 		t.Fatalf("body = %q, want ok", string(result.Data.Data))
@@ -109,6 +113,16 @@ func TestApplicationHTTPAdapterRejectsMethodPathAndQuotaViolations(t *testing.T)
 			want: ErrApplicationMethodNotAllowed,
 		},
 		{
+			name: "connect",
+			request: ApplicationRequestPayload{
+				RequestID: "req-1",
+				SessionID: "session-1",
+				Method:    http.MethodConnect,
+				Path:      "/allowed",
+			},
+			want: ErrApplicationMethodNotAllowed,
+		},
+		{
 			name: "path",
 			request: ApplicationRequestPayload{
 				RequestID: "req-1",
@@ -140,6 +154,27 @@ func TestApplicationHTTPAdapterRejectsMethodPathAndQuotaViolations(t *testing.T)
 				t.Fatalf("Execute error = %v, want %v", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplicationHTTPAdapterRejectsMismatchedSessionBinding(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("upstream should not be called for mismatched session")
+	}))
+	defer server.Close()
+
+	adapter := newTestApplicationAdapter(t, server, ApplicationSchemeHTTP, nil)
+
+	_, err := adapter.Execute(context.Background(), ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "other-session",
+		Method:    "GET",
+		Path:      "/allowed",
+	}, nil)
+	if !errors.Is(err, ErrApplicationSessionMismatch) {
+		t.Fatalf("Execute error = %v, want %v", err, ErrApplicationSessionMismatch)
 	}
 }
 

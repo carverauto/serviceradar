@@ -19,6 +19,7 @@ package remoteaccess
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -520,5 +521,36 @@ func validPort(port int) bool {
 }
 
 func validApplicationPath(path string) bool {
-	return strings.HasPrefix(strings.TrimSpace(path), "/")
+	trimmed := strings.TrimSpace(path)
+	if path != trimmed || !safeApplicationPath(path) {
+		return false
+	}
+
+	decoded, err := url.PathUnescape(path)
+	if err != nil {
+		return false
+	}
+
+	return safeApplicationPath(decoded)
+}
+
+func safeApplicationPath(path string) bool {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") ||
+		strings.Contains(path, "://") || strings.Contains(path, "\\") {
+		return false
+	}
+
+	for _, char := range path {
+		if char < 0x20 || char == 0x7f {
+			return false
+		}
+	}
+
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			return false
+		}
+	}
+
+	return true
 }

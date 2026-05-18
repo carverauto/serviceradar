@@ -35,6 +35,8 @@ var (
 	ErrTCPBytesOutQuotaExceeded = errors.New("tcp bytes out quota exceeded")
 	ErrTCPAdapterClosed         = errors.New("tcp adapter is closed")
 	ErrInvalidTCPReadChunkSize  = errors.New("invalid tcp read chunk size")
+	ErrTCPSessionMismatch       = errors.New("tcp frame binding does not match open connection")
+	ErrTCPSequenceOutOfOrder    = errors.New("tcp frame sequence is not greater than the previous client frame")
 )
 
 type TCPDialer func(context.Context, string, string) (net.Conn, error)
@@ -47,11 +49,13 @@ type TCPAdapter struct {
 	open TCPOpenPayload
 	conn net.Conn
 
-	mu       sync.Mutex
-	closed   bool
-	bytesIn  int64
-	bytesOut int64
-	readSeq  uint64
+	mu               sync.Mutex
+	closed           bool
+	bytesIn          int64
+	bytesOut         int64
+	writeSeq         uint64
+	readSeq          uint64
+	absoluteDeadline time.Time
 }
 
 func NewTCPAdapter(ctx context.Context, open TCPOpenPayload, opts TCPAdapterOptions) (*TCPAdapter, error) {
@@ -70,6 +74,9 @@ func NewTCPAdapter(ctx context.Context, open TCPOpenPayload, opts TCPAdapterOpti
 	}
 
 	adapter := &TCPAdapter{open: open, conn: conn}
+	if open.AbsoluteTimeoutSeconds > 0 {
+		adapter.absoluteDeadline = time.Now().Add(time.Duration(open.AbsoluteTimeoutSeconds) * time.Second)
+	}
 	adapter.refreshDeadline()
 
 	return adapter, nil
@@ -85,16 +92,24 @@ func (a *TCPAdapter) Write(frame TCPDataPayload) (TCPProgressPayload, error) {
 	if frame.Direction != TCPDataDirectionClient {
 		return TCPProgressPayload{}, ErrTCPDirectionNotAllowed
 	}
+	if frame.SessionID != a.open.SessionID || frame.ConnectionID != a.open.ConnectionID {
+		return TCPProgressPayload{}, ErrTCPSessionMismatch
+	}
 
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
 		return TCPProgressPayload{}, ErrTCPAdapterClosed
 	}
+	if frame.Sequence <= a.writeSeq {
+		a.mu.Unlock()
+		return TCPProgressPayload{}, ErrTCPSequenceOutOfOrder
+	}
 	if max := maxTCPBytesIn(a.open.QuotaPolicy); max > 0 && a.bytesIn+int64(len(frame.Data)) > max {
 		a.mu.Unlock()
 		return TCPProgressPayload{}, ErrTCPBytesInQuotaExceeded
 	}
+	a.writeSeq = frame.Sequence
 	a.bytesIn += int64(len(frame.Data))
 	bytesIn := a.bytesIn
 	bytesOut := a.bytesOut
@@ -228,9 +243,15 @@ func (a *TCPAdapter) refreshDeadline() {
 }
 
 func (a *TCPAdapter) refreshDeadlineLocked() {
-	timeout := time.Duration(a.open.IdleTimeoutSeconds) * time.Second
-	if timeout > 0 {
-		_ = a.conn.SetDeadline(time.Now().Add(timeout))
+	var deadline time.Time
+	if timeout := time.Duration(a.open.IdleTimeoutSeconds) * time.Second; timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	if !a.absoluteDeadline.IsZero() && (deadline.IsZero() || a.absoluteDeadline.Before(deadline)) {
+		deadline = a.absoluteDeadline
+	}
+	if !deadline.IsZero() {
+		_ = a.conn.SetDeadline(deadline)
 	}
 }
 
