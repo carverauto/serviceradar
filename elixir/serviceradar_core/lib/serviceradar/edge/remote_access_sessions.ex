@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Edge.RemoteAccessApplicationTarget
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Edge.RemoteAccessTargetPolicy
   alias ServiceRadar.Edge.RemoteAccessTcpTarget
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
@@ -334,45 +335,57 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            actor: SystemActor.system(:remote_access_application_target_resolver)
          ) do
       {:ok, %RemoteAccessApplicationTarget{enabled: true} = target} ->
-        {:ok,
-         Map.merge(request, %{
-           device_uid: target.device_uid,
-           target_kind: :registered_application_target,
-           target_host: target.upstream_host,
-           target_port: target.upstream_port,
-           protocol: :app,
-           adapter: :application,
-           agent_id: target.agent_id,
-           gateway_id: target.gateway_id,
-           credential_custody_mode: :none,
-           credential_rule_id: nil,
-           approval_required: approval_required_from_policy(target.approval_policy),
-           idle_timeout_seconds:
-             positive_policy_int(target.quota_policy, "idle_timeout_seconds") ||
-               @default_idle_timeout_seconds,
-           absolute_timeout_seconds:
-             positive_policy_int(target.quota_policy, "absolute_timeout_seconds") ||
-               @default_absolute_timeout_seconds,
-           recording_policy: target.recording_policy,
-           enhanced_recording_policy: target.enhanced_recording_policy,
-           metadata:
-             target_metadata(request, %{
-               "target_id" => target.id,
-               "target_type" => "application",
-               "target_name" => target.name,
-               "upstream_scheme" => Atom.to_string(target.upstream_scheme),
-               "upstream_host_header" => target.upstream_host_header,
-               "upstream_sni" => target.upstream_sni,
-               "tls_policy" => target.tls_policy,
-               "ca_bundle_ref" => target.ca_bundle_ref,
-               "allowed_methods" => target.allowed_methods,
-               "allowed_path_prefixes" => target.allowed_path_prefixes,
-               "header_policy" => target.header_policy,
-               "cookie_policy" => target.cookie_policy,
-               "quota_policy" => target.quota_policy,
-               "target_metadata" => target.metadata
-             })
-         })}
+        with {:ok, policy} <- RemoteAccessTargetPolicy.evaluate_application(target) do
+          quota_policy = Map.fetch!(policy, "quota_policy")
+          approval_policy = Map.fetch!(policy, "approval_policy")
+          recording_policy = Map.fetch!(policy, "recording_policy")
+          enhanced_policy = Map.fetch!(policy, "enhanced_recording_policy")
+
+          {:ok,
+           Map.merge(request, %{
+             device_uid: target.device_uid,
+             target_kind: :registered_application_target,
+             target_host: target.upstream_host,
+             target_port: target.upstream_port,
+             protocol: :app,
+             adapter: :application,
+             agent_id: target.agent_id,
+             gateway_id: target.gateway_id,
+             credential_custody_mode: :none,
+             credential_rule_id: nil,
+             approval_required: approval_required_from_policy(approval_policy),
+             idle_timeout_seconds:
+               positive_policy_int(quota_policy, "idle_timeout_seconds") ||
+                 @default_idle_timeout_seconds,
+             absolute_timeout_seconds:
+               positive_policy_int(quota_policy, "absolute_timeout_seconds") ||
+                 @default_absolute_timeout_seconds,
+             recording_policy: recording_policy,
+             enhanced_recording_policy: enhanced_policy,
+             metadata:
+               target_metadata(request, %{
+                 "target_id" => target.id,
+                 "target_type" => "application",
+                 "target_name" => target.name,
+                 "upstream_scheme" => Atom.to_string(target.upstream_scheme),
+                 "upstream_host_header" => target.upstream_host_header,
+                 "upstream_sni" => target.upstream_sni,
+                 "tls_policy" => Map.fetch!(policy, "tls_policy"),
+                 "ca_bundle_ref" => target.ca_bundle_ref,
+                 "allowed_methods" => Map.fetch!(policy, "allowed_methods"),
+                 "allowed_path_prefixes" => Map.fetch!(policy, "allowed_path_prefixes"),
+                 "redirect_policy" => Map.fetch!(policy, "redirect_policy"),
+                 "header_policy" => Map.fetch!(policy, "header_policy"),
+                 "cookie_policy" => Map.fetch!(policy, "cookie_policy"),
+                 "quota_policy" => quota_policy,
+                 "approval_policy" => approval_policy,
+                 "recording_policy" => recording_policy,
+                 "enhanced_recording_policy" => enhanced_policy,
+                 "policy_snapshot" => policy,
+                 "target_metadata" => target.metadata
+               })
+           })}
+        end
 
       {:ok, %RemoteAccessApplicationTarget{enabled: false}} ->
         {:error, :remote_access_target_disabled}
@@ -393,33 +406,43 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            actor: SystemActor.system(:remote_access_tcp_target_resolver)
          ) do
       {:ok, %RemoteAccessTcpTarget{enabled: true} = target} ->
-        {:ok,
-         Map.merge(request, %{
-           device_uid: target.device_uid,
-           target_kind: :registered_tcp_target,
-           target_host: target.upstream_host,
-           target_port: target.upstream_port,
-           protocol: :tcp,
-           adapter: :tcp,
-           agent_id: target.agent_id,
-           gateway_id: target.gateway_id,
-           credential_custody_mode: :none,
-           credential_rule_id: nil,
-           approval_required: approval_required_from_policy(target.approval_policy),
-           idle_timeout_seconds: target.idle_timeout_seconds,
-           absolute_timeout_seconds: target.absolute_timeout_seconds,
-           recording_policy: target.recording_policy,
-           enhanced_recording_policy: target.enhanced_recording_policy,
-           metadata:
-             target_metadata(request, %{
-               "target_id" => target.id,
-               "target_type" => "tcp",
-               "target_name" => target.name,
-               "protocol_name" => target.protocol_name,
-               "quota_policy" => target.quota_policy,
-               "target_metadata" => target.metadata
-             })
-         })}
+        with {:ok, policy} <- RemoteAccessTargetPolicy.evaluate_tcp(target) do
+          approval_policy = Map.fetch!(policy, "approval_policy")
+          recording_policy = Map.fetch!(policy, "recording_policy")
+          enhanced_policy = Map.fetch!(policy, "enhanced_recording_policy")
+
+          {:ok,
+           Map.merge(request, %{
+             device_uid: target.device_uid,
+             target_kind: :registered_tcp_target,
+             target_host: target.upstream_host,
+             target_port: target.upstream_port,
+             protocol: :tcp,
+             adapter: :tcp,
+             agent_id: target.agent_id,
+             gateway_id: target.gateway_id,
+             credential_custody_mode: :none,
+             credential_rule_id: nil,
+             approval_required: approval_required_from_policy(approval_policy),
+             idle_timeout_seconds: target.idle_timeout_seconds,
+             absolute_timeout_seconds: target.absolute_timeout_seconds,
+             recording_policy: recording_policy,
+             enhanced_recording_policy: enhanced_policy,
+             metadata:
+               target_metadata(request, %{
+                 "target_id" => target.id,
+                 "target_type" => "tcp",
+                 "target_name" => target.name,
+                 "protocol_name" => target.protocol_name,
+                 "quota_policy" => Map.fetch!(policy, "quota_policy"),
+                 "approval_policy" => approval_policy,
+                 "recording_policy" => recording_policy,
+                 "enhanced_recording_policy" => enhanced_policy,
+                 "policy_snapshot" => policy,
+                 "target_metadata" => target.metadata
+               })
+           })}
+        end
 
       {:ok, %RemoteAccessTcpTarget{enabled: false}} ->
         {:error, :remote_access_target_disabled}

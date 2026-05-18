@@ -116,11 +116,52 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert session.metadata["target_type"] == "application"
     assert session.metadata["upstream_host_header"] == "internal-app.example.test"
     assert session.metadata["allowed_path_prefixes"] == ["/app"]
+    assert session.metadata["redirect_policy"] == %{"mode" => "deny", "max_hops" => 0}
+    assert session.metadata["cookie_policy"] == %{"isolation" => "session", "store" => false}
+    assert session.metadata["quota_policy"]["max_request_bytes"] == 10 * 1024 * 1024
+    assert session.metadata["quota_policy"]["max_response_bytes"] == 50 * 1024 * 1024
+
+    assert session.metadata["policy_snapshot"]["schema"] ==
+             "serviceradar.remote_access.application_policy.v1"
+
     assert session.metadata["target_metadata"] == %{"owner" => "platform"}
+    assert session.recording_policy["metadata_only"] == true
+    assert session.recording_policy["capture_bodies"] == false
 
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
     assert create_audit[:details][:protocol] == "app"
+  end
+
+  test "registered application target rejects malformed trusted policy before session creation" do
+    uid = unique_uid("app-target-policy")
+    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
+
+    assert {:ok, target} =
+             RemoteAccessApplicationTarget.create_target(
+               %{
+                 name: "Bad Policy App",
+                 device_uid: uid,
+                 agent_id: "agent-app",
+                 upstream_scheme: :https,
+                 upstream_host: "10.20.30.40",
+                 upstream_port: 8443,
+                 allowed_path_prefixes: ["http://169.254.169.254/latest/meta-data"]
+               },
+               actor: @system_actor
+             )
+
+    assert {:error, :invalid_remote_access_target_policy} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_application_target},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:failure_reason] == "invalid_remote_access_target_policy"
   end
 
   test "registered TCP target resolves trusted upstream policy into the session" do
@@ -167,7 +208,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert session.metadata["target_id"] == target.id
     assert session.metadata["target_type"] == "tcp"
     assert session.metadata["protocol_name"] == "postgres"
+
+    assert session.metadata["quota_policy"] == %{
+             "max_rx_bytes" => 1_048_576,
+             "max_tx_bytes" => 100 * 1024 * 1024
+           }
+
+    assert session.metadata["policy_snapshot"]["schema"] ==
+             "serviceradar.remote_access.tcp_policy.v1"
+
     assert session.metadata["target_metadata"] == %{"owner" => "database"}
+    assert session.recording_policy["metadata_only"] == true
 
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
