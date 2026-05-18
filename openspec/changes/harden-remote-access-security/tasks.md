@@ -410,10 +410,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Audit + add a property-based test that asserts every host-key field rendered is HTML-escaped; document the rule in `design.md`.
       Resolution: Host-key table rendering remains plain HEEx interpolation, backed by a property-style LiveView test that injects XSS payloads into rendered host-key text fields and asserts raw payloads do not appear while escaped values do. `design.md` now records the remote-access LiveView rule: untrusted hostnames, fingerprints, labels, metadata, and target-observed text stay out of `raw/1`, JS strings, and manually concatenated HTML.
 
-- [ ] 5.7 [M] File-transfer controller accepts paths containing `..` / `.`
+- [x] 5.7 [M] File-transfer controller accepts paths containing `..` / `.`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_file_transfer_controller.ex:186-197, 209-221` (commit: staging)
       Why: Length and absolute-path checks pass, but `/tmp/../etc/passwd` is forwarded to the broker; the broker is *supposed* to canonicalise but defence-in-depth at the edge is missing.
       Fix: Reject any segment containing `..` or `.` after split; reject NUL / control bytes
+      Resolution: `path` and `destination_path` normalization now rejects ASCII control bytes, NUL bytes, and `.` / `..` path segments before permission checks or broker dispatch. Controller tests cover traversal and control-byte inputs for both source and rename destination paths.
 
 - [ ] 5.8 [M] Recording export only checks export permission, not view permission
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_recording_controller.ex:50-73`; LiveView export button at `:77` (commit: staging)

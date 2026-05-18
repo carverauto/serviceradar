@@ -166,6 +166,49 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferControllerTest do
       assert body["message"] =~ "direction"
     end
 
+    test "rejects unsafe source paths before dispatch", %{auth_header: auth_header} do
+      session_id = Ecto.UUID.generate()
+
+      for path <- ["/tmp/../etc/passwd", "/tmp/./syslog", "/tmp/" <> <<0>> <> "secret", "/tmp/\nsecret"] do
+        conn =
+          build_conn()
+          |> Plug.Conn.put_req_header("authorization", auth_header)
+          |> post(~p"/api/remote-access/file-transfers", %{
+            "session_id" => session_id,
+            "operation" => "download",
+            "path" => path
+          })
+
+        body = json_response(conn, 400)
+        assert body["error"] == "invalid_request"
+        assert body["message"] =~ "path"
+      end
+
+      refute_receive {:remote_access_file_transfer, _session_id, _request, _opts}
+    end
+
+    test "rejects unsafe destination paths before dispatch", %{auth_header: auth_header} do
+      session_id = Ecto.UUID.generate()
+
+      for destination_path <- ["/tmp/../renamed", "/tmp/./renamed", "/tmp/" <> <<0>> <> "renamed"] do
+        conn =
+          build_conn()
+          |> Plug.Conn.put_req_header("authorization", auth_header)
+          |> post(~p"/api/remote-access/file-transfers", %{
+            "session_id" => session_id,
+            "operation" => "rename",
+            "path" => "/tmp/source",
+            "destination_path" => destination_path
+          })
+
+        body = json_response(conn, 400)
+        assert body["error"] == "invalid_request"
+        assert body["message"] =~ "destination_path"
+      end
+
+      refute_receive {:remote_access_file_transfer, _session_id, _request, _opts}
+    end
+
     test "requires manage permission for mutating operations", %{conn: _conn} do
       viewer = viewer_user_fixture()
       {:ok, token, _claims} = Guardian.create_access_token(viewer)
