@@ -479,6 +479,18 @@ remote_access_ssh_enabled =
     value -> value
   end
 
+remote_access_app_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+remote_access_tcp_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TCP_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
 remote_access_ssh_host_key_skip_verify_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
     nil -> false
@@ -567,6 +579,12 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_ssh_enabled: remote_access_ssh_enabled
+
+config :serviceradar_web_ng,
+  remote_access_app_enabled: remote_access_app_enabled
+
+config :serviceradar_web_ng,
+  remote_access_tcp_enabled: remote_access_tcp_enabled
 
 config :serviceradar_web_ng,
   remote_access_ssh_host_key_skip_verify_enabled: remote_access_ssh_host_key_skip_verify_enabled

@@ -22,16 +22,31 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   @min_terminal_rows 1
   @max_terminal_rows 200
   @client_controlled_metadata_denylist ~w(
+    allowed_methods
+    allowed_path_prefixes
     allowed_principals
+    app_target_id
+    application_id
+    ca_bundle_ref
     certificate_envelope
     credential
     credential_custody_mode
     credential_mode
     credentials
+    host_header
+    http_headers
+    max_request_bytes
+    max_response_bytes
     passphrase
     password
+    path_prefixes
     principal_mappings
     private_key
+    quota
+    recording
+    request_headers
+    route
+    route_id
     secret
     secret_payload
     ssh
@@ -39,8 +54,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     ssh_certificate
     ssh_certificate_ttl_seconds
     ssh_principal_mappings
+    sni
+    tcp_target_id
     ticket
+    tls
+    tls_server_name
     token
+    upstream_host
+    upstream_port
+    upstream_url
+    url
   )
   @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
 

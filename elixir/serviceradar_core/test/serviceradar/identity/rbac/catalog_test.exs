@@ -12,12 +12,32 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     devices.remote_access.files.export
   )
 
+  @app_tcp_permissions ~w(
+    devices.remote_access.app.open
+    devices.remote_access.tcp.open
+    devices.remote_access.requests.review
+    devices.remote_access.recordings.export
+    settings.remote_access_targets.manage
+  )
+
   test "remote-access file-transfer permissions are admin-only catalog keys" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)
     operator_permissions = Catalog.permissions_for_role(:operator)
 
     for permission <- @file_transfer_permissions do
+      assert permission in keys
+      assert MapSet.member?(admin_permissions, permission)
+      refute MapSet.member?(operator_permissions, permission)
+    end
+  end
+
+  test "remote-access app and tcp permissions are admin-only catalog keys" do
+    keys = Catalog.permission_keys()
+    admin_permissions = Catalog.permissions_for_role(:admin)
+    operator_permissions = Catalog.permissions_for_role(:operator)
+
+    for permission <- @app_tcp_permissions do
       assert permission in keys
       assert MapSet.member?(admin_permissions, permission)
       refute MapSet.member?(operator_permissions, permission)

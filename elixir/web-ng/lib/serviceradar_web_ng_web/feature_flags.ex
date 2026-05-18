@@ -12,4 +12,14 @@ defmodule ServiceRadarWebNGWeb.FeatureFlags do
   def remote_access_ssh_enabled? do
     Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false) == true
   end
+
+  @spec remote_access_app_enabled?() :: boolean()
+  def remote_access_app_enabled? do
+    Application.get_env(:serviceradar_web_ng, :remote_access_app_enabled, false) == true
+  end
+
+  @spec remote_access_tcp_enabled?() :: boolean()
+  def remote_access_tcp_enabled? do
+    Application.get_env(:serviceradar_web_ng, :remote_access_tcp_enabled, false) == true
+  end
 end
