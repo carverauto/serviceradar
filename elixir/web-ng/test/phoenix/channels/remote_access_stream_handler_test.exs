@@ -87,6 +87,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       :ok
     end
 
+    def send_application_data(pid, payload) do
+      send(pid, {:send_application_data, self(), payload})
+      :ok
+    end
+
     def send_tcp_data(pid, payload) do
       send(pid, {:send_tcp_data, self(), payload})
       :ok
@@ -115,6 +120,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
 
         {:send_application_request, caller, payload} ->
           send(state.session.metadata["test_pid"], {:broker_application_request, caller, payload})
+          loop(state)
+
+        {:send_application_data, caller, payload} ->
+          send(state.session.metadata["test_pid"], {:broker_application_data, caller, payload})
           loop(state)
 
         {:send_tcp_data, caller, payload} ->
@@ -717,6 +726,103 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert after_request.attached?
 
     RemoteAccessStreamHandler.terminate(:normal, after_request)
+  end
+
+  test "browser application data frames are forwarded to the broker after attach" do
+    {:ok, state} = init_state("session-app-data")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-app-data"), [opcode: :text]}, state)
+
+    payload = %{
+      type: "app_data",
+      request_id: "request-1",
+      sequence: 1,
+      data: Base.encode64("body"),
+      eof: true
+    }
+
+    assert {:ok, after_data} =
+             RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+    assert_receive {:broker_application_data, _caller,
+                    %{
+                      request_id: "request-1",
+                      direction: "request",
+                      sequence: 1,
+                      data: encoded,
+                      eof: true
+                    }}
+
+    assert Base.decode64!(encoded) == "body"
+    assert after_data.attached?
+
+    RemoteAccessStreamHandler.terminate(:normal, after_data)
+  end
+
+  test "oversized browser application data frames fail without reaching the broker" do
+    {:ok, state} = init_state("session-app-data-too-large")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-app-data-too-large"), [opcode: :text]}, state)
+
+    payload = %{
+      type: "app_data",
+      request_id: "request-1",
+      sequence: 1,
+      data: Base.encode64(String.duplicate("x", 65_537)),
+      eof: true
+    }
+
+    assert {:stop, :normal, 1011, [{:text, response}], failed_state} =
+             RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+    assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+    assert failed_state.closing_action == :failed
+    assert_receive {:fail_session, "session-app-data-too-large", :invalid_data_size, _opts}
+    refute_receive {:broker_application_data, _caller, _payload}
+
+    RemoteAccessStreamHandler.terminate(:normal, failed_state)
+  end
+
+  test "browser application request paths reject traversal and malformed forms" do
+    invalid_paths = [
+      "relative",
+      " /health",
+      "//admin",
+      "/../admin",
+      "/safe/./admin",
+      "/%2e%2e/admin",
+      "/safe\\admin",
+      "/safe\x00admin",
+      "/%ZZ"
+    ]
+
+    for {path, index} <- Enum.with_index(invalid_paths) do
+      session_id = "session-app-invalid-path-#{index}"
+      {:ok, state} = init_state(session_id)
+
+      {:push, _response, attached} =
+        RemoteAccessStreamHandler.handle_in({attach_payload(session_id), [opcode: :text]}, state)
+
+      payload = %{
+        type: "app_request",
+        request_id: "request-#{index}",
+        method: "GET",
+        path: path,
+        headers: %{"accept" => ["text/plain"]}
+      }
+
+      assert {:stop, :normal, 1011, [{:text, response}], failed_state} =
+               RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+      assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+      assert failed_state.closing_action == :failed
+      assert_receive {:fail_session, ^session_id, :invalid_request, _opts}
+      refute_receive {:broker_application_request, _caller, _payload}
+
+      RemoteAccessStreamHandler.terminate(:normal, failed_state)
+    end
   end
 
   test "broker application frames are forwarded as typed websocket messages" do

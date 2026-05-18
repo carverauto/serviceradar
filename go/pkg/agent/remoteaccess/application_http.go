@@ -32,8 +32,12 @@ import (
 	"time"
 )
 
-const defaultApplicationHTTPTimeout = 30 * time.Second
-const tlsPolicyInsecureSkipVerify = "insecure_skip_verify"
+const (
+	defaultApplicationHTTPTimeout      = 30 * time.Second
+	defaultApplicationMaxRequestBytes  = 10 * 1024 * 1024
+	defaultApplicationMaxResponseBytes = 50 * 1024 * 1024
+	tlsPolicyInsecureSkipVerify        = "insecure_skip_verify"
+)
 
 var (
 	ErrApplicationMethodNotAllowed = errors.New("application method not allowed")
@@ -133,7 +137,7 @@ func (a *ApplicationHTTPAdapter) Execute(
 		return ApplicationHTTPResult{}, err
 	}
 
-	return a.result(request, resp, responseBody), nil
+	return a.result(request, resp, body, responseBody), nil
 }
 
 func (a *ApplicationHTTPAdapter) Close() {
@@ -143,6 +147,14 @@ func (a *ApplicationHTTPAdapter) Close() {
 	if transport, ok := a.client.Transport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}
+}
+
+func (a *ApplicationHTTPAdapter) MaxRequestBodyBytes() int64 {
+	if a == nil {
+		return 0
+	}
+
+	return maxRequestBytes(a.open.QuotaPolicy)
 }
 
 func (a *ApplicationHTTPAdapter) authorizeRequest(request ApplicationRequestPayload, bodyBytes int64) error {
@@ -186,8 +198,10 @@ func (a *ApplicationHTTPAdapter) buildRequest(
 func (a *ApplicationHTTPAdapter) result(
 	request ApplicationRequestPayload,
 	resp *http.Response,
+	requestBody []byte,
 	body []byte,
 ) ApplicationHTTPResult {
+	requestBytes := int64(len(requestBody))
 	responseBytes := int64(len(body))
 
 	return ApplicationHTTPResult{
@@ -210,6 +224,7 @@ func (a *ApplicationHTTPAdapter) result(
 			RequestID:     request.RequestID,
 			SessionID:     request.SessionID,
 			Status:        ApplicationStatusCompleted,
+			RequestBytes:  requestBytes,
 			ResponseBytes: responseBytes,
 		},
 		Outcome: ApplicationOutcomePayload{
@@ -217,7 +232,7 @@ func (a *ApplicationHTTPAdapter) result(
 			TargetID:      a.open.TargetID,
 			Status:        ApplicationStatusCompleted,
 			RequestCount:  1,
-			RequestBytes:  0,
+			RequestBytes:  requestBytes,
 			ResponseBytes: responseBytes,
 		},
 	}
@@ -295,11 +310,19 @@ func readApplicationBody(body io.Reader, maxBytes int64) ([]byte, error) {
 }
 
 func maxRequestBytes(policy map[string]any) int64 {
-	return positivePolicyInt64(policy, "max_request_bytes")
+	if max := positivePolicyInt64(policy, "max_request_bytes"); max > 0 {
+		return max
+	}
+
+	return defaultApplicationMaxRequestBytes
 }
 
 func maxResponseBytes(policy map[string]any) int64 {
-	return positivePolicyInt64(policy, "max_response_bytes")
+	if max := positivePolicyInt64(policy, "max_response_bytes"); max > 0 {
+		return max
+	}
+
+	return defaultApplicationMaxResponseBytes
 }
 
 func positivePolicyInt64(policy map[string]any, key string) int64 {

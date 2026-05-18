@@ -23,6 +23,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
   @callback send_application_request(pid(), map()) :: :ok | {:error, term()}
+  @callback send_application_data(pid(), map()) :: :ok | {:error, term()}
   @callback send_tcp_data(pid(), map()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
@@ -73,6 +74,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_application_request(pid, payload) when is_pid(pid) and is_map(payload) do
     GenServer.call(pid, {:send_application_request, payload})
+  end
+
+  def send_application_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_application_data, payload})
   end
 
   def send_tcp_data(pid, payload) when is_pid(pid) and is_map(payload) do
@@ -157,6 +162,19 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       request_id: string_value(payload, "request_id"),
       method: string_value(payload, "method"),
       path: string_value(payload, "path")
+    })
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_application_data, payload}, _from, state) do
+    result = send_frame(state, "app_data", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_application_data, %{
+      request_id: string_value(payload, "request_id"),
+      direction: string_value(payload, "direction"),
+      sequence: value(payload, "sequence"),
+      body_bytes: body_byte_count(payload)
     })
 
     {:reply, result, state}
@@ -559,14 +577,22 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp output_byte_count(%{bytes_out: bytes}) when is_integer(bytes), do: bytes
   defp output_byte_count(_metadata), do: 0
 
-  defp body_byte_count(%{"data" => data}) when is_binary(data) do
+  defp body_byte_count(payload) when is_map(payload) do
+    payload
+    |> value("data")
+    |> body_data_byte_count()
+  end
+
+  defp body_byte_count(_payload), do: nil
+
+  defp body_data_byte_count(data) when is_binary(data) do
     case Base.decode64(data) do
       {:ok, decoded} -> byte_size(decoded)
       :error -> byte_size(data)
     end
   end
 
-  defp body_byte_count(_payload), do: nil
+  defp body_data_byte_count(_data), do: nil
 
   defp record_replay_event(%{recording: nil}, _attrs), do: :ok
 

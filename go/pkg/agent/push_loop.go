@@ -134,6 +134,7 @@ type PushLoop struct {
 	remoteConsoleManager      *remoteConsoleManager
 	applicationHTTPMu         sync.Mutex
 	applicationHTTPSessions   map[string]*remoteaccess.ApplicationHTTPAdapter
+	applicationHTTPRequests   map[string]map[string]*applicationHTTPRequestState
 	tcpMu                     sync.Mutex
 	tcpSessions               map[string]*remoteaccess.TCPAdapter
 

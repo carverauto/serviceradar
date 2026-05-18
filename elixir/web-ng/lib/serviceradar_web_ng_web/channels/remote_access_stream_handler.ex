@@ -26,9 +26,13 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_application_header_count 32
   @max_application_header_name_bytes 128
   @max_application_header_value_bytes 4_096
+  @max_application_data_frame_bytes 65_536
+  @max_application_data_frame_encoded_bytes div(@max_application_data_frame_bytes + 2, 3) * 4
   @max_application_path_bytes 2_048
   @max_application_query_bytes 4_096
   @max_application_request_id_bytes 128
+  @max_application_sequence 9_223_372_036_854_775_807
+  @application_methods ~w(GET HEAD OPTIONS POST PUT PATCH DELETE)
   @max_tcp_connection_id_bytes 128
   @max_tcp_data_frame_bytes 65_536
   @max_tcp_data_frame_encoded_bytes div(@max_tcp_data_frame_bytes + 2, 3) * 4
@@ -146,6 +150,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {:ok, %{"type" => "app_request"} = message} ->
         with {:ok, payload} <- application_request_payload(message),
              :ok <- state.broker_module.send_application_request(state.broker, payload) do
+          {:ok, reset_idle_timer(state)}
+        else
+          {:error, reason} -> stop_for_broker_error(reason, state)
+        end
+
+      {:ok, %{"type" => "app_data"} = message} ->
+        with {:ok, payload} <- application_data_payload(message),
+             :ok <- state.broker_module.send_application_data(state.broker, payload) do
           {:ok, reset_idle_timer(state)}
         else
           {:error, reason} -> stop_for_broker_error(reason, state)
@@ -415,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       |> String.trim()
       |> String.upcase()
 
-    if method in ~w(GET HEAD) do
+    if method in @application_methods do
       {:ok, method}
     else
       {:error, :invalid_request}
@@ -425,14 +437,35 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp application_method(_message), do: {:error, :invalid_request}
 
   defp application_path(%{"path" => path}) when is_binary(path) and byte_size(path) <= @max_application_path_bytes do
-    cond do
-      path == "" -> {:error, :invalid_request}
-      String.starts_with?(path, "/") -> {:ok, path}
-      true -> {:error, :invalid_request}
-    end
+    if safe_application_path?(path), do: {:ok, path}, else: {:error, :invalid_request}
   end
 
   defp application_path(_message), do: {:error, :invalid_request}
+
+  defp safe_application_path?(path) when is_binary(path) do
+    path == String.trim(path) and safe_application_path_segments?(path) and
+      case path_unescape(path) do
+        {:ok, decoded} -> safe_application_path_segments?(decoded)
+        {:error, _reason} -> false
+      end
+  end
+
+  defp safe_application_path_segments?(path) do
+    String.starts_with?(path, "/") and not String.starts_with?(path, "//") and
+      not String.contains?(path, ["://", "\\"]) and
+      not String.match?(path, ~r/[\x00-\x1F\x7F]/) and
+      path
+      |> String.split("/")
+      |> Enum.all?(&(&1 not in [".", ".."]))
+  end
+
+  defp path_unescape(path) do
+    if String.match?(path, ~r/%(?![0-9A-Fa-f]{2})/) do
+      {:error, :invalid_percent_encoding}
+    else
+      {:ok, URI.decode(path)}
+    end
+  end
 
   defp application_headers(nil), do: {:ok, %{}}
 
@@ -475,10 +508,32 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   defp application_header_values(_values), do: {:error, :invalid_request}
 
+  defp application_data_payload(message) do
+    with {:ok, request_id} <- application_bounded_string(message, "request_id", @max_application_request_id_bytes),
+         {:ok, sequence} <- bounded_sequence(Map.get(message, "sequence"), @max_application_sequence),
+         {:ok, data} <-
+           base64_data(
+             Map.get(message, "data"),
+             @max_application_data_frame_encoded_bytes,
+             @max_application_data_frame_bytes
+           ),
+         {:ok, eof} <- optional_boolean(Map.get(message, "eof")) do
+      {:ok,
+       %{
+         request_id: request_id,
+         direction: "request",
+         sequence: sequence,
+         data: data,
+         eof: eof
+       }}
+    end
+  end
+
   defp tcp_data_payload(message) do
     with {:ok, connection_id} <- application_bounded_string(message, "connection_id", @max_tcp_connection_id_bytes),
-         {:ok, sequence} <- tcp_sequence(Map.get(message, "sequence")),
-         {:ok, data} <- tcp_data(Map.get(message, "data")),
+         {:ok, sequence} <- bounded_sequence(Map.get(message, "sequence"), @max_tcp_sequence),
+         {:ok, data} <-
+           base64_data(Map.get(message, "data"), @max_tcp_data_frame_encoded_bytes, @max_tcp_data_frame_bytes),
          {:ok, eof} <- optional_boolean(Map.get(message, "eof")) do
       {:ok,
        %{
@@ -491,20 +546,21 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
-  defp tcp_sequence(sequence) when is_integer(sequence) and sequence >= 1 and sequence <= @max_tcp_sequence,
+  defp bounded_sequence(sequence, max_sequence) when is_integer(sequence) and sequence >= 1 and sequence <= max_sequence,
     do: {:ok, sequence}
 
-  defp tcp_sequence(_sequence), do: {:error, :invalid_request}
+  defp bounded_sequence(_sequence, _max_sequence), do: {:error, :invalid_request}
 
-  defp tcp_data(data) when is_binary(data) and byte_size(data) <= @max_tcp_data_frame_encoded_bytes do
+  defp base64_data(data, max_encoded_bytes, max_decoded_bytes)
+       when is_binary(data) and byte_size(data) <= max_encoded_bytes do
     case Base.decode64(data) do
-      {:ok, decoded} when byte_size(decoded) <= @max_tcp_data_frame_bytes -> {:ok, data}
+      {:ok, decoded} when byte_size(decoded) <= max_decoded_bytes -> {:ok, data}
       {:ok, _decoded} -> {:error, :invalid_data_size}
       :error -> {:error, :invalid_request}
     end
   end
 
-  defp tcp_data(_data), do: {:error, :invalid_request}
+  defp base64_data(_data, _max_encoded_bytes, _max_decoded_bytes), do: {:error, :invalid_request}
 
   defp optional_boolean(nil), do: {:ok, false}
   defp optional_boolean(value) when is_boolean(value), do: {:ok, value}

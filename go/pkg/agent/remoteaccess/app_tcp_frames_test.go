@@ -88,6 +88,19 @@ func TestApplicationFramePayloadValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid oversized data",
+			err:  ErrInvalidFrameSize,
+			run: func() error {
+				return ApplicationDataPayload{
+					RequestID: testRequestID,
+					SessionID: testSessionID,
+					Direction: ApplicationDataDirectionRequest,
+					Sequence:  1,
+					Data:      make([]byte, MaxTerminalFrameData+1),
+				}.Validate()
+			},
+		},
+		{
 			name: "progress",
 			run: func() error {
 				return ApplicationProgressPayload{
