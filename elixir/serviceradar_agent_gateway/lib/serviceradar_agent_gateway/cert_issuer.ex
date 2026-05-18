@@ -221,6 +221,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
         spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
         certificate_fingerprint = certificate_fingerprint(cert_pem)
+        predecessor_revocation = revoke_predecessor_certificate(opts)
 
         emit_issuance_audit(
           opts,
@@ -232,6 +233,9 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
           authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
           validity_days: validity_days,
           long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
+          predecessor_certificate_fingerprint: predecessor_revocation.fingerprint,
+          predecessor_certificate_serial_number: predecessor_revocation.serial_number,
+          predecessor_certificate_revoked: predecessor_revocation.revoked?,
           certificate_fingerprint: certificate_fingerprint,
           cn: cn,
           spiffe_id: spiffe_id
@@ -332,6 +336,58 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
+
+  defp revoke_predecessor_certificate(opts) do
+    revocation_module = Keyword.get(opts, :revocation_module, ServiceRadarAgentGateway.AgentCertificateRevocation)
+    fingerprint = normalize_fingerprint(Keyword.get(opts, :predecessor_certificate_fingerprint))
+    serial_number = normalize_serial_number(Keyword.get(opts, :predecessor_certificate_serial_number))
+    reason = Keyword.get(opts, :predecessor_revocation_reason, "renewed")
+
+    revoked? =
+      Enum.any?([
+        revoke_predecessor_fingerprint(revocation_module, fingerprint, reason),
+        revoke_predecessor_serial_number(revocation_module, serial_number, reason)
+      ])
+
+    %{
+      fingerprint: fingerprint,
+      serial_number: serial_number,
+      revoked?: revoked?
+    }
+  rescue
+    error ->
+      Logger.warning("[CertIssuer] Predecessor certificate revocation failed: #{inspect(error)}")
+      %{fingerprint: nil, serial_number: nil, revoked?: false}
+  end
+
+  defp revoke_predecessor_fingerprint(_module, nil, _reason), do: false
+
+  defp revoke_predecessor_fingerprint(module, fingerprint, reason) when is_atom(module) do
+    module.revoke_fingerprint(fingerprint, reason: reason)
+    true
+  end
+
+  defp revoke_predecessor_serial_number(_module, nil, _reason), do: false
+
+  defp revoke_predecessor_serial_number(module, serial_number, reason) when is_atom(module) do
+    module.revoke_serial_number(serial_number, reason: reason)
+    true
+  end
+
+  defp normalize_fingerprint(value) when is_binary(value) do
+    value = value |> String.trim() |> String.downcase()
+
+    cond do
+      value == "" -> nil
+      Regex.match?(~r/\A(?:sha256:)?[a-z0-9_+\/=:-]{16,256}\z/, value) -> value
+      true -> nil
+    end
+  end
+
+  defp normalize_fingerprint(_value), do: nil
+
+  defp normalize_serial_number(value) when is_integer(value) and value > 0, do: value
+  defp normalize_serial_number(_value), do: nil
 
   defp emit_issuance_audit(opts, details) do
     event = %{

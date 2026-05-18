@@ -801,10 +801,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Issuer derives CN / SPIFFE from the *authenticated caller's* identity (gRPC peer cert / actor context); refuses to use caller-supplied fields when they conflict.
       Resolution: The gateway issuer now validates component and partition subject tokens before loading CA files, rejecting dots, slashes, controls, whitespace, empties, and overlong values that would corrupt CN/SPIFFE parsing. It also accepts `authorized_component_id` and `authorized_partition_id` context and refuses mismatches before signing. web-ng forwards the authorized component id alongside the partition context when requesting an agent bundle, and audit details include the authorized component id.
 
-- [ ] 6.N.10 [L] No renewal-time revocation of the predecessor cert (pairs with 6.L.2)
+- [x] 6.N.10 [L] No renewal-time revocation of the predecessor cert (pairs with 6.L.2)
       Where: `cert_issuer.ex` (working tree)
       Why: Old + new cert both valid → stolen-old-cert use window equals TTL even after renewal.
       Fix: On renewal, push old serial into the 6.L.2 denylist atomically.
+      Resolution: Successful gateway cert issuance can now carry predecessor fingerprint and/or serial metadata; after the new cert is signed, the issuer pushes those predecessor keys into the agent-certificate revocation denylist with a renewal reason and records the predecessor fields in the mint audit event. Tests cover fingerprint and serial revocation on renewal.
 
 **Positives (6.N):**
 - Bootstrap token uses Ed25519 signature — no forgery path.

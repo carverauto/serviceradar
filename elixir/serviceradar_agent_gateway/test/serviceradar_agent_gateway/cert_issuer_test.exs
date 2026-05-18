@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.CertIssuerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.CertIssuer
 
   test "issues bundles using secure temp staging under the configured parent and cleans up" do
@@ -173,6 +174,9 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              component_type: :agent,
              granted_partition_id: "partition-a",
              long_ttl_approved_by: nil,
+             predecessor_certificate_fingerprint: nil,
+             predecessor_certificate_revoked: false,
+             predecessor_certificate_serial_number: nil,
              requested_partition_id: "partition-a",
              spiffe_id: "spiffe://serviceradar.local/agent/partition-a/agent-audit",
              validity_days: 1
@@ -183,6 +187,45 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     refute Map.has_key?(event.details, :bundle_pem)
     refute inspect(event) =~ "PRIVATE KEY"
     refute inspect(event) =~ "CERTIFICATE-----"
+  end
+
+  test "revokes predecessor certificate fingerprint and serial after renewal succeeds" do
+    ensure_revocation_store!()
+    AgentCertificateRevocation.clear()
+
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-renewal-test")
+
+    on_exit(fn ->
+      AgentCertificateRevocation.clear()
+      File.rm_rf(parent_dir)
+    end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    predecessor_fingerprint = String.duplicate("a", 64)
+    predecessor_serial_number = 12_345
+
+    assert {:ok, _bundle} =
+             CertIssuer.issue_agent_bundle(
+               "agent-renewal",
+               "partition-a",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               predecessor_certificate_fingerprint: String.upcase(predecessor_fingerprint),
+               predecessor_certificate_serial_number: predecessor_serial_number,
+               predecessor_revocation_reason: "renewed by test",
+               audit_writer: nil
+             )
+
+    assert AgentCertificateRevocation.revoked?(%{
+             certificate_fingerprint: predecessor_fingerprint,
+             serial_number: predecessor_serial_number
+           })
   end
 
   defp generate_ca_bundle(ca_cert, ca_key) do
@@ -218,5 +261,13 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
 
     File.mkdir_p!(dir)
     dir
+  end
+
+  defp ensure_revocation_store! do
+    if Process.whereis(AgentCertificateRevocation) do
+      :ok
+    else
+      start_supervised!(AgentCertificateRevocation)
+    end
   end
 end
