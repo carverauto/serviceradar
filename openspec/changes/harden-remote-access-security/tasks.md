@@ -374,10 +374,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
 
 ## 5. Web-NG HTTP / WebSocket / LiveView / JS Surface
 
-- [ ] 5.1 [C] Remote-access *settings* LiveViews mounted without `AuthorizeHook` — no per-action RBAC
+- [x] 5.1 [C] Remote-access *settings* LiveViews mounted without `AuthorizeHook` — no per-action RBAC
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex:687-816` (routes at 763-768) vs the `:require_authenticated_user_with_permit` session at 818-842 (commit: staging)
       Why: `RemoteAccessHostKeysLive`, `RemoteAccessDesktopTargetsLive`, `RemoteAccessRecordingsLive` only require authentication. JSON-API siblings (`admin_show`, `admin_create`, …) gate on `require_permission(conn, @manage_permission)`, but the LiveViews skip per-event RBAC entirely; any authenticated user can `enable_target`, `disable_target`, `save_target`.
       Fix: Move the routes into `:require_authenticated_user_with_permit` (matches the catalog convention) OR add explicit permission checks in `mount/3` and every `handle_event/3`
+      Resolution: Remote-access host-key and desktop-target LiveViews now re-authorize with a fresh RBAC lookup on every handle_params and mutation/form event, and recordings re-authorize view/export permissions on params changes. Regression tests revoke cached permissions after mount and assert host-key/desktop-target mutation events redirect without changing state.
 
 - [ ] 5.2 [H] WebSocket stream handler does not re-authorize after `attach`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/channels/remote_access_stream_handler.ex:69-114` (attach), 117-150 (handle_in) (commit: staging)
@@ -1209,7 +1210,7 @@ Coverage classification: COVERED / PARTIAL / MISSING / N/A.
 | 4.3 | H | MISSING | No `remote_access_requests_test.exs` for self-approval | Requester w/ review perm approves own req; assert `forbid_if` unless `allow_self_approval` |
 | 4.4 | H | PARTIAL | `remote_access_broker_test.exs:691-750` exercises string-equality | Once HMAC lands, add forged-pair-without-HMAC negative case |
 | 4.5 | H | COVERED | `remote_access_host_keys_test.exs` asserts rotation linkage, reject audit, rejected terminal behavior, and direct `:conflict` trust denial; `remote_access_host_keys_live_test.exs` asserts conflict rows expose reject instead of trust | Keep API/LiveView parity if additional host-key transitions are added |
-| 5.1 | C | MISSING | `remote_access_host_keys_live_test.exs:20-26` checks mount only | Authenticated viewer sends `handle_event :enable_target`; assert denied |
+| 5.1 | C | COVERED | `remote_access_host_keys_live_test.exs` and `remote_access_desktop_targets_live_test.exs` revoke cached permissions after mount and assert mutation events redirect without changing state | Keep route-level Permit hook migration as optional cleanup if settings sessions are reorganized |
 | 5.2 | H | MISSING | `remote_access_stream_handler_test.exs` has no revocation scenario | Revoke perm via pubsub mid-stream; assert socket closes + audit |
 | 5.3 | H | MISSING | `remote_access_session_controller_test.exs` lacks target_host/port override RBAC | Flag on, actor missing override perm; assert rejection + not-in-allowlist case |
 | 5.4 | H | MISSING | `remote_access_recording_controller_test.exs` has no IDOR case | Actor A reads recording from B's session; assert 403 unless `recordings.view_all` |

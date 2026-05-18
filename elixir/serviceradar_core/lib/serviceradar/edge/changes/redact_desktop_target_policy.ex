@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.Changes.RedactDesktopTargetPolicy do
                        :description,
                        :enabled,
                        :device_uid,
+                       :protocol,
                        :target_kind,
                        :target_host,
                        :target_port,

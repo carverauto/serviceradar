@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Edge.RemoteAccessHostKeys
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
@@ -23,6 +25,29 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
 
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/networks/host-keys")
     assert to == ~p"/settings/profile"
+  end
+
+  test "rechecks manage permission before host-key mutation events", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :viewer})
+    user = grant_permissions(user, ["settings.remote_access_host_keys.manage"])
+    conn = log_in_user(conn, user)
+
+    {:ok, %{host_key: host_key}} =
+      RemoteAccessHostKeys.observe(observation("reauth"), actor: system_actor())
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/host-keys")
+    assert html =~ host_key.fingerprint_sha256
+
+    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new())
+
+    lv
+    |> element("button[phx-click='trust_host_key'][phx-value-id='#{host_key.id}']")
+    |> render_click()
+
+    assert_redirect(lv, ~p"/settings/profile")
+
+    assert {:ok, reloaded} = RemoteAccessHostKeys.get(host_key.id, actor: system_actor())
+    assert reloaded.status == :pending
   end
 
   test "trusts a pending host key", %{conn: conn} do
@@ -119,6 +144,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
     scope = Scope.for_user(user)
 
     %{conn: log_in_user(conn, user), user: user, scope: scope}
+  end
+
+  defp grant_permissions(user, permissions) do
+    unique = System.unique_integer([:positive])
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Host key LiveView #{unique}",
+          description: "Test profile for host-key LiveView permissions",
+          permissions: permissions
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
   end
 
   defp observation(label, overrides \\ %{}) do

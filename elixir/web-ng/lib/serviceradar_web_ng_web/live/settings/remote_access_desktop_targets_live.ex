@@ -58,42 +58,54 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    socket =
-      socket
-      |> assign(:current_path, @current_path)
-      |> assign(:form_mode, socket.assigns.live_action)
+    if fresh_can_manage?(socket.assigns.current_scope) do
+      socket =
+        socket
+        |> assign(:current_path, @current_path)
+        |> assign(:form_mode, socket.assigns.live_action)
 
-    if connected?(socket) do
-      {:noreply, load_page(socket, params)}
+      if connected?(socket) do
+        {:noreply, load_page(socket, params)}
+      else
+        {:noreply, socket}
+      end
     else
-      {:noreply, socket}
+      {:noreply, unauthorized(socket)}
     end
   end
 
   @impl true
   def handle_event("change_target", %{"desktop_target" => params}, socket) do
-    {:noreply, assign(socket, :target_form, target_form(normalize_form_params(params)))}
+    authorize_manage_event(socket, fn ->
+      {:noreply, assign(socket, :target_form, target_form(normalize_form_params(params)))}
+    end)
   end
 
   def handle_event("save_target", %{"desktop_target" => params}, socket) do
-    case normalize_target_attrs(params) do
-      {:ok, attrs} ->
-        save_target(socket, attrs)
+    authorize_manage_event(socket, fn ->
+      case normalize_target_attrs(params) do
+        {:ok, attrs} ->
+          save_target(socket, attrs)
 
-      {:error, message} ->
-        {:noreply,
-         socket
-         |> assign(:target_form, target_form(normalize_form_params(params)))
-         |> put_flash(:error, message)}
-    end
+        {:error, message} ->
+          {:noreply,
+           socket
+           |> assign(:target_form, target_form(normalize_form_params(params)))
+           |> put_flash(:error, message)}
+      end
+    end)
   end
 
   def handle_event("disable_target", %{"id" => id}, socket) do
-    set_enabled(socket, id, false, "RDP desktop target disabled")
+    authorize_manage_event(socket, fn ->
+      set_enabled(socket, id, false, "RDP desktop target disabled")
+    end)
   end
 
   def handle_event("enable_target", %{"id" => id}, socket) do
-    set_enabled(socket, id, true, "RDP desktop target enabled")
+    authorize_manage_event(socket, fn ->
+      set_enabled(socket, id, true, "RDP desktop target enabled")
+    end)
   end
 
   @impl true
@@ -716,6 +728,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp enum_options(values), do: Enum.map(values, &{enum_label(&1), &1})
   defp enum_label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  defp authorize_manage_event(socket, fun) when is_function(fun, 0) do
+    if fresh_can_manage?(socket.assigns.current_scope) do
+      fun.()
+    else
+      {:noreply, unauthorized(socket)}
+    end
+  end
+
+  defp unauthorized(socket) do
+    socket
+    |> put_flash(:error, "Not authorized to manage RDP desktop targets")
+    |> redirect(to: ~p"/settings/profile")
+  end
+
+  defp fresh_can_manage?(%{user: user}) when not is_nil(user) do
+    ServiceRadar.Identity.RBAC.clear_process_cache()
+    ServiceRadar.Identity.RBAC.has_permission?(user, @manage_permission)
+  end
+
+  defp fresh_can_manage?(scope), do: can_manage?(scope)
 
   defp can_manage?(scope), do: RBAC.can?(scope, @manage_permission)
 

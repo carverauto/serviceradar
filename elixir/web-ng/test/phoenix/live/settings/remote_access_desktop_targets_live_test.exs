@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Edge.RemoteAccessDesktopTarget
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.RemoteAccessDesktopTargets
@@ -33,6 +35,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
 
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/networks/desktop-targets")
     assert to == ~p"/settings/profile"
+  end
+
+  test "rechecks manage permission before desktop target mutation events", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :viewer})
+    user = grant_permissions(user, ["settings.edge.manage"])
+    conn = log_in_user(conn, user)
+    target = desktop_target_fixture("reauth")
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/desktop-targets")
+    assert html =~ target.name
+
+    ServiceRadar.Identity.RBAC.Cache.put(user.id, MapSet.new())
+
+    lv
+    |> element("button[phx-click='disable_target'][phx-value-id='#{target.id}']")
+    |> render_click()
+
+    assert_redirect(lv, ~p"/settings/profile")
+
+    {:ok, reloaded} = RemoteAccessDesktopTarget.get_by_id(target.id, actor: system_actor())
+    assert reloaded.enabled
   end
 
   test "route is blocked when RDP desktop access is disabled", %{conn: conn} do
@@ -196,6 +219,33 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
       },
       actor: system_actor()
     )
+  end
+
+  defp grant_permissions(user, permissions) do
+    unique = System.unique_integer([:positive])
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "RDP target LiveView #{unique}",
+          description: "Test profile for RDP desktop target LiveView permissions",
+          permissions: permissions
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+
+    updated
   end
 
   defp target_form_params(%RemoteAccessDesktopTarget{} = target) do

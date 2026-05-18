@@ -44,12 +44,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    socket = assign(socket, :current_path, @current_path)
+    if fresh_can_view?(socket.assigns.current_scope) do
+      socket =
+        socket
+        |> assign(:current_path, @current_path)
+        |> assign(:can_export?, can_export?(socket.assigns.current_scope))
 
-    if connected?(socket) do
-      {:noreply, load_recordings(socket, params["id"])}
+      if connected?(socket) do
+        {:noreply, load_recordings(socket, params["id"])}
+      else
+        {:noreply, socket}
+      end
     else
-      {:noreply, socket}
+      {:noreply, unauthorized(socket)}
     end
   end
 
@@ -325,6 +332,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
       :error -> {:error, :invalid_id}
     end
   end
+
+  defp unauthorized(socket) do
+    socket
+    |> put_flash(:error, "Not authorized to view remote access recordings")
+    |> redirect(to: ~p"/settings/profile")
+  end
+
+  defp fresh_can_view?(%{user: user}) when not is_nil(user) do
+    ServiceRadar.Identity.RBAC.clear_process_cache()
+    Enum.any?(@view_permissions, &ServiceRadar.Identity.RBAC.has_permission?(user, &1))
+  end
+
+  defp fresh_can_view?(scope), do: can_view?(scope)
 
   defp can_view?(scope), do: RBAC.can_any?(scope, @view_permissions)
   defp can_export?(scope), do: RBAC.can?(scope, @export_permission)
