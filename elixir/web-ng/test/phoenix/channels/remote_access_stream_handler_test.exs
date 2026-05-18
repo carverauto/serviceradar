@@ -159,6 +159,26 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     end
   end
 
+  defmodule AuthorizationStub do
+    @moduledoc false
+
+    def has_permission?(%{id: id}, permission) do
+      id
+      |> permissions()
+      |> MapSet.member?(permission)
+    end
+
+    def has_permission?(_user, _permission), do: false
+
+    def set_permissions(user_id, permissions) do
+      Process.put({__MODULE__, user_id}, MapSet.new(permissions))
+    end
+
+    def clear_process_cache, do: :ok
+
+    defp permissions(user_id), do: Process.get({__MODULE__, user_id}, MapSet.new())
+  end
+
   defmodule SignerStub do
     @moduledoc false
     @behaviour RemoteAccessSSHCertificates
@@ -599,6 +619,58 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, after_resize)
   end
 
+  test "browser frames close the session after permission revocation" do
+    AuthorizationStub.set_permissions("user-1", ["devices.remote_access.ssh.open"])
+    {:ok, state} = init_state("session-revoked-frame", authorization_module: AuthorizationStub)
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-revoked-frame"), [opcode: :text]}, state)
+
+    AuthorizationStub.set_permissions("user-1", [])
+
+    assert {:stop, :normal, 1008, [{:text, response}], closed_state} =
+             RemoteAccessStreamHandler.handle_in(
+               {Jason.encode!(%{type: "data", data: Base.encode64("whoami\r")}), [opcode: :text]},
+               attached
+             )
+
+    assert %{"type" => "error", "message" => "Remote access permission was revoked."} = Jason.decode!(response)
+    assert closed_state.closing_action == :revoked
+    assert_receive {:request_close, "session-revoked-frame", opts}
+    assert opts[:reason] == "permission_revoked"
+    refute_receive {:broker_input, _caller, _data}
+
+    RemoteAccessStreamHandler.terminate(:normal, closed_state)
+  end
+
+  test "periodic reauthorization closes idle sessions after permission revocation" do
+    AuthorizationStub.set_permissions("user-1", ["devices.remote_access.rdp.open"])
+
+    {:ok, state} =
+      init_state("session-revoked-periodic",
+        authorization_module: AuthorizationStub,
+        protocol: :rdp,
+        adapter: :rdp,
+        target_port: 3389
+      )
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-revoked-periodic"), [opcode: :text]}, state)
+
+    assert is_reference(attached.reauth_timer)
+    AuthorizationStub.set_permissions("user-1", [])
+
+    assert {:stop, :normal, 1008, [{:text, response}], closed_state} =
+             RemoteAccessStreamHandler.handle_info(:reauthorize, attached)
+
+    assert %{"type" => "error", "message" => "Remote access permission was revoked."} = Jason.decode!(response)
+    assert closed_state.closing_action == :revoked
+    assert_receive {:request_close, "session-revoked-periodic", opts}
+    assert opts[:reason] == "permission_revoked"
+
+    RemoteAccessStreamHandler.terminate(:normal, closed_state)
+  end
+
   test "oversized resize frames fail the session without reaching the broker" do
     {:ok, state} = init_state("session-resize-too-large")
 
@@ -811,7 +883,9 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       },
       sessions_module: SessionsStub,
       broker_module: BrokerStub,
-      credential_grant_resolver: CentralCredentialGrantResolverStub
+      credential_grant_resolver: CentralCredentialGrantResolverStub,
+      authorization_module: Keyword.get(opts, :authorization_module, ServiceRadar.Identity.RBAC),
+      reauth_interval_ms: Keyword.get(opts, :reauth_interval_ms, 30_000)
     )
   end
 

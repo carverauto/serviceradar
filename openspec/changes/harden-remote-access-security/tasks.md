@@ -380,10 +380,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Move the routes into `:require_authenticated_user_with_permit` (matches the catalog convention) OR add explicit permission checks in `mount/3` and every `handle_event/3`
       Resolution: Remote-access host-key and desktop-target LiveViews now re-authorize with a fresh RBAC lookup on every handle_params and mutation/form event, and recordings re-authorize view/export permissions on params changes. Regression tests revoke cached permissions after mount and assert host-key/desktop-target mutation events redirect without changing state.
 
-- [ ] 5.2 [H] WebSocket stream handler does not re-authorize after `attach`
+- [x] 5.2 [H] WebSocket stream handler does not re-authorize after `attach`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/channels/remote_access_stream_handler.ex:69-114` (attach), 117-150 (handle_in) (commit: staging)
       Why: Ticket validated once; permission revocation between attach and the next frame is never seen. Idle/absolute timeouts exist but no revocation-driven close.
       Fix: Periodically re-check actor permission (or subscribe to a permission-revocation pubsub topic that closes affected sockets)
+      Resolution: The remote-access WebSocket state now carries an authorization module and periodic reauth timer. After attach, every browser input frame re-checks the protocol-specific open permission, and the periodic timer closes idle sockets with `permission_revoked` if RBAC no longer allows the actor. Tests cover both next-frame and timer-driven revocation.
 
 - [ ] 5.3 [H] Browser-supplied SSH session metadata bypasses denylist for non-listed keys (host/port override)
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_session_controller.ex:331-372, 411, 455, 470, 525-558` (commit: staging)

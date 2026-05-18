@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_passphrase_bytes 4_096
   @max_principal_bytes 128
   @max_requested_principals 16
+  @default_reauth_interval_ms 30_000
   @credential_controlled_keys ~w(
     agent_id
     allowed_principals
@@ -56,11 +57,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
        broker_module: Keyword.get(options, :broker_module, RemoteAccessBroker),
        sessions_module: Keyword.get(options, :sessions_module, RemoteAccessSessions),
        credential_grant_resolver: Keyword.get(options, :credential_grant_resolver, RemoteAccessCentralCredentialGrants),
+       authorization_module: Keyword.get(options, :authorization_module, ServiceRadar.Identity.RBAC),
+       reauth_interval_ms: Keyword.get(options, :reauth_interval_ms, @default_reauth_interval_ms),
        broker: nil,
        session: nil,
        attached?: false,
        idle_timer: nil,
        absolute_timer: nil,
+       reauth_timer: nil,
        closing_action: nil
      }}
   end
@@ -79,10 +83,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       state =
         state
         |> cancel_timeout_timers()
+        |> Map.merge(%{attached?: true, session: session, broker: broker})
         |> schedule_timeout_timers(session)
+        |> schedule_reauth_timer()
 
-      {:push, {:text, encode(%{type: "ready", session_id: session.id})},
-       %{state | attached?: true, session: session, broker: broker}}
+      {:push, {:text, encode(%{type: "ready", session_id: session.id})}, state}
     else
       {:error, :remote_access_broker_unavailable} ->
         _ = state.sessions_module.fail_session(state.session_id, :remote_access_broker_unavailable, scope: state.scope)
@@ -115,41 +120,52 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   def handle_in({data, [opcode: :text]}, state) do
-    case decode_json(data) do
-      {:ok, %{"type" => "data", "data" => encoded}} when is_binary(encoded) ->
-        with {:ok, payload} <- decode_base64(encoded),
-             :ok <- state.broker_module.send_input(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
+    case ensure_authorized(state) do
+      :ok ->
+        case decode_json(data) do
+          {:ok, %{"type" => "data", "data" => encoded}} when is_binary(encoded) ->
+            with {:ok, payload} <- decode_base64(encoded),
+                 :ok <- state.broker_module.send_input(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
+            with {:ok, cols} <- terminal_int(cols, @min_terminal_cols, @max_terminal_cols),
+                 {:ok, rows} <- terminal_int(rows, @min_terminal_rows, @max_terminal_rows),
+                 :ok <- state.broker_module.resize(state.broker, cols, rows) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "file_transfer_data"} = message} ->
+            with {:ok, payload} <- file_transfer_data_payload(message),
+                 :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "attach"}} ->
+            {:ok, state}
+
+          _other ->
+            {:ok, state}
         end
 
-      {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
-        with {:ok, cols} <- terminal_int(cols, @min_terminal_cols, @max_terminal_cols),
-             {:ok, rows} <- terminal_int(rows, @min_terminal_rows, @max_terminal_rows),
-             :ok <- state.broker_module.resize(state.broker, cols, rows) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "file_transfer_data"} = message} ->
-        with {:ok, payload} <- file_transfer_data_payload(message),
-             :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "attach"}} ->
-        {:ok, state}
-
-      _other ->
-        {:ok, state}
+      {:error, :permission_revoked} ->
+        stop_for_permission_revoked(state)
     end
   end
 
-  def handle_in({_data, [opcode: :binary]}, state), do: {:ok, state}
+  def handle_in({_data, [opcode: :binary]}, state) do
+    case ensure_authorized(state) do
+      :ok -> {:ok, state}
+      {:error, :permission_revoked} -> stop_for_permission_revoked(state)
+    end
+  end
 
   @impl true
   def handle_info({:remote_access_ready, session_id}, state) do
@@ -189,6 +205,13 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     {:stop, :normal, 1000,
      [{:text, encode(%{type: "error", message: "Remote access session reached its maximum duration."})}],
      %{state | closing_action: :expired}}
+  end
+
+  def handle_info(:reauthorize, state) do
+    case ensure_authorized(state) do
+      :ok -> {:ok, schedule_reauth_timer(state)}
+      {:error, :permission_revoked} -> stop_for_permission_revoked(state)
+    end
   end
 
   def handle_info(message, state) do
@@ -575,6 +598,42 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
      %{state | closing_action: :failed}}
   end
 
+  defp ensure_authorized(%{session: nil}), do: :ok
+
+  defp ensure_authorized(state) do
+    user = scope_actor(state.scope)
+    permission = permission_for_session(state.session)
+    _ = clear_authorization_process_cache(state.authorization_module)
+
+    if state.authorization_module.has_permission?(user, permission) do
+      :ok
+    else
+      {:error, :permission_revoked}
+    end
+  end
+
+  defp permission_for_session(session) do
+    case protocol(session) do
+      "rdp" -> "devices.remote_access.rdp.open"
+      _protocol -> "devices.remote_access.ssh.open"
+    end
+  end
+
+  defp clear_authorization_process_cache(module) do
+    if function_exported?(module, :clear_process_cache, 0), do: module.clear_process_cache()
+  end
+
+  defp stop_for_permission_revoked(state) do
+    _ =
+      state.sessions_module.request_close(state.session_id,
+        reason: "permission_revoked",
+        scope: state.scope
+      )
+
+    {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Remote access permission was revoked."})}],
+     %{state | closing_action: :revoked}}
+  end
+
   defp schedule_timeout_timers(state, session) do
     %{
       state
@@ -590,6 +649,17 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     %{state | idle_timer: schedule_timeout(:idle_timeout, state.session.idle_timeout_seconds)}
   end
 
+  defp schedule_reauth_timer(state) do
+    _ = cancel_timer(state.reauth_timer)
+    %{state | reauth_timer: schedule_reauth_timeout(state.reauth_interval_ms)}
+  end
+
+  defp schedule_reauth_timeout(milliseconds) when is_integer(milliseconds) and milliseconds > 0 do
+    Process.send_after(self(), :reauthorize, milliseconds)
+  end
+
+  defp schedule_reauth_timeout(_milliseconds), do: nil
+
   defp schedule_timeout(message, seconds) when is_integer(seconds) and seconds > 0 do
     Process.send_after(self(), message, seconds * 1000)
   end
@@ -599,7 +669,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp cancel_timeout_timers(state) do
     _ = cancel_timer(state.idle_timer)
     _ = cancel_timer(state.absolute_timer)
-    %{state | idle_timer: nil, absolute_timer: nil}
+    _ = cancel_timer(state.reauth_timer)
+    %{state | idle_timer: nil, absolute_timer: nil, reauth_timer: nil}
   end
 
   defp cancel_timer(nil), do: :ok
