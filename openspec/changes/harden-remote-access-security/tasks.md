@@ -428,10 +428,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Validate parsed object against an explicit prop schema; reject unknown keys.
       Resolution: `RemoteAccessSSHConsole` now schema-validates dataset props, rejects non-object JSON, unknown keys, and wrong primitive types, and only forwards known string/boolean props plus the internally supplied terminal module loader. Added a focused Vitest hook test and included it in the asset test script.
 
-- [ ] 5.10 [L] Stream handler silently drops unknown messages
+- [x] 5.10 [L] Stream handler silently drops unknown messages
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/channels/remote_access_stream_handler.ex:117-150, 144-148` (commit: staging)
       Why: Hides probing / protocol-confusion attempts and forward-compat surprises.
       Fix: Log at warn with `(topic, message_type, actor_id)` and emit a metric.
+      Resolution: Unknown browser text/binary stream messages and unexpected server info messages now log at warning level without payload bytes and emit `[:serviceradar, :remote_access, :stream, :unknown_message]` telemetry with count, topic, session_id, actor_id, message_type, and source. Regression coverage asserts the warning and telemetry for an unknown browser message.
 
 - [ ] 5.11 [L] Browser stream timeout hardcoded, not session-derived
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/channels/remote_access_stream_handler.ex:568-587`; controller `:70-79`, `:13` (commit: staging)

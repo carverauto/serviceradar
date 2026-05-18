@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
@@ -215,6 +217,96 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert opts[:rows] == 43
 
     RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "unknown browser messages are logged and emitted as telemetry" do
+    {:ok, state} = init_state("session-unknown-message")
+
+    assert {:push, {:text, _response}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-unknown-message"), [opcode: :text]}, state)
+
+    event = [:serviceradar, :remote_access, :stream, :unknown_message]
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn ^event, measurements, metadata, test_pid ->
+          send(test_pid, {:unknown_stream_message, measurements, metadata})
+        end,
+        self()
+      )
+
+    log =
+      try do
+        capture_log(fn ->
+          assert {:ok, ^attached} =
+                   RemoteAccessStreamHandler.handle_in(
+                     {Jason.encode!(%{type: "probe", payload: "ignored"}), [opcode: :text]},
+                     attached
+                   )
+        end)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert log =~ "Ignored unknown remote access stream message"
+
+    assert_receive {:unknown_stream_message, %{count: 1},
+                    %{
+                      actor_id: "user-1",
+                      message_type: "probe",
+                      session_id: "session-unknown-message",
+                      source: :browser_text,
+                      topic: "remote_access:session-unknown-message"
+                    }}
+
+    refute_receive {:broker_input, _caller, _data}
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "unexpected server messages are observable without logging payload bytes" do
+    {:ok, state} = init_state("session-unknown-info")
+
+    event = [:serviceradar, :remote_access, :stream, :unknown_message]
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn ^event, measurements, metadata, test_pid ->
+          send(test_pid, {:unknown_stream_message, measurements, metadata})
+        end,
+        self()
+      )
+
+    log =
+      try do
+        capture_log(fn ->
+          assert {:ok, ^state} =
+                   RemoteAccessStreamHandler.handle_info(
+                     {:unexpected_probe, "secret-payload"},
+                     state
+                   )
+        end)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert log =~ "Ignored unknown remote access stream message"
+    refute log =~ "secret-payload"
+
+    assert_receive {:unknown_stream_message, %{count: 1},
+                    %{
+                      actor_id: "user-1",
+                      message_type: "unexpected_probe",
+                      session_id: "session-unknown-info",
+                      source: :server_info,
+                      topic: "remote_access:session-unknown-info"
+                    }}
   end
 
   test "user-present attach passes SSH credential to broker without echoing it" do

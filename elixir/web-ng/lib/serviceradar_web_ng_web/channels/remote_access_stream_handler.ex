@@ -151,7 +151,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, %{"type" => "attach"}} ->
             {:ok, state}
 
-          _other ->
+          other ->
+            log_unknown_stream_message(unknown_browser_message_type(other), state, :browser_text)
             {:ok, state}
         end
 
@@ -162,8 +163,12 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   def handle_in({_data, [opcode: :binary]}, state) do
     case ensure_authorized(state) do
-      :ok -> {:ok, state}
-      {:error, :permission_revoked} -> stop_for_permission_revoked(state)
+      :ok ->
+        log_unknown_stream_message("binary", state, :browser_binary)
+        {:ok, state}
+
+      {:error, :permission_revoked} ->
+        stop_for_permission_revoked(state)
     end
   end
 
@@ -215,7 +220,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   def handle_info(message, state) do
-    Logger.debug("Ignoring unexpected remote access websocket message: #{inspect(message)}")
+    log_unknown_stream_message(unknown_info_message_type(message), state, :server_info)
     {:ok, state}
   end
 
@@ -522,6 +527,60 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       _actor -> {:error, :invalid_request}
     end
   end
+
+  defp scope_actor_id_or_unknown(scope) do
+    case scope_actor_id(scope) do
+      {:ok, actor_id} -> actor_id
+      {:error, _reason} -> "unknown"
+    end
+  end
+
+  defp log_unknown_stream_message(message_type, state, source) do
+    metadata = %{
+      topic: "remote_access:#{state.session_id}",
+      session_id: state.session_id,
+      actor_id: scope_actor_id_or_unknown(state.scope),
+      message_type: message_type,
+      source: source
+    }
+
+    Logger.warning("Ignored unknown remote access stream message", Map.to_list(metadata))
+
+    :telemetry.execute(
+      [:serviceradar, :remote_access, :stream, :unknown_message],
+      %{count: 1},
+      metadata
+    )
+  end
+
+  defp unknown_browser_message_type({:ok, %{"type" => type}}) when is_binary(type) do
+    normalize_message_type(type)
+  end
+
+  defp unknown_browser_message_type({:ok, %{"type" => _type}}), do: "non_string_type"
+  defp unknown_browser_message_type({:ok, _message}), do: "missing_type"
+  defp unknown_browser_message_type({:error, _reason}), do: "invalid_json"
+
+  defp unknown_info_message_type(message) when is_tuple(message) and tuple_size(message) > 0 do
+    message
+    |> elem(0)
+    |> normalize_message_type()
+  end
+
+  defp unknown_info_message_type(message), do: normalize_message_type(message)
+
+  defp normalize_message_type(type) when is_atom(type), do: Atom.to_string(type)
+  defp normalize_message_type(type) when is_binary(type), do: String.slice(type, 0, 64)
+  defp normalize_message_type(type) when is_tuple(type), do: "tuple"
+  defp normalize_message_type(type) when is_map(type), do: "map"
+  defp normalize_message_type(type) when is_list(type), do: "list"
+  defp normalize_message_type(type) when is_integer(type), do: "integer"
+  defp normalize_message_type(type) when is_float(type), do: "float"
+  defp normalize_message_type(type) when is_boolean(type), do: "boolean"
+  defp normalize_message_type(type) when is_pid(type), do: "pid"
+  defp normalize_message_type(type) when is_reference(type), do: "reference"
+  defp normalize_message_type(type) when is_function(type), do: "function"
+  defp normalize_message_type(_type), do: "unknown"
 
   defp scope_identity_claims(%{identity_claims: claims}) when is_map(claims), do: claims
   defp scope_identity_claims(%{"identity_claims" => claims}) when is_map(claims), do: claims
