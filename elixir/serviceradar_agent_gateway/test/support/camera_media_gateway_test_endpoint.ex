@@ -3,7 +3,7 @@ defmodule ServiceRadarAgentGateway.TestSupport.CameraMediaGatewayTestEndpoint do
 
   use GRPC.Endpoint
 
-  intercept(GRPC.Server.Interceptors.Logger)
+  intercept(ServiceRadarAgentGateway.GRPCSafeLoggerInterceptor)
 
   run(ServiceRadarAgentGateway.CameraMediaServer)
 end
