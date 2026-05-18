@@ -127,6 +127,45 @@ func TestArmisSearchUsesRawAccessToken(t *testing.T) {
 	}
 }
 
+func TestArmisSearchAcceptsScalarDeviceNames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != armisSearchPath {
+			t.Fatalf("path = %q, want %q", r.URL.Path, armisSearchPath)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"count": 2,
+				"next": 0,
+				"prev": null,
+				"total": 2,
+				"results": [
+					{"id": 101, "ipAddress": "192.0.2.10", "names": "scalar-name"},
+					{"id": 102, "ipAddress": "192.0.2.11", "names": ["array-name"]}
+				]
+			},
+			"success": true
+		}`))
+	}))
+	defer server.Close()
+
+	client := &armisClient{endpoint: server.URL}
+	resp, err := client.search(context.Background(), "token-123", testArmisDeviceQuery, 0, 100)
+	if err != nil {
+		t.Fatalf("search returned error: %v", err)
+	}
+	if len(resp.Data.Results) != 2 {
+		t.Fatalf("result count = %d, want 2", len(resp.Data.Results))
+	}
+	if got := resp.Data.Results[0].primaryName(); got != "scalar-name" {
+		t.Fatalf("scalar primaryName = %q, want scalar-name", got)
+	}
+	if got := resp.Data.Results[1].primaryName(); got != "array-name" {
+		t.Fatalf("array primaryName = %q, want array-name", got)
+	}
+}
+
 func TestArmisSearchOmitsFromOnFirstPage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := r.URL.Query()["from"]; ok {

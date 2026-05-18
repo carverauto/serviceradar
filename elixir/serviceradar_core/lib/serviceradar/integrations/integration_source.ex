@@ -182,7 +182,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :device_count, :integer, default: 0
 
       change transition_state(:success)
-      change atomic_update(:last_sync_at, expr(now()))
+      change set_attribute(:last_sync_at, &__MODULE__.utc_now_second/0)
       change atomic_update(:last_sync_result, expr(^arg(:result)))
       change atomic_update(:last_device_count, expr(^arg(:device_count)))
       change atomic_update(:last_error_message, expr(nil))
@@ -203,7 +203,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :error_message, :string
 
       change transition_state(:failed)
-      change atomic_update(:last_sync_at, expr(now()))
+      change set_attribute(:last_sync_at, &__MODULE__.utc_now_second/0)
       change atomic_update(:last_sync_result, expr(^arg(:result)))
       change atomic_update(:last_device_count, expr(^arg(:device_count)))
       change atomic_update(:last_error_message, expr(^arg(:error_message)))
