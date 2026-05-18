@@ -125,6 +125,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   def export(%RemoteAccessRecording{} = recording, opts) do
     with :ok <- authorize_export(opts),
+         :ok <- ensure_exportable_status(recording),
          {:ok, events} <- list_events(recording, opts),
          {:ok, event_integrity} <- verify_event_chain(events) do
       write_audit(:remote_access_recording_exported, recording, opts)
@@ -145,6 +146,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       export(recording, opts)
     end
   end
+
+  defp ensure_exportable_status(%RemoteAccessRecording{status: status})
+       when status in [:completed, :failed, :expired],
+       do: :ok
+
+  defp ensure_exportable_status(_recording), do: {:error, :recording_not_exportable}
 
   @spec delete(RemoteAccessRecording.t() | binary(), keyword()) ::
           {:ok, RemoteAccessRecording.t()} | {:error, term()}

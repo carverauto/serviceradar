@@ -122,6 +122,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     assert %{"error" => "remote_access_recording_not_found"} = json_response(conn, 404)
   end
 
+  test "recording export refuses active recordings", %{conn: conn, user: user} do
+    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
+    recording = active_recording_fixture(user, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/export")
+
+    assert %{"error" => "recording_not_exportable"} = json_response(conn, 409)
+  end
+
   test "RDP-only user cannot read SSH recording metadata", %{conn: conn, user: user} do
     recording = recording_fixture(user, :ssh)
 
@@ -184,6 +193,46 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
       )
 
     completed
+  end
+
+  defp active_recording_fixture(user, protocol) do
+    {:ok, recording} =
+      user
+      |> recording_session(protocol)
+      |> RemoteAccessRecordings.ensure_for_session(audit_writer: AuditSink, audit_actor: system_actor())
+
+    {:ok, active} = RemoteAccessRecordings.activate(recording, audit_writer: AuditSink, audit_actor: system_actor())
+    active
+  end
+
+  defp recording_session(user, protocol) do
+    port = if protocol == :rdp, do: 3389, else: 22
+
+    {:ok, session} =
+      RemoteAccessSession.create_session(
+        %{
+          attach_ticket_hash:
+            :sha256
+            |> :crypto.hash("ticket-#{System.unique_integer([:positive])}")
+            |> Base.encode16(case: :lower),
+          attach_expires_at: DateTime.add(DateTime.utc_now(), 300, :second),
+          device_uid: "recording-api-device-#{System.unique_integer([:positive])}",
+          target_kind: :inventory_device,
+          target_host: "recording-api.example.test",
+          target_port: port,
+          protocol: protocol,
+          adapter: protocol,
+          agent_id: "agent-recording-api",
+          gateway_id: "gateway-recording-api",
+          credential_custody_mode: :user_present,
+          requested_by: user.id,
+          recording_policy: %{"enabled" => true, "retention_days" => 7},
+          metadata: %{}
+        },
+        actor: system_actor()
+      )
+
+    session
   end
 
   defp event_type(:rdp), do: "desktop_frame_metadata"

@@ -839,10 +839,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Track `state.recording_completed?` (or guard on `state.recording != nil`) in `terminate/2`; refuse second seal; audit on attempt
       Resolution: The broker state now tracks `recording_completed?`; completion and failure paths set the flag, repeated complete/fail calls become no-ops, and `terminate/2` skips lifecycle mutation when a recording has already been sealed. Regression coverage asserts the recording complete hook fires once for a remote close.
 
-- [ ] 3.O.2 [H] Export accepts recordings in `:active` / `:pending` — partial / mid-stream export possible
+- [x] 3.O.2 [H] Export accepts recordings in `:active` / `:pending` — partial / mid-stream export possible
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recordings.ex:107-131` + `remote_access_recording_controller.ex:50-73` (commit: staging)
       Why: Export builds a manifest with `completed_at: null` and current event count; later events change the recording but the operator already holds a stale export claiming completeness. Combined with 3.O.6, a policy edit can also retro-apply to the still-recording session.
       Fix: Refuse export unless status ∈ `[:completed, :failed, :expired]`; or label the export `partial: true` and force a fresh export after seal
+      Resolution: `RemoteAccessRecordings.export/2` now refuses recordings unless their status is sealed (`:completed`, `:failed`, or `:expired`), and the API returns `409 recording_not_exportable` for active/pending exports. Controller regression coverage verifies an active recording cannot be exported.
 
 - [ ] 3.O.3 [H] Manifest is plain JSON with no signature / hash binding to the event list
       Where: `remote_access_recordings.ex:160-184` (`finish_attrs`); no `manifest_sha256` / signature column (commit: staging)

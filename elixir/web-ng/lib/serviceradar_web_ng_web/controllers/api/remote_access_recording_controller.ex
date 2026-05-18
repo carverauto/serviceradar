@@ -70,6 +70,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       {:error, :forbidden} -> forbidden(conn, @export_permission)
       {:error, :not_found} -> not_found(conn)
       {:error, :invalid_id} -> invalid_request(conn, "id must be a valid UUID")
+      {:error, :recording_not_exportable} -> conflict(conn, "recording_not_exportable")
       {:error, other} -> {:error, other}
     end
   end
@@ -151,6 +152,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       error: "remote_access_recording_not_found",
       message: "remote-access recording was not found"
     })
+  end
+
+  defp conflict(conn, reason) do
+    conn
+    |> put_status(:conflict)
+    |> json(%{error: reason})
   end
 
   defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
