@@ -133,7 +133,7 @@ func (a *ApplicationHTTPAdapter) Execute(
 		return ApplicationHTTPResult{}, err
 	}
 
-	return a.result(request, resp, responseBody), nil
+	return a.result(request, resp, body, responseBody), nil
 }
 
 func (a *ApplicationHTTPAdapter) Close() {
@@ -143,6 +143,14 @@ func (a *ApplicationHTTPAdapter) Close() {
 	if transport, ok := a.client.Transport.(*http.Transport); ok {
 		transport.CloseIdleConnections()
 	}
+}
+
+func (a *ApplicationHTTPAdapter) MaxRequestBodyBytes() int64 {
+	if a == nil {
+		return 0
+	}
+
+	return maxRequestBytes(a.open.QuotaPolicy)
 }
 
 func (a *ApplicationHTTPAdapter) authorizeRequest(request ApplicationRequestPayload, bodyBytes int64) error {
@@ -186,8 +194,10 @@ func (a *ApplicationHTTPAdapter) buildRequest(
 func (a *ApplicationHTTPAdapter) result(
 	request ApplicationRequestPayload,
 	resp *http.Response,
+	requestBody []byte,
 	body []byte,
 ) ApplicationHTTPResult {
+	requestBytes := int64(len(requestBody))
 	responseBytes := int64(len(body))
 
 	return ApplicationHTTPResult{
@@ -210,6 +220,7 @@ func (a *ApplicationHTTPAdapter) result(
 			RequestID:     request.RequestID,
 			SessionID:     request.SessionID,
 			Status:        ApplicationStatusCompleted,
+			RequestBytes:  requestBytes,
 			ResponseBytes: responseBytes,
 		},
 		Outcome: ApplicationOutcomePayload{
@@ -217,7 +228,7 @@ func (a *ApplicationHTTPAdapter) result(
 			TargetID:      a.open.TargetID,
 			Status:        ApplicationStatusCompleted,
 			RequestCount:  1,
-			RequestBytes:  0,
+			RequestBytes:  requestBytes,
 			ResponseBytes: responseBytes,
 		},
 	}

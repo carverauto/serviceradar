@@ -330,6 +330,9 @@ func (p ApplicationDataPayload) Validate() error {
 	if p.Sequence == 0 {
 		return ErrInvalidApplicationSequence
 	}
+	if len(p.Data) > MaxTerminalFrameData {
+		return ErrInvalidFrameSize
+	}
 
 	return nil
 }

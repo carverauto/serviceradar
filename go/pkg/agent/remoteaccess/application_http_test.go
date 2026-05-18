@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -175,6 +176,43 @@ func TestApplicationHTTPAdapterRejectsMismatchedSessionBinding(t *testing.T) {
 	}, nil)
 	if !errors.Is(err, ErrApplicationSessionMismatch) {
 		t.Fatalf("Execute error = %v, want %v", err, ErrApplicationSessionMismatch)
+	}
+}
+
+func TestApplicationHTTPAdapterSendsRequestBodyAndRecordsByteCount(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("Method = %q, want POST", r.Method)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+		if string(body) != "payload" {
+			t.Fatalf("body = %q, want payload", string(body))
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	adapter := newTestApplicationAdapter(t, server, ApplicationSchemeHTTP, map[string]any{
+		"max_request_bytes": 16,
+	})
+	adapter.open.AllowedMethods = []string{http.MethodPost}
+
+	result, err := adapter.Execute(context.Background(), ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "session-1",
+		Method:    http.MethodPost,
+		Path:      "/allowed",
+	}, []byte("payload"))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Progress.RequestBytes != 7 || result.Outcome.RequestBytes != 7 {
+		t.Fatalf("request bytes not recorded: progress=%#v outcome=%#v", result.Progress, result.Outcome)
 	}
 }
 

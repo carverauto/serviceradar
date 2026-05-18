@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/proto"
@@ -29,9 +30,19 @@ import (
 var (
 	errApplicationSessionNotOpen = errors.New("application access session is not open")
 	errApplicationSessionExists  = errors.New("application access session already exists")
+	errApplicationDataOutOfOrder = errors.New("application request data sequence is not greater than the previous chunk")
+	errApplicationDataDirection  = errors.New("application data frame direction is not allowed")
 	errTCPSessionNotOpen         = errors.New("tcp access session is not open")
 	errTCPSessionExists          = errors.New("tcp access session already exists")
 )
+
+type applicationHTTPRequestState struct {
+	request    remoteaccess.ApplicationRequestPayload
+	hasRequest bool
+	body       []byte
+	lastSeq    uint64
+	eof        bool
+}
 
 func isApplicationAccessFrameType(frameType string) bool {
 	switch frameType {
@@ -76,6 +87,8 @@ func (p *PushLoop) handleApplicationAccessFrame(ctx context.Context, frame *prot
 		p.openApplicationAccess(frame, sender)
 	case remoteaccess.FrameTypeApplicationRequest:
 		p.executeApplicationRequest(ctx, frame, sender)
+	case remoteaccess.FrameTypeApplicationData:
+		p.handleApplicationRequestData(ctx, frame, sender)
 	case remoteaccess.FrameTypeApplicationClose:
 		p.closeApplicationAccess(frame, sender)
 	default:
@@ -136,19 +149,99 @@ func (p *PushLoop) executeApplicationRequest(ctx context.Context, frame *proto.C
 		payload.SessionID = frame.GetSessionId()
 	}
 
-	result, err := adapter.Execute(ctx, payload, nil)
-	if err != nil {
-		sendApplicationError(sender, frame.GetSessionId(), "request_failed", err.Error())
+	if applicationRequestMayHaveBody(payload.Method) {
+		state := p.storeApplicationRequest(frame.GetSessionId(), payload)
+		if !state.eof {
+			sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeApplicationProgress, remoteaccess.ApplicationProgressPayload{
+				RequestID:    payload.RequestID,
+				SessionID:    payload.SessionID,
+				Status:       remoteaccess.ApplicationStatusInProgress,
+				RequestBytes: int64(len(state.body)),
+			})
+			return
+		}
+
+		body := append([]byte(nil), state.body...)
+		p.dropApplicationRequest(frame.GetSessionId(), payload.RequestID)
+		p.executeApplicationHTTPRequest(ctx, frame.GetSessionId(), adapter, payload, body, sender)
 		return
 	}
 
-	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeApplicationResponseMetadata, result.Metadata)
-	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeApplicationData, result.Data)
-	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeApplicationProgress, result.Progress)
+	p.dropApplicationRequest(frame.GetSessionId(), payload.RequestID)
+	p.executeApplicationHTTPRequest(ctx, frame.GetSessionId(), adapter, payload, nil, sender)
+}
+
+func (p *PushLoop) executeApplicationHTTPRequest(
+	ctx context.Context,
+	sessionID string,
+	adapter *remoteaccess.ApplicationHTTPAdapter,
+	payload remoteaccess.ApplicationRequestPayload,
+	body []byte,
+	sender *controlStreamSender,
+) {
+	result, err := adapter.Execute(ctx, payload, body)
+	if err != nil {
+		sendApplicationError(sender, sessionID, "request_failed", err.Error())
+		return
+	}
+
+	sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeApplicationResponseMetadata, result.Metadata)
+	sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeApplicationData, result.Data)
+	sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeApplicationProgress, result.Progress)
+}
+
+func (p *PushLoop) handleApplicationRequestData(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+	adapter := p.applicationHTTPAdapter(frame.GetSessionId())
+	if adapter == nil {
+		sendApplicationError(sender, frame.GetSessionId(), "session_not_open", errApplicationSessionNotOpen.Error())
+		return
+	}
+
+	var payload remoteaccess.ApplicationDataPayload
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		sendApplicationError(sender, frame.GetSessionId(), "invalid_data_payload", err.Error())
+		return
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = frame.GetSessionId()
+	}
+	if err := payload.Validate(); err != nil {
+		sendApplicationError(sender, frame.GetSessionId(), "invalid_data_payload", err.Error())
+		return
+	}
+	if payload.SessionID != frame.GetSessionId() {
+		sendApplicationError(sender, frame.GetSessionId(), "request_failed", remoteaccess.ErrApplicationSessionMismatch.Error())
+		return
+	}
+	if payload.Direction != remoteaccess.ApplicationDataDirectionRequest {
+		sendApplicationError(sender, frame.GetSessionId(), "request_failed", errApplicationDataDirection.Error())
+		return
+	}
+
+	state, err := p.appendApplicationRequestData(frame.GetSessionId(), payload, adapter.MaxRequestBodyBytes())
+	if err != nil {
+		sendApplicationError(sender, frame.GetSessionId(), "request_failed", err.Error())
+		p.dropApplicationRequest(frame.GetSessionId(), payload.RequestID)
+		return
+	}
+	if !state.eof || !state.hasRequest {
+		sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeApplicationProgress, remoteaccess.ApplicationProgressPayload{
+			RequestID:    payload.RequestID,
+			SessionID:    payload.SessionID,
+			Status:       remoteaccess.ApplicationStatusInProgress,
+			RequestBytes: int64(len(state.body)),
+		})
+		return
+	}
+
+	request := state.request
+	body := append([]byte(nil), state.body...)
+	p.dropApplicationRequest(frame.GetSessionId(), payload.RequestID)
+	p.executeApplicationHTTPRequest(ctx, frame.GetSessionId(), adapter, request, body, sender)
 }
 
 func (p *PushLoop) closeApplicationAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
-	if adapter := p.dropApplicationHTTPAdapter(frame.GetSessionId()); adapter != nil {
+	if adapter := p.dropApplicationHTTPSession(frame.GetSessionId()); adapter != nil {
 		adapter.Close()
 	}
 
@@ -165,13 +258,86 @@ func (p *PushLoop) applicationHTTPAdapter(sessionID string) *remoteaccess.Applic
 	return p.applicationHTTPSessions[sessionID]
 }
 
-func (p *PushLoop) dropApplicationHTTPAdapter(sessionID string) *remoteaccess.ApplicationHTTPAdapter {
+func (p *PushLoop) dropApplicationHTTPSession(sessionID string) *remoteaccess.ApplicationHTTPAdapter {
 	p.applicationHTTPMu.Lock()
 	defer p.applicationHTTPMu.Unlock()
 
 	adapter := p.applicationHTTPSessions[sessionID]
 	delete(p.applicationHTTPSessions, sessionID)
+	delete(p.applicationHTTPRequests, sessionID)
 	return adapter
+}
+
+func (p *PushLoop) storeApplicationRequest(
+	sessionID string,
+	request remoteaccess.ApplicationRequestPayload,
+) applicationHTTPRequestState {
+	p.applicationHTTPMu.Lock()
+	defer p.applicationHTTPMu.Unlock()
+
+	state := p.applicationRequestStateLocked(sessionID, request.RequestID)
+	state.request = request
+	state.hasRequest = true
+	return *state
+}
+
+func (p *PushLoop) appendApplicationRequestData(
+	sessionID string,
+	payload remoteaccess.ApplicationDataPayload,
+	maxBodyBytes int64,
+) (applicationHTTPRequestState, error) {
+	p.applicationHTTPMu.Lock()
+	defer p.applicationHTTPMu.Unlock()
+
+	state := p.applicationRequestStateLocked(sessionID, payload.RequestID)
+	if payload.Sequence <= state.lastSeq {
+		return applicationHTTPRequestState{}, errApplicationDataOutOfOrder
+	}
+	if maxBodyBytes > 0 && int64(len(state.body)+len(payload.Data)) > maxBodyBytes {
+		return applicationHTTPRequestState{}, remoteaccess.ErrApplicationRequestTooLarge
+	}
+
+	state.lastSeq = payload.Sequence
+	state.body = append(state.body, payload.Data...)
+	state.eof = payload.EOF
+	return *state, nil
+}
+
+func (p *PushLoop) applicationRequestStateLocked(sessionID string, requestID string) *applicationHTTPRequestState {
+	if p.applicationHTTPRequests == nil {
+		p.applicationHTTPRequests = make(map[string]map[string]*applicationHTTPRequestState)
+	}
+	requests := p.applicationHTTPRequests[sessionID]
+	if requests == nil {
+		requests = make(map[string]*applicationHTTPRequestState)
+		p.applicationHTTPRequests[sessionID] = requests
+	}
+	state := requests[requestID]
+	if state == nil {
+		state = &applicationHTTPRequestState{}
+		requests[requestID] = state
+	}
+	return state
+}
+
+func (p *PushLoop) dropApplicationRequest(sessionID string, requestID string) {
+	p.applicationHTTPMu.Lock()
+	defer p.applicationHTTPMu.Unlock()
+
+	requests := p.applicationHTTPRequests[sessionID]
+	delete(requests, requestID)
+	if len(requests) == 0 {
+		delete(p.applicationHTTPRequests, sessionID)
+	}
+}
+
+func applicationRequestMayHaveBody(method string) bool {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "GET", "HEAD", "OPTIONS":
+		return false
+	default:
+		return true
+	}
 }
 
 func (p *PushLoop) handleTCPAccessFrame(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {

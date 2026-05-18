@@ -426,6 +426,93 @@ func TestHandleConsoleFrameExecutesApplicationHTTPRequest(t *testing.T) {
 	}
 }
 
+func TestHandleConsoleFrameExecutesApplicationHTTPRequestWithBodyChunks(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("Method = %q, want POST", r.Method)
+		}
+		if string(body) != "chunk-onechunk-two" {
+			t.Fatalf("body = %q", string(body))
+		}
+		_, _ = w.Write([]byte("created"))
+	}))
+	defer server.Close()
+
+	host, port := testServerHostPort(t, server.URL)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.ApplicationOpenPayload{
+		TargetID:            "app-target-1",
+		SessionID:           "app-session-1",
+		Scheme:              remoteaccess.ApplicationSchemeHTTP,
+		UpstreamHost:        host,
+		UpstreamPort:        port,
+		AllowedMethods:      []string{http.MethodPost},
+		AllowedPathPrefixes: []string{"/allowed"},
+		QuotaPolicy:         map[string]any{"max_request_bytes": 64},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+	assertApplicationConsoleFrame(t, stream.sent[0], remoteaccess.FrameTypeApplicationProgress)
+
+	requestPayload := remoteaccess.ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Method:    http.MethodPost,
+		Path:      "/allowed",
+	}
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationRequest, requestPayload), sender)
+	assertApplicationConsoleFrame(t, stream.sent[1], remoteaccess.FrameTypeApplicationProgress)
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationData, remoteaccess.ApplicationDataPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Direction: remoteaccess.ApplicationDataDirectionRequest,
+		Sequence:  1,
+		Data:      []byte("chunk-one"),
+	}), sender)
+	assertApplicationConsoleFrame(t, stream.sent[2], remoteaccess.FrameTypeApplicationProgress)
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationData, remoteaccess.ApplicationDataPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Direction: remoteaccess.ApplicationDataDirectionRequest,
+		Sequence:  2,
+		Data:      []byte("chunk-two"),
+		EOF:       true,
+	}), sender)
+
+	if len(stream.sent) != 6 {
+		t.Fatalf("sent frame count = %d, want 6", len(stream.sent))
+	}
+	assertApplicationConsoleFrame(t, stream.sent[3], remoteaccess.FrameTypeApplicationResponseMetadata)
+	dataFrame := assertApplicationConsoleFrame(t, stream.sent[4], remoteaccess.FrameTypeApplicationData)
+	progressFrame := assertApplicationConsoleFrame(t, stream.sent[5], remoteaccess.FrameTypeApplicationProgress)
+
+	var dataPayload remoteaccess.ApplicationDataPayload
+	if err := json.Unmarshal(dataFrame.GetData(), &dataPayload); err != nil {
+		t.Fatalf("unmarshal application data: %v", err)
+	}
+	if string(dataPayload.Data) != "created" {
+		t.Fatalf("Data = %q, want created", string(dataPayload.Data))
+	}
+	var progressPayload remoteaccess.ApplicationProgressPayload
+	if err := json.Unmarshal(progressFrame.GetData(), &progressPayload); err != nil {
+		t.Fatalf("unmarshal application progress: %v", err)
+	}
+	if progressPayload.RequestBytes != int64(len("chunk-onechunk-two")) {
+		t.Fatalf("RequestBytes = %d", progressPayload.RequestBytes)
+	}
+}
+
 func TestHandleConsoleFrameRejectsDuplicateApplicationOpen(t *testing.T) {
 	t.Parallel()
 
