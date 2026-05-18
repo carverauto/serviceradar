@@ -572,6 +572,110 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
   end
 
+  test "approved access request bind rolls back losing concurrent session creates" do
+    uid = unique_uid("access-request-race")
+
+    insert_device!(uid,
+      agent_id: "agent-access-request-race",
+      gateway_id: "gateway-access-request-race"
+    )
+
+    credential_rule_id =
+      create_credential_rule!("access-request-race", scope_value: "agent-access-request-race").id
+
+    requester_id = insert_user!("race-requester")
+    reviewer_id = insert_user!("race-reviewer")
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-access-request-race",
+                 gateway_id: "gateway-access-request-race",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "race maintenance",
+                 ttl_seconds: 600
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, request_audit}
+    assert request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "race-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approval_audit}
+    assert approval_audit[:action] == :remote_access_request_approved
+
+    owner = self()
+
+    results =
+      1..4
+      |> Enum.map(fn _attempt ->
+        Task.async(fn ->
+          Process.put(:remote_access_audit_owner, owner)
+
+          RemoteAccessSessions.request_open(
+            uid,
+            %{
+              protocol: :ssh,
+              credential_custody_mode: :centrally_brokered,
+              approval_id: approved.id,
+              credential_rule_id: credential_rule_id
+            },
+            actor: @system_actor,
+            audit_writer: AuditSink
+          )
+        end)
+      end)
+      |> Enum.map(&Task.await(&1, 15_000))
+
+    successes =
+      Enum.filter(results, fn
+        {:ok, %{session: %RemoteAccessSession{}}} -> true
+        _other -> false
+      end)
+
+    assert [%{session: winning_session}] = Enum.map(successes, fn {:ok, result} -> result end)
+    assert 3 == Enum.count(results, &(&1 == {:error, :approval_consumed}))
+
+    assert {:ok, consumed} = RemoteAccessRequests.get(approved.id, actor: @system_actor)
+    assert consumed.status == :consumed
+    assert consumed.session_id == winning_session.id
+
+    assert %Postgrex.Result{rows: [[1]]} =
+             Repo.query!(
+               """
+               SELECT count(*)
+               FROM platform.remote_access_sessions
+               WHERE approval_id = $1::text::uuid
+               """,
+               [approved.id]
+             )
+
+    audits =
+      for _ <- 1..5 do
+        assert_receive {:remote_access_audit, audit}, 1_000
+        audit
+      end
+
+    assert 1 == Enum.count(audits, &(&1[:action] == :remote_access_request_consumed))
+    assert 1 == Enum.count(audits, &(&1[:action] == :remote_access_session_create))
+    assert 3 == Enum.count(audits, &(&1[:action] == :remote_access_session_denied))
+  end
+
   test "RDP approvals are scoped to the selected desktop target and agent route" do
     uid = unique_uid("rdp-approval")
     insert_device!(uid, agent_id: "agent-rdp-approval", gateway_id: "gateway-rdp-approval")

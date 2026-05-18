@@ -332,7 +332,7 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Why: Current isolation appears to be schema-prefix, but a future move to shared-schema multi-tenancy would silently collide host-key rows across tenants.
       Fix: Add `tenant_id` to the unique index now; safe under both isolation models
 
-- [ ] 4.7 [M] `bind_session` for approvals is not atomic with the state check
+- [x] 4.7 [M] `bind_session` for approvals is not atomic with the state check
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_requests.ex:148-161` (commit: staging)
       Why: Concurrent attach attempts on the same approval can both pass the state check before the partial unique constraint catches the second write; the loser may have already triggered side effects (session creation, audit row).
       Fix: Wrap in Ash transaction with `pg_advisory_xact_lock` keyed on approval_id, or use a strict state transition with optimistic locking on `consumed_at`

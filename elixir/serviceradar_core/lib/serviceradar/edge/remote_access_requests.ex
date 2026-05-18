@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.RemoteAccessRequest
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Repo
 
   @default_ttl_seconds 3600
   @default_review_permission "devices.remote_access.requests.review"
@@ -145,19 +146,31 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
           {:ok, RemoteAccessRequest.t()} | {:error, term()}
   def bind_session(request_id, session_id, opts \\ [])
       when is_binary(request_id) and is_binary(session_id) do
-    with {:ok, %RemoteAccessRequest{} = request} <-
-           get(request_id, actor: SystemActor.system(:remote_access_request_bind)),
-         :ok <- ensure_approved(request),
-         :ok <- ensure_unexpired(request),
-         :ok <- ensure_unbound(request),
-         {:ok, bound} <-
-           RemoteAccessRequest.bind_session(
-             request,
-             %{session_id: session_id, bound_at: RemoteAccessRequest.utc_now()},
-             actor: SystemActor.system(:remote_access_request_bind)
-           ) do
-      write_audit(:remote_access_request_consumed, bound, opts)
+    with {:ok, %RemoteAccessRequest{} = bound, side_effects} <-
+           bind_session_with_side_effects(request_id, session_id, opts) do
+      side_effects.()
       {:ok, bound}
+    end
+  end
+
+  @doc false
+  @spec bind_session_with_side_effects(String.t(), String.t(), keyword()) ::
+          {:ok, RemoteAccessRequest.t(), (-> :ok)} | {:error, term()}
+  def bind_session_with_side_effects(request_id, session_id, opts \\ [])
+      when is_binary(request_id) and is_binary(session_id) do
+    fn -> bind_session_locked(request_id, session_id) end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessRequest{} = bound, notifications}} ->
+        {:ok, bound,
+         fn ->
+           Ash.Notifier.notify(notifications)
+           write_audit(:remote_access_request_consumed, bound, opts)
+           :ok
+         end}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -326,6 +339,72 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
 
   defp ensure_unbound(%RemoteAccessRequest{session_id: nil}), do: :ok
   defp ensure_unbound(_request), do: {:error, :approval_consumed}
+
+  defp bind_session_locked(request_id, session_id) do
+    case Repo.query(lock_approved_request_sql(), [request_id]) do
+      {:ok, %{num_rows: 1, rows: [[locked_request_id]]}} ->
+        system_opts = [actor: SystemActor.system(:remote_access_request_bind)]
+
+        with {:ok, %RemoteAccessRequest{} = request} <-
+               RemoteAccessRequest.get_by_id(locked_request_id, system_opts),
+             {:ok, %RemoteAccessRequest{} = bound, notifications} <-
+               RemoteAccessRequest.bind_session(
+                 request,
+                 %{session_id: session_id, bound_at: RemoteAccessRequest.utc_now()},
+                 Keyword.put(system_opts, :return_notifications?, true)
+               ) do
+          {bound, notifications}
+        else
+          {:ok, nil} -> Repo.rollback(:approval_not_found)
+          {:error, error} -> Repo.rollback(error)
+        end
+
+      {:ok, %{num_rows: 0}} ->
+        Repo.rollback(classify_unbindable_request(request_id))
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp lock_approved_request_sql do
+    """
+    SELECT id::text
+    FROM platform.remote_access_requests
+    WHERE id = $1::text::uuid
+      AND status = 'approved'
+      AND expires_at > (now() AT TIME ZONE 'utc')
+      AND session_id IS NULL
+    FOR UPDATE
+    """
+  end
+
+  defp classify_unbindable_request(request_id) do
+    case get(request_id, actor: SystemActor.system(:remote_access_request_bind)) do
+      {:ok, %RemoteAccessRequest{} = request} ->
+        cond do
+          match?({:error, _reason}, ensure_approved(request)) ->
+            unwrap_error(ensure_approved(request))
+
+          match?({:error, _reason}, ensure_unexpired(request)) ->
+            :approval_expired
+
+          match?({:error, _reason}, ensure_unbound(request)) ->
+            :approval_consumed
+
+          true ->
+            :approval_consumed
+        end
+
+      {:error, :not_found} ->
+        :approval_not_found
+
+      {:error, reason} ->
+        reason
+    end
+  end
+
+  defp unwrap_error({:error, reason}), do: reason
 
   defp ensure_reviewer_policy(%RemoteAccessRequest{} = request, opts) do
     if self_approval_allowed?(request) or request.requested_by != actor_uuid(opts),

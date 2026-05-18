@@ -74,8 +74,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            attrs
            |> Map.delete(:__attach_ticket__)
            |> Map.delete(:__approval__),
-         {:ok, session} <- RemoteAccessSession.create_session(session_attrs, ash_opts(opts)),
-         {:ok, _bound_request} <- maybe_bind_access_request(approval, session, opts) do
+         {:ok, session} <- create_session_and_maybe_bind(session_attrs, approval, opts) do
       write_audit(:remote_access_session_create, session, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -804,20 +803,53 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     not_found_error?(error)
   end
 
-  defp maybe_bind_access_request(%{access_request_id: nil}, _session, _opts), do: {:ok, nil}
+  defp create_session_and_maybe_bind(session_attrs, approval, opts) do
+    create_opts =
+      opts
+      |> ash_opts()
+      |> Keyword.put(:return_notifications?, true)
 
-  defp maybe_bind_access_request(%{access_request_id: access_request_id}, session, opts)
-       when is_binary(access_request_id) do
-    case RemoteAccessRequests.bind_session(access_request_id, session.id,
-           audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
-           actor: audit_actor(opts)
-         ) do
-      {:ok, request} -> {:ok, request}
-      {:error, reason} -> {:error, reason}
+    fn ->
+      with {:ok, %RemoteAccessSession{} = session, session_notifications} <-
+             RemoteAccessSession.create_session(session_attrs, create_opts),
+           {:ok, _bound_request, approval_side_effects} <-
+             bind_access_request_with_side_effects(approval, session, opts) do
+        {session, session_notifications, approval_side_effects}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessSession{} = session, session_notifications, approval_side_effects}} ->
+        Ash.Notifier.notify(session_notifications)
+        approval_side_effects.()
+        {:ok, session}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp maybe_bind_access_request(_approval, _session, _opts), do: {:ok, nil}
+  defp bind_access_request_with_side_effects(%{access_request_id: nil}, _session, _opts) do
+    {:ok, nil, fn -> :ok end}
+  end
+
+  defp bind_access_request_with_side_effects(
+         %{access_request_id: access_request_id},
+         session,
+         opts
+       )
+       when is_binary(access_request_id) do
+    RemoteAccessRequests.bind_session_with_side_effects(access_request_id, session.id,
+      audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
+      actor: audit_actor(opts)
+    )
+  end
+
+  defp bind_access_request_with_side_effects(_approval, _session, _opts) do
+    {:ok, nil, fn -> :ok end}
+  end
 
   defp write_audit(action, session, opts, extra_details) do
     actor = audit_actor(opts)
