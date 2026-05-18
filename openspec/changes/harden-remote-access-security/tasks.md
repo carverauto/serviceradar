@@ -833,10 +833,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
 
 **Major architectural finding:** recordings (both manifest and events) are persisted as **Postgres rows** in `remote_access_recordings` / `remote_access_recording_events` — the datasvc Object Store is **not** in the recording write path today. The `storage_backend` / `storage_bucket` / `object_key` columns are vestigial. See the §3.J reconciliation note above; this rescopes several J findings and adds 3.O.14 below.
 
-- [ ] 3.O.1 [H] `complete_recording/1` reachable twice on broker terminate (no idempotency guard)
+- [x] 3.O.1 [H] `complete_recording/1` reachable twice on broker terminate (no idempotency guard)
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_broker.ex:171-182, 251-260, 421-430` (commit: staging)
       Why: `handle_cast({:close, ...})` calls `complete_recording`, then `terminate/2` calls it again on `:normal`/`:shutdown` — the second run overwrites the sealed manifest's `event_count` / byte counts, destroying tamper-evidence continuity.
       Fix: Track `state.recording_completed?` (or guard on `state.recording != nil`) in `terminate/2`; refuse second seal; audit on attempt
+      Resolution: The broker state now tracks `recording_completed?`; completion and failure paths set the flag, repeated complete/fail calls become no-ops, and `terminate/2` skips lifecycle mutation when a recording has already been sealed. Regression coverage asserts the recording complete hook fires once for a remote close.
 
 - [ ] 3.O.2 [H] Export accepts recordings in `:active` / `:pending` — partial / mid-stream export possible
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recordings.ex:107-131` + `remote_access_recording_controller.ex:50-73` (commit: staging)

@@ -661,6 +661,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
 
     assert_receive {:remote_access_closed, "done"}
     assert_receive {:recording_complete, %{id: "recording-1"}, stats, _opts}
+    refute_receive {:recording_complete, %{id: "recording-1"}, _stats, _opts}, 100
 
     assert stats == %{input_bytes: 7, output_bytes: 5, event_count: 2}
     refute inspect(stats) =~ "whoami"

@@ -98,6 +98,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       lifecycle: Keyword.get(opts, :lifecycle, lifecycle_for(session)),
       recordings: Keyword.get(opts, :recordings, RemoteAccessRecordings),
       recording: nil,
+      recording_completed?: false,
       recording_stats: %{input_bytes: 0, output_bytes: 0, event_count: 0},
       frame_auth: frame_auth,
       pubsub: pubsub(opts),
@@ -383,12 +384,17 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     unregister_broker(state)
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
 
-    if reason in [:normal, :shutdown] do
-      _ = complete_recording(state)
-    else
-      lifecycle(state, :fail_session, [reason])
-      write_audit(state, :remote_access_session_failed, failure_details(reason))
-      _ = fail_recording(state, reason)
+    cond do
+      state.recording_completed? ->
+        :ok
+
+      reason in [:normal, :shutdown] ->
+        _ = complete_recording(state)
+
+      true ->
+        lifecycle(state, :fail_session, [reason])
+        write_audit(state, :remote_access_session_failed, failure_details(reason))
+        _ = fail_recording(state, reason)
     end
 
     :ok
@@ -549,28 +555,30 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp finish_recording_for_close(state, "error", reason), do: fail_recording(state, reason)
   defp finish_recording_for_close(state, _frame_type, _reason), do: complete_recording(state)
 
+  defp complete_recording(%{recording_completed?: true} = state), do: state
   defp complete_recording(%{recording: nil} = state), do: state
 
   defp complete_recording(state) do
     _ = state.recordings.complete(state.recording, state.recording_stats, recording_opts(state))
-    %{state | recording: nil}
+    %{state | recording: nil, recording_completed?: true}
   rescue
-    _error -> %{state | recording: nil}
+    _error -> %{state | recording: nil, recording_completed?: true}
   catch
-    _kind, _reason -> %{state | recording: nil}
+    _kind, _reason -> %{state | recording: nil, recording_completed?: true}
   end
 
+  defp fail_recording(%{recording_completed?: true} = state, _reason), do: state
   defp fail_recording(%{recording: nil} = state, _reason), do: state
 
   defp fail_recording(state, reason) do
     _ =
       state.recordings.fail(state.recording, reason, state.recording_stats, recording_opts(state))
 
-    %{state | recording: nil}
+    %{state | recording: nil, recording_completed?: true}
   rescue
-    _error -> %{state | recording: nil}
+    _error -> %{state | recording: nil, recording_completed?: true}
   catch
-    _kind, _reason -> %{state | recording: nil}
+    _kind, _reason -> %{state | recording: nil, recording_completed?: true}
   end
 
   defp recording_opts(state) do
