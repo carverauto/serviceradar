@@ -1,12 +1,12 @@
 ## 1. Design And Resource Model
-- [ ] 1.1 Define registered HTTP/HTTPS application target resource fields, lifecycle, RBAC mapping, and relationship to inventory/device records.
-- [ ] 1.2 Define registered TCP target resource fields separately from HTTP application targets.
-- [ ] 1.3 Define application/TCP frame schemas for open, request, response metadata, data, progress, close, error, and outcome events.
-- [ ] 1.4 Record dependency and Teleport/source-reuse review before importing any proxy, WebSocket, or TCP helper package.
+- [x] 1.1 Define registered HTTP/HTTPS application target resource fields, lifecycle, RBAC mapping, and relationship to inventory/device records.
+- [x] 1.2 Define registered TCP target resource fields separately from HTTP application targets.
+- [x] 1.3 Define application/TCP frame schemas for open, request, response metadata, data, progress, close, error, and outcome events.
+- [x] 1.4 Record dependency and Teleport/source-reuse review before importing any proxy, WebSocket, or TCP helper package.
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add RBAC permissions for opening app access, opening TCP access, managing app/TCP targets, approving sensitive access, and exporting recordings.
-- [ ] 2.2 Add browser/API endpoints that accept only target/session intent and reject upstream route, host, port, SNI, Host header, credential, TLS, quota, approval, and recording overrides.
+- [x] 2.2 Add browser/API endpoints that accept only target/session intent and reject upstream route, host, port, SNI, Host header, credential, TLS, quota, approval, and recording overrides.
 - [ ] 2.3 Add policy evaluation for allowed methods, path prefixes, redirects, header rules, cookie isolation, upstream TLS, quotas, approval, and recording.
 - [ ] 2.4 Add approval-required handling for sensitive apps, insecure upstream TLS exceptions, broad path access, upload-enabled apps, and TCP targets.
 

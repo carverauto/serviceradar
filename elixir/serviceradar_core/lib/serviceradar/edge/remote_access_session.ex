@@ -213,7 +213,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
     attribute :target_kind, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:inventory_device, :provider_console, :freeform_target]
+
+      constraints one_of: [
+                    :inventory_device,
+                    :provider_console,
+                    :freeform_target,
+                    :registered_application_target,
+                    :registered_tcp_target
+                  ]
+
       default :inventory_device
     end
 
@@ -239,6 +247,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
                     :vsphere_console,
                     :rdp,
                     :app,
+                    :tcp,
                     :database,
                     :kubernetes,
                     :desktop,
@@ -256,6 +265,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSession do
                     :vsphere_console,
                     :rdp,
                     :app,
+                    :application,
+                    :tcp,
                     :database,
                     :kubernetes,
                     :desktop,

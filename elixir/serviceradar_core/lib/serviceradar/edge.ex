@@ -29,6 +29,8 @@ defmodule ServiceRadar.Edge do
   - `ServiceRadar.Edge.RemoteAccessRecordingEvent` - Remote-access replay events
   - `ServiceRadar.Edge.RemoteAccessFileTransfer` - Remote-access file-transfer metadata
   - `ServiceRadar.Edge.RemoteAccessHostKey` - Remote-access SSH host-key trust state
+  - `ServiceRadar.Edge.RemoteAccessApplicationTarget` - Registered HTTP/HTTPS application target policy
+  - `ServiceRadar.Edge.RemoteAccessTcpTarget` - Registered raw TCP target policy
   - `ServiceRadar.Edge.ProxmoxConsoleSession` - Proxmox console session tickets and lifecycle
 
   ## Package State Machine
@@ -73,6 +75,8 @@ defmodule ServiceRadar.Edge do
     resource ServiceRadar.Edge.RemoteAccessRecordingEvent
     resource ServiceRadar.Edge.RemoteAccessFileTransfer
     resource ServiceRadar.Edge.RemoteAccessHostKey
+    resource ServiceRadar.Edge.RemoteAccessApplicationTarget
+    resource ServiceRadar.Edge.RemoteAccessTcpTarget
     resource ServiceRadar.Edge.ProxmoxConsoleSession
   end
 

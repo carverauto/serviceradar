@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.RemoteAccessApplicationTarget
   alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
   alias ServiceRadar.Edge.RemoteAccessFileTransfer
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
@@ -14,6 +15,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
+  alias ServiceRadar.Edge.RemoteAccessTcpTarget
   alias ServiceRadar.Repo
 
   defmodule AuditSink do
@@ -64,6 +66,142 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     end)
 
     :ok
+  end
+
+  test "registered application target resolves trusted upstream policy into the session" do
+    uid = unique_uid("app-target")
+    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
+
+    assert {:ok, target} =
+             RemoteAccessApplicationTarget.create_target(
+               %{
+                 name: "Internal App",
+                 device_uid: uid,
+                 agent_id: "agent-app",
+                 gateway_id: "gateway-app",
+                 upstream_scheme: :https,
+                 upstream_host: "10.20.30.40",
+                 upstream_port: 8443,
+                 upstream_host_header: "internal-app.example.test",
+                 upstream_sni: "internal-app.example.test",
+                 allowed_methods: ["GET", "POST"],
+                 allowed_path_prefixes: ["/app"],
+                 tls_policy: %{"verify" => "required"},
+                 quota_policy: %{"idle_timeout_seconds" => 300},
+                 recording_policy: %{"enabled" => true},
+                 metadata: %{"owner" => "platform"}
+               },
+               actor: @system_actor
+             )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_application_target},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.device_uid == uid
+    assert session.target_kind == :registered_application_target
+    assert session.protocol == :app
+    assert session.adapter == :application
+    assert session.target_host == "10.20.30.40"
+    assert session.target_port == 8443
+    assert session.agent_id == "agent-app"
+    assert session.gateway_id == "gateway-app"
+    assert session.credential_custody_mode == :none
+    assert session.idle_timeout_seconds == 300
+    assert session.metadata["target_id"] == target.id
+    assert session.metadata["target_type"] == "application"
+    assert session.metadata["upstream_host_header"] == "internal-app.example.test"
+    assert session.metadata["allowed_path_prefixes"] == ["/app"]
+    assert session.metadata["target_metadata"] == %{"owner" => "platform"}
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+    assert create_audit[:details][:protocol] == "app"
+  end
+
+  test "registered TCP target resolves trusted upstream policy into the session" do
+    uid = unique_uid("tcp-target")
+    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
+
+    assert {:ok, target} =
+             RemoteAccessTcpTarget.create_target(
+               %{
+                 name: "Internal TCP",
+                 device_uid: uid,
+                 agent_id: "agent-tcp",
+                 gateway_id: "gateway-tcp",
+                 upstream_host: "10.30.40.50",
+                 upstream_port: 5432,
+                 protocol_name: "postgres",
+                 idle_timeout_seconds: 120,
+                 absolute_timeout_seconds: 600,
+                 quota_policy: %{"max_rx_bytes" => 1_048_576},
+                 metadata: %{"owner" => "database"}
+               },
+               actor: @system_actor
+             )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_tcp_target},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.device_uid == uid
+    assert session.target_kind == :registered_tcp_target
+    assert session.protocol == :tcp
+    assert session.adapter == :tcp
+    assert session.target_host == "10.30.40.50"
+    assert session.target_port == 5432
+    assert session.agent_id == "agent-tcp"
+    assert session.gateway_id == "gateway-tcp"
+    assert session.credential_custody_mode == :none
+    assert session.idle_timeout_seconds == 120
+    assert session.absolute_timeout_seconds == 600
+    assert session.metadata["target_id"] == target.id
+    assert session.metadata["target_type"] == "tcp"
+    assert session.metadata["protocol_name"] == "postgres"
+    assert session.metadata["target_metadata"] == %{"owner" => "database"}
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+    assert create_audit[:details][:protocol] == "tcp"
+  end
+
+  test "disabled registered targets are rejected before a session is created" do
+    uid = unique_uid("disabled-target")
+    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
+
+    assert {:ok, target} =
+             RemoteAccessTcpTarget.create_target(
+               %{
+                 name: "Disabled TCP",
+                 device_uid: uid,
+                 enabled: false,
+                 agent_id: "agent-tcp",
+                 upstream_host: "10.30.40.60",
+                 upstream_port: 3306
+               },
+               actor: @system_actor
+             )
+
+    assert {:error, :remote_access_target_disabled} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_tcp_target},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:failure_reason] == "remote_access_target_disabled"
   end
 
   test "attach tickets are single-use and credential material is not persisted in metadata" do

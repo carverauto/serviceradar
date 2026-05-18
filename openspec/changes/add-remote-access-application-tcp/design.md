@@ -81,6 +81,14 @@ TELEPORT_SRC=$HOME/src/teleport scripts/check-teleport-license-paths.sh \
 
 The current checkout reports AGPL transitive dependencies through Teleport API/types/auth/logging/proto paths. Treat Teleport behavior as product/architecture reference only. Use Go standard library HTTP reverse proxy primitives or small Apache-compatible dependencies after explicit dependency review.
 
+Review recorded on 2026-05-17:
+
+- Current local Teleport checkout: `~/src/teleport` at commit `42a4eaafeefee26e52bbd32ceec9699de1e9040c`.
+- Current scan result: `github.com/gravitational/teleport/lib/srv/app`, `github.com/gravitational/teleport/lib/srv/app/common`, and `github.com/gravitational/teleport/lib/srv/app/reverseproxy` are blocked for direct import because the dependency scan reports AGPL-header transitive package directories including `api/utils/iterutils`, generated API/proto directories, `api/types`, `api/types/events`, `lib/utils`, `lib/auth/*`, `lib/services`, `lib/events`, and related server packages.
+- Apache-era baseline check: `TELEPORT_REF=v14.4.0` reports no AGPL headers for `lib/srv/app` and `lib/srv/app/common`; `lib/srv/app/reverseproxy` does not exist as an importable package at that ref.
+- Decision for this proposal: do not import, copy, translate, or mechanically port Teleport application proxy, WebSocket, TCP, or server utility code. Current Teleport remains architecture reference only. Teleport v14 source may be consulted only as historical behavior reference unless a future exact-file vendoring review records the tag, commit, file paths, headers, dependency scan, maintenance owner, and why a ServiceRadar-owned implementation is worse.
+- Approved implementation baseline: ServiceRadar-owned target/session/policy code plus Go standard library `net`, `net/http`, `net/http/httputil`, `crypto/tls`, and `context`. Any non-standard proxy, WebSocket, TCP helper, or buffering dependency must land with its own license and dependency review before use.
+
 ## Validation
 - Unit tests for target/resource normalization rejecting client-selected upstreams, Host/SNI, route, credential, TLS, quota, and recording overrides.
 - Policy tests for methods, path prefixes, redirects, upstream TLS modes, headers, cookies, byte quotas, and approval.
