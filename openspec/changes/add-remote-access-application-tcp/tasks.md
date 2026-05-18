@@ -6,7 +6,7 @@
 
 ## 2. Policy, RBAC, And API
 - [x] 2.1 Add RBAC permissions for opening app access, opening TCP access, managing app/TCP targets, approving sensitive access, and exporting recordings.
-- [ ] 2.2 Add browser/API endpoints that accept only target/session intent and reject upstream route, host, port, SNI, Host header, credential, TLS, quota, approval, and recording overrides.
+- [x] 2.2 Add browser/API endpoints that accept only target/session intent and reject upstream route, host, port, SNI, Host header, credential, TLS, quota, approval, and recording overrides.
 - [ ] 2.3 Add policy evaluation for allowed methods, path prefixes, redirects, header rules, cookie isolation, upstream TLS, quotas, approval, and recording.
 - [ ] 2.4 Add approval-required handling for sensitive apps, insecure upstream TLS exceptions, broad path access, upload-enabled apps, and TCP targets.
 
