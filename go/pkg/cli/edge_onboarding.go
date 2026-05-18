@@ -184,7 +184,12 @@ func RunEdgePackageCreate(cfg *CmdConfig) error {
 		return err
 	}
 
-	token, err := edgeonboarding.EncodeToken(result.Package.PackageID, result.DownloadToken, cfg.CoreAPIURL)
+	token, err := edgeonboarding.EncodeTokenWithPartition(
+		result.Package.PackageID,
+		result.DownloadToken,
+		cfg.CoreAPIURL,
+		result.Package.Site,
+	)
 	if err != nil {
 		return fmt.Errorf("encode onboarding token: %w", err)
 	}
@@ -445,7 +450,12 @@ func RunEdgePackageShow(cfg *CmdConfig) error {
 		if strings.TrimSpace(cfg.EdgePackageDownloadToken) == "" {
 			return errDownloadToken
 		}
-		token, err := edgeonboarding.EncodeToken(pkg.PackageID, cfg.EdgePackageDownloadToken, cfg.CoreAPIURL)
+		token, err := edgeonboarding.EncodeTokenWithPartition(
+			pkg.PackageID,
+			cfg.EdgePackageDownloadToken,
+			cfg.CoreAPIURL,
+			pkg.Site,
+		)
 		if err != nil {
 			return fmt.Errorf("encode onboarding token: %w", err)
 		}
@@ -528,7 +538,12 @@ func RunEdgePackageDownload(cfg *CmdConfig) error {
 		if err := json.NewDecoder(resp.Body).Decode(&deliver); err != nil {
 			return fmt.Errorf("decode JSON download: %w", err)
 		}
-		token, err := edgeonboarding.EncodeToken(deliver.Package.PackageID, cfg.EdgePackageDownloadToken, cfg.CoreAPIURL)
+		token, err := edgeonboarding.EncodeTokenWithPartition(
+			deliver.Package.PackageID,
+			cfg.EdgePackageDownloadToken,
+			cfg.CoreAPIURL,
+			deliver.Package.Site,
+		)
 		if err != nil {
 			return fmt.Errorf("encode onboarding token: %w", err)
 		}
@@ -653,7 +668,7 @@ func RunEdgePackageRevoke(cfg *CmdConfig) error {
 	return nil
 }
 
-// RunEdgePackageToken emits a signed edgepkg-v2 token for use as ONBOARDING_TOKEN.
+// RunEdgePackageToken emits a signed edgepkg-v3 token for use as ONBOARDING_TOKEN.
 func RunEdgePackageToken(cfg *CmdConfig) error {
 	if strings.TrimSpace(cfg.EdgePackageID) == "" {
 		return errEdgePackageID
@@ -662,7 +677,12 @@ func RunEdgePackageToken(cfg *CmdConfig) error {
 		return errDownloadToken
 	}
 
-	token, err := edgeonboarding.EncodeToken(cfg.EdgePackageID, cfg.EdgePackageDownloadToken, cfg.CoreAPIURL)
+	token, err := edgeonboarding.EncodeTokenWithPartition(
+		cfg.EdgePackageID,
+		cfg.EdgePackageDownloadToken,
+		cfg.CoreAPIURL,
+		cfg.EdgePackageSite,
+	)
 	if err != nil {
 		return fmt.Errorf("encode onboarding token: %w", err)
 	}

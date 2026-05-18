@@ -161,8 +161,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       html = render(lv)
 
-      assert html =~ "serviceradar-cli enroll --core-url &#39;http://localhost:4002&#39; --token &#39;edgepkg-v2:"
-      refute html =~ "/usr/local/bin/serviceradar-cli enroll --token &#39;edgepkg-v2:"
+      assert html =~ "serviceradar-cli enroll --core-url &#39;http://localhost:4002&#39; --token &#39;edgepkg-v3:"
+      refute html =~ "/usr/local/bin/serviceradar-cli enroll --token &#39;edgepkg-v3:"
     end
   end
 

@@ -769,10 +769,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: OnboardingPackage events log token lifecycle but not the cert mint. If 6.N.1 is exploited, there's no forensic trace tying a cert to the operator who minted it.
       Fix: Emit an audit event with the full mint context; index by `(actor, partition_id)` for compliance review
 
-- [ ] 6.N.5 [M] Bootstrap token payload doesn't carry `partition_id` — server-side cross-check missing
+- [x] 6.N.5 [M] Bootstrap token payload doesn't carry `partition_id` — server-side cross-check missing
       Where: `go/pkg/edgeonboarding/token.go:36-91`; consumer in `edge_controller.ex:195-227` (commit: staging)
       Why: Signed token covers `{pkg, dl, api}` only. Server-side download accepts the token, looks up the package, doesn't verify `token.partition == package.partition_id`. With 6.N.3, a leaked token + guessed package id crosses partitions.
       Fix: Add `partition_id` to the token payload (bump to `edgepkg-v3`); enforce equality on delivery
+      Resolution: Added `edgepkg-v3` tokens with `partition_id`; web-ng now verifies signed token package id and partition/site before delivery; Go bootstrap clients send the signed token back with the raw download token.
 
 - [ ] 6.N.6 [M] No max cap or admin approval on `validity_days` — default 365 d (see 6.L.1) is operator-overridable upward
       Where: `cert_issuer.ex:12, 69` (working tree)

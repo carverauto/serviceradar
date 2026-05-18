@@ -22,6 +22,7 @@ func TestParseStructuredToken(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "pkg-123", payload.PackageID)
 	require.Equal(t, "dl-456", payload.DownloadToken)
+	require.Equal(t, defaultPartitionID, payload.PartitionID)
 	require.Equal(t, "https://demo.example.com", payload.CoreURL)
 }
 
@@ -40,13 +41,27 @@ func TestEncodeTokenHelper(t *testing.T) {
 	token, err := EncodeToken("pkg-123", "dl-456", "https://demo.example.com")
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
-	require.Contains(t, token, tokenV2Prefix)
+	require.Contains(t, token, tokenV3Prefix)
 
 	payload, err := parseOnboardingToken(token, "", "")
 	require.NoError(t, err)
 	require.Equal(t, "pkg-123", payload.PackageID)
 	require.Equal(t, "dl-456", payload.DownloadToken)
+	require.Equal(t, defaultPartitionID, payload.PartitionID)
 	require.Equal(t, "https://demo.example.com", payload.CoreURL)
+}
+
+func TestEncodeTokenWithPartition(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	token, err := EncodeTokenWithPartition("pkg-123", "dl-456", "https://demo.example.com", "edge-a")
+	require.NoError(t, err)
+	require.Contains(t, token, tokenV3Prefix)
+
+	payload, err := parseOnboardingToken(token, "", "")
+	require.NoError(t, err)
+	require.Equal(t, "edge-a", payload.PartitionID)
 }
 
 func TestParseSignedTokenRejectsTampering(t *testing.T) {

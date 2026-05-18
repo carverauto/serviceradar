@@ -92,6 +92,10 @@ func TestBootstrap_FromToken(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Contains(t, r.URL.Path, "/api/admin/edge-packages/")
 		assert.Contains(t, r.URL.Path, "/download")
+		var req map[string]string
+		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+		assert.Equal(t, "dl-token-abc", req["download_token"])
+		assert.NotEmpty(t, req["onboarding_token"])
 
 		resp := deliverPayload{
 			Package: struct {

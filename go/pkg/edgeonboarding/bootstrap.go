@@ -34,7 +34,7 @@ var (
 	// ErrTokenRequired is returned when no onboarding token is provided.
 	ErrTokenRequired = errors.New("onboarding token is required")
 	// ErrUnsupportedTokenFormat is returned when the onboarding token is not signed.
-	ErrUnsupportedTokenFormat = errors.New("unsupported token format (expected edgepkg-v2)")
+	ErrUnsupportedTokenFormat = errors.New("unsupported token format (expected edgepkg-v3)")
 	// ErrTokenOrPackageRequired is returned when neither token nor package path are provided.
 	ErrTokenOrPackageRequired = errors.New("onboarding token or package archive is required")
 	// ErrCredentialRotationNotImplemented is returned when credential rotation is attempted.

@@ -29,6 +29,8 @@ func TestDownloadPackageSuccess(t *testing.T) {
 		var req map[string]string
 		assert.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		assert.Equal(t, "token-xyz", req["download_token"])
+		assert.NotEmpty(t, req["onboarding_token"])
+		assert.True(t, strings.HasPrefix(req["onboarding_token"], tokenV3Prefix))
 
 		resp := deliverResponse{
 			Package: edgePackagePayload{

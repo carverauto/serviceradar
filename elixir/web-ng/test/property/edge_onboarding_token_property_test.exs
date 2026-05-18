@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
             package_id <- EdgeOnboardingGenerators.package_id(),
             download_token <- EdgeOnboardingGenerators.download_token(),
             api <- EdgeOnboardingGenerators.core_api_url(),
+            partition_id <- EdgeOnboardingGenerators.package_id(),
             max_runs: PropertyOpts.max_runs()
           ) do
       assert {:ok, token} =
@@ -21,15 +22,16 @@ defmodule ServiceRadarWebNG.EdgeOnboardingTokenPropertyTest do
                  package_id,
                  download_token,
                  api,
+                 partition_id: partition_id,
                  private_key: @private_key
                )
 
-      assert String.starts_with?(token, "edgepkg-v2:")
-      assert token =~ ~r/^edgepkg-v2:[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+      assert String.starts_with?(token, "edgepkg-v3:")
+      assert token =~ ~r/^edgepkg-v3:[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
       assert {:ok, payload} = OnboardingToken.decode(token, public_key: @public_key)
 
-      expected = maybe_put_api(%{pkg: package_id, dl: download_token}, api)
+      expected = maybe_put_api(%{pkg: package_id, dl: download_token, partition_id: partition_id}, api)
 
       assert payload == expected
     end

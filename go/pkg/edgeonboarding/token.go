@@ -13,9 +13,11 @@ import (
 
 const (
 	tokenV2Prefix                = "edgepkg-v2:"
+	tokenV3Prefix                = "edgepkg-v3:"
 	onboardingTokenPrivateKeyEnv = "SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY"
 	onboardingTokenPublicKeyEnv  = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY"
 	onboardingTokenSignatureSep  = "."
+	defaultPartitionID           = "default"
 )
 
 var (
@@ -30,7 +32,10 @@ var (
 type tokenPayload struct {
 	PackageID     string `json:"pkg"`
 	DownloadToken string `json:"dl"`
+	PartitionID   string `json:"partition_id,omitempty"`
 	CoreURL       string `json:"api,omitempty"`
+	rawToken      string `json:"-"`
+	version       int    `json:"-"`
 }
 
 func parseOnboardingToken(raw string, fallbackPackageID, fallbackCoreURL string) (*tokenPayload, error) {
@@ -39,15 +44,18 @@ func parseOnboardingToken(raw string, fallbackPackageID, fallbackCoreURL string)
 		return nil, ErrTokenRequired
 	}
 
-	if !strings.HasPrefix(raw, tokenV2Prefix) {
+	switch {
+	case strings.HasPrefix(raw, tokenV3Prefix):
+		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, fallbackPackageID, fallbackCoreURL)
+	case strings.HasPrefix(raw, tokenV2Prefix):
+		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, fallbackPackageID, fallbackCoreURL)
+	default:
 		return nil, ErrUnsupportedTokenFormat
 	}
-
-	return parseSignedStructuredToken(raw, fallbackPackageID, fallbackCoreURL)
 }
 
-func parseSignedStructuredToken(raw string, fallbackPackageID, fallbackCoreURL string) (*tokenPayload, error) {
-	encoded := strings.TrimPrefix(raw, tokenV2Prefix)
+func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackageID, fallbackCoreURL string) (*tokenPayload, error) {
+	encoded := strings.TrimPrefix(raw, prefix)
 	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
 	if !ok || encodedPayload == "" || encodedSignature == "" {
 		return nil, ErrOnboardingTokenMalformed
@@ -83,6 +91,9 @@ func parseSignedStructuredToken(raw string, fallbackPackageID, fallbackCoreURL s
 	if strings.TrimSpace(payload.CoreURL) == "" {
 		payload.CoreURL = strings.TrimSpace(fallbackCoreURL)
 	}
+	payload.PartitionID = strings.TrimSpace(payload.PartitionID)
+	payload.rawToken = raw
+	payload.version = version
 
 	if err := validateTokenPayload(&payload); err != nil {
 		return nil, err
@@ -99,10 +110,11 @@ func validateTokenPayload(payload *tokenPayload) error {
 		return ErrDownloadTokenEmpty
 	}
 	payload.DownloadToken = strings.TrimSpace(payload.DownloadToken)
+	payload.PartitionID = strings.TrimSpace(payload.PartitionID)
 	return nil
 }
 
-func encodeSignedTokenPayload(payload tokenPayload) (string, error) {
+func encodeSignedTokenPayload(payload tokenPayload, prefix string) (string, error) {
 	if err := validateTokenPayload(&payload); err != nil {
 		return "", err
 	}
@@ -118,7 +130,7 @@ func encodeSignedTokenPayload(payload tokenPayload) (string, error) {
 	}
 
 	signature := ed25519.Sign(privateKey, buf)
-	return tokenV2Prefix +
+	return prefix +
 		base64.RawURLEncoding.EncodeToString(buf) +
 		onboardingTokenSignatureSep +
 		base64.RawURLEncoding.EncodeToString(signature), nil
@@ -181,22 +193,37 @@ func decodeOnboardingTokenKey(raw string) ([]byte, error) {
 	return nil, ErrOnboardingTokenMalformed
 }
 
-// EncodeToken builds a signed edgepkg-v2 token that embeds the package id,
-// download token, and optional Core API base URL so bootstrap clients only need
-// ONBOARDING_TOKEN plus the configured public verification key.
+// EncodeToken builds a signed edgepkg-v3 token with the default partition.
 func EncodeToken(packageID, downloadToken, coreAPIURL string) (string, error) {
+	return EncodeTokenWithPartition(packageID, downloadToken, coreAPIURL, defaultPartitionID)
+}
+
+// EncodeTokenWithPartition builds a signed edgepkg-v3 token that embeds the
+// package id, download token, partition, and optional Core API base URL so
+// bootstrap clients only need ONBOARDING_TOKEN plus the configured public
+// verification key.
+func EncodeTokenWithPartition(packageID, downloadToken, coreAPIURL, partitionID string) (string, error) {
 	payload := tokenPayload{
 		PackageID:     strings.TrimSpace(packageID),
 		DownloadToken: strings.TrimSpace(downloadToken),
+		PartitionID:   normalizePartitionID(partitionID),
 	}
 	if trimmed := strings.TrimSpace(coreAPIURL); trimmed != "" {
 		payload.CoreURL = trimmed
 	}
-	return encodeSignedTokenPayload(payload)
+	return encodeSignedTokenPayload(payload, tokenV3Prefix)
 }
 
 // IsStructuredToken reports whether the token uses the structured edge package format.
 func IsStructuredToken(raw string) bool {
 	raw = strings.TrimSpace(raw)
-	return strings.HasPrefix(raw, tokenV2Prefix)
+	return strings.HasPrefix(raw, tokenV3Prefix) || strings.HasPrefix(raw, tokenV2Prefix)
+}
+
+func normalizePartitionID(partitionID string) string {
+	partitionID = strings.TrimSpace(partitionID)
+	if partitionID == "" {
+		return defaultPartitionID
+	}
+	return partitionID
 }

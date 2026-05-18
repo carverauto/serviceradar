@@ -163,6 +163,9 @@ func (b *Bootstrapper) downloadPackage(ctx context.Context) error {
 
 	endpoint := fmt.Sprintf("%s/api/admin/edge-packages/%s/download?format=json", coreURL, url.PathEscape(tokenInfo.PackageID))
 	payload := map[string]string{"download_token": tokenInfo.DownloadToken}
+	if tokenInfo.version >= 3 && strings.TrimSpace(tokenInfo.rawToken) != "" {
+		payload["onboarding_token"] = tokenInfo.rawToken
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode download payload: %w", err)

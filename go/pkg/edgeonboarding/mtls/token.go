@@ -29,6 +29,7 @@ import (
 
 const (
 	tokenV2Prefix               = "edgepkg-v2:"
+	tokenV3Prefix               = "edgepkg-v3:"
 	onboardingTokenPublicKeyEnv = "SERVICERADAR_ONBOARDING_TOKEN_PUBLIC_KEY"
 	onboardingTokenSignatureSep = "."
 )
@@ -39,7 +40,10 @@ var errTokenPublicKeyLengthInvalid = errors.New("invalid onboarding token public
 type TokenPayload struct {
 	PackageID     string `json:"pkg"`
 	DownloadToken string `json:"dl"`
+	PartitionID   string `json:"partition_id,omitempty"`
 	CoreURL       string `json:"api,omitempty"`
+	RawToken      string `json:"-"`
+	Version       int    `json:"-"`
 }
 
 // ParseToken parses a signed edge onboarding token and returns its payload.
@@ -49,15 +53,18 @@ func ParseToken(raw, fallbackHost string) (*TokenPayload, error) {
 		return nil, ErrTokenRequired
 	}
 
-	if !strings.HasPrefix(raw, tokenV2Prefix) {
+	switch {
+	case strings.HasPrefix(raw, tokenV3Prefix):
+		return parseSignedToken(raw, tokenV3Prefix, 3, fallbackHost)
+	case strings.HasPrefix(raw, tokenV2Prefix):
+		return parseSignedToken(raw, tokenV2Prefix, 2, fallbackHost)
+	default:
 		return nil, ErrUnsupportedTokenFormat
 	}
-
-	return parseSignedToken(raw, fallbackHost)
 }
 
-func parseSignedToken(raw, fallbackHost string) (*TokenPayload, error) {
-	encoded := strings.TrimPrefix(raw, tokenV2Prefix)
+func parseSignedToken(raw, prefix string, version int, fallbackHost string) (*TokenPayload, error) {
+	encoded := strings.TrimPrefix(raw, prefix)
 	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
 	if !ok || encodedPayload == "" || encodedSignature == "" {
 		return nil, ErrMalformedToken
@@ -99,6 +106,9 @@ func parseSignedToken(raw, fallbackHost string) (*TokenPayload, error) {
 	if payload.CoreURL == "" {
 		return nil, ErrCoreAPIHostRequired
 	}
+	payload.PartitionID = strings.TrimSpace(payload.PartitionID)
+	payload.RawToken = raw
+	payload.Version = version
 
 	return &payload, nil
 }

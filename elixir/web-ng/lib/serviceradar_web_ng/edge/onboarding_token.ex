@@ -2,18 +2,25 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
   @moduledoc false
 
   @token_v2_prefix "edgepkg-v2:"
+  @token_v3_prefix "edgepkg-v3:"
   @signature_separator "."
+  @default_partition_id "default"
 
   @type payload :: %{
           required(:pkg) => String.t(),
           required(:dl) => String.t(),
+          optional(:partition_id) => String.t(),
           optional(:api) => String.t()
         }
 
   def encode(package_id, download_token, core_api_url \\ nil, opts \\ []) do
     payload =
       maybe_put_api(
-        %{pkg: normalize_required_string(package_id), dl: normalize_required_string(download_token)},
+        %{
+          pkg: normalize_required_string(package_id),
+          dl: normalize_required_string(download_token),
+          partition_id: normalize_partition_id(Keyword.get(opts, :partition_id))
+        },
         core_api_url
       )
 
@@ -24,7 +31,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
           signature = :crypto.sign(:eddsa, :none, json, [seed, :ed25519])
 
           {:ok,
-           @token_v2_prefix <>
+           @token_v3_prefix <>
              Base.url_encode64(json, padding: false) <>
              @signature_separator <> Base.url_encode64(signature, padding: false)}
 
@@ -42,17 +49,28 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
   def decode(raw, opts) when is_binary(raw) do
     raw = String.trim(raw)
 
-    if String.starts_with?(raw, @token_v2_prefix) do
-      decode_v2(raw, opts)
-    else
-      {:error, :unsupported_token_format}
+    cond do
+      String.starts_with?(raw, @token_v3_prefix) ->
+        decode_signed(raw, @token_v3_prefix, opts)
+
+      String.starts_with?(raw, @token_v2_prefix) ->
+        decode_signed(raw, @token_v2_prefix, opts)
+
+      true ->
+        {:error, :unsupported_token_format}
     end
   end
 
   def decode(_, _opts), do: {:error, :unsupported_token_format}
 
-  defp decode_v2(raw, opts) do
-    encoded = String.replace_prefix(raw, @token_v2_prefix, "")
+  def partition_bound?(%{partition_id: partition_id}) when is_binary(partition_id) do
+    String.trim(partition_id) != ""
+  end
+
+  def partition_bound?(_payload), do: false
+
+  defp decode_signed(raw, prefix, opts) do
+    encoded = String.replace_prefix(raw, prefix, "")
 
     with [encoded_payload, encoded_signature] <- String.split(encoded, @signature_separator, parts: 2),
          {:ok, json} <- Base.url_decode64(encoded_payload, padding: false),
@@ -87,6 +105,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
     %{
       pkg: Map.get(payload, "pkg", ""),
       dl: Map.get(payload, "dl", ""),
+      partition_id: Map.get(payload, "partition_id"),
       api: Map.get(payload, "api")
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
@@ -100,6 +119,10 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
 
       not is_binary(dl) or dl == "" ->
         {:error, :missing_download_token}
+
+      Map.has_key?(payload, :partition_id) and
+          (not is_binary(payload.partition_id) or String.trim(payload.partition_id) == "") ->
+        {:error, :invalid_partition_id}
 
       Map.has_key?(payload, :api) and not is_binary(payload.api) ->
         {:error, :invalid_core_api_url}
@@ -119,12 +142,19 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
         ~s(,"dl":),
         Jason.encode!(dl)
       ]
+      |> maybe_append_partition_id(payload)
       |> maybe_append_api(payload)
       |> Kernel.++(["}"])
       |> IO.iodata_to_binary()
 
     {:ok, json}
   end
+
+  defp maybe_append_partition_id(parts, %{partition_id: partition_id}) when is_binary(partition_id) do
+    parts ++ [~s(,"partition_id":), Jason.encode!(partition_id)]
+  end
+
+  defp maybe_append_partition_id(parts, _payload), do: parts
 
   defp maybe_append_api(parts, %{api: api}) when is_binary(api), do: parts ++ [~s(,"api":), Jason.encode!(api)]
 
@@ -195,4 +225,11 @@ defmodule ServiceRadarWebNG.Edge.OnboardingToken do
 
   defp normalize_required_string(value) when is_binary(value), do: String.trim(value)
   defp normalize_required_string(_), do: ""
+
+  defp normalize_partition_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: @default_partition_id, else: value
+  end
+
+  defp normalize_partition_id(_value), do: @default_partition_id
 end

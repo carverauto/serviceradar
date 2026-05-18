@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.OnboardingPackages
+  alias ServiceRadarWebNG.Edge.OnboardingToken
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ClientIP
 
@@ -194,7 +195,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   Requires a valid download token in the request body.
   """
   def download(conn, %{"id" => id}) do
-    download_token = conn |> body_param("download_token") |> normalize_download_token()
+    download_token = extract_download_token(conn)
 
     if download_token in [nil, ""] do
       conn
@@ -215,12 +216,9 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp download_with_token(id, download_token, source_ip, actor) do
-    case find_package(id) do
-      {:ok, _package} ->
-        deliver_package(id, download_token, source_ip, actor)
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, package} <- find_package(id),
+         {:ok, raw_download_token} <- verified_download_token(package, id, download_token) do
+      deliver_package(id, raw_download_token, source_ip, actor)
     end
   end
 
@@ -253,6 +251,23 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     conn |> put_status(:not_found) |> json(%{error: "package not found"})
   end
 
+  defp handle_download_error(conn, reason)
+       when reason in [
+              :unsupported_token_format,
+              :invalid_signature,
+              :invalid_base64,
+              :invalid_json,
+              :invalid_public_key,
+              :invalid_key,
+              :malformed_token,
+              :missing_signing_key,
+              :missing_partition_id,
+              :partition_mismatch,
+              :package_mismatch
+            ] do
+    conn |> put_status(:unauthorized) |> json(%{error: "onboarding token invalid"})
+  end
+
   defp handle_download_error(conn, reason) when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
   end
@@ -266,7 +281,25 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp handle_bundle_error(conn, reason)
-       when reason in [:invalid_token, :expired, :not_found, :already_delivered, :revoked, :deleted] do
+       when reason in [
+              :invalid_token,
+              :expired,
+              :not_found,
+              :already_delivered,
+              :revoked,
+              :deleted,
+              :unsupported_token_format,
+              :invalid_signature,
+              :invalid_base64,
+              :invalid_json,
+              :invalid_public_key,
+              :invalid_key,
+              :malformed_token,
+              :missing_signing_key,
+              :missing_partition_id,
+              :partition_mismatch,
+              :package_mismatch
+            ] do
     handle_download_error(conn, reason)
   end
 
@@ -314,17 +347,9 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   end
 
   defp extract_download_token(conn) do
-    conn
-    |> Plug.Conn.get_req_header("x-serviceradar-download-token")
-    |> List.first()
-    |> normalize_download_token()
-    |> case do
-      nil ->
-        conn |> body_param("download_token") |> normalize_download_token()
-
-      token ->
-        token
-    end
+    header_download_token(conn) ||
+      body_download_token(conn, "onboarding_token") ||
+      body_download_token(conn, "download_token")
   end
 
   defp normalize_download_token(value) when is_binary(value) do
@@ -337,12 +362,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   defp bundle_with_token(id, download_token, source_ip, base_url) do
     opts = [actor: nil, source_ip: source_ip, authorize?: false]
 
-    with {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
-           OnboardingPackages.deliver(id, download_token, opts),
+    with {:ok, package} <- find_package(id),
+         {:ok, raw_download_token} <- verified_download_token(package, id, download_token),
+         {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
+           OnboardingPackages.deliver(id, raw_download_token, opts),
          {:ok, tarball} <-
            wrap_bundle_error(
              bundle_generator().create_tarball(package, bundle_pem || "", join_token,
-               download_token: download_token,
+               download_token: raw_download_token,
                base_url: base_url
              )
            ) do
@@ -355,7 +382,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   defp wrap_bundle_error({:error, reason}), do: {:error, {:bundle_error, reason}}
 
   defp bundle_generator do
-    Application.get_env(:serviceradar_web_ng, :edge_bundle_generator, BundleGenerator)
+    case Application.get_env(:serviceradar_web_ng, :edge_bundle_generator) do
+      module when is_atom(module) and not is_nil(module) -> module
+      _ -> BundleGenerator
+    end
   end
 
   defp body_param(conn, key) when is_binary(key) do
@@ -365,6 +395,48 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
       _ -> nil
     end
   end
+
+  defp header_download_token(conn) do
+    conn
+    |> Plug.Conn.get_req_header("x-serviceradar-download-token")
+    |> List.first()
+    |> normalize_download_token()
+  end
+
+  defp body_download_token(conn, key) do
+    conn |> body_param(key) |> normalize_download_token()
+  end
+
+  defp verified_download_token(package, package_id, raw_token) do
+    with {:ok, payload} <- OnboardingToken.decode(raw_token),
+         :ok <- verify_onboarding_token_package(payload, package_id),
+         :ok <- verify_onboarding_token_partition(payload, package) do
+      {:ok, payload.dl}
+    end
+  end
+
+  defp verify_onboarding_token_package(%{pkg: token_package_id}, package_id) when token_package_id == package_id, do: :ok
+
+  defp verify_onboarding_token_package(_payload, _package_id), do: {:error, :package_mismatch}
+
+  defp verify_onboarding_token_partition(%{partition_id: partition_id}, package) when is_binary(partition_id) do
+    if normalize_partition_id(partition_id) == package_partition_id(package) do
+      :ok
+    else
+      {:error, :partition_mismatch}
+    end
+  end
+
+  defp verify_onboarding_token_partition(_payload, _package), do: {:error, :missing_partition_id}
+
+  defp package_partition_id(%{site: site}), do: normalize_partition_id(site)
+
+  defp normalize_partition_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: "default", else: value
+  end
+
+  defp normalize_partition_id(_value), do: "default"
 
   @doc """
   POST /api/admin/edge-packages/:id/revoke
@@ -614,6 +686,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   defp format_datetime(%DateTime{} = dt) do
     DateTime.to_iso8601(dt)
   end
+
+  defp format_datetime(nil), do: nil
 
   defp parse_int(nil), do: nil
   defp parse_int(""), do: nil

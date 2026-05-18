@@ -775,6 +775,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
              package.id,
              download_token,
              base_url,
+             partition_id: package_partition_id(package),
              private_key: onboarding_token_private_key
            ) do
         {:ok, token} ->
@@ -821,7 +822,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
     This bundle did not include an onboarding token. Configure
     `SERVICERADAR_ONBOARDING_TOKEN_PRIVATE_KEY` on `web-ng` to emit signed
-    `edgepkg-v2` enrollment tokens automatically.
+    `edgepkg-v3` enrollment tokens automatically.
     """
   end
 
@@ -868,6 +869,13 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     ```
     """
   end
+
+  defp package_partition_id(%{site: site}) when is_binary(site) do
+    site = String.trim(site)
+    if site == "", do: "default", else: site
+  end
+
+  defp package_partition_id(_package), do: "default"
 
   def agent_enroll_command(token, base_url) when is_binary(token) and is_binary(base_url) do
     command =
