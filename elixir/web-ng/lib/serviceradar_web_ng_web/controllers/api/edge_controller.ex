@@ -217,13 +217,13 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
 
   defp download_with_token(id, download_token, source_ip, actor) do
     with {:ok, package} <- find_package(id),
-         {:ok, raw_download_token} <- verified_download_token(package, id, download_token) do
-      deliver_package(id, raw_download_token, source_ip, actor)
+         {:ok, token_context} <- verified_download_token(package, id, download_token) do
+      deliver_package(id, token_context.download_token, source_ip, actor || token_context.actor)
     end
   end
 
   defp deliver_package(id, download_token, source_ip, actor) do
-    opts = [actor: actor, source_ip: source_ip, authorize?: false]
+    opts = [actor: actor, source_ip: source_ip, authorize?: true]
 
     case OnboardingPackages.deliver(id, download_token, opts) do
       {:ok, result} ->
@@ -360,16 +360,18 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   defp normalize_download_token(_value), do: nil
 
   defp bundle_with_token(id, download_token, source_ip, base_url) do
-    opts = [actor: nil, source_ip: source_ip, authorize?: false]
-
     with {:ok, package} <- find_package(id),
-         {:ok, raw_download_token} <- verified_download_token(package, id, download_token),
+         {:ok, token_context} <- verified_download_token(package, id, download_token),
          {:ok, %{package: package, join_token: join_token, bundle_pem: bundle_pem}} <-
-           OnboardingPackages.deliver(id, raw_download_token, opts),
+           OnboardingPackages.deliver(id, token_context.download_token,
+             actor: token_context.actor,
+             source_ip: source_ip,
+             authorize?: true
+           ),
          {:ok, tarball} <-
            wrap_bundle_error(
              bundle_generator().create_tarball(package, bundle_pem || "", join_token,
-               download_token: raw_download_token,
+               download_token: token_context.download_token,
                base_url: base_url
              )
            ) do
@@ -411,8 +413,23 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     with {:ok, payload} <- OnboardingToken.decode(raw_token),
          :ok <- verify_onboarding_token_package(payload, package_id),
          :ok <- verify_onboarding_token_partition(payload, package) do
-      {:ok, payload.dl}
+      {:ok,
+       %{
+         download_token: payload.dl,
+         actor: onboarding_token_actor(payload)
+       }}
     end
+  end
+
+  defp onboarding_token_actor(%{pkg: package_id, partition_id: partition_id}) do
+    normalized_partition_id = normalize_partition_id(partition_id)
+
+    %{
+      id: "edge-onboarding-token:#{package_id}",
+      email: "edge-onboarding-token@serviceradar.local",
+      role: :operator,
+      partition_id: normalized_partition_id
+    }
   end
 
   defp verify_onboarding_token_package(%{pkg: token_package_id}, package_id) when token_package_id == package_id, do: :ok

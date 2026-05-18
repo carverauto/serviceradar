@@ -759,10 +759,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: The Ash `partition_matches()` macro can't be wired because the resource has no `partition_id` attribute — it has a free-text `site`. Type-rename is a prereq for 6.N.1's policy fix.
       Fix: Rename `site` → `partition_id`; FK to the partition (if a resource exists); migrate data
 
-- [ ] 6.N.3 [H] `/api/admin/edge-packages/:id/download` runs Ash actions with `authorize?: false`
+- [x] 6.N.3 [H] `/api/admin/edge-packages/:id/download` runs Ash actions with `authorize?: false`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/edge_controller.ex:195-214, 227` (commit: staging)
       Why: Token-gated path, but skipping Ash policies means a leaked download token + a *guessed* package id grants delivery for any partition's package — combined with 6.N.7 (no single-use) this is replayable.
       Fix: `authorize?: true` with a `token_actor` (the token's payload carries an actor identity bound to the partition); reject if `package.partition_id != actor.partition_id`
+      Resolution: Public download and bundle delivery now decode the signed onboarding token into a scoped token actor carrying `role: :operator` and the token partition, then execute `OnboardingPackages.deliver/3` with `authorize?: true`. The unauthorised package lookup remains only as the pre-delivery token verification step and still requires signed package-id and partition equality before any secret is decrypted.
 
 - [x] 6.N.4 [M] Cert issuance not recorded — no `{actor, requested_partition_id, granted_partition_id, ttl, fingerprint}` audit row
       Where: `cert_issuer.ex:16-26` (no audit emit) (working tree)
