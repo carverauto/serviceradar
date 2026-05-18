@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Repo
 
   defmodule AuditSink do
@@ -46,9 +47,19 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     previous_policy =
       Application.get_env(:serviceradar_core, :remote_access_ssh_certificate_policy)
 
+    previous_crypto_secret = Application.get_env(:serviceradar_core, :crypto_secret)
+
+    Application.put_env(:serviceradar_core, :crypto_secret, String.duplicate("a", 32))
+
     Process.put(:remote_access_audit_owner, self())
 
     on_exit(fn ->
+      if previous_crypto_secret do
+        Application.put_env(:serviceradar_core, :crypto_secret, previous_crypto_secret)
+      else
+        Application.delete_env(:serviceradar_core, :crypto_secret)
+      end
+
       if previous_policy do
         Application.put_env(
           :serviceradar_core,
@@ -420,7 +431,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert broker["gateway_id"] == "gateway-central-grant"
     assert broker["protocol"] == "ssh"
     assert broker["credential_rule_id"] == rule.id
-    assert broker["credential_secret_ref"] =~ "credentialref:network-credential-secret:"
+    assert broker["credential_secret_ref"] =~ "credentialref:network-credential-grant:"
+
+    assert {:ok, rule.secret_id} ==
+             SecretRefs.network_credential_ref_id(broker["credential_secret_ref"])
+
     assert broker["target"] == %{"device_uid" => uid, "host" => uid, "port" => 22}
     assert broker["allow"] == %{"protocols" => ["ssh"], "hosts" => [uid], "ports" => [22]}
     assert broker["ttl_seconds"] == 120

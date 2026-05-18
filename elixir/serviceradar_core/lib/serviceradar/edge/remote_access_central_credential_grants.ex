@@ -103,6 +103,8 @@ defmodule ServiceRadar.Edge.RemoteAccessCentralCredentialGrants do
   defp ensure_rule_scope(_rule, _session), do: {:error, :credential_rule_scope_mismatch}
 
   defp broker_grant(session, rule, secret_id, target) do
+    ttl_seconds = grant_ttl(rule)
+
     compact_map(%{
       "schema" => @grant_schema,
       "grant_type" => @grant_type,
@@ -112,14 +114,25 @@ defmodule ServiceRadar.Edge.RemoteAccessCentralCredentialGrants do
       "gateway_id" => value_string(session, [:gateway_id, "gateway_id"]),
       "protocol" => value_string(session, [:protocol, "protocol"]),
       "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+      "credential_secret_ref" =>
+        SecretRefs.network_credential_grant_ref(secret_id,
+          ttl_seconds: ttl_seconds,
+          claims: %{
+            "session_id" => value_string(session, [:id, "id", :session_id, "session_id"]),
+            "actor_id" => value_string(session, [:requested_by, "requested_by"]),
+            "agent_id" => value_string(session, [:agent_id, "agent_id"]),
+            "gateway_id" => value_string(session, [:gateway_id, "gateway_id"]),
+            "protocol" => value_string(session, [:protocol, "protocol"]),
+            "target" => target
+          }
+        ),
       "target" => target,
       "allow" => %{
         "protocols" => [value_string(session, [:protocol, "protocol"])],
         "hosts" => [Map.fetch!(target, "host")],
         "ports" => [Map.fetch!(target, "port")]
       },
-      "ttl_seconds" => grant_ttl(rule)
+      "ttl_seconds" => ttl_seconds
     })
   end
 

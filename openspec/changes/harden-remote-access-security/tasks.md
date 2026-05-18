@@ -256,10 +256,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Strip these fields from the JSON view + LiveView render; only the controller-issued pre-signed URL (short-lived, per-actor) should reach the browser
       Resolution: Recording controller responses now omit storage fields from both the recording object and exported manifest, and the recordings LiveView no longer renders storage backend/bucket/object-key details. Regression tests assert the fields and default storage strings do not reach the browser.
 
-- [ ] 3.H.3 [M] `SecretRefs.network_credential_ref/1` is plain prefix + UUID — no HMAC, no TTL, no nonce
+- [x] 3.H.3 [M] `SecretRefs.network_credential_ref/1` is plain prefix + UUID — no HMAC, no TTL, no nonce
       Where: `elixir/serviceradar_core/lib/serviceradar/plugins/secret_refs.ex:120-123`; consumed at `remote_access_central_credential_grants.ex:114` (commit: staging)
       Why: Confirms what 4.8 suspected — the credential ref is a static, replayable handle. Any log line / temp file / audit row (see 3.H.1) carrying the ref is exfilable into an indefinite credential.
-      Fix: Replace with HMAC-signed token over `(secret_id, exp, nonce)` with sub-minute TTL; verify signature + exp on deref8, single fix.
+      Fix: Replace with HMAC-signed token over `(secret_id, exp, nonce)` with sub-minute TTL; verify signature + exp on dereference, single fix.
+      Resolution: Remote-access central credential grants now issue `credentialref:network-credential-grant:` refs signed with HMAC over `secret_id`, expiry, nonce, and grant-binding claims; deref verifies signature and expiry before returning the secret id, and the signed ref TTL is capped at 60 seconds. Legacy static refs remain readable for persisted plugin assignment/test-plan compatibility but are no longer emitted by the remote-access central broker grant path.
 
 - [ ] 3.H.4 [L] Recording events have `payload_sha256` but no chain linkage (`prior_event_hash`)
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recording_event.ex:99-103` (commit: staging)
@@ -1197,7 +1198,7 @@ Coverage classification: COVERED / PARTIAL / MISSING / N/A.
 | 3.2 | H | MISSING | `remote_access_file_transfers_test.exs` / recordings have no destroy-RBAC test | Actor without `recording.delete`; assert denial + audit |
 | 3.H.1 | H | MISSING | No PaperTrail-content test for excluded inputs | Create session with `credential_rule_id`; assert `*_versions` row omits it |
 | 3.H.2 | M | MISSING | No JSON-schema regression on recording controller view | Assert response JSON has no `storage_backend`/`storage_bucket`/`object_key` |
-| 3.H.3 | M | MISSING | `SecretRefs` has no replay-window test | Once HMAC ref lands, assert expiry rejects + nonce blocks replay |
+| 3.H.3 | M | COVERED | `SecretRefs` signs grant refs and rejects tampering/expiry; central grant test asserts remote-access broker emits the signed ref path | Keep replay-window coverage with `SecretRefs.network_credential_grant_ref/2` tests |
 | 4.2 | C | PARTIAL | `remote_access_sessions_test.exs:66-121` returns `:invalid_or_expired_ticket` on second attach | Promote to: assert atomic state transition to `:consumed`; add cross-session replay |
 | 4.3 | H | MISSING | No `remote_access_requests_test.exs` for self-approval | Requester w/ review perm approves own req; assert `forbid_if` unless `allow_self_approval` |
 | 4.4 | H | PARTIAL | `remote_access_broker_test.exs:691-750` exercises string-equality | Once HMAC lands, add forged-pair-without-HMAC negative case |
