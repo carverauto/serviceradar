@@ -578,6 +578,31 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       refute_received {:send_command, :gateway_a, _, _}
     end
 
+    test "does not fall back to another gateway when a route is required", %{agent_id: agent_id} do
+      start_control_session(
+        agent_id,
+        self(),
+        %{partition_id: "default", gateway_node: "gateway-a"},
+        registry_key: {:agent_control, agent_id, :gateway_a},
+        marker: :gateway_a
+      )
+
+      assert {:error, {:agent_offline, ^agent_id}} =
+               AgentCommandBus.start_camera_relay(
+                 agent_id,
+                 %{
+                   relay_session_id: "relay-required-gateway",
+                   camera_source_id: "camera-required-gateway",
+                   stream_profile_id: "low",
+                   lease_token: "lease-required-gateway",
+                   source_url: "rtsp://camera.local/stream/low"
+                 },
+                 required_gateway_node: "gateway-b"
+               )
+
+      refute_received {:send_command, :gateway_a, _, _}
+    end
+
     test "resolves source_url from camera inventory before dispatch", %{agent_id: agent_id} do
       {_pid, _metadata} = start_control_session(agent_id, self(), %{partition_id: "default"})
       camera_source_id = Ecto.UUID.generate()

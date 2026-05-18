@@ -37,6 +37,21 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     file_transfer_outcome
     file_transfer_error
   )
+  @application_frame_types ~w(
+    app_response_metadata
+    app_data
+    app_progress
+    app_close
+    app_error
+    app_outcome
+  )
+  @tcp_frame_types ~w(
+    tcp_data
+    tcp_progress
+    tcp_close
+    tcp_error
+    tcp_outcome
+  )
 
   def child_spec({session, owner, opts}) do
     %{
@@ -75,7 +90,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       session: session,
       owner: owner,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus),
-      required_gateway_node: Keyword.get(opts, :required_gateway_node),
+      required_gateway_node: required_gateway_node(session, opts),
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
       file_transfers: Keyword.get(opts, :file_transfers, RemoteAccessFileTransfers),
@@ -90,9 +105,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     cols = Keyword.get(opts, :cols)
     rows = Keyword.get(opts, :rows)
 
-    case open_frame_data(session, opts) do
-      {:ok, data} ->
-        case send_frame(state, "open", data, cols, rows, nil) do
+    case open_frame(session, opts) do
+      {:ok, {frame_type, data}} ->
+        case send_frame(state, frame_type, data, cols, rows, nil) do
           :ok ->
             lifecycle(state, :mark_opening)
 
@@ -188,6 +203,18 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:noreply, state}
   end
 
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when frame_type in @application_frame_types do
+    send(state.owner, {:remote_access_application_frame, frame})
+    maybe_close_application_or_tcp_frame(frame_type, frame, state)
+  end
+
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when frame_type in @tcp_frame_types do
+    send(state.owner, {:remote_access_tcp_frame, frame})
+    maybe_close_application_or_tcp_frame(frame_type, frame, state)
+  end
+
   defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
        when frame_type in ["close", "error"] do
     send(state.owner, {:remote_access_closed, reason || frame_type})
@@ -226,6 +253,46 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   catch
     _kind, _reason -> :ok
   end
+
+  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
+       when frame_type in ["app_error", "tcp_error"] do
+    reason = agent_frame_reason(frame, frame_type)
+    send(state.owner, {:remote_access_closed, reason})
+    lifecycle_close(state, "error", reason)
+    write_audit(state, :remote_access_session_failed, %{close_reason: reason})
+    state = finish_recording_for_close(state, "error", reason)
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
+       when frame_type in ["app_close", "tcp_close"] do
+    reason = agent_frame_reason(frame, frame_type)
+    send(state.owner, {:remote_access_closed, reason})
+    lifecycle_close(state, "close", reason)
+    write_audit(state, :remote_access_session_closed, %{close_reason: reason})
+    state = finish_recording_for_close(state, "close", reason)
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp maybe_close_application_or_tcp_frame(_frame_type, _frame, state), do: {:noreply, state}
+
+  defp agent_frame_reason(frame, fallback_reason) do
+    string_value(frame, "reason") ||
+      frame
+      |> value("data")
+      |> decode_frame_data()
+      |> string_value("message") ||
+      fallback_reason
+  end
+
+  defp decode_frame_data(data) when is_binary(data) do
+    case Jason.decode(data) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _other -> %{}
+    end
+  end
+
+  defp decode_frame_data(_data), do: %{}
 
   defp owns_remote_access_frame?(session, frame) do
     string_value(frame, "session_id") == session_id(session) and
@@ -530,7 +597,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> String.slice(0, 500)
   end
 
-  defp open_frame_data(session, opts) do
+  defp open_frame(session, opts) do
+    case session_protocol(session, opts) do
+      "app" -> application_open_frame_data(session)
+      "application" -> application_open_frame_data(session)
+      "tcp" -> tcp_open_frame_data(session)
+      _protocol -> terminal_open_frame_data(session, opts)
+    end
+  end
+
+  defp terminal_open_frame_data(session, opts) do
     session_metadata = metadata(session)
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
@@ -567,7 +643,105 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
         |> Map.new()
         |> Jason.encode!()
 
-      {:ok, data}
+      {:ok, {"open", data}}
+    end
+  end
+
+  defp application_open_frame_data(session) do
+    session_metadata = metadata(session)
+
+    data =
+      encode_typed_open_payload(%{
+        target_id: string_value(session_metadata, "target_id"),
+        session_id: session_id(session),
+        scheme: string_value(session_metadata, "upstream_scheme"),
+        upstream_host: string_value(session, "target_host"),
+        upstream_port: positive_int(value(session, "target_port")),
+        host_header: string_value(session_metadata, "upstream_host_header"),
+        sni: string_value(session_metadata, "upstream_sni"),
+        tls_policy: policy_metadata(session_metadata, "tls_policy"),
+        ca_bundle_ref: string_value(session_metadata, "ca_bundle_ref"),
+        allowed_methods: list_metadata(session_metadata, "allowed_methods"),
+        allowed_path_prefixes: list_metadata(session_metadata, "allowed_path_prefixes"),
+        header_policy: policy_metadata(session_metadata, "header_policy"),
+        cookie_policy: policy_metadata(session_metadata, "cookie_policy"),
+        quota_policy: policy_metadata(session_metadata, "quota_policy"),
+        approval_id: string_value(session, "approval_id"),
+        recording_policy: policy_option(session, [], "recording_policy"),
+        enhanced_recording_policy: policy_option(session, [], "enhanced_recording_policy"),
+        metadata: policy_metadata(session_metadata, "target_metadata")
+      })
+
+    {:ok, {"app_open", data}}
+  end
+
+  defp tcp_open_frame_data(session) do
+    session_metadata = metadata(session)
+    session_id = session_id(session)
+
+    data =
+      encode_typed_open_payload(%{
+        target_id: string_value(session_metadata, "target_id"),
+        session_id: session_id,
+        connection_id: string_value(session_metadata, "connection_id") || "#{session_id}:tcp",
+        upstream_host: string_value(session, "target_host"),
+        upstream_port: positive_int(value(session, "target_port")),
+        protocol_name: string_value(session_metadata, "protocol_name"),
+        idle_timeout_seconds: positive_int(value(session, "idle_timeout_seconds")),
+        absolute_timeout_seconds: positive_int(value(session, "absolute_timeout_seconds")),
+        quota_policy: policy_metadata(session_metadata, "quota_policy"),
+        approval_id: string_value(session, "approval_id"),
+        recording_policy: policy_option(session, [], "recording_policy"),
+        enhanced_recording_policy: policy_option(session, [], "enhanced_recording_policy"),
+        metadata: policy_metadata(session_metadata, "target_metadata")
+      })
+
+    {:ok, {"tcp_open", data}}
+  end
+
+  defp session_protocol(session, opts),
+    do: string_option(session, opts, "protocol", @default_protocol)
+
+  defp required_gateway_node(session, opts) do
+    case Keyword.get(opts, :required_gateway_node) do
+      nil ->
+        string_value(session, "gateway_node") || string_value(metadata(session), "gateway_node")
+
+      value ->
+        value
+    end
+  end
+
+  defp encode_typed_open_payload(payload) do
+    payload
+    |> Enum.reject(fn {_key, value} -> empty_payload_value?(value) end)
+    |> Map.new()
+    |> CredentialRedactor.redact()
+    |> Jason.encode!()
+  end
+
+  defp empty_payload_value?(value) when value in [nil, "", 0], do: true
+  defp empty_payload_value?(value) when is_map(value), do: map_size(value) == 0
+  defp empty_payload_value?(value) when is_list(value), do: value == []
+  defp empty_payload_value?(_value), do: false
+
+  defp policy_metadata(session_metadata, key) do
+    session_metadata
+    |> map_value(key)
+    |> normalize_metadata()
+    |> non_empty_map()
+    |> sanitize_policy()
+  end
+
+  defp list_metadata(session_metadata, key) do
+    case map_value(session_metadata, key) do
+      values when is_list(values) ->
+        values
+        |> Enum.map(&string_or_nil/1)
+        |> Enum.reject(&is_nil/1)
+
+      _value ->
+        nil
     end
   end
 

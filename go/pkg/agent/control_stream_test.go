@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -284,6 +285,66 @@ func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
 	}
 	if frame.GetReason() != "proxmox console PTY bridge unavailable" {
 		t.Fatalf("Reason = %q", frame.GetReason())
+	}
+}
+
+func TestHandleConsoleFrameRoutesAppTCPFramesFailClosed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		sessionID     string
+		inFrameType   string
+		outFrameType  string
+		messageSubstr string
+	}{
+		{
+			name:          "application",
+			sessionID:     "app-session-1",
+			inFrameType:   remoteaccess.FrameTypeApplicationOpen,
+			outFrameType:  remoteaccess.FrameTypeApplicationError,
+			messageSubstr: "application access adapter unavailable",
+		},
+		{
+			name:          "tcp",
+			sessionID:     "tcp-session-1",
+			inFrameType:   remoteaccess.FrameTypeTCPOpen,
+			outFrameType:  remoteaccess.FrameTypeTCPError,
+			messageSubstr: "tcp access adapter unavailable",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := &fakeControlStreamClient{}
+			sender := newControlStreamSender(stream)
+			loop := &PushLoop{}
+
+			loop.handleConsoleFrame(context.Background(), &proto.ConsoleFrame{
+				SessionId: tt.sessionID,
+				FrameType: tt.inFrameType,
+			}, sender)
+
+			if len(stream.sent) != 1 {
+				t.Fatalf("expected one response frame, got %d", len(stream.sent))
+			}
+
+			frame := stream.sent[0].GetConsoleFrame()
+			if frame == nil {
+				t.Fatal("expected response frame")
+			}
+			if frame.GetSessionId() != tt.sessionID {
+				t.Fatalf("SessionId = %q, want %q", frame.GetSessionId(), tt.sessionID)
+			}
+			if frame.GetFrameType() != tt.outFrameType {
+				t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), tt.outFrameType)
+			}
+			if !strings.Contains(string(frame.GetData()), tt.messageSubstr) {
+				t.Fatalf("Data = %q", string(frame.GetData()))
+			}
+		})
 	}
 }
 

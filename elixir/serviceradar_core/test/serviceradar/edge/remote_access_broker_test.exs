@@ -199,6 +199,160 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert close_audit[:details].close_reason == "operator_closed"
   end
 
+  test "opens registered application sessions with app frames over the selected route" do
+    session =
+      Map.merge(session_fixture(), %{
+        protocol: :app,
+        adapter: :application,
+        target_host: "app.internal.example",
+        target_port: 8443,
+        approval_id: "approval-1",
+        recording_policy: %{"enabled" => true},
+        metadata: %{
+          "target_id" => "app-target-1",
+          "target_type" => "application",
+          "upstream_scheme" => "https",
+          "upstream_host_header" => "app.internal.example",
+          "upstream_sni" => "app.internal.example",
+          "tls_policy" => %{"mode" => "verify_ca"},
+          "ca_bundle_ref" => "ca-bundle-1",
+          "allowed_methods" => ["GET", "POST"],
+          "allowed_path_prefixes" => ["/admin", "/api"],
+          "header_policy" => %{"drop" => ["authorization"]},
+          "cookie_policy" => %{"isolation" => "session"},
+          "quota_policy" => %{"max_response_bytes" => 1_048_576},
+          "target_metadata" => %{"device_uid" => "device-1"}
+        }
+      })
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "app_open"} = frame, opts}
+    assert opts[:required_gateway_node] == self()
+
+    assert %{
+             "target_id" => "app-target-1",
+             "session_id" => "session-1",
+             "scheme" => "https",
+             "upstream_host" => "app.internal.example",
+             "upstream_port" => 8443,
+             "host_header" => "app.internal.example",
+             "sni" => "app.internal.example",
+             "allowed_methods" => ["GET", "POST"],
+             "allowed_path_prefixes" => ["/admin", "/api"],
+             "approval_id" => "approval-1"
+           } = Jason.decode!(frame.data)
+  end
+
+  test "opens registered TCP sessions with tcp frames over the selected route" do
+    session =
+      Map.merge(session_fixture(), %{
+        protocol: :tcp,
+        adapter: :tcp,
+        target_host: "10.0.20.15",
+        target_port: 5432,
+        idle_timeout_seconds: 120,
+        absolute_timeout_seconds: 900,
+        metadata: %{
+          "target_id" => "tcp-target-1",
+          "target_type" => "tcp",
+          "protocol_name" => "postgres",
+          "quota_policy" => %{"max_bytes_in" => 65_536, "max_bytes_out" => 65_536}
+        }
+      })
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "tcp_open"} = frame, opts}
+    assert opts[:required_gateway_node] == self()
+
+    assert %{
+             "target_id" => "tcp-target-1",
+             "session_id" => "session-1",
+             "connection_id" => "session-1:tcp",
+             "upstream_host" => "10.0.20.15",
+             "upstream_port" => 5432,
+             "protocol_name" => "postgres",
+             "idle_timeout_seconds" => 120,
+             "absolute_timeout_seconds" => 900
+           } = Jason.decode!(frame.data)
+  end
+
+  test "routes owned application and TCP agent frames to the session owner" do
+    app_session =
+      Map.merge(session_fixture(), %{protocol: :app, target_host: "app", target_port: 443})
+
+    app_pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {app_session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "app_open"}, _opts}
+
+    app_frame = %{
+      session_id: "session-1",
+      agent_id: "agent-1",
+      frame_type: "app_response_metadata",
+      data: Jason.encode!(%{request_id: "req-1", status_code: 200})
+    }
+
+    send(app_pid, {:remote_access_frame, app_frame})
+    assert_receive {:remote_access_application_frame, ^app_frame}
+
+    tcp_session =
+      Map.merge(session_fixture(), %{
+        id: "session-2",
+        protocol: :tcp,
+        target_host: "db",
+        target_port: 5432
+      })
+
+    tcp_pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {tcp_session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "tcp_open"}, _opts}
+
+    tcp_frame = %{
+      session_id: "session-2",
+      agent_id: "agent-1",
+      frame_type: "tcp_data",
+      data: Jason.encode!(%{connection_id: "session-2:tcp", sequence: 1})
+    }
+
+    send(tcp_pid, {:remote_access_frame, tcp_frame})
+    assert_receive {:remote_access_tcp_frame, ^tcp_frame}
+  end
+
   test "allows explicit skip-verify host key policy" do
     session = put_in(session_fixture(), [:metadata, "ssh_host_key_policy"], "skip_verify")
 
