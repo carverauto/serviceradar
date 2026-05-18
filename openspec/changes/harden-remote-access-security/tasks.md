@@ -434,10 +434,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Log at warn with `(topic, message_type, actor_id)` and emit a metric.
       Resolution: Unknown browser text/binary stream messages and unexpected server info messages now log at warning level without payload bytes and emit `[:serviceradar, :remote_access, :stream, :unknown_message]` telemetry with count, topic, session_id, actor_id, message_type, and source. Regression coverage asserts the warning and telemetry for an unknown browser message.
 
-- [ ] 5.11 [L] Browser stream timeout hardcoded, not session-derived
+- [x] 5.11 [L] Browser stream timeout hardcoded, not session-derived
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/channels/remote_access_stream_handler.ex:568-587`; controller `:70-79`, `:13` (commit: staging)
       Why: Policy can demand shorter sessions; the browser path won't honour them today.
       Fix: Derive from `RemoteAccessSession` policy or per-target config.
+      Resolution: The remote access stream controller now fetches the target `RemoteAccessSession` before upgrading, authorizes against the permission implied by the session protocol, and passes WebSockAdapter the shorter of configured browser stream timeout or session idle/absolute timeout policy. Focused controller coverage asserts session-derived timeout selection, configured shorter-timeout precedence, and protocol-specific permission gating.
 
 **Positives (web-ng surface):**
 - Input validation (path length, integer ranges, UUID/enum) consistently applied at controller entry.
