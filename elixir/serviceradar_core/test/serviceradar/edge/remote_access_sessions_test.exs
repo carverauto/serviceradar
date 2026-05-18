@@ -8,6 +8,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessRequest
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
@@ -545,6 +546,53 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
     assert denial_audit[:details][:failure_reason] == "approval_denied"
+  end
+
+  test "approval action policy forbids direct self approval even with spoofed approved_by" do
+    uid = unique_uid("self-approval")
+    requester_id = insert_user!("self-approval-requester")
+    reviewer_id = insert_user!("self-approval-reviewer")
+    insert_device!(uid, agent_id: "agent-self-approval", gateway_id: "gateway-self-approval")
+
+    credential_rule_id =
+      create_credential_rule!("self-approval", scope_value: "agent-self-approval").id
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-self-approval",
+                 gateway_id: "gateway-self-approval",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "self approval should fail",
+                 ttl_seconds: 600
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert {:error, _reason} =
+             RemoteAccessRequest.approve(
+               access_request,
+               %{
+                 approved_by: reviewer_id,
+                 approved_at: RemoteAccessRequest.utc_now()
+               },
+               actor: %{
+                 id: requester_id,
+                 permissions: MapSet.new(["devices.remote_access.requests.review"])
+               }
+             )
+
+    assert {:ok, pending} = RemoteAccessRequests.get(access_request.id, actor: @system_actor)
+    assert pending.status == :pending
   end
 
   test "lifecycle transitions write sanitized terminal outcomes" do

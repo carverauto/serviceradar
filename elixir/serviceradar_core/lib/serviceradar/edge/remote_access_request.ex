@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
   import Ash.Expr
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
+  alias ServiceRadar.Policies.Checks.ActorSelfApprovesResource
 
   @open_permission "devices.remote_access.ssh.open"
   @review_permission "devices.remote_access.requests.review"
@@ -123,7 +124,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
     end
 
     action_type_with_permission(:create, @open_check)
-    action_with_permission([:approve, :deny], @review_check)
+    action_with_permission(:deny, @review_check)
+
+    policy action(:approve) do
+      forbid_if {ActorSelfApprovesResource,
+                 requester_attribute: :requested_by, approver_attribute: :approved_by}
+
+      authorize_if @review_check
+    end
 
     policy action([:expire, :bind_session]) do
       authorize_if actor_attribute_equals(:role, :system)
