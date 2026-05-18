@@ -116,6 +116,7 @@ Default implementation path:
   - latest reviewed version: `v1.13.10`, published 2025-10-22
   - license: BSD-style permissive license, compatible with Apache-2.0 distribution
   - runtime dependency impact: `github.com/kr/fs` plus existing `golang.org/x/crypto`/`golang.org/x/sys` family; test-only deps from upstream do not need to enter ServiceRadar runtime packages
+  - maintenance note: `github.com/kr/fs v0.1.0` is a dormant transitive shim from `github.com/pkg/sftp`; keep it only through the SFTP dependency path and re-review it on every `github.com/pkg/sftp` bump
   - Bazel impact: add `github.com/pkg/sftp` to `go.mod`, refresh `go.sum`, add `com_github_pkg_sftp` and `com_github_kr_fs` to `MODULE.bazel` after `bazel mod tidy`, and add the adapter dependency to `go/pkg/agent/remoteaccess/BUILD.bazel`
 - keep Teleport source as behavior reference only unless a future exact-file vendoring review is approved
 

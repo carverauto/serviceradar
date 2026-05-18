@@ -1151,10 +1151,11 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
       Fix: Pin SHA256 next to each download or `cosign verify-blob` against the release signature; fail script on mismatch.
       Resolution: Added a shared SHA256 verifier for release-asset installer scripts and pinned the current Bazelisk, Syft, Cosign, ORAS, Gitleaks, and OSV-Scanner assets. Version overrides now require the matching `*_SHA256` override or fail closed.
 
-- [ ] 6.G.5 [L] `github.com/kr/fs v0.1.0` (transitive via pkg/sftp) is dormant
+- [x] 6.G.5 [L] `github.com/kr/fs v0.1.0` (transitive via pkg/sftp) is dormant
       Where: `go.sum` (working tree)
       Why: Minimal interface library, low attack surface, but unmaintained transitive deps in file-handling paths deserve a one-line acknowledgement.
       Fix: Note in the file-transfer threat model that kr/fs is dormant and trusted only as a shim; review at every pkg/sftp bump.
+      Resolution: Added the dependency-maintenance note to the file-transfer proposal's SFTP dependency guidance, limited `github.com/kr/fs` to the `github.com/pkg/sftp` path, and required review on every `pkg/sftp` bump.
 
 - [ ] 6.G.6 [L] `maxminddb-golang v1.13.1` removed without a commit message rationale
       Where: `go.mod` deletion; `go.sum` deletion (working tree)
