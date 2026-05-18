@@ -575,10 +575,11 @@ Result: gRPC layer is **strong** — mTLS enforced at boot, per-RPC identity re-
       Fix: Set `max_message_length: 16 MiB` (match RDP media cap), `max_concurrent_streams: 100`/agent, keepalive 30 s idle + 10 s TTL; reject overruns with a structured error.
       Resolution: Set Cowboy HTTP/2 caps for `max_concurrent_streams`, `max_connections`, `max_frame_size_received`, `idle_timeout`, and `inactivity_timeout`; added env-bounded overrides and regression coverage.
 
-- [ ] 6.K.6 [M] No per-stream credit / backpressure on server-side streaming RPCs
+- [x] 6.K.6 [M] No per-stream credit / backpressure on server-side streaming RPCs
       Where: `go/pkg/agentgateway/gateway_client.go:299-344` (`StreamStatus`) — server handler in `agent_gateway_server.ex` (commit: staging)
       Why: Slow consumer → unbounded send-buffer on the server → memory pressure → cascading failure.
       Fix: Track queued bytes per stream; pause send above threshold; require receiver ACK before resuming. Document the protocol contract.
+      Resolution: `StreamStatus` is client-streaming, so no server-to-client per-chunk ACK exists without a protobuf break. The agent now refuses streams above a 16 MiB chunk / 64 MiB stream window before opening the RPC, and the gateway independently enforces the same encoded protobuf byte budgets while processing chunks synchronously under gRPC flow control.
 
 - [x] 6.K.7 [H] `GRPC.Server.Interceptors.Logger` registered at INFO — logs full RPC request/response bodies
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/endpoint.ex:11` (working tree)

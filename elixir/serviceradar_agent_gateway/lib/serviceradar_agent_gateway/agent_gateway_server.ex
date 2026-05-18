@@ -52,6 +52,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_status_message_bytes 4_096
   @max_results_message_bytes 15 * 1024 * 1024
   @max_sysmon_message_bytes 15 * 1024 * 1024
+  @max_stream_status_chunk_bytes 16 * 1024 * 1024
+  @max_stream_status_window_bytes 64 * 1024 * 1024
   @agent_gateway_component_types [:agent]
 
   # Gateway identifier (node name or configured ID)
@@ -1019,11 +1021,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       stream_agent_id: nil,
       expected_idx: 0,
       pinned_total_chunks: nil,
-      registered?: false
+      registered?: false,
+      stream_bytes: 0
     }
   end
 
   defp handle_status_chunk(chunk, state, identity, peer_ip, stream) do
+    chunk_bytes = stream_status_chunk_size(chunk)
+    stream_bytes = validate_stream_status_byte_window!(state.stream_bytes, chunk_bytes)
     agent_id = resolve_stream_agent_id(state.stream_agent_id, chunk.agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
 
@@ -1047,8 +1052,35 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       total_services,
       pinned_total_chunks,
       chunk_index,
+      stream_bytes,
       chunk
     )
+  end
+
+  @doc false
+  def stream_status_chunk_size(%Monitoring.GatewayStatusChunk{} = chunk) do
+    chunk
+    |> Protobuf.Encoder.encode_to_iodata()
+    |> IO.iodata_length()
+  end
+
+  @doc false
+  def validate_stream_status_byte_window!(current_bytes, chunk_bytes)
+      when is_integer(current_bytes) and is_integer(chunk_bytes) and chunk_bytes >= 0 do
+    cond do
+      chunk_bytes > @max_stream_status_chunk_bytes ->
+        raise GRPC.RPCError,
+          status: :resource_exhausted,
+          message: "stream status chunk exceeds byte budget"
+
+      current_bytes + chunk_bytes > @max_stream_status_window_bytes ->
+        raise GRPC.RPCError,
+          status: :resource_exhausted,
+          message: "stream status stream exceeds byte budget"
+
+      true ->
+        current_bytes + chunk_bytes
+    end
   end
 
   defp resolve_stream_agent_id(nil, chunk_agent_id), do: required_agent_id(chunk_agent_id)
@@ -1142,7 +1174,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end)
   end
 
-  defp next_stream_status_state(state, agent_id, total_services, pinned_total_chunks, chunk_index, chunk) do
+  defp next_stream_status_state(state, agent_id, total_services, pinned_total_chunks, chunk_index, stream_bytes, chunk) do
     if chunk.is_final do
       validate_final_chunk!(chunk_index, pinned_total_chunks)
       record_push_metrics(agent_id, total_services)
@@ -1156,7 +1188,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
            stream_agent_id: agent_id,
            expected_idx: chunk_index + 1,
            pinned_total_chunks: pinned_total_chunks,
-           registered?: true
+           registered?: true,
+           stream_bytes: stream_bytes
        }}
     else
       {:cont,
@@ -1166,7 +1199,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
            stream_agent_id: agent_id,
            expected_idx: chunk_index + 1,
            pinned_total_chunks: pinned_total_chunks,
-           registered?: true
+           registered?: true,
+           stream_bytes: stream_bytes
        }}
     end
   end

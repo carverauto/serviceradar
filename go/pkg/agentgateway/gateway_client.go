@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	goproto "google.golang.org/protobuf/proto"
 
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -47,6 +48,10 @@ var (
 	ErrSecurityRequired = errors.New("security configuration required: set SR_ALLOW_INSECURE=true for development")
 	// ErrNoChunksToSend indicates no valid status chunks were provided for streaming.
 	ErrNoChunksToSend = errors.New("no status chunks to send")
+	// ErrStreamStatusChunkTooLarge indicates a status stream chunk exceeds the per-message budget.
+	ErrStreamStatusChunkTooLarge = errors.New("stream status chunk too large")
+	// ErrStreamStatusBudgetExceeded indicates a status stream exceeds the per-stream byte budget.
+	ErrStreamStatusBudgetExceeded = errors.New("stream status byte budget exceeded")
 	// ErrConnectionShutdown indicates the gRPC connection entered shutdown state.
 	ErrConnectionShutdown = errors.New("connection shutdown")
 )
@@ -60,6 +65,8 @@ const (
 	defaultConfigTimeout  = 30 * time.Second
 	defaultKeepaliveTime  = 30 * time.Second
 	defaultKeepaliveTTL   = 10 * time.Second
+	streamStatusChunkMax  = 16 * 1024 * 1024
+	streamStatusWindowMax = 64 * 1024 * 1024
 )
 
 // GatewayClient manages the connection to the agent-gateway and pushes status updates.
@@ -306,6 +313,11 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 		return nil, ErrGatewayNotConnected
 	}
 
+	validChunks, err := validateStreamStatusChunks(chunks)
+	if err != nil {
+		return nil, err
+	}
+
 	// For streaming, a fixed short timeout can cancel long chunk sequences.
 	// Prefer the caller context; higher-level code can set deadlines if desired.
 	stream, err := client.StreamStatus(ctx)
@@ -314,24 +326,18 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 		return nil, fmt.Errorf("failed to create stream: %w", err)
 	}
 
-	// Guard against nil/empty chunks to prevent unnecessary stream operations
-	sentAny := false
-	for _, chunk := range chunks {
-		if chunk == nil {
-			continue
+	for _, chunk := range validChunks {
+		if err := ctx.Err(); err != nil {
+			_ = stream.CloseSend()
+			return nil, err
 		}
-		sentAny = true
+
 		if err := stream.Send(chunk); err != nil {
 			// Ensure stream is closed on send error to prevent resource leak
 			_ = stream.CloseSend()
 			g.markDisconnected()
 			return nil, fmt.Errorf("failed to send chunk: %w", err)
 		}
-	}
-
-	if !sentAny {
-		_ = stream.CloseSend()
-		return nil, ErrNoChunksToSend
 	}
 
 	resp, err := stream.CloseAndRecv()
@@ -341,6 +347,35 @@ func (g *GatewayClient) StreamStatus(ctx context.Context, chunks []*proto.Gatewa
 	}
 
 	return resp, nil
+}
+
+func validateStreamStatusChunks(chunks []*proto.GatewayStatusChunk) ([]*proto.GatewayStatusChunk, error) {
+	validChunks := make([]*proto.GatewayStatusChunk, 0, len(chunks))
+	totalBytes := 0
+
+	for idx, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+
+		chunkBytes := goproto.Size(chunk)
+		if chunkBytes > streamStatusChunkMax {
+			return nil, fmt.Errorf("%w: chunk %d has %d bytes; max %d", ErrStreamStatusChunkTooLarge, idx, chunkBytes, streamStatusChunkMax)
+		}
+
+		totalBytes += chunkBytes
+		if totalBytes > streamStatusWindowMax {
+			return nil, fmt.Errorf("%w: stream has %d bytes; max %d", ErrStreamStatusBudgetExceeded, totalBytes, streamStatusWindowMax)
+		}
+
+		validChunks = append(validChunks, chunk)
+	}
+
+	if len(validChunks) == 0 {
+		return nil, ErrNoChunksToSend
+	}
+
+	return validChunks, nil
 }
 
 // markDisconnected marks the client as disconnected and tears down the current connection.
