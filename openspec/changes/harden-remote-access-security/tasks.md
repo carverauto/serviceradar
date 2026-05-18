@@ -1145,10 +1145,11 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
       Fix: Note release date + last CVE-patch version in a short ADR or in §3 of `add-remote-access-ebpf-recording/design.md`; review again at each ServiceRadar release cut.
       Resolution: `add-remote-access-ebpf-recording/design.md` now records the 2026-05-18 revalidation, notes `github.com/cilium/ebpf v0.21.0` as latest/published 2026-03-05, documents that no newer CVE-only patch release was identified, and requires review at every ServiceRadar release cut or within 12 months.
 
-- [ ] 6.G.4 [L] Installer scripts download tarballs from GitHub releases without `cosign verify-blob` / SHA256 check
+- [x] 6.G.4 [L] Installer scripts download tarballs from GitHub releases without `cosign verify-blob` / SHA256 check
       Where: `scripts/install-syft.sh:32`; equivalent pattern in `remote-access-authentik-oidc-ssh-smoke.sh:116, 126`; (working tree)
       Why: Acceptable today (curl `-fsS` + GH release infra), but a single compromise (token leak, tag rewrite, account takeover) ships a poisoned helper.
       Fix: Pin SHA256 next to each download or `cosign verify-blob` against the release signature; fail script on mismatch.
+      Resolution: Added a shared SHA256 verifier for release-asset installer scripts and pinned the current Bazelisk, Syft, Cosign, ORAS, Gitleaks, and OSV-Scanner assets. Version overrides now require the matching `*_SHA256` override or fail closed.
 
 - [ ] 6.G.5 [L] `github.com/kr/fs v0.1.0` (transitive via pkg/sftp) is dormant
       Where: `go.sum` (working tree)
