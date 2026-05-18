@@ -1082,10 +1082,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Stash `registered_cert_der` + `registered_agent_id` at register-time and compare on every inbound message; mismatch → terminate + audit.
       Resolution: Control stream registration now stores an mTLS identity context including component id, partition, component type, and SHA-256 cert fingerprint. AgentGatewayServer passes that context with every message delivered to the session; missing or mismatched context emits `[:serviceradar, :control_stream, :message, :rejected]` and terminates the session. Desktop media already extracts the stream certificate per inbound media/control call; 6.5 added the missing partition/session binding.
 
-- [ ] 6.8 [L] Cargo additions (`ironrdp-core 0.1.5`, `ironrdp-pdu 0.7`, `md-5`) not pinned with rationale
+- [x] 6.8 [L] Cargo additions (`ironrdp-core 0.1.5`, `ironrdp-pdu 0.7`, `md-5`) not pinned with rationale
       Where: `Cargo.lock` (working tree); `rust/rdp-adapter/Cargo.toml`
       Why: `ironrdp` is crypto/protocol code; floating minor lets a future `cargo update` swap behaviour silently.
       Fix: Add a `# audited <date>, RUSTSEC-clean` comment on each pinned line and add `cargo-deny`/`cargo-audit` to CI (see 6.9).
+      Resolution: RDP adapter/probe IronRDP dependencies are exact-version pinned with audit rationale comments; CI now triggers on RDP Rust paths and runs cargo-audit 0.22.1 against `rust/rdp-connector-probe` with only documented known IronRDP 0.8.0 transitive advisories ignored.
 
 - [x] 6.9 [H] AGPL guardrail `check-teleport-license-paths.sh` is not invoked by any CI workflow
       Where: `scripts/check-teleport-license-paths.sh` exists, `.forgejo/workflows/*` doesn't call it (working tree / staging)
@@ -1124,15 +1125,17 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
 
 Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crates-io]` / git-without-rev / alt-registries, ironrdp's heavyweight connector/session/blocking crates are quarantined in the `rdp-connector-probe` (review-only). Main gap is still the unwired AGPL guardrail.
 
-- [ ] 6.G.1 [M] `check-teleport-license-paths.sh` confirmed not invoked by any of 15 workflow files
+- [x] 6.G.1 [M] `check-teleport-license-paths.sh` confirmed not invoked by any of 15 workflow files
       Where: `.forgejo/workflows/*` (working tree / staging)
       Why: Same as 6.9 — the AGPL guarantee is convention-only. Promote to M (was L in 6.G context) because OSV-Scanner / Syft are wired in `source-security.yml`, so adding this is a small extra step there.
       Fix: Append a step to `source-security.yml` (or a new `license-audit.yml`) that runs the script with the package list from `expand-remote-access-teleport-parity/matrix.md`9.
+      Resolution: Covered by 6.9 via dedicated `.forgejo/workflows/license-check.yml`; it discovers actual ServiceRadar Teleport imports and invokes the AGPL path scanner on PRs, protected-branch pushes, and manual dispatch.
 
-- [ ] 6.G.2 [M] No `cargo audit` (RUSTSEC) wired for `rust/rdp-connector-probe` or the ironrdp 0.8.0 transitive tree
+- [x] 6.G.2 [M] No `cargo audit` (RUSTSEC) wired for `rust/rdp-connector-probe` or the ironrdp 0.8.0 transitive tree
       Where: CI workflows (working tree); crate at `rust/rdp-connector-probe/Cargo.toml`
       Why: The connector-probe pulls ironrdp-connector / -session / -blocking 0.8.0 (RDP state machine, CredSSP, blocking I/O) — review-only today but the lock is already on disk and updates run silently.
       Fix: Add `cargo-audit --deny warnings` to `tests-rust.yml` against the connector-probe workspace member; surface advisory IDs as PR comments
+      Resolution: `tests-rust.yml` now includes RDP crate paths and runs `cargo audit --deny warnings` against `rust/rdp-connector-probe` with the three current review-only IronRDP 0.8.0 transitive advisory exceptions listed in the workflow summary; any new RustSec warning or vulnerability fails CI.
 
 - [ ] 6.G.3 [L] `github.com/cilium/ebpf v0.21.0` maintenance window not documented
       Where: `go.mod` (working tree)

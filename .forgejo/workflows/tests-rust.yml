@@ -7,6 +7,8 @@ on:
       - 'rust/trapd/**'
       - 'rust/consumers/zen/**'
       - 'rust/log-collector/**'
+      - 'rust/rdp-adapter/**'
+      - 'rust/rdp-connector-probe/**'
       - 'rust/srql/**'
       - '.forgejo/workflows/tests-rust.yml'
 
@@ -35,6 +37,10 @@ jobs:
           - project: rust/consumers/zen
             runner: cargo
           - project: rust/log-collector
+            runner: cargo
+          - project: rust/rdp-adapter
+            runner: cargo
+          - project: rust/rdp-connector-probe
             runner: cargo
           - project: rust/srql
             runner: cargo
@@ -234,6 +240,30 @@ jobs:
         with:
           path: ${{ matrix.project }}/target
           key: ${{ runner.os }}-cargo-build-${{ matrix.project }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Cargo Audit
+        if: ${{ matrix.project == 'rust/rdp-connector-probe' }}
+        run: cargo install cargo-audit --locked --version 0.22.1
+
+      - name: Audit RDP connector probe dependencies
+        if: ${{ matrix.project == 'rust/rdp-connector-probe' }}
+        run: |
+          cd rust/rdp-connector-probe
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2023-0089 \
+            --ignore RUSTSEC-2024-0436
+
+          {
+            echo "## RDP Connector Probe RustSec Audit"
+            echo
+            echo "Known accepted advisories for the review-only IronRDP connector probe:"
+            echo "- RUSTSEC-2023-0071: rsa Marvin timing issue via sspi/picky; no fixed upgrade available in IronRDP 0.8.0 tree."
+            echo "- RUSTSEC-2023-0089: atomic-polyfill unmaintained via optional smart-card stack."
+            echo "- RUSTSEC-2024-0436: paste unmaintained via cryptoki/smart-card stack."
+            echo
+            echo "Any additional RustSec vulnerability or warning fails this job."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Run Clippy
         if: ${{ matrix.runner == 'cargo' }}

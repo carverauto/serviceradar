@@ -163,6 +163,8 @@ fn connect_rdp_target(target: SocketAddr, timeout: Duration) -> Result<TcpStream
     Ok(stream)
 }
 
+type CredSspTlsStream = rustls::StreamOwned<rustls::ClientConnection, RecordingStream<TcpStream>>;
+
 fn lab_tls_client_config_accepting_invalid_certificates() -> rustls::ClientConfig {
     let mut config = rustls::ClientConfig::builder()
         .dangerous()
@@ -177,13 +179,7 @@ fn tls_upgrade_with_client_config(
     stream: RecordingStream<TcpStream>,
     server_name: String,
     config: rustls::ClientConfig,
-) -> Result<
-    (
-        rustls::StreamOwned<rustls::ClientConnection, RecordingStream<TcpStream>>,
-        Vec<u8>,
-    ),
-    String,
-> {
+) -> Result<(CredSspTlsStream, Vec<u8>), String> {
     let server_name = rustls::pki_types::ServerName::try_from(server_name)
         .map_err(|_| "tls server name is invalid".to_owned())?;
     let client = rustls::ClientConnection::new(std::sync::Arc::new(config), server_name)
@@ -265,4 +261,3 @@ impl rustls::client::danger::ServerCertVerifier for LabNoCertificateVerification
         ]
     }
 }
-

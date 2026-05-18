@@ -14,8 +14,10 @@ ironrdp-backend = ["dep:ironrdp-core", "dep:ironrdp-pdu"]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(serviceradar_rdp_connector_link_probe)'] }
 
 [dependencies]
-ironrdp-core = { version = "0.1.5", default-features = false, features = ["alloc"], optional = true }
-ironrdp-pdu = { version = "0.7", default-features = false, features = ["alloc"], optional = true }
+# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path.
+ironrdp-core = { version = "=0.1.5", default-features = false, features = ["alloc"], optional = true }
+# audited 2026-05-18, RUSTSEC-clean in root lock for the RDP adapter path; pulls md-5 0.10.6 transitively for RDP crypto parsing.
+ironrdp-pdu = { version = "=0.7.0", default-features = false, features = ["alloc"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = { version = "1", default-features = false, features = ["alloc"] }

@@ -11,11 +11,17 @@ publish = false
 resolver = "2"
 
 [dependencies]
+# audited 2026-05-18 with cargo-audit 0.22.1; known ignored advisories are CI-documented below.
 ironrdp-blocking = { version = "=0.8.0", default-features = false }
+# audited 2026-05-18 with cargo-audit 0.22.1; RUSTSEC-2023-0071, RUSTSEC-2023-0089, and RUSTSEC-2024-0436 are accepted for this review-only probe.
 ironrdp-connector = { version = "=0.8.0", default-features = false }
+# audited 2026-05-18, RUSTSEC-clean in connector-probe lock.
 ironrdp-core = { version = "=0.1.5", default-features = false, features = ["alloc"] }
+# audited 2026-05-18 with cargo-audit 0.22.1; review-only graphics dependency.
 ironrdp-graphics = { version = "=0.7.0", default-features = false }
+# audited 2026-05-18, RUSTSEC-clean in connector-probe lock; pulls md-5 0.10.6 transitively for RDP crypto parsing.
 ironrdp-pdu = { version = "=0.7.0", default-features = false, features = ["std"] }
+# audited 2026-05-18 with cargo-audit 0.22.1; inherits connector advisories accepted for this review-only probe.
 ironrdp-session = { version = "=0.8.0", default-features = false }
 rustls = { version = "0.23.40", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.3"
