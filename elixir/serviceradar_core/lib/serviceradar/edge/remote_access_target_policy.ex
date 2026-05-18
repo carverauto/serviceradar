@@ -425,10 +425,17 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicy do
   defp non_negative_int(_value), do: nil
 
   defp valid_path_prefix?(prefix) do
+    valid_path_prefix_shape?(prefix) and
+      valid_path_prefix_shape?(URI.decode(prefix))
+  end
+
+  defp valid_path_prefix_shape?(prefix) do
     String.starts_with?(prefix, "/") and
       not String.starts_with?(prefix, "//") and
       not String.contains?(prefix, "://") and
-      not String.contains?(prefix, "\\")
+      not String.contains?(prefix, "\\") and
+      not String.contains?(prefix, ["\0", "\r", "\n", "\t"]) and
+      not Enum.any?(String.split(prefix, "/"), &(&1 in [".", ".."]))
   end
 
   defp truthy?(value) when value in [true, "true", "required", "yes", "1", 1], do: true

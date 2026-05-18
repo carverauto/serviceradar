@@ -165,6 +165,54 @@ func TestApplicationFramePayloadValidation(t *testing.T) {
 			},
 		},
 		{
+			name: "invalid path traversal segment",
+			err:  ErrInvalidApplicationPath,
+			run: func() error {
+				return ApplicationRequestPayload{
+					RequestID: testRequestID,
+					SessionID: testSessionID,
+					Method:    "GET",
+					Path:      "/app/../admin",
+				}.Validate()
+			},
+		},
+		{
+			name: "invalid escaped path traversal segment",
+			err:  ErrInvalidApplicationPath,
+			run: func() error {
+				return ApplicationRequestPayload{
+					RequestID: testRequestID,
+					SessionID: testSessionID,
+					Method:    "GET",
+					Path:      "/app/%2e%2e/admin",
+				}.Validate()
+			},
+		},
+		{
+			name: "invalid escaped slash path traversal",
+			err:  ErrInvalidApplicationPath,
+			run: func() error {
+				return ApplicationRequestPayload{
+					RequestID: testRequestID,
+					SessionID: testSessionID,
+					Method:    "GET",
+					Path:      "/app%2f..%2fadmin",
+				}.Validate()
+			},
+		},
+		{
+			name: "invalid backslash path",
+			err:  ErrInvalidApplicationPath,
+			run: func() error {
+				return ApplicationRequestPayload{
+					RequestID: testRequestID,
+					SessionID: testSessionID,
+					Method:    "GET",
+					Path:      `/app\admin`,
+				}.Validate()
+			},
+		},
+		{
 			name: "invalid open port",
 			err:  ErrInvalidApplicationUpstreamPort,
 			run: func() error {

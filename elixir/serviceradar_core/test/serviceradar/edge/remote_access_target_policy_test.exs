@@ -63,6 +63,14 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicyTest do
                upstream_scheme: :https,
                header_policy: %{"redirects" => %{"mode" => "policy_allowed", "max_hops" => 99}}
              })
+
+    for prefix <- ["/allowed/../admin", "/allowed/%2e%2e/admin", "/allowed%2f..%2fadmin", "/allowed\\admin"] do
+      assert {:error, :invalid_remote_access_target_policy} =
+               RemoteAccessTargetPolicy.evaluate_application(%RemoteAccessApplicationTarget{
+                 upstream_scheme: :https,
+                 allowed_path_prefixes: [prefix]
+               })
+    end
   end
 
   test "marks risky application policy as approval-required" do
