@@ -1138,10 +1138,11 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
       Fix: Add `cargo-audit --deny warnings` to `tests-rust.yml` against the connector-probe workspace member; surface advisory IDs as PR comments
       Resolution: `tests-rust.yml` now includes RDP crate paths and runs `cargo audit --deny warnings` against `rust/rdp-connector-probe` with the three current review-only IronRDP 0.8.0 transitive advisory exceptions listed in the workflow summary; any new RustSec warning or vulnerability fails CI.
 
-- [ ] 6.G.3 [L] `github.com/cilium/ebpf v0.21.0` maintenance window not documented
+- [x] 6.G.3 [L] `github.com/cilium/ebpf v0.21.0` maintenance window not documented
       Where: `go.mod` (working tree)
       Why: eBPF is high-privilege; if v0.21.0 is >12 mo old without a follow-up, dependence on it deserves a written rationale.
       Fix: Note release date + last CVE-patch version in a short ADR or in §3 of `add-remote-access-ebpf-recording/design.md`; review again at each ServiceRadar release cut.
+      Resolution: `add-remote-access-ebpf-recording/design.md` now records the 2026-05-18 revalidation, notes `github.com/cilium/ebpf v0.21.0` as latest/published 2026-03-05, documents that no newer CVE-only patch release was identified, and requires review at every ServiceRadar release cut or within 12 months.
 
 - [ ] 6.G.4 [L] Installer scripts download tarballs from GitHub releases without `cosign verify-blob` / SHA256 check
       Where: `scripts/install-syft.sh:32`; equivalent pattern in `remote-access-authentik-oidc-ssh-smoke.sh:116, 126`; (working tree)
