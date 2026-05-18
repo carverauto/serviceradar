@@ -5,6 +5,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
+  alias ServiceRadar.Edge.RemoteAccessFileTransfer
+  alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecordings
@@ -159,6 +161,119 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert attach_audit[:action] == :remote_access_session_attach
 
     refute_receive {:remote_access_audit, _duplicate_attach_audit}, 50
+  end
+
+  test "recording destroy requires service boundary authorization and writes audit" do
+    uid = unique_uid("recording-delete")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-delete",
+      gateway_id: "gateway-recording-delete"
+    )
+
+    deleter_id = insert_user!("recording-delete")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{credential_custody_mode: :user_present},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, recording} =
+             RemoteAccessRecording.create_recording(
+               %{
+                 session_id: session.id,
+                 policy: %{},
+                 storage_backend: "datasvc_object_store",
+                 object_key: "remote-access/sessions/#{session.id}/recording.jsonl"
+               },
+               actor: @system_actor
+             )
+
+    deleter = %{
+      id: deleter_id,
+      permissions: MapSet.new(["devices.remote_access.recordings.delete"])
+    }
+
+    assert {:error, _reason} = Ash.destroy(recording, actor: deleter, action: :destroy)
+
+    assert :ok =
+             RemoteAccessRecordings.destroy(recording,
+               actor: deleter,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, destroy_audit}
+    assert destroy_audit[:action] == :remote_access_recording_destroyed
+    assert destroy_audit[:severity] == :high
+
+    assert {:error, _reason} = RemoteAccessRecording.get_by_id(recording.id, actor: @system_actor)
+  end
+
+  test "file transfer destroy requires service boundary authorization and writes audit" do
+    uid = unique_uid("file-transfer-delete")
+    requester_id = insert_user!("file-transfer-requester")
+    deleter_id = insert_user!("file-transfer-delete")
+    insert_device!(uid, agent_id: "agent-transfer-delete", gateway_id: "gateway-transfer-delete")
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{credential_custody_mode: :user_present},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, transfer} =
+             RemoteAccessFileTransfer.create_transfer(
+               %{
+                 session_id: session.id,
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 agent_id: "agent-transfer-delete",
+                 gateway_id: "gateway-transfer-delete",
+                 operation: :download,
+                 direction: :read,
+                 protocol: :sftp,
+                 credential_custody_mode: :user_present,
+                 target_path: "/var/log/syslog",
+                 redacted_path: "/var/log/syslog",
+                 path_hash: String.duplicate("a", 64),
+                 policy_snapshot: %{},
+                 policy_decision: %{},
+                 quota_snapshot: %{}
+               },
+               actor: @system_actor
+             )
+
+    deleter = %{
+      id: deleter_id,
+      permissions: MapSet.new(["devices.remote_access.files.delete"])
+    }
+
+    assert {:error, _reason} = Ash.destroy(transfer, actor: deleter, action: :destroy)
+
+    assert :ok =
+             RemoteAccessFileTransfers.destroy(transfer,
+               actor: deleter,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, destroy_audit}
+    assert destroy_audit[:action] == :remote_access_file_transfer_destroyed
+    assert destroy_audit[:severity] == :high
+
+    assert {:error, _reason} =
+             RemoteAccessFileTransfer.get_by_id(transfer.id, actor: @system_actor)
   end
 
   test "generic SSH rejects agent-local reusable credential custody" do
