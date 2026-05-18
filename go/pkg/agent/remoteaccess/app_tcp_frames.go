@@ -520,5 +520,15 @@ func validPort(port int) bool {
 }
 
 func validApplicationPath(path string) bool {
-	return strings.HasPrefix(strings.TrimSpace(path), "/")
+	trimmed := strings.TrimSpace(path)
+	if path != trimmed || !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
+		return false
+	}
+	for _, char := range path {
+		if char < 0x20 || char == 0x7f {
+			return false
+		}
+	}
+
+	return true
 }

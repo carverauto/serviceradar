@@ -106,6 +106,54 @@ func TestTCPAdapterRejectsDirectionAndQuotaViolations(t *testing.T) {
 	}
 }
 
+func TestTCPAdapterRejectsBindingAndSequenceViolations(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer := startTCPEchoServer(t)
+	defer closeServer()
+
+	adapter, err := NewTCPAdapter(context.Background(), tcpOpenPayloadForAddr(t, addr, map[string]any{
+		"max_bytes_in": 64,
+	}), TCPAdapterOptions{})
+	if err != nil {
+		t.Fatalf("NewTCPAdapter returned error: %v", err)
+	}
+	defer func() { _ = adapter.Close() }()
+
+	_, err = adapter.Write(TCPDataPayload{
+		SessionID:    "other-session",
+		ConnectionID: "conn-1",
+		Direction:    TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("bad"),
+	})
+	if !errors.Is(err, ErrTCPSessionMismatch) {
+		t.Fatalf("Write binding error = %v, want %v", err, ErrTCPSessionMismatch)
+	}
+
+	_, err = adapter.Write(TCPDataPayload{
+		SessionID:    "session-1",
+		ConnectionID: "conn-1",
+		Direction:    TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("ok"),
+	})
+	if err != nil {
+		t.Fatalf("Write returned error: %v", err)
+	}
+
+	_, err = adapter.Write(TCPDataPayload{
+		SessionID:    "session-1",
+		ConnectionID: "conn-1",
+		Direction:    TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("replay"),
+	})
+	if !errors.Is(err, ErrTCPSequenceOutOfOrder) {
+		t.Fatalf("Write sequence error = %v, want %v", err, ErrTCPSequenceOutOfOrder)
+	}
+}
+
 func TestTCPAdapterEnforcesBytesOutQuota(t *testing.T) {
 	t.Parallel()
 
@@ -135,6 +183,35 @@ func TestTCPAdapterEnforcesBytesOutQuota(t *testing.T) {
 	_, _, err = adapter.Read(context.Background(), 1024)
 	if !errors.Is(err, ErrTCPBytesOutQuotaExceeded) {
 		t.Fatalf("Read quota error = %v, want %v", err, ErrTCPBytesOutQuotaExceeded)
+	}
+}
+
+func TestTCPAdapterCapsIdleDeadlineAtAbsoluteTimeout(t *testing.T) {
+	t.Parallel()
+
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
+
+	adapter := &TCPAdapter{
+		open:             tcpOpenPayloadForAddr(t, "127.0.0.1:5432", nil),
+		conn:             client,
+		absoluteDeadline: time.Now().Add(25 * time.Millisecond),
+	}
+	adapter.open.IdleTimeoutSeconds = 30
+	adapter.refreshDeadline()
+
+	time.Sleep(50 * time.Millisecond)
+
+	_, err := adapter.Write(TCPDataPayload{
+		SessionID:    "session-1",
+		ConnectionID: "conn-1",
+		Direction:    TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("expired"),
+	})
+	if err == nil {
+		t.Fatal("expected write to fail after absolute deadline")
 	}
 }
 

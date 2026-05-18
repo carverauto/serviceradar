@@ -426,6 +426,40 @@ func TestHandleConsoleFrameExecutesApplicationHTTPRequest(t *testing.T) {
 	}
 }
 
+func TestHandleConsoleFrameRejectsDuplicateApplicationOpen(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+
+	host, port := testServerHostPort(t, server.URL)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.ApplicationOpenPayload{
+		TargetID:            "app-target-1",
+		SessionID:           "app-session-1",
+		Scheme:              remoteaccess.ApplicationSchemeHTTP,
+		UpstreamHost:        host,
+		UpstreamPort:        port,
+		AllowedMethods:      []string{"GET"},
+		AllowedPathPrefixes: []string{"/"},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+
+	if len(stream.sent) != 2 {
+		t.Fatalf("sent frame count = %d, want 2", len(stream.sent))
+	}
+	assertApplicationConsoleFrame(t, stream.sent[0], remoteaccess.FrameTypeApplicationProgress)
+	errorFrame := assertApplicationConsoleFrame(t, stream.sent[1], remoteaccess.FrameTypeApplicationError)
+	if !strings.Contains(string(errorFrame.GetData()), "session_exists") {
+		t.Fatalf("Data = %q, want session_exists", string(errorFrame.GetData()))
+	}
+}
+
 func TestHandleConsoleFrameExecutesTCPStream(t *testing.T) {
 	t.Parallel()
 
@@ -478,6 +512,47 @@ func TestHandleConsoleFrameExecutesTCPStream(t *testing.T) {
 		Reason:       "done",
 	}), sender)
 	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPClose)
+}
+
+func TestHandleConsoleFrameClosesTCPSessionWhenContextCancels(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer := startAgentTCPEchoServer(t)
+	defer closeServer()
+
+	host, port := testNetHostPort(t, addr)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	openPayload := remoteaccess.TCPOpenPayload{
+		TargetID:               "tcp-target-1",
+		SessionID:              "tcp-session-1",
+		ConnectionID:           "conn-1",
+		UpstreamHost:           host,
+		UpstreamPort:           port,
+		IdleTimeoutSeconds:     30,
+		AbsoluteTimeoutSeconds: 30,
+		QuotaPolicy: map[string]any{
+			"max_bytes_in":  64,
+			"max_bytes_out": 64,
+		},
+	}
+
+	loop.handleConsoleFrame(ctx, jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPOpen, openPayload), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPProgress)
+
+	cancel()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if loop.tcpAdapter("tcp-session-1") == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("tcp adapter remained registered after control context cancellation")
 }
 
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
