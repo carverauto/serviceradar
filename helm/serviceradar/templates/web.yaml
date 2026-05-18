@@ -325,6 +325,8 @@ spec:
           value: {{ default 1 $webNgObanQueues.integrations | quote }}
         - name: WEB_NG_OBAN_QUEUE_MAINTENANCE
           value: {{ default 0 $webNgObanQueues.maintenance | quote }}
+        - name: WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE
+          value: {{ default 2 $webNgObanQueues.webMaintenance | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS
           value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH

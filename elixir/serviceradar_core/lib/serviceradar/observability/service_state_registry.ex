@@ -58,7 +58,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
          {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
       assignment
       |> build_attrs_from_assignment(agent, package)
-      |> upsert_service_state(actor)
+      |> maybe_upsert_assignment_state(actor)
     else
       false ->
         :ok
@@ -93,7 +93,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   rescue
     error ->
-      Logger.warning("Plugin assignment service state reconciliation failed: #{Exception.message(error)}")
+      Logger.warning(
+        "Plugin assignment service state reconciliation failed: #{Exception.message(error)}"
+      )
+
       {:error, error}
   end
 
@@ -288,7 +291,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
   end
 
-  defp should_track_assignment_service?(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
+  defp should_track_assignment_service?(
+         %PluginAssignment{} = assignment,
+         %PluginPackage{} = package
+       ) do
     assignment.enabled == true and
       (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
@@ -313,7 +319,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_assignment(%PluginAssignment{} = assignment, agent, %PluginPackage{} = package) do
+  defp build_attrs_from_assignment(
+         %PluginAssignment{} = assignment,
+         agent,
+         %PluginPackage{} = package
+       ) do
     plugin_type = assignment_plugin_type(package)
     {available, message} = assignment_initial_state(plugin_type)
 
@@ -333,6 +343,40 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       last_observed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
       state: "active"
     })
+  end
+
+  defp maybe_upsert_assignment_state(attrs, actor) do
+    case load_existing_state(attrs, actor) do
+      {:ok, %ServiceState{state: "active"} = state} ->
+        if assignment_placeholder_state?(state) do
+          upsert_service_state(attrs, actor)
+        else
+          :ok
+        end
+
+      _ ->
+        upsert_service_state(attrs, actor)
+    end
+  end
+
+  defp load_existing_state(attrs, actor) do
+    ServiceState
+    |> Ash.Query.for_read(
+      :by_identity,
+      %{
+        agent_id: Map.fetch!(attrs, :agent_id),
+        gateway_id: Map.fetch!(attrs, :gateway_id),
+        partition: Map.fetch!(attrs, :partition),
+        service_type: Map.fetch!(attrs, :service_type),
+        service_name: Map.fetch!(attrs, :service_name)
+      },
+      actor: actor
+    )
+    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+  end
+
+  defp assignment_placeholder_state?(%ServiceState{} = state) do
+    state.message in ["plugin assignment pending result", "streaming plugin ready"]
   end
 
   defp assignment_plugin_type(%PluginPackage{} = package) do

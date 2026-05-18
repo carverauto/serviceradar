@@ -237,7 +237,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
                 <%= for e <- @events do %>
                   <tr class="hover:bg-base-200/40">
                     <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
-                      {format_dt(e.occurred_at)}
+                      <.link navigate={~p"/settings/audit/events/#{e.id}"} class="link link-hover">
+                        {format_dt(e.occurred_at)}
+                      </.link>
                     </td>
                     <td class="px-4 py-2">{e.kind}</td>
                     <td class="px-4 py-2">{e.severity}</td>

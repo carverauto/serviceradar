@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Jobs.RefreshLogsSeverityStatsWorker do
   Oban worker that refreshes the logs_severity_stats_5m continuous aggregate.
   """
 
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  use Oban.Worker, queue: :web_maintenance, max_attempts: 3
 
   alias ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker
 

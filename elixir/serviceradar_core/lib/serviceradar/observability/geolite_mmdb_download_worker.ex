@@ -45,21 +45,27 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   @doc """
   Schedules the download job if not already scheduled.
   """
-  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  @spec ensure_scheduled() ::
+          {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:ok, :disabled} | {:error, term()}
   def ensure_scheduled do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
 
-    if ObanSupport.available?() do
-      if check_existing_job(failure_reschedule_seconds) do
-        {:ok, :already_scheduled}
-      else
-        %{} |> new() |> ObanSupport.safe_insert()
-      end
-    else
-      {:error, :oban_unavailable}
+    cond do
+      not enabled?(config) ->
+        {:ok, :disabled}
+
+      not ObanSupport.available?() ->
+        {:error, :oban_unavailable}
+
+      true ->
+        if check_existing_job(failure_reschedule_seconds) do
+          {:ok, :already_scheduled}
+        else
+          %{} |> new() |> ObanSupport.safe_insert()
+        end
     end
   end
 
@@ -82,6 +88,15 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    if enabled?(config) do
+      perform_enabled(job, config)
+    else
+      :ok
+    end
+  end
+
+  defp perform_enabled(%Oban.Job{} = job, config) do
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
@@ -129,6 +144,19 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
           :ok
       end
     end
+  end
+
+  defp enabled?(config) do
+    Keyword.get(config, :enabled) ||
+      env_enabled?("GEOLITE_MMDB_DOWNLOAD_ENABLED") ||
+      env_enabled?("GEOLITE_MMDB_SCHEDULER_ENABLED")
+  end
+
+  defp env_enabled?(name) do
+    name
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
   end
 
   defp prepare_download_dir(dir, settings, actor, now, job, failure_reschedule_seconds) do

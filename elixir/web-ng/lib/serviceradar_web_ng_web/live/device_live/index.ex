@@ -1538,7 +1538,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     </td>
                     <td class="text-xs">
                       <.device_type_badge
-                        type={Map.get(row, "type")}
+                        type={device_type_value(row)}
                         type_id={Map.get(row, "type_id")}
                         snmp_fallback={snmp_fallback}
                       />
@@ -2531,6 +2531,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Map.get(key)
   end
 
+  defp device_type_value(row) when is_map(row) do
+    Map.get(row, "type") ||
+      Map.get(row, "device_type") ||
+      metadata_value(row, "armis_type") ||
+      metadata_value(row, "device_type") ||
+      metadata_value(row, "type") ||
+      metadata_value(row, "armis_category") ||
+      metadata_value(row, "category")
+  end
+
+  defp device_type_value(_row), do: nil
+
   defp snmp_fallback_derived?(row) when is_map(row) do
     metadata = row_metadata(row)
 
@@ -2542,7 +2554,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     has_rule = present_text?(metadata_value(row, "classification_rule_id"))
 
     has_display_values =
-      present_text?(Map.get(row, "type")) or present_text?(Map.get(row, "vendor_name")) or
+      present_text?(device_type_value(row)) or present_text?(Map.get(row, "vendor_name")) or
         display_model(Map.get(row, "model")) != "—"
 
     has_snmp_evidence = snmp_evidence_present?(metadata)
