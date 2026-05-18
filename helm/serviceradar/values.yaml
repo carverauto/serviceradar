@@ -590,6 +590,7 @@ webNg:
     edge: 1
     integrations: 1
     maintenance: 0
+    webMaintenance: 2
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true

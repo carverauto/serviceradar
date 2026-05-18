@@ -721,6 +721,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
 
       live("/settings/audit/events", Settings.AuditLive.Events, :index)
+      live("/settings/audit/events/:event_id", Settings.AuditLive.EventShow, :show)
       live("/settings/audit/lockouts", Settings.AuditLive.Lockouts, :index)
       live("/settings/audit/history", Settings.AuditLive.History, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)

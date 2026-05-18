@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
@@ -812,7 +813,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     srql_response = %{"results" => results, "viz" => viz}
 
-    device_row = List.first(Enum.filter(results, &is_map/1))
+    device_row =
+      results
+      |> Enum.find(&is_map/1)
+      |> enrich_integration_metadata(scope)
+
     device_ip = get_device_ip(results)
     show_stale = socket.assigns.show_stale_aliases
     virtualization_summary = load_virtualization_summary(scope, uid)
@@ -4839,6 +4844,57 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp row_metadata(_row), do: %{}
 
+  defp enrich_integration_metadata(nil, _scope), do: nil
+
+  defp enrich_integration_metadata(row, scope) when is_map(row) do
+    metadata = row_metadata(row)
+    sync_service_id = Map.get(metadata, "sync_service_id")
+
+    metadata =
+      metadata
+      |> maybe_put_sync_service_path(sync_service_id)
+      |> maybe_put_armis_device_url(sync_service_id, scope)
+
+    Map.put(row, "metadata", metadata)
+  end
+
+  defp maybe_put_sync_service_path(metadata, sync_service_id)
+       when is_map(metadata) and is_binary(sync_service_id) and sync_service_id != "" do
+    Map.put(metadata, "sync_service_path", ~p"/settings/networks/integrations/#{sync_service_id}")
+  end
+
+  defp maybe_put_sync_service_path(metadata, _sync_service_id), do: metadata
+
+  defp maybe_put_armis_device_url(metadata, sync_service_id, scope)
+       when is_map(metadata) and is_binary(sync_service_id) and sync_service_id != "" do
+    armis_id = metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"])
+
+    if metadata_lookup(metadata, "integration_type") == "armis" and present?(armis_id) do
+      case IntegrationSource.get_by_id(sync_service_id, scope: scope) do
+        {:ok, %IntegrationSource{endpoint: endpoint}} ->
+          Map.put(metadata, "armis_device_url", armis_device_url(endpoint, armis_id))
+
+        _ ->
+          metadata
+      end
+    else
+      metadata
+    end
+  rescue
+    _ -> metadata
+  end
+
+  defp maybe_put_armis_device_url(metadata, _sync_service_id, _scope), do: metadata
+
+  defp armis_device_url(endpoint, armis_id) when is_binary(endpoint) do
+    endpoint
+    |> String.trim()
+    |> String.trim_trailing("/")
+    |> Kernel.<>("/inventory/devices/#{armis_id}/")
+  end
+
+  defp armis_device_url(_endpoint, _armis_id), do: nil
+
   defp format_prop_value(nil), do: "—"
   defp format_prop_value(""), do: "—"
   defp format_prop_value(true), do: "Yes"
@@ -5033,6 +5089,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 label={item.label}
                 value={item.value}
                 mono={item.mono}
+                href={Map.get(item, :href)}
+                external_href={Map.get(item, :external_href)}
               />
             </div>
           </div>
@@ -5045,12 +5103,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   attr(:label, :string, required: true)
   attr(:value, :string, required: true)
   attr(:mono, :boolean, default: false)
+  attr(:href, :string, default: nil)
+  attr(:external_href, :string, default: nil)
 
   defp metadata_kv(assigns) do
     ~H"""
     <div class="flex items-start justify-between gap-3">
       <span class="shrink-0 text-xs text-base-content/50">{@label}</span>
+      <.link
+        :if={@href}
+        navigate={@href}
+        class={[
+          "min-w-0 text-right text-sm font-medium link link-hover break-words",
+          @mono && "font-mono text-xs"
+        ]}
+        title={@value}
+      >
+        {@value}
+      </.link>
+      <a
+        :if={@external_href}
+        href={@external_href}
+        target="_blank"
+        rel="noopener noreferrer"
+        class={[
+          "min-w-0 text-right text-sm font-medium link link-hover break-words",
+          @mono && "font-mono text-xs"
+        ]}
+        title={@value}
+      >
+        {@value}
+      </a>
       <span
+        :if={is_nil(@href) and is_nil(@external_href)}
         class={[
           "min-w-0 text-right text-sm font-medium text-base-content break-words",
           @mono && "font-mono text-xs"
@@ -5071,10 +5156,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("Integration", "hero-arrow-path-rounded-square", [
           metadata_item("Type", metadata_lookup(metadata, "integration_type")),
           metadata_item("Query label", metadata_lookup(metadata, "query_label")),
-          metadata_item("Sync service", metadata_lookup(metadata, "sync_service_id"), mono: true),
+          metadata_item("Sync service", metadata_lookup(metadata, "sync_service_id"),
+            mono: true,
+            href: metadata_lookup(metadata, "sync_service_path")
+          ),
           metadata_item("Sync run", metadata_lookup(metadata, "sync_run_id"), mono: true),
-          metadata_item("Total devices", metadata_lookup(metadata, "sync_total_devices")),
-          metadata_item("Source device ID", metadata_first_value(metadata, ["source_device_id", "integration_id"]),
+          metadata_item(
+            "Source device ID",
+            metadata_first_value(metadata, ["source_device_id", "integration_id"]),
             mono: true
           )
         ]),
@@ -5127,7 +5216,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           metadata_item(
             "Device ID",
             metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]),
-            mono: true
+            mono: true,
+            external_href: metadata_lookup(metadata, "armis_device_url")
           ),
           metadata_item("Type", metadata_first_value(metadata, ["armis_type", "device_type", "type"])),
           metadata_item("Category", metadata_first_value(metadata, ["armis_category", "category"])),
@@ -5227,7 +5317,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp metadata_item(label, value, opts \\ []) do
     if metadata_present?(value) do
-      %{label: label, value: format_metadata_value(value), mono: Keyword.get(opts, :mono, false)}
+      %{
+        label: label,
+        value: format_metadata_value(value),
+        mono: Keyword.get(opts, :mono, false),
+        href: Keyword.get(opts, :href),
+        external_href: Keyword.get(opts, :external_href)
+      }
     end
   end
 
@@ -5332,7 +5428,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     ~H"""
     <div :if={@has_any} class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <.os_info_card :if={@has_os} os={@os} />
       <.hw_info_card :if={@has_hw} hw_info={@hw_info} />
       <.compliance_card
         :if={@has_compliance}
@@ -5343,14 +5438,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         is_compliant={@is_compliant}
         is_trusted={@is_trusted}
       />
-      <.discovery_metadata_card :if={@has_discovery_metadata} fields={@discovery_metadata_fields} />
     </div>
     """
   end
 
   defp assign_ocsf_info(assigns) do
     metadata = row_metadata(assigns.device_row)
-    os = Map.get(assigns.device_row, "os")
     hw_info = Map.get(assigns.device_row, "hw_info")
 
     risk_score =
@@ -5368,16 +5461,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_compliant = Map.get(assigns.device_row, "is_compliant")
     is_trusted = Map.get(assigns.device_row, "is_trusted")
     is_active = device_active_state(assigns.device_row, metadata)
-    discovery_metadata_fields = discovery_metadata_fields(metadata)
-
-    has_os = map_present?(os)
     has_hw = map_present?(hw_info)
     has_compliance = compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant)
-    has_discovery_metadata = discovery_metadata_fields != []
-    has_any = has_os or has_hw or has_compliance or has_discovery_metadata
+    has_any = has_hw or has_compliance
 
     assigns
-    |> assign(:os, os)
     |> assign(:hw_info, hw_info)
     |> assign(:risk_level, risk_level)
     |> assign(:risk_score, risk_score)
@@ -5385,11 +5473,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:is_managed, is_managed)
     |> assign(:is_compliant, is_compliant)
     |> assign(:is_trusted, is_trusted)
-    |> assign(:has_os, has_os)
     |> assign(:has_hw, has_hw)
     |> assign(:has_compliance, has_compliance)
-    |> assign(:has_discovery_metadata, has_discovery_metadata)
-    |> assign(:discovery_metadata_fields, discovery_metadata_fields)
     |> assign(:has_any, has_any)
   end
 
@@ -5434,41 +5519,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp normalize_bool(_), do: nil
-
-  attr(:os, :map, required: true)
-
-  defp os_info_card(assigns) do
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-cpu-chip" class="size-4 text-info" />
-          <span class="text-sm font-semibold">Operating System</span>
-        </div>
-      </div>
-      <div class="p-4">
-        <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <.kv_block :if={Map.get(@os, "name")} label="Name" value={Map.get(@os, "name")} />
-          <.kv_block :if={Map.get(@os, "type")} label="Type" value={Map.get(@os, "type")} />
-          <.kv_block :if={Map.get(@os, "version")} label="Version" value={Map.get(@os, "version")} />
-          <.kv_block :if={Map.get(@os, "build")} label="Build" value={Map.get(@os, "build")} />
-          <.kv_block :if={Map.get(@os, "edition")} label="Edition" value={Map.get(@os, "edition")} />
-          <.kv_block
-            :if={Map.get(@os, "kernel_release")}
-            label="Kernel"
-            value={Map.get(@os, "kernel_release")}
-          />
-          <.kv_block
-            :if={Map.get(@os, "cpu_bits")}
-            label="Arch"
-            value={"#{Map.get(@os, "cpu_bits")}-bit"}
-          />
-          <.kv_block :if={Map.get(@os, "lang")} label="Language" value={Map.get(@os, "lang")} />
-        </div>
-      </div>
-    </div>
-    """
-  end
 
   attr(:hw_info, :map, required: true)
 
@@ -5725,63 +5775,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
-  attr(:fields, :list, required: true)
-
-  defp discovery_metadata_card(assigns) do
-    ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-squares-plus" class="size-4 text-secondary" />
-          <span class="text-sm font-semibold">Discovery Details</span>
-        </div>
-      </div>
-      <div class="p-4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
-          <div :for={field <- @fields} class="min-w-0">
-            <div class="text-xs text-base-content/50">{field.label}</div>
-            <div class="font-medium truncate" title={field.value}>{field.value}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp discovery_metadata_fields(metadata) when is_map(metadata) do
-    Enum.flat_map(
-      [
-        {"Source Device ID",
-         metadata_first_value(metadata, [
-           "source_device_id",
-           "integration_device_id",
-           "integration_id",
-           "external_device_id"
-         ])},
-        {"Query Label", metadata_first_value(metadata, ["query_label", "integration_query_label"])},
-        {"Category", metadata_first_value(metadata, ["category", "device_category"])},
-        {"Visibility", metadata_first_value(metadata, ["visibility"])},
-        {"Purdue Level", metadata_first_value(metadata, ["purdue_level"])},
-        {"IPv4 Addresses", metadata_first_value(metadata, ["ipv4_addresses"])},
-        {"IPv6 Addresses", metadata_first_value(metadata, ["ipv6_addresses"])},
-        {"MAC Addresses", metadata_first_value(metadata, ["mac_addresses"])},
-        {"Serial Numbers", metadata_first_value(metadata, ["serial_numbers", "serial_number"])},
-        {"Tags", metadata_first_value(metadata, ["source_tags", "tags"])},
-        {"Boundaries",
-         metadata_first_value(metadata, ["boundary_names"]) ||
-           summarize_json_metadata(metadata_first_value(metadata, ["boundaries"]))},
-        {"Site", summarize_json_metadata(metadata_first_value(metadata, ["site"]))},
-        {"Network Interfaces", summarize_json_metadata(metadata_first_value(metadata, ["network_interfaces"]))}
-      ],
-      fn {label, value} ->
-        value = clean_display_value(value)
-        if present?(value), do: [%{label: label, value: value}], else: []
-      end
-    )
-  end
-
-  defp discovery_metadata_fields(_metadata), do: []
-
   defp metadata_first_value(metadata, keys) when is_map(metadata) and is_list(keys) do
     Enum.find_value(keys, fn key ->
       case Map.get(metadata, key) do
@@ -5818,17 +5811,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp summarize_metadata_value(value), do: value
-
-  defp clean_display_value(nil), do: nil
-  defp clean_display_value(""), do: nil
-
-  defp clean_display_value(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.slice(0, 160)
-  end
-
-  defp clean_display_value(value), do: value |> to_string() |> String.slice(0, 160)
 
   attr(:camera_sources, :list, default: [])
   attr(:inventory_error, :string, default: nil)

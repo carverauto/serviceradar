@@ -112,6 +112,53 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
            ]
   end
 
+  test "build_bulk_payload uses legacy upsert shape for numeric Armis IDs" do
+    payload =
+      ArmisNorthboundRunner.build_bulk_payload("availability", [
+        %{
+          armis_device_id: "101",
+          is_available: true,
+          device_ids: ["dev-a"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        },
+        %{
+          armis_device_id: 202,
+          is_available: false,
+          device_ids: ["dev-b"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        }
+      ])
+
+    assert payload == [
+             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => true}},
+             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => false}}
+           ]
+  end
+
+  test "execute_batches skips token fetch when there are no candidates" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_key" => "key-1", "api_secret" => "secret-1"}
+    }
+
+    token_fetcher = fn _source ->
+      flunk("empty candidate runs should not fetch an Armis token")
+    end
+
+    assert {:ok, result} =
+             ArmisNorthboundRunner.execute_batches(source, [], token_fetcher: token_fetcher)
+
+    assert result.device_count == 0
+    assert result.updated_count == 0
+    assert result.error_count == 0
+    assert result.batch_count == 0
+  end
+
   test "batch_size and batch_candidates honor configured bulk chunking" do
     source = %{settings: %{"batch_size" => "2"}}
 

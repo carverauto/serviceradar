@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
   Add to your Oban config in config/config.exs:
 
       config :serviceradar_web_ng, Oban,
-        queues: [default: 10, events: 5, maintenance: 1],
+        queues: [default: 10, events: 5, web_maintenance: 1],
         plugins: [
           {Oban.Plugins.Cron,
            crontab: [
@@ -23,7 +23,7 @@ defmodule ServiceRadarWebNG.Edge.Workers.ExpirePackagesWorker do
   """
 
   use Oban.Worker,
-    queue: :maintenance,
+    queue: :web_maintenance,
     max_attempts: 3
 
   import Ash.Expr

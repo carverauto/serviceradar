@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNG.Plugins.BlobRetentionWorker do
   """
 
   use Oban.Worker,
-    queue: :maintenance,
+    queue: :web_maintenance,
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 

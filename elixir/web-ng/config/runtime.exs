@@ -575,16 +575,13 @@ config :serviceradar_web_ng,
   god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh
 
 config :serviceradar_web_ng,
+  remote_access_app_enabled: remote_access_app_enabled
+
+config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
 
 config :serviceradar_web_ng,
   remote_access_ssh_enabled: remote_access_ssh_enabled
-
-config :serviceradar_web_ng,
-  remote_access_app_enabled: remote_access_app_enabled
-
-config :serviceradar_web_ng,
-  remote_access_tcp_enabled: remote_access_tcp_enabled
 
 config :serviceradar_web_ng,
   remote_access_ssh_host_key_skip_verify_enabled: remote_access_ssh_host_key_skip_verify_enabled
@@ -594,6 +591,9 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_target_port_override_enabled: remote_access_target_port_override_enabled
+
+config :serviceradar_web_ng,
+  remote_access_tcp_enabled: remote_access_tcp_enabled
 
 if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,
@@ -969,6 +969,11 @@ if config_env() != :test do
   oban_maintenance_queue_limit =
     parse_queue_limit.(["WEB_NG_OBAN_QUEUE_MAINTENANCE", "OBAN_MAINTENANCE_QUEUE_LIMIT"], 0)
 
+  # web-ng-owned maintenance jobs must not share the core-elx :maintenance queue,
+  # because core-elx can't load ServiceRadarWebNG worker modules.
+  oban_web_maintenance_queue_limit =
+    parse_queue_limit.("WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE", 2)
+
   oban_node = System.get_env("OBAN_NODE")
 
   oban_notifier =
@@ -989,7 +994,7 @@ if config_env() != :test do
               {Oban.Plugins.Cron,
                crontab: [
                  {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
-                  args: %{"enabled" => true}, queue: :maintenance}
+                  args: %{"enabled" => true}, queue: :web_maintenance}
                ]}
             ]
         else
@@ -1018,6 +1023,7 @@ if config_env() != :test do
     |> maybe_queue.(:edge, parse_queue_limit.("WEB_NG_OBAN_QUEUE_EDGE", 10))
     |> maybe_queue.(:integrations, parse_queue_limit.("WEB_NG_OBAN_QUEUE_INTEGRATIONS", 5))
     |> maybe_queue.(:maintenance, oban_maintenance_queue_limit)
+    |> maybe_queue.(:web_maintenance, oban_web_maintenance_queue_limit)
 
   oban_config = [
     repo: ServiceRadar.Repo,

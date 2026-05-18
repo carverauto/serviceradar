@@ -614,7 +614,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
         description: "Manually queue cleanup for stale or orphaned plugin package blobs.",
         source: :manual,
         cron: "manual",
-        queue: :maintenance,
+        queue: :web_maintenance,
         enabled: true,
         worker: @plugin_blob_retention_worker,
         resource: nil,

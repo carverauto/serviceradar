@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorker do
   Oban worker that incrementally refreshes the otel_trace_summaries table.
   """
 
-  use Oban.Worker, queue: :maintenance, max_attempts: 3
+  use Oban.Worker, queue: :web_maintenance, max_attempts: 3
 
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 
