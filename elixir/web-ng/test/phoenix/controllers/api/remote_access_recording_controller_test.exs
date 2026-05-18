@@ -60,6 +60,38 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     refute inspect(body) =~ "very-secret"
   end
 
+  test "RDP user cannot read another user's RDP recording without view-all permission", %{conn: conn} do
+    owner = AccountsFixtures.user_fixture(%{role: :viewer})
+    recording = recording_fixture(owner, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}")
+
+    assert %{"error" => "remote_access_recording_not_found"} = json_response(conn, 404)
+  end
+
+  test "RDP user cannot read another user's RDP recording events without view-all permission", %{
+    conn: conn
+  } do
+    owner = AccountsFixtures.user_fixture(%{role: :viewer})
+    recording = recording_fixture(owner, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/events")
+
+    assert %{"error" => "remote_access_recording_not_found"} = json_response(conn, 404)
+  end
+
+  test "RDP user with view-all permission can read another user's RDP recording", %{conn: conn, user: user} do
+    grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.view_all"])
+    owner = AccountsFixtures.user_fixture(%{role: :viewer})
+    recording = recording_fixture(owner, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}")
+
+    body = json_response(conn, 200)
+    assert body["data"]["id"] == recording.id
+    assert body["data"]["manifest"]["protocol"] == "rdp"
+  end
+
   test "recording export does not expose storage identifiers", %{conn: conn, user: user} do
     user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
     recording = recording_fixture(user, :rdp)
@@ -78,6 +110,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     refute inspect(body) =~ "datasvc_object_store"
     refute inspect(body) =~ "remote-access-recordings"
     refute inspect(body) =~ "recording.jsonl"
+  end
+
+  test "recording export requires ownership or view-all permission", %{conn: conn, user: user} do
+    grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
+    owner = AccountsFixtures.user_fixture(%{role: :viewer})
+    recording = recording_fixture(owner, :rdp)
+
+    conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/export")
+
+    assert %{"error" => "remote_access_recording_not_found"} = json_response(conn, 404)
   end
 
   test "RDP-only user cannot read SSH recording metadata", %{conn: conn, user: user} do

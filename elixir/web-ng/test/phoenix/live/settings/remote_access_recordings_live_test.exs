@@ -58,6 +58,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
 
     rdp_recording = recording_fixture(user, protocol: :rdp, store_payloads?: false)
     ssh_recording = recording_fixture(user, protocol: :ssh)
+    other_user = AccountsFixtures.user_fixture(%{role: :viewer})
+    other_rdp_recording = recording_fixture(other_user, protocol: :rdp, store_payloads?: false)
     conn = log_in_user(conn, user)
 
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/recordings/#{rdp_recording.id}")
@@ -79,6 +81,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
     assert html =~ "Allowed"
     refute html =~ "ssh:recording-ui.example.test:22"
     refute html =~ ssh_recording.id
+    refute html =~ other_rdp_recording.id
+  end
+
+  test "RDP user with view-all permission can review another user's RDP recording", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :viewer})
+    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.view_all"])
+    owner = AccountsFixtures.user_fixture(%{role: :viewer})
+    rdp_recording = recording_fixture(owner, protocol: :rdp, store_payloads?: false)
+    conn = log_in_user(conn, user)
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/recordings/#{rdp_recording.id}")
+
+    assert html =~ "Replay Events"
+    assert html =~ "desktop_frame_metadata"
+    assert html =~ rdp_recording.id
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

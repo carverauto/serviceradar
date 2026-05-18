@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
 
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   @rdp_open_permission "devices.remote_access.rdp.open"
   @view_permissions [@ssh_open_permission, @rdp_open_permission]
   @export_permission "devices.remote_access.recordings.export"
+  @view_all_permission "devices.remote_access.recordings.view_all"
 
   def show(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
@@ -75,7 +77,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   defp fetch_recording(id, conn) do
     with {:ok, normalized_id} <- normalize_uuid(id),
          {:ok, %RemoteAccessRecording{} = recording} <-
-           RemoteAccessRecording.get_by_id(normalized_id, scope: get_scope(conn)) do
+           RemoteAccessRecording.get_by_id(normalized_id, scope: get_scope(conn)),
+         {:ok, %RemoteAccessRecording{} = recording} <- Ash.load(recording, :session, scope: get_scope(conn)) do
       {:ok, recording}
     else
       {:ok, nil} -> {:error, :not_found}
@@ -186,7 +189,21 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   end
 
   defp require_recording_view_permission(conn, %RemoteAccessRecording{} = recording) do
-    require_permission(conn, permission_for_recording(recording))
+    scope = get_scope(conn)
+
+    cond do
+      not RBAC.can?(scope, permission_for_recording(recording)) ->
+        {:error, :forbidden}
+
+      recording_requested_by_scope_user?(recording, scope) ->
+        :ok
+
+      RBAC.can?(scope, @view_all_permission) ->
+        :ok
+
+      true ->
+        {:error, :not_found}
+    end
   end
 
   defp permission_for_recording(%RemoteAccessRecording{} = recording) do
@@ -201,4 +218,14 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   end
 
   defp recording_protocol(_recording), do: "ssh"
+
+  defp recording_requested_by_scope_user?(
+         %RemoteAccessRecording{session: %RemoteAccessSession{requested_by: requested_by}},
+         %Scope{user: %{id: user_id}}
+       )
+       when not is_nil(requested_by) and not is_nil(user_id) do
+    requested_by == user_id
+  end
+
+  defp recording_requested_by_scope_user?(_recording, _scope), do: false
 end

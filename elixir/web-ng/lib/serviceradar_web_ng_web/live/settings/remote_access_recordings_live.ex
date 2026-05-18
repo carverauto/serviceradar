@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -18,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   @rdp_view_permission "devices.remote_access.rdp.open"
   @view_permissions [@ssh_view_permission, @rdp_view_permission]
   @export_permission "devices.remote_access.recordings.export"
+  @view_all_permission "devices.remote_access.recordings.view_all"
   @list_limit 100
 
   @impl true
@@ -306,6 +309,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   defp list_recent(scope) do
     RemoteAccessRecording
     |> Ash.Query.for_read(:read)
+    |> Ash.Query.load(:session)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(@list_limit)
     |> Ash.read(scope: scope)
@@ -317,14 +321,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
         {:ok, recording}
 
       nil ->
-        case RemoteAccessRecording.get_by_id(id, scope: scope) do
-          {:ok, %RemoteAccessRecording{} = recording} -> {:ok, recording}
-          {:ok, nil} -> {:error, :not_found}
-          {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
-          {:error, reason} -> {:error, reason}
-        end
+        case_result =
+          case RemoteAccessRecording.get_by_id(id, scope: scope) do
+            {:ok, %RemoteAccessRecording{} = recording} -> {:ok, recording}
+            {:ok, nil} -> {:error, :not_found}
+            {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
+            {:error, reason} -> {:error, reason}
+          end
+
+        load_recording_session(case_result, scope)
     end
   end
+
+  defp load_recording_session({:ok, %RemoteAccessRecording{} = recording}, scope) do
+    Ash.load(recording, :session, scope: scope)
+  end
+
+  defp load_recording_session(result, _scope), do: result
 
   defp normalize_uuid(id) do
     case Ecto.UUID.cast(id) do
@@ -354,7 +367,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   end
 
   defp recording_view_allowed?(scope, %RemoteAccessRecording{} = recording) do
-    RBAC.can?(scope, permission_for_recording(recording))
+    RBAC.can?(scope, permission_for_recording(recording)) and
+      (recording_requested_by_scope_user?(recording, scope) or RBAC.can?(scope, @view_all_permission))
   end
 
   defp permission_for_recording(%RemoteAccessRecording{} = recording) do
@@ -369,6 +383,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   end
 
   defp recording_protocol(_recording), do: "ssh"
+
+  defp recording_requested_by_scope_user?(
+         %RemoteAccessRecording{session: %RemoteAccessSession{requested_by: requested_by}},
+         %Scope{user: %{id: user_id}}
+       )
+       when not is_nil(requested_by) and not is_nil(user_id) do
+    requested_by == user_id
+  end
+
+  defp recording_requested_by_scope_user?(_recording, _scope), do: false
 
   defp desktop_recording?(%RemoteAccessRecording{} = recording) do
     recording_protocol(recording) in ["rdp", "desktop"]

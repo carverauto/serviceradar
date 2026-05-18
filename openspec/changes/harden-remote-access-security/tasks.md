@@ -392,10 +392,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Move target_host/target_port override behind explicit RBAC ("remote-access.ssh.target.override") plus per-tenant allowlist of upstream hosts; the feature flag alone is insufficient
       Resolution: SSH `target_host` / `target_port` overrides now require the deployment flag plus the explicit `devices.remote_access.ssh.target.override` RBAC permission. Host overrides additionally fail closed unless the requested upstream matches `:remote_access_target_host_override_allowlist`; `target_host` and `target_port` are also stripped from client-controlled metadata.
 
-- [ ] 5.4 [H] IDOR on recording playback — permission is "can view any SSH recording" not "can view *this* recording"
+- [x] 5.4 [H] IDOR on recording playback — permission is "can view any SSH recording" not "can view *this* recording"
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_recording_controller.ex:178-187`; `live/settings/remote_access_recordings_live.ex:342-344` (commit: staging)
       Why: Both layers map recording → protocol → permission key. Any actor with `remote-access.ssh.open` can stream/export *every* SSH recording in the tenant, regardless of whether they were ever a party to the session.
       Fix: Scope read on `RemoteAccessRecording` via session → target → actor's device-level permission; deny if actor wasn't the original session actor unless an explicit `recordings.view_all` is held
+      Resolution: Recording API show/events/export and the recordings LiveView now load the backing session and require the actor to match `session.requested_by`, unless the actor has `devices.remote_access.recordings.view_all`. Existing protocol-specific open permissions still gate protocol visibility, and cross-user misses return not-found to avoid exposing recording IDs.
 
 - [ ] 5.5 [H] CSRF protection on mutating JSON APIs relies on convention, not enforcement
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex:307-379` (api_auth pipeline); `:880` `skip_csrf_protection_for_bearer_auth` (commit: staging)
