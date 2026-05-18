@@ -609,10 +609,11 @@ Result: eBPF surface is **clean**. Stable tracepoints only (no kprobes/uprobes),
 
 Result: cert *shape* and *bind* are correct — partition_id is issuer-derived, embedded in CN + SPIFFE SAN, validated only after TLS chain success, no body-echo. Real gaps: **TTL is 365 days**, **no revocation mechanism at all**, and **per-partition authz on the issuer endpoint is conditional**.
 
-- [ ] 6.L.1 [H] Default agent certificate TTL is **365 days**
+- [x] 6.L.1 [H] Default agent certificate TTL is **365 days**
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/cert_issuer.ex:12, 69` (working tree)
       Why: A compromised agent private key has a 365-day window. Bastion best practice is hours to a few days. Combined with 6.L.2 (no revocation) this is the single biggest credential-blast-radius lever on the agent side.
       Fix: Default `validity_days: 1` (or 3); require `--allow-long-ttl` flag for anything longer; emit audit on issuance with TTL > 7 days.
+      Resolution: Default is now 1 day; issuer rejects invalid TTLs and values above 30 days unless `allow_long_ttl?: true`; long-TTL opt-ins emit a warning and tests cover defaults, rejections, and explicit override.
 
 - [ ] 6.L.2 [H] No revocation mechanism (no CRL, no OCSP, no in-memory denylist)
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/cert_issuer.ex`; gateway TLS at `application.ex:241-254`; `go/pkg/grpc/cert_manager.go` (working tree)
@@ -745,6 +746,7 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Where: `cert_issuer.ex:12, 69` (working tree)
       Why: Compounds 6.L.1 — an operator can extend their already-too-long cert TTL further with no audit / approval gate.
       Fix: Hard cap (e.g. 30 d) at the issuer; require admin approval above default; audit every override
+      Partial: Issuer now enforces a 30-day cap unless `allow_long_ttl?: true`; explicit admin approval and structured audit remain open because the gateway issuer currently has no user/package actor context.
 
 - [ ] 6.N.7 [M] Bootstrap token has TTL but **no single-use enforcement** in DB
       Where: `onboarding_packages.ex:202-244, 399`; no `download_token_consumed_at` column (commit: staging)

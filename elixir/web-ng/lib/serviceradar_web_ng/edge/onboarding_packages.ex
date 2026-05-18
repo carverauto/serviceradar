@@ -120,7 +120,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   ## Options
 
     * `:partition_id` - Network partition identifier (default: "default")
-    * `:cert_validity_days` - Component certificate validity (default: 365)
+    * `:cert_validity_days` - Component certificate validity (default: 1)
     * `:join_token_ttl_seconds` - TTL for join token (default: 86400)
     * `:download_token_ttl_seconds` - TTL for download token (default: 86400)
     * `:actor` - User/system creating the package

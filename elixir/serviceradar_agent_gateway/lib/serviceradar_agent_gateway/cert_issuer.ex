@@ -9,7 +9,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   require Logger
 
   @default_cert_dir "/etc/serviceradar/certs"
-  @default_validity_days 365
+  @default_validity_days 1
+  @max_validity_days 30
 
   @spec issue_agent_bundle(String.t(), String.t(), atom() | String.t(), keyword()) ::
           {:ok, map()} | {:error, atom() | term()}
@@ -20,12 +21,19 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     component_type = normalize_component_type(component_type)
 
     with :ok <- validate_component_type(component_type),
+         {:ok, validity_days} <- validate_validity_days(opts),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
-      generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts)
+      generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts)
     end
   end
 
   def issue_agent_bundle(_, _, _, _), do: {:error, :invalid_identity}
+
+  @doc false
+  def default_validity_days, do: @default_validity_days
+
+  @doc false
+  def max_validity_days, do: @max_validity_days
 
   defp normalize_component_type(type) when is_atom(type), do: type
 
@@ -46,6 +54,28 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp validate_component_type(:agent), do: :ok
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
 
+  defp validate_validity_days(opts) do
+    validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
+
+    cond do
+      not is_integer(validity_days) ->
+        {:error, :invalid_validity_days}
+
+      validity_days <= 0 ->
+        {:error, :invalid_validity_days}
+
+      validity_days > @max_validity_days and Keyword.get(opts, :allow_long_ttl?, false) != true ->
+        {:error, :validity_days_exceeds_limit}
+
+      true ->
+        if validity_days > 7 do
+          Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
+        end
+
+        {:ok, validity_days}
+    end
+  end
+
   defp load_ca_paths(opts) do
     cert_dir = Keyword.get(opts, :cert_dir, System.get_env("GATEWAY_CERT_DIR", @default_cert_dir))
 
@@ -64,9 +94,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
+  defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts) do
     cn = "#{component_id}.#{partition_id}.serviceradar"
-    validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
     temp_parent_dir = Keyword.get(opts, :temp_parent_dir, System.tmp_dir!())
     temp_dir = create_secure_temp_dir!(temp_parent_dir)
 
@@ -126,7 +155,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            private_key_pem: key_pem,
            ca_chain_pem: ca_chain_pem,
            spiffe_id: build_spiffe_id(component_type, partition_id, component_id),
-           cn: cn
+           cn: cn,
+           validity_days: validity_days
          }}
       end
     rescue

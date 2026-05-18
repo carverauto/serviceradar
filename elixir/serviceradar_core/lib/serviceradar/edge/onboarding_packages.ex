@@ -476,14 +476,14 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   Same as `create/2`, plus:
     * `:partition_id` - Network partition (default: "default")
-    * `:cert_validity_days` - Component cert validity (default: 365)
+    * `:cert_validity_days` - Component cert validity (default: 1)
 
   """
   @spec create_with_platform_cert(map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
     partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
-    cert_validity = Keyword.get(opts, :cert_validity_days, 365)
+    cert_validity = Keyword.get(opts, :cert_validity_days, 1)
 
     attrs = normalize_component_identity(attrs)
     component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])

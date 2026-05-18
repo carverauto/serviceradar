@@ -24,6 +24,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
 
     assert bundle.cn == "agent-1.default.serviceradar"
+    assert bundle.validity_days == 1
     assert bundle.private_key_pem =~ "PRIVATE KEY"
     assert bundle.certificate_pem =~ "CERTIFICATE"
 
@@ -33,6 +34,47 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       |> Enum.filter(fn name -> String.starts_with?(name, "serviceradar-cert-") end)
 
     assert leftover_dirs == []
+  end
+
+  test "rejects invalid and over-limit validity days before loading CA files" do
+    assert {:error, :invalid_validity_days} =
+             CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: 0)
+
+    assert {:error, :invalid_validity_days} =
+             CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: "30")
+
+    assert {:error, :validity_days_exceeds_limit} =
+             CertIssuer.issue_agent_bundle(
+               "agent-1",
+               "default",
+               :agent,
+               validity_days: CertIssuer.max_validity_days() + 1
+             )
+  end
+
+  test "allows explicit long TTL opt-in" do
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-long-ttl-test")
+
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    assert {:ok, bundle} =
+             CertIssuer.issue_agent_bundle(
+               "agent-1",
+               "default",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               validity_days: CertIssuer.max_validity_days() + 1,
+               allow_long_ttl?: true
+             )
+
+    assert bundle.validity_days == CertIssuer.max_validity_days() + 1
   end
 
   defp generate_ca_bundle(ca_cert, ca_key) do
