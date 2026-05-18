@@ -349,10 +349,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Verify `SecretRefs.network_credential_ref/1` returns an HMAC-signed, timestamped opaque token; refuse deref on replay or expiry. If not, switch implementation
       Resolution: Closed by 3.H.3. Remote-access central credential grants now emit HMAC-signed `credentialref:network-credential-grant:` refs with expiry, nonce, binding claims, replay rejection, and a maximum 60-second TTL.
 
-- [ ] 4.9 [M] Desktop-target redaction uses field-allowlist `@fields`; new fields default to un-redacted
+- [x] 4.9 [M] Desktop-target redaction uses field-allowlist `@fields`; new fields default to un-redacted
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/changes/redact_desktop_target_policy.ex:34-44` (working tree)
       Why: A future contributor adding a credential-bearing field forgets to update the allowlist → secret returns via read action.
       Fix: Invert to a denylist + structural rule: strip everything matching the credential redactor heuristic, plus any field not on an explicit non-secret allowlist. Add property-based test.
+      Resolution: Desktop target policy redaction now evaluates every changed attribute. Known non-secret fields still pass through the credential redactor, structured policy maps are recursively redacted, and unlisted future fields are stripped by default to a marker/empty value. Regression tests cover known policy redaction, unknown-field stripping, and change-payload minimization.
 
 - [x] 4.10 [L] Broker silently ignores unknown frame types
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_broker.ex:185-231` (commit: staging)
