@@ -23,6 +23,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,6 +80,9 @@ func TestRunSignsCertificateFromJSONRequest(t *testing.T) {
 	if response.ExpiresAt == "" {
 		t.Fatal("expires_at is empty")
 	}
+	if response.CAKeySource != "env" {
+		t.Fatalf("ca_key_source = %q, want env", response.CAKeySource)
+	}
 
 	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(response.Certificate))
 	if err != nil {
@@ -114,6 +119,60 @@ func TestRunRejectsMissingCAKey(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestRunReadsRequestFromPrivateRequestFileEnv(t *testing.T) {
+	t.Parallel()
+
+	_, caPrivateKey := newTestSigner(t)
+	userSigner, _ := newTestSigner(t)
+	request := signRequest{
+		PublicKey:  strings.TrimSpace(string(ssh.MarshalAuthorizedKey(userSigner.PublicKey()))),
+		KeyID:      "sr:remote-access:session-file:user-1:agent-1:ssh:device-1",
+		Principals: []string{"ubuntu"},
+		TTLSeconds: 900,
+		Serial:     99,
+	}
+	requestPath := filepath.Join(t.TempDir(), "request.json")
+	requestData, err := json.Marshal(request)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if err := os.WriteFile(requestPath, requestData, 0o600); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := run(
+		[]string{"--ca-key-env=SR_TEST_CA_KEY", "--max-ttl=1h"},
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+		func(key string) string {
+			switch key {
+			case "SR_TEST_CA_KEY":
+				return string(privateKeyPEM(t, caPrivateKey))
+			case defaultRequestFileEnv:
+				return requestPath
+			default:
+				return ""
+			}
+		},
+	)
+	if exitCode != 0 {
+		t.Fatalf("run exit code = %d, stderr = %s", exitCode, stderr.String())
+	}
+
+	var response signResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Serial != 99 {
+		t.Fatalf("serial = %d, want 99", response.Serial)
+	}
+	if response.CAKeySource != "env" {
+		t.Fatalf("ca_key_source = %q, want env", response.CAKeySource)
 	}
 }
 

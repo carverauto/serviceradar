@@ -49,6 +49,8 @@ const (
 	maxProxmoxSSHPrivateKeyBytes = 65_536
 	maxProxmoxSSHPasswordBytes   = 4_096
 	maxProxmoxSSHPassphraseBytes = 4_096
+
+	proxmoxSSHConsoleUnavailableMessage = "SSH console unavailable\r\n"
 )
 
 type proxmoxConsoleSSHConfig struct {
@@ -117,7 +119,7 @@ func runProxmoxConsoleSSH(
 
 	session, err := dial(ctx, cfg)
 	if err != nil {
-		_, _ = bridge.WriteOutput(ctx, handle, []byte("Unable to open SSH console: "+err.Error()+"\r\n"))
+		_, _ = bridge.WriteOutput(ctx, handle, []byte(proxmoxSSHConsoleUnavailableMessage))
 		return err
 	}
 	defer func() { _ = session.Close() }()

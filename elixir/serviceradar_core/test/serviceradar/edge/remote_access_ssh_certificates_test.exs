@@ -3,6 +3,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
 
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
+  alias ServiceRadar.Security.RateLimiter
 
   @permission RemoteAccessSSHCertificatePolicy.permission()
 
@@ -184,5 +185,55 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificatesTest do
                },
                signer: ErrorSignerStub
              )
+  end
+
+  test "rate limits certificate issuance per actor before signing" do
+    ensure_rate_limiter_started!()
+
+    actor = %{id: "user-rate-limit", permissions: MapSet.new([@permission])}
+    attrs = valid_attrs("session-rate-limit-1")
+
+    assert {:ok, _issued} =
+             RemoteAccessSSHCertificates.issue(actor, attrs,
+               signer: SignerStub,
+               test_pid: self(),
+               rate_limit: [limit: 1, window_seconds: 60]
+             )
+
+    assert_receive {:sign_user_certificate, %{key_id: key_id}}
+    assert key_id == "sr:remote-access:session-rate-limit-1:user-rate-limit:agent-1:ssh:device-1"
+
+    assert {:error, :ssh_certificate_rate_limited} =
+             RemoteAccessSSHCertificates.issue(actor, valid_attrs("session-rate-limit-2"),
+               signer: SignerStub,
+               test_pid: self(),
+               rate_limit: [limit: 1, window_seconds: 60]
+             )
+
+    refute_receive {:sign_user_certificate, _request}
+  end
+
+  defp valid_attrs(session_id) do
+    %{
+      session_id: session_id,
+      agent_id: "agent-1",
+      public_key: "ssh-ed25519 AAAATEST",
+      target: %{device_uid: "device-1"},
+      allowed_principals: ["ubuntu"]
+    }
+  end
+
+  defp ensure_rate_limiter_started! do
+    if Process.whereis(RateLimiter) do
+      :ets.delete_all_objects(RateLimiter.__table__())
+    else
+      start_supervised!(RateLimiter)
+    end
+
+    on_exit(fn ->
+      if :ets.whereis(RateLimiter.__table__()) != :undefined do
+        :ets.delete_all_objects(RateLimiter.__table__())
+      end
+    end)
   end
 end
