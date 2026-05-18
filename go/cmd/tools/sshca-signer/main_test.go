@@ -31,6 +31,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+const testCAKeySourceEnv = "env"
+
 func TestRunSignsCertificateFromJSONRequest(t *testing.T) {
 	t.Parallel()
 
@@ -80,8 +82,8 @@ func TestRunSignsCertificateFromJSONRequest(t *testing.T) {
 	if response.ExpiresAt == "" {
 		t.Fatal("expires_at is empty")
 	}
-	if response.CAKeySource != "env" {
-		t.Fatalf("ca_key_source = %q, want env", response.CAKeySource)
+	if response.CAKeySource != testCAKeySourceEnv {
+		t.Fatalf("ca_key_source = %q, want %s", response.CAKeySource, testCAKeySourceEnv)
 	}
 
 	publicKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(response.Certificate))
@@ -171,8 +173,8 @@ func TestRunReadsRequestFromPrivateRequestFileEnv(t *testing.T) {
 	if response.Serial != 99 {
 		t.Fatalf("serial = %d, want 99", response.Serial)
 	}
-	if response.CAKeySource != "env" {
-		t.Fatalf("ca_key_source = %q, want env", response.CAKeySource)
+	if response.CAKeySource != testCAKeySourceEnv {
+		t.Fatalf("ca_key_source = %q, want %s", response.CAKeySource, testCAKeySourceEnv)
 	}
 }
 

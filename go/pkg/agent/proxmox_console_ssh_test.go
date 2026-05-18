@@ -37,6 +37,8 @@ import (
 
 const fakeProxmoxConsolePrompt = "login: "
 
+var errTestProxmoxConsoleSSHDialAuthFailed = errors.New("auth failed for root using secret token")
+
 func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -183,16 +185,15 @@ func TestRunProxmoxConsoleSSHDialFailureDoesNotLeakErrorToTerminal(t *testing.T)
 		t.Fatalf("open bridge: %v", err)
 	}
 
-	dialErr := errors.New("auth failed for root using secret token")
 	err := runProxmoxConsoleSSH(ctx, proxmoxConsoleSSHConfig{
 		Console: proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
 		Target:  proxmoxConsoleSSHTarget{Hostname: "pve.example"},
 		SSH:     proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
 	}, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
-		return nil, dialErr
+		return nil, errTestProxmoxConsoleSSHDialAuthFailed
 	})
-	if !errors.Is(err, dialErr) {
-		t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, dialErr)
+	if !errors.Is(err, errTestProxmoxConsoleSSHDialAuthFailed) {
+		t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, errTestProxmoxConsoleSSHDialAuthFailed)
 	}
 
 	output, readErr := bridge.Read(ctx)
