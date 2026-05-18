@@ -1,7 +1,7 @@
 ## 1. Design And Resource Model
 - [x] 1.1 Define registered HTTP/HTTPS application target resource fields, lifecycle, RBAC mapping, and relationship to inventory/device records.
 - [x] 1.2 Define registered TCP target resource fields separately from HTTP application targets.
-- [ ] 1.3 Define application/TCP frame schemas for open, request, response metadata, data, progress, close, error, and outcome events.
+- [x] 1.3 Define application/TCP frame schemas for open, request, response metadata, data, progress, close, error, and outcome events.
 - [ ] 1.4 Record dependency and Teleport/source-reuse review before importing any proxy, WebSocket, or TCP helper package.
 
 ## 2. Policy, RBAC, And API

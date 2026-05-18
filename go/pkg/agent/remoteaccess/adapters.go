@@ -28,6 +28,7 @@ const (
 	ProtocolVSphereConsole = "vsphere_console"
 	ProtocolRDP            = "rdp"
 	ProtocolApp            = "app"
+	ProtocolTCP            = "tcp"
 	ProtocolDatabase       = "database"
 	ProtocolKubernetes     = "kubernetes"
 	ProtocolDesktop        = "desktop"
