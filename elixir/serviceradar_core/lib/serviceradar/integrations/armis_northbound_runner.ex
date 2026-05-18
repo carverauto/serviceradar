@@ -771,18 +771,35 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     oban_job_id = Keyword.get(opts, :oban_job_id)
     :ok = reconcile_stale_runs(source, actor, opts)
 
-    IntegrationUpdateRun
-    |> Ash.Changeset.for_create(
-      :start_run,
-      %{
-        integration_source_id: Map.fetch!(source, :id),
-        run_type: :armis_northbound,
-        oban_job_id: oban_job_id,
-        metadata: %{}
-      },
-      actor: actor
-    )
-    |> Ash.create(actor: actor)
+    if active_running_run_exists?(source, actor, opts) do
+      Logger.info("Skipping Armis northbound run because one is already running",
+        integration_source_id: inspect(Map.get(source, :id)),
+        oban_job_id: oban_job_id
+      )
+
+      {:error, :northbound_run_already_active}
+    else
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(
+        :start_run,
+        %{
+          integration_source_id: Map.fetch!(source, :id),
+          run_type: :armis_northbound,
+          oban_job_id: oban_job_id,
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+    end
+  end
+
+  defp active_running_run_exists?(source, actor, opts) do
+    list_runs = Keyword.get(opts, :list_runs, &list_recent_runs/2)
+
+    source
+    |> list_runs.(actor)
+    |> Enum.any?(&(&1.status == :running))
   end
 
   def reconcile_stale_runs(source, actor, opts) do

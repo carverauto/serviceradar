@@ -809,7 +809,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          agent_id,
          actor
        ) do
-    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+    availability_timestamp = utc_now_usec()
+    status_timestamp = DateTime.truncate(availability_timestamp, :second)
 
     upsert_agent_availability(
       results,
@@ -817,7 +818,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       execution_id,
       sweep_group_id,
       agent_id,
-      timestamp
+      availability_timestamp
     )
 
     available_ips = result_ips_for_status(results, true)
@@ -830,12 +831,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     # DB connection's search_path determines the schema
     # Mark available devices (resets failure count)
-    update_device_statuses_available(available_uids, timestamp, agent_id)
+    update_device_statuses_available(available_uids, status_timestamp, agent_id)
 
     # Apply hysteresis for unavailable devices
     # Only mark unavailable after consecutive failure threshold is exceeded
     # "Available wins" window is based on sweep interval
-    update_device_statuses_with_hysteresis(unavailable_uids, timestamp, sweep_group_id, agent_id)
+    update_device_statuses_with_hysteresis(
+      unavailable_uids,
+      status_timestamp,
+      sweep_group_id,
+      agent_id
+    )
 
     maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
 
@@ -897,7 +903,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     if is_nil(device_uid) do
       nil
     else
-      now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+      now = utc_now_usec()
 
       %{
         id: Ash.UUID.generate(),
@@ -967,13 +973,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     case result["last_sweep_time"] || result["lastSweepTime"] do
       value when is_binary(value) ->
         case DateTime.from_iso8601(value) do
-          {:ok, parsed, _offset} -> DateTime.truncate(parsed, :microsecond)
-          _ -> DateTime.truncate(fallback_timestamp, :microsecond)
+          {:ok, parsed, _offset} -> to_usec_precision(parsed)
+          _ -> to_usec_precision(fallback_timestamp)
         end
 
       _ ->
-        DateTime.truncate(fallback_timestamp, :microsecond)
+        to_usec_precision(fallback_timestamp)
     end
+  end
+
+  defp utc_now_usec do
+    to_usec_precision(DateTime.utc_now())
+  end
+
+  defp to_usec_precision(%DateTime{microsecond: {microsecond, _precision}} = datetime) do
+    %{datetime | microsecond: {microsecond, 6}}
   end
 
   defp result_metadata(result) do

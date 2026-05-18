@@ -8,9 +8,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     queue: :integrations,
     max_attempts: 3,
     unique: [
-      period: 60,
+      period: :infinity,
       fields: [:worker, :args],
-      keys: [:integration_source_id, :manual],
+      keys: [:integration_source_id],
       states: [:available, :scheduled, :executing, :retryable]
     ]
 

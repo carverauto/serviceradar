@@ -72,7 +72,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
   defp ensure_source_job(%{enabled: true, northbound_enabled: true} = source, now) do
     cond do
-      recurring_job_exists?(source.id) ->
+      source_job_exists?(source.id) ->
         :ok
 
       runner_module().northbound_ready?(source) != :ok ->
@@ -116,10 +116,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
     active_job_exists?(__MODULE__, %{})
   end
 
-  defp recurring_job_exists?(integration_source_id) do
+  defp source_job_exists?(integration_source_id) do
     active_job_exists?(run_worker_module(), %{
-      "integration_source_id" => to_string(integration_source_id),
-      "manual" => false
+      "integration_source_id" => to_string(integration_source_id)
     })
   end
 

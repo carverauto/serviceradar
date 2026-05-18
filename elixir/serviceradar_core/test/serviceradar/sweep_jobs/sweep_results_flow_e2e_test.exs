@@ -319,6 +319,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              )
 
     {:ok, device_after_secondary} = Device.get_by_ip(ip, false, actor: actor)
+    device_after_secondary = single_result(device_after_secondary)
+
     refute device_after_secondary.is_available
 
     {:ok, secondary_row} =
@@ -330,6 +332,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     assert secondary_row.is_available
     assert secondary_row.agent_name == "Secondary"
+    assert elem(secondary_row.checked_at.microsecond, 1) == 6
     assert secondary_row.response_time_ms == 6
     assert secondary_row.open_ports == [80]
 
@@ -353,6 +356,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              )
 
     {:ok, device_after_primary} = Device.get_by_ip(ip, false, actor: actor)
+    device_after_primary = single_result(device_after_primary)
+
     assert device_after_primary.is_available
 
     {:ok, primary_row} =
@@ -1272,4 +1277,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device.metadata["sweep_mapper_promotion"]["last_status"] == "skipped"
     assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "no_eligible_mapper_job"
   end
+
+  defp single_result([result]), do: result
+  defp single_result(result), do: result
 end

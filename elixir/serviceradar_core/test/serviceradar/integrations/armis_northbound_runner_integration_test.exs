@@ -4,8 +4,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.SyncIngestor
@@ -20,6 +22,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   setup do
     actor = SystemActor.system(:armis_northbound_runner_integration_test)
+    create_connected_agent!(actor)
     {:ok, actor: actor}
   end
 
@@ -49,6 +52,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
     {:ok, device_a} = Device.get_by_ip("192.0.2.20", false, actor: actor)
     {:ok, device_b} = Device.get_by_ip("192.0.2.21", false, actor: actor)
+    device_a = single_result(device_a)
+    device_b = single_result(device_b)
 
     create_agent_availability!(actor, device_a.uid, "agent-northbound", true)
     create_agent_availability!(actor, device_b.uid, "agent-other", false)
@@ -57,6 +62,32 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
     assert Enum.map(candidates, & &1.armis_device_id) == ["armis-agent-1"]
     assert Enum.map(candidates, & &1.is_available) == [true]
+  end
+
+  test "run_for_source does not start another run while one is already running", %{actor: actor} do
+    source = create_source!(actor, "armis-single-active-run")
+
+    IntegrationUpdateRun
+    |> Ash.Changeset.for_create(
+      :start_run,
+      %{
+        integration_source_id: source.id,
+        run_type: :armis_northbound,
+        metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    load_candidates = fn _source, _opts ->
+      flunk("candidate loading should not run while a northbound run is active")
+    end
+
+    assert {:error, :northbound_run_already_active} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               load_candidates: load_candidates
+             )
   end
 
   defp create_source!(actor, name, attrs \\ []) do
@@ -73,12 +104,21 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       )
 
     IntegrationSource
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_argument(:credentials, %{secret_key: "secret", api_key: "api"})
     |> Ash.Changeset.for_create(
       :create,
       attrs,
       actor: actor
     )
-    |> Ash.Changeset.set_argument(:credentials, %{secret_key: "secret", api_key: "api"})
+    |> Ash.create!(actor: actor)
+  end
+
+  defp create_connected_agent!(actor) do
+    uid = "armis-northbound-agent-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid}, actor: actor)
     |> Ash.create!(actor: actor)
   end
 
@@ -91,6 +131,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       "is_available" => is_available,
       "metadata" => %{
         "armis_device_id" => armis_device_id,
+        "integration_id" => armis_device_id,
         "integration_type" => "armis"
       },
       "sync_meta" => %{
@@ -130,4 +171,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     |> Enum.map_join(":", &Enum.join/1)
     |> then(&"02:#{&1}")
   end
+
+  defp single_result([result]), do: result
+  defp single_result(result), do: result
 end
