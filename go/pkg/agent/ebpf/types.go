@@ -35,6 +35,7 @@ const (
 	DetailLibrary        = "library"
 	DetailLibraryVersion = "library_version"
 	DetailPlatform       = "platform"
+	DetailMissingCaps    = "missing_capabilities"
 )
 
 const (
@@ -50,6 +51,8 @@ const (
 	ReasonMissingBPFFS       DisabledReason = "missing_bpffs"
 	ReasonMissingBTF         DisabledReason = "missing_btf"
 	ReasonMissingCgroup      DisabledReason = "missing_cgroup"
+	ReasonKernelTooOld       DisabledReason = "kernel_too_old"
+	ReasonCapabilityMissing  DisabledReason = "capability_missing"
 	ReasonFeatureUnsupported DisabledReason = "feature_unsupported"
 	ReasonPermissionDenied   DisabledReason = "permission_denied"
 	ReasonSelfTestFailed     DisabledReason = "self_test_failed"

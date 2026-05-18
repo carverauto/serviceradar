@@ -582,15 +582,17 @@ Result: gRPC layer is **strong** — mTLS enforced at boot, per-RPC identity re-
 
 Result: eBPF surface is **clean**. Stable tracepoints only (no kprobes/uprobes), strict safe-helper allowlist, fixed-size ringbuf events, `bpf2go` compile-in (no runtime load path), default-off via env var. Two small operational gaps:
 
-- [ ] 3.L.1 [M] No explicit minimum kernel-version gate; silent partial loss on older kernels
+- [x] 3.L.1 [M] No explicit minimum kernel-version gate; silent partial loss on older kernels
       Where: `go/pkg/agent/ebpf/runtime_linux.go:54-78` (commit: staging)
       Why: If ringbuf or tracepoint-types aren't supported, verifier rejects and the agent reports `ReasonSelfTestFailed` — operator may not realise telemetry just stopped.
       Fix: Parse `/proc/sys/kernel/osrelease` at startup; require ≥5.8; emit a loud warning + structured `ReasonKernelTooOld` instead of leaving it to verifier failure semantics.
+      Resolution: Linux runtime checks now parse `/proc/sys/kernel/osrelease`, record the kernel release/minimum in capability details, and emit structured `kernel_too_old` when the host is below 5.8.
 
-- [ ] 3.L.2 [L] No `CAP_BPF` / `CAP_PERFMON` precheck before probe load attempt
+- [x] 3.L.2 [L] No `CAP_BPF` / `CAP_PERFMON` precheck before probe load attempt
       Where: `go/pkg/agent/ebpf/runtime_linux.go:84-116` (commit: staging)
       Why: Agent attempts load and relies on kernel `EPERM`; the operator sees a generic permission failure rather than "missing capability X".
       Fix: Use `capabilities` lib to inspect bounding set; emit `ReasonCapabilityMissing` with the specific cap name in helm/runbook output.
+      Resolution: Linux runtime checks now inspect `/proc/self/status` `CapEff` before feature probes and emit structured `capability_missing` with the missing capability names for `CAP_BPF` and/or `CAP_PERFMON`.
 
 **Positives (eBPF):**
 - Tracepoints only (`sys_enter_execve`, `sys_enter_connect`, `sys_enter_openat`/`access`/`faccessat`) — stable kernel ABI.
