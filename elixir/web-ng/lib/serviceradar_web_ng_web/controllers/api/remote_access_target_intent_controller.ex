@@ -116,6 +116,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessTargetIntentController do
       when reason in [
              :missing_agent_scope,
              :missing_remote_access_target,
+             :remote_access_target_disabled,
              :unsupported_remote_access_protocol,
              :unsupported_remote_access_adapter,
              :unsupported_remote_access_target
@@ -223,6 +224,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessTargetIntentController do
 
   defp format_reason(:missing_agent_scope), do: "target has no selected edge agent for remote-access routing"
   defp format_reason(:missing_remote_access_target), do: "target host could not be resolved for remote access"
+  defp format_reason(:remote_access_target_disabled), do: "remote-access target is disabled"
   defp format_reason(:unsupported_remote_access_protocol), do: "requested remote-access protocol is not supported"
   defp format_reason(:unsupported_remote_access_adapter), do: "requested remote-access adapter is not supported"
   defp format_reason(:unsupported_remote_access_target), do: "requested remote-access target is not supported"

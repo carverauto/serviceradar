@@ -11,8 +11,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Edge.RemoteAccessApplicationTarget
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadar.Edge.RemoteAccessTcpTarget
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Plugins.ValueUtils
@@ -27,13 +29,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     :vsphere_console,
     :rdp,
     :app,
+    :tcp,
     :database,
     :kubernetes,
     :desktop,
     :ot
   ]
-  @supported_adapters @supported_protocols
-  @supported_target_kinds [:inventory_device, :provider_console, :freeform_target]
+  @supported_adapters @supported_protocols ++ [:application]
+  @supported_target_kinds [
+    :inventory_device,
+    :provider_console,
+    :freeform_target,
+    :registered_application_target,
+    :registered_tcp_target
+  ]
   @supported_custody_modes [
     :ssh_certificate,
     :user_present,
@@ -66,7 +75,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
           {:ok, %{session: RemoteAccessSession.t(), ticket: String.t()}} | {:error, term()}
   def request_open(device_uid, request \\ %{}, opts \\ []) when is_binary(device_uid) do
     with {:ok, request} <- normalize_request(request),
-         {:ok, %Device{} = device} <- resolve_device(device_uid),
+         {:ok, request} <- resolve_registered_target_request(device_uid, request),
+         {:ok, %Device{} = device} <- resolve_device(value(request, :device_uid) || device_uid),
          {:ok, attrs} <- session_attrs(device, request, opts),
          ticket = Map.fetch!(attrs, :__attach_ticket__),
          approval = Map.fetch!(attrs, :__approval__),
@@ -301,6 +311,148 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     Device.get_by_uid(device_uid, false,
       actor: SystemActor.system(:remote_access_device_resolver)
     )
+  end
+
+  defp resolve_registered_target_request(target_id, request) do
+    case normalize_target_kind(value(request, :target_kind) || :inventory_device) do
+      {:ok, :registered_application_target} ->
+        resolve_application_target_request(target_id, request)
+
+      {:ok, :registered_tcp_target} ->
+        resolve_tcp_target_request(target_id, request)
+
+      {:ok, _target_kind} ->
+        {:ok, request}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp resolve_application_target_request(target_id, request) do
+    case RemoteAccessApplicationTarget.get_by_id(target_id,
+           actor: SystemActor.system(:remote_access_application_target_resolver)
+         ) do
+      {:ok, %RemoteAccessApplicationTarget{enabled: true} = target} ->
+        {:ok,
+         Map.merge(request, %{
+           device_uid: target.device_uid,
+           target_kind: :registered_application_target,
+           target_host: target.upstream_host,
+           target_port: target.upstream_port,
+           protocol: :app,
+           adapter: :application,
+           agent_id: target.agent_id,
+           gateway_id: target.gateway_id,
+           credential_custody_mode: :none,
+           credential_rule_id: nil,
+           approval_required: approval_required_from_policy(target.approval_policy),
+           idle_timeout_seconds:
+             positive_policy_int(target.quota_policy, "idle_timeout_seconds") ||
+               @default_idle_timeout_seconds,
+           absolute_timeout_seconds:
+             positive_policy_int(target.quota_policy, "absolute_timeout_seconds") ||
+               @default_absolute_timeout_seconds,
+           recording_policy: target.recording_policy,
+           enhanced_recording_policy: target.enhanced_recording_policy,
+           metadata:
+             target_metadata(request, %{
+               "target_id" => target.id,
+               "target_type" => "application",
+               "target_name" => target.name,
+               "upstream_scheme" => Atom.to_string(target.upstream_scheme),
+               "upstream_host_header" => target.upstream_host_header,
+               "upstream_sni" => target.upstream_sni,
+               "tls_policy" => target.tls_policy,
+               "ca_bundle_ref" => target.ca_bundle_ref,
+               "allowed_methods" => target.allowed_methods,
+               "allowed_path_prefixes" => target.allowed_path_prefixes,
+               "header_policy" => target.header_policy,
+               "cookie_policy" => target.cookie_policy,
+               "quota_policy" => target.quota_policy,
+               "target_metadata" => target.metadata
+             })
+         })}
+
+      {:ok, %RemoteAccessApplicationTarget{enabled: false}} ->
+        {:error, :remote_access_target_disabled}
+
+      {:ok, nil} ->
+        {:error, :missing_remote_access_target}
+
+      {:error, %NotFound{}} ->
+        {:error, :missing_remote_access_target}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp resolve_tcp_target_request(target_id, request) do
+    case RemoteAccessTcpTarget.get_by_id(target_id,
+           actor: SystemActor.system(:remote_access_tcp_target_resolver)
+         ) do
+      {:ok, %RemoteAccessTcpTarget{enabled: true} = target} ->
+        {:ok,
+         Map.merge(request, %{
+           device_uid: target.device_uid,
+           target_kind: :registered_tcp_target,
+           target_host: target.upstream_host,
+           target_port: target.upstream_port,
+           protocol: :tcp,
+           adapter: :tcp,
+           agent_id: target.agent_id,
+           gateway_id: target.gateway_id,
+           credential_custody_mode: :none,
+           credential_rule_id: nil,
+           approval_required: approval_required_from_policy(target.approval_policy),
+           idle_timeout_seconds: target.idle_timeout_seconds,
+           absolute_timeout_seconds: target.absolute_timeout_seconds,
+           recording_policy: target.recording_policy,
+           enhanced_recording_policy: target.enhanced_recording_policy,
+           metadata:
+             target_metadata(request, %{
+               "target_id" => target.id,
+               "target_type" => "tcp",
+               "target_name" => target.name,
+               "protocol_name" => target.protocol_name,
+               "quota_policy" => target.quota_policy,
+               "target_metadata" => target.metadata
+             })
+         })}
+
+      {:ok, %RemoteAccessTcpTarget{enabled: false}} ->
+        {:error, :remote_access_target_disabled}
+
+      {:ok, nil} ->
+        {:error, :missing_remote_access_target}
+
+      {:error, %NotFound{}} ->
+        {:error, :missing_remote_access_target}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp approval_required_from_policy(policy) when is_map(policy) do
+    truthy?(value(policy, :required)) or truthy?(value(policy, :approval_required))
+  end
+
+  defp approval_required_from_policy(_policy), do: false
+
+  defp positive_policy_int(policy, key) when is_map(policy),
+    do: policy |> value(key) |> positive_int()
+
+  defp positive_policy_int(_policy, _key), do: nil
+
+  defp target_metadata(request, target_metadata) do
+    request_metadata = sanitized_map(value(request, :metadata))
+
+    target_metadata
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> then(&Map.merge(request_metadata, &1))
   end
 
   defp session_attrs(device, request, opts) do
@@ -1008,10 +1160,21 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp maybe_put(map, _key, value) when value == %{}, do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
-  defp value(map, key) when is_map(map),
+  defp value(map, key) when is_map(map) and is_atom(key),
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
+  defp value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) || maybe_existing_atom_value(map, key)
+  end
+
   defp value(_map, _key), do: nil
+
+  defp maybe_existing_atom_value(map, key) do
+    case safe_existing_atom(key) do
+      nil -> nil
+      atom -> Map.get(map, atom)
+    end
+  end
 
   defp value_string(source, keys) do
     source
