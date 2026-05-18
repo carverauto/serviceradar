@@ -1,6 +1,6 @@
 # ServiceRadar v1.2.67
 
-Armis sync resilience and timestamp precision fixes.
+Armis integration recovery, plugin status visibility, and release pipeline fixes.
 
 ## Whats New
 
@@ -8,6 +8,13 @@ Armis sync resilience and timestamp precision fixes.
 - Fixed Armis discovery sync failures when the Armis API returns a scalar device `names` value instead of the documented list format.
 - Normalized Armis sync timestamps to second precision before inventory ingestion so sub-second `first_seen`, `last_seen`, and agent observation times do not violate `:utc_datetime` resource fields.
 - Fixed integration sync status and agent config dispatch timestamp writes so recent sync and config delivery details can be recorded without microsecond precision errors.
+- Fixed Armis northbound candidate loading on PostgreSQL by casting the JSONB `availability_source_agent_id` value to text, resolving `ERROR 42P18 could not determine data type of parameter $1`.
+- Changed Armis northbound run handling so recorded runner failures finalize the run and return cleanly to Oban, preventing one-minute retry storms and stale `Running` rows after timeouts.
+- Added Armis northbound worker and runner logs around run start, completion, failure, and stale-run timeout handling to make missing agent/core execution paths visible.
+- Restored durable Wasm plugin visibility on `/services` by reconciling plugin assignments into service state and rendering plugin service cards from durable plugin rows instead of a short active-status window.
+- Added OCSF event emission for Oban job failures, including retryable/discarded status, worker, queue, job ID, attempt counts, redacted args, and stacktrace excerpts so background job failures appear in the Events stream.
+- Hardened GeoLite MMDB refresh failures so unwritable download directories and failed downloads record events and use the normal cooldown path instead of repeatedly crashing and being re-enqueued every scheduler tick.
+- Updated stale Debian package pins for `openssl`, `libssl3`, and `libpq-dev` so Bazel release CI no longer downloads removed Debian package URLs.
 
 # ServiceRadar v1.2.66
 
