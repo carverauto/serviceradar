@@ -28,10 +28,20 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicy do
          {:ok, header_policy} <- normalize_header_policy(target.header_policy),
          {:ok, cookie_policy} <- normalize_cookie_policy(target.cookie_policy),
          {:ok, quota_policy} <- normalize_app_quota_policy(target.quota_policy),
-         {:ok, approval_policy} <- normalize_approval_policy(target.approval_policy),
          {:ok, recording_policy} <- normalize_recording_policy(target.recording_policy),
          {:ok, enhanced_policy} <-
-           normalize_enhanced_recording_policy(target.enhanced_recording_policy) do
+           normalize_enhanced_recording_policy(target.enhanced_recording_policy),
+         {:ok, approval_policy} <-
+           normalize_approval_policy(
+             target.approval_policy,
+             application_approval_triggers(
+               target,
+               methods,
+               path_prefixes,
+               tls_policy,
+               recording_policy
+             )
+           ) do
       {:ok,
        %{
          "schema" => "serviceradar.remote_access.application_policy.v1",
@@ -55,10 +65,11 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicy do
   @spec evaluate_tcp(RemoteAccessTcpTarget.t()) :: evaluation()
   def evaluate_tcp(%RemoteAccessTcpTarget{} = target) do
     with {:ok, quota_policy} <- normalize_tcp_quota_policy(target.quota_policy),
-         {:ok, approval_policy} <- normalize_approval_policy(target.approval_policy),
          {:ok, recording_policy} <- normalize_recording_policy(target.recording_policy),
          {:ok, enhanced_policy} <-
-           normalize_enhanced_recording_policy(target.enhanced_recording_policy) do
+           normalize_enhanced_recording_policy(target.enhanced_recording_policy),
+         {:ok, approval_policy} <-
+           normalize_approval_policy(target.approval_policy, ["tcp_target"]) do
       {:ok,
        %{
          "schema" => "serviceradar.remote_access.tcp_policy.v1",
@@ -221,17 +232,62 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicy do
     end
   end
 
-  defp normalize_approval_policy(policy) do
+  defp normalize_approval_policy(policy, trigger_reasons) do
     policy = normalize_map(policy)
+
+    explicit_required? =
+      truthy?(policy_value(policy, "required")) or
+        truthy?(policy_value(policy, "approval_required"))
+
+    reasons =
+      policy
+      |> policy_value("reasons")
+      |> normalize_reason_list()
+      |> Kernel.++(trigger_reasons)
+      |> Enum.uniq()
 
     {:ok,
      drop_nil_values(%{
-       "required" =>
-         truthy?(policy_value(policy, "required")) or
-           truthy?(policy_value(policy, "approval_required")),
+       "required" => explicit_required? or reasons != [],
+       "reasons" => reasons,
        "reason" => policy_string(policy, "reason")
      })}
   end
+
+  defp application_approval_triggers(target, methods, path_prefixes, tls_policy, recording_policy) do
+    []
+    |> maybe_add_trigger(policy_sensitive?(target.approval_policy), "sensitive_application")
+    |> maybe_add_trigger(tls_policy["verify"] == "insecure_skip_verify", "insecure_upstream_tls")
+    |> maybe_add_trigger(Enum.member?(path_prefixes, "/"), "broad_path_access")
+    |> maybe_add_trigger(Enum.any?(methods, &upload_method?/1), "upload_enabled")
+    |> maybe_add_trigger(truthy?(recording_policy["capture_bodies"]), "body_recording")
+  end
+
+  defp policy_sensitive?(policy) do
+    policy = normalize_map(policy)
+
+    truthy?(policy_value(policy, "sensitive")) or
+      policy_string(policy, "sensitivity") in ["high", "critical"]
+  end
+
+  defp upload_method?(method), do: method not in ["GET", "HEAD", "OPTIONS"]
+
+  defp maybe_add_trigger(reasons, true, reason), do: [reason | reasons]
+  defp maybe_add_trigger(reasons, _condition, _reason), do: reasons
+
+  defp normalize_reason_list(values) when is_list(values) do
+    values
+    |> Enum.map(&string_or_nil/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_reason_list(value) when is_binary(value) do
+    value
+    |> String.split([",", "\n"], trim: true)
+    |> normalize_reason_list()
+  end
+
+  defp normalize_reason_list(_value), do: []
 
   defp normalize_recording_policy(policy) do
     policy = normalize_map(policy)

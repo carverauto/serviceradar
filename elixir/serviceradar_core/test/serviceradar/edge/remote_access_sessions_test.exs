@@ -84,7 +84,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                  upstream_port: 8443,
                  upstream_host_header: "internal-app.example.test",
                  upstream_sni: "internal-app.example.test",
-                 allowed_methods: ["GET", "POST"],
+                 allowed_methods: ["GET"],
                  allowed_path_prefixes: ["/app"],
                  tls_policy: %{"verify" => "required"},
                  quota_policy: %{"idle_timeout_seconds" => 300},
@@ -115,6 +115,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert session.metadata["target_id"] == target.id
     assert session.metadata["target_type"] == "application"
     assert session.metadata["upstream_host_header"] == "internal-app.example.test"
+    assert session.metadata["allowed_methods"] == ["GET"]
     assert session.metadata["allowed_path_prefixes"] == ["/app"]
     assert session.metadata["redirect_policy"] == %{"mode" => "deny", "max_hops" => 0}
     assert session.metadata["cookie_policy"] == %{"isolation" => "session", "store" => false}
@@ -131,6 +132,58 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
     assert create_audit[:details][:protocol] == "app"
+  end
+
+  test "registered application target requires approval for risky app policy" do
+    uid = unique_uid("app-approval-policy")
+    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
+
+    assert {:ok, target} =
+             RemoteAccessApplicationTarget.create_target(
+               %{
+                 name: "Upload App",
+                 device_uid: uid,
+                 agent_id: "agent-app",
+                 upstream_scheme: :https,
+                 upstream_host: "10.20.30.41",
+                 upstream_port: 8443,
+                 tls_policy: %{"verify" => "insecure_skip_verify"},
+                 allowed_methods: ["GET", "POST"],
+                 allowed_path_prefixes: ["/"]
+               },
+               actor: @system_actor
+             )
+
+    assert {:error, :approval_required} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_application_target},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:details][:failure_reason] == "approval_required"
+
+    approval_id = Ecto.UUID.generate()
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_application_target, approval_id: approval_id},
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               approval_checker: ApprovalApprover
+             )
+
+    assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
+    assert session.metadata["approval_policy"]["required"] == true
+
+    assert Enum.sort(session.metadata["approval_policy"]["reasons"]) == [
+             "broad_path_access",
+             "insecure_upstream_tls",
+             "upload_enabled"
+           ]
   end
 
   test "registered application target rejects malformed trusted policy before session creation" do
@@ -186,14 +239,18 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                actor: @system_actor
              )
 
+    approval_id = Ecto.UUID.generate()
+
     assert {:ok, %{session: session}} =
              RemoteAccessSessions.request_open(
                target.id,
-               %{target_kind: :registered_tcp_target},
+               %{target_kind: :registered_tcp_target, approval_id: approval_id},
                actor: @system_actor,
-               audit_writer: AuditSink
+               audit_writer: AuditSink,
+               approval_checker: ApprovalApprover
              )
 
+    assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
     assert session.device_uid == uid
     assert session.target_kind == :registered_tcp_target
     assert session.protocol == :tcp
@@ -217,12 +274,42 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert session.metadata["policy_snapshot"]["schema"] ==
              "serviceradar.remote_access.tcp_policy.v1"
 
+    assert session.metadata["approval_policy"]["required"] == true
+    assert session.metadata["approval_policy"]["reasons"] == ["tcp_target"]
     assert session.metadata["target_metadata"] == %{"owner" => "database"}
     assert session.recording_policy["metadata_only"] == true
 
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
     assert create_audit[:details][:protocol] == "tcp"
+  end
+
+  test "registered TCP target requires approval before a session is created" do
+    uid = unique_uid("tcp-target-approval")
+    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
+
+    assert {:ok, target} =
+             RemoteAccessTcpTarget.create_target(
+               %{
+                 name: "Sensitive TCP",
+                 device_uid: uid,
+                 agent_id: "agent-tcp",
+                 upstream_host: "10.30.40.51",
+                 upstream_port: 5432
+               },
+               actor: @system_actor
+             )
+
+    assert {:error, :approval_required} =
+             RemoteAccessSessions.request_open(
+               target.id,
+               %{target_kind: :registered_tcp_target},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:details][:failure_reason] == "approval_required"
   end
 
   test "disabled registered targets are rejected before a session is created" do
