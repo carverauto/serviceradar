@@ -487,6 +487,8 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	for _, capability := range []string{
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessApp,
+		remoteaccess.CapabilityRemoteAccessTCP,
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,

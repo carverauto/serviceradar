@@ -14,7 +14,7 @@
 - [x] 3.1 Add gateway/agent routing for application and TCP access frames over the selected remote-access session route.
 - [x] 3.2 Add an agent HTTP/HTTPS adapter that dials only registered upstreams and enforces Host/SNI/TLS/header/path/method policy.
 - [x] 3.3 Add a constrained agent TCP adapter for registered targets with idle timeout, byte quotas, and connection lifecycle frames.
-- [ ] 3.4 Advertise `remote_access.app` and `remote_access.tcp` only when local policy enforcement is available.
+- [x] 3.4 Advertise `remote_access.app` and `remote_access.tcp` only when local policy enforcement is available.
 
 ## 4. UI, Recording, And Audit
 - [ ] 4.1 Add operator/user UI for launching registered application access sessions.
