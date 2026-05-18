@@ -81,7 +81,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
     Process.delete(:test_pid)
   end
 
-  test "perform returns error when runner reports failure" do
+  test "perform treats recorded runner failure as handled" do
     source_id = Ecto.UUID.generate()
 
     with_env(
@@ -89,7 +89,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
       SourceLookup,
       fn ->
         job = %Oban.Job{id: 9, args: %{"integration_source_id" => source_id}}
-        assert {:error, :northbound_run_failed} = ArmisNorthboundRunWorker.perform(job)
+        assert :ok = ArmisNorthboundRunWorker.perform(job)
       end
     )
   end

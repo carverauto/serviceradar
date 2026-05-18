@@ -112,31 +112,164 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/2)
     execute_batches_fun = Keyword.get(opts, :execute_batches, &execute_batches/3)
 
-    with {:ok, run} <- start_run.(source, actor, opts),
-         {:ok, candidates} <- load_candidates_fun.(source, opts),
-         collapsed = collapse_candidates(candidates),
-         {:ok, _source} <-
-           update_source.(source, :northbound_start, %{device_count: length(collapsed)}, actor) do
-      case execute_batches_fun.(source, collapsed, opts) do
-        {:ok, result} ->
-          finalize_success(source, run, result, actor, finish_run, update_source, record_event)
+    case start_run.(source, actor, opts) do
+      {:ok, run} ->
+        run_started_for_source(
+          source,
+          run,
+          actor,
+          opts,
+          update_source,
+          finish_run,
+          record_event,
+          load_candidates_fun,
+          execute_batches_fun
+        )
 
-        {:error, result} when is_map(result) ->
-          finalize_error(source, run, result, actor, finish_run, update_source, record_event)
-
-        {:error, reason} ->
-          result = %{
-            device_count: length(collapsed),
-            updated_count: 0,
-            skipped_count: 0,
-            error_count: length(collapsed),
-            batch_count: 0,
-            errors: [%{reason: reason}]
-          }
-
-          finalize_error(source, run, result, actor, finish_run, update_source, record_event)
-      end
+      {:error, _reason} = error ->
+        error
     end
+  end
+
+  defp run_started_for_source(
+         source,
+         run,
+         actor,
+         opts,
+         update_source,
+         finish_run,
+         record_event,
+         load_candidates_fun,
+         execute_batches_fun
+       ) do
+    Logger.info("Starting Armis northbound run",
+      integration_source_id: inspect(Map.get(source, :id)),
+      run_id: inspect(Map.get(run, :id))
+    )
+
+    case load_candidates_fun.(source, opts) do
+      {:ok, candidates} ->
+        collapsed = collapse_candidates(candidates)
+        device_count = length(collapsed)
+
+        Logger.info("Loaded Armis northbound candidates",
+          integration_source_id: inspect(Map.get(source, :id)),
+          run_id: inspect(Map.get(run, :id)),
+          device_count: device_count
+        )
+
+        case update_source.(source, :northbound_start, %{device_count: device_count}, actor) do
+          {:ok, _source} ->
+            execute_started_run(
+              source,
+              run,
+              collapsed,
+              actor,
+              opts,
+              finish_run,
+              update_source,
+              record_event,
+              execute_batches_fun
+            )
+
+          {:error, reason} ->
+            fail_started_run(
+              source,
+              run,
+              failure_result(device_count, reason),
+              actor,
+              finish_run,
+              update_source,
+              record_event
+            )
+        end
+
+      {:error, reason} ->
+        fail_started_run(
+          source,
+          run,
+          failure_result(0, reason),
+          actor,
+          finish_run,
+          update_source,
+          record_event
+        )
+    end
+  rescue
+    exception ->
+      fail_started_run(
+        source,
+        run,
+        failure_result(0, {exception.__struct__, Exception.message(exception)}),
+        actor,
+        finish_run,
+        update_source,
+        record_event
+      )
+  end
+
+  defp execute_started_run(
+         source,
+         run,
+         collapsed,
+         actor,
+         opts,
+         finish_run,
+         update_source,
+         record_event,
+         execute_batches_fun
+       ) do
+    case execute_batches_fun.(source, collapsed, opts) do
+      {:ok, result} ->
+        finalize_success(source, run, result, actor, finish_run, update_source, record_event)
+
+      {:error, result} when is_map(result) ->
+        finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+
+      {:error, reason} ->
+        result = %{
+          device_count: length(collapsed),
+          updated_count: 0,
+          skipped_count: 0,
+          error_count: max(length(collapsed), 1),
+          batch_count: 0,
+          errors: [%{reason: reason}]
+        }
+
+        finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+    end
+  rescue
+    exception ->
+      fail_started_run(
+        source,
+        run,
+        failure_result(length(collapsed), {exception.__struct__, Exception.message(exception)}),
+        actor,
+        finish_run,
+        update_source,
+        record_event
+      )
+  end
+
+  defp fail_started_run(source, run, result, actor, finish_run, update_source, record_event) do
+    Logger.warning("Armis northbound run failed before completion",
+      integration_source_id: inspect(Map.get(source, :id)),
+      run_id: inspect(Map.get(run, :id)),
+      reason: summarize_errors(result.errors)
+    )
+
+    finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+  end
+
+  defp failure_result(device_count, reason) do
+    %{
+      device_count: device_count,
+      updated_count: 0,
+      skipped_count: 0,
+      error_count: max(device_count, 1),
+      batch_count: 0,
+      errors: [%{reason: reason}]
+    }
   end
 
   @spec execute_batches(IntegrationSource.t() | map(), [collapsed_candidate()], keyword()) ::
@@ -287,7 +420,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           ),
         metadata:
           fragment(
-            "jsonb_strip_nulls(COALESCE(?, '{}'::jsonb) || jsonb_build_object('integration_type', COALESCE(?->>'integration_type', ?->>'integration_type'), 'availability_source_agent_id', ?))::jsonb",
+            "jsonb_strip_nulls(COALESCE(?, '{}'::jsonb) || jsonb_build_object('integration_type', COALESCE(?->>'integration_type', ?->>'integration_type'), 'availability_source_agent_id', ?::text))::jsonb",
             d.metadata,
             di.metadata,
             d.metadata,
@@ -655,6 +788,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   def reconcile_stale_runs(source, actor, opts) do
     list_runs = Keyword.get(opts, :list_runs, &list_recent_runs/2)
     finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
+    update_source = Keyword.get(opts, :update_source, &default_update_source/4)
     oban_state = Keyword.get(opts, :oban_state, &fetch_oban_job_state/1)
     now = Keyword.get(opts, :now, DateTime.utc_now())
     cutoff_seconds = Keyword.get(opts, :stale_run_cutoff_seconds, @stale_run_cutoff_seconds)
@@ -678,8 +812,22 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
         }
 
         case finish_run.(run, :finish_timeout, attrs, actor, %{status: :timeout}) do
-          {:ok, _finished_run} -> :ok
-          {:error, _reason} -> :ok
+          {:ok, _finished_run} ->
+            timeout_attrs = %{
+              result: :timeout,
+              device_count: run.device_count || 0,
+              updated_count: run.updated_count || 0,
+              skipped_count: (run.skipped_count || 0) + (run.error_count || 0),
+              error_message: "Marked timed out after orphaned Oban job"
+            }
+
+            case update_source.(source, :northbound_failed, timeout_attrs, actor) do
+              {:ok, _source} -> :ok
+              {:error, _reason} -> :ok
+            end
+
+          {:error, _reason} ->
+            :ok
         end
       end
     end)

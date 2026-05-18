@@ -75,6 +75,28 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   def upsert_for_assignment(_), do: :ok
 
+  @spec reconcile_plugin_assignments(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_plugin_assignments(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:service_state_registry))
+
+    PluginAssignment
+    |> filter(enabled == true)
+    |> Ash.read(actor: actor, domain: ServiceRadar.Plugins)
+    |> case do
+      {:ok, assignments} ->
+        Enum.each(assignments, &upsert_for_assignment/1)
+        {:ok, length(assignments)}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to reconcile plugin assignment service states: #{inspect(reason)}")
+        error
+    end
+  rescue
+    error ->
+      Logger.warning("Plugin assignment service state reconciliation failed: #{Exception.message(error)}")
+      {:error, error}
+  end
+
   @spec deactivate_for_assignment(PluginAssignment.t()) :: :ok
   def deactivate_for_assignment(%PluginAssignment{} = assignment) do
     actor = SystemActor.system(:service_state_registry)
@@ -172,7 +194,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
       available: normalize_available(fetch(status, :available)),
       message: normalize_message_value(message),
-      details: nil,
+      details: normalize_details(fetch(status, :message)),
       last_observed_at: resolve_observed_at(status),
       state: "active"
     }
@@ -236,6 +258,22 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     FieldParser.encode_json(value) || inspect(value)
   end
 
+  defp normalize_details(message) when is_binary(message) do
+    case Jason.decode(message) do
+      {:ok, decoded} when is_map(decoded) or is_list(decoded) ->
+        FieldParser.encode_json(decoded)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_details(message) when is_map(message) or is_list(message) do
+    FieldParser.encode_json(message)
+  end
+
+  defp normalize_details(_), do: nil
+
   defp resolve_observed_at(status) do
     raw =
       fetch(status, :agent_timestamp) || fetch(status, :timestamp) || fetch(status, :observed_at)
@@ -250,10 +288,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
   end
 
-  defp should_track_assignment_service?(
-         %PluginAssignment{} = assignment,
-         %PluginPackage{} = package
-       ) do
+  defp should_track_assignment_service?(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
     assignment.enabled == true and
       (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
@@ -278,11 +313,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_assignment(
-         %PluginAssignment{} = assignment,
-         agent,
-         %PluginPackage{} = package
-       ) do
+  defp build_attrs_from_assignment(%PluginAssignment{} = assignment, agent, %PluginPackage{} = package) do
     plugin_type = assignment_plugin_type(package)
     {available, message} = assignment_initial_state(plugin_type)
 
