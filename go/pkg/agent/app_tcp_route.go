@@ -20,14 +20,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const appTCPAdapterUnavailableCode = "adapter_unavailable"
-
-var errApplicationSessionNotOpen = errors.New("application access session is not open")
+var (
+	errApplicationSessionNotOpen = errors.New("application access session is not open")
+	errTCPSessionNotOpen         = errors.New("tcp access session is not open")
+	errTCPSessionExists          = errors.New("tcp access session already exists")
+)
 
 func isApplicationAccessFrameType(frameType string) bool {
 	switch frameType {
@@ -62,13 +65,7 @@ func (p *PushLoop) handleAppTCPFrame(_ context.Context, frame *proto.ConsoleFram
 		p.handleApplicationAccessFrame(frame, sender)
 
 	case isTCPAccessFrameType(frame.GetFrameType()):
-		payload := remoteaccess.TCPErrorPayload{
-			SessionID: frame.GetSessionId(),
-			Status:    remoteaccess.TCPStatusFailed,
-			Code:      appTCPAdapterUnavailableCode,
-			Message:   "tcp access adapter unavailable",
-		}
-		sendAppTCPErrorFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeTCPError, payload)
+		p.handleTCPAccessFrame(frame, sender)
 	}
 }
 
@@ -159,10 +156,162 @@ func (p *PushLoop) applicationHTTPAdapter(sessionID string) *remoteaccess.Applic
 	return p.applicationHTTPSessions[sessionID]
 }
 
+func (p *PushLoop) handleTCPAccessFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+	switch frame.GetFrameType() {
+	case remoteaccess.FrameTypeTCPOpen:
+		p.openTCPAccess(frame, sender)
+	case remoteaccess.FrameTypeTCPData:
+		p.writeTCPAccess(frame, sender)
+	case remoteaccess.FrameTypeTCPClose:
+		p.closeTCPAccess(frame, sender)
+	default:
+		sendTCPError(sender, frame.GetSessionId(), "unsupported_frame", "unsupported tcp access frame", remoteaccess.TCPStatusFailed)
+	}
+}
+
+func (p *PushLoop) openTCPAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+	var payload remoteaccess.TCPOpenPayload
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		sendTCPError(sender, frame.GetSessionId(), "invalid_open_payload", err.Error(), remoteaccess.TCPStatusFailed)
+		return
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = frame.GetSessionId()
+	}
+
+	p.tcpMu.Lock()
+	if p.tcpSessions != nil && p.tcpSessions[frame.GetSessionId()] != nil {
+		p.tcpMu.Unlock()
+		sendTCPError(sender, frame.GetSessionId(), "session_exists", errTCPSessionExists.Error(), remoteaccess.TCPStatusFailed)
+		return
+	}
+	p.tcpMu.Unlock()
+
+	adapter, err := remoteaccess.NewTCPAdapter(context.Background(), payload, remoteaccess.TCPAdapterOptions{})
+	if err != nil {
+		sendTCPError(sender, frame.GetSessionId(), "open_failed", err.Error(), remoteaccess.TCPStatusFailed)
+		return
+	}
+
+	p.tcpMu.Lock()
+	if p.tcpSessions == nil {
+		p.tcpSessions = make(map[string]*remoteaccess.TCPAdapter)
+	}
+	p.tcpSessions[frame.GetSessionId()] = adapter
+	p.tcpMu.Unlock()
+
+	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeTCPProgress, remoteaccess.TCPProgressPayload{
+		SessionID:    payload.SessionID,
+		ConnectionID: payload.ConnectionID,
+		Status:       remoteaccess.TCPStatusStarted,
+	})
+
+	go p.readTCPAccess(frame.GetSessionId(), adapter, sender)
+}
+
+func (p *PushLoop) writeTCPAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+	adapter := p.tcpAdapter(frame.GetSessionId())
+	if adapter == nil {
+		sendTCPError(sender, frame.GetSessionId(), "session_not_open", errTCPSessionNotOpen.Error(), remoteaccess.TCPStatusFailed)
+		return
+	}
+
+	var payload remoteaccess.TCPDataPayload
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		sendTCPError(sender, frame.GetSessionId(), "invalid_data_payload", err.Error(), remoteaccess.TCPStatusFailed)
+		return
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = frame.GetSessionId()
+	}
+
+	progress, err := adapter.Write(payload)
+	if err != nil {
+		status := remoteaccess.TCPStatusFailed
+		if errors.Is(err, remoteaccess.ErrTCPBytesInQuotaExceeded) {
+			status = remoteaccess.TCPStatusQuotaExhausted
+		}
+		sendTCPError(sender, frame.GetSessionId(), "write_failed", err.Error(), status)
+		p.dropTCPAdapter(frame.GetSessionId())
+		return
+	}
+
+	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeTCPProgress, progress)
+}
+
+func (p *PushLoop) readTCPAccess(sessionID string, adapter *remoteaccess.TCPAdapter, sender *controlStreamSender) {
+	for {
+		frame, progress, err := adapter.Read(context.Background(), 0)
+		if err != nil {
+			switch {
+			case errors.Is(err, io.EOF):
+				sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeTCPData, frame)
+				sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeTCPProgress, progress)
+				sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeTCPClose, remoteaccess.TCPClosePayload{
+					SessionID:    frame.SessionID,
+					ConnectionID: frame.ConnectionID,
+					Reason:       "upstream_eof",
+				})
+			case errors.Is(err, remoteaccess.ErrTCPBytesOutQuotaExceeded):
+				sendTCPError(sender, sessionID, "quota_exhausted", err.Error(), remoteaccess.TCPStatusQuotaExhausted)
+			case !errors.Is(err, remoteaccess.ErrTCPAdapterClosed):
+				sendTCPError(sender, sessionID, "read_failed", err.Error(), remoteaccess.TCPStatusFailed)
+			}
+			p.dropTCPAdapter(sessionID)
+			return
+		}
+
+		sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeTCPData, frame)
+		sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeTCPProgress, progress)
+	}
+}
+
+func (p *PushLoop) closeTCPAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+	adapter := p.dropTCPAdapter(frame.GetSessionId())
+	if adapter != nil {
+		_ = adapter.Close()
+	}
+
+	var payload remoteaccess.TCPClosePayload
+	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
+		payload = remoteaccess.TCPClosePayload{SessionID: frame.GetSessionId()}
+	}
+	if payload.SessionID == "" {
+		payload.SessionID = frame.GetSessionId()
+	}
+
+	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeTCPClose, payload)
+}
+
+func (p *PushLoop) tcpAdapter(sessionID string) *remoteaccess.TCPAdapter {
+	p.tcpMu.Lock()
+	defer p.tcpMu.Unlock()
+
+	return p.tcpSessions[sessionID]
+}
+
+func (p *PushLoop) dropTCPAdapter(sessionID string) *remoteaccess.TCPAdapter {
+	p.tcpMu.Lock()
+	defer p.tcpMu.Unlock()
+
+	adapter := p.tcpSessions[sessionID]
+	delete(p.tcpSessions, sessionID)
+	return adapter
+}
+
 func sendApplicationError(sender *controlStreamSender, sessionID string, code string, message string) {
 	sendAppTCPErrorFrame(sender, sessionID, remoteaccess.FrameTypeApplicationError, remoteaccess.ApplicationErrorPayload{
 		SessionID: sessionID,
 		Status:    remoteaccess.ApplicationStatusFailed,
+		Code:      code,
+		Message:   message,
+	})
+}
+
+func sendTCPError(sender *controlStreamSender, sessionID string, code string, message string, status remoteaccess.RemoteAccessStreamStatus) {
+	sendAppTCPErrorFrame(sender, sessionID, remoteaccess.FrameTypeTCPError, remoteaccess.TCPErrorPayload{
+		SessionID: sessionID,
+		Status:    status,
 		Code:      code,
 		Message:   message,
 	})

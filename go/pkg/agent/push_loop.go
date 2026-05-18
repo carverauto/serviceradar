@@ -134,6 +134,8 @@ type PushLoop struct {
 	remoteConsoleManager      *remoteConsoleManager
 	applicationHTTPMu         sync.Mutex
 	applicationHTTPSessions   map[string]*remoteaccess.ApplicationHTTPAdapter
+	tcpMu                     sync.Mutex
+	tcpSessions               map[string]*remoteaccess.TCPAdapter
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex

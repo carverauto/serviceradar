@@ -33,6 +33,20 @@ func (f *fakeControlStreamClient) Send(req *proto.ControlStreamRequest) error {
 	return nil
 }
 
+func (f *fakeControlStreamClient) consoleFrames() []*proto.ConsoleFrame {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	frames := make([]*proto.ConsoleFrame, 0, len(f.sent))
+	for _, req := range f.sent {
+		if frame := req.GetConsoleFrame(); frame != nil {
+			frames = append(frames, frame)
+		}
+	}
+
+	return frames
+}
+
 func (f *fakeControlStreamClient) Recv() (*proto.ControlStreamResponse, error) {
 	return nil, io.EOF
 }
@@ -316,7 +330,7 @@ func TestHandleConsoleFrameRoutesAppTCPFramesFailClosed(t *testing.T) {
 			sessionID:     "tcp-session-1",
 			inFrameType:   remoteaccess.FrameTypeTCPOpen,
 			outFrameType:  remoteaccess.FrameTypeTCPError,
-			messageSubstr: "tcp access adapter unavailable",
+			messageSubstr: "invalid_open_payload",
 		},
 	}
 
@@ -412,6 +426,60 @@ func TestHandleConsoleFrameExecutesApplicationHTTPRequest(t *testing.T) {
 	}
 }
 
+func TestHandleConsoleFrameExecutesTCPStream(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer := startAgentTCPEchoServer(t)
+	defer closeServer()
+
+	host, port := testNetHostPort(t, addr)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.TCPOpenPayload{
+		TargetID:           "tcp-target-1",
+		SessionID:          "tcp-session-1",
+		ConnectionID:       "conn-1",
+		UpstreamHost:       host,
+		UpstreamPort:       port,
+		IdleTimeoutSeconds: 30,
+		QuotaPolicy: map[string]any{
+			"max_bytes_in":  64,
+			"max_bytes_out": 64,
+		},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPOpen, openPayload), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPProgress)
+
+	dataPayload := remoteaccess.TCPDataPayload{
+		SessionID:    "tcp-session-1",
+		ConnectionID: "conn-1",
+		Direction:    remoteaccess.TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("ping"),
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPData, dataPayload), sender)
+
+	dataFrame := waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPData)
+	var upstreamPayload remoteaccess.TCPDataPayload
+	if err := json.Unmarshal(dataFrame.GetData(), &upstreamPayload); err != nil {
+		t.Fatalf("unmarshal tcp data: %v", err)
+	}
+	if upstreamPayload.Direction != remoteaccess.TCPDataDirectionUpstream || string(upstreamPayload.Data) != "ping" {
+		t.Fatalf("upstream TCP payload = %#v", upstreamPayload)
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPClose, remoteaccess.TCPClosePayload{
+		SessionID:    "tcp-session-1",
+		ConnectionID: "conn-1",
+		Reason:       "done",
+	}), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPClose)
+}
+
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 
@@ -477,9 +545,15 @@ func testServerHostPort(t *testing.T, rawURL string) (string, int) {
 		t.Fatalf("parse server URL: %v", err)
 	}
 
-	host, portText, err := net.SplitHostPort(parsed.Host)
+	return testNetHostPort(t, parsed.Host)
+}
+
+func testNetHostPort(t *testing.T, address string) (string, int) {
+	t.Helper()
+
+	host, portText, err := net.SplitHostPort(address)
 	if err != nil {
-		t.Fatalf("split server host port: %v", err)
+		t.Fatalf("split host port: %v", err)
 	}
 
 	port, err := strconv.Atoi(portText)
@@ -488,4 +562,54 @@ func testServerHostPort(t *testing.T, rawURL string) (string, int) {
 	}
 
 	return host, port
+}
+
+func waitForConsoleFrame(t *testing.T, stream *fakeControlStreamClient, frameType string) *proto.ConsoleFrame {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, frame := range stream.consoleFrames() {
+			if frame.GetFrameType() == frameType {
+				return frame
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for frame type %q; frames=%#v", frameType, stream.consoleFrames())
+	return nil
+}
+
+func startAgentTCPEchoServer(t *testing.T) (string, func()) {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				_, _ = io.Copy(conn, conn)
+			}()
+		}
+	}()
+
+	return listener.Addr().String(), func() {
+		_ = listener.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("tcp echo server did not stop")
+		}
+	}
 }
