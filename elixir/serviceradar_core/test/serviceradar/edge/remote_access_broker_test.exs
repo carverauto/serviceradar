@@ -625,6 +625,46 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert_receive {:remote_access_closed, "done"}
   end
 
+  test "audits unknown owned agent frame types without forwarding them" do
+    session = session_fixture()
+
+    pid =
+      start_supervised!(
+        {RemoteAccessBroker,
+         {session, self(),
+          command_bus: CommandBusStub,
+          pubsub: PubSubStub,
+          audit_writer: AuditWriterStub,
+          audit_actor: audit_actor(),
+          required_gateway_node: self()}}
+      )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"}, _opts}
+    assert_receive {:audit, open_audit}
+    assert open_audit[:action] == :remote_access_session_opened
+
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "pty_probe", data: "ignored"}}
+    )
+
+    assert_receive {:audit, violation_audit}
+    assert violation_audit[:action] == :remote_access_session_protocol_violation
+    assert violation_audit[:severity] == :high
+    assert violation_audit[:details].frame_type == "pty_probe"
+    refute_receive {:remote_access_data, _data}, 50
+    refute_receive {:remote_access_closed, _reason}, 50
+
+    send(
+      pid,
+      {:remote_access_frame,
+       %{session_id: "session-1", agent_id: "agent-1", frame_type: "data", data: "still-open"}}
+    )
+
+    assert_receive {:remote_access_data, "still-open"}
+  end
+
   test "opens from a user-present credential grant without persisted session SSH metadata" do
     session = %{
       id: "session-1",

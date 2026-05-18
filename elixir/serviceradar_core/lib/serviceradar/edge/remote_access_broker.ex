@@ -18,6 +18,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Events.AuditWriter
 
+  require Logger
+
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
@@ -195,7 +197,23 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:stop, :normal, %{state | closed?: true}}
   end
 
-  defp handle_remote_access_frame(_frame, state), do: {:noreply, state}
+  defp handle_remote_access_frame(frame, state) do
+    frame_type = string_value(frame, "frame_type") || "missing"
+
+    Logger.warning("Remote access broker rejected unknown agent frame",
+      session_id: session_id(state.session),
+      agent_id: agent_id(state.session),
+      frame_type: frame_type
+    )
+
+    write_audit(state, :remote_access_session_protocol_violation, %{
+      frame_type: frame_type,
+      rejected_agent_id: string_value(frame, "agent_id"),
+      rejected_session_id: string_value(frame, "session_id")
+    })
+
+    {:noreply, state}
+  end
 
   defp handle_file_transfer_frame(frame, state) do
     state.file_transfers.handle_agent_frame(frame,
@@ -468,6 +486,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp close_action(_frame_type), do: :remote_access_session_closed
 
   defp audit_severity(:remote_access_session_failed), do: :high
+  defp audit_severity(:remote_access_session_protocol_violation), do: :high
   defp audit_severity(_action), do: :medium
 
   defp audit_suffix(:remote_access_session_opened), do: "opened"
@@ -476,6 +495,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp audit_suffix(:remote_access_session_close_requested), do: "close requested"
   defp audit_suffix(:remote_access_session_closed), do: "closed"
   defp audit_suffix(:remote_access_session_failed), do: "failed"
+  defp audit_suffix(:remote_access_session_protocol_violation), do: "protocol violation"
   defp audit_suffix(action), do: Atom.to_string(action)
 
   defp lifecycle_for(%RemoteAccessSession{}), do: RemoteAccessSessions
