@@ -25,6 +25,6 @@
 ## 5. Validation And Demo
 - [ ] 5.1 Add unit tests for resource normalization, override rejection, SSRF controls, header policy, upstream TLS, redirects, quotas, approval, and recording redaction.
 - [x] 5.2 Add gateway/agent route-binding tests for app/TCP frames.
-- [ ] 5.3 Add agent adapter tests against local HTTP, HTTPS with test CA, redirect, and raw TCP test servers.
+- [x] 5.3 Add agent adapter tests against local HTTP, HTTPS with test CA, redirect, and raw TCP test servers.
 - [ ] 5.4 Add demo proof with a private HTTP echo target reachable only from an agent.
 - [ ] 5.5 Run focused Go and Elixir tests plus OpenSpec validation.
