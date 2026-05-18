@@ -97,6 +97,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.ssh.target.override",
+          label: "Override SSH remote-access targets",
+          description:
+            "Open SSH remote-access sessions with explicit upstream host or port overrides",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.rdp.open",
           label: "Open RDP remote access",
           description:

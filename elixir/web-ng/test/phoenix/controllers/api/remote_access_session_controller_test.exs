@@ -46,6 +46,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
     previous_target_host_override =
       Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled)
 
+    previous_target_host_override_allowlist =
+      Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_allowlist)
+
     previous_target_port_override =
       Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled)
 
@@ -83,6 +86,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       restore_env(:remote_access_desktop_webrtc_ice_servers, previous_remote_access_desktop_webrtc_ice_servers)
       restore_env(:remote_access_ssh_host_key_skip_verify_enabled, previous_skip_verify)
       restore_env(:remote_access_target_host_override_enabled, previous_target_host_override)
+      restore_env(:remote_access_target_host_override_allowlist, previous_target_host_override_allowlist)
       restore_env(:remote_access_target_port_override_enabled, previous_target_port_override)
     end)
 
@@ -486,8 +490,29 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["message"] =~ "target_port"
     end
 
-    test "allows target port override when deployment explicitly enables it", %{conn: conn} do
+    test "rejects target port override without explicit override permission", %{conn: conn, user: user} do
       Application.put_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, true)
+      put_test_permissions(user, ["devices.remote_access.ssh.open"])
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "target_port" => 2222
+        })
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+      refute_receive {:open_remote_access_session, "linux-1", _request, _opts}
+    end
+
+    test "allows target port override when deployment and RBAC explicitly enable it", %{conn: conn, user: user} do
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, true)
+
+      put_test_permissions(user, [
+        "devices.remote_access.ssh.open",
+        "devices.remote_access.ssh.target.override"
+      ])
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
@@ -501,8 +526,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.target_port == 2222
     end
 
-    test "rejects invalid target port overrides when deployment explicitly enables them", %{conn: conn} do
+    test "rejects invalid target port overrides when deployment explicitly enables them", %{
+      conn: conn,
+      user: user
+    } do
       Application.put_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, true)
+
+      put_test_permissions(user, [
+        "devices.remote_access.ssh.open",
+        "devices.remote_access.ssh.target.override"
+      ])
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{
@@ -516,8 +549,56 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert body["message"] =~ "target_port"
     end
 
-    test "allows target host override when deployment explicitly enables it", %{conn: conn} do
+    test "rejects target host override without explicit override permission", %{conn: conn, user: user} do
       Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_allowlist, ["10.0.0.10"])
+      put_test_permissions(user, ["devices.remote_access.ssh.open"])
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "target_host" => "10.0.0.10"
+        })
+
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden"
+      refute_receive {:open_remote_access_session, "linux-1", _request, _opts}
+    end
+
+    test "rejects target host override when host is not allowlisted", %{conn: conn, user: user} do
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_allowlist, ["allowed.example.com"])
+
+      put_test_permissions(user, [
+        "devices.remote_access.ssh.open",
+        "devices.remote_access.ssh.target.override"
+      ])
+
+      conn =
+        post(conn, ~p"/api/remote-access/sessions", %{
+          "device_uid" => "linux-1",
+          "protocol" => "ssh",
+          "target_host" => "10.0.0.10"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "allowlisted"
+      refute_receive {:open_remote_access_session, "linux-1", _request, _opts}
+    end
+
+    test "allows target host override when deployment, RBAC, and allowlist explicitly enable it", %{
+      conn: conn,
+      user: user
+    } do
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, true)
+      Application.put_env(:serviceradar_web_ng, :remote_access_target_host_override_allowlist, ["10.0.0.10"])
+
+      put_test_permissions(user, [
+        "devices.remote_access.ssh.open",
+        "devices.remote_access.ssh.target.override"
+      ])
 
       conn =
         post(conn, ~p"/api/remote-access/sessions", %{

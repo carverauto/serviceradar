@@ -386,10 +386,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Periodically re-check actor permission (or subscribe to a permission-revocation pubsub topic that closes affected sockets)
       Resolution: The remote-access WebSocket state now carries an authorization module and periodic reauth timer. After attach, every browser input frame re-checks the protocol-specific open permission, and the periodic timer closes idle sockets with `permission_revoked` if RBAC no longer allows the actor. Tests cover both next-frame and timer-driven revocation.
 
-- [ ] 5.3 [H] Browser-supplied SSH session metadata bypasses denylist for non-listed keys (host/port override)
+- [x] 5.3 [H] Browser-supplied SSH session metadata bypasses denylist for non-listed keys (host/port override)
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_session_controller.ex:331-372, 411, 455, 470, 525-558` (commit: staging)
       Why: `drop_client_controlled_metadata` filters known keys + suffix heuristics, but SSH `target_host` / `target_port` overrides are gated only by feature flag — if the flag is on, a user can pivot to arbitrary upstreams via the JSON API.
       Fix: Move target_host/target_port override behind explicit RBAC ("remote-access.ssh.target.override") plus per-tenant allowlist of upstream hosts; the feature flag alone is insufficient
+      Resolution: SSH `target_host` / `target_port` overrides now require the deployment flag plus the explicit `devices.remote_access.ssh.target.override` RBAC permission. Host overrides additionally fail closed unless the requested upstream matches `:remote_access_target_host_override_allowlist`; `target_host` and `target_port` are also stripped from client-controlled metadata.
 
 - [ ] 5.4 [H] IDOR on recording playback — permission is "can view any SSH recording" not "can view *this* recording"
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/remote_access_recording_controller.ex:178-187`; `live/settings/remote_access_recordings_live.ex:342-344` (commit: staging)

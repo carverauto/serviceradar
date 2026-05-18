@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   action_fallback ServiceRadarWebNGWeb.Api.FallbackController
 
   @remote_access_ssh_permission "devices.remote_access.ssh.open"
+  @remote_access_ssh_target_override_permission "devices.remote_access.ssh.target.override"
   @remote_access_rdp_permission "devices.remote_access.rdp.open"
   @base_ssh_host_key_policies ~w(known_hosts trust_on_first_use)
   @browser_selectable_ssh_custody_modes ~w(ssh_certificate user_present)
@@ -45,6 +46,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     ssh_certificate
     ssh_certificate_ttl_seconds
     ssh_principal_mappings
+    target_host
+    target_port
     ticket
     token
   )
@@ -79,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     with :ok <- require_remote_access_ssh_enabled(),
          :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @remote_access_ssh_permission),
-         {:ok, request} <- normalize_create_request(params),
+         {:ok, request} <- normalize_create_request(params, get_scope(conn)),
          {:ok, %{session: %RemoteAccessSession{} = session, ticket: ticket}} <-
            remote_access_session_manager().request_open(request.device_uid, request, scope: get_scope(conn)) do
       conn
@@ -327,9 +330,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     end
   end
 
-  defp normalize_create_request(params) when is_map(params) do
+  defp normalize_create_request(params, scope) when is_map(params) do
     metadata = normalize_metadata(Map.get(params, "metadata"))
     raw_ssh_host_key_policy = Map.get(params, "ssh_host_key_policy", metadata_value(metadata, "ssh_host_key_policy"))
+    target_host = normalize_optional_string(Map.get(params, "target_host"))
 
     with {:ok, device_uid} <- normalize_required_string(Map.get(params, "device_uid"), "device_uid"),
          :ok <- validate_public_ssh_request(params),
@@ -338,8 +342,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          :ok <- validate_browser_credential_rule_selection(params),
          {:ok, credential_custody_mode} <-
            normalize_public_ssh_custody_mode(Map.get(params, "credential_custody_mode")),
-         :ok <- validate_target_host_override(Map.get(params, "target_host")),
-         {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port")),
+         :ok <- validate_target_host_override(target_host, scope),
+         {:ok, target_port} <- normalize_target_port(Map.get(params, "target_port"), scope),
          {:ok, terminal} <- normalize_terminal(Map.get(params, "terminal")),
          {:ok, approval_id} <- normalize_optional_uuid(Map.get(params, "approval_id"), "approval_id"),
          {:ok, ssh_host_key_policy} <- normalize_ssh_host_key_policy(raw_ssh_host_key_policy) do
@@ -355,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          protocol: "ssh",
          adapter: "ssh",
          target_kind: "inventory_device",
-         target_host: normalize_optional_string(Map.get(params, "target_host")),
+         target_host: target_host,
          target_port: target_port,
          agent_id: nil,
          gateway_id: nil,
@@ -372,7 +376,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     end
   end
 
-  defp normalize_create_request(_params), do: {:error, :invalid_request, "request body is required"}
+  defp normalize_create_request(_params, _scope), do: {:error, :invalid_request, "request body is required"}
 
   defp normalize_rdp_create_request(params, scope) when is_map(params) do
     metadata = normalize_metadata(Map.get(params, "metadata"))
@@ -522,40 +526,101 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     end
   end
 
-  defp validate_target_host_override(value) do
-    case normalize_optional_string(value) do
-      nil ->
-        :ok
+  defp validate_target_host_override(nil, _scope), do: :ok
 
-      _target_host ->
-        if Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, false) ==
-             true do
-          :ok
-        else
-          {:error, :invalid_request, "target_host override is not enabled"}
-        end
+  defp validate_target_host_override(target_host, scope) do
+    with :ok <- require_target_host_override_enabled(),
+         :ok <- require_ssh_target_override_permission(scope) do
+      if target_host_override_allowlisted?(target_host) do
+        :ok
+      else
+        {:error, :invalid_request, "target_host override is not allowlisted"}
+      end
     end
   end
 
-  defp normalize_target_port(nil), do: {:ok, nil}
+  defp normalize_target_port(nil, _scope), do: {:ok, nil}
 
-  defp normalize_target_port(value) when is_binary(value) do
+  defp normalize_target_port(value, scope) when is_binary(value) do
     case String.trim(value) do
       "" -> {:ok, nil}
-      _present -> normalize_present_target_port(value)
+      _present -> normalize_present_target_port(value, scope)
     end
   end
 
-  defp normalize_target_port(value), do: normalize_present_target_port(value)
+  defp normalize_target_port(value, scope), do: normalize_present_target_port(value, scope)
 
-  defp normalize_present_target_port(value) do
-    if Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) ==
-         true do
+  defp normalize_present_target_port(value, scope) do
+    with :ok <- require_target_port_override_enabled(),
+         :ok <- require_ssh_target_override_permission(scope) do
       normalize_integer(value, "target_port", @min_target_port, @max_target_port)
+    end
+  end
+
+  defp require_target_host_override_enabled do
+    if Application.get_env(:serviceradar_web_ng, :remote_access_target_host_override_enabled, false) == true do
+      :ok
+    else
+      {:error, :invalid_request, "target_host override is not enabled"}
+    end
+  end
+
+  defp require_target_port_override_enabled do
+    if Application.get_env(:serviceradar_web_ng, :remote_access_target_port_override_enabled, false) == true do
+      :ok
     else
       {:error, :invalid_request, "target_port override is not enabled"}
     end
   end
+
+  defp require_ssh_target_override_permission(scope) do
+    if RBAC.can?(scope, @remote_access_ssh_target_override_permission), do: :ok, else: {:error, :forbidden}
+  end
+
+  defp target_host_override_allowlisted?(target_host) do
+    normalized_host = normalize_allowlist_host(target_host)
+
+    :serviceradar_web_ng
+    |> Application.get_env(:remote_access_target_host_override_allowlist, [])
+    |> configured_host_allowlist()
+    |> Enum.any?(&host_allowlist_match?(normalized_host, &1))
+  end
+
+  defp configured_host_allowlist(value) when is_binary(value), do: String.split(value, ",", trim: true)
+  defp configured_host_allowlist(value) when is_list(value), do: value
+  defp configured_host_allowlist(_value), do: []
+
+  defp host_allowlist_match?(nil, _entry), do: false
+
+  defp host_allowlist_match?(host, entry) when is_binary(entry) do
+    entry = normalize_allowlist_host(entry)
+
+    cond do
+      is_nil(entry) ->
+        false
+
+      String.starts_with?(entry, "*.") ->
+        suffix = String.replace_prefix(entry, "*", "")
+        String.ends_with?(host, suffix) and host != String.trim_leading(suffix, ".")
+
+      true ->
+        host == entry
+    end
+  end
+
+  defp host_allowlist_match?(_host, _entry), do: false
+
+  defp normalize_allowlist_host(value) when is_binary(value) do
+    normalized =
+      value
+      |> String.trim()
+      |> String.trim_trailing(".")
+      |> String.downcase()
+
+    if normalized == "", do: nil, else: normalized
+  end
+
+  defp normalize_allowlist_host(_value), do: nil
 
   defp normalize_terminal(nil), do: {:ok, %{cols: nil, rows: nil}}
 
