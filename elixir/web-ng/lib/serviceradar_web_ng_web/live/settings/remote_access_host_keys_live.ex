@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   @current_path "/settings/networks/host-keys"
   @manage_permission "settings.remote_access_host_keys.manage"
-  @statuses ~w(pending trusted conflict rotated revoked)
+  @statuses ~w(pending trusted conflict rotated revoked rejected)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -90,6 +90,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Failed to revoke host key: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("reject_host_key", %{"id" => id}, socket) do
+    case RemoteAccessHostKeys.reject(id,
+           scope: socket.assigns.current_scope,
+           reason: "operator rejected"
+         ) do
+      {:ok, _host_key} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Host key rejected")
+         |> assign(:rotation_host_key, nil)
+         |> assign(:rotation_candidates, [])
+         |> load_host_keys()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to reject host key: #{format_error(reason)}")}
     end
   end
 
@@ -253,13 +271,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                     <td class="text-right">
                       <div class="flex flex-wrap justify-end gap-2">
                         <button
-                          :if={host_key.status in [:pending, :conflict]}
+                          :if={host_key.status == :pending}
                           type="button"
                           class="btn btn-primary btn-xs"
                           phx-click="trust_host_key"
                           phx-value-id={host_key.id}
                         >
                           Trust
+                        </button>
+                        <button
+                          :if={host_key.status in [:pending, :conflict]}
+                          type="button"
+                          class="btn btn-error btn-outline btn-xs"
+                          phx-click="reject_host_key"
+                          phx-value-id={host_key.id}
+                        >
+                          Reject
                         </button>
                         <button
                           :if={host_key.status == :trusted}
@@ -271,7 +298,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                           Rotate
                         </button>
                         <button
-                          :if={host_key.status != :revoked}
+                          :if={host_key.status not in [:revoked, :rejected]}
                           type="button"
                           class="btn btn-error btn-outline btn-xs"
                           phx-click="revoke_host_key"
@@ -430,6 +457,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
   defp status_badge_class(:pending), do: "badge-warning"
   defp status_badge_class(:rotated), do: "badge-info"
   defp status_badge_class(:revoked), do: "badge-neutral"
+  defp status_badge_class(:rejected), do: "badge-neutral"
   defp status_badge_class(_status), do: "badge-ghost"
 
   defp format_datetime(nil), do: "-"

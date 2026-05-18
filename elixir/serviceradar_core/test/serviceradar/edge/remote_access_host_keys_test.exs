@@ -96,13 +96,78 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeysTest do
     assert rotated_old.replacement_host_key_id == trusted_new.id
     assert rotated_old.rotation_reason == "scheduled rotation"
     assert trusted_new.status == :trusted
+    assert trusted_new.supersedes_host_key_id == trusted.id
 
     assert_receive {:remote_access_host_key_audit, trust_audit}
     assert trust_audit[:action] == :remote_access_host_key_trusted
+    assert trust_audit[:details][:supersedes_host_key_id] == trusted.id
 
     assert_receive {:remote_access_host_key_audit, rotation_audit}
     assert rotation_audit[:action] == :remote_access_host_key_rotated
     assert rotation_audit[:details][:replacement_host_key_id] == trusted_new.id
+    assert rotation_audit[:details][:supersedes_host_key_id] == trusted.id
+  end
+
+  test "conflict host keys cannot be directly trusted and rejected keys are terminal" do
+    target_host = unique_host("reject")
+
+    assert {:ok, %{host_key: trusted}} =
+             RemoteAccessHostKeys.observe(
+               observation(target_host,
+                 fingerprint_sha256: "SHA256:trusted",
+                 source: :trust_on_first_use
+               ),
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_host_key_audit, _created_audit}
+
+    assert {:ok, %{host_key: conflict}} =
+             RemoteAccessHostKeys.observe(
+               observation(target_host,
+                 fingerprint_sha256: "SHA256:replacement",
+                 source: :agent_observed
+               ),
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_host_key_audit, _conflict_audit}
+    assert conflict.status == :conflict
+
+    assert {:error, :host_key_conflict_requires_rotation} =
+             RemoteAccessHostKeys.trust(conflict,
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert {:ok, rejected} =
+             RemoteAccessHostKeys.reject(conflict,
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               reason: "operator rejected key swap"
+             )
+
+    assert rejected.status == :rejected
+    assert rejected.rejection_reason == "operator rejected key swap"
+
+    assert_receive {:remote_access_host_key_audit, reject_audit}
+    assert reject_audit[:action] == :remote_access_host_key_rejected
+    assert reject_audit[:details][:status] == "rejected"
+
+    assert {:error, :host_key_rejected} =
+             RemoteAccessHostKeys.trust(rejected,
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert {:error, :host_key_rejected} =
+             RemoteAccessHostKeys.rotate(trusted, rejected,
+               actor: @system_actor,
+               audit_writer: AuditSink,
+               reason: "should fail"
+             )
   end
 
   test "repeat observation increments seen count for the same target fingerprint" do

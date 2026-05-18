@@ -75,17 +75,34 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeys do
           {:ok, RemoteAccessHostKey.t()} | {:error, term()}
   def trust(host_key_or_id, opts \\ []) do
     with {:ok, %RemoteAccessHostKey{} = host_key} <- resolve(host_key_or_id, opts),
+         :ok <- ensure_trust_allowed(host_key, opts),
          {:ok, updated} <-
            RemoteAccessHostKey.trust(
              host_key,
+             trust_attrs(host_key, opts),
+             actor: operation_actor(opts)
+           ) do
+      write_audit(:remote_access_host_key_trusted, updated, opts)
+      {:ok, updated}
+    end
+  end
+
+  @spec reject(RemoteAccessHostKey.t() | String.t(), keyword()) ::
+          {:ok, RemoteAccessHostKey.t()} | {:error, term()}
+  def reject(host_key_or_id, opts \\ []) do
+    with {:ok, %RemoteAccessHostKey{} = host_key} <- resolve(host_key_or_id, opts),
+         {:ok, updated} <-
+           RemoteAccessHostKey.reject(
+             host_key,
              %{
-               trusted_at: RemoteAccessHostKey.utc_now(),
-               trusted_by: actor_id(opts),
+               rejected_at: RemoteAccessHostKey.utc_now(),
+               rejected_by: actor_id(opts),
+               rejection_reason: reason(opts),
                metadata: merge_metadata(host_key.metadata, Keyword.get(opts, :metadata, %{}))
              },
              actor: operation_actor(opts)
            ) do
-      write_audit(:remote_access_host_key_trusted, updated, opts)
+      write_audit(:remote_access_host_key_rejected, updated, opts)
       {:ok, updated}
     end
   end
@@ -121,7 +138,13 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeys do
     with {:ok, %RemoteAccessHostKey{} = old_host_key} <- resolve(old_host_key_or_id, opts),
          {:ok, %RemoteAccessHostKey{} = new_host_key} <- resolve(new_host_key_or_id, opts),
          :ok <- ensure_same_target(old_host_key, new_host_key),
-         {:ok, trusted_new} <- trust(new_host_key, opts),
+         {:ok, trusted_new} <-
+           trust(
+             new_host_key,
+             opts
+             |> Keyword.put(:allow_conflict_trust?, true)
+             |> Keyword.put(:supersedes_host_key_id, old_host_key.id)
+           ),
          {:ok, rotated_old} <-
            RemoteAccessHostKey.mark_rotated(
              old_host_key,
@@ -135,7 +158,8 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeys do
              actor: operation_actor(opts)
            ) do
       write_audit(:remote_access_host_key_rotated, rotated_old, opts, %{
-        replacement_host_key_id: trusted_new.id
+        replacement_host_key_id: trusted_new.id,
+        supersedes_host_key_id: old_host_key.id
       })
 
       {:ok, %{rotated: rotated_old, trusted: trusted_new}}
@@ -318,6 +342,29 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeys do
     end
   end
 
+  defp ensure_trust_allowed(%RemoteAccessHostKey{status: :conflict}, opts) do
+    if Keyword.get(opts, :allow_conflict_trust?) == true and
+         is_binary(Keyword.get(opts, :supersedes_host_key_id)) do
+      :ok
+    else
+      {:error, :host_key_conflict_requires_rotation}
+    end
+  end
+
+  defp ensure_trust_allowed(%RemoteAccessHostKey{status: :rejected}, _opts),
+    do: {:error, :host_key_rejected}
+
+  defp ensure_trust_allowed(_host_key, _opts), do: :ok
+
+  defp trust_attrs(host_key, opts) do
+    %{
+      trusted_at: RemoteAccessHostKey.utc_now(),
+      trusted_by: actor_id(opts),
+      supersedes_host_key_id: Keyword.get(opts, :supersedes_host_key_id),
+      metadata: merge_metadata(host_key.metadata, Keyword.get(opts, :metadata, %{}))
+    }
+  end
+
   defp required_string(value, field) do
     case optional_string(value) do
       nil -> {:error, {:missing_required, field}}
@@ -374,6 +421,7 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeys do
       "conflict" -> {:ok, :conflict}
       "rotated" -> {:ok, :rotated}
       "revoked" -> {:ok, :revoked}
+      "rejected" -> {:ok, :rejected}
       _other -> :error
     end
   end
@@ -482,7 +530,9 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKeys do
         key_type: host_key.key_type,
         fingerprint_sha256: host_key.fingerprint_sha256,
         status: Atom.to_string(host_key.status),
-        source: Atom.to_string(host_key.source)
+        source: Atom.to_string(host_key.source),
+        supersedes_host_key_id: host_key.supersedes_host_key_id,
+        replacement_host_key_id: host_key.replacement_host_key_id
       },
       extra
     )

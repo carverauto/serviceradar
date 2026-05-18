@@ -81,6 +81,39 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
     assert html =~ "Trusted"
   end
 
+  test "rejects conflict host keys instead of trusting them directly", %{conn: conn} do
+    target_host = unique_host("reject")
+
+    {:ok, %{host_key: trusted}} =
+      RemoteAccessHostKeys.observe(
+        observation(target_host,
+          fingerprint_sha256: "SHA256:old-#{target_host}",
+          source: :trust_on_first_use
+        ),
+        actor: system_actor()
+      )
+
+    {:ok, %{host_key: conflict}} =
+      RemoteAccessHostKeys.observe(
+        observation(target_host, fingerprint_sha256: "SHA256:new-#{target_host}"),
+        actor: system_actor()
+      )
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/host-keys")
+
+    assert html =~ trusted.fingerprint_sha256
+    assert html =~ conflict.fingerprint_sha256
+    refute has_element?(lv, "button[phx-click='trust_host_key'][phx-value-id='#{conflict.id}']")
+
+    lv
+    |> element("button[phx-click='reject_host_key'][phx-value-id='#{conflict.id}']")
+    |> render_click()
+
+    html = render(lv)
+    assert html =~ "Host key rejected"
+    assert html =~ "Rejected"
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)

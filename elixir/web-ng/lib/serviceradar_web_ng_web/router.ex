@@ -320,6 +320,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/remote-access/host-keys", RemoteAccessHostKeyController, :index)
     post("/remote-access/host-keys/observations", RemoteAccessHostKeyController, :observe)
     post("/remote-access/host-keys/:id/trust", RemoteAccessHostKeyController, :trust)
+    post("/remote-access/host-keys/:id/reject", RemoteAccessHostKeyController, :reject)
     post("/remote-access/host-keys/:id/revoke", RemoteAccessHostKeyController, :revoke)
     post("/remote-access/host-keys/:id/rotate", RemoteAccessHostKeyController, :rotate)
     get("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :index)

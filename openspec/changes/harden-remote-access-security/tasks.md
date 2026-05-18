@@ -327,10 +327,11 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
       Fix: Mint a per-session HMAC key when the broker accepts an agent; require every frame carry an HMAC over `(session_id, agent_id, seq, payload_hash)`; verify before routing
       Resolution: Broker open frames now include a per-session `frame_auth` HMAC key, agent-to-broker `ConsoleFrame` messages carry `seq`, `payload_sha256`, and `signature`, and the broker verifies route binding, monotonic sequence, payload hash, and HMAC before routing terminal, file-transfer, enhanced-recording, or close frames. The Go agent signs remote-access console and file-transfer responses with the same session signer.
 
-- [ ] 4.5 [H] Host-key `:conflict` keys can be manually promoted to `:trusted` without rotation audit
+- [x] 4.5 [H] Host-key `:conflict` keys can be manually promoted to `:trusted` without rotation audit
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_host_keys.ex:145-176`; `remote_access_host_key.ex:131-134` (commit: staging)
       Why: TOFU correctly detects rotation but the admin "trust this new key" path has no irreversible `:rejected` state or rotation linkage — a key-swap attacker who also captures admin creds defeats TOFU silently.
       Fix: Add `:rejected` terminal state, require the rotation acceptance to record `superseded_by` linkage to the previous trusted key, and emit an audit event with diff
+      Resolution: Host keys now support terminal `:rejected` state with operator/reason metadata, direct trust of `:conflict` keys is refused, rotation is the only path that can trust a conflicted replacement, and accepted replacements persist `supersedes_host_key_id` while the old key records `replacement_host_key_id`. Trust/reject/rotate audit details include both linkage fields.
 
 - [ ] 4.6 [L] Host-key unique index omits `tenant_id` (multi-tenant readiness)
       Where: `elixir/serviceradar_core/priv/repo/migrations/20260512110000_create_remote_access_host_keys.exs:66-72` (commit: staging)
@@ -1206,7 +1207,7 @@ Coverage classification: COVERED / PARTIAL / MISSING / N/A.
 | 4.2 | C | PARTIAL | `remote_access_sessions_test.exs:66-121` returns `:invalid_or_expired_ticket` on second attach | Promote to: assert atomic state transition to `:consumed`; add cross-session replay |
 | 4.3 | H | MISSING | No `remote_access_requests_test.exs` for self-approval | Requester w/ review perm approves own req; assert `forbid_if` unless `allow_self_approval` |
 | 4.4 | H | PARTIAL | `remote_access_broker_test.exs:691-750` exercises string-equality | Once HMAC lands, add forged-pair-without-HMAC negative case |
-| 4.5 | H | COVERED | `remote_access_host_keys_test.exs:88-106` asserts `:rotated`, `replacement_host_key_id`, audit diff | No new test needed — but add a "promote :conflict to :trusted without audit" negative once `:rejected` state lands |
+| 4.5 | H | COVERED | `remote_access_host_keys_test.exs` asserts rotation linkage, reject audit, rejected terminal behavior, and direct `:conflict` trust denial; `remote_access_host_keys_live_test.exs` asserts conflict rows expose reject instead of trust | Keep API/LiveView parity if additional host-key transitions are added |
 | 5.1 | C | MISSING | `remote_access_host_keys_live_test.exs:20-26` checks mount only | Authenticated viewer sends `handle_event :enable_target`; assert denied |
 | 5.2 | H | MISSING | `remote_access_stream_handler_test.exs` has no revocation scenario | Revoke perm via pubsub mid-stream; assert socket closes + audit |
 | 5.3 | H | MISSING | `remote_access_session_controller_test.exs` lacks target_host/port override RBAC | Flag on, actor missing override perm; assert rejection + not-in-allowlist case |
