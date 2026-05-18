@@ -25,6 +25,7 @@ rust_library(
         "@rdp_connector_crates//:serde",
         "@rdp_connector_crates//:serde_json",
         "@rdp_connector_crates//:x509-cert",
+        "@rdp_connector_crates//:zeroize",
     ],
 )
 
