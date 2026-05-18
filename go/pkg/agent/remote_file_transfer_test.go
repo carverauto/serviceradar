@@ -16,6 +16,7 @@ import (
 const (
 	testRemoteFileTransferSessionID  = "session-1"
 	testRemoteFileTransferTransferID = "transfer-1"
+	testRemoteFileTransferApprovalID = "approval-1"
 	testRemoteFileTransferPath       = "/srv/data"
 )
 
@@ -40,6 +41,7 @@ func TestHandleFileTransferFrameExecutesSFTPListForActiveSSHSession(t *testing.T
 	loop := &PushLoop{remoteConsoleManager: manager}
 
 	loop.handleConsoleFrame(
+		context.Background(),
 		fileTransferRequestFrame(t, remoteaccess.FileTransferOperationList, testRemoteFileTransferPath),
 		sender,
 	)
@@ -59,14 +61,18 @@ func TestHandleFileTransferFrameExecutesSFTPListForActiveSSHSession(t *testing.T
 	}
 
 	var payload struct {
-		Status  remoteaccess.FileTransferStatus  `json:"status"`
-		Entries []remoteaccess.FileTransferEntry `json:"entries"`
+		ApprovalID string                           `json:"approval_id"`
+		Status     remoteaccess.FileTransferStatus  `json:"status"`
+		Entries    []remoteaccess.FileTransferEntry `json:"entries"`
 	}
 	if err := json.Unmarshal(outcome.GetData(), &payload); err != nil {
 		t.Fatalf("decode outcome: %v", err)
 	}
 	if payload.Status != remoteaccess.FileTransferStatusCompleted {
 		t.Fatalf("status = %q", payload.Status)
+	}
+	if payload.ApprovalID != testRemoteFileTransferApprovalID {
+		t.Fatalf("approval_id = %q, want %q", payload.ApprovalID, testRemoteFileTransferApprovalID)
 	}
 	if len(payload.Entries) != 1 || payload.Entries[0].Name != "app.log" {
 		t.Fatalf("entries = %#v", payload.Entries)
@@ -81,6 +87,7 @@ func TestHandleFileTransferFrameFailsClosedWithoutActiveSSHSession(t *testing.T)
 	loop := &PushLoop{remoteConsoleManager: newRemoteConsoleManagerWithRoute("agent-1", "gateway-1", nil)}
 
 	loop.handleConsoleFrame(
+		context.Background(),
 		fileTransferRequestFrame(t, remoteaccess.FileTransferOperationList, testRemoteFileTransferPath),
 		sender,
 	)
@@ -122,12 +129,13 @@ func TestHandleFileTransferFrameStreamsSFTPUploadForActiveSSHSession(t *testing.
 	loop := &PushLoop{remoteConsoleManager: manager}
 
 	loop.handleConsoleFrame(
+		context.Background(),
 		fileTransferRequestFrame(t, remoteaccess.FileTransferOperationUpload, testRemoteFileTransferPath+"/upload.txt"),
 		sender,
 	)
-	loop.handleConsoleFrame(fileTransferDataFrame(t, 1, 0, []byte("hello "), false), sender)
-	loop.handleConsoleFrame(fileTransferDataFrame(t, 2, 6, []byte("world"), false), sender)
-	loop.handleConsoleFrame(fileTransferDataFrame(t, 3, 11, nil, true), sender)
+	loop.handleConsoleFrame(context.Background(), fileTransferDataFrame(t, 1, 0, []byte("hello "), false), sender)
+	loop.handleConsoleFrame(context.Background(), fileTransferDataFrame(t, 2, 6, []byte("world"), false), sender)
+	loop.handleConsoleFrame(context.Background(), fileTransferDataFrame(t, 3, 11, nil, true), sender)
 
 	outcome := waitForFileTransferFrame(t, stream, remoteaccess.FrameTypeFileTransferOutcome)
 	var payload remoteaccess.FileTransferOutcomePayload
@@ -136,6 +144,9 @@ func TestHandleFileTransferFrameStreamsSFTPUploadForActiveSSHSession(t *testing.
 	}
 	if payload.Status != remoteaccess.FileTransferStatusCompleted {
 		t.Fatalf("status = %q", payload.Status)
+	}
+	if payload.ApprovalID != testRemoteFileTransferApprovalID {
+		t.Fatalf("approval_id = %q, want %q", payload.ApprovalID, testRemoteFileTransferApprovalID)
 	}
 	if payload.BytesTransferred != 11 {
 		t.Fatalf("bytes_transferred = %d, want 11", payload.BytesTransferred)
@@ -164,6 +175,7 @@ func fileTransferRequestFrame(
 		Operation:  operation,
 		Direction:  direction,
 		Path:       path,
+		ApprovalID: testRemoteFileTransferApprovalID,
 		Policy: remoteaccess.FileTransferPolicy{
 			AllowedOperations: []remoteaccess.FileTransferOperation{operation},
 			AllowedPathRules:  []string{testRemoteFileTransferPath},

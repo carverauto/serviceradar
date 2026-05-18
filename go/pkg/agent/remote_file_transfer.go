@@ -38,7 +38,11 @@ var (
 	errRemoteFileTransferUploadNotActive  = errors.New("remote file-transfer upload is not active")
 )
 
-func (p *PushLoop) handleFileTransferFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleFileTransferFrame(
+	ctx context.Context,
+	frame *proto.ConsoleFrame,
+	sender *controlStreamSender,
+) {
 	if frame.GetSessionId() == "" {
 		return
 	}
@@ -52,7 +56,7 @@ func (p *PushLoop) handleFileTransferFrame(frame *proto.ConsoleFrame, sender *co
 		p.remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(p.server)
 	}
 
-	p.remoteConsoleManager.HandleFileTransferFrame(context.Background(), frame, sender)
+	p.remoteConsoleManager.HandleFileTransferFrame(ctx, frame, sender)
 }
 
 func (m *proxmoxConsoleManager) HandleFileTransferFrame(

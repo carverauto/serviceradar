@@ -105,6 +105,26 @@ func TestFileTransferRequestPayloadRejectsInvalidValues(t *testing.T) {
 			want:    ErrInvalidFileTransferPath,
 		},
 		{
+			name: "dot segment path",
+			payload: FileTransferRequestPayload{
+				TransferID: "transfer-1",
+				SessionID:  "session-1",
+				Operation:  FileTransferOperationList,
+				Path:       "/tmp/../secret",
+			},
+			want: ErrInvalidFileTransferPath,
+		},
+		{
+			name: "control byte path",
+			payload: FileTransferRequestPayload{
+				TransferID: "transfer-1",
+				SessionID:  "session-1",
+				Operation:  FileTransferOperationList,
+				Path:       "/tmp/\x00secret",
+			},
+			want: ErrInvalidFileTransferPath,
+		},
+		{
 			name: "rename destination",
 			payload: FileTransferRequestPayload{
 				TransferID: "transfer-1",
@@ -113,6 +133,17 @@ func TestFileTransferRequestPayloadRejectsInvalidValues(t *testing.T) {
 				Path:       "/tmp/a",
 			},
 			want: ErrFileTransferDestinationMissing,
+		},
+		{
+			name: "rename unsafe destination",
+			payload: FileTransferRequestPayload{
+				TransferID:      "transfer-1",
+				SessionID:       "session-1",
+				Operation:       FileTransferOperationRename,
+				Path:            "/tmp/a",
+				DestinationPath: "/tmp/./b",
+			},
+			want: ErrInvalidFileTransferPath,
 		},
 	}
 
