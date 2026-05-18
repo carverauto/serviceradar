@@ -1157,10 +1157,11 @@ Overall: dep posture is good — Cargo.lock + go.sum committed, no `[patch.crate
       Fix: Note in the file-transfer threat model that kr/fs is dormant and trusted only as a shim; review at every pkg/sftp bump.
       Resolution: Added the dependency-maintenance note to the file-transfer proposal's SFTP dependency guidance, limited `github.com/kr/fs` to the `github.com/pkg/sftp` path, and required review on every `pkg/sftp` bump.
 
-- [ ] 6.G.6 [L] `maxminddb-golang v1.13.1` removed without a commit message rationale
+- [x] 6.G.6 [L] `maxminddb-golang v1.13.1` removed without a commit message rationale
       Where: `go.mod` deletion; `go.sum` deletion (working tree)
       Why: Was used elsewhere for geolocation; removing without an explanation makes "did we lose a feature?" hard to answer in 6 months.
       Fix: Add a CHANGELOG entry or commit-message follow-up describing what (if anything) replaced it, or confirm dead-code removal. Non-security, but housekeeping that prevents an accidental re-add.
+      Resolution: Existing CHANGELOG entry documents that MTR ASN enrichment moved out of the agent and into core via `ServiceRadar.Observability.GeoIP`, removing the MaxMind Go dependency and `asn_db_path` / `ASNDBPath` agent configuration.
 
 **Positives (supply chain):**
 - ironrdp's heavyweight crates (-connector / -session / -blocking / -graphics) live only in the **review-only** `rdp-connector-probe`; the production `rdp-adapter` keeps a minimal direct-dep footprint (ironrdp-core, ironrdp-pdu, zeroize).
