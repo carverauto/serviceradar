@@ -190,7 +190,7 @@ defmodule ServiceRadarAgentGateway.Application do
          endpoint: ServiceRadarAgentGateway.Endpoint,
          port: grpc_port,
          start_server: true,
-         adapter_opts: build_adapter_opts(grpc_ssl_opts)},
+         adapter_opts: edge_grpc_adapter_opts(grpc_ssl_opts)},
         ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
       ]
     else
@@ -345,5 +345,35 @@ defmodule ServiceRadarAgentGateway.Application do
     end)
   end
 
-  defp build_adapter_opts(cred), do: [cred: cred]
+  @doc false
+  def edge_grpc_adapter_opts(cred) do
+    [
+      cred: cred,
+      idle_timeout: positive_integer_env("GATEWAY_GRPC_IDLE_TIMEOUT_MS", 30_000),
+      inactivity_timeout: positive_integer_env("GATEWAY_GRPC_INACTIVITY_TIMEOUT_MS", 10_000),
+      max_concurrent_streams: positive_integer_env("GATEWAY_GRPC_MAX_CONCURRENT_STREAMS", 100),
+      max_connections: positive_integer_env("GATEWAY_GRPC_MAX_CONNECTIONS", 1_000),
+      max_frame_size_received: positive_integer_env("GATEWAY_GRPC_MAX_FRAME_SIZE_BYTES", 16_777_215),
+      reset_idle_timeout_on_send: true
+    ]
+  end
+
+  defp positive_integer_env(name, default) do
+    name
+    |> System.get_env()
+    |> parse_positive_integer(default, name)
+  end
+
+  defp parse_positive_integer(nil, default, _name), do: default
+
+  defp parse_positive_integer(value, default, name) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed > 0 ->
+        parsed
+
+      _ ->
+        Logger.warning("Invalid #{name}=#{inspect(value)}; defaulting to #{default}")
+        default
+    end
+  end
 end

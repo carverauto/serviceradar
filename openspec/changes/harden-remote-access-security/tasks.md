@@ -544,17 +544,18 @@ Result: the server is **mostly a pass-through** — the codec / fingerprint / IC
 
 Result: gRPC layer is **strong** — mTLS enforced at boot, per-RPC identity re-validation, no admin methods on the agent listener, no reflection in prod. Real gaps are message-size / backpressure / credential logging.
 
-- [ ] 6.K.4 [H] No `max_message_length` / `max_concurrent_streams` / `keepalive_params` set on the gRPC server
+- [x] 6.K.4 [H] No `max_message_length` / `max_concurrent_streams` / `keepalive_params` set on the gRPC server
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/endpoint.ex:1-17`; boot at `application.ex:189` (working tree)
       Why: Relies on library defaults; a single compromised or buggy agent can open unbounded streams or push oversized frames and DoS the gateway, which then drops legitimate agents.
       Fix: Set `max_message_length: 16 MiB` (match RDP media cap), `max_concurrent_streams: 100`/agent, keepalive 30 s idle + 10 s TTL; reject overruns with a structured error.
+      Resolution: Set Cowboy HTTP/2 caps for `max_concurrent_streams`, `max_connections`, `max_frame_size_received`, `idle_timeout`, and `inactivity_timeout`; added env-bounded overrides and regression coverage.
 
 - [ ] 6.K.6 [M] No per-stream credit / backpressure on server-side streaming RPCs
       Where: `go/pkg/agentgateway/gateway_client.go:299-344` (`StreamStatus`) — server handler in `agent_gateway_server.ex` (commit: staging)
       Why: Slow consumer → unbounded send-buffer on the server → memory pressure → cascading failure.
       Fix: Track queued bytes per stream; pause send above threshold; require receiver ACK before resuming. Document the protocol contract.
 
-- [ ] 6.K.7 [H] `GRPC.Server.Interceptors.Logger` registered at INFO — logs full RPC request/response bodies
+- [x] 6.K.7 [H] `GRPC.Server.Interceptors.Logger` registered at INFO — logs full RPC request/response bodies
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/endpoint.ex:11` (working tree)
       Why: Frame payloads (media, control), credential grant refs (4.8 / 3.H.3), Kerberos config blobs land in plain Logger output; if those logs reach Sentry / log aggregation, every secret on the bastion bus is exfilable.
       Fix: Replace with a project-local interceptor that emits **method + duration + status + actor**; redact bodies entirely. INFO logs must never contain RPC payloads.
