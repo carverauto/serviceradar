@@ -16,6 +16,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   alias Membrane.WebRTC.Signaling
   alias ServiceRadarCoreElx.RemoteDesktop.MediaFrameEnvelope
   alias ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager
+  alias ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalPolicy
 
   @media_channel "desktop-media"
   @control_channel "desktop-control"
@@ -120,17 +121,38 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
 
   @impl true
   def handle_info({:membrane_webrtc_signaling, _pid, %SessionDescription{type: :answer} = answer, _metadata}, state) do
-    :ok = state.peer_connection_module.set_remote_description(state.peer_connection, answer)
-    {:noreply, state}
+    case WebRTCSignalPolicy.validate_answer_sdp(answer.sdp) do
+      :ok ->
+        :ok = state.peer_connection_module.set_remote_description(state.peer_connection, answer)
+        {:noreply, state}
+
+      {:error, reason} ->
+        emit_signal_rejection(:sdp_answer, state, reason)
+        {:stop, {:invalid_remote_description, reason}, state}
+    end
   end
 
   def handle_info({:membrane_webrtc_signaling, _pid, %ICECandidate{} = candidate, _metadata}, state) do
-    :ok = state.peer_connection_module.add_ice_candidate(state.peer_connection, candidate)
+    case WebRTCSignalPolicy.validate_ice_candidate(candidate) do
+      :ok ->
+        :ok = state.peer_connection_module.add_ice_candidate(state.peer_connection, candidate)
+
+      {:error, reason} ->
+        emit_signal_rejection(:ice_candidate, state, reason)
+    end
+
     {:noreply, state}
   end
 
   def handle_info({:ex_webrtc, _pc, {:ice_candidate, candidate}}, state) do
-    :ok = Signaling.signal(state.signaling, candidate)
+    case WebRTCSignalPolicy.validate_ice_candidate(candidate) do
+      :ok ->
+        :ok = Signaling.signal(state.signaling, candidate)
+
+      {:error, reason} ->
+        emit_signal_rejection(:ice_candidate, state, reason)
+    end
+
     {:noreply, state}
   end
 
@@ -207,5 +229,18 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
     {:via, Registry,
      {Keyword.get(opts, :registry, @default_registry),
       {Keyword.fetch!(opts, :session_id), Keyword.fetch!(opts, :viewer_session_id)}}}
+  end
+
+  defp emit_signal_rejection(signal_type, state, reason) do
+    :telemetry.execute(
+      [:serviceradar_core_elx, :remote_desktop, :webrtc, :signal_rejected],
+      %{count: 1},
+      %{
+        reason: reason,
+        session_id: state.session_id,
+        signal_type: signal_type,
+        viewer_session_id: state.viewer_session_id
+      }
+    )
   end
 end

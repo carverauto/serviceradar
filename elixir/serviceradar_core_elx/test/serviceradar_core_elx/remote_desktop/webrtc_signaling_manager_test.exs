@@ -142,11 +142,34 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
              WebRTCSignalingManager.create_session(session_id, server: server_name)
 
     assert {:ok, %{signaling_state: "answer_applied"}} =
-             WebRTCSignalingManager.submit_answer(session_id, viewer_session_id, "v=0\r\nanswer", server: server_name)
+             WebRTCSignalingManager.submit_answer(session_id, viewer_session_id, valid_answer_sdp(), server: server_name)
 
-    candidate = %{"candidate" => "candidate:1 1 UDP 1234 10.0.0.1 4000 typ host"}
+    candidate = %{"candidate" => "candidate:1 1 UDP 1234 8.8.8.8 4000 typ srflx"}
 
     assert {:ok, %{signaling_state: "candidate_buffered"}} =
+             WebRTCSignalingManager.add_ice_candidate(session_id, viewer_session_id, candidate, server: server_name)
+  end
+
+  test "rejects untrusted answers and browser ICE candidates before forwarding to ExWebRTC" do
+    session_id = Ecto.UUID.generate()
+    server_name = unique_server_name()
+
+    start_supervised!(
+      {WebRTCSignalingManager,
+       name: server_name, session_tracker: SessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
+    )
+
+    assert {:ok, %{viewer_session_id: viewer_session_id}} =
+             WebRTCSignalingManager.create_session(session_id, server: server_name)
+
+    assert {:error, :missing_dtls_fingerprint} =
+             WebRTCSignalingManager.submit_answer(session_id, viewer_session_id, "v=0\r\nm=application 9",
+               server: server_name
+             )
+
+    candidate = %{"candidate" => "candidate:1 1 UDP 1234 192.168.1.10 4000 typ host"}
+
+    assert {:error, :blocked_ice_candidate} =
              WebRTCSignalingManager.add_ice_candidate(session_id, viewer_session_id, candidate, server: server_name)
   end
 
@@ -351,4 +374,16 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
   defp unique_server_name, do: :"remote_desktop_webrtc_core_test_#{System.unique_integer([:positive])}"
+
+  defp valid_answer_sdp do
+    """
+    v=0
+    o=- 0 0 IN IP4 127.0.0.1
+    s=-
+    t=0 0
+    a=fingerprint:sha-256 AA:BB:CC:DD
+    m=application 9 UDP/DTLS/SCTP webrtc-datachannel
+    a=sctp-port:5000
+    """
+  end
 end

@@ -514,22 +514,22 @@ Overall: the browser path is well-built — frame parsing fail-closed, DataChann
 
 Result: the server is **mostly a pass-through** — the codec / fingerprint / ICE / TURN / renegotiation filters E2 assumed exist on the server do not. This promotes 5.E2.1, 5.E2.2, 5.E2.6 (browser-side mitigations were "defence-in-depth"; with no server gate they're the *only* gate).
 
-- [ ] 5.K.1 [H] SDP codec allowlist not applied server-side — full delegation to browser + ExWebRTC
+- [x] 5.K.1 [H] SDP codec allowlist not applied server-side — full delegation to browser + ExWebRTC
       Where: `elixir/serviceradar_core_elx/lib/serviceradar_core_elx/remote_desktop/webrtc_signaling_manager.ex:149-152` (working tree)
       Why: `Signaling.signal()` forwards SDP unchanged. A compromised browser or MITM can negotiate a codec the renderer doesn't sanitise, bypassing 5.E2.3.
       Fix: Parse the answer SDP, allowlist `[h264, vp8, vp09, av01]`, reject on unknown codec / repeated media sections.
 
-- [ ] 5.K.2 [M] DTLS fingerprint algorithm not explicitly allowlisted; assumed enforced by ExWebRTC
+- [x] 5.K.2 [M] DTLS fingerprint algorithm not explicitly allowlisted; assumed enforced by ExWebRTC
       Where: `elixir/serviceradar_core_elx/lib/serviceradar_core_elx/remote_desktop/data_channel_provider.ex:123` (working tree)
       Why: `set_remote_description()` delegates parsing entirely to ExWebRTC; if a future version regresses (or a compat shim accepts md5/sha1), the bastion follows.
       Fix: Parse `a=fingerprint` from SDP; require `sha-256` or stronger; document the contract.
 
-- [ ] 5.K.3 [H] ICE candidates not filtered before forwarding (no private / loopback / link-local / CGNAT / multicast rejection)
+- [x] 5.K.3 [H] ICE candidates not filtered before forwarding (no private / loopback / link-local / CGNAT / multicast rejection)
       Where: `elixir/serviceradar_core_elx/lib/serviceradar_core_elx/remote_desktop/webrtc_signaling_manager.ex:161-176` (working tree)
       Why: Server hands candidates straight to the peer. Combined with 5.E2.2 (browser also doesn't filter), the SSRF surface is fully open in both directions.
       Fix: Parse `a=candidate` lines; reject any address in RFC1918 / 127/8 / 169.254/16 / 100.64/10 / 224/4 / IPv6 ULA / link-local; emit metric on drop.
 
-- [ ] 5.K.4 [L] `.local` mDNS candidates assumed handled by ExWebRTC
+- [x] 5.K.4 [L] `.local` mDNS candidates assumed handled by ExWebRTC
       Where: `data_channel_provider.ex:127-130` (working tree)
       Why: Unverified delegation; mDNS-name leakage from the agent network is a low-volume info leak today.
       Fix: Confirm ExWebRTC rejects unresolved `.local`, or add an explicit filter.

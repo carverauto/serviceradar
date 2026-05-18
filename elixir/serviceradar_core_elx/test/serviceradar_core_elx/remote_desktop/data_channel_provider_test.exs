@@ -136,10 +136,32 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
     :ok =
       Signaling.signal(signaling, %{
         "type" => "sdp_answer",
-        "data" => %{"type" => "answer", "sdp" => "v=0\r\nanswer"}
+        "data" => %{"type" => "answer", "sdp" => valid_answer_sdp()}
       })
 
-    assert_receive {:pc_set_remote_description, ^pc, %SessionDescription{type: :answer, sdp: "v=0\r\nanswer"}}
+    assert_receive {:pc_set_remote_description, ^pc, %SessionDescription{type: :answer, sdp: answer_sdp}}
+    assert answer_sdp == valid_answer_sdp()
+
+    :ok =
+      Signaling.signal(signaling, %{
+        "type" => "ice_candidate",
+        "data" => %{"candidate" => "candidate:1 1 UDP 1 8.8.8.8 5000 typ srflx", "sdpMid" => "0", "sdpMLineIndex" => 0}
+      })
+
+    assert_receive {:pc_add_ice_candidate, ^pc, %ICECandidate{candidate: "candidate:1 1 UDP 1 8.8.8.8 5000 typ srflx"}}
+  end
+
+  test "drops blocked browser ICE candidates before ExWebRTC", ctx do
+    signaling = new_signaling()
+
+    assert :ok =
+             DataChannelProvider.add_webrtc_viewer("desktop-1", "viewer-1", signaling,
+               registry: ctx.registry,
+               supervisor: ctx.supervisor,
+               peer_connection: PeerConnectionStub
+             )
+
+    assert_receive {:pc_started, pc, _opts}
 
     :ok =
       Signaling.signal(signaling, %{
@@ -147,7 +169,38 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
         "data" => %{"candidate" => "candidate:1 1 UDP 1 127.0.0.1 5000 typ host", "sdpMid" => "0", "sdpMLineIndex" => 0}
       })
 
-    assert_receive {:pc_add_ice_candidate, ^pc, %ICECandidate{candidate: "candidate:1 1 UDP 1 127.0.0.1 5000 typ host"}}
+    refute_receive {:pc_add_ice_candidate, ^pc, %ICECandidate{}}, 100
+  end
+
+  test "drops blocked ExWebRTC ICE candidates before signaling to the browser", ctx do
+    signaling = new_signaling()
+
+    assert :ok =
+             DataChannelProvider.add_webrtc_viewer("desktop-5", "viewer-5", signaling,
+               registry: ctx.registry,
+               supervisor: ctx.supervisor,
+               peer_connection: PeerConnectionStub
+             )
+
+    assert_receive {:pc_started, pc, _opts}
+    {:ok, provider_pid} = lookup(ctx.registry, "desktop-5", "viewer-5")
+
+    send(
+      provider_pid,
+      {:ex_webrtc, pc, {:ice_candidate, %ICECandidate{candidate: "candidate:1 1 UDP 1 127.0.0.1 5000 typ host"}}}
+    )
+
+    refute_receive {:membrane_webrtc_signaling, _pid, %{"type" => "ice_candidate"}, _metadata}, 100
+
+    send(
+      provider_pid,
+      {:ex_webrtc, pc, {:ice_candidate, %ICECandidate{candidate: "candidate:1 1 UDP 1 8.8.8.8 5000 typ srflx"}}}
+    )
+
+    assert_receive {:membrane_webrtc_signaling, _pid, %{"type" => "ice_candidate", "data" => %{"candidate" => candidate}},
+                    _metadata}
+
+    assert candidate == "candidate:1 1 UDP 1 8.8.8.8 5000 typ srflx"
   end
 
   test "sends SRDP media frames only after the media DataChannel opens", ctx do
@@ -274,4 +327,16 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProviderTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
   defp unique_name(prefix), do: :"#{prefix}_#{System.unique_integer([:positive])}"
+
+  defp valid_answer_sdp do
+    """
+    v=0
+    o=- 0 0 IN IP4 127.0.0.1
+    s=-
+    t=0 0
+    a=fingerprint:sha-256 AA:BB:CC:DD
+    m=application 9 UDP/DTLS/SCTP webrtc-datachannel
+    a=sctp-port:5000
+    """
+  end
 end

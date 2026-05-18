@@ -12,6 +12,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   alias Membrane.WebRTC.Signaling
   alias ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager
   alias ServiceRadarCoreElx.RemoteDesktop.SessionTracker
+  alias ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalPolicy
 
   @default_session_ttl_ms 60_000
   @default_offer_timeout_ms 5_000
@@ -139,19 +140,26 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   def handle_call({:submit_answer, session_id, viewer_session_id, answer_sdp, _opts}, _from, state) do
     case fetch_session(state, session_id, viewer_session_id) do
       {:ok, session} ->
-        updated =
-          session
-          |> refresh_session(state.session_ttl_ms)
-          |> Map.put(:signaling_state, "answer_applied")
-          |> Map.put(:answer_sdp, answer_sdp)
+        case WebRTCSignalPolicy.validate_answer_sdp(answer_sdp) do
+          :ok ->
+            updated =
+              session
+              |> refresh_session(state.session_ttl_ms)
+              |> Map.put(:signaling_state, "answer_applied")
+              |> Map.put(:answer_sdp, answer_sdp)
 
-        :ok =
-          Signaling.signal(
-            updated.signaling,
-            %{"type" => "sdp_answer", "data" => %{"type" => "answer", "sdp" => answer_sdp}}
-          )
+            :ok =
+              Signaling.signal(
+                updated.signaling,
+                %{"type" => "sdp_answer", "data" => %{"type" => "answer", "sdp" => answer_sdp}}
+              )
 
-        {:reply, {:ok, session_response(updated)}, put_session(state, updated)}
+            {:reply, {:ok, session_response(updated)}, put_session(state, updated)}
+
+          {:error, reason} ->
+            emit_signal_rejection(:sdp_answer, session, reason)
+            {:reply, {:error, reason}, state}
+        end
 
       {:error, :viewer_session_not_found} = error ->
         {:reply, error, state}
@@ -161,15 +169,22 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
   def handle_call({:add_ice_candidate, session_id, viewer_session_id, candidate, _opts}, _from, state) do
     case fetch_session(state, session_id, viewer_session_id) do
       {:ok, session} ->
-        updated =
-          session
-          |> refresh_session(state.session_ttl_ms)
-          |> Map.put(:signaling_state, "candidate_buffered")
-          |> Map.put(:last_candidate, candidate)
+        case WebRTCSignalPolicy.validate_ice_candidate(candidate) do
+          :ok ->
+            updated =
+              session
+              |> refresh_session(state.session_ttl_ms)
+              |> Map.put(:signaling_state, "candidate_buffered")
+              |> Map.put(:last_candidate, candidate)
 
-        :ok = Signaling.signal(updated.signaling, %{"type" => "ice_candidate", "data" => candidate})
+            :ok = Signaling.signal(updated.signaling, %{"type" => "ice_candidate", "data" => candidate})
 
-        {:reply, {:ok, session_response(updated)}, put_session(state, updated)}
+            {:reply, {:ok, session_response(updated)}, put_session(state, updated)}
+
+          {:error, reason} ->
+            emit_signal_rejection(:ice_candidate, session, reason)
+            {:reply, {:error, reason}, state}
+        end
 
       {:error, :viewer_session_not_found} = error ->
         {:reply, error, state}
@@ -309,12 +324,19 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
       ) do
     case fetch_session_by_signaling(state, signaling_pid) do
       {:ok, session} ->
-        updated =
-          session
-          |> refresh_session(state.session_ttl_ms)
-          |> Map.put(:last_remote_candidate, candidate)
+        case WebRTCSignalPolicy.validate_ice_candidate(candidate) do
+          :ok ->
+            updated =
+              session
+              |> refresh_session(state.session_ttl_ms)
+              |> Map.put(:last_remote_candidate, candidate)
 
-        {:noreply, put_session(state, updated)}
+            {:noreply, put_session(state, updated)}
+
+          {:error, reason} ->
+            emit_signal_rejection(:ice_candidate, session, reason)
+            {:noreply, state}
+        end
 
       :error ->
         {:noreply, state}
@@ -327,13 +349,27 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
       ) do
     case fetch_session_by_signaling(state, signaling_pid) do
       {:ok, session} ->
-        updated =
-          session
-          |> refresh_session(state.session_ttl_ms)
-          |> Map.put(:signaling_state, "answer_applied")
-          |> Map.put(:answer_sdp, extract_sdp(answer_data))
+        case extract_sdp(answer_data) do
+          answer_sdp when is_binary(answer_sdp) ->
+            case WebRTCSignalPolicy.validate_answer_sdp(answer_sdp) do
+              :ok ->
+                updated =
+                  session
+                  |> refresh_session(state.session_ttl_ms)
+                  |> Map.put(:signaling_state, "answer_applied")
+                  |> Map.put(:answer_sdp, answer_sdp)
 
-        {:noreply, put_session(state, updated)}
+                {:noreply, put_session(state, updated)}
+
+              {:error, reason} ->
+                emit_signal_rejection(:sdp_answer, session, reason)
+                {:noreply, state}
+            end
+
+          _other ->
+            emit_signal_rejection(:sdp_answer, session, :invalid_sdp)
+            {:noreply, state}
+        end
 
       :error ->
         {:noreply, state}
@@ -446,4 +482,17 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
 
   defp cancel_timer(ref) when is_reference(ref), do: Process.cancel_timer(ref)
   defp cancel_timer(_other), do: false
+
+  defp emit_signal_rejection(signal_type, session, reason) do
+    :telemetry.execute(
+      [:serviceradar_core_elx, :remote_desktop, :webrtc, :signal_rejected],
+      %{count: 1},
+      %{
+        reason: reason,
+        session_id: session.session_id,
+        signal_type: signal_type,
+        viewer_session_id: session.viewer_session_id
+      }
+    )
+  end
 end
