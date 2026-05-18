@@ -137,8 +137,18 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
                     </td>
                     <td class="font-mono text-xs">{target.upstream_host}:{target.upstream_port}</td>
                     <td class="text-right">
-                      <span :if={tcp_browser_workflow?(target)} class="badge badge-info badge-sm">
-                        documented
+                      <.link
+                        :if={@can_open_tcp? and target.enabled and tcp_browser_workflow?(target)}
+                        navigate={~p"/remote-access/tcp-targets/#{target.id}"}
+                        class="btn btn-secondary btn-xs"
+                      >
+                        Open
+                      </.link>
+                      <span
+                        :if={(!@can_open_tcp? or !target.enabled) and tcp_browser_workflow?(target)}
+                        class="badge badge-ghost badge-sm"
+                      >
+                        unavailable
                       </span>
                       <span :if={!tcp_browser_workflow?(target)} class="badge badge-ghost badge-sm">
                         none

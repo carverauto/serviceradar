@@ -18,7 +18,7 @@
 
 ## 4. UI, Recording, And Audit
 - [x] 4.1 Add operator/user UI for launching registered application access sessions.
-- [ ] 4.2 Add TCP launch UI only for targets with an explicit browser renderer or documented client workflow.
+- [x] 4.2 Add TCP launch UI only for targets with an explicit browser renderer or documented client workflow.
 - [x] 4.3 Persist lifecycle, request/response metadata, byte counts, failures, and policy decisions without storing bodies by default.
 - [x] 4.4 Emit audit and replay events for allowed, started, request, response, denied, failed, closed, and quota-exhausted states.
 
@@ -27,4 +27,4 @@
 - [x] 5.2 Add gateway/agent route-binding tests for app/TCP frames.
 - [x] 5.3 Add agent adapter tests against local HTTP, HTTPS with test CA, redirect, and raw TCP test servers.
 - [ ] 5.4 Add demo proof with a private HTTP echo target reachable only from an agent.
-- [ ] 5.5 Run focused Go and Elixir tests plus OpenSpec validation.
+- [x] 5.5 Run focused Go and Elixir tests plus OpenSpec validation.

@@ -29,6 +29,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_application_path_bytes 2_048
   @max_application_query_bytes 4_096
   @max_application_request_id_bytes 128
+  @max_tcp_connection_id_bytes 128
+  @max_tcp_data_frame_bytes 65_536
+  @max_tcp_data_frame_encoded_bytes div(@max_tcp_data_frame_bytes + 2, 3) * 4
+  @max_tcp_sequence 9_223_372_036_854_775_807
   @max_file_transfer_chunk_bytes 65_536
   @max_file_transfer_chunk_encoded_bytes div(@max_file_transfer_chunk_bytes + 2, 3) * 4
   @max_username_bytes 128
@@ -147,6 +151,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:error, reason} -> stop_for_broker_error(reason, state)
         end
 
+      {:ok, %{"type" => "tcp_data"} = message} ->
+        with {:ok, payload} <- tcp_data_payload(message),
+             :ok <- state.broker_module.send_tcp_data(state.broker, payload) do
+          {:ok, reset_idle_timer(state)}
+        else
+          {:error, reason} -> stop_for_broker_error(reason, state)
+        end
+
       {:ok, %{"type" => "file_transfer_data"} = message} ->
         with {:ok, payload} <- file_transfer_data_payload(message),
              :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
@@ -180,6 +192,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   def handle_info({:remote_access_application_frame, frame}, state) when is_map(frame) do
     {:push, {:text, encode(application_message(frame, state))}, reset_idle_timer(state)}
+  end
+
+  def handle_info({:remote_access_tcp_frame, frame}, state) when is_map(frame) do
+    {:push, {:text, encode(tcp_message(frame, state))}, reset_idle_timer(state)}
   end
 
   def handle_info({:remote_access_closed, reason}, state) do
@@ -270,6 +286,25 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp application_payload(frame) do
+    frame
+    |> string_value(:data)
+    |> case do
+      nil -> %{}
+      "" -> %{}
+      data -> decode_json_payload(data)
+    end
+  end
+
+  defp tcp_message(frame, state) do
+    %{
+      type: "tcp",
+      session_id: string_value(frame, :session_id) || state.session_id,
+      frame_type: string_value(frame, :frame_type),
+      payload: tcp_payload(frame)
+    }
+  end
+
+  defp tcp_payload(frame) do
     frame
     |> string_value(:data)
     |> case do
@@ -439,6 +474,41 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp application_header_values(_values), do: {:error, :invalid_request}
+
+  defp tcp_data_payload(message) do
+    with {:ok, connection_id} <- application_bounded_string(message, "connection_id", @max_tcp_connection_id_bytes),
+         {:ok, sequence} <- tcp_sequence(Map.get(message, "sequence")),
+         {:ok, data} <- tcp_data(Map.get(message, "data")),
+         {:ok, eof} <- optional_boolean(Map.get(message, "eof")) do
+      {:ok,
+       %{
+         connection_id: connection_id,
+         direction: "client",
+         sequence: sequence,
+         data: data,
+         eof: eof
+       }}
+    end
+  end
+
+  defp tcp_sequence(sequence) when is_integer(sequence) and sequence >= 1 and sequence <= @max_tcp_sequence,
+    do: {:ok, sequence}
+
+  defp tcp_sequence(_sequence), do: {:error, :invalid_request}
+
+  defp tcp_data(data) when is_binary(data) and byte_size(data) <= @max_tcp_data_frame_encoded_bytes do
+    case Base.decode64(data) do
+      {:ok, decoded} when byte_size(decoded) <= @max_tcp_data_frame_bytes -> {:ok, data}
+      {:ok, _decoded} -> {:error, :invalid_data_size}
+      :error -> {:error, :invalid_request}
+    end
+  end
+
+  defp tcp_data(_data), do: {:error, :invalid_request}
+
+  defp optional_boolean(nil), do: {:ok, false}
+  defp optional_boolean(value) when is_boolean(value), do: {:ok, value}
+  defp optional_boolean(_value), do: {:error, :invalid_request}
 
   defp normalize_certificate_credential(credential) do
     with {:ok, private_key} <- bounded_string(credential, "private_key", @max_private_key_bytes),

@@ -23,6 +23,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
   @callback send_application_request(pid(), map()) :: :ok | {:error, term()}
+  @callback send_tcp_data(pid(), map()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
   @callback close(pid(), term()) :: :ok
@@ -72,6 +73,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_application_request(pid, payload) when is_pid(pid) and is_map(payload) do
     GenServer.call(pid, {:send_application_request, payload})
+  end
+
+  def send_tcp_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_tcp_data, payload})
   end
 
   def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
@@ -152,6 +157,19 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       request_id: string_value(payload, "request_id"),
       method: string_value(payload, "method"),
       path: string_value(payload, "path")
+    })
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_tcp_data, payload}, _from, state) do
+    result = send_frame(state, "tcp_data", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_tcp_data, %{
+      connection_id: string_value(payload, "connection_id"),
+      direction: string_value(payload, "direction"),
+      sequence: value(payload, "sequence"),
+      body_bytes: body_byte_count(payload)
     })
 
     {:reply, result, state}

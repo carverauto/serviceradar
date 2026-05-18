@@ -87,6 +87,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       :ok
     end
 
+    def send_tcp_data(pid, payload) do
+      send(pid, {:send_tcp_data, self(), payload})
+      :ok
+    end
+
     def send_file_transfer_data(pid, payload) do
       send(pid, {:send_file_transfer_data, self(), payload})
       :ok
@@ -110,6 +115,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
 
         {:send_application_request, caller, payload} ->
           send(state.session.metadata["test_pid"], {:broker_application_request, caller, payload})
+          loop(state)
+
+        {:send_tcp_data, caller, payload} ->
+          send(state.session.metadata["test_pid"], {:broker_tcp_data, caller, payload})
           loop(state)
 
         {:send_file_transfer_data, caller, payload} ->
@@ -745,6 +754,79 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
            } = Jason.decode!(response)
 
     assert Base.decode64!(encoded) == "pong"
+    assert after_frame.attached?
+    refute response =~ "srra_test_ticket"
+    refute response =~ "credential"
+
+    RemoteAccessStreamHandler.terminate(:normal, after_frame)
+  end
+
+  test "browser TCP data frames are forwarded to the broker after attach" do
+    {:ok, state} = init_state("session-tcp")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-tcp"), [opcode: :text]}, state)
+
+    payload = %{
+      type: "tcp_data",
+      connection_id: "session-tcp:tcp",
+      sequence: 1,
+      data: Base.encode64("ping\n"),
+      eof: false
+    }
+
+    assert {:ok, after_data} =
+             RemoteAccessStreamHandler.handle_in({Jason.encode!(payload), [opcode: :text]}, attached)
+
+    assert_receive {:broker_tcp_data, _caller,
+                    %{
+                      connection_id: "session-tcp:tcp",
+                      direction: "client",
+                      sequence: 1,
+                      data: encoded,
+                      eof: false
+                    }}
+
+    assert Base.decode64!(encoded) == "ping\n"
+    assert after_data.attached?
+
+    RemoteAccessStreamHandler.terminate(:normal, after_data)
+  end
+
+  test "broker TCP frames are forwarded as typed websocket messages" do
+    {:ok, state} = init_state("session-tcp-response")
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-tcp-response"), [opcode: :text]}, state)
+
+    frame = %{
+      session_id: "session-tcp-response",
+      frame_type: "tcp_data",
+      data:
+        Jason.encode!(%{
+          session_id: "session-tcp-response",
+          connection_id: "session-tcp-response:tcp",
+          direction: "upstream",
+          sequence: 1,
+          data: Base.encode64("pong\n"),
+          eof: false
+        })
+    }
+
+    assert {:push, {:text, response}, after_frame} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_tcp_frame, frame}, attached)
+
+    assert %{
+             "type" => "tcp",
+             "session_id" => "session-tcp-response",
+             "frame_type" => "tcp_data",
+             "payload" => %{
+               "connection_id" => "session-tcp-response:tcp",
+               "data" => encoded
+             }
+           } = Jason.decode!(response)
+
+    assert Base.decode64!(encoded) == "pong\n"
     assert after_frame.attached?
     refute response =~ "srra_test_ticket"
     refute response =~ "credential"
