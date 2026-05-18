@@ -518,6 +518,10 @@ Response:
 4. Approved packages can be assigned to agents.
 5. Agents download packages only from the ServiceRadar control plane (never directly from GitHub).
 
+Assigned health-result plugins, including first-party plugins such as UniFi and AlienVault OTX, are represented in `/services` with a stable `plugin` service identity. When an assignment is created, the control plane seeds a pending service row keyed by agent, gateway, partition, plugin service name, plugin ID, assignment ID, and package ID. The next agent-reported plugin result updates that row with the plugin status and summary.
+
+Plugin result payloads should use canonical statuses `OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`. The agent also accepts common failure aliases such as `failed`, `fail`, and `error` and maps them to `CRITICAL`, so a failed plugin execution is visible as unhealthy instead of being dropped as an invalid payload.
+
 ### GitHub imports and verification
 
 For GitHub-sourced plugins, the control plane fetches:

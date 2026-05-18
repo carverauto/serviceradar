@@ -186,6 +186,7 @@ func TestEvaluateFileTransferPolicySymlinkModes(t *testing.T) {
 					Request:      fileTransferRequest(FileTransferOperationDownload, testReportPath),
 					HasSymlink:   true,
 					ResolvedPath: tt.resolved,
+					RealPathOK:   tt.resolved != "",
 				},
 				policy,
 			)

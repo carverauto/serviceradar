@@ -984,6 +984,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
       add :is_managed, :boolean, default: false
       add :is_compliant, :boolean
       add :is_trusted, :boolean, default: false
+      add :is_active, :boolean, null: false, default: true
       add :os, :map, default: %{}
       add :hw_info, :map, default: %{}
       add :network_interfaces, {:array, :map}, default: []

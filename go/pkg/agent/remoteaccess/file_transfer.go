@@ -80,9 +80,9 @@ type FileTransferStatus string
 
 // FileTransferRequestPayload is the JSON payload carried by
 // FrameTypeFileTransferRequest. Route, agent, gateway, target host,
-// credential, custody, recording, and approval override fields are
-// intentionally absent from browser intent; the trusted control plane adds the
-// policy snapshot that the selected agent must enforce before it opens target
+// credential, custody, recording, and approval override fields are not accepted
+// from browser intent; the trusted control plane adds the policy snapshot and
+// approval binding that the selected agent must enforce before it opens target
 // file handles.
 type FileTransferRequestPayload struct {
 	Protocol        string                `json:"protocol,omitempty"`
@@ -95,6 +95,7 @@ type FileTransferRequestPayload struct {
 	DisplayName     string                `json:"display_name,omitempty"`
 	Policy          FileTransferPolicy    `json:"policy,omitempty"`
 	Approved        bool                  `json:"approved,omitempty"`
+	ApprovalID      string                `json:"approval_id,omitempty"`
 }
 
 // FileTransferProgressPayload reports transfer lifecycle progress. Payloads
@@ -129,6 +130,7 @@ type FileTransferAckPayload struct {
 // FileTransferErrorPayload reports a denied, failed, canceled, or quota-exhausted transfer.
 type FileTransferErrorPayload struct {
 	TransferID   string             `json:"transfer_id"`
+	ApprovalID   string             `json:"approval_id,omitempty"`
 	Status       FileTransferStatus `json:"status"`
 	Code         string             `json:"code"`
 	Message      string             `json:"message,omitempty"`
@@ -139,6 +141,7 @@ type FileTransferErrorPayload struct {
 // FileTransferOutcomePayload reports the durable outcome metadata for audit and replay.
 type FileTransferOutcomePayload struct {
 	TransferID       string             `json:"transfer_id"`
+	ApprovalID       string             `json:"approval_id,omitempty"`
 	Status           FileTransferStatus `json:"status"`
 	BytesTransferred int64              `json:"bytes_transferred,omitempty"`
 	FilesTransferred int64              `json:"files_transferred,omitempty"`
@@ -168,8 +171,16 @@ func (p FileTransferRequestPayload) Validate() error {
 	if strings.TrimSpace(p.Path) == "" {
 		return ErrInvalidFileTransferPath
 	}
+	if _, err := normalizeRemotePath(p.Path); err != nil {
+		return err
+	}
 	if p.Operation == FileTransferOperationRename && strings.TrimSpace(p.DestinationPath) == "" {
 		return ErrFileTransferDestinationMissing
+	}
+	if strings.TrimSpace(p.DestinationPath) != "" {
+		if _, err := normalizeRemotePath(p.DestinationPath); err != nil {
+			return err
+		}
 	}
 
 	return nil

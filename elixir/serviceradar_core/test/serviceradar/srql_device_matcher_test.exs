@@ -50,4 +50,11 @@ defmodule ServiceRadar.SRQLDeviceMatcherTest do
                allow_existing_atom_fields?: false
              )
   end
+
+  test "include_inactive is accepted as a device matcher control filter" do
+    query = Ash.Query.new(Device)
+    filters = [%{field: "include_inactive", op: "eq", value: "true"}]
+
+    assert %Ash.Query{} = SRQLDeviceMatcher.apply_filters(query, filters)
+  end
 end

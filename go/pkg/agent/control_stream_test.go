@@ -263,7 +263,7 @@ func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
 	sender := newControlStreamSender(stream)
 	loop := &PushLoop{}
 
-	loop.handleConsoleFrame(&proto.ConsoleFrame{
+	loop.handleConsoleFrame(context.Background(), &proto.ConsoleFrame{
 		SessionId: "console-session-1",
 		FrameType: consoleFrameTypeOpen,
 	}, sender)

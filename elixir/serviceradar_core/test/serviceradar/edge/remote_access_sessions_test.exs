@@ -10,6 +10,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessRequest
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
@@ -120,6 +121,46 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                session_id: session.id,
                audit_writer: AuditSink
              )
+  end
+
+  test "attach ticket consume is atomic under concurrent attempts" do
+    uid = unique_uid("ticket-race")
+    insert_device!(uid, agent_id: "agent-ticket-race", gateway_id: "gateway-ticket-race")
+
+    assert {:ok, %{session: session, ticket: ticket}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present"},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    parent = self()
+
+    results =
+      1..2
+      |> Enum.map(fn _index ->
+        Task.async(fn ->
+          Process.put(:remote_access_audit_owner, parent)
+
+          RemoteAccessSessions.attach_with_ticket(ticket,
+            session_id: session.id,
+            audit_writer: AuditSink
+          )
+        end)
+      end)
+      |> Task.await_many(5_000)
+
+    assert Enum.count(results, &match?({:ok, %RemoteAccessSession{status: :attached}}, &1)) == 1
+    assert Enum.count(results, &(&1 == {:error, :invalid_or_expired_ticket})) == 1
+
+    assert_receive {:remote_access_audit, attach_audit}
+    assert attach_audit[:action] == :remote_access_session_attach
+
+    refute_receive {:remote_access_audit, _duplicate_attach_audit}, 50
   end
 
   test "recording destroy requires service boundary authorization and writes audit" do
@@ -660,6 +701,53 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
     assert denial_audit[:details][:failure_reason] == "approval_denied"
+  end
+
+  test "approval action policy forbids direct self approval even with spoofed approved_by" do
+    uid = unique_uid("self-approval")
+    requester_id = insert_user!("self-approval-requester")
+    reviewer_id = insert_user!("self-approval-reviewer")
+    insert_device!(uid, agent_id: "agent-self-approval", gateway_id: "gateway-self-approval")
+
+    credential_rule_id =
+      create_credential_rule!("self-approval", scope_value: "agent-self-approval").id
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-self-approval",
+                 gateway_id: "gateway-self-approval",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "self approval should fail",
+                 ttl_seconds: 600
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert {:error, _reason} =
+             RemoteAccessRequest.approve(
+               access_request,
+               %{
+                 approved_by: reviewer_id,
+                 approved_at: RemoteAccessRequest.utc_now()
+               },
+               actor: %{
+                 id: requester_id,
+                 permissions: MapSet.new(["devices.remote_access.requests.review"])
+               }
+             )
+
+    assert {:ok, pending} = RemoteAccessRequests.get(access_request.id, actor: @system_actor)
+    assert pending.status == :pending
   end
 
   test "lifecycle transitions write sanitized terminal outcomes" do

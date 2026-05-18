@@ -17,7 +17,14 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
+  alias ServiceRadar.ObjectStore.RetentionWorker, as: ObjectStoreRetentionWorker
   alias ServiceRadarWebNG.Jobs.JobCatalog
+
+  @plugin_blob_retention_worker Module.concat([
+                                  "ServiceRadarWebNG",
+                                  "Plugins",
+                                  "BlobRetentionWorker"
+                                ])
 
   setup do
     original = Application.get_env(:serviceradar_web_ng, :job_catalog_integration_source_module)
@@ -30,8 +37,11 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
 
     on_exit(fn ->
       case original do
-        nil -> Application.delete_env(:serviceradar_web_ng, :job_catalog_integration_source_module)
-        value -> Application.put_env(:serviceradar_web_ng, :job_catalog_integration_source_module, value)
+        nil ->
+          Application.delete_env(:serviceradar_web_ng, :job_catalog_integration_source_module)
+
+        value ->
+          Application.put_env(:serviceradar_web_ng, :job_catalog_integration_source_module, value)
       end
     end)
 
@@ -39,7 +49,7 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
   end
 
   test "manual_jobs exposes source-specific Armis northbound entries" do
-    [job] = JobCatalog.manual_jobs()
+    job = Enum.find(JobCatalog.manual_jobs(), &(&1.id == "manual:armis_northbound:source-1"))
 
     assert job.id == "manual:armis_northbound:source-1"
     assert job.name == "Armis northbound: Primary Armis"
@@ -52,15 +62,59 @@ defmodule ServiceRadarWebNG.JobCatalogTest do
     assert job.integration_source_id == "source-1"
   end
 
+  test "manual_jobs exposes object store retention maintenance entries" do
+    jobs = JobCatalog.manual_jobs()
+
+    assert release_job = Enum.find(jobs, &(&1.id == "manual:object_store_release_retention"))
+    assert release_job.name == "Object store release retention"
+    assert release_job.source == :manual
+    assert release_job.cron == "manual"
+    assert release_job.queue == :maintenance
+    assert release_job.worker == ObjectStoreRetentionWorker
+    assert release_job.args_filter == %{"manual" => true}
+
+    assert plugin_job = Enum.find(jobs, &(&1.id == "manual:plugin_blob_retention"))
+    assert plugin_job.name == "Plugin blob retention"
+    assert plugin_job.source == :manual
+    assert plugin_job.cron == "manual"
+    assert plugin_job.queue == :maintenance
+    assert plugin_job.worker == @plugin_blob_retention_worker
+    assert plugin_job.args_filter == %{"manual" => true}
+  end
+
   test "get_job can resolve manual Armis entries from the unified catalog" do
     assert {:ok, job} = JobCatalog.get_job("manual:armis_northbound:source-1")
     assert job.source == :manual
     assert job.integration_source_id == "source-1"
   end
 
-  test "trigger_job delegates manual Armis entries to the worker entrypoint" do
-    job = List.first(JobCatalog.manual_jobs())
+  test "get_job can resolve manual retention entries from the unified catalog" do
+    assert {:ok, release_job} = JobCatalog.get_job("manual:object_store_release_retention")
+    assert release_job.source == :manual
+    assert release_job.worker == ObjectStoreRetentionWorker
 
-    assert {:error, :oban_unavailable} = JobCatalog.trigger_job(job)
+    assert {:ok, plugin_job} = JobCatalog.get_job("manual:plugin_blob_retention")
+    assert plugin_job.source == :manual
+    assert plugin_job.worker == @plugin_blob_retention_worker
+  end
+
+  test "trigger_job delegates manual Armis entries to the worker entrypoint" do
+    job = Enum.find(JobCatalog.manual_jobs(), &(&1.id == "manual:armis_northbound:source-1"))
+
+    assert {:error, reason} = JobCatalog.trigger_job(job)
+    refute reason == :no_worker
+  end
+
+  test "trigger_job delegates manual retention entries to worker entrypoints" do
+    jobs = JobCatalog.manual_jobs()
+
+    release_job = Enum.find(jobs, &(&1.id == "manual:object_store_release_retention"))
+    plugin_job = Enum.find(jobs, &(&1.id == "manual:plugin_blob_retention"))
+
+    assert {:error, release_reason} = JobCatalog.trigger_job(release_job)
+    assert {:error, plugin_reason} = JobCatalog.trigger_job(plugin_job)
+
+    refute release_reason == :no_worker
+    refute plugin_reason == :no_worker
   end
 end

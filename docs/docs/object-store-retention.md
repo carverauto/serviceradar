@@ -29,6 +29,10 @@ objectStoreRetention:
 
 `pluginOrphanGraceSeconds` controls how old inactive plugin blobs must be before they are eligible for deletion. Staged and approved packages are protected, as are packages referenced by assignments or target policies.
 
+The release-management UI is intentionally bounded to the latest five published releases and the latest five discovered repository releases. The retention planner is the source of truth for artifact cleanup; the UI limit prevents old object-store history from looking like recommended rollout choices.
+
+The plugin admin UI paginates installed plugin packages ten rows at a time. Object-store retention still protects staged, approved, assigned, and policy-referenced plugin blobs; operators should treat older unreferenced blobs as cleanup candidates rather than active package recommendations.
+
 ## Running Cleanup
 
 Agent release artifact cleanup is handled by `ServiceRadar.ObjectStore.RetentionWorker` in the `maintenance` Oban queue. Plugin blob cleanup is handled by `ServiceRadarWebNG.Plugins.BlobRetentionWorker` and requires web-ng to process the `maintenance` queue.

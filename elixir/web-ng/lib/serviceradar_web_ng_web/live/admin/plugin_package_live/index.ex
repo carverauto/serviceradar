@@ -21,6 +21,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
+  @package_page_size 10
+  @first_party_catalog_page_size 10
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -35,10 +38,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
         |> assign(:packages, list_packages(%{}, scope))
+        |> assign(:package_page, 1)
+        |> assign(:package_page_size, @package_page_size)
         |> assign(:filter_status, nil)
         |> assign(:filter_source_type, nil)
         |> assign(:first_party_catalog, [])
         |> assign(:first_party_catalog_all, [])
+        |> assign(:first_party_catalog_page, 1)
+        |> assign(:first_party_catalog_page_size, @first_party_catalog_page_size)
         |> assign(:first_party_catalog_error, nil)
         |> assign(:first_party_catalog_status, nil)
         |> assign(:first_party_release_options, [])
@@ -189,6 +196,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      socket
      |> assign(:filter_status, normalize_filter(filter_status))
      |> assign(:filter_source_type, normalize_filter(filter_source_type))
+     |> assign(:package_page, 1)
      |> assign(:packages, list_packages(filters, scope))}
   end
 
@@ -209,6 +217,28 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
     {:noreply, assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
+  end
+
+  def handle_event("first_party_catalog_page", %{"page" => page}, socket) do
+    page =
+      clamp_page(
+        page,
+        length(socket.assigns.first_party_catalog),
+        socket.assigns.first_party_catalog_page_size
+      )
+
+    {:noreply, assign(socket, :first_party_catalog_page, page)}
+  end
+
+  def handle_event("package_page", %{"page" => page}, socket) do
+    page =
+      clamp_page(
+        page,
+        length(socket.assigns.packages),
+        socket.assigns.package_page_size
+      )
+
+    {:noreply, assign(socket, :package_page, page)}
   end
 
   def handle_event("import_first_party_catalog", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
@@ -980,7 +1010,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </tr>
                 </thead>
                 <tbody>
-                  <%= for package <- @packages do %>
+                  <%= for package <- paginated_items(@packages, @package_page, @package_page_size) do %>
                     <tr class="hover:bg-base-200/30">
                       <td>
                         <div class="font-medium">{package.name}</div>
@@ -1015,6 +1045,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   <% end %>
                 </tbody>
               </table>
+              <.pagination_controls
+                id_prefix="plugin-packages"
+                event="package_page"
+                page={@package_page}
+                total_items={length(@packages)}
+                page_size={@package_page_size}
+              />
             <% end %>
           </div>
         </.ui_panel>
@@ -1093,7 +1130,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     </tr>
                   </thead>
                   <tbody>
-                    <%= for plugin <- @first_party_catalog do %>
+                    <%= for plugin <- paginated_items(
+                          @first_party_catalog,
+                          @first_party_catalog_page,
+                          @first_party_catalog_page_size
+                        ) do %>
                       <tr class="hover:bg-base-200/30">
                         <td>
                           <div class="font-medium">{plugin.name}</div>
@@ -1126,6 +1167,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     <% end %>
                   </tbody>
                 </table>
+                <.pagination_controls
+                  id_prefix="first-party-catalog"
+                  event="first_party_catalog_page"
+                  page={@first_party_catalog_page}
+                  total_items={length(@first_party_catalog)}
+                  page_size={@first_party_catalog_page_size}
+                />
               </div>
           <% end %>
         </.ui_panel>
@@ -1891,6 +1939,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         socket
         |> assign(:first_party_catalog, [])
         |> assign(:first_party_catalog_all, [])
+        |> assign(:first_party_catalog_page, 1)
         |> assign(:first_party_release_options, [])
         |> assign(:first_party_release_tag, nil)
         |> assign(:first_party_catalog_error, format_error(reason))
@@ -1908,6 +1957,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> assign(:first_party_release_options, release_options)
     |> assign(:first_party_release_tag, selected_release_tag)
     |> assign(:first_party_catalog, visible_plugins)
+    |> assign(:first_party_catalog_page, 1)
   end
 
   defp first_party_release_options(plugins) do
@@ -1970,6 +2020,99 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       _ -> 10
     end
   end
+
+  attr(:id_prefix, :string, required: true)
+  attr(:event, :string, required: true)
+  attr(:page, :integer, required: true)
+  attr(:total_items, :integer, required: true)
+  attr(:page_size, :integer, required: true)
+
+  defp pagination_controls(assigns) do
+    page_count = page_count(assigns.total_items, assigns.page_size)
+    {first_item, last_item} = page_range(assigns.total_items, assigns.page, assigns.page_size)
+
+    assigns =
+      assign(assigns,
+        page_count: page_count,
+        first_item: first_item,
+        last_item: last_item
+      )
+
+    ~H"""
+    <div
+      :if={@total_items > 0}
+      class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 px-4 py-3 text-xs text-base-content/60"
+    >
+      <span>
+        Showing {@first_item}-{@last_item} of {@total_items}
+      </span>
+      <div class="join">
+        <button
+          id={"#{@id_prefix}-prev-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page - 1}
+          class="btn btn-xs join-item"
+          disabled={@page <= 1}
+        >
+          Previous
+        </button>
+        <button type="button" class="btn btn-xs join-item btn-ghost" disabled>
+          Page {@page} of {@page_count}
+        </button>
+        <button
+          id={"#{@id_prefix}-next-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page + 1}
+          class="btn btn-xs join-item"
+          disabled={@page >= @page_count}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp paginated_items(items, page, page_size) when is_list(items) do
+    page = clamp_page(page, length(items), page_size)
+
+    items
+    |> Enum.drop((page - 1) * page_size)
+    |> Enum.take(page_size)
+  end
+
+  defp page_count(total_items, page_size) when is_integer(total_items) and total_items > 0,
+    do: max(1, ceil(total_items / page_size))
+
+  defp page_count(_total_items, _page_size), do: 1
+
+  defp page_range(total_items, page, page_size) when total_items > 0 do
+    page = clamp_page(page, total_items, page_size)
+    first_item = (page - 1) * page_size + 1
+    last_item = min(page * page_size, total_items)
+
+    {first_item, last_item}
+  end
+
+  defp page_range(_total_items, _page, _page_size), do: {0, 0}
+
+  defp clamp_page(page, total_items, page_size) do
+    page =
+      case page do
+        page when is_integer(page) -> page
+        page when is_binary(page) -> page |> Integer.parse() |> parsed_page()
+        _ -> 1
+      end
+
+    page
+    |> max(1)
+    |> min(page_count(total_items, page_size))
+  end
+
+  defp parsed_page({page, _rest}), do: page
+  defp parsed_page(:error), do: 1
 
   defp assign_capacity(socket, scope) do
     {rows, totals} =

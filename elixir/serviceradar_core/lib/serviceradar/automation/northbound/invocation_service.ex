@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   hand the invocation to the provider dispatcher.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
@@ -30,7 +31,8 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
          :ok <- validate_descriptor(descriptor),
          {:ok, targets} <- normalize_targets(attrs),
          :ok <- validate_target_scopes(descriptor, targets),
-         {:ok, target_snapshots} <- TargetResolver.resolve_targets(targets, actor: actor),
+         {:ok, target_snapshots} <-
+           TargetResolver.resolve_targets(targets, actor: target_resolution_actor()),
          {:ok, invocation} <- persist_invocation(descriptor, target_snapshots, attrs, actor),
          {:ok, _targets} <- persist_invocation_targets(invocation, target_snapshots, actor) do
       reload_invocation(invocation, actor)
@@ -203,4 +205,6 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   end
 
   defp actor_id(_actor), do: nil
+
+  defp target_resolution_actor, do: SystemActor.system(:northbound_target_resolver)
 end

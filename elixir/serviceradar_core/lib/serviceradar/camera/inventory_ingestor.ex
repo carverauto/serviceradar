@@ -449,6 +449,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
          model: descriptor_model(descriptor),
          discovery_sources: ["camera_plugin"],
          is_managed: true,
+         is_active: true,
          is_available: descriptor_available?(descriptor, status),
          last_seen_time: observed_at,
          metadata:
@@ -584,8 +585,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         agent_id: nil,
         management_device_id: nil,
         vendor_name: attrs.vendor_name,
-        model: attrs.model,
-        is_managed: attrs.is_managed
+        model: attrs.model
       })
     else
       common_attrs

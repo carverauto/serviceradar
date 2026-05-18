@@ -463,7 +463,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   def handle_event("run_task_for_selection", _params, socket) do
     cond do
       not can_launch_northbound_actions?(socket.assigns.current_scope) ->
-        {:noreply, put_flash(socket, :error, "You are not authorized to launch tasks.")}
+        {:noreply, put_flash(socket, :error, launch_permission_error())}
 
       MapSet.size(socket.assigns.selected_devices) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
@@ -512,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        |> assign(:total_matching_count, nil)
        |> put_flash(
          :info,
-         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} device(s)."
+         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} device(s). Open device details Task History to follow results."
        )}
     else
       {:error, reason} ->
@@ -622,7 +622,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp refresh_devices(socket, opts \\ []) do
-    params = Map.get(socket.assigns, :last_params, %{})
+    params =
+      socket.assigns
+      |> Map.get(:last_params, %{})
+      |> include_inactive_inventory_params()
+
     uri = Map.get(socket.assigns, :last_uri, "/devices")
     preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
     stats_loaded? = Map.get(socket.assigns, :device_stats_loaded, false)
@@ -1054,6 +1058,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     RBAC.can?(scope, "northbound.actions.launch") or RBAC.can?(scope, "ansible.runs.launch")
   end
 
+  defp launch_permission_error do
+    "You are not authorized to launch tasks. Missing permission: northbound.actions.launch."
+  end
+
   defp preferred_device_action(actions) do
     List.first(actions)
   end
@@ -1277,7 +1285,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <div>
                 This deployment is using {@managed_device_count} managed devices, above the
                 configured advisory limit of {@managed_device_limit}. Managed device count tracks
-                non-deleted inventory devices marked managed.
+                active, non-deleted inventory devices marked managed.
               </div>
             </div>
           </div>
@@ -1303,6 +1311,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
           >
             <.icon name="hero-x-circle" class="size-3" /> Unavailable
+          </.link>
+          <.link
+            navigate={~p"/devices?q=in:devices is_active:true"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_active", "true"), do: "btn-primary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-play-circle" class="size-3" /> In service
+          </.link>
+          <.link
+            navigate={~p"/devices?q=in:devices is_active:false"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_active", "false"), do: "btn-warning", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-pause-circle" class="size-3" /> Out of service
           </.link>
           <.link
             navigate={~p"/devices?q=in:devices discovery_sources:(sweep)"}
@@ -1467,6 +1487,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% is_selected =
                     is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
                   <% deleted = deleted_device_row?(row) %>
+                  <% active = active_device_row?(row) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
@@ -1474,7 +1495,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
                   <% snmp_fallback = snmp_fallback_derived?(row) %>
-                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
                         :if={is_binary(device_uid)}
@@ -1507,6 +1528,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                           </span>
                         </div>
                         <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
+                        <span :if={not active} class="badge badge-warning badge-xs shrink-0">
+                          Out of service
+                        </span>
                       </div>
                       <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
                         {Map.get(row, "ip") || "—"}
@@ -3204,6 +3228,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp parse_count_value(_value), do: nil
 
+  defp include_inactive_inventory_params(params) when is_map(params) do
+    query = params |> Map.get("q", "") |> to_string() |> String.trim()
+
+    query =
+      cond do
+        query == "" ->
+          "in:devices include_inactive:true"
+
+        lifecycle_filter?(query) ->
+          query
+
+        String.starts_with?(String.downcase(query), "in:devices") ->
+          "#{query} include_inactive:true"
+
+        true ->
+          query
+      end
+
+    Map.put(params, "q", query)
+  end
+
+  defp include_inactive_inventory_params(params), do: params
+
+  defp lifecycle_filter?(query) when is_binary(query) do
+    String.match?(query, ~r/(^|\s)(?:is_active|active|include_inactive):/i)
+  end
+
   defp normalize_device_count_query(""), do: "in:devices"
 
   defp normalize_device_count_query(query) when is_binary(query) do
@@ -3380,6 +3431,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     value = Map.get(row, "deleted_at")
     not is_nil(value) and value != ""
   end
+
+  defp active_device_row?(row) when is_map(row) do
+    row
+    |> Map.get("is_active", true)
+    |> normalize_bool(default: true)
+  end
+
+  defp active_device_row?(_row), do: true
+
+  defp normalize_bool(value, _opts) when is_boolean(value), do: value
+  defp normalize_bool(1, _opts), do: true
+  defp normalize_bool(0, _opts), do: false
+
+  defp normalize_bool(value, opts) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "active" -> true
+      "in_service" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      "inactive" -> false
+      "out_of_service" -> false
+      _ -> Keyword.get(opts, :default, false)
+    end
+  end
+
+  defp normalize_bool(_value, opts), do: Keyword.get(opts, :default, false)
 
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.

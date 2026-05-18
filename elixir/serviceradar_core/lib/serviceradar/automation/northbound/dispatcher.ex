@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   alias ServiceRadar.Automation.Ansible.RunLauncher
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
+  alias ServiceRadar.Automation.Northbound.TargetPayloadContract
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins
@@ -301,6 +302,8 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   end
 
   defp build_payload(invocation, assignment, target_payloads) do
+    target_payloads = TargetPayloadContract.apply(invocation.descriptor, target_payloads)
+
     %{
       "schema" => "serviceradar.northbound_action_invocation.v1",
       "phase" => "launch",
@@ -322,6 +325,11 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   end
 
   defp build_poll_payload(invocation, target, assignment) do
+    target_payloads =
+      TargetPayloadContract.apply(invocation.descriptor, [
+        target_snapshot_with_callback(target, nil)
+      ])
+
     %{
       "schema" => "serviceradar.northbound_action_invocation.v1",
       "phase" => "poll",
@@ -335,7 +343,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "result_schema_version" => invocation.descriptor.result_schema_version,
       "plugin_assignment_id" => assignment.id,
       "plugin_package_id" => assignment.plugin_package_id,
-      "targets" => [target_snapshot_with_callback(target, nil)],
+      "targets" => target_payloads,
       "input_values" => invocation.input_values || %{},
       "redacted_input_values" => invocation.redacted_input_values || %{},
       "continuation_state" => target.continuation_state || %{},

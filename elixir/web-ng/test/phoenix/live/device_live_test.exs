@@ -51,6 +51,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "renders out of service state in device list and details", %{conn: conn} do
+    uid = "test-device-inactive-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "inactive-host",
+        is_available: true,
+        is_active: false,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, list_view, _list_html} = live(conn, ~p"/devices?limit=10")
+    list_html = render_until(list_view, "inactive-host", 10_000)
+
+    assert list_html =~ "inactive-host"
+    assert list_html =~ "Out of service"
+
+    {:ok, details_view, _details_html} = live(conn, ~p"/devices/#{uid}")
+    details_html = render_until(details_view, "Out of service")
+
+    assert details_html =~ "Out of service"
+    assert details_html =~ "In Service"
+    assert details_html =~ "No"
+  end
+
   test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
     uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
 
@@ -743,6 +772,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           "type" => "Tablet",
           "category" => "OT",
           "risk_score" => "7",
+          "is_active" => false,
           "source_tags" => "managed,ot",
           "boundary_names" => "All OT Boundaries",
           "serial_numbers" => "SN-123",
@@ -778,14 +808,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Armis"
     assert html =~ "NetBox"
     assert html =~ "SNMP"
-    assert html =~ "MikroTik"
     assert html =~ "Proxmox"
-    assert html =~ "Other Metadata"
     assert html =~ "Dusk UniFi"
     assert html =~ "gateway"
     assert html =~ "Tablet"
-    assert html =~ "tonka01"
-    assert html =~ "edge-mikrotik"
     assert html =~ "Candidate probe"
     assert html =~ "Yes"
     assert html =~ "aruba-24g-02"
@@ -795,6 +821,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "All OT Boundaries"
     assert html =~ "Risk Score"
     assert html =~ "7 / 10"
+    assert html =~ "In Service"
     assert html =~ "SN-123"
     assert html =~ "Plant 7"
     assert html =~ "2 items"
@@ -802,11 +829,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Manufacturing"
     assert html =~ "MDF-A"
     assert html =~ "matched UniFi gateway role"
-    assert html =~ "10.0.0.1"
-    assert html =~ "192.168.10.1"
-    assert html =~ "0eea1432d277"
 
     refute html =~ "Additional metadata keys"
+    refute html =~ "Other Metadata"
+    refute html =~ "MikroTik"
+    refute html =~ "tonka01"
+    refute html =~ "edge-mikrotik"
+    refute html =~ "10.0.0.1"
+    refute html =~ "192.168.10.1"
+    refute html =~ "0eea1432d277"
     refute html =~ "Integration Details"
     refute html =~ "asset-7799"
     refute html =~ "_alias_last_seen_at"
@@ -1473,7 +1504,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert flows_html =~ "DNS"
     end
 
-    test "logs tab renders immediately while device logs load asynchronously", %{conn: conn} do
+    test "logs tab shows immediate empty state while device logs load asynchronously", %{conn: conn} do
       previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
       previous_log_delay = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms)
 
@@ -1492,9 +1523,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         |> element("button[phx-click='switch_tab'][phx-value-tab='logs']")
         |> render_click()
 
-      assert html =~ "Loading device logs"
+      assert html =~ "No logs found for this device."
+      refute html =~ "Loading device logs"
       assert render_until(view, "No logs found for this device.", 2_000) =~ "No logs found for this device."
     end
+  end
+
+  test "agent availability falls back to recent sweep history when canonical rows are absent" do
+    html =
+      render_component(&ServiceRadarWebNGWeb.DeviceLive.Show.agent_availability_section/1,
+        rows: [],
+        device_row: %{},
+        sweep_results: %{
+          results: [
+            %{
+              execution: %{agent_id: "agent-dusk01"},
+              status: :available,
+              inserted_at: ~U[2026-05-17 06:42:00Z],
+              response_time_ms: 11,
+              open_ports: [],
+              sweep_modes_results: %{"icmp" => "success", "tcp" => "no_response"}
+            }
+          ]
+        }
+      )
+
+    assert html =~ "Source: recent sweep history"
+    assert html =~ "agent-dusk01"
+    assert html =~ "Available"
+    assert html =~ "ICMP ok"
+    refute html =~ "No per-agent sweep availability has been recorded"
   end
 
   describe "interfaces bulk edit" do

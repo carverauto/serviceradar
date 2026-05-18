@@ -155,6 +155,6 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
   end
 
   defp netflow_map_empty?(traffic_links) do
-    not Enum.any?(List.wrap(traffic_links), &Map.get(&1, :geo_mapped, false))
+    List.wrap(traffic_links) == []
   end
 end
