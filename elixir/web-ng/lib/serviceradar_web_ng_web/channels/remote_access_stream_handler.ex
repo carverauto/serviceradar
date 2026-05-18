@@ -23,6 +23,16 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_terminal_rows 200
   @max_browser_data_frame_bytes 65_536
   @max_browser_data_frame_encoded_bytes div(@max_browser_data_frame_bytes + 2, 3) * 4
+  @max_application_header_count 32
+  @max_application_header_name_bytes 128
+  @max_application_header_value_bytes 4_096
+  @max_application_path_bytes 2_048
+  @max_application_query_bytes 4_096
+  @max_application_request_id_bytes 128
+  @max_tcp_connection_id_bytes 128
+  @max_tcp_data_frame_bytes 65_536
+  @max_tcp_data_frame_encoded_bytes div(@max_tcp_data_frame_bytes + 2, 3) * 4
+  @max_tcp_sequence 9_223_372_036_854_775_807
   @max_file_transfer_chunk_bytes 65_536
   @max_file_transfer_chunk_encoded_bytes div(@max_file_transfer_chunk_bytes + 2, 3) * 4
   @max_username_bytes 128
@@ -133,6 +143,22 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:error, reason} -> stop_for_broker_error(reason, state)
         end
 
+      {:ok, %{"type" => "app_request"} = message} ->
+        with {:ok, payload} <- application_request_payload(message),
+             :ok <- state.broker_module.send_application_request(state.broker, payload) do
+          {:ok, reset_idle_timer(state)}
+        else
+          {:error, reason} -> stop_for_broker_error(reason, state)
+        end
+
+      {:ok, %{"type" => "tcp_data"} = message} ->
+        with {:ok, payload} <- tcp_data_payload(message),
+             :ok <- state.broker_module.send_tcp_data(state.broker, payload) do
+          {:ok, reset_idle_timer(state)}
+        else
+          {:error, reason} -> stop_for_broker_error(reason, state)
+        end
+
       {:ok, %{"type" => "file_transfer_data"} = message} ->
         with {:ok, payload} <- file_transfer_data_payload(message),
              :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
@@ -162,6 +188,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   def handle_info({:remote_access_file_transfer_frame, frame}, state) when is_map(frame) do
     {:push, {:text, encode(file_transfer_message(frame, state))}, reset_idle_timer(state)}
+  end
+
+  def handle_info({:remote_access_application_frame, frame}, state) when is_map(frame) do
+    {:push, {:text, encode(application_message(frame, state))}, reset_idle_timer(state)}
+  end
+
+  def handle_info({:remote_access_tcp_frame, frame}, state) when is_map(frame) do
+    {:push, {:text, encode(tcp_message(frame, state))}, reset_idle_timer(state)}
   end
 
   def handle_info({:remote_access_closed, reason}, state) do
@@ -242,6 +276,44 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
+  defp application_message(frame, state) do
+    %{
+      type: "application",
+      session_id: string_value(frame, :session_id) || state.session_id,
+      frame_type: string_value(frame, :frame_type),
+      payload: application_payload(frame)
+    }
+  end
+
+  defp application_payload(frame) do
+    frame
+    |> string_value(:data)
+    |> case do
+      nil -> %{}
+      "" -> %{}
+      data -> decode_json_payload(data)
+    end
+  end
+
+  defp tcp_message(frame, state) do
+    %{
+      type: "tcp",
+      session_id: string_value(frame, :session_id) || state.session_id,
+      frame_type: string_value(frame, :frame_type),
+      payload: tcp_payload(frame)
+    }
+  end
+
+  defp tcp_payload(frame) do
+    frame
+    |> string_value(:data)
+    |> case do
+      nil -> %{}
+      "" -> %{}
+      data -> decode_json_payload(data)
+    end
+  end
+
   defp decode_json_payload(data) when is_binary(data) do
     case Jason.decode(data) do
       {:ok, payload} when is_map(payload) -> payload
@@ -303,6 +375,140 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
         {:ok, []}
     end
   end
+
+  defp application_request_payload(message) do
+    with {:ok, request_id} <- application_bounded_string(message, "request_id", @max_application_request_id_bytes),
+         {:ok, method} <- application_method(message),
+         {:ok, path} <- application_path(message),
+         {:ok, query} <- application_optional_bounded_string(message, "query", @max_application_query_bytes),
+         {:ok, headers} <- application_headers(Map.get(message, "headers")) do
+      {:ok,
+       %{
+         request_id: request_id,
+         method: method,
+         path: path,
+         query: query || "",
+         headers: headers
+       }}
+    end
+  end
+
+  defp application_bounded_string(message, key, max_bytes) do
+    case application_optional_bounded_string(message, key, max_bytes) do
+      {:ok, nil} -> {:error, :invalid_request}
+      {:ok, value} -> {:ok, value}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp application_optional_bounded_string(message, key, max_bytes) do
+    case string_value(message, key) do
+      nil -> {:ok, nil}
+      value when byte_size(value) <= max_bytes -> {:ok, value}
+      _value -> {:error, :invalid_size}
+    end
+  end
+
+  defp application_method(%{"method" => method}) when is_binary(method) do
+    method =
+      method
+      |> String.trim()
+      |> String.upcase()
+
+    if method in ~w(GET HEAD) do
+      {:ok, method}
+    else
+      {:error, :invalid_request}
+    end
+  end
+
+  defp application_method(_message), do: {:error, :invalid_request}
+
+  defp application_path(%{"path" => path}) when is_binary(path) and byte_size(path) <= @max_application_path_bytes do
+    cond do
+      path == "" -> {:error, :invalid_request}
+      String.starts_with?(path, "/") -> {:ok, path}
+      true -> {:error, :invalid_request}
+    end
+  end
+
+  defp application_path(_message), do: {:error, :invalid_request}
+
+  defp application_headers(nil), do: {:ok, %{}}
+
+  defp application_headers(headers) when is_map(headers) and map_size(headers) <= @max_application_header_count do
+    Enum.reduce_while(headers, {:ok, %{}}, fn {name, values}, {:ok, acc} ->
+      with {:ok, name} <- application_header_name(name),
+           {:ok, values} <- application_header_values(values) do
+        {:cont, {:ok, Map.put(acc, name, values)}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp application_headers(_headers), do: {:error, :invalid_request}
+
+  defp application_header_name(name)
+       when is_binary(name) and byte_size(name) > 0 and byte_size(name) <= @max_application_header_name_bytes do
+    {:ok, name}
+  end
+
+  defp application_header_name(_name), do: {:error, :invalid_request}
+
+  defp application_header_values(value) when is_binary(value), do: application_header_values([value])
+
+  defp application_header_values(values) when is_list(values) do
+    values
+    |> Enum.reduce_while({:ok, []}, fn
+      value, {:ok, acc} when is_binary(value) and byte_size(value) <= @max_application_header_value_bytes ->
+        {:cont, {:ok, [value | acc]}}
+
+      _value, _acc ->
+        {:halt, {:error, :invalid_request}}
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      error -> error
+    end
+  end
+
+  defp application_header_values(_values), do: {:error, :invalid_request}
+
+  defp tcp_data_payload(message) do
+    with {:ok, connection_id} <- application_bounded_string(message, "connection_id", @max_tcp_connection_id_bytes),
+         {:ok, sequence} <- tcp_sequence(Map.get(message, "sequence")),
+         {:ok, data} <- tcp_data(Map.get(message, "data")),
+         {:ok, eof} <- optional_boolean(Map.get(message, "eof")) do
+      {:ok,
+       %{
+         connection_id: connection_id,
+         direction: "client",
+         sequence: sequence,
+         data: data,
+         eof: eof
+       }}
+    end
+  end
+
+  defp tcp_sequence(sequence) when is_integer(sequence) and sequence >= 1 and sequence <= @max_tcp_sequence,
+    do: {:ok, sequence}
+
+  defp tcp_sequence(_sequence), do: {:error, :invalid_request}
+
+  defp tcp_data(data) when is_binary(data) and byte_size(data) <= @max_tcp_data_frame_encoded_bytes do
+    case Base.decode64(data) do
+      {:ok, decoded} when byte_size(decoded) <= @max_tcp_data_frame_bytes -> {:ok, data}
+      {:ok, _decoded} -> {:error, :invalid_data_size}
+      :error -> {:error, :invalid_request}
+    end
+  end
+
+  defp tcp_data(_data), do: {:error, :invalid_request}
+
+  defp optional_boolean(nil), do: {:ok, false}
+  defp optional_boolean(value) when is_boolean(value), do: {:ok, value}
+  defp optional_boolean(_value), do: {:error, :invalid_request}
 
   defp normalize_certificate_credential(credential) do
     with {:ok, private_key} <- bounded_string(credential, "private_key", @max_private_key_bytes),

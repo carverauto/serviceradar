@@ -170,6 +170,35 @@ func TestApplicationHTTPAdapterUsesTLSVerificationAndQuota(t *testing.T) {
 	}
 }
 
+func TestApplicationHTTPAdapterDoesNotFollowRedirects(t *testing.T) {
+	t.Parallel()
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		http.Redirect(w, &http.Request{}, "http://169.254.169.254/latest/meta-data", http.StatusFound)
+	}))
+	defer server.Close()
+
+	adapter := newTestApplicationAdapter(t, server, ApplicationSchemeHTTP, nil)
+
+	result, err := adapter.Execute(context.Background(), ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "session-1",
+		Method:    "GET",
+		Path:      "/allowed",
+	}, nil)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if result.Metadata.StatusCode != http.StatusFound {
+		t.Fatalf("StatusCode = %d, want %d", result.Metadata.StatusCode, http.StatusFound)
+	}
+	if requestCount != 1 {
+		t.Fatalf("requestCount = %d, want 1", requestCount)
+	}
+}
+
 func newTestApplicationAdapter(
 	t *testing.T,
 	server *httptest.Server,

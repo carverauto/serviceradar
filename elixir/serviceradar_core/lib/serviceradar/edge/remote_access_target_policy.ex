@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicy do
   @default_response_bytes 50 * 1024 * 1024
   @default_tcp_bytes 100 * 1024 * 1024
   @http_token ~r/^[A-Z][A-Z0-9!#$%&'*+.^_`|~-]*$/
+  @forbidden_app_methods ["CONNECT"]
 
   @type evaluation :: {:ok, map()} | {:error, atom()}
 
@@ -94,12 +95,16 @@ defmodule ServiceRadar.Edge.RemoteAccessTargetPolicy do
       |> Enum.map(&String.upcase/1)
       |> Enum.uniq()
 
-    if methods != [] and Enum.all?(methods, &Regex.match?(@http_token, &1)),
+    if methods != [] and Enum.all?(methods, &valid_application_method?/1),
       do: {:ok, methods},
       else: {:error, :invalid_remote_access_target_policy}
   end
 
   defp normalize_methods(_methods), do: {:error, :invalid_remote_access_target_policy}
+
+  defp valid_application_method?(method) do
+    Regex.match?(@http_token, method) and method not in @forbidden_app_methods
+  end
 
   defp normalize_path_prefixes(prefixes) when prefixes in [nil, []],
     do: {:ok, @default_app_path_prefixes}

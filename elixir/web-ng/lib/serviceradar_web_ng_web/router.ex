@@ -675,6 +675,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)
+      live("/remote-access/targets", RemoteAccessLive.Targets, :index)
+      live("/remote-access/applications/:target_id", RemoteAccessLive.Application, :show)
+      live("/remote-access/tcp-targets/:target_id", RemoteAccessLive.TCP, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
       live("/interfaces", InterfaceLive.Index, :index)
 

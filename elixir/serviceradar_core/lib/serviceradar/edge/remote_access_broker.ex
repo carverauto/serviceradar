@@ -22,6 +22,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
+  @callback send_application_request(pid(), map()) :: :ok | {:error, term()}
+  @callback send_tcp_data(pid(), map()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
   @callback close(pid(), term()) :: :ok
@@ -67,6 +69,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
     GenServer.call(pid, {:send_input, data})
+  end
+
+  def send_application_request(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_application_request, payload})
+  end
+
+  def send_tcp_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_tcp_data, payload})
   end
 
   def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
@@ -140,6 +150,31 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:reply, result, state}
   end
 
+  def handle_call({:send_application_request, payload}, _from, state) do
+    result = send_frame(state, "app_request", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_application_request, %{
+      request_id: string_value(payload, "request_id"),
+      method: string_value(payload, "method"),
+      path: string_value(payload, "path")
+    })
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_tcp_data, payload}, _from, state) do
+    result = send_frame(state, "tcp_data", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_tcp_data, %{
+      connection_id: string_value(payload, "connection_id"),
+      direction: string_value(payload, "direction"),
+      sequence: value(payload, "sequence"),
+      body_bytes: body_byte_count(payload)
+    })
+
+    {:reply, result, state}
+  end
+
   def handle_call({:send_file_transfer_data, payload}, _from, state) do
     result = send_frame(state, "file_transfer_data", Jason.encode!(payload), nil, nil, nil)
     {:reply, result, state}
@@ -206,12 +241,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
        when frame_type in @application_frame_types do
     send(state.owner, {:remote_access_application_frame, frame})
+    state = record_application_or_tcp_frame(:application, frame_type, frame, state)
     maybe_close_application_or_tcp_frame(frame_type, frame, state)
   end
 
   defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
        when frame_type in @tcp_frame_types do
     send(state.owner, {:remote_access_tcp_frame, frame})
+    state = record_application_or_tcp_frame(:tcp, frame_type, frame, state)
     maybe_close_application_or_tcp_frame(frame_type, frame, state)
   end
 
@@ -281,8 +318,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       frame
       |> value("data")
       |> decode_frame_data()
-      |> string_value("message") ||
+      |> frame_payload_reason() ||
       fallback_reason
+  end
+
+  defp frame_payload_reason(payload) do
+    string_value(payload, "message") || string_value(payload, "reason")
   end
 
   defp decode_frame_data(data) when is_binary(data) do
@@ -399,6 +440,133 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
     update_in(state.recording_stats.event_count, &(&1 + 1))
   end
+
+  defp record_application_or_tcp_frame(kind, frame_type, frame, state) do
+    payload = frame |> value("data") |> decode_frame_data()
+    metadata = application_tcp_metadata(kind, frame_type, frame, payload)
+    write_audit(state, application_tcp_audit_action(kind, frame_type, payload), metadata)
+
+    count_recording_application_tcp_event(state, kind, frame_type, metadata)
+  end
+
+  defp count_recording_application_tcp_event(
+         %{recording: nil} = state,
+         _kind,
+         _frame_type,
+         _metadata
+       ), do: state
+
+  defp count_recording_application_tcp_event(state, kind, frame_type, metadata) do
+    record_replay_event(state, %{
+      stream: kind,
+      event_type: frame_type,
+      metadata: metadata,
+      sequence: state.recording_stats.event_count + 1
+    })
+
+    update_in(state.recording_stats, fn stats ->
+      %{
+        stats
+        | input_bytes: stats.input_bytes + input_byte_count(metadata),
+          output_bytes: stats.output_bytes + output_byte_count(metadata),
+          event_count: stats.event_count + 1
+      }
+    end)
+  end
+
+  defp application_tcp_metadata(kind, frame_type, frame, payload) do
+    %{
+      kind: Atom.to_string(kind),
+      frame_type: frame_type,
+      agent_id: string_value(frame, "agent_id"),
+      gateway_node: string_value(frame, "gateway_node"),
+      timestamp: value(frame, "timestamp"),
+      request_id: string_value(payload, "request_id"),
+      connection_id: string_value(payload, "connection_id"),
+      target_id: string_value(payload, "target_id"),
+      status: string_value(payload, "status"),
+      code: string_value(payload, "code"),
+      status_code: positive_int(value(payload, "status_code")),
+      direction: string_value(payload, "direction"),
+      sequence: positive_int(value(payload, "sequence")),
+      eof: truthy?(value(payload, "eof")),
+      request_bytes: positive_int(value(payload, "request_bytes")),
+      response_bytes: positive_int(value(payload, "response_bytes")),
+      bytes_in: positive_int(value(payload, "bytes_in")),
+      bytes_out: positive_int(value(payload, "bytes_out")),
+      body_bytes: body_byte_count(payload)
+    }
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
+  end
+
+  defp application_tcp_audit_action(:application, "app_response_metadata", _payload),
+    do: :remote_access_application_response
+
+  defp application_tcp_audit_action(:application, "app_data", _payload),
+    do: :remote_access_application_data
+
+  defp application_tcp_audit_action(:application, "app_progress", %{"status" => "started"}),
+    do: :remote_access_application_started
+
+  defp application_tcp_audit_action(:application, "app_progress", _payload),
+    do: :remote_access_application_progress
+
+  defp application_tcp_audit_action(:application, "app_error", %{"status" => "quota_exhausted"}),
+    do: :remote_access_application_quota_exhausted
+
+  defp application_tcp_audit_action(:application, "app_error", _payload),
+    do: :remote_access_application_failed
+
+  defp application_tcp_audit_action(:application, "app_close", _payload),
+    do: :remote_access_application_closed
+
+  defp application_tcp_audit_action(:application, _frame_type, _payload),
+    do: :remote_access_application_event
+
+  defp application_tcp_audit_action(:tcp, "tcp_data", _payload), do: :remote_access_tcp_data
+
+  defp application_tcp_audit_action(:tcp, "tcp_progress", %{"status" => "started"}),
+    do: :remote_access_tcp_started
+
+  defp application_tcp_audit_action(:tcp, "tcp_progress", _payload),
+    do: :remote_access_tcp_progress
+
+  defp application_tcp_audit_action(:tcp, "tcp_error", %{"status" => "quota_exhausted"}),
+    do: :remote_access_tcp_quota_exhausted
+
+  defp application_tcp_audit_action(:tcp, "tcp_error", _payload), do: :remote_access_tcp_failed
+  defp application_tcp_audit_action(:tcp, "tcp_close", _payload), do: :remote_access_tcp_closed
+  defp application_tcp_audit_action(:tcp, _frame_type, _payload), do: :remote_access_tcp_event
+
+  defp input_byte_count(%{direction: "request", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp input_byte_count(%{direction: "client", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp input_byte_count(%{request_bytes: bytes}) when is_integer(bytes), do: bytes
+  defp input_byte_count(%{bytes_in: bytes}) when is_integer(bytes), do: bytes
+  defp input_byte_count(_metadata), do: 0
+
+  defp output_byte_count(%{direction: "response", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp output_byte_count(%{direction: "upstream", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp output_byte_count(%{response_bytes: bytes}) when is_integer(bytes), do: bytes
+  defp output_byte_count(%{bytes_out: bytes}) when is_integer(bytes), do: bytes
+  defp output_byte_count(_metadata), do: 0
+
+  defp body_byte_count(%{"data" => data}) when is_binary(data) do
+    case Base.decode64(data) do
+      {:ok, decoded} -> byte_size(decoded)
+      :error -> byte_size(data)
+    end
+  end
+
+  defp body_byte_count(_payload), do: nil
 
   defp record_replay_event(%{recording: nil}, _attrs), do: :ok
 
@@ -1027,6 +1195,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp blank?(value) when value in [nil, "", 0], do: true
   defp blank?(value) when is_map(value), do: map_size(value) == 0
   defp blank?(_value), do: false
+
+  defp truthy?(value) when value in [true, "true", "1", 1, "yes", "on"], do: true
+  defp truthy?(_value), do: false
 
   defp stringify_map(map) do
     Map.new(map, fn

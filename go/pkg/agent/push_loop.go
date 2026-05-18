@@ -134,6 +134,8 @@ type PushLoop struct {
 	remoteConsoleManager      *remoteConsoleManager
 	applicationHTTPMu         sync.Mutex
 	applicationHTTPSessions   map[string]*remoteaccess.ApplicationHTTPAdapter
+	tcpMu                     sync.Mutex
+	tcpSessions               map[string]*remoteaccess.TCPAdapter
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -3354,6 +3356,8 @@ func agentCapabilities(enhancedBPF bool) []string {
 		"sysmon",
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessApp,
+		remoteaccess.CapabilityRemoteAccessTCP,
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
