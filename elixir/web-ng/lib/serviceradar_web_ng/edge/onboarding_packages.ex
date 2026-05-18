@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
+  alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Edge.GatewayCertificateIssuer
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
 
@@ -170,6 +172,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     with true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
          true <- (is_binary(component_id) and component_id != "") or {:error, :invalid_identity},
          :ok <- authorize_partition(partition_id, opts),
+         :ok <- enforce_issuance_quota(component_id, partition_id, opts),
          {:ok, bundle} <-
            GatewayCertificateIssuer.issue_agent_bundle(
              gateway_id,
@@ -300,6 +303,82 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
       _actor -> nil
     end
   end
+
+  defp enforce_issuance_quota(component_id, partition_id, opts) do
+    quota_opts = Keyword.get(opts, :issuance_quota, [])
+
+    cond do
+      Keyword.get(quota_opts, :enabled, true) == false ->
+        :ok
+
+      quota_override_authorized?(opts) ->
+        audit_quota_override(component_id, partition_id, opts)
+        :ok
+
+      true ->
+        check_issuance_quota(partition_id, opts, quota_opts)
+    end
+  end
+
+  defp check_issuance_quota(partition_id, opts, quota_opts) do
+    actor = Keyword.get(opts, :actor)
+
+    with :ok <-
+           check_rate_limit(
+             :edge_onboarding_package_create_actor,
+             {:actor, actor_identifier(actor)},
+             Keyword.get(quota_opts, :actor_rate_limit, [])
+           ) do
+      check_rate_limit(
+        :edge_onboarding_package_create_partition,
+        {:partition, normalize_partition_id(partition_id)},
+        Keyword.get(quota_opts, :partition_rate_limit, [])
+      )
+    end
+  end
+
+  defp check_rate_limit(bucket, key, rate_limit_opts) do
+    case RateLimiter.check_and_record(bucket, key, rate_limit_opts) do
+      :ok -> :ok
+      {:error, retry_after} -> {:error, {:edge_onboarding_quota_exceeded, bucket, retry_after}}
+    end
+  end
+
+  defp quota_override_authorized?(opts) do
+    opts
+    |> Keyword.get(:quota_override_by)
+    |> admin_or_system_actor?()
+  end
+
+  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(%{"role" => role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(_actor), do: false
+
+  defp audit_quota_override(component_id, partition_id, opts) do
+    actor = Keyword.get(opts, :actor)
+    override_actor = Keyword.get(opts, :quota_override_by)
+
+    AuditWriter.write_async(
+      action: :edge_onboarding_quota_override,
+      resource_type: "edge_onboarding_package",
+      resource_id: component_id,
+      resource_name: component_id,
+      actor: override_actor,
+      severity: :medium,
+      details: %{
+        actor_id: actor_identifier(actor),
+        partition_id: normalize_partition_id(partition_id),
+        component_id: component_id,
+        override_actor_id: actor_identifier(override_actor)
+      }
+    )
+  end
+
+  defp actor_identifier(%{id: id}) when not is_nil(id), do: to_string(id)
+  defp actor_identifier(%{"id" => id}) when not is_nil(id), do: to_string(id)
+  defp actor_identifier(actor) when is_binary(actor), do: actor
+  defp actor_identifier(nil), do: "unknown"
+  defp actor_identifier(_actor), do: "unknown"
 
   defp normalize_partition_id(value) when is_binary(value) do
     value = String.trim(value)

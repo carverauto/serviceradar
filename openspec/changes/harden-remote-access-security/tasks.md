@@ -789,10 +789,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Add `download_token_consumed_at`; deliver action sets it atomically; subsequent attempts rejected
       Resolution: Added `download_token_consumed_at`, required `status == :issued and is_nil(download_token_consumed_at)` on the Ash deliver update, and delayed package secret decryption until after the consume transition succeeds.
 
-- [ ] 6.N.8 [H] No per-partition allowlist / quota on package + cert issuance
+- [x] 6.N.8 [H] No per-partition allowlist / quota on package + cert issuance
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/live/admin/edge_package_live/index.ex:158-178` (commit: staging)
       Why: Even with 6.N.1 fixed, no rate cap → mass-mint of valid agent identities by a compromised operator.
       Fix: ETS/Redis token bucket per actor; per-partition quota with admin-override audit
+      Resolution: Gateway-backed onboarding now checks the shared cluster-aware rate limiter before package creation / cert issuance, with separate actor and partition buckets. Admin/system quota overrides are explicit via `quota_override_by` and emit a structured audit event; the LiveView surfaces quota denials with retry timing. Focused DB-backed tests cover actor and partition quota enforcement.
 
 - [ ] 6.N.9 [M] CSR generated using user-supplied `component_id` / `partition_id` with no policy-binding check
       Where: `cert_issuer.ex:67-92` (working tree)
