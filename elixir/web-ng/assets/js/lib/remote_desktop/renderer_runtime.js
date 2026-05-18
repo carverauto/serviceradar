@@ -2,6 +2,7 @@ import {DESKTOP_PAYLOAD_VIDEO} from "./media_frame"
 import {applyCanvasTileFrame, applyWebGPUTileFrame} from "./renderer_state"
 
 const DEFAULT_MAX_DRAIN_FRAMES = 4
+const DESKTOP_VIDEO_CODEC_PREFIXES = ["avc1", "vp8", "vp09", "av01"]
 
 function positiveInteger(value, fallback = 0) {
   return Number.isInteger(value) && value > 0 ? value : fallback
@@ -141,6 +142,7 @@ export function createWebCodecsDesktopVideoRenderTarget({
     decoder = videoDecoderFactory({
       output(frame) {
         try {
+          validateDecodedVideoFrameDimensions(frame, context.canvas)
           context.drawImage(frame, 0, 0, context.canvas?.width || frame.displayWidth, context.canvas?.height || frame.displayHeight)
         } finally {
           frame.close?.()
@@ -169,8 +171,14 @@ export function createWebCodecsDesktopVideoRenderTarget({
         return 0
       }
 
-      if (!configureDecoder(normalizeCodec(frame.encoding))) {
-        return 0
+      const codec = normalizeDesktopVideoCodec(frame.encoding)
+
+      if (!codec) {
+        throw new Error("desktop video codec is not allowed")
+      }
+
+      if (!configureDecoder(codec)) {
+        throw new Error("desktop video decoder could not be configured")
       }
 
       decoder.decode(encodedVideoChunkFactory({
@@ -249,8 +257,36 @@ function defaultEncodedVideoChunkFactory(globalRef = globalThis) {
   return (options) => new globalRef.EncodedVideoChunk(options)
 }
 
-function normalizeCodec(codec) {
-  return typeof codec === "string" ? codec.trim() : ""
+export function normalizeDesktopVideoCodec(codec) {
+  const normalized = typeof codec === "string" ? codec.trim().toLowerCase() : ""
+
+  if (!normalized) {
+    return ""
+  }
+
+  for (const prefix of DESKTOP_VIDEO_CODEC_PREFIXES) {
+    if (normalized === prefix || normalized.startsWith(`${prefix}.`)) {
+      return normalized
+    }
+  }
+
+  return ""
+}
+
+function validateDecodedVideoFrameDimensions(frame, canvas) {
+  const expectedWidth = positiveInteger(canvas?.width)
+  const expectedHeight = positiveInteger(canvas?.height)
+
+  if (expectedWidth === 0 || expectedHeight === 0) {
+    return
+  }
+
+  const displayWidth = positiveInteger(frame?.displayWidth)
+  const displayHeight = positiveInteger(frame?.displayHeight)
+
+  if (displayWidth !== expectedWidth || displayHeight !== expectedHeight) {
+    throw new Error("desktop video frame dimensions do not match the render target")
+  }
 }
 
 function videoTimestampMicroseconds(frame) {

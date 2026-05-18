@@ -14,6 +14,7 @@ import {
   createWebCodecsDesktopVideoRenderTarget,
   createWebGPUDesktopTileRenderTarget,
   drainDesktopRenderQueue,
+  normalizeDesktopVideoCodec,
 } from "./renderer_runtime"
 
 function tileFrame({sequence = 1, width = 8, height = 8} = {}) {
@@ -32,7 +33,7 @@ function tileFrame({sequence = 1, width = 8, height = 8} = {}) {
   )
 }
 
-function videoFrame({sequence = 1, keyframe = true, width = 8, height = 8} = {}) {
+function videoFrame({sequence = 1, keyframe = true, width = 8, height = 8, encoding = "avc1.42E01E"} = {}) {
   return parseDesktopMediaFrame(
     encodeDesktopMediaFrame({
       sequence,
@@ -40,7 +41,7 @@ function videoFrame({sequence = 1, keyframe = true, width = 8, height = 8} = {})
       width,
       height,
       payloadFamily: DESKTOP_PAYLOAD_VIDEO,
-      encoding: "avc1.42E01E",
+      encoding,
       keyframe,
       payload: new Uint8Array([1, 2, 3, 4]),
     })
@@ -247,8 +248,8 @@ describe("remote desktop renderer runtime", () => {
           decode(chunk) {
             options.output({
               chunk,
-              displayWidth: 8,
-              displayHeight: 8,
+              displayWidth: 1024,
+              displayHeight: 768,
               close() {
                 closedFrames.push(chunk)
               },
@@ -281,6 +282,66 @@ describe("remote desktop renderer runtime", () => {
     expect(decoderCalls).toContainEqual({closed: true})
   })
 
+  it("strictly allowlists WebCodecs video codec strings", () => {
+    expect(normalizeDesktopVideoCodec("avc1.42E01E")).toBe("avc1.42e01e")
+    expect(normalizeDesktopVideoCodec("vp8")).toBe("vp8")
+    expect(normalizeDesktopVideoCodec("vp09.00.10.08")).toBe("vp09.00.10.08")
+    expect(normalizeDesktopVideoCodec("av01.0.08M.08")).toBe("av01.0.08m.08")
+    expect(normalizeDesktopVideoCodec("h264")).toBe("")
+    expect(normalizeDesktopVideoCodec("avc1; x-invalid")).toBe("")
+  })
+
+  it("rejects disallowed WebCodecs video codec strings", () => {
+    const target = createWebCodecsDesktopVideoRenderTarget({
+      context: {
+        canvas: {width: 8, height: 8},
+        drawImage() {},
+      },
+      encodedVideoChunkFactory: (options) => options,
+      videoDecoderFactory: () => ({
+        configure() {
+          throw new Error("decoder must not configure disallowed codecs")
+        },
+        decode() {},
+        close() {},
+      }),
+    })
+
+    expect(() =>
+      target.applyFrame(videoFrame({sequence: 44, width: 8, height: 8, encoding: "h264; bad=1"}))
+    ).toThrow(/codec/)
+  })
+
+  it("rejects decoded video frames that do not match the render target dimensions", () => {
+    const closedFrames = []
+    const target = createWebCodecsDesktopVideoRenderTarget({
+      context: {
+        canvas: {width: 8, height: 8},
+        drawImage() {
+          throw new Error("dimension mismatch must not draw")
+        },
+      },
+      encodedVideoChunkFactory: (options) => options,
+      videoDecoderFactory: (options) => ({
+        configure() {},
+        decode(chunk) {
+          options.output({
+            chunk,
+            displayWidth: 16,
+            displayHeight: 8,
+            close() {
+              closedFrames.push(chunk)
+            },
+          })
+        },
+        close() {},
+      }),
+    })
+
+    expect(() => target.applyFrame(videoFrame({sequence: 45, width: 8, height: 8}))).toThrow(/dimensions/)
+    expect(closedFrames).toHaveLength(1)
+  })
+
   it("routes browser targets between WebCodecs video and canvas tile frames", () => {
     const queue = createDesktopRenderQueue({maxFrames: 4})
     const decodedChunks = []
@@ -305,7 +366,7 @@ describe("remote desktop renderer runtime", () => {
         configure() {},
         decode(chunk) {
           decodedChunks.push(chunk)
-          options.output({displayWidth: 8, displayHeight: 8, close() {}})
+          options.output({displayWidth: 1280, displayHeight: 720, close() {}})
         },
         close() {},
       }),

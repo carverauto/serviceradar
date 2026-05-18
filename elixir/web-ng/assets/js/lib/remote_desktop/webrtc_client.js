@@ -7,6 +7,9 @@ export const DESKTOP_MEDIA_QUALITY_LOW = "low"
 export const DESKTOP_MEDIA_QUALITY_AUTO = "auto"
 export const DESKTOP_MEDIA_MAX_CLOSE_REASON = 256
 const DEFAULT_DESKTOP_MEDIA_CLOSE_REASON = "viewer closed remote desktop WebRTC session"
+const ALLOWED_SDP_MEDIA_TYPES = new Set(["application", "video"])
+const ALLOWED_SDP_VIDEO_CODECS = new Set(["h264", "vp8", "vp9", "av1"])
+const ALLOWED_SDP_VIDEO_REPAIR_CODECS = new Set(["rtx", "red", "ulpfec", "flexfec-03"])
 const textEncoder = new TextEncoder()
 
 function csrfHeaders(documentRef = globalThis.document) {
@@ -53,6 +56,56 @@ export function desktopMediaStreamFromTrackEvent(event, mediaStreamFactory = glo
   }
 
   return new mediaStreamFactory([track])
+}
+
+export function validateDesktopOfferSdp(sdp) {
+  if (typeof sdp !== "string" || sdp.trim() === "") {
+    throw new Error("remote desktop WebRTC offer SDP is required")
+  }
+
+  const sections = mediaSections(sdp)
+
+  if (sections.length === 0) {
+    throw new Error("remote desktop WebRTC offer has no media sections")
+  }
+
+  for (const section of sections) {
+    const mediaType = section.mediaType
+
+    if (!ALLOWED_SDP_MEDIA_TYPES.has(mediaType)) {
+      throw new Error(`remote desktop WebRTC offer media type is not allowed: ${mediaType}`)
+    }
+
+    if (mediaType === "video") {
+      validateVideoMediaSection(section)
+    }
+  }
+
+  return sdp
+}
+
+export function isAllowedDesktopIceCandidate(candidate) {
+  const candidateText = typeof candidate === "string" ? candidate : candidate?.candidate
+
+  if (typeof candidateText !== "string" || candidateText.trim() === "") {
+    return false
+  }
+
+  const address = candidateAddress(candidateText)
+
+  if (!address || address.endsWith(".local")) {
+    return false
+  }
+
+  if (isIPv4Address(address)) {
+    return !isBlockedIPv4(address)
+  }
+
+  if (address.includes(":")) {
+    return !isBlockedIPv6(address)
+  }
+
+  return false
 }
 
 export function createDesktopMediaProcessor({
@@ -156,7 +209,7 @@ export class RemoteDesktopWebRTCClient {
     })
     this.attachPeerHandlers()
 
-    await this.peerConnection.setRemoteDescription({type: "offer", sdp: offerSdp})
+    await this.peerConnection.setRemoteDescription({type: "offer", sdp: validateDesktopOfferSdp(offerSdp)})
     const answer = await this.peerConnection.createAnswer()
     await this.peerConnection.setLocalDescription(answer)
 
@@ -245,9 +298,15 @@ export class RemoteDesktopWebRTCClient {
         return
       }
 
+      const candidate = event.candidate.toJSON?.() || event.candidate
+      if (!isAllowedDesktopIceCandidate(candidate)) {
+        this.onStatus("ice_candidate_rejected")
+        return
+      }
+
       void this.fetchJson(`${this.signalingPath}/${this.viewerSessionId}/candidates`, {
         method: "POST",
-        body: JSON.stringify({candidate: event.candidate.toJSON?.() || event.candidate}),
+        body: JSON.stringify({candidate}),
       }).catch((error) => this.onError(error))
     })
     this.peerConnection.addEventListener("connectionstatechange", () => {
@@ -619,6 +678,96 @@ function mediaAckPayload(ack) {
   }
 
   return payload
+}
+
+function mediaSections(sdp) {
+  const sections = []
+  let current = null
+
+  for (const rawLine of sdp.split(/\r?\n/)) {
+    const line = rawLine.trim()
+
+    if (line.startsWith("m=")) {
+      const mediaType = line.slice(2).split(/\s+/)[0]?.toLowerCase() || ""
+      current = {mediaType, lines: [line]}
+      sections.push(current)
+    } else if (current && line) {
+      current.lines.push(line)
+    }
+  }
+
+  return sections
+}
+
+function validateVideoMediaSection(section) {
+  const codecs = section.lines
+    .map((line) => line.match(/^a=rtpmap:\d+\s+([^/\s]+)/i)?.[1]?.toLowerCase())
+    .filter(Boolean)
+
+  if (codecs.length === 0) {
+    throw new Error("remote desktop WebRTC video offer has no codec map")
+  }
+
+  const unsupported = codecs.filter(
+    (codec) => !ALLOWED_SDP_VIDEO_CODECS.has(codec) && !ALLOWED_SDP_VIDEO_REPAIR_CODECS.has(codec)
+  )
+
+  if (unsupported.length > 0) {
+    throw new Error(`remote desktop WebRTC video codec is not allowed: ${unsupported[0]}`)
+  }
+
+  if (!codecs.some((codec) => ALLOWED_SDP_VIDEO_CODECS.has(codec))) {
+    throw new Error("remote desktop WebRTC video offer has no supported primary codec")
+  }
+}
+
+function candidateAddress(candidateText) {
+  const normalized = candidateText.trim().replace(/^a=/, "")
+  const parts = normalized.split(/\s+/)
+
+  if (!parts[0]?.startsWith("candidate:") || parts.length < 6) {
+    return null
+  }
+
+  return parts[4]?.toLowerCase() || null
+}
+
+function isIPv4Address(address) {
+  const octets = address.split(".")
+  return octets.length === 4 && octets.every((part) => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255)
+}
+
+function isBlockedIPv4(address) {
+  const [a, b] = address.split(".").map((part) => Number(part))
+
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    (a >= 224 && a <= 255)
+  )
+}
+
+function isBlockedIPv6(address) {
+  const normalized = address.toLowerCase()
+
+  if (normalized.startsWith("::ffff:")) {
+    const mapped = normalized.slice("::ffff:".length)
+    return isIPv4Address(mapped) ? isBlockedIPv4(mapped) : true
+  }
+
+  return (
+    normalized === "::1" ||
+    normalized.startsWith("fe80:") ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("ff")
+  )
 }
 
 function byteLength(value) {

@@ -10,6 +10,8 @@ import {
   RemoteDesktopWebRTCClient,
   createDesktopMediaProcessor,
   desktopMediaStreamFromTrackEvent,
+  isAllowedDesktopIceCandidate,
+  validateDesktopOfferSdp,
 } from "./webrtc_client"
 import {
   DESKTOP_PAYLOAD_METADATA,
@@ -193,6 +195,45 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(onOpen).toHaveBeenCalledWith(DESKTOP_CONTROL_CHANNEL)
   })
 
+  it("validates desktop WebRTC offer media sections and video codecs", () => {
+    expect(validateDesktopOfferSdp("v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n")).toContain(
+      "m=application"
+    )
+    expect(
+      validateDesktopOfferSdp("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96 97\r\na=rtpmap:96 H264/90000\r\na=rtpmap:97 rtx/90000\r\n")
+    ).toContain("H264")
+    expect(() => validateDesktopOfferSdp("v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n")).toThrow(
+      /media type/
+    )
+    expect(() => validateDesktopOfferSdp("v=0\r\n")).toThrow(/media sections/)
+    expect(() =>
+      validateDesktopOfferSdp("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 98\r\na=rtpmap:98 H265/90000\r\n")
+    ).toThrow(/codec/)
+  })
+
+  it("rejects disallowed desktop WebRTC offers before applying remote description", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          viewer_session_id: "viewer-bad-offer",
+          offer_sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
+        },
+      }),
+    })
+    const peer = new MockPeerConnection({})
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-bad-offer/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+    })
+
+    await expect(client.connect()).rejects.toThrow(/media type/)
+    expect(peer.remoteDescription).toBeUndefined()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it("surfaces received WebRTC video tracks for browser media-track rendering", async () => {
     const fetchMock = vi
       .fn()
@@ -201,7 +242,7 @@ describe("RemoteDesktopWebRTCClient", () => {
         json: async () => ({
           data: {
             viewer_session_id: "viewer-track",
-            offer_sdp: "v=0\r\nm=video",
+            offer_sdp: "v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n",
           },
         }),
       })
@@ -1415,7 +1456,7 @@ describe("RemoteDesktopWebRTCClient", () => {
 
     await client.connect()
     peer.emitIceCandidate({
-      toJSON: () => ({candidate: "candidate:1", sdpMid: "0"}),
+      toJSON: () => ({candidate: "candidate:1 1 udp 1 8.8.8.8 5000 typ srflx", sdpMid: "0"}),
     })
     await Promise.resolve()
     client.close("done")
@@ -1427,5 +1468,54 @@ describe("RemoteDesktopWebRTCClient", () => {
     expect(fetchMock.mock.calls[3][0]).toBe("/api/desktop-sessions/session-4/webrtc/session/viewer-4")
     expect(fetchMock.mock.calls[3][1].method).toBe("DELETE")
     expect(peer.closed).toBe(true)
+  })
+
+  it("filters unsafe ICE candidates before posting them to the server", async () => {
+    expect(isAllowedDesktopIceCandidate("candidate:1 1 udp 1 8.8.8.8 5000 typ srflx")).toBe(true)
+    expect(isAllowedDesktopIceCandidate("candidate:1 1 udp 1 10.0.0.1 5000 typ host")).toBe(false)
+    expect(isAllowedDesktopIceCandidate("candidate:1 1 udp 1 127.0.0.1 5000 typ host")).toBe(false)
+    expect(isAllowedDesktopIceCandidate("candidate:1 1 udp 1 host.local 5000 typ host")).toBe(false)
+    expect(isAllowedDesktopIceCandidate("candidate:1 1 udp 1 ::1 5000 typ host")).toBe(false)
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: {
+            viewer_session_id: "viewer-ice-filter",
+            offer_sdp: "v=0\r\nm=application",
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "answer_applied"}}),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({data: {signaling_state: "candidate_buffered"}}),
+      })
+
+    const peer = new MockPeerConnection({})
+    const onStatus = vi.fn()
+    const client = new RemoteDesktopWebRTCClient({
+      signalingPath: "/api/desktop-sessions/session-ice-filter/webrtc/session",
+      fetchImpl: fetchMock,
+      documentRef: documentStub(),
+      peerConnectionFactory: () => peer,
+      onStatus,
+    })
+
+    await client.connect()
+    peer.emitIceCandidate({toJSON: () => ({candidate: "candidate:1 1 udp 1 192.168.1.20 5000 typ host"})})
+    peer.emitIceCandidate({toJSON: () => ({candidate: "candidate:2 1 udp 1 8.8.8.8 5000 typ srflx"})})
+    await Promise.resolve()
+
+    expect(onStatus).toHaveBeenCalledWith("ice_candidate_rejected")
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "/api/desktop-sessions/session-ice-filter/webrtc/session/viewer-ice-filter/candidates"
+    )
   })
 })

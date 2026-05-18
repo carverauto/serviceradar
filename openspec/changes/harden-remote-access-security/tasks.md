@@ -457,30 +457,34 @@ Triage for every finding lives in §8 (in-branch fix, remediation cluster `C-A`�
 
 Overall: the browser path is well-built — frame parsing fail-closed, DataChannel-only transport (no WebSocket fallback for media), CSP + Permissions-Policy in place, RBAC gate before signalling. Findings are mostly L / defence-in-depth.
 
-- [ ] 5.E2.1 [L] SDP offer accepted without client-side media-type / codec allowlist
+- [x] 5.E2.1 [L] SDP offer accepted without client-side media-type / codec allowlist
       Where: `elixir/web-ng/assets/js/lib/remote_desktop/webrtc_client.js:159` (working tree)
       Why: Server-side `Membrane.WebRTC.Signaling` is the assumed filter; if it ever drops a codec restriction the browser swallows whatever SDP arrives.
       Fix: Defensive allowlist (`avc1`, `vp8`, `vp09`, `av01`) on the offer parse before `setRemoteDescription`; document the contract.
+      Resolution: The browser validates remote desktop SDP offers before `setRemoteDescription`, permits only `application` and `video` media sections, and restricts video RTP codecs to H264/VP8/VP9/AV1 plus RTP repair codecs. Tests cover allowed offers and fail-closed rejection before applying a bad remote description.
 
-- [ ] 5.E2.2 [L] ICE candidates not filtered for private/loopback/link-local on the browser → server hop
+- [x] 5.E2.2 [L] ICE candidates not filtered for private/loopback/link-local on the browser → server hop
       Where: `elixir/web-ng/assets/js/lib/remote_desktop/webrtc_client.js:243-252` (working tree)
       Why: RTCPeerConnection blocks mDNS/loopback by default but not all internal ranges; server filtering is the primary gate (verify in Membrane). Defence-in-depth on the browser is cheap.
       Fix: Reject candidates matching `^127\.|^169\.254\.|^fe80::|^::1|\.local$` before POST; document the server contract on `/candidates`.
+      Resolution: Browser ICE handling now parses candidates and rejects `.local`, loopback, link-local, RFC1918, CGNAT, multicast/reserved IPv4, and blocked IPv6 ranges before any POST to the server. Tests assert unsafe candidates are dropped and safe candidates still post.
 
-- [ ] 5.E2.3 [M] `VideoDecoder.configure({codec})` accepts untrusted `frame.encoding` via lenient `normalizeCodec`
+- [x] 5.E2.3 [M] `VideoDecoder.configure({codec})` accepts untrusted `frame.encoding` via lenient `normalizeCodec`
       Where: `elixir/web-ng/assets/js/lib/remote_desktop/renderer_runtime.js:172` (working tree)
       Why: A compromised RDP server (or man-in-the-middle inside the desktop-media frame) can ship `"h264; x-invalid"`-style codec strings; today they pass through unfiltered.
       Fix: Strict allowlist (`['avc1','vp8','vp09','av01']`); empty return → fail rendering and close the session.
+      Resolution: WebCodecs renderer configuration now uses a strict `avc1`/`vp8`/`vp09`/`av01` codec-string allowlist and throws on disallowed encodings; the React session component closes the viewer when renderer frame application fails. Tests cover normalization and rejected codec strings.
 
 - [ ] 5.E2.4 [L] CSP doesn't explicitly set `media-src 'none'` / `frame-ancestors 'none'`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex:16-27` (working tree)
       Why: `default-src 'self'` covers media-src by inheritance; explicit `'none'` is defence-in-depth and prevents accidental relaxation.
       Fix: Add `media-src 'none'; frame-ancestors 'none'; display-capture 'none'` (Permissions-Policy) to the desktop-session response.
 
-- [ ] 5.E2.5 [L] Decoded `VideoFrame` not validated against canvas dimensions before `drawImage`
+- [x] 5.E2.5 [L] Decoded `VideoFrame` not validated against canvas dimensions before `drawImage`
       Where: `elixir/web-ng/assets/js/lib/remote_desktop/renderer_runtime.js:142-147` (working tree)
       Why: drawImage is safe by clamping, but a dimension mismatch can mask a tampered frame from operator view.
       Fix: Optional assert on `displayWidth/displayHeight` vs configured target size; close session on drift > threshold.
+      Resolution: WebCodecs output now verifies decoded `VideoFrame.displayWidth/displayHeight` against the canvas render target before `drawImage`; mismatches throw, close the decoded frame, and are surfaced through the same renderer-error close path. Regression coverage asserts mismatch rejection.
 
 - [ ] 5.E2.6 [L] TURN credential freshness not validated at runtime
       Where: `elixir/web-ng/lib/serviceradar_web_ng/remote_desktop_webrtc.ex:89-127` (working tree)

@@ -280,6 +280,7 @@ export function Component({
         maxFrames: DEFAULT_RENDER_DRAIN_FRAMES,
         onFrameError(error) {
           setLastError(error?.message || "Unable to render desktop frame")
+          closeClient("desktop renderer rejected frame")
         },
         renderTarget: canvasRenderTarget(),
       })
