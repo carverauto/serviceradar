@@ -37,8 +37,8 @@ const (
 	// DefaultConfigRefreshInterval is how often agents check for config updates.
 	DefaultConfigRefreshInterval = 5 * time.Minute
 
-	// DefaultProcessLimit bounds per-sample process telemetry payloads.
-	DefaultProcessLimit = 200
+	// DefaultProcessLimit keeps process telemetry unlimited unless explicitly capped.
+	DefaultProcessLimit = 0
 )
 
 // Config controls the sysmon collector runtime behavior.
@@ -66,7 +66,7 @@ type Config struct {
 	CollectProcesses bool `json:"collect_processes"`
 
 	// ProcessLimit bounds the number of process metrics retained per sample.
-	// Values <= 0 use DefaultProcessLimit.
+	// Values <= 0 collect every process.
 	ProcessLimit int `json:"process_limit,omitempty"`
 
 	// DiskPaths specifies which mount points to monitor.
@@ -145,7 +145,7 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 		parsed.SampleInterval = d
 	}
 
-	if parsed.ProcessLimit <= 0 {
+	if parsed.ProcessLimit < 0 {
 		parsed.ProcessLimit = DefaultProcessLimit
 	}
 

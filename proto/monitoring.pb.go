@@ -3356,9 +3356,11 @@ type SysmonConfig struct {
 	// Values: percentage as string (e.g., "80", "95")
 	Thresholds map[string]string `protobuf:"bytes,10,rep,name=thresholds,proto3" json:"thresholds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Profile metadata (for UI display and debugging)
-	ProfileId     string `protobuf:"bytes,11,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`          // UUID of the profile this config came from
-	ProfileName   string `protobuf:"bytes,12,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`    // Name of the profile for logging
-	ConfigSource  string `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source: "profile", "tag", "device", "default"
+	ProfileId    string `protobuf:"bytes,11,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`          // UUID of the profile this config came from
+	ProfileName  string `protobuf:"bytes,12,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`    // Name of the profile for logging
+	ConfigSource string `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source: "profile", "tag", "device", "default"
+	// Maximum process metrics retained per sample. 0 means unlimited.
+	ProcessLimit  int32 `protobuf:"varint,15,opt,name=process_limit,json=processLimit,proto3" json:"process_limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3482,6 +3484,13 @@ func (x *SysmonConfig) GetConfigSource() string {
 		return x.ConfigSource
 	}
 	return ""
+}
+
+func (x *SysmonConfig) GetProcessLimit() int32 {
+	if x != nil {
+		return x.ProcessLimit
+	}
+	return 0
 }
 
 // AgentCheckConfig defines a single check for the agent to perform.
@@ -4808,7 +4817,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0fsource_repo_url\x18\x13 \x01(\tR\rsourceRepoUrl\x12#\n" +
 	"\rsource_commit\x18\x14 \x01(\tR\fsourceCommit\x12!\n" +
 	"\fdownload_url\x18\x15 \x01(\tR\vdownloadUrl\x12%\n" +
-	"\x0edownload_token\x18\x16 \x01(\tR\rdownloadToken\"\xd5\x04\n" +
+	"\x0edownload_token\x18\x16 \x01(\tR\rdownloadToken\"\xfa\x04\n" +
 	"\fSysmonConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12'\n" +
 	"\x0fsample_interval\x18\x02 \x01(\tR\x0esampleInterval\x12\x1f\n" +
@@ -4828,7 +4837,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"profile_id\x18\v \x01(\tR\tprofileId\x12!\n" +
 	"\fprofile_name\x18\f \x01(\tR\vprofileName\x12#\n" +
-	"\rconfig_source\x18\r \x01(\tR\fconfigSource\x1a=\n" +
+	"\rconfig_source\x18\r \x01(\tR\fconfigSource\x12#\n" +
+	"\rprocess_limit\x18\x0f \x01(\x05R\fprocessLimit\x1a=\n" +
 	"\x0fThresholdsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\t\x10\n" +

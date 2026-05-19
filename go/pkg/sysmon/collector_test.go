@@ -56,8 +56,8 @@ func TestDefaultConfig(t *testing.T) {
 		t.Error("expected CollectProcesses to be false by default")
 	}
 
-	if cfg.ProcessLimit != DefaultProcessLimit {
-		t.Errorf("expected ProcessLimit to be %d by default, got %d", DefaultProcessLimit, cfg.ProcessLimit)
+	if cfg.ProcessLimit != 0 {
+		t.Errorf("expected ProcessLimit to be unlimited by default, got %d", cfg.ProcessLimit)
 	}
 
 	if len(cfg.DiskPaths) != 0 {
@@ -122,8 +122,8 @@ func TestConfigParse(t *testing.T) {
 				t.Errorf("expected interval %v, got %v", tt.expectInterval, parsed.SampleInterval)
 			}
 
-			if parsed.ProcessLimit != DefaultProcessLimit {
-				t.Errorf("expected process limit %d, got %d", DefaultProcessLimit, parsed.ProcessLimit)
+			if parsed.ProcessLimit != 0 {
+				t.Errorf("expected unlimited process limit, got %d", parsed.ProcessLimit)
 			}
 		})
 	}
@@ -139,6 +139,19 @@ func TestConfigParseCustomProcessLimit(t *testing.T) {
 
 	if parsed.ProcessLimit != 25 {
 		t.Errorf("expected process limit 25, got %d", parsed.ProcessLimit)
+	}
+}
+
+func TestConfigParseNegativeProcessLimitUsesUnlimited(t *testing.T) {
+	cfg := Config{Enabled: true, ProcessLimit: -1}
+
+	parsed, err := cfg.Parse()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if parsed.ProcessLimit != 0 {
+		t.Errorf("expected unlimited process limit, got %d", parsed.ProcessLimit)
 	}
 }
 

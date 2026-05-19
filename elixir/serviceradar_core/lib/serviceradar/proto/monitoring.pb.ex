@@ -693,6 +693,7 @@ defmodule Monitoring.SysmonConfig do
   field(:profile_id, 11, type: :string, json_name: "profileId")
   field(:profile_name, 12, type: :string, json_name: "profileName")
   field(:config_source, 13, type: :string, json_name: "configSource")
+  field(:process_limit, 15, type: :int32, json_name: "processLimit")
 end
 
 defmodule Monitoring.AgentCheckConfig.SettingsEntry do

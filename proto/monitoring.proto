@@ -460,6 +460,9 @@ message SysmonConfig {
   string profile_id = 11;           // UUID of the profile this config came from
   string profile_name = 12;         // Name of the profile for logging
   string config_source = 13;        // Source: "profile", "tag", "device", "default"
+
+  // Maximum process metrics retained per sample. 0 means unlimited.
+  int32 process_limit = 15;
 }
 
 // AgentCheckConfig defines a single check for the agent to perform.
