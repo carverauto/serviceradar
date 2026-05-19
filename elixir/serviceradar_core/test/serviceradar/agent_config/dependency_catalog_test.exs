@@ -338,5 +338,28 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
                %{dependency_id: :older}
              ] = DependencyDiagnostics.recent(2)
     end
+
+    test "records default timestamps without microseconds" do
+      DependencyDiagnostics.clear()
+
+      assert :ok = DependencyDiagnostics.record(%{dependency_id: :timestamp_check, secrets: %{}})
+
+      assert [%{recorded_at: recorded_at}] = DependencyDiagnostics.recent(1)
+      assert recorded_at.microsecond == {0, 0}
+    end
+
+    test "truncates supplied recorded_at timestamps" do
+      DependencyDiagnostics.clear()
+
+      assert :ok =
+               DependencyDiagnostics.record(%{
+                 dependency_id: :supplied_timestamp_check,
+                 secrets: %{},
+                 recorded_at: ~U[2026-05-15 18:00:08.246357Z]
+               })
+
+      assert [%{recorded_at: recorded_at}] = DependencyDiagnostics.recent(1)
+      assert recorded_at == ~U[2026-05-15 18:00:08Z]
+    end
   end
 end

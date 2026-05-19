@@ -41,6 +41,32 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(candidates, & &1.is_available) == [true, false]
   end
 
+  test "load_candidates includes Armis-discovered devices with metadata identity only", %{
+    actor: actor
+  } do
+    source = create_source!(actor, "armis-metadata-only")
+
+    update = %{
+      "ip" => "192.0.2.13",
+      "mac" => unique_mac(),
+      "hostname" => "armis-metadata-only-1",
+      "source" => "armis",
+      "is_available" => false,
+      "metadata" => %{
+        "armis_device_id" => "armis-metadata-only-1",
+        "integration_type" => "armis"
+      }
+    }
+
+    :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    assert {:ok, candidates} = ArmisNorthboundRunner.load_candidates(source)
+
+    assert Enum.map(candidates, & &1.armis_device_id) == ["armis-metadata-only-1"]
+    assert Enum.map(candidates, & &1.sync_service_id) == [nil]
+    assert Enum.map(candidates, & &1.is_available) == [false]
+  end
+
   test "load_candidates can use a selected per-agent availability source", %{actor: actor} do
     source =
       create_source!(actor, "armis-per-agent",

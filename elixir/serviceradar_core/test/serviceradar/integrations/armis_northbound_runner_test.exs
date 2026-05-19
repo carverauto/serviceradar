@@ -87,7 +87,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
            ]
   end
 
-  test "build_bulk_payload writes the configured custom field" do
+  test "build_bulk_payload writes inverted availability to the configured custom field" do
     payload =
       ArmisNorthboundRunner.build_bulk_payload("availability", [
         %{
@@ -107,8 +107,33 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"id" => "armis-1", "customProperties" => %{"availability" => true}},
-             %{"id" => "armis-2", "customProperties" => %{"availability" => false}}
+             %{"id" => "armis-1", "customProperties" => %{"availability" => false}},
+             %{"id" => "armis-2", "customProperties" => %{"availability" => true}}
+           ]
+  end
+
+  test "build_bulk_payload uses the same inversion for compliance and isolation fields" do
+    payload =
+      ArmisNorthboundRunner.build_bulk_payload("OT_Isolation_Compliant", [
+        %{
+          armis_device_id: "armis-1",
+          is_available: true,
+          device_ids: ["dev-a"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        },
+        %{
+          armis_device_id: "armis-2",
+          is_available: false,
+          device_ids: ["dev-b"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        }
+      ])
+
+    assert payload == [
+             %{"id" => "armis-1", "customProperties" => %{"OT_Isolation_Compliant" => false}},
+             %{"id" => "armis-2", "customProperties" => %{"OT_Isolation_Compliant" => true}}
            ]
   end
 
@@ -132,8 +157,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => true}},
-             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => false}}
+             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => false}},
+             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => true}}
            ]
   end
 
