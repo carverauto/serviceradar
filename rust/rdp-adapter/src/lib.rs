@@ -75,11 +75,10 @@ where
 
     writeln!(
         writer,
-        "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":{},\"connector_ready\":{},\"connector_ready_reason\":\"{}\"}}",
+        "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":{},\"connector_ready\":false,\"connector_ready_reason\":\"{}\"}}",
         HELPER_CAPABILITIES_SCHEMA,
         HELPER_PROTOCOL_VERSION,
         ironrdp_backend_linked,
-        false,
         connector_ready_reason
     )
 }
