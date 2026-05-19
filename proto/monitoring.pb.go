@@ -1185,8 +1185,12 @@ type SweepScannerStats struct {
 	SourcePortWaits      uint64 `protobuf:"varint,14,opt,name=source_port_waits,json=sourcePortWaits,proto3" json:"source_port_waits,omitempty"`                    // Source-port allocator wait events
 	RateLimitWaitTimeMs  uint64 `protobuf:"varint,15,opt,name=rate_limit_wait_time_ms,json=rateLimitWaitTimeMs,proto3" json:"rate_limit_wait_time_ms,omitempty"`    // Total token-bucket wait time
 	SourcePortWaitTimeMs uint64 `protobuf:"varint,16,opt,name=source_port_wait_time_ms,json=sourcePortWaitTimeMs,proto3" json:"source_port_wait_time_ms,omitempty"` // Total source-port wait time
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Scanner path labels
+	Protocol      string `protobuf:"bytes,17,opt,name=protocol,proto3" json:"protocol,omitempty"`                                // "tcp", "icmp", etc.
+	AddressFamily string `protobuf:"bytes,18,opt,name=address_family,json=addressFamily,proto3" json:"address_family,omitempty"` // "ipv4", "ipv6", or "dual_stack"
+	ScannerPath   string `protobuf:"bytes,19,opt,name=scanner_path,json=scannerPath,proto3" json:"scanner_path,omitempty"`       // "raw_syn", "tcp_connect", etc.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SweepScannerStats) Reset() {
@@ -1329,6 +1333,27 @@ func (x *SweepScannerStats) GetSourcePortWaitTimeMs() uint64 {
 		return x.SourcePortWaitTimeMs
 	}
 	return 0
+}
+
+func (x *SweepScannerStats) GetProtocol() string {
+	if x != nil {
+		return x.Protocol
+	}
+	return ""
+}
+
+func (x *SweepScannerStats) GetAddressFamily() string {
+	if x != nil {
+		return x.AddressFamily
+	}
+	return ""
+}
+
+func (x *SweepScannerStats) GetScannerPath() string {
+	if x != nil {
+		return x.ScannerPath
+	}
+	return ""
 }
 
 // GatewayStatusRequest is sent by agents to push their status to the gateway.
@@ -4617,7 +4642,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vIN_PROGRESS\x10\x02\x12\r\n" +
 	"\tCOMPLETED\x10\x03\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x04\"\xed\x05\n" +
+	"\x06FAILED\x10\x04\"\xd3\x06\n" +
 	"\x11SweepScannerStats\x12!\n" +
 	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12!\n" +
 	"\fpackets_recv\x18\x02 \x01(\x04R\vpacketsRecv\x12'\n" +
@@ -4635,7 +4660,10 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x10rate_limit_waits\x18\r \x01(\x04R\x0erateLimitWaits\x12*\n" +
 	"\x11source_port_waits\x18\x0e \x01(\x04R\x0fsourcePortWaits\x124\n" +
 	"\x17rate_limit_wait_time_ms\x18\x0f \x01(\x04R\x13rateLimitWaitTimeMs\x126\n" +
-	"\x18source_port_wait_time_ms\x18\x10 \x01(\x04R\x14sourcePortWaitTimeMs\"\x92\x03\n" +
+	"\x18source_port_wait_time_ms\x18\x10 \x01(\x04R\x14sourcePortWaitTimeMs\x12\x1a\n" +
+	"\bprotocol\x18\x11 \x01(\tR\bprotocol\x12%\n" +
+	"\x0eaddress_family\x18\x12 \x01(\tR\raddressFamily\x12!\n" +
+	"\fscanner_path\x18\x13 \x01(\tR\vscannerPath\"\x92\x03\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +

@@ -165,6 +165,11 @@ message SweepScannerStats {
   uint64 source_port_waits = 14;        // Source-port allocator wait events
   uint64 rate_limit_wait_time_ms = 15;  // Total token-bucket wait time
   uint64 source_port_wait_time_ms = 16; // Total source-port wait time
+
+  // Scanner path labels
+  string protocol = 17;       // "tcp", "icmp", etc.
+  string address_family = 18; // "ipv4", "ipv6", or "dual_stack"
+  string scanner_path = 19;   // "raw_syn", "tcp_connect", etc.
 }
 
 

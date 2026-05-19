@@ -611,6 +611,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	// Check if the TCP scanner supports stats (SYN scanner does)
 	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
 		scanStats := statsProvider.GetStats()
+		protocol, addressFamily, scannerPath := scannerStatsLabels(s.tcpScanner)
 
 		// Calculate drop rate
 		var rxDropRate float64
@@ -619,6 +620,9 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		}
 
 		return &models.ScannerStats{
+			Protocol:             protocol,
+			AddressFamily:        addressFamily,
+			ScannerPath:          scannerPath,
 			PacketsSent:          scanStats.PacketsSent,
 			PacketsRecv:          scanStats.PacketsRecv,
 			PacketsDropped:       scanStats.PacketsDropped,
@@ -2051,6 +2055,28 @@ func scannerCapabilities(scanner scan.Scanner) scan.ScannerCapabilities {
 	}
 
 	return scan.ScannerCapabilities{}
+}
+
+func scannerStatsLabels(scanner scan.Scanner) (protocol, addressFamily, scannerPath string) {
+	caps := scannerCapabilities(scanner)
+
+	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
+		protocol = "tcp"
+		scannerPath = "raw_syn"
+
+		switch {
+		case caps.RawSYNIPv4 && caps.RawSYNIPv6:
+			addressFamily = "dual_stack"
+		case caps.RawSYNIPv6:
+			addressFamily = "ipv6"
+		default:
+			addressFamily = "ipv4"
+		}
+
+		return protocol, addressFamily, scannerPath
+	}
+
+	return "tcp", "unknown", "raw_syn"
 }
 
 func effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {

@@ -23,7 +23,7 @@
 
 ## 5. Config, Metrics, and Operator Visibility
 - [x] 5.1 Update sweep profile/config handling to preserve mode intent while reporting effective scanner execution paths.
-- [ ] 5.2 Add protocol/family labels to scanner metrics and logs.
+- [x] 5.2 Add protocol/family labels to scanner metrics and logs.
 - [x] 5.3 Surface execution diagnostics for skipped or fallback IPv6 scanner paths.
 
 ## 6. Regression and Release Validation
