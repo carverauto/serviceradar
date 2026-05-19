@@ -9,10 +9,19 @@
 {{- $ingressErlangDistEnabled := default true $ingressErlangDist.enabled -}}
 {{- $ingressErlangDistSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $ingressErlangDist.podSelector -}}
 {{- $ingressErlangDistPorts := default (list (dict "protocol" "TCP" "port" 4369) (dict "protocol" "TCP" "port" 9100 "endPort" 9155)) $ingressErlangDist.ports -}}
+{{- $agentGatewayExternal := default (dict) $ingress.agentGatewayExternal -}}
+{{- $agentGatewayExternalEnabled := default true $agentGatewayExternal.enabled -}}
+{{- $agentGatewayExternalCIDRs := default (list "0.0.0.0/0") $agentGatewayExternal.allowedCIDRs -}}
 {{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
 {{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
 {{- $hasIngressPorts := gt (len $ingressAllowedPorts) 0 -}}
 {{- $hasIngressErlangDistPorts := gt (len $ingressErlangDistPorts) 0 -}}
+{{- $hasAgentGatewayExternalCIDRs := gt (len $agentGatewayExternalCIDRs) 0 -}}
+{{- $agentGateway := default (dict) .Values.agentGateway -}}
+{{- $agentGatewayEnabled := default true $agentGateway.enabled -}}
+{{- $agentGatewayService := default (dict) $agentGateway.service -}}
+{{- $agentGatewayGrpcPort := default 50052 $agentGatewayService.port -}}
+{{- $agentGatewayArtifactPort := default 50053 $agentGatewayService.artifactPort -}}
 {{- $egress := default (dict) $np.egress -}}
 {{- $allowDNS := default false $egress.allowDNS -}}
 {{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
@@ -146,5 +155,31 @@ spec:
 {{- end }}
 {{- else }}
     []
+{{- end }}
+{{- if and $agentGatewayEnabled $agentGatewayExternalEnabled $hasAgentGatewayExternalCIDRs }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-agent-gateway-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-agent-gateway
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $agentGatewayExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $agentGatewayGrpcPort }}
+        - protocol: TCP
+          port: {{ $agentGatewayArtifactPort }}
+{{- end }}
 {{- end }}
 {{- end }}

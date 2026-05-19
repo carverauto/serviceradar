@@ -1318,6 +1318,13 @@ networkPolicy:
         - protocol: TCP
           port: 9100
           endPort: 9155
+    agentGatewayExternal:
+      # The agent-gateway is intentionally exposed for edge agents. Keep this
+      # as a separate pod-scoped policy so external access to port 50052 does
+      # not also expose core's gRPC listener.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
   egress:
     allowDNS: true
     allowKubeAPIServer: true

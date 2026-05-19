@@ -65,9 +65,17 @@ spec:
         - name: metrics
           containerPort: {{ default 9090 $gateway.service.metricsPort }}
           protocol: TCP
+        - name: epmd
+          containerPort: 4369
+          protocol: TCP
+        - name: dist
+          containerPort: 9100
+          protocol: TCP
         env:
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
+        - name: ERL_FLAGS
+          value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
         - name: GATEWAY_PARTITION_ID
           value: {{ default "default" $gateway.partitionId | quote }}
         - name: GATEWAY_ID

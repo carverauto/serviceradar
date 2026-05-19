@@ -145,6 +145,8 @@ spec:
               key: web-ng-secret-key-base
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
+        - name: ERL_FLAGS
+          value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
         {{- if .Values.spire.enabled }}
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
