@@ -19,10 +19,12 @@ package remoteaccess
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -34,7 +36,10 @@ const (
 	RDPAdapterMinProtocolVersion  = 1
 	rdpAdapterMaxCapabilitiesJSON = 16 * 1024
 	rdpAdapterMaxReadyReasonBytes = 256
+	rdpAdapterProbeMaxAttempts    = 3
 )
+
+var errRDPAdapterCapabilitiesTooLarge = errors.New("rdp adapter capability output too large")
 
 type RDPAdapterCapabilities struct {
 	Schema                string `json:"schema"`
@@ -104,13 +109,41 @@ func ProbeRDPAdapterCapabilities(
 }
 
 func runRDPAdapterCapabilitiesProbe(ctx context.Context, resolved string) ([]byte, error) {
+	var lastErr error
+
+	for attempt := range rdpAdapterProbeMaxAttempts {
+		output, err := runRDPAdapterCapabilitiesProbeOnce(ctx, resolved)
+		if err == nil {
+			return output, nil
+		}
+		if errors.Is(err, errRDPAdapterCapabilitiesTooLarge) {
+			return nil, fmt.Errorf("%w: capability output too large", ErrDesktopAdapterUnavailable)
+		}
+		if !errors.Is(err, syscall.ETXTBSY) || ctx.Err() != nil {
+			return nil, fmt.Errorf("%w: capability probe failed: %w", ErrDesktopAdapterUnavailable, err)
+		}
+
+		lastErr = err
+		timer := time.NewTimer(time.Duration(attempt+1) * 25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, fmt.Errorf("%w: capability probe failed: %w", ErrDesktopAdapterUnavailable, ctx.Err())
+		case <-timer.C:
+		}
+	}
+
+	return nil, fmt.Errorf("%w: capability probe failed: %w", ErrDesktopAdapterUnavailable, lastErr)
+}
+
+func runRDPAdapterCapabilitiesProbeOnce(ctx context.Context, resolved string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, resolved, RDPAdapterCapabilitiesArg)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, err)
+		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, err)
+		return nil, err
 	}
 
 	output, readErr := io.ReadAll(io.LimitReader(stdout, rdpAdapterMaxCapabilitiesJSON+1))
@@ -120,15 +153,15 @@ func runRDPAdapterCapabilitiesProbe(ctx context.Context, resolved string) ([]byt
 		}
 		_ = cmd.Wait()
 
-		return nil, fmt.Errorf("%w: capability output too large", ErrDesktopAdapterUnavailable)
+		return nil, errRDPAdapterCapabilitiesTooLarge
 	}
 
 	waitErr := cmd.Wait()
 	if readErr != nil {
-		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, readErr)
+		return nil, readErr
 	}
 	if waitErr != nil {
-		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, waitErr)
+		return nil, waitErr
 	}
 
 	return output, nil
