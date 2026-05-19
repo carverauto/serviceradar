@@ -1054,10 +1054,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: Erlang distribution is unauthenticated once the cookie matches; any pod that obtains the cookie *and* can reach `epmd` (4369) + a distribution port can join the cluster as a peer. With 6.P.1 (ingress wide-open) this is reachable from any namespace pod.
       Fix: NetworkPolicy ingress allows `:4369` + distribution port range *only* from matching label selector; rotate the cookie on a schedule; document SPIRE mTLS dependency as the primary identity gate.
 
-- [ ] 6.P.8 [M] `PHX_CHECK_ORIGIN` defaults to `"false"` in the web-ng pod template
+- [x] 6.P.8 [M] `PHX_CHECK_ORIGIN` defaults to `"false"` in the web-ng pod template
       Where: `helm/serviceradar/templates/web.yaml:203` (working tree)
       Why: This is the *infra* side of Finding 5.5 — even if the application enforces CSRF, the origin check is disabled by default, weakening the WebSocket / LiveView auth posture for any operator deployment that doesn't override.
       Fix: Default to `"true"`; require an explicit `webNg.checkOrigin: false` override with a values comment about risk; add a helm-lint rule.
+      Resolution: Closed by changing the chart and values default to `webNg.checkOrigin: "true"` / `PHX_CHECK_ORIGIN=true`; insecure local reverse-proxy debugging now requires an explicit values override and is documented in the chart README.
 
 - [ ] 6.P.9 [L] Bastion control-plane pods have no PodDisruptionBudget
       Where: no PDB templates in `helm/serviceradar/templates/` (working tree)

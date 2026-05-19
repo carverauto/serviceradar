@@ -90,6 +90,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `cnpg.storageClass` | StorageClass for CNPG database volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
 | `nats.persistence.storageClassName` | StorageClass for NATS JetStream file-store volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
 | `datasvc.data.storageClassName` | StorageClass for optional datasvc local object-store volumes. Defaults to `global.storage.encryptedStorageClassName` when enabled and empty. | `""` |
+| `webNg.checkOrigin` | Enable Phoenix/LiveView origin checks for browser and WebSocket requests. Disable only for local reverse-proxy debugging. | `"true"` |
 | `cnpg.pooler.enabled` | Deploy a CNPG-managed PgBouncer pooler | `false` |
 | `cnpg.pooler.instances` | PgBouncer pooler pod count | `3` |
 | `cnpg.pooler.ha.podAntiAffinity.type` | Pooler pod spreading mode, `preferred` or `required` | `preferred` |
