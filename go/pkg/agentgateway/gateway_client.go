@@ -19,16 +19,21 @@ package agentgateway
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 	goproto "google.golang.org/protobuf/proto"
 
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
@@ -52,6 +57,14 @@ var (
 	ErrStreamStatusChunkTooLarge = errors.New("stream status chunk too large")
 	// ErrStreamStatusBudgetExceeded indicates a status stream exceeds the per-stream byte budget.
 	ErrStreamStatusBudgetExceeded = errors.New("stream status byte budget exceeded")
+	// ErrNoConfigChunks indicates a streamed config response did not contain chunks.
+	ErrNoConfigChunks = errors.New("stream config response contained no chunks")
+	// ErrConfigChunkTooLarge indicates a streamed config chunk exceeds the per-message budget.
+	ErrConfigChunkTooLarge = errors.New("stream config chunk too large")
+	// ErrConfigStreamBudgetExceeded indicates a streamed config exceeds the per-stream byte budget.
+	ErrConfigStreamBudgetExceeded = errors.New("stream config byte budget exceeded")
+	// ErrInvalidConfigStream indicates a streamed config response is malformed.
+	ErrInvalidConfigStream = errors.New("invalid stream config response")
 	// ErrConnectionShutdown indicates the gRPC connection entered shutdown state.
 	ErrConnectionShutdown = errors.New("connection shutdown")
 )
@@ -67,6 +80,8 @@ const (
 	defaultKeepaliveTTL   = 10 * time.Second
 	streamStatusChunkMax  = 16 * 1024 * 1024
 	streamStatusWindowMax = 64 * 1024 * 1024
+	streamConfigChunkMax  = 2 * 1024 * 1024
+	streamConfigWindowMax = 64 * 1024 * 1024
 )
 
 // GatewayClient manages the connection to the agent-gateway and pushes status updates.
@@ -494,6 +509,33 @@ func (g *GatewayClient) GetGatewayID() string {
 // GetConfig fetches the agent's configuration from the gateway.
 // Supports versioning - returns not_modified if config hasn't changed.
 func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {
+	resp, err := g.getConfigStream(ctx, req)
+	if err == nil {
+		g.logConfigResponse(req, resp)
+		return resp, nil
+	}
+
+	if errors.Is(err, ErrGatewayNotConnected) {
+		return nil, err
+	}
+
+	if status.Code(err) != codes.Unimplemented {
+		g.logger.Error().Err(err).Msg("Failed to stream config from gateway")
+		return nil, fmt.Errorf("failed to stream config: %w", err)
+	}
+
+	g.logger.Debug().Msg("Gateway does not support streamed config; falling back to unary GetConfig")
+
+	resp, err = g.getConfigUnary(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	g.logConfigResponse(req, resp)
+	return resp, nil
+}
+
+func (g *GatewayClient) getConfigUnary(ctx context.Context, req *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {
 	g.mu.RLock()
 	client := g.client
 	connected := g.connected
@@ -513,6 +555,53 @@ func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigReq
 		return nil, fmt.Errorf("failed to get config: %w", err)
 	}
 
+	return resp, nil
+}
+
+func (g *GatewayClient) getConfigStream(ctx context.Context, req *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	configCtx, cancel := context.WithTimeout(ctx, defaultConfigTimeout)
+	defer cancel()
+
+	stream, err := client.StreamConfig(configCtx, req)
+	if err != nil {
+		if status.Code(err) != codes.Unimplemented {
+			g.markDisconnected()
+		}
+
+		return nil, err
+	}
+
+	chunks := make([]*proto.AgentConfigChunk, 0)
+
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			if status.Code(err) != codes.Unimplemented {
+				g.markDisconnected()
+			}
+
+			return nil, err
+		}
+
+		chunks = append(chunks, chunk)
+	}
+
+	return reassembleConfigChunks(chunks)
+}
+
+func (g *GatewayClient) logConfigResponse(req *proto.AgentConfigRequest, resp *proto.AgentConfigResponse) {
 	switch {
 	case resp.NotModified:
 		g.logger.Debug().Str("version", resp.ConfigVersion).Msg("Agent config not modified")
@@ -526,6 +615,100 @@ func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigReq
 			Int32("config_poll_interval_sec", resp.ConfigPollIntervalSec).
 			Int("checks_count", len(resp.Checks)).
 			Msg("Received new agent config from gateway")
+	}
+}
+
+func reassembleConfigChunks(chunks []*proto.AgentConfigChunk) (*proto.AgentConfigResponse, error) {
+	if len(chunks) == 0 {
+		return nil, ErrNoConfigChunks
+	}
+
+	var (
+		payload       []byte
+		totalChunks   int32 = -1
+		configVersion string
+		configTs      int64
+		notModified   bool
+		payloadSha256 string
+		sawFinal      bool
+		payloadBytes  int
+	)
+
+	for expectedIndex, chunk := range chunks {
+		if chunk == nil {
+			return nil, fmt.Errorf("%w: nil chunk at index %d", ErrInvalidConfigStream, expectedIndex)
+		}
+
+		chunkBytes := goproto.Size(chunk)
+		if chunkBytes > streamConfigChunkMax {
+			return nil, fmt.Errorf("%w: chunk %d has %d bytes; max %d", ErrConfigChunkTooLarge, expectedIndex, chunkBytes, streamConfigChunkMax)
+		}
+
+		payloadBytes += len(chunk.Payload)
+		if payloadBytes > streamConfigWindowMax {
+			return nil, fmt.Errorf("%w: stream payload has %d bytes; max %d", ErrConfigStreamBudgetExceeded, payloadBytes, streamConfigWindowMax)
+		}
+
+		if chunk.ChunkIndex != int32(expectedIndex) {
+			return nil, fmt.Errorf("%w: chunk index %d, want %d", ErrInvalidConfigStream, chunk.ChunkIndex, expectedIndex)
+		}
+		if chunk.TotalChunks <= 0 {
+			return nil, fmt.Errorf("%w: total_chunks must be positive", ErrInvalidConfigStream)
+		}
+
+		if expectedIndex == 0 {
+			totalChunks = chunk.TotalChunks
+			configVersion = chunk.ConfigVersion
+			configTs = chunk.ConfigTimestamp
+			notModified = chunk.NotModified
+			payloadSha256 = chunk.PayloadSha256
+		} else {
+			if chunk.TotalChunks != totalChunks {
+				return nil, fmt.Errorf("%w: total_chunks changed from %d to %d", ErrInvalidConfigStream, totalChunks, chunk.TotalChunks)
+			}
+			if chunk.ConfigVersion != configVersion || chunk.ConfigTimestamp != configTs || chunk.NotModified != notModified || chunk.PayloadSha256 != payloadSha256 {
+				return nil, fmt.Errorf("%w: chunk metadata changed at index %d", ErrInvalidConfigStream, expectedIndex)
+			}
+		}
+
+		if chunk.IsFinal {
+			if sawFinal {
+				return nil, fmt.Errorf("%w: multiple final chunks", ErrInvalidConfigStream)
+			}
+			if chunk.ChunkIndex != chunk.TotalChunks-1 {
+				return nil, fmt.Errorf("%w: final chunk index %d does not match total_chunks %d", ErrInvalidConfigStream, chunk.ChunkIndex, chunk.TotalChunks)
+			}
+
+			sawFinal = true
+		} else if chunk.ChunkIndex == chunk.TotalChunks-1 {
+			return nil, fmt.Errorf("%w: last chunk missing final marker", ErrInvalidConfigStream)
+		}
+
+		payload = append(payload, chunk.Payload...)
+	}
+
+	if int32(len(chunks)) != totalChunks {
+		return nil, fmt.Errorf("%w: received %d chunks, want %d", ErrInvalidConfigStream, len(chunks), totalChunks)
+	}
+	if !sawFinal {
+		return nil, fmt.Errorf("%w: missing final chunk", ErrInvalidConfigStream)
+	}
+
+	if payloadSha256 == "" {
+		return nil, fmt.Errorf("%w: missing payload checksum", ErrInvalidConfigStream)
+	}
+
+	sum := sha256.Sum256(payload)
+	if hex.EncodeToString(sum[:]) != payloadSha256 {
+		return nil, fmt.Errorf("%w: payload checksum mismatch", ErrInvalidConfigStream)
+	}
+
+	resp := &proto.AgentConfigResponse{}
+	if err := goproto.Unmarshal(payload, resp); err != nil {
+		return nil, fmt.Errorf("%w: decode config response: %w", ErrInvalidConfigStream, err)
+	}
+	if resp.ConfigVersion != configVersion || resp.ConfigTimestamp != configTs || resp.NotModified != notModified {
+		return nil, fmt.Errorf("%w: decoded response metadata does not match stream metadata", ErrInvalidConfigStream)
 	}
 
 	return resp, nil

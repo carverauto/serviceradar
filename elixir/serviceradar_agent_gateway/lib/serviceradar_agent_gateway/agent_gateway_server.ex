@@ -54,6 +54,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_sysmon_message_bytes 15 * 1024 * 1024
   @max_stream_status_chunk_bytes 16 * 1024 * 1024
   @max_stream_status_window_bytes 64 * 1024 * 1024
+  @max_config_chunk_payload_bytes 1 * 1024 * 1024
+  @max_stream_config_chunk_bytes 2 * 1024 * 1024
+  @max_stream_config_window_bytes 64 * 1024 * 1024
   @agent_gateway_component_types [:agent]
 
   # Gateway identifier (node name or configured ID)
@@ -155,6 +158,41 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     AgentGatewaySync
     |> core_call(:get_config_if_changed, [agent_id, config_version], 15_000)
     |> handle_config_response(agent_id, config_version)
+  end
+
+  @doc """
+  Stream an agent config response in bounded chunks.
+
+  The payload chunks contain the protobuf-encoded AgentConfigResponse that unary
+  GetConfig would return, preserving existing config semantics while avoiding a
+  single oversized gRPC response message.
+  """
+  @spec stream_config(Monitoring.AgentConfigRequest.t(), GRPC.Server.Stream.t()) ::
+          Enumerable.t()
+  def stream_config(request, stream) do
+    agent_id = required_agent_id(request.agent_id)
+    config_version = request.config_version || ""
+
+    Logger.debug("Agent streamed config request: agent_id=#{agent_id}, version=#{config_version}")
+
+    identity = extract_identity_from_stream(stream)
+    {identity, component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    Logger.info("Stream config request received: component_type=#{component_type}, agent_id=#{agent_id}")
+
+    response =
+      AgentGatewaySync
+      |> core_call(:get_config_if_changed, [agent_id, config_version], 15_000)
+      |> handle_config_response(agent_id, config_version)
+
+    chunks = config_response_chunks(agent_id, response)
+
+    Logger.info(
+      "Streaming config to agent: agent_id=#{agent_id}, version=#{response.config_version}, chunks=#{length(chunks)}, bytes=#{config_response_size(response)}"
+    )
+
+    chunks
   end
 
   @doc """
@@ -1094,6 +1132,78 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     chunk
     |> Protobuf.Encoder.encode_to_iodata()
     |> IO.iodata_length()
+  end
+
+  @doc false
+  def config_response_chunks(agent_id, %Monitoring.AgentConfigResponse{} = response) do
+    payload =
+      response
+      |> Protobuf.Encoder.encode_to_iodata()
+      |> IO.iodata_to_binary()
+
+    validate_stream_config_window!(byte_size(payload))
+
+    payload_sha256 = sha256_hex(payload)
+    total_chunks = max(ceil_div(byte_size(payload), @max_config_chunk_payload_bytes), 1)
+
+    Enum.map(0..(total_chunks - 1), fn chunk_index ->
+      offset = chunk_index * @max_config_chunk_payload_bytes
+      chunk_size = min(@max_config_chunk_payload_bytes, max(byte_size(payload) - offset, 0))
+
+      chunk =
+        %Monitoring.AgentConfigChunk{
+          agent_id: agent_id,
+          config_version: response.config_version,
+          config_timestamp: response.config_timestamp,
+          not_modified: response.not_modified,
+          payload: binary_part(payload, offset, chunk_size),
+          is_final: chunk_index == total_chunks - 1,
+          chunk_index: chunk_index,
+          total_chunks: total_chunks,
+          payload_sha256: payload_sha256
+        }
+
+      validate_stream_config_chunk!(chunk)
+    end)
+  end
+
+  @doc false
+  def config_response_size(%Monitoring.AgentConfigResponse{} = response) do
+    response
+    |> Protobuf.Encoder.encode_to_iodata()
+    |> IO.iodata_length()
+  end
+
+  defp validate_stream_config_window!(payload_bytes) do
+    if payload_bytes > @max_stream_config_window_bytes do
+      raise GRPC.RPCError,
+        status: :resource_exhausted,
+        message: "config stream exceeds byte budget"
+    end
+  end
+
+  defp validate_stream_config_chunk!(%Monitoring.AgentConfigChunk{} = chunk) do
+    chunk_bytes =
+      chunk
+      |> Protobuf.Encoder.encode_to_iodata()
+      |> IO.iodata_length()
+
+    if chunk_bytes > @max_stream_config_chunk_bytes do
+      raise GRPC.RPCError,
+        status: :resource_exhausted,
+        message: "config stream chunk exceeds byte budget"
+    end
+
+    chunk
+  end
+
+  defp ceil_div(0, _divisor), do: 0
+  defp ceil_div(value, divisor), do: div(value + divisor - 1, divisor)
+
+  defp sha256_hex(payload) do
+    payload
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   @doc false
