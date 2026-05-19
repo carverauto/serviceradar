@@ -9,6 +9,7 @@ def _mix_release_impl(ctx):
     cargo = rust_toolchain.cargo
     rustc = rust_toolchain.rustc
     bun = ctx.file.bun
+    sfw = ctx.file.sfw
 
     erlang_home = otp.erlang_home
     otp_tar = getattr(otp, "release_dir_tar", None)
@@ -46,6 +47,8 @@ def _mix_release_impl(ctx):
         direct_inputs.append(hex_cache)
     if bun:
         direct_inputs.append(bun)
+    if sfw:
+        direct_inputs.append(sfw)
 
     inputs = depset(
         direct = direct_inputs,
@@ -474,6 +477,10 @@ if [ -n "$BUN_BIN" ] && [ -f "$EXECROOT/$BUN_BIN" ]; then
     echo "warning: bazel-pinned bun at $EXECROOT/$BUN_BIN is not executable on this host and no system bun fallback was found" >&2
   fi
 fi
+SFW_BIN="{sfw_path}"
+if [ -n "$SFW_BIN" ] && [ -f "$EXECROOT/$SFW_BIN" ]; then
+  chmod +x "$EXECROOT/$SFW_BIN" || true
+fi
 RUST_LIB_ROOT="$(cd "$(dirname "$RUSTC")/.." && pwd)"
 export LD_LIBRARY_PATH="$RUST_LIB_ROOT/lib:$RUST_LIB_ROOT/lib/rustlib/x86_64-unknown-linux-gnu/lib:${{LD_LIBRARY_PATH:-}}"
 echo "PATH=$PATH"
@@ -678,24 +685,33 @@ if [ "{run_assets}" = "true" ]; then
     echo "bun is required for assets but was not found on PATH" >&2
     exit 1
   fi
+  run_with_socket_firewall() {{
+    if [ -n "$SFW_BIN" ] && [ -x "$EXECROOT/$SFW_BIN" ]; then
+      "$EXECROOT/$SFW_BIN" "$@"
+    elif command -v sfw >/dev/null 2>&1; then
+      sfw "$@"
+    else
+      "$@"
+    fi
+  }}
   if [ -f assets/package.json ]; then
     if [ -f assets/bun.lockb ] || [ -f assets/bun.lock ]; then
-      if ! (cd assets && bun install --frozen-lockfile); then
+      if ! (cd assets && run_with_socket_firewall bun install --frozen-lockfile); then
         echo "warning: frozen bun lockfile check failed in assets; retrying without --frozen-lockfile in release sandbox" >&2
-        (cd assets && bun install)
+        (cd assets && run_with_socket_firewall bun install)
       fi
     else
-      (cd assets && bun install)
+      (cd assets && run_with_socket_firewall bun install)
     fi
   fi
   if [ -f assets/component/package.json ]; then
     if [ -f assets/component/bun.lockb ] || [ -f assets/component/bun.lock ]; then
-      if ! (cd assets/component && bun install --frozen-lockfile); then
+      if ! (cd assets/component && run_with_socket_firewall bun install --frozen-lockfile); then
         echo "warning: frozen bun lockfile check failed in assets/component; retrying without --frozen-lockfile in release sandbox" >&2
-        (cd assets/component && bun install)
+        (cd assets/component && run_with_socket_firewall bun install)
       fi
     else
-      (cd assets/component && bun install)
+      (cd assets/component && run_with_socket_firewall bun install)
     fi
   fi
 
@@ -753,6 +769,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             patch_script = patch_script_placeholder,
             hex_cache_tar = hex_cache.path if hex_cache else "",
             bun_path = bun.path if bun else "",
+            sfw_path = sfw.path if sfw else "",
             app_name = ctx.attr.workdir_name,
         ).replace(patch_script_placeholder, patch_script),
         use_default_shell_env = False,
@@ -780,6 +797,7 @@ mix_release = rule(
         "extra_dir_srcs": attr.label_list(allow_files = True, doc = "File inputs that back extra_dirs"),
         "hex_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Hex/Mix cache"),
         "bun": attr.label(allow_single_file = True, doc = "Optional bun binary for SSR asset builds"),
+        "sfw": attr.label(allow_single_file = True, doc = "Optional Socket Firewall binary for supported package manager commands"),
         "workdir_name": attr.string(doc = "Legacy stable workdir/cache name for compatibility"),
     },
     toolchains = [

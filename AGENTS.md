@@ -54,6 +54,10 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
 
+## Socket Firewall
+
+Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaScript/TypeScript package manager calls with `sfw`, especially `npm` commands such as `sfw npm ci`, `sfw npm install`, and `sfw npm run ...` when the command may fetch packages. Also use `sfw` for supported Python and Rust package managers (`pip`, `uv`, and `cargo`) when they may download dependencies. Web-NG uses Bun for asset builds; prefix Bun package-manager invocations with `sfw` in CI and Bazel release tooling as a best-effort firewall even though Socket Firewall Free only officially guarantees npm/yarn/pnpm for JavaScript. Socket Firewall Free does not currently support Go, Bazel, or Hex/Mix, so do not wrap those commands unless Socket adds support.
+
 ## Coding Guidelines
 
 - **Go**: run `gofmt` on modified files; keep imports organized; favor existing helper utilities in `pkg/`. Avoid introducing new dependencies without updating `go.mod` and Bazel `MODULE.bazel`/`MODULE.bazel.lock` if required.
@@ -199,8 +203,8 @@ Use this when iterating on screenshot-driven dashboard or shell design work in `
 
 ```bash
 cd elixir/web-ng/assets
-npm run build:js
-npm run build:css
+sfw npm run build:js
+sfw npm run build:css
 ```
 
 3. Start Phoenix locally with noisy background services disabled for visual testing when you need to exercise the real LiveView route:

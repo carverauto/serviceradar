@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - ".github/workflows/docs-pages.yml"
+      - "scripts/ci/install-sfw.sh"
       - "docs/**"
   workflow_dispatch:
 
@@ -27,6 +28,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -36,15 +40,15 @@ jobs:
 
       - name: Install dependencies
         working-directory: docs
-        run: npm ci
+        run: sfw npm ci
 
       - name: Typecheck
         working-directory: docs
-        run: npm run typecheck
+        run: sfw npm run typecheck
 
       - name: Build
         working-directory: docs
-        run: npm run build
+        run: sfw npm run build
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
