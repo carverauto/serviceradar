@@ -94,9 +94,14 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   @spec validate_intent(intent()) :: :ok | {:error, error_reason()}
   def validate_intent(intent) do
     cond do
-      blank?(intent[:playbook_id]) -> {:error, :playbook_required}
-      not is_list(intent[:device_uids]) or intent[:device_uids] == [] -> {:error, :devices_required}
-      true -> :ok
+      blank?(intent[:playbook_id]) ->
+        {:error, :playbook_required}
+
+      not is_list(intent[:device_uids]) or intent[:device_uids] == [] ->
+        {:error, :devices_required}
+
+      true ->
+        :ok
     end
   end
 
@@ -121,8 +126,7 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   def resolve_controller_id(%{source_type: :awx, controller_id: id}) when is_binary(id),
     do: {:ok, id}
 
-  def resolve_controller_id(%{source_type: :git}),
-    do: {:error, :git_sourced_not_supported_v1}
+  def resolve_controller_id(%{source_type: :git}), do: {:error, :git_sourced_not_supported_v1}
 
   def resolve_controller_id(_), do: {:error, :playbook_unbound}
 
@@ -165,7 +169,7 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
         requested_extra_vars: intent[:extra_vars] || %{},
         requested_by_actor_id: intent[:requested_by_actor_id],
         host_limit: nil,
-        metadata: %{}
+        metadata: run_metadata(intent)
       },
       actor: actor
     )
@@ -173,7 +177,7 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
 
   defp create_targets(run, devices, actor) do
     Enum.each(devices, fn device ->
-      ref = device.ansible_inventory_ref || %{}
+      ref = ansible_inventory_ref(device)
 
       _ =
         PlaybookRunTarget.create_target(
@@ -211,17 +215,30 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   defp launch_source(_), do: :on_demand
 
   defp launch_context(controller, run, intent) do
-    base = %{
-      "playbook_run_id" => run.id,
-      "controller_id" => controller.id,
-      "verb" => "awx.launch_job"
-    }
+    base =
+      maybe_put_context(
+        %{
+          "playbook_run_id" => run.id,
+          "controller_id" => controller.id,
+          "verb" => "awx.launch_job"
+        },
+        "northbound_invocation_id",
+        intent[:northbound_invocation_id]
+      )
 
     case intent[:schedule_id] do
       id when is_binary(id) -> Map.put(base, "schedule_id", id)
       _ -> base
     end
   end
+
+  defp run_metadata(intent) do
+    maybe_put_context(%{}, "northbound_invocation_id", intent[:northbound_invocation_id])
+  end
+
+  defp maybe_put_context(map, _key, nil), do: map
+  defp maybe_put_context(map, _key, ""), do: map
+  defp maybe_put_context(map, key, value), do: Map.put(map, key, value)
 
   ## Helpers ------------------------------------------------------------------
 
@@ -230,12 +247,26 @@ defmodule ServiceRadar.Automation.Ansible.RunLauncher do
   defp blank?(s) when is_binary(s), do: String.trim(s) == ""
   defp blank?(_), do: false
 
-  defp device_ansible_managed?(%{ansible_managed: true}), do: true
-  defp device_ansible_managed?(_), do: false
+  defp device_ansible_managed?(device) do
+    ref = ansible_inventory_ref(device)
+
+    Map.get(device, :ansible_managed) == true or
+      Map.get(device, "ansible_managed") == true or
+      Map.get(ref, "managed") == true or
+      Map.get(ref, :managed) == true
+  end
 
   defp device_controller_id(device) do
-    ref = Map.get(device, :ansible_inventory_ref) || %{}
+    ref = ansible_inventory_ref(device)
     Map.get(ref, "controller_id") || Map.get(ref, :controller_id)
+  end
+
+  defp ansible_inventory_ref(device) when is_map(device) do
+    Map.get(device, :ansible_inventory_ref) ||
+      Map.get(device, "ansible_inventory_ref") ||
+      get_in(Map.get(device, :metadata) || %{}, ["ansible_inventory_ref"]) ||
+      get_in(Map.get(device, "metadata") || %{}, ["ansible_inventory_ref"]) ||
+      %{}
   end
 
   defp host_name_string(nil), do: nil

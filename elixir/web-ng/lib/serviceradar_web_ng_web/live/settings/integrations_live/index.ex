@@ -206,8 +206,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:form_network_blacklist, "")
        |> assign(:form_custom_fields, "")}
     else
-      {:noreply,
-       put_flash(socket, :error, "Install and register an agent before adding integrations.")}
+      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -235,8 +234,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
          |> assign(:mapbox_form, mapbox_settings_to_form(updated))}
 
       {:error, err} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save Mapbox settings: #{format_ash_error(err)}")}
     end
   end
 
@@ -360,9 +358,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       # Add network_blacklist from textarea
       blacklist =
-        parse_network_blacklist(
-          Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist)
-        )
+        parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
       params = Map.put(params, "network_blacklist", blacklist)
 
@@ -370,9 +366,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         Map.put(
           params,
           "custom_fields",
-          parse_custom_fields(
-            Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields)
-          )
+          parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
         )
 
       form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
@@ -394,8 +388,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> put_flash(:error, "Failed to create integration source")}
       end
     else
-      {:noreply,
-       put_flash(socket, :error, "Install and register an agent before adding integrations.")}
+      {:noreply, put_flash(socket, :error, "Install and register an agent before adding integrations.")}
     end
   end
 
@@ -415,9 +408,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
     # Add network_blacklist from textarea
     blacklist =
-      parse_network_blacklist(
-        Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist)
-      )
+      parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
     params = Map.put(params, "network_blacklist", blacklist)
 
@@ -425,9 +416,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       Map.put(
         params,
         "custom_fields",
-        parse_custom_fields(
-          Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields)
-        )
+        parse_custom_fields(Map.get(params, "custom_fields_text", socket.assigns.form_custom_fields))
       )
 
     form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
@@ -499,8 +488,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              |> push_navigate(to: ~p"/settings/networks/integrations")}
 
           {:error, reason} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
+            {:noreply, put_flash(socket, :error, "Failed to delete source: #{format_ash_error(reason)}")}
         end
 
       {:error, _} ->
@@ -525,13 +513,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
              |> assign(:sources, list_sources(actor, active_filters(socket)))}
 
           {:error, reason} ->
-            {:noreply,
-             put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
+            {:noreply, put_flash(socket, :error, "Failed to queue Armis northbound run: #{inspect(reason)}")}
         end
 
       {:ok, _source} ->
-        {:noreply,
-         put_flash(socket, :error, "Northbound run is only available for Armis sources")}
+        {:noreply, put_flash(socket, :error, "Northbound run is only available for Armis sources")}
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Integration source not found")}
@@ -1081,6 +1067,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             Discovery imports devices from the integration. Network sweep scheduling is configured separately.
           </p>
 
+          <%= if armis_source_type?(@form[:source_type].value) do %>
+            <div class="grid grid-cols-2 gap-4">
+              <.input
+                field={@form[:northbound_availability_source_agent_id]}
+                type="select"
+                label="Northbound Availability Source"
+                options={@agent_options}
+                prompt="Use canonical device availability"
+              />
+            </div>
+          <% end %>
+
           <div class="divider text-xs text-base-content/60">Credentials</div>
 
           <.dynamic_credentials_fields
@@ -1270,6 +1268,18 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <p class="text-xs text-base-content/60 -mt-2">
             Discovery imports devices from the integration. Network sweep scheduling is configured separately.
           </p>
+
+          <%= if armis_source?(@source) do %>
+            <div class="grid grid-cols-2 gap-4">
+              <.input
+                field={@form[:northbound_availability_source_agent_id]}
+                type="select"
+                label="Northbound Availability Source"
+                options={@agent_options}
+                prompt="Use canonical device availability"
+              />
+            </div>
+          <% end %>
 
           <div class="divider text-xs text-base-content/60">Credentials</div>
 
@@ -1791,6 +1801,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp armis_source?(:armis), do: true
   defp armis_source?(_), do: false
 
+  defp armis_source_type?(type) when type in [:armis, "armis"], do: true
+  defp armis_source_type?(_), do: false
+
   defp refresh_selected_source(nil, _actor), do: nil
 
   defp refresh_selected_source(%{id: id}, actor) do
@@ -2008,6 +2021,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> normalize_blank_param("agent_id")
     |> normalize_blank_param("gateway_id")
     |> normalize_blank_param("partition")
+    |> normalize_blank_param("northbound_availability_source_agent_id")
   end
 
   defp normalize_blank_param(params, key) do
@@ -2449,8 +2463,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   defp credential_placeholder(:syslog), do: ~s({"syslog_host": "0.0.0.0", "syslog_port": 514})
 
-  defp credential_placeholder(:netbox),
-    do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
+  defp credential_placeholder(:netbox), do: ~s({"url": "https://netbox.example.com", "token": "your-api-token"})
 
   defp credential_placeholder(:nmap), do: ~s({"timing_template": "T4", "extra_args": ""})
   defp credential_placeholder(_), do: ~s({"api_key": "your-key", "api_secret": "your-secret"})

@@ -167,18 +167,18 @@ func TestSignUserCertificateRejectsInvalidRequests(t *testing.T) {
 			want: ErrInvalidValidity,
 		},
 		{
-			name: "critical options",
+			name: "critical option",
 			req: UserCertificateRequest{
 				PublicKey:       validPublicKey,
 				KeyID:           "session-1",
 				Principals:      []string{"root"},
 				TTL:             time.Minute,
-				CriticalOptions: map[string]string{"force-command": "whoami"},
+				CriticalOptions: map[string]string{"force-command": "/bin/sh"},
 			},
-			want: ErrUnsupportedOption,
+			want: ErrUnsupportedCritical,
 		},
 		{
-			name: "unsafe extension",
+			name: "extension",
 			req: UserCertificateRequest{
 				PublicKey:  validPublicKey,
 				KeyID:      "session-1",
@@ -186,7 +186,7 @@ func TestSignUserCertificateRejectsInvalidRequests(t *testing.T) {
 				TTL:        time.Minute,
 				Extensions: map[string]string{"permit-port-forwarding": ""},
 			},
-			want: ErrUnsupportedOption,
+			want: ErrUnsupportedExtension,
 		},
 	}
 
@@ -202,28 +202,28 @@ func TestSignUserCertificateRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
-func TestSignUserCertificateRejectsUnsupportedCAKeyAlgorithm(t *testing.T) {
+func TestSignUserCertificateRejectsWeakCASignerKey(t *testing.T) {
 	t.Parallel()
 
-	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	weakRSA, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		t.Fatalf("generate rsa key: %v", err)
+		t.Fatalf("generate RSA key: %v", err)
 	}
-	rsaSigner, err := ssh.NewSignerFromKey(rsaKey)
+	caSigner, err := ssh.NewSignerFromKey(weakRSA)
 	if err != nil {
-		t.Fatalf("new rsa signer: %v", err)
+		t.Fatalf("new signer: %v", err)
 	}
 	userSigner, _ := newTestSigner(t)
 
-	ca := NewFromSigner(rsaSigner)
+	ca := NewFromSigner(caSigner, WithMaxTTL(time.Hour))
 	_, err = ca.SignUserCertificate(UserCertificateRequest{
 		PublicKey:  ssh.MarshalAuthorizedKey(userSigner.PublicKey()),
 		KeyID:      "session-1",
 		Principals: []string{"root"},
 		TTL:        time.Minute,
 	})
-	if !errors.Is(err, ErrUnsupportedCAKey) {
-		t.Fatalf("error = %v, want %v", err, ErrUnsupportedCAKey)
+	if !errors.Is(err, ErrUnsupportedSignerKey) {
+		t.Fatalf("error = %v, want %v", err, ErrUnsupportedSignerKey)
 	}
 }
 

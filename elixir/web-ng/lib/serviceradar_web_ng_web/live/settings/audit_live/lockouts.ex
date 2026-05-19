@@ -105,72 +105,74 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
   @impl true
   def render(assigns) do
     ~H"""
-    <SettingsComponents.settings_shell current_path={@current_path}>
-      <SettingsComponents.settings_nav
-        current_path={@current_path}
-        current_scope={@current_scope}
-      />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <SettingsComponents.settings_shell current_path={@current_path}>
+        <SettingsComponents.settings_nav
+          current_path={@current_path}
+          current_scope={@current_scope}
+        />
 
-      <header class="space-y-1">
-        <h1 class="text-2xl font-semibold">Audit · Lockouts</h1>
-        <p class="text-sm text-zinc-500">
-          Active and recently cleared account lockouts.
-          <span :if={@can_manage?}>Click <em>Unlock</em> to clear a lockout.</span>
-        </p>
-      </header>
+        <header class="space-y-1">
+          <h1 class="text-2xl font-semibold">Audit · Lockouts</h1>
+          <p class="text-sm text-base-content/60">
+            Active and recently cleared account lockouts.
+            <span :if={@can_manage?}>Click <em>Unlock</em> to clear a lockout.</span>
+          </p>
+        </header>
 
-      <%= if @can_view? do %>
-        <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-700">
-          <table class="min-w-full text-sm">
-            <thead class="bg-zinc-50 dark:bg-zinc-800">
-              <tr>
-                <th class="px-4 py-2 text-left">Actor</th>
-                <th class="px-4 py-2 text-left">Locked at</th>
-                <th class="px-4 py-2 text-left">Expires</th>
-                <th class="px-4 py-2 text-left">Reason</th>
-                <th class="px-4 py-2 text-left">Status</th>
-                <th class="px-4 py-2"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-              <%= for lockout <- @lockouts do %>
+        <%= if @can_view? do %>
+          <div class="overflow-x-auto rounded-lg border border-base-200 bg-base-100">
+            <table class="min-w-full text-sm text-base-content">
+              <thead class="bg-base-200/70 text-base-content/70">
                 <tr>
-                  <td class="px-4 py-2 font-mono text-xs">{lockout.actor_id}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.locked_at)}</td>
-                  <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.expires_at)}</td>
-                  <td class="px-4 py-2">{lockout.reason || "—"}</td>
-                  <td class="px-4 py-2">{status_label(lockout)}</td>
-                  <td class="px-4 py-2">
-                    <%= if @can_manage? and active?(lockout) do %>
-                      <button
-                        type="button"
-                        class="ui-button"
-                        phx-click="unlock"
-                        phx-value-id={lockout.id}
-                        data-confirm="Clear this lockout?"
-                      >
-                        Unlock
-                      </button>
-                    <% end %>
-                  </td>
+                  <th class="px-4 py-2 text-left">Actor</th>
+                  <th class="px-4 py-2 text-left">Locked at</th>
+                  <th class="px-4 py-2 text-left">Expires</th>
+                  <th class="px-4 py-2 text-left">Reason</th>
+                  <th class="px-4 py-2 text-left">Status</th>
+                  <th class="px-4 py-2"></th>
                 </tr>
-              <% end %>
-              <%= if Enum.empty?(@lockouts) do %>
-                <tr>
-                  <td colspan="6" class="px-4 py-8 text-center text-zinc-500">
-                    No lockouts on record.
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-      <% else %>
-        <p class="text-sm text-red-600">
-          You need <code>settings.audit.view</code> to see lockouts.
-        </p>
-      <% end %>
-    </SettingsComponents.settings_shell>
+              </thead>
+              <tbody class="divide-y divide-base-200">
+                <%= for lockout <- @lockouts do %>
+                  <tr class="hover:bg-base-200/40">
+                    <td class="px-4 py-2 font-mono text-xs">{lockout.actor_id}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.locked_at)}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.expires_at)}</td>
+                    <td class="px-4 py-2">{lockout.reason || "—"}</td>
+                    <td class="px-4 py-2">{status_label(lockout)}</td>
+                    <td class="px-4 py-2">
+                      <%= if @can_manage? and active?(lockout) do %>
+                        <button
+                          type="button"
+                          class="ui-button"
+                          phx-click="unlock"
+                          phx-value-id={lockout.id}
+                          data-confirm="Clear this lockout?"
+                        >
+                          Unlock
+                        </button>
+                      <% end %>
+                    </td>
+                  </tr>
+                <% end %>
+                <%= if Enum.empty?(@lockouts) do %>
+                  <tr>
+                    <td colspan="6" class="px-4 py-8 text-center text-base-content/60">
+                      No lockouts on record.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% else %>
+          <p class="text-sm text-error">
+            You need <code>settings.audit.view</code> to see lockouts.
+          </p>
+        <% end %>
+      </SettingsComponents.settings_shell>
+    </Layouts.app>
     """
   end
 

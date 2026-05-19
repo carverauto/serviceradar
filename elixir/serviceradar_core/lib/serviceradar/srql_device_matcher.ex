@@ -9,6 +9,10 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   @field_mappings %{
     "hostname" => :hostname,
     "uid" => :uid,
+    "is_active" => :is_active,
+    "active" => :is_active,
+    "is_managed" => :is_managed,
+    "managed" => :is_managed,
     "type" => :type_id,
     "os" => :os,
     "status" => :status
@@ -52,18 +56,57 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
 
   @spec apply_filters(Ash.Query.t(), [filter()], keyword()) :: Ash.Query.t()
   def apply_filters(query, filters, opts \\ []) do
-    Enum.reduce(filters, query, fn filter, acc ->
-      apply_filter(acc, filter, opts)
+    query
+    |> maybe_apply_default_active_filter(filters, opts)
+    |> then(fn filtered_query ->
+      Enum.reduce(filters, filtered_query, fn filter, acc ->
+        apply_filter(acc, filter, opts)
+      end)
+    end)
+  end
+
+  defp maybe_apply_default_active_filter(query, filters, opts) do
+    if Keyword.get(opts, :default_active?, true) and not include_inactive?(filters) and
+         not has_field_filter?(filters, "is_active") and
+         not has_field_filter?(filters, "active") do
+      Ash.Query.filter(query, is_active == true or is_nil(is_active))
+    else
+      query
+    end
+  end
+
+  defp include_inactive?(filters) do
+    Enum.any?(filters, fn
+      %{field: field, value: value} when is_binary(field) ->
+        String.downcase(field) == "include_inactive" and normalize_bool(value) == true
+
+      _filter ->
+        false
+    end)
+  end
+
+  defp has_field_filter?(filters, field) do
+    Enum.any?(filters, fn
+      %{field: filter_field} when is_binary(filter_field) ->
+        String.downcase(filter_field) == field
+
+      _filter ->
+        false
     end)
   end
 
   defp apply_filter(query, %{field: field, op: op, value: value}, opts) when is_binary(field) do
-    if tag_field?(field, opts) do
-      tag_key = String.replace_prefix(field, "tags.", "")
-      apply_tag_filter(query, tag_key, value)
-    else
-      mapped_field = map_field(field, opts)
-      apply_standard_filter(query, mapped_field, op, value)
+    cond do
+      String.downcase(field) == "include_inactive" ->
+        query
+
+      tag_field?(field, opts) ->
+        tag_key = String.replace_prefix(field, "tags.", "")
+        apply_tag_filter(query, tag_key, value)
+
+      true ->
+        mapped_field = map_field(field, opts)
+        apply_standard_filter(query, mapped_field, op, value)
     end
   rescue
     e ->
@@ -88,6 +131,18 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
           String.to_existing_atom(field)
         end
     end
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when field == :is_active and op in ["eq", "equals"] do
+    value = normalize_bool(value)
+    Ash.Query.filter(query, is_active == ^value or (is_nil(is_active) and ^value == true))
+  end
+
+  defp apply_standard_filter(query, field, op, value)
+       when field == :is_active and op in ["neq", "not_eq", "not_equals"] do
+    value = normalize_bool(value)
+    Ash.Query.filter(query, is_active != ^value and not (is_nil(is_active) and ^value == true))
   end
 
   defp apply_standard_filter(query, field, op, value)
@@ -125,4 +180,20 @@ defmodule ServiceRadar.SRQLDeviceMatcher do
   end
 
   defp trim_like_wildcards(value), do: value
+
+  defp normalize_bool(value) when is_boolean(value), do: value
+
+  defp normalize_bool(value) when is_binary(value) do
+    case String.downcase(String.trim(value)) do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      _ -> value
+    end
+  end
+
+  defp normalize_bool(value), do: value
 end

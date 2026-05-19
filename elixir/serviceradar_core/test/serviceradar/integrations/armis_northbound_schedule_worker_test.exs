@@ -159,7 +159,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest do
     Process.put(:support_available, true)
 
     Application.put_env(:serviceradar_core, :armis_northbound_active_job_exists_fun, fn
-      _worker, %{"integration_source_id" => "source-future", "manual" => false} -> true
+      _worker, %{"integration_source_id" => "source-future"} -> true
       _worker, _args_filter -> false
     end)
 

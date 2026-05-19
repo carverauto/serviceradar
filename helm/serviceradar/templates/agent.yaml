@@ -3,6 +3,8 @@
 {{- $agentResources := default (dict) $agentVals.resources -}}
 {{- $agentStorage := default (dict) (get $agentVals "checkersStorage") -}}
 {{- $agentEBPF := default (dict) (get $agentVals "ebpf") -}}
+{{- $agentCacheStorage := default (dict) (get $agentVals "cacheStorage") -}}
+{{- $agentRuntimeStorage := default (dict) (get $agentVals "runtimeStorage") -}}
 {{- $agentLimits := default (dict) $agentResources.limits -}}
 {{- $agentRequests := default (dict) $agentResources.requests -}}
 {{- $agentHostNetwork := true -}}
@@ -107,6 +109,8 @@ spec:
             mountPath: {{ default "/var/lib/serviceradar/checkers" $agentStorage.basePath | quote }}
           - name: cache-dir
             mountPath: /var/lib/serviceradar/cache
+          - name: runtime-dir
+            mountPath: {{ default "/var/lib/serviceradar/agent" $agentRuntimeStorage.basePath | quote }}
           - name: cert-data
             mountPath: /etc/serviceradar/certs
           {{- if $agentEBPFEnabled }}
@@ -131,6 +135,8 @@ spec:
               value: "/etc/serviceradar/agent.json"
             - name: LOG_LEVEL
               value: "info"
+            - name: SERVICERADAR_AGENT_RUNTIME_ROOT
+              value: {{ printf "%s/releases" (default "/var/lib/serviceradar/agent" $agentRuntimeStorage.basePath) | quote }}
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -162,7 +168,19 @@ spec:
         emptyDir: {}
         {{- end }}
       - name: cache-dir
+        {{- if $agentCacheStorage.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-agent-cache" $agentCacheStorage.existingClaim | quote }}
+        {{- else }}
         emptyDir: {}
+        {{- end }}
+      - name: runtime-dir
+        {{- if $agentRuntimeStorage.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-agent-runtime" $agentRuntimeStorage.existingClaim | quote }}
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}

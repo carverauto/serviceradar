@@ -224,7 +224,7 @@ if config_env() == :prod do
   end
 
   mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
-  mtr_retention_days = parse_int_env.("MTR_RETENTION_DAYS", 30) |> max(1) |> min(395)
+  mtr_retention_days = "MTR_RETENTION_DAYS" |> parse_int_env.(30) |> max(1) |> min(395)
 
   netflow_security_refresh_reschedule_seconds =
     "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
@@ -747,6 +747,33 @@ if config_env() == :prod do
     config :libcluster, topologies: topologies
   end
 
+  # Ansible integration retention + worker cadences. RetentionWorker
+  # treats `0` as "disabled" for run_detail_days; nil / unset for
+  # run_summary_days means "keep forever".
+  ansible_retention_run_detail_days =
+    "ANSIBLE_RETENTION_RUN_DETAIL_DAYS" |> parse_int_env.(90) |> max(0)
+
+  ansible_retention_run_summary_days =
+    case parse_int_env.("ANSIBLE_RETENTION_RUN_SUMMARY_DAYS", 0) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> nil
+    end
+
+  config :serviceradar_core,
+    ansible_retention_run_detail_days: ansible_retention_run_detail_days,
+    ansible_retention_run_summary_days: ansible_retention_run_summary_days,
+    ansible_retention_interval_seconds:
+      "ANSIBLE_RETENTION_INTERVAL_SECONDS" |> parse_int_env.(86_400) |> max(3_600),
+    awx_controller_health_interval_seconds:
+      "AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS" |> parse_int_env.(30) |> max(5),
+    awx_run_watchdog_interval_seconds:
+      "AWX_RUN_WATCHDOG_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
+    awx_schedule_evaluator_interval_seconds:
+      "AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS" |> parse_int_env.(60) |> max(30),
+    ansible_catalog_base_dir:
+      System.get_env("ANSIBLE_CATALOG_BASE_DIR") ||
+        Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
+
   config :serviceradar_core,
     cluster_enabled: cluster_enabled
 
@@ -762,43 +789,22 @@ if config_env() == :prod do
     cloak_key: cloak_key
 
   config :serviceradar_core,
-    mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+    mapper_topology_edge_stale_minutes:
+      parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
   config :serviceradar_core,
     mtr_automation_enabled: mtr_automation_enabled,
     mtr_retention_days: mtr_retention_days,
-    mtr_automation_baseline_enabled: parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
-    mtr_automation_trigger_enabled: parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
-    mtr_automation_consensus_enabled: parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
-
-  # Ansible integration retention + worker cadences. RetentionWorker
-  # treats `0` as "disabled" for run_detail_days; nil / unset for
-  # run_summary_days means "keep forever".
-  ansible_retention_run_detail_days =
-    parse_int_env.("ANSIBLE_RETENTION_RUN_DETAIL_DAYS", 90) |> max(0)
-
-  ansible_retention_run_summary_days =
-    case parse_int_env.("ANSIBLE_RETENTION_RUN_SUMMARY_DAYS", 0) do
-      n when is_integer(n) and n > 0 -> n
-      _ -> nil
-    end
+    mtr_automation_baseline_enabled:
+      parse_bool.("MTR_AUTOMATION_BASELINE_ENABLED", mtr_automation_enabled),
+    mtr_automation_trigger_enabled:
+      parse_bool.("MTR_AUTOMATION_TRIGGER_ENABLED", mtr_automation_enabled),
+    mtr_automation_consensus_enabled:
+      parse_bool.("MTR_AUTOMATION_CONSENSUS_ENABLED", mtr_automation_enabled)
 
   config :serviceradar_core,
-    ansible_retention_run_detail_days: ansible_retention_run_detail_days,
-    ansible_retention_run_summary_days: ansible_retention_run_summary_days,
-    ansible_retention_interval_seconds:
-      parse_int_env.("ANSIBLE_RETENTION_INTERVAL_SECONDS", 86_400) |> max(3_600),
-    awx_controller_health_interval_seconds:
-      parse_int_env.("AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS", 30) |> max(5),
-    awx_run_watchdog_interval_seconds:
-      parse_int_env.("AWX_RUN_WATCHDOG_INTERVAL_SECONDS", 60) |> max(30),
-    awx_schedule_evaluator_interval_seconds:
-      parse_int_env.("AWX_SCHEDULE_EVALUATOR_INTERVAL_SECONDS", 60) |> max(30),
-    ansible_catalog_base_dir:
-      System.get_env("ANSIBLE_CATALOG_BASE_DIR") || Path.join(System.tmp_dir!(), "serviceradar_ansible_catalog")
-
-  config :serviceradar_core,
-    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
+    run_startup_migrations:
+      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes)
 
   # Status handler for agent-gateway push results (core-elx only)
   config :serviceradar_core,
@@ -847,6 +853,25 @@ if config_env() == :prod do
     end
 
   # Oban configuration
+  object_store_retention_enabled =
+    System.get_env("OBJECT_STORE_RETENTION_ENABLED", "false") in ~w(true 1 yes)
+
+  object_store_retention_dry_run =
+    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "true") in ~w(true 1 yes)
+
+  object_store_retention_cron =
+    System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
+
+  object_store_retention_crontab =
+    if object_store_retention_enabled do
+      [
+        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker,
+         args: %{"enabled" => true}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -864,23 +889,34 @@ if config_env() == :prod do
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
       integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
-      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
+      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "5")
     ],
     plugins: [
       Oban.Plugins.Pruner,
       {Oban.Plugins.Cron,
-       crontab: [
-         {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker,
-          queue: :maintenance},
-         {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-         {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
-         {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
-         {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
-          queue: :maintenance},
-         {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance}
-       ]}
+       crontab:
+         [
+           {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
+            ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+           {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
+           {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
+           {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+           {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
+            queue: :maintenance},
+           {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
+            queue: :maintenance}
+         ] ++ object_store_retention_crontab}
     ],
     peer: Oban.Peers.Database
+
+  config :serviceradar_core, :object_store_retention,
+    enabled?: object_store_retention_enabled,
+    dry_run?: object_store_retention_dry_run,
+    agent_release_keep_latest:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "5"),
+    datasvc_timeout_ms:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 
   if nats_enabled && nats_creds_file in [nil, ""] do
     raise """

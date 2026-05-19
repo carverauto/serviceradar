@@ -535,6 +535,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.AnalysisDispatchManagerTest do
     assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
+  # credo:disable-for-next-line Jump.CredoChecks.TooManyAssertions
   test "emits worker alert state when capability failover is exhausted" do
     relay_session_id = "relay-analysis-dispatch-failover-exhausted"
     branch_id = "analysis-http-failover-exhausted"

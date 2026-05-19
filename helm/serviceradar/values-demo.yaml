@@ -250,6 +250,7 @@ webNg:
     edge: 1
     integrations: 1
     maintenance: 1
+    webMaintenance: 2
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true
@@ -576,6 +577,14 @@ certs:
     # Leave disabled in demo so pre-upgrade cert preservation is stable and
     # upgrades do not rotate the runtime CA unexpectedly.
     enabled: false
+
+objectStoreRetention:
+  enabled: true
+  dryRun: false
+  agentReleaseKeepLatest: 5
+  pluginOrphanGraceSeconds: 604800
+  datasvcTimeoutMs: 30000
+  webNgMaintenanceQueueLimit: 1
 
 bmpCollector:
   enabled: true

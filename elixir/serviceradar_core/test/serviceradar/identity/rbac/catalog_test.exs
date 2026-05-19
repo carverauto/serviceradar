@@ -23,6 +23,8 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     devices.remote_access.ssh.open
     devices.remote_access.ssh.target.override
     devices.remote_access.rdp.open
+    devices.remote_access.app.open
+    devices.remote_access.tcp.open
   )
 
   test "remote-access open permissions are admin-only catalog keys" do

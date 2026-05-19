@@ -23,6 +23,9 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @callback start_link(map() | struct(), pid(), keyword()) :: GenServer.on_start()
   @callback send_input(pid(), binary()) :: :ok | {:error, term()}
+  @callback send_application_request(pid(), map()) :: :ok | {:error, term()}
+  @callback send_application_data(pid(), map()) :: :ok | {:error, term()}
+  @callback send_tcp_data(pid(), map()) :: :ok | {:error, term()}
   @callback send_desktop_control(pid(), map()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
@@ -47,6 +50,21 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     desktop.quality
     desktop.disconnect
   )
+  @application_frame_types ~w(
+    app_response_metadata
+    app_data
+    app_progress
+    app_close
+    app_error
+    app_outcome
+  )
+  @tcp_frame_types ~w(
+    tcp_data
+    tcp_progress
+    tcp_close
+    tcp_error
+    tcp_outcome
+  )
 
   def child_spec({session, owner, opts}) do
     %{
@@ -62,6 +80,18 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
     GenServer.call(pid, {:send_input, data})
+  end
+
+  def send_application_request(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_application_request, payload})
+  end
+
+  def send_application_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_application_data, payload})
+  end
+
+  def send_tcp_data(pid, payload) when is_pid(pid) and is_map(payload) do
+    GenServer.call(pid, {:send_tcp_data, payload})
   end
 
   def send_desktop_control(pid, frame) when is_pid(pid) and is_map(frame) do
@@ -90,7 +120,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       session: session,
       owner: owner,
       command_bus: Keyword.get(opts, :command_bus, AgentCommandBus),
-      required_gateway_node: Keyword.get(opts, :required_gateway_node),
+      required_gateway_node: required_gateway_node(session, opts),
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
       broker_registry: Keyword.get(opts, :broker_registry, RemoteAccessBrokerRegistry),
@@ -109,8 +139,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     rows = Keyword.get(opts, :rows)
 
     case open_frame_data(session, opts, frame_auth) do
-      {:ok, data} ->
-        case send_frame(state, "open", data, cols, rows, nil) do
+      {:ok, {frame_type, data}} ->
+        case send_frame(state, frame_type, data, cols, rows, nil) do
           :ok ->
             case register_broker(state) do
               :ok ->
@@ -148,6 +178,44 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     result = send_frame(state, "data", data, nil, nil, nil)
     write_audit(state, :remote_access_session_input, %{input_bytes: byte_size(data)})
     state = if result == :ok, do: count_recording_input(state, data), else: state
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_application_request, payload}, _from, state) do
+    result = send_frame(state, "app_request", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_application_request, %{
+      request_id: string_value(payload, "request_id"),
+      method: string_value(payload, "method"),
+      path: string_value(payload, "path")
+    })
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_application_data, payload}, _from, state) do
+    result = send_frame(state, "app_data", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_application_data, %{
+      request_id: string_value(payload, "request_id"),
+      direction: string_value(payload, "direction"),
+      sequence: value(payload, "sequence"),
+      body_bytes: body_byte_count(payload)
+    })
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:send_tcp_data, payload}, _from, state) do
+    result = send_frame(state, "tcp_data", Jason.encode!(payload), nil, nil, nil)
+
+    write_audit(state, :remote_access_tcp_data, %{
+      connection_id: string_value(payload, "connection_id"),
+      direction: string_value(payload, "direction"),
+      sequence: value(payload, "sequence"),
+      body_bytes: body_byte_count(payload)
+    })
+
     {:reply, result, state}
   end
 
@@ -227,6 +295,20 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     _ = handle_file_transfer_frame(frame, state)
     send(state.owner, {:remote_access_file_transfer_frame, frame})
     {:noreply, state}
+  end
+
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when frame_type in @application_frame_types do
+    send(state.owner, {:remote_access_application_frame, frame})
+    state = record_application_or_tcp_frame(:application, frame_type, frame, state)
+    maybe_close_application_or_tcp_frame(frame_type, frame, state)
+  end
+
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when frame_type in @tcp_frame_types do
+    send(state.owner, {:remote_access_tcp_frame, frame})
+    state = record_application_or_tcp_frame(:tcp, frame_type, frame, state)
+    maybe_close_application_or_tcp_frame(frame_type, frame, state)
   end
 
   defp handle_remote_access_frame(%{frame_type: frame_type, reason: reason}, state)
@@ -509,6 +591,185 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     update_in(state.recording_stats.event_count, &(&1 + 1))
   end
 
+  defp record_application_or_tcp_frame(kind, frame_type, frame, state) do
+    payload = frame |> value("data") |> decode_frame_data()
+    metadata = application_tcp_metadata(kind, frame_type, frame, payload)
+    write_audit(state, application_tcp_audit_action(kind, frame_type, payload), metadata)
+
+    count_recording_application_tcp_event(state, kind, frame_type, metadata)
+  end
+
+  defp count_recording_application_tcp_event(
+         %{recording: nil} = state,
+         _kind,
+         _frame_type,
+         _metadata
+       ), do: state
+
+  defp count_recording_application_tcp_event(state, kind, frame_type, metadata) do
+    record_replay_event(state, %{
+      stream: kind,
+      event_type: frame_type,
+      metadata: metadata,
+      sequence: state.recording_stats.event_count + 1
+    })
+
+    update_in(state.recording_stats, fn stats ->
+      %{
+        stats
+        | input_bytes: stats.input_bytes + input_byte_count(metadata),
+          output_bytes: stats.output_bytes + output_byte_count(metadata),
+          event_count: stats.event_count + 1
+      }
+    end)
+  end
+
+  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
+       when frame_type in ["app_error", "tcp_error"] do
+    reason = agent_frame_reason(frame, frame_type)
+    send(state.owner, {:remote_access_closed, reason})
+    lifecycle_close(state, "error", reason)
+    write_audit(state, :remote_access_session_failed, %{close_reason: reason})
+    state = finish_recording_for_close(state, "error", reason)
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
+       when frame_type in ["app_close", "tcp_close"] do
+    reason = agent_frame_reason(frame, frame_type)
+    send(state.owner, {:remote_access_closed, reason})
+    lifecycle_close(state, "close", reason)
+    write_audit(state, :remote_access_session_closed, %{close_reason: reason})
+    state = finish_recording_for_close(state, "close", reason)
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp maybe_close_application_or_tcp_frame(_frame_type, _frame, state), do: {:noreply, state}
+
+  defp agent_frame_reason(frame, fallback_reason) do
+    string_value(frame, "reason") ||
+      frame
+      |> value("data")
+      |> decode_frame_data()
+      |> frame_payload_reason() ||
+      fallback_reason
+  end
+
+  defp frame_payload_reason(payload) do
+    string_value(payload, "message") || string_value(payload, "reason")
+  end
+
+  defp decode_frame_data(data) when is_binary(data) do
+    case Jason.decode(data) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _other -> %{}
+    end
+  end
+
+  defp decode_frame_data(_data), do: %{}
+
+  defp application_tcp_metadata(kind, frame_type, frame, payload) do
+    %{
+      kind: Atom.to_string(kind),
+      frame_type: frame_type,
+      agent_id: string_value(frame, "agent_id"),
+      gateway_node: string_value(frame, "gateway_node"),
+      timestamp: value(frame, "timestamp"),
+      request_id: string_value(payload, "request_id"),
+      connection_id: string_value(payload, "connection_id"),
+      target_id: string_value(payload, "target_id"),
+      status: string_value(payload, "status"),
+      code: string_value(payload, "code"),
+      status_code: positive_int(value(payload, "status_code")),
+      direction: string_value(payload, "direction"),
+      sequence: positive_int(value(payload, "sequence")),
+      eof: truthy?(value(payload, "eof")),
+      request_bytes: positive_int(value(payload, "request_bytes")),
+      response_bytes: positive_int(value(payload, "response_bytes")),
+      bytes_in: positive_int(value(payload, "bytes_in")),
+      bytes_out: positive_int(value(payload, "bytes_out")),
+      body_bytes: body_byte_count(payload)
+    }
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
+  end
+
+  defp application_tcp_audit_action(:application, "app_response_metadata", _payload),
+    do: :remote_access_application_response
+
+  defp application_tcp_audit_action(:application, "app_data", _payload),
+    do: :remote_access_application_data
+
+  defp application_tcp_audit_action(:application, "app_progress", %{"status" => "started"}),
+    do: :remote_access_application_started
+
+  defp application_tcp_audit_action(:application, "app_progress", _payload),
+    do: :remote_access_application_progress
+
+  defp application_tcp_audit_action(:application, "app_error", %{"status" => "quota_exhausted"}),
+    do: :remote_access_application_quota_exhausted
+
+  defp application_tcp_audit_action(:application, "app_error", _payload),
+    do: :remote_access_application_failed
+
+  defp application_tcp_audit_action(:application, "app_close", _payload),
+    do: :remote_access_application_closed
+
+  defp application_tcp_audit_action(:application, _frame_type, _payload),
+    do: :remote_access_application_event
+
+  defp application_tcp_audit_action(:tcp, "tcp_data", _payload), do: :remote_access_tcp_data
+
+  defp application_tcp_audit_action(:tcp, "tcp_progress", %{"status" => "started"}),
+    do: :remote_access_tcp_started
+
+  defp application_tcp_audit_action(:tcp, "tcp_progress", _payload),
+    do: :remote_access_tcp_progress
+
+  defp application_tcp_audit_action(:tcp, "tcp_error", %{"status" => "quota_exhausted"}),
+    do: :remote_access_tcp_quota_exhausted
+
+  defp application_tcp_audit_action(:tcp, "tcp_error", _payload), do: :remote_access_tcp_failed
+  defp application_tcp_audit_action(:tcp, "tcp_close", _payload), do: :remote_access_tcp_closed
+  defp application_tcp_audit_action(:tcp, _frame_type, _payload), do: :remote_access_tcp_event
+
+  defp input_byte_count(%{direction: "request", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp input_byte_count(%{direction: "client", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp input_byte_count(%{request_bytes: bytes}) when is_integer(bytes), do: bytes
+  defp input_byte_count(%{bytes_in: bytes}) when is_integer(bytes), do: bytes
+  defp input_byte_count(_metadata), do: 0
+
+  defp output_byte_count(%{direction: "response", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp output_byte_count(%{direction: "upstream", body_bytes: bytes}) when is_integer(bytes),
+    do: bytes
+
+  defp output_byte_count(%{response_bytes: bytes}) when is_integer(bytes), do: bytes
+  defp output_byte_count(%{bytes_out: bytes}) when is_integer(bytes), do: bytes
+  defp output_byte_count(_metadata), do: 0
+
+  defp body_byte_count(payload) when is_map(payload) do
+    payload
+    |> value("data")
+    |> body_data_byte_count()
+  end
+
+  defp body_byte_count(_payload), do: nil
+
+  defp body_data_byte_count(data) when is_binary(data) do
+    case Base.decode64(data) do
+      {:ok, decoded} -> byte_size(decoded)
+      :error -> byte_size(data)
+    end
+  end
+
+  defp body_data_byte_count(_data), do: nil
+
   defp desktop_control_payload(state, frame) do
     frame = stringify_nested(frame)
     frame_type = string_value(frame, "frame_type")
@@ -756,10 +1017,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp open_frame_data(session, opts, frame_auth) do
     protocol = string_option(session, opts, "protocol", @default_protocol)
 
-    if protocol in ["rdp", "desktop"] do
-      rdp_open_frame_data(session, opts, protocol, frame_auth)
-    else
-      ssh_open_frame_data(session, opts, protocol, frame_auth)
+    case protocol do
+      "rdp" -> rdp_open_frame_data(session, opts, protocol, frame_auth)
+      "desktop" -> rdp_open_frame_data(session, opts, protocol, frame_auth)
+      "app" -> application_open_frame_data(session, frame_auth)
+      "application" -> application_open_frame_data(session, frame_auth)
+      "tcp" -> tcp_open_frame_data(session, frame_auth)
+      _protocol -> ssh_open_frame_data(session, opts, protocol, frame_auth)
     end
   end
 
@@ -801,7 +1065,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
         |> Map.new()
         |> Jason.encode!()
 
-      {:ok, data}
+      {:ok, {"open", data}}
     end
   end
 
@@ -862,7 +1126,71 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           |> reject_blank_map()
           |> Jason.encode!()
 
-        {:ok, payload}
+        {:ok, {"open", payload}}
+    end
+  end
+
+  defp application_open_frame_data(session, frame_auth) do
+    session_metadata = metadata(session)
+
+    data =
+      encode_typed_open_payload(%{
+        target_id: string_value(session_metadata, "target_id"),
+        session_id: session_id(session),
+        scheme: string_value(session_metadata, "upstream_scheme"),
+        upstream_host: string_value(session, "target_host"),
+        upstream_port: positive_int(value(session, "target_port")),
+        host_header: string_value(session_metadata, "upstream_host_header"),
+        sni: string_value(session_metadata, "upstream_sni"),
+        tls_policy: policy_metadata(session_metadata, "tls_policy"),
+        ca_bundle_ref: string_value(session_metadata, "ca_bundle_ref"),
+        allowed_methods: list_metadata(session_metadata, "allowed_methods"),
+        allowed_path_prefixes: list_metadata(session_metadata, "allowed_path_prefixes"),
+        header_policy: policy_metadata(session_metadata, "header_policy"),
+        cookie_policy: policy_metadata(session_metadata, "cookie_policy"),
+        quota_policy: policy_metadata(session_metadata, "quota_policy"),
+        approval_id: string_value(session, "approval_id"),
+        recording_policy: policy_option(session, [], "recording_policy"),
+        enhanced_recording_policy: policy_option(session, [], "enhanced_recording_policy"),
+        metadata: policy_metadata(session_metadata, "target_metadata"),
+        frame_auth: frame_auth_open_payload(frame_auth)
+      })
+
+    {:ok, {"app_open", data}}
+  end
+
+  defp tcp_open_frame_data(session, frame_auth) do
+    session_metadata = metadata(session)
+    session_id = session_id(session)
+
+    data =
+      encode_typed_open_payload(%{
+        target_id: string_value(session_metadata, "target_id"),
+        session_id: session_id,
+        connection_id: string_value(session_metadata, "connection_id") || "#{session_id}:tcp",
+        upstream_host: string_value(session, "target_host"),
+        upstream_port: positive_int(value(session, "target_port")),
+        protocol_name: string_value(session_metadata, "protocol_name"),
+        idle_timeout_seconds: positive_int(value(session, "idle_timeout_seconds")),
+        absolute_timeout_seconds: positive_int(value(session, "absolute_timeout_seconds")),
+        quota_policy: policy_metadata(session_metadata, "quota_policy"),
+        approval_id: string_value(session, "approval_id"),
+        recording_policy: policy_option(session, [], "recording_policy"),
+        enhanced_recording_policy: policy_option(session, [], "enhanced_recording_policy"),
+        metadata: policy_metadata(session_metadata, "target_metadata"),
+        frame_auth: frame_auth_open_payload(frame_auth)
+      })
+
+    {:ok, {"tcp_open", data}}
+  end
+
+  defp required_gateway_node(session, opts) do
+    case Keyword.get(opts, :required_gateway_node) do
+      nil ->
+        string_value(session, "gateway_node") || string_value(metadata(session), "gateway_node")
+
+      value ->
+        value
     end
   end
 
@@ -1257,6 +1585,29 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp sanitize_policy(nil), do: nil
   defp sanitize_policy(policy) when is_map(policy), do: CredentialRedactor.redact(policy)
   defp sanitize_policy(_policy), do: nil
+
+  defp encode_typed_open_payload(payload) do
+    payload
+    |> Enum.reject(fn {_key, value} -> empty_payload_value?(value) end)
+    |> Map.new()
+    |> CredentialRedactor.redact()
+    |> Jason.encode!()
+  end
+
+  defp empty_payload_value?(value) when value in [nil, "", 0], do: true
+  defp empty_payload_value?(value) when is_map(value), do: map_size(value) == 0
+  defp empty_payload_value?(value) when is_list(value), do: value == []
+  defp empty_payload_value?(_value), do: false
+
+  defp policy_metadata(session_metadata, key) do
+    session_metadata
+    |> map_value(key)
+    |> normalize_metadata()
+    |> non_empty_map()
+    |> sanitize_policy()
+  end
+
+  defp list_metadata(session_metadata, key), do: list_value(session_metadata, key)
 
   defp metadata(session), do: session |> value("metadata") |> normalize_metadata()
 

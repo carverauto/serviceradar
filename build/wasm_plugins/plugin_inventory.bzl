@@ -36,6 +36,12 @@ WASM_BUILD_TARGETS = [
         "tags": [],
     },
     {
+        "name": "sample_northbound",
+        "srcs": ["//go/cmd/wasm-plugins/sample-northbound:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/sample-northbound:main.go",
+        "tags": [],
+    },
+    {
         "name": "proxmox_inventory",
         "srcs": ["//go/cmd/wasm-plugins/proxmox:srcs"],
         "main_go": "//go/cmd/wasm-plugins/proxmox:main.go",
@@ -140,6 +146,17 @@ WASM_PLUGIN_BUNDLES = [
         "entries": [
             ("plugin.yaml", "//go/cmd/wasm-plugins/awx:plugin.inventory_sync.yaml"),
             ("plugin.wasm", ":awx_wasm"),
+        ],
+    },
+    {
+        "name": "sample_northbound_bundle",
+        "plugin_id": "sample-northbound-nms",
+        "repository_name": "wasm-plugin-sample-northbound-nms",
+        "wasm_target": ":sample_northbound_wasm",
+        "entries": [
+            ("plugin.yaml", "//go/cmd/wasm-plugins/sample-northbound:plugin.yaml"),
+            ("plugin.wasm", ":sample_northbound_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/sample-northbound:config.schema.json"),
         ],
     },
     {

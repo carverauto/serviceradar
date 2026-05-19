@@ -48,6 +48,7 @@ var (
 	errResolverPathNotSet       = errors.New("resolver path not configured")
 	errAccountKeyJWTRequired    = errors.New("account public key and JWT are required")
 	errObjectTooLarge           = errors.New("object exceeds configured maximum size")
+	errInvalidPageToken         = errors.New("invalid page token")
 )
 
 // ErrCASMismatch indicates a compare-and-swap failure due to a stale revision.

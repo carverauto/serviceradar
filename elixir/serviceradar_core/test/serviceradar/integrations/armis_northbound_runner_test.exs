@@ -112,6 +112,53 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
            ]
   end
 
+  test "build_bulk_payload uses legacy upsert shape for numeric Armis IDs" do
+    payload =
+      ArmisNorthboundRunner.build_bulk_payload("availability", [
+        %{
+          armis_device_id: "101",
+          is_available: true,
+          device_ids: ["dev-a"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        },
+        %{
+          armis_device_id: 202,
+          is_available: false,
+          device_ids: ["dev-b"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        }
+      ])
+
+    assert payload == [
+             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => true}},
+             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => false}}
+           ]
+  end
+
+  test "execute_batches skips token fetch when there are no candidates" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_key" => "key-1", "api_secret" => "secret-1"}
+    }
+
+    token_fetcher = fn _source ->
+      flunk("empty candidate runs should not fetch an Armis token")
+    end
+
+    assert {:ok, result} =
+             ArmisNorthboundRunner.execute_batches(source, [], token_fetcher: token_fetcher)
+
+    assert result.device_count == 0
+    assert result.updated_count == 0
+    assert result.error_count == 0
+    assert result.batch_count == 0
+  end
+
   test "batch_size and batch_candidates honor configured bulk chunking" do
     source = %{settings: %{"batch_size" => "2"}}
 
@@ -145,6 +192,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
              [Enum.at(candidates, 0), Enum.at(candidates, 1)],
              [Enum.at(candidates, 2)]
            ]
+  end
+
+  test "agent availability candidate query casts metadata bind as text" do
+    query =
+      ArmisNorthboundRunner.candidates_query(%{
+        id: "source-1",
+        northbound_availability_source_agent_id: "agent-1"
+      })
+
+    {sql, _params} = Ecto.Adapters.SQL.to_sql(:all, ServiceRadar.Repo, query)
+
+    assert sql =~ "'availability_source_agent_id', $1::text"
   end
 
   test "execute_batches authenticates, batches requests, and aggregates counts" do
@@ -582,6 +641,146 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert raw_data =~ ~s("integration_type":"armis")
   end
 
+  test "run_for_source finalizes started run when candidate loading fails" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    start_run = fn _source, _actor, _opts -> {:ok, %{id: "run-load-failed"}} end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, opts ->
+      send(parent, {:finish_run, action, attrs, opts})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    record_event = fn attrs, _actor ->
+      send(parent, {:record_event, attrs})
+      {:ok, %{id: "event-load-failed", attrs: attrs}}
+    end
+
+    load_candidates = fn _src, _opts -> {:error, :missing_credentials} end
+
+    assert {:error, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               record_event: record_event,
+               load_candidates: load_candidates
+             )
+
+    assert result.error_message =~ ":missing_credentials"
+
+    assert_received {:finish_run, :finish_failed,
+                     %{
+                       device_count: 0,
+                       updated_count: 0,
+                       skipped_count: 0,
+                       error_count: 1,
+                       error_message: error_message,
+                       metadata: %{batch_count: 0, errors: [%{reason: serialized_reason}]}
+                     }, %{status: :failed}}
+
+    assert error_message =~ ":missing_credentials"
+    assert serialized_reason =~ ":missing_credentials"
+
+    assert_received {:update_source, :northbound_failed,
+                     %{
+                       result: :failed,
+                       device_count: 0,
+                       updated_count: 0,
+                       skipped_count: 1,
+                       error_message: source_error
+                     }}
+
+    assert source_error =~ ":missing_credentials"
+
+    assert_received {:record_event,
+                     %{
+                       status_code: "armis_northbound_bulk_update_failed",
+                       raw_data: raw_data
+                     }}
+
+    assert raw_data =~ "\"error_count\":1"
+  end
+
+  test "run_for_source finalizes started run when bulk execution raises" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{api_key: "key", api_secret: "secret"}
+    }
+
+    actor = %{role: :system}
+    parent = self()
+
+    start_run = fn _source, _actor, _opts -> {:ok, %{id: "run-execute-crashed"}} end
+
+    update_source = fn _src, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    finish_run = fn _run, action, attrs, _actor, opts ->
+      send(parent, {:finish_run, action, attrs, opts})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
+    record_event = fn attrs, _actor ->
+      send(parent, {:record_event, attrs})
+      {:ok, %{id: "event-execute-crashed", attrs: attrs}}
+    end
+
+    load_candidates = fn _src, _opts ->
+      {:ok,
+       [
+         %{
+           armis_device_id: "armis-1",
+           is_available: true,
+           device_id: "d1",
+           sync_service_id: "source-1",
+           metadata: %{}
+         }
+       ]}
+    end
+
+    execute_batches = fn _src, _collapsed, _opts ->
+      raise RuntimeError, "bulk API client crashed"
+    end
+
+    assert {:error, %{result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               start_run: start_run,
+               update_source: update_source,
+               finish_run: finish_run,
+               record_event: record_event,
+               load_candidates: load_candidates,
+               execute_batches: execute_batches
+             )
+
+    assert result.error_message =~ "bulk API client crashed"
+
+    assert_received {:update_source, :northbound_start, %{device_count: 1}}
+    assert_received {:finish_run, :finish_failed, %{device_count: 1, error_count: 1}, _opts}
+    assert_received {:update_source, :northbound_failed, %{device_count: 1, skipped_count: 1}}
+  end
+
   test "reconcile_stale_runs marks only orphaned stale running rows as timeout" do
     parent = self()
     actor = %{role: :system}
@@ -613,6 +812,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       {:ok, %{id: run.id, action: action, attrs: attrs}}
     end
 
+    update_source = fn _source, action, attrs, _actor ->
+      send(parent, {:update_source, action, attrs})
+      {:ok, %{action: action, attrs: attrs}}
+    end
+
     oban_state = fn
       101 -> nil
       102 -> nil
@@ -624,6 +828,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
              ArmisNorthboundRunner.reconcile_stale_runs(source, actor,
                list_runs: list_runs,
                finish_run: finish_run,
+               update_source: update_source,
                oban_state: oban_state,
                now: now,
                stale_run_cutoff_seconds: 120
@@ -633,6 +838,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert attrs.error_message == "Marked timed out after orphaned Oban job"
     assert attrs.metadata["reconciled"] == true
     assert attrs.metadata["reason"] == "orphaned_oban_job"
+
+    assert_received {:update_source, :northbound_failed,
+                     %{
+                       result: :timeout,
+                       device_count: 0,
+                       updated_count: 0,
+                       skipped_count: 0,
+                       error_message: "Marked timed out after orphaned Oban job"
+                     }}
 
     refute_received {:finish_run, "run-fresh", _, _, _}
     refute_received {:finish_run, "run-active", _, _, _}

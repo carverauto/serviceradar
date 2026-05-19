@@ -199,7 +199,7 @@ defmodule ServiceRadar.Observability.NetflowSettings do
 
     attribute :geoip_enabled, :boolean do
       allow_nil? false
-      default true
+      default false
       public? true
     end
 

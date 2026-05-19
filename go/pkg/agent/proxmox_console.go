@@ -543,8 +543,21 @@ func (m *proxmoxConsoleManager) signConsoleFrame(frame *proto.ConsoleFrame) {
 	frame.PayloadSha256 = signed.PayloadSHA256
 	frame.Signature = signed.Signature
 
-	if frame.GetFrameType() == consoleFrameTypeClose {
+	if shouldDeleteFrameAuthenticator(frame.GetFrameType()) {
 		m.deleteFrameAuthenticator(frame.GetSessionId())
+	}
+}
+
+func shouldDeleteFrameAuthenticator(frameType string) bool {
+	switch frameType {
+	case consoleFrameTypeClose,
+		remoteaccess.FrameTypeApplicationClose,
+		remoteaccess.FrameTypeApplicationError,
+		remoteaccess.FrameTypeTCPClose,
+		remoteaccess.FrameTypeTCPError:
+		return true
+	default:
+		return false
 	}
 }
 

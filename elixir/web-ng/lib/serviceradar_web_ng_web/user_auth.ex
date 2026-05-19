@@ -48,21 +48,10 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   def log_in_user(conn, user, params \\ %{}) do
     raw_return_to = get_session(conn, :user_return_to) || params["return_to"] || ~p"/dashboard"
     return_to = sanitize_return_path(raw_return_to)
-    session_started_at = DateTime.to_unix(DateTime.utc_now())
-    max_age_seconds = session_absolute_timeout_seconds()
 
-    case Guardian.create_access_token(user) do
-      {:ok, token, _claims} ->
-        conn
-        |> put_session(@user_token_key, token)
-        |> put_session(@session_started_key, session_started_at)
-        |> put_session(@sudo_at_key, session_started_at)
-        |> put_identity_claims_session(params)
-        |> delete_session(:user_return_to)
-        |> put_session(:live_socket_id, "users_sessions:#{user.id}")
-        |> configure_session(renew: true, max_age: max_age_seconds)
-        |> assign(:current_user, user)
-        |> redirect(to: return_to)
+    case put_user_session(conn, user, params) do
+      {:ok, conn} ->
+        redirect(conn, to: return_to)
 
       {:error, _reason} ->
         conn
@@ -70,6 +59,44 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
         |> redirect(to: ~p"/users/log-in")
     end
   end
+
+  @doc """
+  Establishes a Guardian-backed browser session without redirecting.
+
+  Gateway proxy authentication uses this after validating the upstream JWT so
+  Phoenix LiveView navigation can authenticate from the normal session token.
+  """
+  def put_user_session(conn, user, params \\ %{}) do
+    session_started_at = DateTime.to_unix(DateTime.utc_now())
+    max_age_seconds = session_absolute_timeout_seconds()
+
+    case Guardian.create_access_token(user) do
+      {:ok, token, _claims} ->
+        {:ok,
+         conn
+         |> put_session(@user_token_key, token)
+         |> put_session(@session_started_key, session_started_at)
+         |> put_session(@sudo_at_key, session_started_at)
+         |> put_identity_claims_session(params)
+         |> delete_session(:user_return_to)
+         |> put_session(:live_socket_id, "users_sessions:#{user.id}")
+         |> configure_session(renew: true, max_age: max_age_seconds)
+         |> assign(:current_user, user)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Builds the same authenticated scope used by session-backed requests.
+  """
+  def scope_for_user(user, opts \\ []), do: create_scope(user, opts)
+
+  @doc """
+  Sanitizes identity claims before placing them in session or socket scope.
+  """
+  def sanitize_identity_claims(claims), do: normalize_identity_claims(claims)
 
   @doc """
   Logs the user out.

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_base_url": {
+      "type": "string",
+      "default": "mock://sample-nms",
+      "description": "Simulated external NMS API base URL."
+    },
+    "inventory_prefix": {
+      "type": "string",
+      "default": "nms"
+    },
+    "default_policy_state": {
+      "type": "string",
+      "default": "compliant"
+    },
+    "external_url_template": {
+      "type": "string",
+      "default": "https://nms.example.local/devices/%s"
+    },
+    "simulated_latency_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 23
+    },
+    "interface_default_vlan": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4094,
+      "default": 100
+    }
+  }
+}

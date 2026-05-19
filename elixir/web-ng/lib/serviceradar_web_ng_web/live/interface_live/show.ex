@@ -4,10 +4,16 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_history: 1]
+
+  alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.Helpers.InterfaceTypes
+
+  require Logger
 
   @snmp_metrics_limit 3600
 
@@ -42,6 +48,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:group_modal_open, false)
      |> assign(:group_modal_group, nil)
      |> assign(:group_form, to_form(%{}, as: :group))
+     |> assign(:northbound_history, [])
+     |> assign(:northbound_history_error, nil)
+     |> assign(:can_view_northbound_history, false)
      |> assign(:loading, true)
      |> assign(:error, nil)
      |> assign(:metrics, %{panels: [], error: nil, message: nil})}
@@ -63,6 +72,15 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
 
     # Load metrics for this interface
     metrics = load_interface_metrics(srql_module, device_uid, interface, settings, scope)
+    can_view_northbound_history = RBAC.can?(scope, "northbound.actions.view")
+
+    {northbound_history, northbound_history_error} =
+      load_northbound_interface_history(
+        scope,
+        device_uid,
+        interface_uid,
+        can_view_northbound_history
+      )
 
     page_title =
       if interface do
@@ -110,6 +128,9 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
      |> assign(:loading, false)
      |> assign(:error, error)
      |> assign(:metrics, metrics)
+     |> assign(:northbound_history, northbound_history)
+     |> assign(:northbound_history_error, northbound_history_error)
+     |> assign(:can_view_northbound_history, can_view_northbound_history)
      |> assign(:page_title, page_title)}
   end
 
@@ -418,6 +439,25 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     groups ++ [new_group]
   end
 
+  defp load_northbound_interface_history(_scope, _device_uid, _interface_uid, false), do: {[], nil}
+
+  defp load_northbound_interface_history(nil, _device_uid, _interface_uid, true), do: {[], nil}
+
+  defp load_northbound_interface_history(_scope, nil, _interface_uid, true), do: {[], nil}
+
+  defp load_northbound_interface_history(_scope, _device_uid, nil, true), do: {[], nil}
+
+  defp load_northbound_interface_history(scope, device_uid, interface_uid, true) do
+    case NorthboundHistory.list_for_interface(device_uid, interface_uid, scope: scope, limit: 10) do
+      {:ok, entries} ->
+        {entries, nil}
+
+      {:error, reason} ->
+        Logger.warning("Failed to load northbound interface action history: #{inspect(reason)}")
+        {[], "Failed to load task history."}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -526,6 +566,15 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
               </div>
             </div>
           </div>
+
+          <.northbound_action_history
+            :if={@can_view_northbound_history}
+            title="Task History"
+            subtitle="Recent actions for this interface"
+            entries={@northbound_history}
+            error={@northbound_history_error}
+            empty_message="No task invocations have been recorded for this interface yet."
+          />
 
           <%!-- Properties Grid --%>
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">

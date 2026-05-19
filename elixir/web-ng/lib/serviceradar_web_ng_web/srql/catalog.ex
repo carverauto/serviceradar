@@ -109,7 +109,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "uid",
         "gateway_id",
         "agent_id",
+        "availability_source_agent_id",
+        "available_from_agent",
+        "unavailable_from_agent",
         "is_available",
+        "is_active",
         "is_managed",
         "is_compliant",
         "is_trusted",
@@ -118,19 +122,22 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "vendor_name",
         "discovery_sources",
         "tags",
+        "include_inactive",
         "include_deleted"
       ],
       boolean_fields: [
         "is_available",
+        "is_active",
         "is_managed",
         "is_compliant",
         "is_trusted",
+        "include_inactive",
         "include_deleted"
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["discovery_sources", "tags"],
       # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)
-      stats_fields: ["type", "vendor_name", "risk_level", "is_available", "gateway_id"],
+      stats_fields: ["type", "vendor_name", "risk_level", "is_available", "is_active", "gateway_id"],
       downsample: false
     },
     %{

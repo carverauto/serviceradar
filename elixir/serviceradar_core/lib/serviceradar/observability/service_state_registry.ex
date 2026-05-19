@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   @streaming_plugin_capability "camera_media_stream"
   @streaming_plugin_output "serviceradar.camera_stream.v1"
+  @plugin_result_output "serviceradar.plugin_result.v1"
 
   @spec upsert_from_status(map()) :: :ok
   def upsert_from_status(status) when is_map(status) do
@@ -57,7 +58,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
          {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
       assignment
       |> build_attrs_from_assignment(agent, package)
-      |> upsert_service_state(actor)
+      |> maybe_upsert_assignment_state(actor)
     else
       false ->
         :ok
@@ -73,6 +74,31 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   def upsert_for_assignment(_), do: :ok
+
+  @spec reconcile_plugin_assignments(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_plugin_assignments(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:service_state_registry))
+
+    PluginAssignment
+    |> filter(enabled == true)
+    |> Ash.read(actor: actor, domain: ServiceRadar.Plugins)
+    |> case do
+      {:ok, assignments} ->
+        Enum.each(assignments, &upsert_for_assignment/1)
+        {:ok, length(assignments)}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to reconcile plugin assignment service states: #{inspect(reason)}")
+        error
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "Plugin assignment service state reconciliation failed: #{Exception.message(error)}"
+      )
+
+      {:error, error}
+  end
 
   @spec deactivate_for_assignment(PluginAssignment.t()) :: :ok
   def deactivate_for_assignment(%PluginAssignment{} = assignment) do
@@ -171,7 +197,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
       available: normalize_available(fetch(status, :available)),
       message: normalize_message_value(message),
-      details: nil,
+      details: normalize_details(fetch(status, :message)),
       last_observed_at: resolve_observed_at(status),
       state: "active"
     }
@@ -235,6 +261,22 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     FieldParser.encode_json(value) || inspect(value)
   end
 
+  defp normalize_details(message) when is_binary(message) do
+    case Jason.decode(message) do
+      {:ok, decoded} when is_map(decoded) or is_list(decoded) ->
+        FieldParser.encode_json(decoded)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_details(message) when is_map(message) or is_list(message) do
+    FieldParser.encode_json(message)
+  end
+
+  defp normalize_details(_), do: nil
+
   defp resolve_observed_at(status) do
     raw =
       fetch(status, :agent_timestamp) || fetch(status, :timestamp) || fetch(status, :observed_at)
@@ -253,12 +295,17 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
          %PluginAssignment{} = assignment,
          %PluginPackage{} = package
        ) do
-    assignment.enabled == true and streaming_plugin_package?(package)
+    assignment.enabled == true and
+      (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
 
   defp streaming_plugin_package?(%PluginPackage{} = package) do
     package.outputs == @streaming_plugin_output or
       Enum.member?(effective_capabilities(package), @streaming_plugin_capability)
+  end
+
+  defp plugin_result_package?(%PluginPackage{} = package) do
+    package.outputs == @plugin_result_output
   end
 
   defp effective_capabilities(%PluginPackage{} = package) do
@@ -277,22 +324,71 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
          agent,
          %PluginPackage{} = package
        ) do
+    plugin_type = assignment_plugin_type(package)
+    {available, message} = assignment_initial_state(plugin_type)
+
     agent
     |> identity_from_agent(package.name, "plugin", assignment.agent_uid)
     |> Map.merge(%{
-      available: true,
-      message: "streaming plugin ready",
+      available: available,
+      message: message,
       details:
         FieldParser.encode_json(%{
           "assignment_id" => to_string(assignment.id),
           "plugin_id" => package.plugin_id,
           "package_id" => package.id,
-          "plugin_type" => "streaming"
+          "plugin_type" => plugin_type,
+          "package_version" => package.version
         }),
       last_observed_at: DateTime.truncate(DateTime.utc_now(), :microsecond),
       state: "active"
     })
   end
+
+  defp maybe_upsert_assignment_state(attrs, actor) do
+    case load_existing_state(attrs, actor) do
+      {:ok, %ServiceState{state: "active"} = state} ->
+        if assignment_placeholder_state?(state) do
+          upsert_service_state(attrs, actor)
+        else
+          :ok
+        end
+
+      _ ->
+        upsert_service_state(attrs, actor)
+    end
+  end
+
+  defp load_existing_state(attrs, actor) do
+    ServiceState
+    |> Ash.Query.for_read(
+      :by_identity,
+      %{
+        agent_id: Map.fetch!(attrs, :agent_id),
+        gateway_id: Map.fetch!(attrs, :gateway_id),
+        partition: Map.fetch!(attrs, :partition),
+        service_type: Map.fetch!(attrs, :service_type),
+        service_name: Map.fetch!(attrs, :service_name)
+      },
+      actor: actor
+    )
+    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+  end
+
+  defp assignment_placeholder_state?(%ServiceState{} = state) do
+    state.message in ["plugin assignment pending result", "streaming plugin ready"]
+  end
+
+  defp assignment_plugin_type(%PluginPackage{} = package) do
+    cond do
+      streaming_plugin_package?(package) -> "streaming"
+      plugin_result_package?(package) -> "scheduled"
+      true -> "plugin"
+    end
+  end
+
+  defp assignment_initial_state("streaming"), do: {true, "streaming plugin ready"}
+  defp assignment_initial_state(_), do: {false, "plugin assignment pending result"}
 
   defp upsert_service_state(attrs, actor) when is_map(attrs) do
     ServiceState

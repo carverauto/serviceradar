@@ -247,3 +247,25 @@ type fakeTimeoutError struct{}
 func (fakeTimeoutError) Error() string   { return "timeout" }
 func (fakeTimeoutError) Timeout() bool   { return true }
 func (fakeTimeoutError) Temporary() bool { return true }
+
+func TestResolveHopHostnamesUsesDNSCache(t *testing.T) {
+	t.Parallel()
+
+	resolver := NewDNSResolver(t.Context())
+	defer resolver.Stop()
+	resolver.cacheResult("192.0.2.1", "router.example.net")
+
+	hop := NewHopResult(1, DefaultRingBufferSize)
+	hop.Addr = net.ParseIP("192.0.2.1")
+
+	tracer := &Tracer{
+		dns:  resolver,
+		hops: []*HopResult{hop},
+	}
+
+	tracer.resolveHopHostnames(t.Context())
+
+	if got := hop.Snapshot().Hostname; got != "router.example.net" {
+		t.Fatalf("expected hostname from reverse DNS cache, got %q", got)
+	}
+}

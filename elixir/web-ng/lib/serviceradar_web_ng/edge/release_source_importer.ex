@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
 
   @default_manifest_asset_name "serviceradar-agent-release-manifest.json"
   @default_signature_asset_name "serviceradar-agent-release-manifest.sig"
-  @default_recent_release_limit 10
+  @default_recent_release_limit 5
   @max_asset_redirects 5
   @default_provider "forgejo"
   @forgejo_host "code.carverauto.dev"
@@ -37,7 +37,8 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
       {:ok,
        releases
        |> Enum.map(&summarize_release(&1, manifest_asset_name, signature_asset_name))
-       |> Enum.reject(&is_nil(&1))}
+       |> Enum.reject(&is_nil(&1))
+       |> Enum.take(normalize_limit(limit))}
     end
   end
 
@@ -211,7 +212,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 50)
+  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 5)
   defp normalize_limit(_limit), do: @default_recent_release_limit
 
   defp fetch_release_asset(release, asset_name) do

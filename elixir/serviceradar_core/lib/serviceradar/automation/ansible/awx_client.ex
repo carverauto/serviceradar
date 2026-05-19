@@ -190,17 +190,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp allowed_methods_for(_), do: ["GET"]
 
   defp insecure_skip_verify?(%Controller{metadata: meta}) when is_map(meta) do
-    case Map.get(meta, "insecure_skip_verify") do
-      true -> true
-      _ -> false
+    if Map.get(meta, "insecure_skip_verify") do
+      true
+    else
+      false
     end
   end
 
   defp insecure_skip_verify?(_), do: false
 
-  defp maybe_put(map, _key, value)
-       when value in [nil, "", %{}, []],
-       do: map
+  defp maybe_put(map, _key, value) when value in [nil, "", %{}, []], do: map
 
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 

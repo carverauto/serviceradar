@@ -2,10 +2,11 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Automation.Ansible.EventIngestor
+  alias ServiceRadar.Automation.Ansible.IngestorActions
 
   defmodule FakeActions do
     @moduledoc false
-    @behaviour ServiceRadar.Automation.Ansible.IngestorActions
+    @behaviour IngestorActions
 
     def state, do: Process.get(:fake_actions_state, default_state())
     def reset, do: Process.delete(:fake_actions_state)
@@ -153,7 +154,6 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       assert :ok = EventIngestor.handle_command_result(%{}, opts())
       assert FakeActions.state().calls == []
     end
-
   end
 
   describe "awx.launch_job" do
@@ -224,9 +224,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
     end
 
     test "no-op when context is missing playbook_run_id" do
-      FakeActions.configure(
-        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}}
-      )
+      FakeActions.configure(contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}})
 
       result = %{
         command_type: "awx.launch_job",
@@ -690,7 +688,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
           %{
             "job_id" => 7331,
             "ok" => true,
-            "events" => [event("playbook_on_play_start", %{"counter" => 1, "event_data" => %{"play_uuid" => "p-1", "play" => "Deploy"}})],
+            "events" => [
+              event("playbook_on_play_start", %{
+                "counter" => 1,
+                "event_data" => %{"play_uuid" => "p-1", "play" => "Deploy"}
+              })
+            ],
             "max_counter" => 1
           }
         ]
@@ -716,7 +719,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
           %{
             "job_id" => 7331,
             "ok" => true,
-            "events" => [event("playbook_on_play_start", %{"counter" => 5, "event_data" => %{"play_uuid" => "p-1"}})],
+            "events" => [
+              event("playbook_on_play_start", %{
+                "counter" => 5,
+                "event_data" => %{"play_uuid" => "p-1"}
+              })
+            ],
             "max_counter" => 5
           }
         ]
@@ -733,6 +741,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
     test "playbook_on_stats with all hosts succeeded → record_succeeded" do
       run = run_fixture(state: :running)
+
       FakeActions.configure(
         runs_by_job_id: %{7331 => {:ok, run}},
         targets_by_host: %{
@@ -754,7 +763,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         })
 
       payload = %{
-        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [stats_event], "max_counter" => 200}]
+        "jobs" => [
+          %{"job_id" => 7331, "ok" => true, "events" => [stats_event], "max_counter" => 200}
+        ]
       }
 
       EventIngestor.handle_command_result(
@@ -775,6 +786,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
     test "playbook_on_stats with mixed outcomes → record_partial" do
       run = run_fixture(state: :running)
+
       FakeActions.configure(
         runs_by_job_id: %{7331 => {:ok, run}},
         targets_by_host: %{
@@ -796,7 +808,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         })
 
       payload = %{
-        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [stats_event], "max_counter" => 200}]
+        "jobs" => [
+          %{"job_id" => 7331, "ok" => true, "events" => [stats_event], "max_counter" => 200}
+        ]
       }
 
       EventIngestor.handle_command_result(
@@ -812,6 +826,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
     test "playbook_on_stats with all hosts failed → record_failed" do
       run = run_fixture(state: :running)
+
       FakeActions.configure(
         runs_by_job_id: %{7331 => {:ok, run}},
         targets_by_host: %{
@@ -832,7 +847,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         })
 
       payload = %{
-        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [stats_event], "max_counter" => 200}]
+        "jobs" => [
+          %{"job_id" => 7331, "ok" => true, "events" => [stats_event], "max_counter" => 200}
+        ]
       }
 
       EventIngestor.handle_command_result(
@@ -872,7 +889,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
           }
         })
 
-      payload = %{"jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 42}]}
+      payload = %{
+        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 42}]
+      }
 
       EventIngestor.handle_command_result(
         %{command_type: "awx.fetch_events_for_jobs", result_payload: payload},
@@ -881,12 +900,16 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
       calls = FakeActions.state().calls
 
-      assert Enum.any?(calls, &match?({:upsert_play, %{run_id: "run-1", awx_play_uuid: "p-1"}}, &1))
+      assert Enum.any?(
+               calls,
+               &match?({:upsert_play, %{run_id: "run-1", awx_play_uuid: "p-1"}}, &1)
+             )
 
       assert Enum.any?(
                calls,
                &match?(
-                 {:upsert_task, %{play_id: "play-p-1", awx_task_uuid: "t-1", action: "ansible.builtin.apt"}},
+                 {:upsert_task,
+                  %{play_id: "play-p-1", awx_task_uuid: "t-1", action: "ansible.builtin.apt"}},
                  &1
                )
              )
@@ -909,6 +932,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
     test "runner_on_failed maps to status :failed" do
       run = run_fixture(state: :running)
+
       FakeActions.configure(
         runs_by_job_id: %{7331 => {:ok, run}},
         targets_by_host: %{"web01" => {:ok, %{id: "tgt-1"}}}
@@ -924,7 +948,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
           }
         })
 
-      payload = %{"jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 5}]}
+      payload = %{
+        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 5}]
+      }
 
       EventIngestor.handle_command_result(
         %{command_type: "awx.fetch_events_for_jobs", result_payload: payload},
@@ -939,6 +965,7 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
 
     test "runner_on_unreachable maps to status :unreachable" do
       run = run_fixture(state: :running)
+
       FakeActions.configure(
         runs_by_job_id: %{7331 => {:ok, run}},
         targets_by_host: %{"web01" => {:ok, %{id: "tgt-1"}}}
@@ -950,7 +977,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
           "event_data" => %{"play_uuid" => "p-1", "task_uuid" => "t-1", "host" => "web01"}
         })
 
-      payload = %{"jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 5}]}
+      payload = %{
+        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 5}]
+      }
 
       EventIngestor.handle_command_result(
         %{command_type: "awx.fetch_events_for_jobs", result_payload: payload},
@@ -977,7 +1006,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
           }
         })
 
-      payload = %{"jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 5}]}
+      payload = %{
+        "jobs" => [%{"job_id" => 7331, "ok" => true, "events" => [ev], "max_counter" => 5}]
+      }
 
       EventIngestor.handle_command_result(
         %{command_type: "awx.fetch_events_for_jobs", result_payload: payload},
@@ -1031,7 +1062,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
   describe "crash safety" do
     test "exception in a handler does not propagate" do
       defmodule CrashingActions do
-        @behaviour ServiceRadar.Automation.Ansible.IngestorActions
+        @moduledoc false
+        @behaviour IngestorActions
 
         def get_run_by_awx_job_id(_), do: raise("boom")
         def upsert_play(_), do: raise("nope")

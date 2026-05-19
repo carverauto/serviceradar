@@ -165,7 +165,7 @@ defmodule ServiceRadar.AgentTracker do
   end
 
   defp normalize_metadata(metadata) when is_map(metadata) do
-    %{
+    compact_metadata(%{
       service_count: metadata_value(metadata, :service_count),
       partition: metadata_value(metadata, :partition),
       source_ip: metadata_value(metadata, :source_ip),
@@ -175,8 +175,7 @@ defmodule ServiceRadar.AgentTracker do
       os: metadata_value(metadata, :os),
       arch: metadata_value(metadata, :arch),
       deployment_type: metadata_value(metadata, :deployment_type)
-    }
-    |> compact_metadata()
+    })
   end
 
   defp normalize_metadata(_), do: %{}

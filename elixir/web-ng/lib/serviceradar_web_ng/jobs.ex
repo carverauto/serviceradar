@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNG.Jobs do
       label: "Expire onboarding packages",
       description: "Marks edge onboarding packages as expired when their tokens have passed expiration.",
       worker: ExpirePackagesWorker,
-      queue: :maintenance,
+      queue: :web_maintenance,
       args: %{},
       default_cron: "0 * * * *",
       unique_period_seconds: 3600

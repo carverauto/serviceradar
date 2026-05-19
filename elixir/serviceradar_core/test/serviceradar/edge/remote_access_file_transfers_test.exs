@@ -56,6 +56,17 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     end
   end
 
+  defmodule ApprovalResourceStub do
+    @moduledoc false
+
+    def get_by_id(approval_id, _opts) do
+      case Process.get(:remote_access_file_transfer_approval) do
+        %{id: ^approval_id} = approval -> {:ok, approval}
+        _other -> {:error, :not_found}
+      end
+    end
+  end
+
   defmodule CommandBusStub do
     @moduledoc false
 
@@ -234,6 +245,61 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
              RemoteAccessFileTransfers.request_transfer(
                session_id,
                %{operation: "download", direction: "read", path: "/var/log/syslog"},
+               session_resource: SessionResourceStub,
+               transfer_resource: TransferResourceStub,
+               command_bus: CommandBusStub,
+               required_gateway_node: self()
+             )
+
+    refute_receive {:create_transfer, _attrs}
+    refute_receive {:send_console_frame, _agent_id, _frame, _opts}
+  end
+
+  test "dispatches approved transfer requests with approval id for agent echo" do
+    session_id = Ecto.UUID.generate()
+    approval_id = Ecto.UUID.generate()
+
+    Process.put(:remote_access_file_transfer_session, %{
+      session_fixture(session_id)
+      | approval_id: approval_id,
+        metadata: %{
+          "file_transfer_policy" => %{
+            "allowed_operations" => ["download"],
+            "allowed_path_rules" => ["/var/log"]
+          }
+        }
+    })
+
+    assert {:ok, transfer} =
+             RemoteAccessFileTransfers.request_transfer(
+               session_id,
+               %{operation: "download", direction: "read", path: "/var/log/syslog"},
+               session_resource: SessionResourceStub,
+               transfer_resource: TransferResourceStub,
+               command_bus: CommandBusStub,
+               audit_writer: AuditWriterStub,
+               required_gateway_node: self()
+             )
+
+    assert transfer.approval_id == approval_id
+
+    assert_receive {:send_console_frame, "agent-1",
+                    %{frame_type: "file_transfer_request"} = frame, _opts}
+
+    assert %{
+             "approved" => true,
+             "approval_id" => ^approval_id
+           } = Jason.decode!(frame.data)
+  end
+
+  test "rejects unsafe remote paths before creating or dispatching a transfer" do
+    session_id = Ecto.UUID.generate()
+    Process.put(:remote_access_file_transfer_session, session_fixture(session_id))
+
+    assert {:error, :invalid_file_transfer_path} =
+             RemoteAccessFileTransfers.request_transfer(
+               session_id,
+               %{operation: "download", direction: "read", path: "/var/log/../shadow"},
                session_resource: SessionResourceStub,
                transfer_resource: TransferResourceStub,
                command_bus: CommandBusStub,
@@ -456,6 +522,55 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
              )
 
     refute_receive {:update_transfer, _status, _attrs}
+  end
+
+  test "rechecks approval before accepting terminal agent frames" do
+    session_id = Ecto.UUID.generate()
+    approval_id = Ecto.UUID.generate()
+    transfer = Map.put(transfer_fixture(session_id), :approval_id, approval_id)
+    Process.put(:remote_access_file_transfer_lookup, transfer)
+
+    Process.put(:remote_access_file_transfer_approval, %{
+      id: approval_id,
+      status: :consumed,
+      session_id: session_id,
+      expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+    })
+
+    frame = %{
+      session_id: session_id,
+      frame_type: "file_transfer_outcome",
+      data: Jason.encode!(%{transfer_id: transfer.id, status: "completed"})
+    }
+
+    assert {:error, :file_transfer_approval_mismatch} =
+             RemoteAccessFileTransfers.handle_agent_frame(frame,
+               transfer_resource: TransferResourceStub,
+               approval_resource: ApprovalResourceStub
+             )
+
+    refute_receive {:update_transfer, _status, _attrs}
+
+    approved_frame = %{
+      frame
+      | data:
+          Jason.encode!(%{
+            transfer_id: transfer.id,
+            approval_id: approval_id,
+            status: "completed",
+            bytes_transferred: 128
+          })
+    }
+
+    assert {:ok, updated} =
+             RemoteAccessFileTransfers.handle_agent_frame(approved_frame,
+               transfer_resource: TransferResourceStub,
+               approval_resource: ApprovalResourceStub,
+               audit_writer: AuditWriterStub
+             )
+
+    assert updated.status == :completed
+    assert_receive {:update_transfer, :completed, %{byte_count: 128}}
   end
 
   test "lists transfer history through the Ash resource boundary" do

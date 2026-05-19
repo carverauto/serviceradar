@@ -766,7 +766,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         plugin_engine_limits
       )
 
-    config_json = Jason.encode!(full_payload)
+    config_json =
+      full_payload
+      |> Map.put("plugins", %{
+        "assignments" => plugin_assignments,
+        "engine_limits" => plugin_engine_limits
+      })
+      |> Jason.encode!()
 
     %{
       config_version: config_version,

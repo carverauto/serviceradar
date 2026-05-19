@@ -37,6 +37,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
     max_attempts: 1,
     unique: [period: :infinity, states: [:available, :scheduled]]
 
+  alias Oban.Cron.Expression
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.PlaybookSchedule
@@ -115,7 +116,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   def compute_next_run_at(%{cron: cron, timezone: timezone}, %DateTime{} = now)
       when is_binary(cron) and is_binary(timezone) do
     with :ok <- ensure_utc_only(timezone),
-         {:ok, expr} <- Oban.Cron.Expression.parse(cron) do
+         {:ok, expr} <- Expression.parse(cron) do
       safe_next_at(expr, now)
     end
   end
@@ -131,7 +132,7 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
   defp safe_next_at(expr, %DateTime{} = base) do
     base = DateTime.shift_zone!(base, "Etc/UTC")
 
-    case Oban.Cron.Expression.next_at(expr, base) do
+    case Expression.next_at(expr, base) do
       %DateTime{} = ts -> {:ok, ts}
       :unknown -> {:error, :unknown_next_time}
       other -> {:error, {:unexpected_next_at, other}}
@@ -277,5 +278,4 @@ defmodule ServiceRadar.Automation.Ansible.ScheduleEvaluatorWorker do
 
     ServiceRadar.Repo.exists?(query, prefix: ObanSupport.prefix())
   end
-
 end

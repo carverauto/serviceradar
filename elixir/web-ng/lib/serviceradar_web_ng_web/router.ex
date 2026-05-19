@@ -256,6 +256,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/csp-report", CspReportController, :create)
   end
 
+  scope "/api/northbound", ServiceRadarWebNGWeb.Api do
+    pipe_through([:api, :rate_limit_api_default])
+
+    post("/action-callbacks/:job_id", NorthboundActionCallbackController, :create)
+  end
+
   scope "/api/docs", ServiceRadarWebNGWeb.Api do
     pipe_through(:api)
 
@@ -328,6 +334,8 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/remote-access/host-keys/:id/revoke", RemoteAccessHostKeyController, :revoke)
     post("/remote-access/host-keys/:id/rotate", RemoteAccessHostKeyController, :rotate)
     get("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :index)
+    post("/remote-access/app-sessions", RemoteAccessTargetIntentController, :create_app)
+    post("/remote-access/tcp-sessions", RemoteAccessTargetIntentController, :create_tcp)
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
@@ -701,6 +709,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)
+      live("/remote-access/targets", RemoteAccessLive.Targets, :index)
+      live("/remote-access/applications/:target_id", RemoteAccessLive.Application, :show)
+      live("/remote-access/tcp-targets/:target_id", RemoteAccessLive.TCP, :show)
       live("/devices/:device_uid/interfaces/:interface_uid", InterfaceLive.Show, :show)
       live("/interfaces", InterfaceLive.Index, :index)
 
@@ -744,6 +755,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
 
       live("/settings/audit/events", Settings.AuditLive.Events, :index)
+      live("/settings/audit/events/:event_id", Settings.AuditLive.EventShow, :show)
       live("/settings/audit/lockouts", Settings.AuditLive.Lockouts, :index)
       live("/settings/audit/history", Settings.AuditLive.History, :index)
       live("/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email)

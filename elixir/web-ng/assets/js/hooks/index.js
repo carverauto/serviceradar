@@ -8,7 +8,9 @@ import MapboxFlowMap from "./MapboxFlowMap"
 import OperationsTrafficMap from "./OperationsTrafficMap"
 import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
 import RemoteAccessDesktopSession from "./RemoteAccessDesktopSession"
+import RemoteAccessApplication from "./RemoteAccessApplication"
 import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
+import RemoteAccessTCPText from "./RemoteAccessTCPText"
 import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
 import SRQLTimeCookie from "./SRQLTimeCookie"
@@ -41,7 +43,9 @@ export default {
   OperationsTrafficMap,
   ProxmoxConsoleTerminal,
   RemoteAccessDesktopSession,
+  RemoteAccessApplication,
   RemoteAccessSSHConsole,
+  RemoteAccessTCPText,
   RemoteAccessTerminal,
   RemoteConsoleTerminal,
   SRQLTimeCookie,

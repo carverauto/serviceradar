@@ -84,12 +84,36 @@ diesel::table! {
         // ServiceRadar-specific fields
         gateway_id -> Nullable<Text>,
         agent_id -> Nullable<Text>,
+        availability_source_agent_id -> Nullable<Text>,
         discovery_sources -> Nullable<Array<Text>>,
         is_available -> Nullable<Bool>,
+        is_active -> Nullable<Bool>,
         metadata -> Nullable<Jsonb>,
         deleted_at -> Nullable<Timestamptz>,
         deleted_by -> Nullable<Text>,
         deleted_reason -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    device_agent_availability (id) {
+        id -> Uuid,
+        device_uid -> Text,
+        agent_id -> Text,
+        agent_name -> Nullable<Text>,
+        is_available -> Bool,
+        checked_at -> Timestamptz,
+        response_time_ms -> Nullable<Int8>,
+        open_ports -> Array<Int4>,
+        sweep_modes_results -> Jsonb,
+        sweep_group_id -> Nullable<Uuid>,
+        execution_id -> Nullable<Uuid>,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
 

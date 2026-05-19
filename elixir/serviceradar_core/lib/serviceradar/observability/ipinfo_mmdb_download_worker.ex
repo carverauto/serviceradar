@@ -32,16 +32,23 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   @doc """
   Schedules the download job if not already scheduled.
   """
-  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  @spec ensure_scheduled() ::
+          {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:ok, :disabled} | {:error, term()}
   def ensure_scheduled do
-    if ObanSupport.available?() do
-      if check_existing_job() do
+    config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    cond do
+      not enabled?(config) ->
+        {:ok, :disabled}
+
+      not ObanSupport.available?() ->
+        {:error, :oban_unavailable}
+
+      check_existing_job() ->
         {:ok, :already_scheduled}
-      else
+
+      true ->
         %{} |> new() |> ObanSupport.safe_insert()
-      end
-    else
-      {:error, :oban_unavailable}
     end
   end
 
@@ -59,14 +66,21 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
+
+    if enabled?(config) do
+      perform_enabled(job, config)
+    else
+      :ok
+    end
+  end
+
+  defp perform_enabled(%Oban.Job{} = job, config) do
     dir = Keyword.get(config, :dir, System.get_env("GEOLITE_MMDB_DIR") || @default_dir)
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     reschedule_seconds = Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds)
 
     failure_reschedule_seconds =
       Keyword.get(config, :failure_reschedule_seconds, @default_failure_reschedule_seconds)
-
-    File.mkdir_p!(dir)
 
     actor = SystemActor.system(:ipinfo_mmdb_download)
     settings = load_settings(actor)
@@ -84,11 +98,24 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
         schedule_next(reschedule_seconds)
 
       true ->
+        download_mmdb(
+          dir,
+          token,
+          dest,
+          timeout_ms,
+          reschedule_seconds,
+          failure_reschedule_seconds
+        )
+    end
+  end
+
+  defp download_mmdb(dir, token, dest, timeout_ms, reschedule_seconds, failure_reschedule_seconds) do
+    case File.mkdir_p(dir) do
+      :ok ->
         url = build_url(token)
 
         case download_file(url, dest, timeout_ms) do
           {:ok, _} ->
-            # Ensure Geolix sees newly downloaded databases without requiring a pod restart.
             _ = GeoIP.reload()
             schedule_next(reschedule_seconds)
 
@@ -96,7 +123,24 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
             Logger.warning("Ipinfo MMDB download failed", error: inspect(reason))
             schedule_next(failure_reschedule_seconds)
         end
+
+      {:error, reason} ->
+        Logger.warning("Ipinfo MMDB directory unavailable", dir: dir, error: inspect(reason))
+        schedule_next(failure_reschedule_seconds)
     end
+  end
+
+  defp enabled?(config) do
+    Keyword.get(config, :enabled) ||
+      env_enabled?("IPINFO_MMDB_DOWNLOAD_ENABLED") ||
+      env_enabled?("IPINFO_MMDB_SCHEDULER_ENABLED")
+  end
+
+  defp env_enabled?(name) do
+    name
+    |> System.get_env("false")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
   end
 
   defp schedule_next(seconds) when is_integer(seconds) do

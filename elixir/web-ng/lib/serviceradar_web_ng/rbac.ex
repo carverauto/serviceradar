@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.RBAC do
     exports: :all
 
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts.Scope
 
   def catalog do
@@ -24,6 +25,15 @@ defmodule ServiceRadarWebNG.RBAC do
   end
 
   def permissions_for_scope(_), do: MapSet.new()
+
+  def can?(%Scope{user: %User{}, permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
+    MapSet.member?(permissions, permission)
+  end
+
+  def can?(%Scope{user: user, permissions: %MapSet{} = permissions}, permission)
+      when not is_nil(user) and is_binary(permission) do
+    MapSet.member?(permissions, permission)
+  end
 
   def can?(%Scope{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
     MapSet.member?(permissions, permission)

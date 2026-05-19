@@ -103,6 +103,10 @@ Rotate the SSH user CA by adding a new CA public key to target hosts, switching
 `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` and signer key material, then removing
 the old public key after all certificates signed by the old CA have expired.
 
+For production, prefer a secret-store backed file instead of a long-lived environment variable. With OpenBao, Vault, or a cloud KMS, run the signer beside an agent/template process that writes the current encrypted CA key into an in-memory volume such as `/run/secrets/serviceradar_ssh_ca`, then point `--ca-key-file` at that path. Keep the mount readable only by the signer user. The signer reports the key source class (`file` or `env`) in the certificate issue result so the audit event records how the CA key was loaded without exposing the key path or material. Rotate by updating the secret-store version, restarting or reloading the signer workload, changing `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`, and leaving both old and new public CA keys trusted on targets until the maximum certificate TTL has elapsed.
+
+The signer intentionally limits certificate power. By default it issues only the `permit-pty` OpenSSH extension and rejects caller-supplied critical options such as `force-command` and `source-address` unless the signer policy explicitly allows them. Use Ed25519 or ECDSA P-256+ CA keys; RSA CA keys must be at least 4096 bits and are signed with SHA-2 algorithms.
+
 Configure certificate policy with either a JSON environment variable or a mounted file:
 
 ```bash
@@ -239,6 +243,96 @@ ansible-playbook \
 ## Host Key Trust
 
 The edge agent verifies the target server host key before opening an SSH session. Prefer one of these modes:
+
+## Application And TCP Targets
+
+Application and TCP access are disabled by default and use registered targets only. Browser requests can select a target ID and, when required, an approval ID. They cannot supply upstream host, port, route, Host header, SNI, TLS policy, quotas, credentials, or recording policy.
+
+Enable the browser/API surfaces in `web-ng`:
+
+```bash
+SERVICERADAR_REMOTE_ACCESS_APP_ENABLED=true
+SERVICERADAR_REMOTE_ACCESS_TCP_ENABLED=true
+```
+
+Grant users the relevant RBAC permissions:
+
+- `devices.remote_access.app.open` to open registered HTTP/HTTPS application targets.
+- `devices.remote_access.tcp.open` to open registered TCP targets.
+- `settings.remote_access_targets.manage` to manage registered targets.
+
+Application targets are launched from **Remote access targets** at `/remote-access/targets`. The application browser opens a session through `/api/remote-access/app-sessions`, attaches to `/v1/remote-access/sessions/:id/stream`, and sends only bounded `GET` or `HEAD` requests through the selected edge agent. The agent enforces the registered upstream, allowed path prefixes, methods, header policy, Host/SNI, TLS policy, byte quotas, and redirect policy.
+
+TCP targets are separate resources. The UI exposes a TCP launcher only when the target metadata explicitly declares a browser workflow:
+
+```json
+{
+  "browser_renderer": "text",
+  "client_workflow": "Send one text line and read the response."
+}
+```
+
+Without that metadata, TCP targets remain registered and policy-enforced but are not exposed as generic browser tunnels. This prevents turning ServiceRadar into an arbitrary forwarding proxy by accident.
+
+### Private HTTP Echo Demo
+
+This demo proves the application access path against a private HTTP service reachable from an edge agent but not published through ingress.
+
+Create a private echo service in the same namespace as the in-cluster agent:
+
+```bash
+kubectl -n demo create deployment sr-remote-access-echo \
+  --image=registry.k8s.io/e2e-test-images/agnhost:2.53 \
+  -- /agnhost netexec --http-port=8080
+
+kubectl -n demo expose deployment sr-remote-access-echo \
+  --name=sr-remote-access-echo \
+  --port=8080 \
+  --target-port=8080 \
+  --type=ClusterIP
+```
+
+Confirm it is private:
+
+```bash
+kubectl -n demo get svc sr-remote-access-echo
+```
+
+The service should have only a cluster IP and no ingress, load balancer, or node port.
+
+Register the target from a trusted ServiceRadar IEx shell. Use the agent ID that can reach the service; in the demo namespace this is usually `k8s-agent`.
+
+```elixir
+alias ServiceRadar.Actors.SystemActor
+alias ServiceRadar.Edge.RemoteAccessApplicationTarget
+
+actor = SystemActor.system(:remote_access_echo_demo)
+
+{:ok, target} =
+  RemoteAccessApplicationTarget.create_target(
+    %{
+      name: "Demo private echo",
+      description: "ClusterIP-only HTTP echo target for remote application access proof",
+      device_uid: "demo-private-http-echo",
+      agent_id: "k8s-agent",
+      upstream_scheme: :http,
+      upstream_host: "sr-remote-access-echo.demo.svc.cluster.local",
+      upstream_port: 8080,
+      allowed_methods: ["GET", "HEAD"],
+      allowed_path_prefixes: ["/"],
+      tls_policy: %{"verify" => "disabled"},
+      metadata: %{"demo" => "private-http-echo"}
+    },
+    actor: actor
+  )
+```
+
+Open `/remote-access/targets`, choose **Demo private echo**, and request `/`. A successful response proves:
+
+- The browser did not reach the service directly.
+- web-ng created a registered application session from target intent only.
+- agent-gateway routed the session to the selected agent.
+- the agent reached the private ClusterIP service and returned the response through the typed app frames.
 
 - `known_hosts`: the agent uses a managed known-hosts file.
 - `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.

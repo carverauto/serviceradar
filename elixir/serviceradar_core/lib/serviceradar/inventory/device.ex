@@ -70,6 +70,7 @@ defmodule ServiceRadar.Inventory.Device do
     :is_managed,
     :is_compliant,
     :is_trusted,
+    :is_active,
     :os,
     :hw_info,
     :network_interfaces,
@@ -83,6 +84,7 @@ defmodule ServiceRadar.Inventory.Device do
     :discovery_sources,
     :tags,
     :is_available,
+    :availability_source_agent_id,
     :metadata
   ]
   @device_update_fields [
@@ -105,6 +107,7 @@ defmodule ServiceRadar.Inventory.Device do
     :is_managed,
     :is_compliant,
     :is_trusted,
+    :is_active,
     :os,
     :hw_info,
     :network_interfaces,
@@ -114,6 +117,7 @@ defmodule ServiceRadar.Inventory.Device do
     :agent_list,
     :discovery_sources,
     :is_available,
+    :availability_source_agent_id,
     :tags,
     :metadata,
     :group_id,
@@ -135,6 +139,7 @@ defmodule ServiceRadar.Inventory.Device do
   ]
   @group_fields [:group_id]
   @availability_fields [:is_available]
+  @availability_source_fields [:availability_source_agent_id]
   @soft_delete_fields [:deleted_reason, :deleted_by]
 
   postgres do
@@ -160,6 +165,8 @@ defmodule ServiceRadar.Inventory.Device do
     define :get_by_mac, action: :by_mac, args: [:mac, :include_deleted]
     define :soft_delete, action: :soft_delete, args: [:deleted_reason, :deleted_by]
     define :restore, action: :restore
+    define :mark_active, action: :mark_active
+    define :mark_inactive, action: :mark_inactive
     define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
   end
 
@@ -245,6 +252,8 @@ defmodule ServiceRadar.Inventory.Device do
         |> Ash.Changeset.change_new_attribute(:first_seen_time, now)
         |> Ash.Changeset.change_new_attribute(:last_seen_time, now)
         |> Ash.Changeset.change_new_attribute(:created_time, now)
+        |> Ash.Changeset.change_new_attribute(:is_managed, true)
+        |> Ash.Changeset.change_new_attribute(:is_active, true)
       end
     end
 
@@ -280,6 +289,11 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :set_availability_source do
+      accept @availability_source_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :soft_delete do
       accept @soft_delete_fields
 
@@ -291,6 +305,20 @@ defmodule ServiceRadar.Inventory.Device do
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_active do
+      description "Return a device to active service"
+
+      change set_attribute(:is_active, true)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_inactive do
+      description "Mark a device out of service without deleting it"
+
+      change set_attribute(:is_active, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -525,6 +553,13 @@ defmodule ServiceRadar.Inventory.Device do
       description "Trust status"
     end
 
+    attribute :is_active, :boolean do
+      allow_nil? false
+      default true
+      public? true
+      description "Whether device is currently in service"
+    end
+
     # OCSF Nested Objects (JSONB)
     attribute :os, :map do
       default %{}
@@ -618,6 +653,12 @@ defmodule ServiceRadar.Inventory.Device do
       description "Current availability status"
     end
 
+    attribute :availability_source_agent_id, :string do
+      public? true
+
+      description "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior"
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true
@@ -644,6 +685,13 @@ defmodule ServiceRadar.Inventory.Device do
       destination_attribute :device_id
       public? true
       description "Device identifiers for identity reconciliation"
+    end
+
+    has_many :agent_availability, ServiceRadar.Inventory.DeviceAgentAvailability do
+      source_attribute :uid
+      destination_attribute :device_uid
+      public? true
+      description "Latest availability reported by each agent for this device"
     end
 
     belongs_to :group, ServiceRadar.Inventory.DeviceGroup do

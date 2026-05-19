@@ -19,20 +19,20 @@ permissions:
 
 on:
   push:
-    branches: [ main ]
+    branches: [ staging ]
     paths:
       - 'helm/**'
-      - '.github/workflows/helm-lint.yml'
+      - '.forgejo/workflows/helm-lint.yml'
   pull_request:
-    branches: [ main ]
+    branches: [ staging ]
     paths:
       - 'helm/**'
-      - '.github/workflows/helm-lint.yml'
+      - '.forgejo/workflows/helm-lint.yml'
 
 jobs:
   lint:
     name: Helm Lint
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu24
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

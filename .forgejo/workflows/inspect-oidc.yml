@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   inspect:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu24
     enable-openid-connect: true
     steps:
       - name: Checkout

@@ -112,10 +112,7 @@ mod tests {
         }"#;
 
         let token: AzureCliToken = serde_json::from_str(json).unwrap();
-        assert_eq!(
-            token.access_token,
-            "unit-test-token"
-        );
+        assert_eq!(token.access_token, "unit-test-token");
         assert_eq!(token.expires_on_timestamp, Some(1698760750));
         assert_eq!(token.token_type, "Bearer");
     }

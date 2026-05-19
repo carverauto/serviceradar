@@ -38,7 +38,11 @@ var (
 	errRemoteFileTransferUploadNotActive  = errors.New("remote file-transfer upload is not active")
 )
 
-func (p *PushLoop) handleFileTransferFrame(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleFileTransferFrame(
+	ctx context.Context,
+	frame *proto.ConsoleFrame,
+	sender *controlStreamSender,
+) {
 	if frame.GetSessionId() == "" {
 		return
 	}

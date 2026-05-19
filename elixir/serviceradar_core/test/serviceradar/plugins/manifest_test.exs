@@ -39,6 +39,54 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert manifest.schema_version == 1
   end
 
+  test "northbound action descriptors parse and normalize" do
+    manifest =
+      Map.put(@valid_manifest, "actions", [
+        %{
+          "action_id" => "hpna.disable_port",
+          "version" => "1.0.0",
+          "label" => "Disable switch port",
+          "description" => "Calls external NMS to disable an interface",
+          "scopes" => ["interface"],
+          "required_context" => ["device.ip", "interface.name"],
+          "input_schema" => %{
+            "type" => "object",
+            "properties" => %{"reason" => %{"type" => "string"}}
+          },
+          "timeout_seconds" => 120,
+          "safety_classification" => "destructive",
+          "requires_confirmation" => true
+        }
+      ])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [action] = parsed.actions
+    assert action.action_id == "hpna.disable_port"
+    assert action.scopes == ["interface"]
+    assert action.required_context == ["device.ip", "interface.name"]
+    assert action.safety_classification == "destructive"
+    assert action.requires_confirmation == true
+  end
+
+  test "northbound action descriptors reject provider-owned UI code" do
+    manifest =
+      Map.put(@valid_manifest, "actions", [
+        %{
+          "action_id" => "bad.action",
+          "label" => "Bad Action",
+          "scopes" => ["device"],
+          "html" => "<script>alert('no')</script>"
+        }
+      ])
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(
+             errors,
+             &String.contains?(&1, "actions[1].html is not allowed")
+           )
+  end
+
   test "missing required fields return errors" do
     assert {:error, errors} = Manifest.from_map(%{})
     assert "missing required field: id" in errors

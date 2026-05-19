@@ -101,8 +101,10 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   defp open_console(socket) do
     if RBAC.can?(socket.assigns.current_scope, @console_permission) do
       request = Map.merge(%{cols: @default_cols, rows: @default_rows}, socket.assigns.console_request)
+      scope = socket.assigns.current_scope
+      device_uid = socket.assigns.device_uid
 
-      case console_session_manager().request_open(socket.assigns.device_uid, request, scope: socket.assigns.current_scope) do
+      case console_session_manager().request_open(device_uid, request, scope: scope) do
         {:ok, %{session: %ProxmoxConsoleSession{} = session, ticket: ticket}} ->
           socket
           |> assign(:session, session)

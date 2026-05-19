@@ -1,6 +1,7 @@
 -- Deterministic CNPG schema subset for SRQL API tests.
 -- The harness drops tables before creation so each test starts cleanly.
 
+DROP TABLE IF EXISTS device_agent_availability;
 DROP TABLE IF EXISTS ocsf_devices;
 
 CREATE TABLE ocsf_devices (
@@ -44,12 +45,32 @@ CREATE TABLE ocsf_devices (
     -- ServiceRadar-specific fields
     gateway_id           TEXT,
     agent_id            TEXT,
+    availability_source_agent_id TEXT,
     discovery_sources   TEXT[],
     is_available        BOOLEAN,
+    is_active           BOOLEAN     NOT NULL DEFAULT TRUE,
     metadata            JSONB,
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,
     deleted_reason      TEXT
+);
+
+CREATE TABLE device_agent_availability (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid          TEXT        NOT NULL REFERENCES ocsf_devices(uid) ON DELETE CASCADE,
+    agent_id            TEXT        NOT NULL,
+    agent_name          TEXT,
+    is_available        BOOLEAN     NOT NULL,
+    checked_at          TIMESTAMPTZ NOT NULL,
+    response_time_ms    BIGINT,
+    open_ports          INT[]       NOT NULL DEFAULT '{}',
+    sweep_modes_results JSONB       NOT NULL DEFAULT '{}',
+    sweep_group_id      UUID,
+    execution_id        UUID,
+    metadata            JSONB       NOT NULL DEFAULT '{}',
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (device_uid, agent_id)
 );
 
 DROP TABLE IF EXISTS gateways;

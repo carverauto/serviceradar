@@ -2,10 +2,17 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +33,20 @@ func (f *fakeControlStreamClient) Send(req *proto.ControlStreamRequest) error {
 	defer f.mu.Unlock()
 	f.sent = append(f.sent, req)
 	return nil
+}
+
+func (f *fakeControlStreamClient) consoleFrames() []*proto.ConsoleFrame {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	frames := make([]*proto.ConsoleFrame, 0, len(f.sent))
+	for _, req := range f.sent {
+		if frame := req.GetConsoleFrame(); frame != nil {
+			frames = append(frames, frame)
+		}
+	}
+
+	return frames
 }
 
 func (f *fakeControlStreamClient) Recv() (*proto.ControlStreamResponse, error) {
@@ -265,7 +286,7 @@ func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
 	sender := newControlStreamSender(stream)
 	loop := &PushLoop{}
 
-	loop.handleConsoleFrame(&proto.ConsoleFrame{
+	loop.handleConsoleFrame(context.Background(), &proto.ConsoleFrame{
 		SessionId: "console-session-1",
 		FrameType: consoleFrameTypeOpen,
 	}, sender)
@@ -289,6 +310,386 @@ func TestHandleConsoleFrameFailsClosedUntilPTYBridgeExists(t *testing.T) {
 	}
 }
 
+func TestHandleConsoleFrameRoutesAppTCPFramesFailClosed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		sessionID     string
+		inFrameType   string
+		outFrameType  string
+		messageSubstr string
+	}{
+		{
+			name:          "application",
+			sessionID:     "app-session-1",
+			inFrameType:   remoteaccess.FrameTypeApplicationOpen,
+			outFrameType:  remoteaccess.FrameTypeApplicationError,
+			messageSubstr: "invalid_open_payload",
+		},
+		{
+			name:          "tcp",
+			sessionID:     "tcp-session-1",
+			inFrameType:   remoteaccess.FrameTypeTCPOpen,
+			outFrameType:  remoteaccess.FrameTypeTCPError,
+			messageSubstr: "invalid_open_payload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := &fakeControlStreamClient{}
+			sender := newControlStreamSender(stream)
+			loop := &PushLoop{}
+
+			loop.handleConsoleFrame(context.Background(), &proto.ConsoleFrame{
+				SessionId: tt.sessionID,
+				FrameType: tt.inFrameType,
+			}, sender)
+
+			if len(stream.sent) != 1 {
+				t.Fatalf("expected one response frame, got %d", len(stream.sent))
+			}
+
+			frame := stream.sent[0].GetConsoleFrame()
+			if frame == nil {
+				t.Fatal("expected response frame")
+			}
+			if frame.GetSessionId() != tt.sessionID {
+				t.Fatalf("SessionId = %q, want %q", frame.GetSessionId(), tt.sessionID)
+			}
+			if frame.GetFrameType() != tt.outFrameType {
+				t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), tt.outFrameType)
+			}
+			if !strings.Contains(string(frame.GetData()), tt.messageSubstr) {
+				t.Fatalf("Data = %q", string(frame.GetData()))
+			}
+		})
+	}
+}
+
+func TestHandleConsoleFrameExecutesApplicationHTTPRequest(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "private-app.internal" {
+			t.Fatalf("Host = %q, want private-app.internal", r.Host)
+		}
+		if r.URL.Path != "/allowed" {
+			t.Fatalf("Path = %q, want /allowed", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	host, port := testServerHostPort(t, server.URL)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.ApplicationOpenPayload{
+		TargetID:            "app-target-1",
+		SessionID:           "app-session-1",
+		Scheme:              remoteaccess.ApplicationSchemeHTTP,
+		UpstreamHost:        host,
+		UpstreamPort:        port,
+		HostHeader:          "private-app.internal",
+		AllowedMethods:      []string{"GET"},
+		AllowedPathPrefixes: []string{"/allowed"},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+	assertApplicationConsoleFrame(t, stream.sent[0], remoteaccess.FrameTypeApplicationProgress)
+
+	requestPayload := remoteaccess.ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Method:    "GET",
+		Path:      "/allowed",
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationRequest, requestPayload), sender)
+
+	if len(stream.sent) != 4 {
+		t.Fatalf("sent frame count = %d, want 4", len(stream.sent))
+	}
+	assertApplicationConsoleFrame(t, stream.sent[1], remoteaccess.FrameTypeApplicationResponseMetadata)
+	dataFrame := assertApplicationConsoleFrame(t, stream.sent[2], remoteaccess.FrameTypeApplicationData)
+	assertApplicationConsoleFrame(t, stream.sent[3], remoteaccess.FrameTypeApplicationProgress)
+
+	var dataPayload remoteaccess.ApplicationDataPayload
+	if err := json.Unmarshal(dataFrame.GetData(), &dataPayload); err != nil {
+		t.Fatalf("unmarshal application data: %v", err)
+	}
+	if string(dataPayload.Data) != "ok" {
+		t.Fatalf("Data = %q, want ok", string(dataPayload.Data))
+	}
+}
+
+func TestHandleConsoleFrameExecutesApplicationHTTPRequestWithBodyChunks(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request body: %v", err)
+		}
+		if r.Method != http.MethodPost {
+			t.Fatalf("Method = %q, want POST", r.Method)
+		}
+		if string(body) != "chunk-onechunk-two" {
+			t.Fatalf("body = %q", string(body))
+		}
+		_, _ = w.Write([]byte("created"))
+	}))
+	defer server.Close()
+
+	host, port := testServerHostPort(t, server.URL)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.ApplicationOpenPayload{
+		TargetID:            "app-target-1",
+		SessionID:           "app-session-1",
+		Scheme:              remoteaccess.ApplicationSchemeHTTP,
+		UpstreamHost:        host,
+		UpstreamPort:        port,
+		AllowedMethods:      []string{http.MethodPost},
+		AllowedPathPrefixes: []string{"/allowed"},
+		QuotaPolicy:         map[string]any{"max_request_bytes": 64},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+	assertApplicationConsoleFrame(t, stream.sent[0], remoteaccess.FrameTypeApplicationProgress)
+
+	requestPayload := remoteaccess.ApplicationRequestPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Method:    http.MethodPost,
+		Path:      "/allowed",
+	}
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationRequest, requestPayload), sender)
+	assertApplicationConsoleFrame(t, stream.sent[1], remoteaccess.FrameTypeApplicationProgress)
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationData, remoteaccess.ApplicationDataPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Direction: remoteaccess.ApplicationDataDirectionRequest,
+		Sequence:  1,
+		Data:      []byte("chunk-one"),
+	}), sender)
+	assertApplicationConsoleFrame(t, stream.sent[2], remoteaccess.FrameTypeApplicationProgress)
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationData, remoteaccess.ApplicationDataPayload{
+		RequestID: "req-1",
+		SessionID: "app-session-1",
+		Direction: remoteaccess.ApplicationDataDirectionRequest,
+		Sequence:  2,
+		Data:      []byte("chunk-two"),
+		EOF:       true,
+	}), sender)
+
+	if len(stream.sent) != 6 {
+		t.Fatalf("sent frame count = %d, want 6", len(stream.sent))
+	}
+	assertApplicationConsoleFrame(t, stream.sent[3], remoteaccess.FrameTypeApplicationResponseMetadata)
+	dataFrame := assertApplicationConsoleFrame(t, stream.sent[4], remoteaccess.FrameTypeApplicationData)
+	progressFrame := assertApplicationConsoleFrame(t, stream.sent[5], remoteaccess.FrameTypeApplicationProgress)
+
+	var dataPayload remoteaccess.ApplicationDataPayload
+	if err := json.Unmarshal(dataFrame.GetData(), &dataPayload); err != nil {
+		t.Fatalf("unmarshal application data: %v", err)
+	}
+	if string(dataPayload.Data) != "created" {
+		t.Fatalf("Data = %q, want created", string(dataPayload.Data))
+	}
+	var progressPayload remoteaccess.ApplicationProgressPayload
+	if err := json.Unmarshal(progressFrame.GetData(), &progressPayload); err != nil {
+		t.Fatalf("unmarshal application progress: %v", err)
+	}
+	if progressPayload.RequestBytes != int64(len("chunk-onechunk-two")) {
+		t.Fatalf("RequestBytes = %d", progressPayload.RequestBytes)
+	}
+}
+
+func TestHandleConsoleFrameRejectsDuplicateApplicationOpen(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer server.Close()
+
+	host, port := testServerHostPort(t, server.URL)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.ApplicationOpenPayload{
+		TargetID:            "app-target-1",
+		SessionID:           "app-session-1",
+		Scheme:              remoteaccess.ApplicationSchemeHTTP,
+		UpstreamHost:        host,
+		UpstreamPort:        port,
+		AllowedMethods:      []string{"GET"},
+		AllowedPathPrefixes: []string{"/"},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "app-session-1", remoteaccess.FrameTypeApplicationOpen, openPayload), sender)
+
+	if len(stream.sent) != 2 {
+		t.Fatalf("sent frame count = %d, want 2", len(stream.sent))
+	}
+	assertApplicationConsoleFrame(t, stream.sent[0], remoteaccess.FrameTypeApplicationProgress)
+	errorFrame := assertApplicationConsoleFrame(t, stream.sent[1], remoteaccess.FrameTypeApplicationError)
+	if !strings.Contains(string(errorFrame.GetData()), "session_exists") {
+		t.Fatalf("Data = %q, want session_exists", string(errorFrame.GetData()))
+	}
+}
+
+func TestHandleConsoleFrameExecutesTCPStream(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer := startAgentTCPEchoServer(t)
+	defer closeServer()
+
+	host, port := testNetHostPort(t, addr)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.TCPOpenPayload{
+		TargetID:           "tcp-target-1",
+		SessionID:          "tcp-session-1",
+		ConnectionID:       "conn-1",
+		UpstreamHost:       host,
+		UpstreamPort:       port,
+		IdleTimeoutSeconds: 30,
+		QuotaPolicy: map[string]any{
+			"max_bytes_in":  64,
+			"max_bytes_out": 64,
+		},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPOpen, openPayload), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPProgress)
+
+	dataPayload := remoteaccess.TCPDataPayload{
+		SessionID:    "tcp-session-1",
+		ConnectionID: "conn-1",
+		Direction:    remoteaccess.TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("ping"),
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPData, dataPayload), sender)
+
+	dataFrame := waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPData)
+	var upstreamPayload remoteaccess.TCPDataPayload
+	if err := json.Unmarshal(dataFrame.GetData(), &upstreamPayload); err != nil {
+		t.Fatalf("unmarshal tcp data: %v", err)
+	}
+	if upstreamPayload.Direction != remoteaccess.TCPDataDirectionUpstream || string(upstreamPayload.Data) != "ping" {
+		t.Fatalf("upstream TCP payload = %#v", upstreamPayload)
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPClose, remoteaccess.TCPClosePayload{
+		SessionID:    "tcp-session-1",
+		ConnectionID: "conn-1",
+		Reason:       "done",
+	}), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPClose)
+}
+
+func TestHandleConsoleFrameClosesTCPSessionWhenContextCancels(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer := startAgentTCPEchoServer(t)
+	defer closeServer()
+
+	host, port := testNetHostPort(t, addr)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+	ctx, cancel := context.WithCancel(context.Background())
+
+	openPayload := remoteaccess.TCPOpenPayload{
+		TargetID:               "tcp-target-1",
+		SessionID:              "tcp-session-1",
+		ConnectionID:           "conn-1",
+		UpstreamHost:           host,
+		UpstreamPort:           port,
+		IdleTimeoutSeconds:     30,
+		AbsoluteTimeoutSeconds: 30,
+		QuotaPolicy: map[string]any{
+			"max_bytes_in":  64,
+			"max_bytes_out": 64,
+		},
+	}
+
+	loop.handleConsoleFrame(ctx, jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPOpen, openPayload), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPProgress)
+
+	cancel()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if loop.tcpAdapter("tcp-session-1") == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("tcp adapter remained registered after control context cancellation")
+}
+
+func TestHandleConsoleFrameClosesTCPSessionAfterWriteQuotaError(t *testing.T) {
+	t.Parallel()
+
+	addr, closeServer, upstreamClosed := startAgentTCPReadCloseServer(t)
+	defer closeServer()
+
+	host, port := testNetHostPort(t, addr)
+	stream := &fakeControlStreamClient{}
+	sender := newControlStreamSender(stream)
+	loop := &PushLoop{}
+
+	openPayload := remoteaccess.TCPOpenPayload{
+		TargetID:           "tcp-target-1",
+		SessionID:          "tcp-session-1",
+		ConnectionID:       "conn-1",
+		UpstreamHost:       host,
+		UpstreamPort:       port,
+		IdleTimeoutSeconds: 30,
+		QuotaPolicy: map[string]any{
+			"max_bytes_in": 3,
+		},
+	}
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPOpen, openPayload), sender)
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPProgress)
+
+	loop.handleConsoleFrame(context.Background(), jsonConsoleFrame(t, "tcp-session-1", remoteaccess.FrameTypeTCPData, remoteaccess.TCPDataPayload{
+		SessionID:    "tcp-session-1",
+		ConnectionID: "conn-1",
+		Direction:    remoteaccess.TCPDataDirectionClient,
+		Sequence:     1,
+		Data:         []byte("toolong"),
+	}), sender)
+
+	waitForConsoleFrame(t, stream, remoteaccess.FrameTypeTCPError)
+	if loop.tcpAdapter("tcp-session-1") != nil {
+		t.Fatal("tcp adapter remained registered after write quota error")
+	}
+
+	select {
+	case <-upstreamClosed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("upstream TCP connection was not closed after write quota error")
+	}
+}
+
 func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	t.Parallel()
 
@@ -296,6 +697,8 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	for _, capability := range []string{
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessApp,
+		remoteaccess.CapabilityRemoteAccessTCP,
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
@@ -366,4 +769,155 @@ func TestRemoteAccessRDPCapabilityRequiresConfigAndHelper(t *testing.T) {
 			t.Fatalf("%s: remoteAccessRDPCapabilityEnabled = %v, want %v", tc.name, got, tc.want)
 		}
 	}
+}
+
+func jsonConsoleFrame(t *testing.T, sessionID string, frameType string, payload any) *proto.ConsoleFrame {
+	t.Helper()
+
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	return &proto.ConsoleFrame{
+		SessionId: sessionID,
+		FrameType: frameType,
+		Data:      data,
+	}
+}
+
+func assertApplicationConsoleFrame(t *testing.T, req *proto.ControlStreamRequest, frameType string) *proto.ConsoleFrame {
+	t.Helper()
+
+	frame := req.GetConsoleFrame()
+	if frame == nil {
+		t.Fatal("expected console frame")
+	}
+	if frame.GetSessionId() != "app-session-1" {
+		t.Fatalf("SessionId = %q, want app-session-1", frame.GetSessionId())
+	}
+	if frame.GetFrameType() != frameType {
+		t.Fatalf("FrameType = %q, want %q", frame.GetFrameType(), frameType)
+	}
+
+	return frame
+}
+
+func testServerHostPort(t *testing.T, rawURL string) (string, int) {
+	t.Helper()
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+
+	return testNetHostPort(t, parsed.Host)
+}
+
+func testNetHostPort(t *testing.T, address string) (string, int) {
+	t.Helper()
+
+	host, portText, err := net.SplitHostPort(address)
+	if err != nil {
+		t.Fatalf("split host port: %v", err)
+	}
+
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	return host, port
+}
+
+func waitForConsoleFrame(t *testing.T, stream *fakeControlStreamClient, frameType string) *proto.ConsoleFrame {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, frame := range stream.consoleFrames() {
+			if frame.GetFrameType() == frameType {
+				return frame
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for frame type %q; frames=%#v", frameType, stream.consoleFrames())
+	return nil
+}
+
+func startAgentTCPEchoServer(t *testing.T) (string, func()) {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				_, _ = io.Copy(conn, conn)
+			}()
+		}
+	}()
+
+	return listener.Addr().String(), func() {
+		_ = listener.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("tcp echo server did not stop")
+		}
+	}
+}
+
+func startAgentTCPReadCloseServer(t *testing.T) (string, func(), <-chan struct{}) {
+	t.Helper()
+
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+
+	accepted := make(chan net.Conn, 1)
+	upstreamClosed := make(chan struct{})
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err != nil {
+			close(upstreamClosed)
+			return
+		}
+		accepted <- conn
+		_, _ = io.Copy(io.Discard, conn)
+		_ = conn.Close()
+		close(upstreamClosed)
+	}()
+
+	closeServer := func() {
+		_ = listener.Close()
+		select {
+		case conn := <-accepted:
+			_ = conn.Close()
+		default:
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("tcp read-close server did not stop")
+		}
+	}
+
+	return listener.Addr().String(), closeServer, upstreamClosed
 }

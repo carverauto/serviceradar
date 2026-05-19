@@ -303,7 +303,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   defp semver_sort_key(_version), do: {-1, -1, -1, ""}
 
   defp timestamp_sort_key(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
-  defp timestamp_sort_key(%NaiveDateTime{} = timestamp), do: NaiveDateTime.to_gregorian_seconds(timestamp)
+
+  defp timestamp_sort_key(%NaiveDateTime{} = timestamp),
+    do: NaiveDateTime.to_gregorian_seconds(timestamp)
 
   defp timestamp_sort_key(timestamp) when is_binary(timestamp) do
     case DateTime.from_iso8601(timestamp) do

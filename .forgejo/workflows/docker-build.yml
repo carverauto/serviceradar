@@ -3,7 +3,7 @@ name: Publish OCI Images
 on:
   push:
     branches:
-      - main
+      - staging
   workflow_dispatch:
     inputs:
       release_tag:
@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu24
     enable-openid-connect: true
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
@@ -66,49 +66,7 @@ jobs:
             ${{ runner.os }}-bazel-
 
       - name: Install build dependencies
-        run: |
-          ensure_pkg_config() {
-            if command -v pkg-config >/dev/null 2>&1; then
-              return
-            fi
-
-            if command -v apt-get >/dev/null 2>&1; then
-              sudo apt-get install -y pkg-config
-            elif command -v dnf >/dev/null 2>&1; then
-              if ! sudo dnf install -y pkgconfig; then
-                sudo dnf install -y pkgconf-pkg-config
-              fi
-            elif command -v yum >/dev/null 2>&1; then
-              if ! sudo yum install -y pkgconfig; then
-                sudo yum install -y pkgconf-pkg-config
-              fi
-            elif command -v microdnf >/dev/null 2>&1; then
-              if ! sudo microdnf install -y pkgconfig; then
-                sudo microdnf install -y pkgconf-pkg-config
-              fi
-            else
-              echo "pkg-config is required but no supported package manager was found." >&2
-              exit 1
-            fi
-          }
-
-          if command -v apt-get >/dev/null 2>&1; then
-            ./scripts/cleanup-ci-apt-sources.sh
-            sudo apt-get update
-            sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison
-          elif command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison
-          elif command -v yum >/dev/null 2>&1; then
-            sudo yum install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison
-          elif command -v microdnf >/dev/null 2>&1; then
-            sudo microdnf install -y gcc gcc-c++ make openssl-devel protobuf-compiler cmake flex bison
-          else
-            echo "Unsupported package manager; please install gcc, g++ (or clang), make, OpenSSL headers, pkg-config, cmake, flex, bison, and protoc manually." >&2
-            exit 1
-          fi
-
-          ensure_pkg_config
-          protoc --version || (echo "protoc installation failed" && exit 1)
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
@@ -239,8 +197,7 @@ jobs:
           "${cmd[@]}"
 
           if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/cleanup-ci-apt-sources.sh
-            sudo apt-get update -qq && sudo apt-get install -y -qq skopeo >/dev/null 2>&1
+            ./scripts/ci/ensure-forgejo-tools.sh skopeo
           fi
 
           verify_tags=(latest "sha-${GITHUB_SHA}")

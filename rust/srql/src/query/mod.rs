@@ -912,12 +912,38 @@ mod tests {
         let lower = sql.to_lowercase();
 
         assert!(
-            lower.contains("try_inet(nullif(ip, ''))"),
+            lower.contains("coalesce(\"ocsf_devices\".\"is_active\", true) = true"),
+            "expected default active-device predicate, got: {sql}"
+        );
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
+        assert!(
+            !lower.contains("try_inet(nullif(ip, ''))"),
             "expected default device ordering to tolerate malformed IP strings, got: {sql}"
         );
         assert!(
             !lower.contains("nullif(ip, '')::inet"),
             "default device ordering should not cast malformed IP strings directly, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_include_inactive_suppresses_default_active_filter() {
+        let query = "in:devices include_inactive:true";
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            !lower.contains("coalesce(\"ocsf_devices\".\"is_active\", true) = true"),
+            "include_inactive:true should not add default active predicate, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .all(|param| !matches!(param, BindParam::Bool(_))),
+            "include_inactive is a control token and should not bind a bool param, got: {params:?}"
         );
     }
 
@@ -929,9 +955,11 @@ mod tests {
         let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
         let lower = sql.to_lowercase();
 
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
         assert!(
-            lower.contains("try_inet(nullif(ip, ''))") && lower.contains("<<="),
-            "expected safe CIDR inet containment, got: {sql}"
+            lower.contains("<<="),
+            "expected CIDR inet containment, got: {sql}"
         );
 
         assert!(params
@@ -947,10 +975,11 @@ mod tests {
         let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
         let lower = sql.to_lowercase();
 
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
         assert!(
-            lower.contains("try_inet(nullif(ip, '')) >=")
-                && lower.contains("try_inet(nullif(ip, '')) <="),
-            "expected safe IP range inet comparison, got: {sql}"
+            lower.contains(">= $1::inet") && lower.contains("<= $2::inet"),
+            "expected IP range inet comparison, got: {sql}"
         );
 
         assert!(params
@@ -959,6 +988,23 @@ mod tests {
         assert!(params
             .iter()
             .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.50") }));
+    }
+
+    #[test]
+    fn devices_vendor_filter_default_order_uses_safe_ip_cast() {
+        let query = r#"in:devices vendor_name:"Axis Communications""#;
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("vendor_name"));
+        assert!(lower.contains("split_part(ip, ',', 1)"));
+        assert!(lower.contains("pg_input_is_valid"));
+        assert!(
+            !lower.contains("nullif(ip, '')::inet"),
+            "default device ordering must not cast raw comma-separated ip values: {sql}"
+        );
     }
 
     #[test]
@@ -1376,6 +1422,30 @@ mod tests {
     }
 
     #[test]
+    fn devices_inventory_summary_rollup_returns_all_type_and_vendor_buckets() {
+        let query = "in:devices rollup_stats:inventory_summary";
+        let plan = plan_for(query);
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build inventory summary SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("device_inventory_type_counts"),
+            "expected type rollup table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("device_inventory_vendor_counts"),
+            "expected vendor rollup table in SQL, got: {sql}"
+        );
+        assert!(
+            !lower.contains("limit 10"),
+            "inventory summary should not truncate facet buckets, got: {sql}"
+        );
+        assert!(params.is_empty(), "rollup summary should not bind params");
+    }
+
+    #[test]
     fn devices_stats_group_by_vendor() {
         let query = "in:devices stats:count() as count by vendor_name";
         let plan = plan_for(query);
@@ -1403,6 +1473,41 @@ mod tests {
         assert!(
             lower.contains("is_available"),
             "expected is_available column in SQL, got: {sql}"
+        );
+    }
+
+    #[test]
+    fn devices_docs_example_active_false() {
+        let query = "in:devices is_active:false";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build SQL for active state query");
+        assert!(
+            sql.to_lowercase()
+                .contains("coalesce(\"ocsf_devices\".\"is_active\", true) = $1"),
+            "expected SQL to include active lifecycle predicate, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .any(|param| matches!(param, BindParam::Bool(false))),
+            "expected false active-state bind param, got: {params:?}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_group_by_active_state() {
+        let query = "in:devices stats:count() as count by is_active";
+        let plan = plan_for(query);
+
+        let (sql, _) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains("coalesce(is_active, true)"),
+            "expected active lifecycle column in SQL, got: {sql}"
         );
     }
 

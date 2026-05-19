@@ -66,7 +66,11 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorkerTest do
         end
 
         if prev_summary do
-          Application.put_env(:serviceradar_core, :ansible_retention_run_summary_days, prev_summary)
+          Application.put_env(
+            :serviceradar_core,
+            :ansible_retention_run_summary_days,
+            prev_summary
+          )
         else
           Application.delete_env(:serviceradar_core, :ansible_retention_run_summary_days)
         end

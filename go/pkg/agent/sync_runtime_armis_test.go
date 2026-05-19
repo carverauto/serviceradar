@@ -127,6 +127,45 @@ func TestArmisSearchUsesRawAccessToken(t *testing.T) {
 	}
 }
 
+func TestArmisSearchAcceptsScalarDeviceNames(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != armisSearchPath {
+			t.Fatalf("path = %q, want %q", r.URL.Path, armisSearchPath)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data": {
+				"count": 2,
+				"next": 0,
+				"prev": null,
+				"total": 2,
+				"results": [
+					{"id": 101, "ipAddress": "192.0.2.10", "names": "scalar-name"},
+					{"id": 102, "ipAddress": "192.0.2.11", "names": ["array-name"]}
+				]
+			},
+			"success": true
+		}`))
+	}))
+	defer server.Close()
+
+	client := &armisClient{endpoint: server.URL}
+	resp, err := client.search(context.Background(), "token-123", testArmisDeviceQuery, 0, 100)
+	if err != nil {
+		t.Fatalf("search returned error: %v", err)
+	}
+	if len(resp.Data.Results) != 2 {
+		t.Fatalf("result count = %d, want 2", len(resp.Data.Results))
+	}
+	if got := resp.Data.Results[0].primaryName(); got != "scalar-name" {
+		t.Fatalf("scalar primaryName = %q, want scalar-name", got)
+	}
+	if got := resp.Data.Results[1].primaryName(); got != "array-name" {
+		t.Fatalf("array primaryName = %q, want array-name", got)
+	}
+}
+
 func TestArmisSearchOmitsFromOnFirstPage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := r.URL.Query()["from"]; ok {
@@ -487,22 +526,22 @@ func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
 			}
 		}
 		lastChunk := stream[len(stream)-1]
-		if !lastChunk.IsFinal {
-			t.Fatalf("stream %d last chunk is not final", streamIdx)
-		}
-		if lastChunk.ChunkIndex != lastChunk.TotalChunks-1 {
-			t.Fatalf(
-				"stream %d final chunk index = %d, total_chunks = %d",
-				streamIdx,
-				lastChunk.ChunkIndex,
-				lastChunk.TotalChunks,
-			)
+		if streamIdx == len(streams)-1 {
+			if !lastChunk.IsFinal {
+				t.Fatalf("final stream last chunk is not final")
+			}
+			assertSyncChunkRunTotal(t, lastChunk, totalDevices)
+		} else if lastChunk.IsFinal {
+			t.Fatalf("stream %d was marked final before the run completed", streamIdx)
 		}
 	}
 
 	if len(seen) != totalDevices {
 		t.Fatalf("streamed device count = %d, want %d", len(seen), totalDevices)
 	}
+
+	finalStream := streams[len(streams)-1]
+	assertSyncChunkRunTotal(t, finalStream[len(finalStream)-1], totalDevices)
 }
 
 func TestRunArmisSyncReleaseGateStreamsMultipleQueriesAndRefreshesToken(t *testing.T) {
@@ -870,14 +909,42 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 				if !ok {
 					t.Fatalf("missing metadata in update: %#v", update)
 				}
-				rawArmisID, _ := metadata["armis_device_id"].(string)
-				if _, err := strconv.Atoi(rawArmisID); err != nil {
-					t.Fatalf("invalid armis_device_id %q: %v", rawArmisID, err)
+				rawSourceID, _ := metadata["source_device_id"].(string)
+				if _, err := strconv.Atoi(rawSourceID); err != nil {
+					t.Fatalf("invalid source_device_id %q: %v", rawSourceID, err)
 				}
 			}
 		}
 	}
 	return deviceIDs
+}
+
+func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want int) {
+	t.Helper()
+	if len(chunk.Services) == 0 {
+		t.Fatal("final chunk has no services")
+	}
+
+	var updates []map[string]interface{}
+	if err := json.Unmarshal(chunk.Services[0].Message, &updates); err != nil {
+		t.Fatalf("decode final chunk: %v", err)
+	}
+	if len(updates) == 0 {
+		t.Fatal("final chunk has no updates")
+	}
+
+	meta, ok := updates[len(updates)-1]["sync_meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("final update missing sync_meta: %#v", updates[len(updates)-1])
+	}
+
+	got, ok := meta["total_devices"].(float64)
+	if !ok {
+		t.Fatalf("sync_meta total_devices = %#v", meta["total_devices"])
+	}
+	if int(got) != want {
+		t.Fatalf("sync_meta total_devices = %d, want %d", int(got), want)
+	}
 }
 
 func releaseGateArmisIP(deviceNumber int) string {

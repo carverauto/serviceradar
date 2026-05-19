@@ -201,6 +201,58 @@ defmodule ServiceRadar.Policies.Checks do
     end
   end
 
+  defmodule ActorSelfApprovesResource do
+    @moduledoc """
+    Check if the current actor is approving their own resource.
+
+    This is intended for review/approval actions where caller identity, not only
+    a writable `approved_by` attribute, must be bound to the resource requester.
+    """
+    use SimpleCheck
+
+    @impl true
+    def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
+      requester_attr = Keyword.get(opts, :requester_attribute, :requested_by)
+      approver_attr = Keyword.get(opts, :approver_attribute, :approved_by)
+      "actor self-approves resource (#{approver_attr} for #{requester_attr})"
+    end
+
+    @impl true
+    def match?(nil, _opts, _context), do: false
+
+    def match?(actor, %Authorizer{} = authorizer, opts) when is_list(opts) do
+      match?(actor, opts, %{changeset: Map.get(authorizer, :changeset)})
+    end
+
+    def match?(actor, opts, %{changeset: %{data: resource} = changeset}) do
+      opts = if is_list(opts), do: opts, else: []
+      requester_attr = Keyword.get(opts, :requester_attribute, :requested_by)
+      approver_attr = Keyword.get(opts, :approver_attribute, :approved_by)
+
+      requester_id = Map.get(resource, requester_attr)
+      actor_id = actor_id(actor)
+      approver_id = Ash.Changeset.get_attribute(changeset, approver_attr)
+
+      not self_approval_allowed?(resource) and
+        requester_id not in [nil, ""] and
+        (actor_id == requester_id or approver_id == requester_id)
+    end
+
+    def match?(_actor, _opts, _context), do: false
+
+    defp actor_id(%{id: id}), do: id
+    defp actor_id(%{"id" => id}), do: id
+    defp actor_id(_actor), do: nil
+
+    defp self_approval_allowed?(%{reviewer_policy: policy}) when is_map(policy) do
+      Map.get(policy, "allow_self_approval") in [true, "true", "1", 1, "yes", "on"] or
+        Map.get(policy, :allow_self_approval) in [true, "true", "1", 1, "yes", "on"]
+    end
+
+    defp self_approval_allowed?(_resource), do: false
+  end
+
   defmodule ActorHasPermission do
     @moduledoc """
     Check if the actor has a specific RBAC permission key.

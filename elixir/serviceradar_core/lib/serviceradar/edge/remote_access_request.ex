@@ -15,12 +15,17 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
   import Ash.Expr
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
+  alias ServiceRadar.Policies.Checks.ActorSelfApprovesResource
 
   @ssh_open_permission "devices.remote_access.ssh.open"
   @rdp_open_permission "devices.remote_access.rdp.open"
+  @app_open_permission "devices.remote_access.app.open"
+  @tcp_open_permission "devices.remote_access.tcp.open"
   @review_permission "devices.remote_access.requests.review"
   @ssh_open_check {ActorHasPermission, permission: @ssh_open_permission}
   @rdp_open_check {ActorHasPermission, permission: @rdp_open_permission}
+  @app_open_check {ActorHasPermission, permission: @app_open_permission}
+  @tcp_open_check {ActorHasPermission, permission: @tcp_open_permission}
   @review_check {ActorHasPermission, permission: @review_permission}
 
   @create_fields [
@@ -122,21 +127,26 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
     policy action_type(:read) do
       authorize_if @ssh_open_check
       authorize_if @rdp_open_check
+      authorize_if @app_open_check
+      authorize_if @tcp_open_check
       authorize_if @review_check
     end
 
-    action_type_with_permission(:create, @ssh_open_check)
-
-    policy action(:approve) do
-      forbid_if {ServiceRadar.Policies.Checks.ActorOwnsResourceUnlessPolicyAllows,
-                 attribute: :requested_by,
-                 policy_attribute: :reviewer_policy,
-                 allow_key: "allow_self_approval"}
-
-      authorize_if @review_check
+    policy action_type(:create) do
+      authorize_if @ssh_open_check
+      authorize_if @rdp_open_check
+      authorize_if @app_open_check
+      authorize_if @tcp_open_check
     end
 
     action_with_permission(:deny, @review_check)
+
+    policy action(:approve) do
+      forbid_if {ActorSelfApprovesResource,
+                 requester_attribute: :requested_by, approver_attribute: :approved_by}
+
+      authorize_if @review_check
+    end
 
     policy action([:expire, :bind_session]) do
       authorize_if actor_attribute_equals(:role, :system)

@@ -205,7 +205,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp window_has_traces?(window_start, window_end) do
-    case SQL.query(ServiceRadar.Repo, @window_has_traces_sql, [window_start, window_end], timeout: 5_000) do
+    case SQL.query(ServiceRadar.Repo, @window_has_traces_sql, [window_start, window_end],
+           timeout: 5_000
+         ) do
       {:ok, %{rows: [[true]]}} -> true
       {:ok, _result} -> false
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} -> false

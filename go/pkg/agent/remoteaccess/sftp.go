@@ -208,6 +208,7 @@ func (a SFTPAdapter) evaluatePolicy(
 			input.HasSymlink = true
 			if resolved, realPathErr := client.RealPath(request.Path); realPathErr == nil {
 				input.ResolvedPath = resolved
+				input.RealPathOK = true
 			}
 		}
 	}
@@ -480,6 +481,7 @@ func completedResult(
 	return FileTransferResult{
 		Outcome: FileTransferOutcomePayload{
 			TransferID:       request.TransferID,
+			ApprovalID:       request.ApprovalID,
 			Status:           FileTransferStatusCompleted,
 			BytesTransferred: bytes,
 			FilesTransferred: files,
@@ -495,6 +497,7 @@ func resultFromDecision(
 	return FileTransferResult{
 		Outcome: FileTransferOutcomePayload{
 			TransferID:    request.TransferID,
+			ApprovalID:    request.ApprovalID,
 			Status:        decision.Status,
 			RedactedPath:  decision.RedactedPath,
 			PathHash:      decision.PathHash,
@@ -516,6 +519,7 @@ func fileTransferErrorResult(
 	return FileTransferResult{
 		Outcome: FileTransferOutcomePayload{
 			TransferID:    request.TransferID,
+			ApprovalID:    request.ApprovalID,
 			Status:        status,
 			FailureReason: reason,
 		},

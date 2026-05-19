@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -52,6 +53,7 @@ const (
 	commandTypeAgentUpdate     = "agent.update_release"
 	commandTypeProxmoxTest     = "proxmox.credential_test"
 	commandTypePluginSnapshot  = "plugin.debug_snapshot"
+	commandTypePluginRunAction = "plugin.run_action"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
@@ -116,6 +118,14 @@ type proxmoxCredentialBrokerGrant struct {
 	Inject              map[string]string          `json:"inject,omitempty"`
 	Allow               proxmoxCredentialBrokerACL `json:"allow,omitempty"`
 	TTLSeconds          int                        `json:"ttl_seconds,omitempty"`
+}
+
+type pluginRunActionPayload struct {
+	InvocationID       string          `json:"invocation_id"`
+	ActionID           string          `json:"action_id"`
+	PluginAssignmentID string          `json:"plugin_assignment_id"`
+	PluginPackageID    string          `json:"plugin_package_id,omitempty"`
+	Payload            json.RawMessage `json:"-"`
 }
 
 type proxmoxCredentialBrokerACL struct {
@@ -341,18 +351,23 @@ func (p *PushLoop) handleControlStream(
 
 		if cfg := resp.GetConfig(); cfg != nil {
 			p.applyConfigResponse(cfg, "control")
-			_ = sender.Send(&proto.ControlStreamRequest{
+			if err := sender.Send(&proto.ControlStreamRequest{
 				Payload: &proto.ControlStreamRequest_ConfigAck{
 					ConfigAck: &proto.ConfigAck{
 						ConfigVersion: cfg.ConfigVersion,
 						Timestamp:     time.Now().Unix(),
 					},
 				},
-			})
+			}); err != nil {
+				p.logger.Warn().
+					Err(err).
+					Str("config_version", cfg.ConfigVersion).
+					Msg("Failed to send control stream config ack")
+			}
 		}
 
 		if frame := resp.GetConsoleFrame(); frame != nil {
-			p.handleConsoleFrameWithContext(ctx, frame, sender)
+			p.handleConsoleFrame(ctx, frame, sender)
 		}
 	}
 }
@@ -377,11 +392,7 @@ func (p *PushLoop) controlStreamHeartbeatLoop(ctx context.Context, sender *contr
 	}
 }
 
-func (p *PushLoop) handleConsoleFrame(frame *proto.ConsoleFrame, sender *controlStreamSender) {
-	p.handleConsoleFrameWithContext(context.Background(), frame, sender)
-}
-
-func (p *PushLoop) handleConsoleFrameWithContext(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleConsoleFrame(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
 	if frame.GetSessionId() == "" {
 		return
 	}
@@ -389,6 +400,10 @@ func (p *PushLoop) handleConsoleFrameWithContext(ctx context.Context, frame *pro
 	switch frame.GetFrameType() {
 	case remoteaccess.FrameTypeFileTransferRequest, remoteaccess.FrameTypeFileTransferData:
 		p.handleFileTransferFrame(ctx, frame, sender)
+		return
+	}
+	if isApplicationAccessFrameType(frame.GetFrameType()) || isTCPAccessFrameType(frame.GetFrameType()) {
+		p.handleAppTCPFrame(ctx, frame, sender)
 		return
 	}
 
@@ -425,7 +440,7 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 		Int64("created_at", cmd.CreatedAt).
 		Msg("Received control command")
 
-	_ = sender.Send(&proto.ControlStreamRequest{
+	if err := sender.Send(&proto.ControlStreamRequest{
 		Payload: &proto.ControlStreamRequest_CommandAck{
 			CommandAck: &proto.CommandAck{
 				CommandId:   cmd.CommandId,
@@ -434,7 +449,13 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 				Message:     "command received",
 			},
 		},
-	})
+	}); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Msg("Failed to send command ack")
+	}
 
 	if commandExpired(cmd) {
 		p.logger.Warn().
@@ -465,6 +486,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleProxmoxCredentialTest(ctx, cmd, sender)
 		case commandTypePluginSnapshot:
 			p.handlePluginDebugSnapshot(cmd, sender)
+		case commandTypePluginRunAction:
+			p.handlePluginRunAction(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}
@@ -482,6 +505,84 @@ func (p *PushLoop) handlePluginDebugSnapshot(cmd *proto.CommandRequest, sender *
 	}
 
 	_ = sender.Send(commandResult(cmd, true, "plugin snapshot captured", pluginManager.DebugSnapshot()))
+}
+
+func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := pluginRunActionPayload{Payload: cmd.PayloadJson}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid plugin action payload", map[string]interface{}{
+				"schema": "serviceradar.northbound_action_result.v1",
+				"status": "failed",
+				"error":  "invalid_payload",
+			}))
+			return
+		}
+		payload.Payload = cmd.PayloadJson
+	}
+
+	if strings.TrimSpace(payload.PluginAssignmentID) == "" {
+		_ = sender.Send(commandResult(cmd, false, "missing plugin_assignment_id", map[string]interface{}{
+			"schema": "serviceradar.northbound_action_result.v1",
+			"status": "failed",
+			"error":  "missing_plugin_assignment_id",
+		}))
+		return
+	}
+
+	p.server.mu.RLock()
+	pluginManager := p.server.pluginManager
+	p.server.mu.RUnlock()
+
+	if pluginManager == nil {
+		_ = sender.Send(commandResult(cmd, false, "plugin manager unavailable", map[string]interface{}{
+			"schema": "serviceradar.northbound_action_result.v1",
+			"status": "failed",
+			"error":  "plugin_manager_unavailable",
+		}))
+		return
+	}
+
+	timeout := commandRemainingTimeout(cmd, pluginDefaultTimeout)
+	if timeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command expired", map[string]interface{}{
+			"schema": "serviceradar.northbound_action_result.v1",
+			"status": "failed",
+			"error":  "command_expired",
+		}))
+		return
+	}
+
+	_ = sender.Send(commandProgress(cmd, 10, "starting plugin action"))
+
+	resultBytes, err := pluginManager.RunAction(ctx, payload.PluginAssignmentID, payload.Payload, timeout)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), map[string]interface{}{
+			"schema":        "serviceradar.northbound_action_result.v1",
+			"status":        "failed",
+			"error":         err.Error(),
+			"invocation_id": payload.InvocationID,
+			"action_id":     payload.ActionID,
+		}))
+		return
+	}
+
+	resultPayload := map[string]interface{}{}
+	if len(resultBytes) > 0 {
+		if err := json.Unmarshal(resultBytes, &resultPayload); err != nil {
+			resultPayload = map[string]interface{}{
+				"schema":            "serviceradar.northbound_action_result.v1",
+				"status":            "succeeded",
+				"raw_result_base64": base64.StdEncoding.EncodeToString(resultBytes),
+			}
+		}
+	}
+	resultPayload["schema"] = firstNonEmptyString(resultPayload["schema"], "serviceradar.northbound_action_result.v1")
+	resultPayload["status"] = firstNonEmptyString(resultPayload["status"], "succeeded")
+	resultPayload["invocation_id"] = firstNonEmptyString(resultPayload["invocation_id"], payload.InvocationID)
+	resultPayload["action_id"] = firstNonEmptyString(resultPayload["action_id"], payload.ActionID)
+
+	_ = sender.Send(commandResult(cmd, true, "plugin action completed", resultPayload))
 }
 
 func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
@@ -1027,6 +1128,30 @@ func commandTimeoutCap(cmd *proto.CommandRequest) time.Duration {
 	}
 
 	return defaultOnDemandMtrDeadline
+}
+
+func commandRemainingTimeout(cmd *proto.CommandRequest, fallback time.Duration) time.Duration {
+	if cmd == nil || cmd.TtlSeconds <= 0 || cmd.CreatedAt <= 0 {
+		return fallback
+	}
+
+	expiry := time.Unix(cmd.CreatedAt, 0).Add(time.Duration(cmd.TtlSeconds) * time.Second)
+	remaining := time.Until(expiry)
+	if remaining <= 0 {
+		return 0
+	}
+
+	return remaining
+}
+
+func firstNonEmptyString(value any, fallback string) string {
+	if text, ok := value.(string); ok {
+		text = strings.TrimSpace(text)
+		if text != "" {
+			return text
+		}
+	}
+	return fallback
 }
 
 func commandExpired(cmd *proto.CommandRequest) bool {

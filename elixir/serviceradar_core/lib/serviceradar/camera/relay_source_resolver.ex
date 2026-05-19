@@ -5,6 +5,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadar.Inventory.DeviceLifecycle
 
   require Ash.Query
 
@@ -26,6 +27,7 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
     with {:ok, camera_source_id} <- require_uuid(payload, :camera_source_id),
          {:ok, stream_profile_id} <- require_uuid(payload, :stream_profile_id),
          {:ok, profile} <- fetch_profile(camera_source_id, stream_profile_id, opts),
+         :ok <- ensure_source_active(profile, opts),
          {:ok, source_url} <- require_source_url(profile) do
       {:ok,
        payload
@@ -65,6 +67,35 @@ defmodule ServiceRadar.Camera.RelaySourceResolver do
       {:ok, source_url}
     else
       {:error, "camera relay source_url is not available in inventory"}
+    end
+  end
+
+  defp ensure_source_active(profile, opts) do
+    device_uid =
+      profile
+      |> field(:camera_source)
+      |> field(:device_uid)
+
+    if source_active?(device_uid, opts) do
+      :ok
+    else
+      {:error, "camera source device is inactive"}
+    end
+  end
+
+  defp source_active?(device_uid, opts) do
+    case Keyword.get(opts, :device_lifecycle_active?) do
+      fun when is_function(fun, 1) ->
+        fun.(device_uid)
+
+      _ ->
+        lifecycle_opts =
+          case Keyword.get(opts, :actor) do
+            nil -> []
+            actor -> [actor: actor]
+          end
+
+        DeviceLifecycle.active?(device_uid, lifecycle_opts)
     end
   end
 

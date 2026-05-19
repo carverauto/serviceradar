@@ -9,6 +9,7 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.NorthboundBridge
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.Automation.Ansible.PlaybookPlay
   alias ServiceRadar.Automation.Ansible.PlaybookRun
@@ -64,25 +65,47 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   end
 
   @impl true
-  def transition_run(run, :record_running, _args), do: PlaybookRun.record_running(run, actor())
+  def transition_run(run, :record_running, args) do
+    run
+    |> PlaybookRun.record_running(actor())
+    |> NorthboundBridge.handle_transition(:record_running, args, actor())
+  end
 
   def transition_run(run, :record_succeeded, args),
-    do: PlaybookRun.record_succeeded(run, args, actor())
+    do:
+      run
+      |> PlaybookRun.record_succeeded(args, actor())
+      |> NorthboundBridge.handle_transition(:record_succeeded, args, actor())
 
   def transition_run(run, :record_partial, args),
-    do: PlaybookRun.record_partial(run, args, actor())
+    do:
+      run
+      |> PlaybookRun.record_partial(args, actor())
+      |> NorthboundBridge.handle_transition(:record_partial, args, actor())
 
-  def transition_run(run, :record_failed, args),
-    do: PlaybookRun.record_failed(run, args, actor())
+  def transition_run(run, :record_failed, args) do
+    run
+    |> PlaybookRun.record_failed(args, actor())
+    |> NorthboundBridge.handle_transition(:record_failed, args, actor())
+  end
 
   def transition_run(run, :record_unreachable, args),
-    do: PlaybookRun.record_unreachable(run, args, actor())
+    do:
+      run
+      |> PlaybookRun.record_unreachable(args, actor())
+      |> NorthboundBridge.handle_transition(:record_unreachable, args, actor())
 
   def transition_run(run, :record_canceled, args),
-    do: PlaybookRun.record_canceled(run, args, actor())
+    do:
+      run
+      |> PlaybookRun.record_canceled(args, actor())
+      |> NorthboundBridge.handle_transition(:record_canceled, args, actor())
 
   def transition_run(run, :record_launching, args),
-    do: PlaybookRun.record_launching(run, args, actor())
+    do:
+      run
+      |> PlaybookRun.record_launching(args, actor())
+      |> NorthboundBridge.handle_transition(:record_launching, args, actor())
 
   @impl true
   def get_command_context(command_id) when is_binary(command_id) do

@@ -3,13 +3,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ash.Expr
+  import ServiceRadarWebNGWeb.NorthboundActionComponents, only: [northbound_action_modal: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Changes.Required
+  alias Ash.Error.Forbidden
   alias Ash.Error.Invalid
+  alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
+  alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadarWebNG.Devices.ManualDeviceCreator
+  alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RuntimeLimits
   alias ServiceRadarWebNG.TenantUsage
@@ -72,9 +78,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)
+     |> assign(:northbound_device_actions, [])
+     |> assign(:northbound_device_actions_loading, connected?(socket))
+     |> assign(:show_northbound_action_modal, false)
+     |> assign(:northbound_action_form, to_form(%{}, as: :action))
+     |> assign(:northbound_action_error, nil)
+     |> assign(:northbound_launch_action, nil)
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:show_bulk_delete_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:breakdown_modal, nil)
+     |> assign(:breakdown_search, "")
      # Device management modals
      |> assign(:show_add_device_modal, false)
      |> assign(:show_import_modal, false)
@@ -88,7 +102,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        max_entries: 1,
        max_file_size: 5_000_000
      )
-     |> SRQLPage.init("devices", default_limit: @default_limit)}
+     |> SRQLPage.init("devices", default_limit: @default_limit)
+     |> maybe_load_northbound_device_actions()}
   end
 
   @impl true
@@ -192,6 +207,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply, socket}
   end
 
+  def handle_async(:northbound_device_actions, {:ok, actions}, socket) when is_list(actions) do
+    {:noreply,
+     socket
+     |> assign(:northbound_device_actions, actions)
+     |> assign(:northbound_device_actions_loading, false)}
+  end
+
+  def handle_async(:northbound_device_actions, {:exit, reason}, socket) do
+    Logger.warning("Failed to load northbound device actions: #{inspect(reason)}")
+
+    {:noreply,
+     socket
+     |> assign(:northbound_device_actions, [])
+     |> assign(:northbound_device_actions_loading, false)}
+  end
+
   @impl true
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
@@ -222,6 +253,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     updated_query = toggle_include_deleted_query(query)
     path = device_list_path(updated_query, socket.assigns.limit)
     {:noreply, push_patch(socket, to: path)}
+  end
+
+  def handle_event("open_breakdown_modal", %{"kind" => kind}, socket) do
+    stats = Map.get(socket.assigns, :device_stats, %{})
+
+    modal =
+      case kind do
+        "type" ->
+          breakdown_modal_data("Device Types", "type", Map.get(stats, :by_type, []))
+
+        "vendor" ->
+          breakdown_modal_data("Device Vendors", "vendor_name", Map.get(stats, :by_vendor, []))
+
+        _ ->
+          nil
+      end
+
+    {:noreply, assign(socket, breakdown_modal: modal, breakdown_search: "")}
+  end
+
+  def handle_event("close_breakdown_modal", _params, socket) do
+    {:noreply, assign(socket, breakdown_modal: nil, breakdown_search: "")}
+  end
+
+  def handle_event("breakdown_search", %{"q" => query}, socket) do
+    {:noreply, assign(socket, :breakdown_search, to_string(query || ""))}
   end
 
   # Device management modal handlers
@@ -305,11 +362,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
           {:noreply, put_flash(socket, :error, format_device_error(error))}
 
-        {:error, %Ash.Error.Forbidden{}} ->
+        {:error, %Forbidden{}} ->
           {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
 
         {:error, :already_exists} ->
           {:noreply, put_flash(socket, :error, "A device with this IP address already exists.")}
+
+        {:error, {:hostname_resolution_failed, hostname, reason}} ->
+          Logger.warning("Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}")
+
+          {:noreply, put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
+
+        {:error, :missing_device_address} ->
+          {:noreply, put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -397,20 +462,67 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("run_task_for_selection", _params, socket) do
     cond do
-      not RBAC.can?(socket.assigns.current_scope, "ansible.runs.launch") ->
-        {:noreply, put_flash(socket, :error, "You are not authorized to launch Ansible runs.")}
+      not can_launch_northbound_actions?(socket.assigns.current_scope) ->
+        {:noreply, put_flash(socket, :error, launch_permission_error())}
 
       MapSet.size(socket.assigns.selected_devices) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one device before Run Task.")}
 
-      true ->
-        uids =
-          socket.assigns.selected_devices
-          |> MapSet.to_list()
-          |> Enum.uniq()
-          |> Enum.join(",")
+      socket.assigns.northbound_device_actions == [] ->
+        {:noreply, put_flash(socket, :error, "No launchable task integrations are configured.")}
 
-        {:noreply, push_navigate(socket, to: ~p"/ansible/launch?devices=#{uids}")}
+      true ->
+        {:noreply,
+         socket.assigns.northbound_device_actions
+         |> preferred_device_action()
+         |> then(&open_northbound_action_modal(socket, &1))}
+    end
+  end
+
+  def handle_event("close_northbound_action_modal", _params, socket) do
+    {:noreply, close_northbound_action_modal(socket)}
+  end
+
+  def handle_event("northbound_action_change", %{"action" => params}, socket) do
+    action =
+      params
+      |> Map.get("action_id")
+      |> find_launchable_northbound_action(socket.assigns.northbound_device_actions)
+
+    params = NorthboundActionForm.ensure_params(params, action)
+
+    {:noreply,
+     socket
+     |> assign(:northbound_launch_action, action)
+     |> assign(:northbound_action_form, to_form(params, as: :action))
+     |> assign(:northbound_action_error, nil)}
+  end
+
+  def handle_event("launch_northbound_action", %{"action" => params}, socket) do
+    with {:ok, action} <-
+           selected_northbound_action(params, socket.assigns.northbound_device_actions),
+         {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
+         {:ok, targets} <- selected_device_action_targets(socket),
+         {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
+      {:noreply,
+       socket
+       |> close_northbound_action_modal()
+       |> assign(:selected_devices, MapSet.new())
+       |> assign(:select_all_matching, false)
+       |> assign(:total_matching_count, nil)
+       |> put_flash(
+         :info,
+         "Created task invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} device(s). Open device details Task History to follow results."
+       )}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:northbound_action_form, to_form(params, as: :action))
+         |> assign(
+           :northbound_action_error,
+           NorthboundActionForm.format_launch_error(reason, "device")
+         )}
     end
   end
 
@@ -510,7 +622,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp refresh_devices(socket, opts \\ []) do
-    params = Map.get(socket.assigns, :last_params, %{})
+    params =
+      socket.assigns
+      |> Map.get(:last_params, %{})
+      |> include_inactive_inventory_params()
+
     uri = Map.get(socket.assigns, :last_uri, "/devices")
     preserve_async_data? = Keyword.get(opts, :preserve_async_data?, false)
     stats_loaded? = Map.get(socket.assigns, :device_stats_loaded, false)
@@ -926,6 +1042,133 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp parse_bulk_tags(_), do: %{}
 
+  defp maybe_load_northbound_device_actions(socket) do
+    if connected?(socket) do
+      scope = socket.assigns.current_scope
+
+      start_async(socket, :northbound_device_actions, fn ->
+        northbound_catalog_module().eligible_device_actions(scope)
+      end)
+    else
+      socket
+    end
+  end
+
+  defp can_launch_northbound_actions?(scope) do
+    RBAC.can?(scope, "northbound.actions.launch") or RBAC.can?(scope, "ansible.runs.launch")
+  end
+
+  defp launch_permission_error do
+    "You are not authorized to launch tasks. Missing permission: northbound.actions.launch."
+  end
+
+  defp preferred_device_action(actions) do
+    List.first(actions)
+  end
+
+  defp launchable_northbound_actions(actions) when is_list(actions), do: actions
+
+  defp launchable_northbound_actions(_actions), do: []
+
+  defp open_northbound_action_modal(socket, nil) do
+    put_flash(socket, :error, "No launchable task integration was selected.")
+  end
+
+  defp open_northbound_action_modal(socket, action) do
+    params = NorthboundActionForm.default_params(action)
+
+    socket
+    |> assign(:show_northbound_action_modal, true)
+    |> assign(:northbound_launch_action, action)
+    |> assign(:northbound_action_form, to_form(params, as: :action))
+    |> assign(:northbound_action_error, nil)
+  end
+
+  defp close_northbound_action_modal(socket) do
+    socket
+    |> assign(:show_northbound_action_modal, false)
+    |> assign(:northbound_launch_action, nil)
+    |> assign(:northbound_action_form, to_form(%{}, as: :action))
+    |> assign(:northbound_action_error, nil)
+  end
+
+  defp selected_northbound_action(params, actions) do
+    params
+    |> Map.get("action_id")
+    |> find_launchable_northbound_action(actions)
+    |> case do
+      nil -> {:error, :action_not_found}
+      action -> {:ok, action}
+    end
+  end
+
+  defp find_launchable_northbound_action(id, actions) when is_binary(id) do
+    actions
+    |> launchable_northbound_actions()
+    |> Enum.find(&(&1.id == id))
+  end
+
+  defp find_launchable_northbound_action(_id, actions) do
+    actions |> launchable_northbound_actions() |> List.first()
+  end
+
+  defp selected_device_action_targets(socket) do
+    targets =
+      socket.assigns.selected_devices
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.map(&%{kind: "device", device_uid: &1})
+
+    if targets == [], do: {:error, :targets_required}, else: {:ok, targets}
+  end
+
+  defp create_northbound_invocation(socket, action, targets, input_values) do
+    descriptor_id = Map.get(action, :descriptor_id)
+
+    northbound_invocation_service_module().create_and_dispatch(
+      %{
+        descriptor_id: descriptor_id,
+        targets: targets,
+        input_values: input_values,
+        source: :user,
+        metadata: %{
+          "ui_surface" => "devices",
+          "selected_target_count" => length(targets)
+        }
+      },
+      actor: scope_actor(socket.assigns.current_scope)
+    )
+  end
+
+  defp scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    permissions = fresh_permissions(user, permissions)
+
+    user
+    |> Map.take([:id, :email, :role, :role_profile_id])
+    |> Map.put(:permissions, permissions)
+  end
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
+
+  defp fresh_permissions(%ServiceRadar.Identity.User{} = user, _permissions) do
+    ServiceRadar.Identity.RBAC.permissions_for_user(user, fresh?: true)
+  end
+
+  defp fresh_permissions(_user, permissions), do: permissions
+
+  defp northbound_catalog_module do
+    Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
+  end
+
+  defp northbound_invocation_service_module do
+    Application.get_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      NorthboundInvocationService
+    )
+  end
+
   defp parse_tag_entry(entry) do
     case String.split(entry, "=", parts: 2) do
       [key, value] -> normalize_tag_entry(key, value)
@@ -967,12 +1210,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
         selected_count
       end
 
+    run_task_disabled? =
+      assigns.northbound_device_actions_loading or assigns.northbound_device_actions == [] or
+        selected_count == 0
+
+    run_task_title =
+      cond do
+        assigns.northbound_device_actions_loading ->
+          "Checking configured task integrations"
+
+        assigns.northbound_device_actions == [] ->
+          "No launchable task integrations are configured"
+
+        selected_count == 0 ->
+          "Select at least one device"
+
+        true ->
+          "Run task for selected devices"
+      end
+
     assigns =
       assigns
       |> assign(:pagination, pagination)
       |> assign(:selected_count, selected_count)
       |> assign(:effective_count, effective_count)
       |> assign(:all_selected, all_selected)
+      |> assign(:run_task_disabled?, run_task_disabled?)
+      |> assign(:run_task_title, run_task_title)
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
@@ -1021,7 +1285,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <div>
                 This deployment is using {@managed_device_count} managed devices, above the
                 configured advisory limit of {@managed_device_limit}. Managed device count tracks
-                non-deleted inventory devices.
+                active, non-deleted inventory devices marked managed.
               </div>
             </div>
           </div>
@@ -1047,6 +1311,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             class={"btn btn-xs #{if has_filter?(@srql, "is_available", "false"), do: "btn-error", else: "btn-ghost"}"}
           >
             <.icon name="hero-x-circle" class="size-3" /> Unavailable
+          </.link>
+          <.link
+            navigate={~p"/devices?q=in:devices is_active:true"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_active", "true"), do: "btn-primary", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-play-circle" class="size-3" /> In service
+          </.link>
+          <.link
+            navigate={~p"/devices?q=in:devices is_active:false"}
+            class={"btn btn-xs #{if has_filter?(@srql, "is_active", "false"), do: "btn-warning", else: "btn-ghost"}"}
+          >
+            <.icon name="hero-pause-circle" class="size-3" /> Out of service
           </.link>
           <.link
             navigate={~p"/devices?q=in:devices discovery_sources:(sweep)"}
@@ -1102,12 +1378,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
           <div class="flex items-center gap-2">
             <.ui_button
-              :if={RBAC.can?(@current_scope, "ansible.runs.launch")}
+              :if={can_launch_northbound_actions?(@current_scope)}
               variant="primary"
               size="sm"
               phx-click="run_task_for_selection"
+              disabled={@run_task_disabled?}
+              title={@run_task_title}
             >
-              <.icon name="hero-play" class="size-4" /> Run Task
+              <.icon name="hero-play" class="size-4" />
+              {if @northbound_device_actions_loading, do: "Checking jobs...", else: "Run Task"}
             </.ui_button>
             <.ui_button
               :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
@@ -1131,8 +1410,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         <.ui_panel>
           <:header>
-            <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
-              ICMP: {@icmp_error}
+            <div class="flex w-full flex-wrap items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold text-base-content">Matching Devices</div>
+                <div class="text-xs text-base-content/60">
+                  <%= if is_integer(@total_device_count) do %>
+                    {format_stat_number(@total_device_count)} total {if @total_device_count == 1,
+                      do: "result",
+                      else: "results"}
+                  <% else %>
+                    Counting total results…
+                  <% end %>
+                </div>
+              </div>
+              <div :if={is_binary(@icmp_error)} class="badge badge-warning badge-sm">
+                ICMP: {@icmp_error}
+              </div>
             </div>
           </:header>
 
@@ -1194,6 +1487,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% is_selected =
                     is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
                   <% deleted = deleted_device_row?(row) %>
+                  <% active = active_device_row?(row) %>
                   <% icmp =
                     if is_binary(device_uid), do: Map.get(@icmp_sparklines, device_uid), else: nil %>
                   <% has_snmp =
@@ -1201,7 +1495,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
                   <% snmp_fallback = snmp_fallback_derived?(row) %>
-                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted, do: "opacity-60", else: ""}"}>
+                  <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
                         :if={is_binary(device_uid)}
@@ -1234,6 +1528,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                           </span>
                         </div>
                         <span :if={deleted} class="badge badge-ghost badge-xs shrink-0">Deleted</span>
+                        <span :if={not active} class="badge badge-warning badge-xs shrink-0">
+                          Out of service
+                        </span>
                       </div>
                       <div class="font-mono text-[0.7rem] text-base-content/60 truncate mt-0.5">
                         {Map.get(row, "ip") || "—"}
@@ -1241,7 +1538,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     </td>
                     <td class="text-xs">
                       <.device_type_badge
-                        type={Map.get(row, "type")}
+                        type={device_type_value(row)}
                         type_id={Map.get(row, "type_id")}
                         snmp_fallback={snmp_fallback}
                       />
@@ -1333,6 +1630,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
+      />
+
+      <.northbound_action_modal
+        :if={@show_northbound_action_modal}
+        id="northbound_action_modal"
+        title="Run Task"
+        subtitle={"#{@effective_count} selected device(s)"}
+        form={@northbound_action_form}
+        actions={launchable_northbound_actions(@northbound_device_actions)}
+        action={@northbound_launch_action}
+        error={@northbound_action_error}
+        close_event="close_northbound_action_modal"
+        change_event="northbound_action_change"
+        submit_event="launch_northbound_action"
+      />
+
+      <.breakdown_modal
+        :if={@breakdown_modal}
+        modal={@breakdown_modal}
+        search={@breakdown_search}
       />
     </Layouts.app>
     """
@@ -1831,6 +2148,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           title="By Type"
           items={@by_type}
           icon="hero-cpu-chip"
+          kind="type"
           filter_field="type"
           empty_text="No type data"
         />
@@ -1840,6 +2158,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           title="By Vendor"
           items={@by_vendor}
           icon="hero-building-office"
+          kind="vendor"
           filter_field="vendor_name"
           empty_text="No vendor data"
         />
@@ -1851,6 +2170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   attr(:title, :string, required: true)
   attr(:items, :list, required: true)
   attr(:icon, :string, required: true)
+  attr(:kind, :string, required: true)
   attr(:filter_field, :string, required: true)
   attr(:empty_text, :string, default: "No data")
 
@@ -1859,10 +2179,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     top_item = List.first(items)
     other_count = items |> Enum.drop(1) |> Enum.reduce(0, fn %{count: c}, acc -> acc + c end)
 
-    # Build the link for the top item (skip "Unknown" since we can't filter NULL values)
     top_item_link =
       if top_item && top_item.name != "Unknown" do
-        "/devices?q=" <> URI.encode("in:devices #{assigns.filter_field}:\"#{top_item.name}\"")
+        breakdown_item_path(assigns.filter_field, top_item.name)
       end
 
     assigns =
@@ -1921,37 +2240,135 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           </div>
           <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
         </div>
-        <div :if={@items != []} class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-ghost btn-xs btn-circle">
-            <.icon name="hero-chevron-down" class="size-3" />
-          </div>
-          <ul
-            tabindex="0"
-            class="dropdown-content z-50 menu p-2 shadow-lg bg-base-100 rounded-lg w-52 border border-base-200"
-          >
-            <%= for item <- Enum.take(@items, 10) do %>
-              <li>
-                <%= if item.name == "Unknown" do %>
-                  <span class="flex justify-between text-sm text-base-content/50 cursor-not-allowed">
-                    <span class="truncate">{item.name}</span>
-                    <span class="badge badge-sm badge-ghost">{item.count}</span>
-                  </span>
-                <% else %>
-                  <.link
-                    navigate={"/devices?q=" <> URI.encode("in:devices #{@filter_field}:\"#{item.name}\"")}
-                    class="flex justify-between text-sm"
-                  >
-                    <span class="truncate">{item.name}</span>
-                    <span class="badge badge-sm badge-ghost">{item.count}</span>
-                  </.link>
-                <% end %>
-              </li>
-            <% end %>
-          </ul>
-        </div>
+        <button
+          :if={@items != []}
+          type="button"
+          class="btn btn-ghost btn-xs btn-circle shrink-0"
+          phx-click="open_breakdown_modal"
+          phx-value-kind={@kind}
+          title={"Browse #{@title}"}
+        >
+          <.icon name="hero-chevron-down" class="size-3" />
+        </button>
       </div>
     </div>
     """
+  end
+
+  attr(:modal, :map, required: true)
+  attr(:search, :string, default: "")
+
+  defp breakdown_modal(assigns) do
+    modal = assigns.modal || %{}
+    search = assigns.search || ""
+    all_items = Map.get(modal, :items, [])
+    filtered_items = filter_breakdown_items(all_items, search)
+
+    assigns =
+      assigns
+      |> assign(:title, Map.get(modal, :title, "Browse"))
+      |> assign(:filter_field, Map.get(modal, :filter_field, ""))
+      |> assign(:items, filtered_items)
+      |> assign(:total_items, length(all_items))
+      |> assign(:filtered_count, length(filtered_items))
+      |> assign(:search, search)
+
+    ~H"""
+    <dialog id="device_breakdown_modal" class="modal modal-open">
+      <div class="modal-box max-w-xl">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-lg font-semibold text-base-content">{@title}</h3>
+            <p class="text-xs text-base-content/60">
+              {format_stat_number(@filtered_count)} of {format_stat_number(@total_items)}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm btn-circle"
+            phx-click="close_breakdown_modal"
+          >
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+
+        <form class="mt-4" phx-change="breakdown_search">
+          <input
+            type="search"
+            name="q"
+            value={@search}
+            placeholder="Filter"
+            class="input input-bordered input-sm w-full"
+          />
+        </form>
+
+        <div class="mt-4 max-h-[24rem] overflow-y-auto rounded-lg border border-base-200">
+          <div :if={@items == []} class="p-4 text-sm text-base-content/60">
+            No matches.
+          </div>
+          <%= for item <- @items do %>
+            <%= if item.name == "Unknown" do %>
+              <div class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm text-base-content/50">
+                <span class="min-w-0 flex-1 truncate">{item.name}</span>
+                <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
+              </div>
+            <% else %>
+              <.link
+                navigate={breakdown_item_path(@filter_field, item.name)}
+                class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm hover:bg-base-200/60"
+              >
+                <span class="min-w-0 flex-1 truncate">{item.name}</span>
+                <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
+              </.link>
+            <% end %>
+          <% end %>
+        </div>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_breakdown_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
+  defp breakdown_modal_data(title, filter_field, items) do
+    %{
+      title: title,
+      filter_field: filter_field,
+      items: items || []
+    }
+  end
+
+  defp filter_breakdown_items(items, ""), do: items
+
+  defp filter_breakdown_items(items, search) when is_binary(search) do
+    needle = search |> String.trim() |> String.downcase()
+
+    if needle == "" do
+      items
+    else
+      Enum.filter(items, fn item ->
+        item
+        |> Map.get(:name, "")
+        |> to_string()
+        |> String.downcase()
+        |> String.contains?(needle)
+      end)
+    end
+  end
+
+  defp breakdown_item_path(filter_field, name) do
+    encoded_query =
+      URI.encode(~s|in:devices #{filter_field}:"#{escape_srql_string_value(name)}"|)
+
+    "/devices?q=" <> encoded_query
+  end
+
+  defp escape_srql_string_value(value) do
+    value
+    |> to_string()
+    |> String.replace("\\", "\\\\")
+    |> String.replace("\"", "\\\"")
   end
 
   defp format_stat_number(n) when is_integer(n) and n >= 1000 do
@@ -2114,6 +2531,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     |> Map.get(key)
   end
 
+  defp device_type_value(row) when is_map(row) do
+    Map.get(row, "type") ||
+      Map.get(row, "device_type") ||
+      metadata_value(row, "armis_type") ||
+      metadata_value(row, "device_type") ||
+      metadata_value(row, "type") ||
+      metadata_value(row, "armis_category") ||
+      metadata_value(row, "category")
+  end
+
+  defp device_type_value(_row), do: nil
+
   defp snmp_fallback_derived?(row) when is_map(row) do
     metadata = row_metadata(row)
 
@@ -2125,7 +2554,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     has_rule = present_text?(metadata_value(row, "classification_rule_id"))
 
     has_display_values =
-      present_text?(Map.get(row, "type")) or present_text?(Map.get(row, "vendor_name")) or
+      present_text?(device_type_value(row)) or present_text?(Map.get(row, "vendor_name")) or
         display_model(Map.get(row, "model")) != "—"
 
     has_snmp_evidence = snmp_evidence_present?(metadata)
@@ -2658,13 +3087,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp latency_ms(_), do: 0.0
 
   defp agent_device_row?(row) when is_map(row) do
-    agent_id = Map.get(row, "agent_id")
-    sources = Map.get(row, "discovery_sources") || []
-    agent_list = Map.get(row, "agent_list") || []
+    has_agent_list?(agent_list(row)) or
+      present_text?(device_row_value(row, "agent_id", :agent_id))
+  end
 
-    (is_binary(agent_id) and agent_id != "") or
-      (is_list(agent_list) and agent_list != []) or
-      Enum.any?(sources, &(&1 == "agent"))
+  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+
+  defp has_agent_list?(items) do
+    items
+    |> List.wrap()
+    |> Enum.any?(&is_map/1)
+  end
+
+  defp device_row_value(row, string_key, atom_key) do
+    Map.get(row, string_key) || Map.get(row, atom_key)
   end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
@@ -2766,19 +3202,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     query = (query || "") |> to_string() |> String.trim()
 
     full_query =
-      if query == "" do
-        ~s|in:devices stats:"count() as total"|
-      else
-        ~s|in:devices #{query} stats:"count() as total"|
-      end
+      query
+      |> normalize_device_count_query()
+      |> Kernel.<>(~s| stats:"count() as total"|)
 
     case srql_module.query(full_query, %{scope: scope}) do
-      {:ok, %{"results" => [%{"total" => count} | _]}} when is_integer(count) ->
-        count
+      {:ok, %{"results" => [count | _]}} ->
+        extract_total_count(count)
+
+      {:error, reason} ->
+        Logger.warning("Device total count query failed: #{inspect(reason)}")
+        nil
 
       _ ->
         nil
     end
+  end
+
+  defp extract_total_count(%{} = row) do
+    row
+    |> Map.values()
+    |> Enum.find_value(&parse_count_value/1)
+  end
+
+  defp extract_total_count(value), do: parse_count_value(value)
+
+  defp parse_count_value(value) when is_integer(value), do: value
+  defp parse_count_value(value) when is_float(value), do: trunc(value)
+  defp parse_count_value(%Decimal{} = value), do: Decimal.to_integer(value)
+
+  defp parse_count_value(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_count_value(_value), do: nil
+
+  defp include_inactive_inventory_params(params) when is_map(params) do
+    query = params |> Map.get("q", "") |> to_string() |> String.trim()
+
+    query =
+      cond do
+        query == "" ->
+          "in:devices include_inactive:true"
+
+        lifecycle_filter?(query) ->
+          query
+
+        String.starts_with?(String.downcase(query), "in:devices") ->
+          "#{query} include_inactive:true"
+
+        true ->
+          query
+      end
+
+    Map.put(params, "q", query)
+  end
+
+  defp include_inactive_inventory_params(params), do: params
+
+  defp lifecycle_filter?(query) when is_binary(query) do
+    String.match?(query, ~r/(^|\s)(?:is_active|active|include_inactive):/i)
+  end
+
+  defp normalize_device_count_query(""), do: "in:devices"
+
+  defp normalize_device_count_query(query) when is_binary(query) do
+    query = strip_device_count_control_tokens(query)
+
+    cond do
+      query == "" -> "in:devices"
+      String.starts_with?(query, "in:") -> query
+      true -> "in:devices #{query}"
+    end
+  end
+
+  defp strip_device_count_control_tokens(query) do
+    query
+    |> String.replace(~r/(^|\s)(?:limit|sort|cursor):"[^"]*"(?=\s|$)/i, " ")
+    |> String.replace(~r/(^|\s)(?:limit|sort|cursor):\S+/i, " ")
+    |> String.trim()
+    |> String.replace(~r/\s+/, " ")
   end
 
   defp parse_page_param(params) do
@@ -2938,6 +3444,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     not is_nil(value) and value != ""
   end
 
+  defp active_device_row?(row) when is_map(row) do
+    row
+    |> Map.get("is_active", true)
+    |> normalize_bool(default: true)
+  end
+
+  defp active_device_row?(_row), do: true
+
+  defp normalize_bool(value, _opts) when is_boolean(value), do: value
+  defp normalize_bool(1, _opts), do: true
+  defp normalize_bool(0, _opts), do: false
+
+  defp normalize_bool(value, opts) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "true" -> true
+      "1" -> true
+      "yes" -> true
+      "active" -> true
+      "in_service" -> true
+      "false" -> false
+      "0" -> false
+      "no" -> false
+      "inactive" -> false
+      "out_of_service" -> false
+      _ -> Keyword.get(opts, :default, false)
+    end
+  end
+
+  defp normalize_bool(_value, opts), do: Keyword.get(opts, :default, false)
+
   # Sysmon profile helpers
   # Note: Profile-per-device tracking removed - profiles now target devices via SRQL queries.
   # This function returns an empty map for profiles_by_device.
@@ -3057,7 +3593,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp process_device_import(device_data, scope, {created, skipped, errors}) do
-    case create_single_device(device_data, scope) do
+    case ManualDeviceCreator.create(scope, device_data) do
       {:ok, _device} ->
         {created + 1, skipped, errors}
 
@@ -3071,108 +3607,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp create_device(scope, params) do
-    if is_nil(scope) do
-      {:error, :missing_scope}
-    else
-      # Build device data from form params
-      device_data = %{
-        hostname: params["hostname"],
-        ip: params["ip"],
-        type: params["type"],
-        tags: parse_form_tags(params["tags"])
-      }
-
-      create_single_device(device_data, scope)
-    end
+    ManualDeviceCreator.create(scope, %{
+      hostname: params["hostname"],
+      ip: params["ip"],
+      type: params["type"],
+      tags: parse_form_tags(params["tags"])
+    })
   end
-
-  defp create_single_device(device_data, scope) do
-    # Generate a UID based on IP (or use a UUID)
-    uid = generate_device_uid(device_data.ip)
-
-    uid
-    |> create_new_device(device_data, scope)
-    |> normalize_create_result()
-  end
-
-  defp normalize_create_result({:ok, device}), do: {:ok, device}
-
-  defp normalize_create_result({:error, %Invalid{} = error}) do
-    if unique_uid_error?(error) do
-      {:error, :already_exists}
-    else
-      {:error, error}
-    end
-  end
-
-  defp normalize_create_result({:error, error}), do: {:error, error}
-
-  defp create_new_device(uid, device_data, scope) do
-    # Device doesn't exist, create it
-    now = DateTime.utc_now()
-
-    attrs =
-      %{
-        uid: uid,
-        hostname: device_data.hostname,
-        ip: device_data.ip,
-        name: device_data.hostname || device_data.ip,
-        type: device_data[:type],
-        type_id: parse_type_id(device_data[:type]),
-        tags: normalize_tags(device_data[:tags]),
-        discovery_sources: ["manual"],
-        first_seen_time: now,
-        last_seen_time: now,
-        created_time: now
-      }
-      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-      |> Map.new()
-
-    Device
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> Ash.create(scope: scope)
-  end
-
-  defp generate_device_uid(ip) when is_binary(ip) do
-    # Generate a deterministic UID based on IP
-    # This allows for upsert behavior on re-import
-    :sha256
-    |> :crypto.hash("manual:#{ip}")
-    |> Base.encode16(case: :lower)
-    |> String.slice(0, 32)
-  end
-
-  defp generate_device_uid(_), do: Ash.UUID.generate()
-
-  defp parse_type_id(nil), do: 0
-  defp parse_type_id(""), do: 0
-  defp parse_type_id("server"), do: 1
-  defp parse_type_id("Server"), do: 1
-  defp parse_type_id("desktop"), do: 2
-  defp parse_type_id("Desktop"), do: 2
-  defp parse_type_id("laptop"), do: 3
-  defp parse_type_id("Laptop"), do: 3
-  defp parse_type_id("switch"), do: 10
-  defp parse_type_id("Switch"), do: 10
-  defp parse_type_id("router"), do: 12
-  defp parse_type_id("Router"), do: 12
-  defp parse_type_id("firewall"), do: 9
-  defp parse_type_id("Firewall"), do: 9
-  defp parse_type_id(_), do: 0
-
-  defp normalize_tags(nil), do: %{}
-  defp normalize_tags(tags) when is_map(tags), do: tags
-
-  defp normalize_tags(tags) when is_list(tags) do
-    Enum.reduce(tags, %{}, fn tag, acc ->
-      case String.split(tag, "=", parts: 2) do
-        [key, value] -> Map.put(acc, String.trim(key), String.trim(value))
-        [key] -> Map.put(acc, String.trim(key), nil)
-      end
-    end)
-  end
-
-  defp normalize_tags(_), do: %{}
 
   defp parse_form_tags(nil), do: []
   defp parse_form_tags(""), do: []
@@ -3205,38 +3646,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   defp format_single_device_error(%{message: msg}) when is_binary(msg), do: msg
 
   defp format_single_device_error(err), do: inspect(err)
-
-  defp unique_uid_error?(%Invalid{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &unique_uid_error_detail?/1)
-  end
-
-  defp unique_uid_error?(_), do: false
-
-  defp unique_uid_error_detail?(%InvalidAttribute{} = error) do
-    field = Map.get(error, :field)
-    validation = Map.get(error, :validation)
-    message = Map.get(error, :message)
-
-    field == :uid and
-      (unique_validation?(validation) or
-         (is_binary(message) and String.contains?(message, "has already been taken")))
-  end
-
-  defp unique_uid_error_detail?(%Ash.Error.Changes.InvalidChanges{} = error) do
-    fields = Map.get(error, :fields, [])
-    validation = Map.get(error, :validation)
-    message = Map.get(error, :message)
-
-    Enum.member?(List.wrap(fields), :uid) and
-      (unique_validation?(validation) or
-         (is_binary(message) and String.contains?(message, "has already been taken")))
-  end
-
-  defp unique_uid_error_detail?(_), do: false
-
-  defp unique_validation?(:unique), do: true
-
-  defp unique_validation?({Ash.Resource.Validation.Uniqueness, _opts}), do: true
-
-  defp unique_validation?(_), do: false
 end

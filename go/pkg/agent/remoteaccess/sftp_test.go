@@ -28,8 +28,6 @@ import (
 	"time"
 )
 
-var errFakeSFTPRealPathFailed = errors.New("realpath failed")
-
 func TestSFTPAdapterDownloadUsesSharedSSHDialerAndPolicy(t *testing.T) {
 	t.Parallel()
 
@@ -163,13 +161,12 @@ func TestSFTPAdapterDeniesBeforeOpeningFile(t *testing.T) {
 	}
 }
 
-func TestSFTPAdapterDeniesUnresolvedSymlinkBeforeOpeningFile(t *testing.T) {
+func TestSFTPAdapterDeniesSymlinkWhenRealPathFails(t *testing.T) {
 	t.Parallel()
 
 	client := newFakeSFTPClient()
-	client.files["/srv/data/link"] = []byte("payload")
-	client.symlinks = map[string]string{"/srv/data/link": ""}
-	client.realPathErr = errFakeSFTPRealPathFailed
+	client.symlinks["/srv/data/link"] = true
+	client.realPathErr = os.ErrPermission
 	adapter := testSFTPAdapter(client, FileTransferOperationDownload)
 	adapter.Policy.SymlinkMode = FileTransferSymlinkFollowInsideRoot
 
@@ -184,7 +181,7 @@ func TestSFTPAdapterDeniesUnresolvedSymlinkBeforeOpeningFile(t *testing.T) {
 		t.Fatalf("Execute error = %v, want %v", err, ErrFileTransferPolicyDenied)
 	}
 	if slices.Contains(client.ops, "open:/srv/data/link") {
-		t.Fatalf("opened unresolved symlink path, ops = %#v", client.ops)
+		t.Fatalf("opened unresolved symlink, ops = %#v", client.ops)
 	}
 }
 
@@ -226,7 +223,7 @@ func renameSFTPRequest(path string, destination string) FileTransferRequestPaylo
 type fakeSFTPClient struct {
 	files       map[string][]byte
 	dirs        map[string][]os.FileInfo
-	symlinks    map[string]string
+	symlinks    map[string]bool
 	realPathErr error
 	ops         []string
 	closed      bool
@@ -234,8 +231,9 @@ type fakeSFTPClient struct {
 
 func newFakeSFTPClient() *fakeSFTPClient {
 	return &fakeSFTPClient{
-		files: make(map[string][]byte),
-		dirs:  make(map[string][]os.FileInfo),
+		files:    make(map[string][]byte),
+		dirs:     make(map[string][]os.FileInfo),
+		symlinks: make(map[string]bool),
 	}
 }
 
@@ -260,7 +258,7 @@ func (c *fakeSFTPClient) Create(path string) (SFTPFile, error) {
 }
 
 func (c *fakeSFTPClient) Lstat(path string) (os.FileInfo, error) {
-	if _, ok := c.symlinks[path]; ok {
+	if c.symlinks[path] {
 		return fakeFileInfo{name: pathBase(path), mode: os.ModeSymlink}, nil
 	}
 
@@ -294,11 +292,9 @@ func (c *fakeSFTPClient) ReadDir(path string) ([]os.FileInfo, error) {
 }
 
 func (c *fakeSFTPClient) RealPath(path string) (string, error) {
+	c.ops = append(c.ops, "realpath:"+path)
 	if c.realPathErr != nil {
 		return "", c.realPathErr
-	}
-	if target, ok := c.symlinks[path]; ok {
-		return target, nil
 	}
 
 	return path, nil

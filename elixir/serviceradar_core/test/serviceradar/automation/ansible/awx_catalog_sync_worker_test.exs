@@ -5,6 +5,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxCatalogSyncWorkerTest do
   alias ServiceRadar.Automation.Ansible.Controller
 
   defmodule FakeAwxClient do
+    @moduledoc false
     def list_templates(controller, opts) do
       send(opts[:test_pid] || self(), {:list_templates, controller.id, opts})
       {:ok, %{id: "command-1"}}
@@ -12,6 +13,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxCatalogSyncWorkerTest do
   end
 
   defmodule FailingAwxClient do
+    @moduledoc false
     def list_templates(_controller, _opts), do: {:error, :unreachable}
   end
 

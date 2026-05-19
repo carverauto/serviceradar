@@ -9,7 +9,12 @@ defmodule ServiceRadar.Automation.Ansible.IngestorActions do
   """
 
   @type id :: term()
-  @type run :: %{required(:id) => id, required(:state) => atom(), required(:last_event_id) => integer(), optional(any()) => any()}
+  @type run :: %{
+          required(:id) => id,
+          required(:state) => atom(),
+          required(:last_event_id) => integer(),
+          optional(any()) => any()
+        }
   @type play :: %{required(:id) => id, optional(any()) => any()}
   @type task :: %{required(:id) => id, optional(any()) => any()}
   @type target :: %{required(:id) => id, optional(any()) => any()}

@@ -8,9 +8,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     queue: :integrations,
     max_attempts: 3,
     unique: [
-      period: 60,
+      period: :infinity,
       fields: [:worker, :args],
-      keys: [:integration_source_id, :manual],
+      keys: [:integration_source_id],
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
@@ -18,6 +18,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.SweepJobs.ObanSupport
+
+  require Logger
 
   @spec enqueue_now(String.t() | Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(integration_source_id) do
@@ -37,6 +39,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         id: oban_job_id
       }) do
     actor = SystemActor.system(:armis_northbound_run_worker)
+    manual? = Map.get(args, "manual", false)
+
+    Logger.info("Executing Armis northbound job",
+      integration_source_id: integration_source_id,
+      oban_job_id: oban_job_id,
+      manual: manual?
+    )
 
     case source_module().get_by_id(integration_source_id, actor: actor) do
       {:ok, source} ->
@@ -44,14 +53,37 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         |> runner().run_for_source(
           actor: actor,
           oban_job_id: oban_job_id,
-          manual?: Map.get(args, "manual", false)
+          manual?: manual?
         )
         |> case do
-          {:ok, _result} -> :ok
-          {:error, _result} -> {:error, :northbound_run_failed}
+          {:ok, _result} ->
+            Logger.info("Armis northbound job completed",
+              integration_source_id: integration_source_id,
+              oban_job_id: oban_job_id
+            )
+
+            :ok
+
+          {:error, result} ->
+            Logger.warning("Armis northbound job recorded failure",
+              integration_source_id: integration_source_id,
+              oban_job_id: oban_job_id,
+              reason: failure_reason(result),
+              device_count: failure_count(result, :device_count),
+              updated_count: failure_count(result, :updated_count),
+              error_count: failure_count(result, :error_count)
+            )
+
+            :ok
         end
 
       {:error, reason} ->
+        Logger.warning("Armis northbound job could not load integration source",
+          integration_source_id: integration_source_id,
+          oban_job_id: oban_job_id,
+          reason: inspect(reason)
+        )
+
         {:error, reason}
     end
   end
@@ -80,6 +112,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       _ -> []
     end
   end
+
+  defp failure_reason(%{result: %{error_message: message}}) when is_binary(message), do: message
+  defp failure_reason(%{result: %{errors: errors}}), do: inspect(errors)
+  defp failure_reason(reason), do: inspect(reason)
+
+  defp failure_count(%{result: result}, key) when is_map(result), do: Map.get(result, key)
+  defp failure_count(_result, _key), do: nil
 
   defp runner do
     Application.get_env(

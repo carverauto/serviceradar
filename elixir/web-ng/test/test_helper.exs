@@ -74,6 +74,7 @@ _ =
       {"is_managed", "boolean"},
       {"is_compliant", "boolean"},
       {"is_trusted", "boolean"},
+      {"is_active", "boolean DEFAULT true"},
       # OCSF Nested Objects (JSONB)
       {"os", "jsonb"},
       {"hw_info", "jsonb"},
@@ -85,6 +86,7 @@ _ =
       # ServiceRadar-specific fields
       {"gateway_id", "text"},
       {"agent_id", "text"},
+      {"availability_source_agent_id", "text"},
       {"management_device_id", "text"},
       {"discovery_sources", "text[]"},
       {"is_available", "boolean"},
@@ -135,6 +137,33 @@ _ =
         []
       )
     end
+  )
+
+_ =
+  SQL.query!(
+    repo,
+    """
+    CREATE TABLE IF NOT EXISTS northbound_action_event_handlers (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text NOT NULL,
+      description text,
+      state text NOT NULL DEFAULT 'disabled',
+      descriptor_id uuid NOT NULL,
+      match_expression jsonb NOT NULL DEFAULT '{}'::jsonb,
+      target_resolver jsonb NOT NULL DEFAULT '{}'::jsonb,
+      input_template jsonb NOT NULL DEFAULT '{}'::jsonb,
+      dedupe_key_template text,
+      cooldown_seconds integer NOT NULL DEFAULT 300,
+      rate_limit jsonb NOT NULL DEFAULT '{}'::jsonb,
+      approval_mode text NOT NULL DEFAULT 'manual',
+      service_principal text NOT NULL DEFAULT 'northbound-event-handler',
+      last_triggered_at timestamptz,
+      metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+      inserted_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+    """,
+    []
   )
 
 # Create logs table for SRQL UUID parameter testing

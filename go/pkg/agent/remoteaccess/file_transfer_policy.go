@@ -67,6 +67,7 @@ type FileTransferPolicyInput struct {
 	Bytes        int64
 	Files        int64
 	HasSymlink   bool
+	RealPathOK   bool
 	Approved     bool
 }
 
@@ -194,8 +195,8 @@ func enforceSymlinkPolicy(input FileTransferPolicyInput, policy FileTransferPoli
 	case FileTransferSymlinkAllow:
 		return nil
 	case FileTransferSymlinkFollowInsideRoot:
-		if strings.TrimSpace(input.ResolvedPath) == "" {
-			return fmt.Errorf("%w: unresolved symlink", ErrFileTransferPolicyDenied)
+		if !input.RealPathOK || strings.TrimSpace(input.ResolvedPath) == "" {
+			return fmt.Errorf("%w: resolved symlink path unavailable", ErrFileTransferPolicyDenied)
 		}
 		resolved, err := normalizeRemotePath(input.ResolvedPath)
 		if err != nil {
@@ -268,6 +269,9 @@ func normalizeRemotePath(candidate string) (string, error) {
 	if candidate == "" || !strings.HasPrefix(candidate, "/") {
 		return "", ErrInvalidFileTransferPath
 	}
+	if containsInvalidPathRune(candidate) || containsDotPathSegment(candidate) {
+		return "", ErrInvalidFileTransferPath
+	}
 
 	normalized := path.Clean(candidate)
 	if normalized == "." || normalized == "" {
@@ -275,6 +279,26 @@ func normalizeRemotePath(candidate string) (string, error) {
 	}
 
 	return normalized, nil
+}
+
+func containsInvalidPathRune(candidate string) bool {
+	for _, r := range candidate {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsDotPathSegment(candidate string) bool {
+	for _, segment := range strings.Split(candidate, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+
+	return false
 }
 
 func hashRemotePath(candidate string) string {

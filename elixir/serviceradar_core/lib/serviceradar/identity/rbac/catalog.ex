@@ -111,6 +111,18 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.app.open",
+          label: "Open application remote access",
+          description: "Open policy-registered HTTP and HTTPS application access sessions",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.tcp.open",
+          label: "Open TCP remote access",
+          description: "Open policy-registered raw TCP access sessions",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.requests.review",
           label: "Review remote-access requests",
           description: "Approve and deny approval-gated remote-access requests",
@@ -346,6 +358,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "settings.remote_access_targets.manage",
+          label: "Manage remote-access targets",
+          description: "Create and manage registered application and TCP remote-access targets",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.snmp_profiles.manage",
           label: "Manage SNMP profiles",
           description: "Manage SNMP profiles",
@@ -480,6 +498,45 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           description:
             "Create, edit, enable, disable, and delete scheduled / recurring Ansible playbook runs.",
           default_roles: @operator_roles
+        }
+      ]
+    },
+    %{
+      section: "northbound",
+      label: "Northbound Actions",
+      permissions: [
+        %{
+          key: "northbound.actions.view",
+          label: "View northbound actions",
+          description: "View configured action providers, descriptors, invocations, and history.",
+          default_roles: @all_roles
+        },
+        %{
+          key: "northbound.actions.manage",
+          label: "Manage northbound action providers",
+          description:
+            "Register, approve, disable, and update provider-neutral northbound action providers and descriptors.",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "northbound.actions.launch",
+          label: "Launch northbound actions",
+          description:
+            "Launch approved provider-neutral actions against selected devices or interfaces.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "northbound.actions.cancel",
+          label: "Cancel northbound actions",
+          description: "Cancel in-progress provider-neutral action invocations.",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "northbound.event_handlers.manage",
+          label: "Manage northbound event handlers",
+          description:
+            "Create, approve, enable, disable, and tune event handlers that invoke northbound actions.",
+          default_roles: @admin_roles
         }
       ]
     },

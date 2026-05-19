@@ -250,6 +250,68 @@ func TestPluginManagerDebugSnapshotRedactsDownloadSecrets(t *testing.T) {
 	}
 }
 
+func TestPluginConfigFromConfigJSONFallback(t *testing.T) {
+	config := pluginConfigFromConfigJSON([]byte(`{
+		"plugins": {
+			"engine_limits": {
+				"max_memory_mb": 256,
+				"max_cpu_ms": 750,
+				"max_concurrent": 3,
+				"max_open_connections": 8
+			},
+			"assignments": [
+				{
+					"assignment_id": "assignment-1",
+					"plugin_id": "sample-plugin",
+					"package_id": "package-1",
+					"version": "1.0.0",
+					"name": "Sample Plugin",
+					"entrypoint": "run_check",
+					"runtime": "wasi-preview1",
+					"outputs": "serviceradar.plugin_result.v1",
+					"capabilities": ["get_config", "submit_result"],
+					"params": {"endpoint": "https://api.example.test"},
+					"permissions": {"allowed_domains": ["api.example.test"]},
+					"resources": {"requested_memory_mb": 64},
+					"enabled": true,
+					"interval_sec": 60,
+					"timeout_sec": 10,
+					"wasm_object_key": "plugins/sample/1.0.0/package.wasm",
+					"content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"source_type": "first_party",
+					"download_url": "https://demo.serviceradar.cloud/api/plugin-packages/package-1/blob/download",
+					"download_token": "token"
+				}
+			]
+		}
+	}`))
+
+	if config == nil {
+		t.Fatal("expected plugin config fallback")
+	}
+	if config.EngineLimits.GetMaxMemoryMb() != 256 ||
+		config.EngineLimits.GetMaxCpuMs() != 750 ||
+		config.EngineLimits.GetMaxConcurrent() != 3 ||
+		config.EngineLimits.GetMaxOpenConnections() != 8 {
+		t.Fatalf("unexpected engine limits: %#v", config.EngineLimits)
+	}
+	if len(config.Assignments) != 1 {
+		t.Fatalf("expected 1 assignment, got %d", len(config.Assignments))
+	}
+
+	assignment := config.Assignments[0]
+	if assignment.GetAssignmentId() != "assignment-1" ||
+		assignment.GetPluginId() != "sample-plugin" ||
+		assignment.GetDownloadUrl() == "" ||
+		assignment.GetDownloadToken() != "token" {
+		t.Fatalf("unexpected assignment: %#v", assignment)
+	}
+	if !json.Valid(assignment.GetParamsJson()) ||
+		!strings.Contains(string(assignment.GetParamsJson()), "api.example.test") {
+		t.Fatalf("params json was not preserved: %s", string(assignment.GetParamsJson()))
+	}
+}
+
 func TestPluginManagerOpenCameraRelayStreamUsesStreamingBridge(t *testing.T) {
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{
 		Logger:        logger.NewTestLogger(),
@@ -878,6 +940,32 @@ func TestNormalizePluginPayloadRejectsInvalidStatus(t *testing.T) {
 	_, _, err := pl.normalizePluginPayload(result, "agent-1", "default")
 	if err == nil {
 		t.Fatalf("expected error for invalid status")
+	}
+}
+
+func TestNormalizePluginPayloadMapsFailedStatus(t *testing.T) {
+	const expectedStatus = "CRITICAL"
+
+	pl := &PushLoop{}
+	result := PluginResult{
+		Payload: []byte(`{"status":"failed","summary":"plugin execution failed"}`),
+	}
+
+	data, available, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if available {
+		t.Fatalf("expected available=false for failed status")
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("failed to unmarshal payload: %v", err)
+	}
+
+	if payload["status"] != expectedStatus {
+		t.Fatalf("expected %s status, got %#v", expectedStatus, payload["status"])
 	}
 }
 

@@ -20,7 +20,10 @@ package sshca
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -44,8 +47,9 @@ var (
 	ErrTTLExceedsMaximum    = errors.New("ssh certificate ttl exceeds maximum")
 	ErrInvalidValidity      = errors.New("ssh certificate validity window is invalid")
 	ErrPublicKeyIsCert      = errors.New("ssh public key must not be a certificate")
-	ErrUnsupportedCAKey     = errors.New("unsupported ssh ca private key algorithm")
-	ErrUnsupportedOption    = errors.New("unsupported ssh certificate option")
+	ErrUnsupportedSignerKey = errors.New("unsupported ssh ca signer key")
+	ErrUnsupportedCritical  = errors.New("unsupported ssh certificate critical option")
+	ErrUnsupportedExtension = errors.New("unsupported ssh certificate extension")
 )
 
 // CA signs OpenSSH user certificates with one ServiceRadar SSH user CA key.
@@ -54,6 +58,8 @@ type CA struct {
 	maxTTL   time.Duration
 	backdate time.Duration
 	now      func() time.Time
+
+	allowedCriticalOptions map[string]struct{}
 }
 
 // Option configures a CA.
@@ -84,6 +90,21 @@ func WithClock(now func() time.Time) Option {
 	}
 }
 
+// WithAllowedCriticalOptions permits explicitly reviewed OpenSSH certificate
+// critical options such as source-address. By default, ServiceRadar does not
+// allow caller-provided critical options.
+func WithAllowedCriticalOptions(names ...string) Option {
+	return func(ca *CA) {
+		ca.allowedCriticalOptions = make(map[string]struct{}, len(names))
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name != "" {
+				ca.allowedCriticalOptions[name] = struct{}{}
+			}
+		}
+	}
+}
+
 // New parses an OpenSSH or PEM private key and returns an SSH CA signer.
 func New(privateKey, passphrase []byte, opts ...Option) (*CA, error) {
 	if len(bytes.TrimSpace(privateKey)) == 0 {
@@ -101,9 +122,6 @@ func New(privateKey, passphrase []byte, opts ...Option) (*CA, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("parse ssh ca private key: %w", err)
-	}
-	if err := validateSignerAlgorithm(signer); err != nil {
-		return nil, err
 	}
 
 	return NewFromSigner(signer, opts...), nil
@@ -156,9 +174,6 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 	if ca == nil || ca.signer == nil {
 		return nil, ErrCAPrivateKeyRequired
 	}
-	if err := validateSignerAlgorithm(ca.signer); err != nil {
-		return nil, err
-	}
 	if len(bytes.TrimSpace(req.PublicKey)) == 0 {
 		return nil, ErrPublicKeyRequired
 	}
@@ -186,6 +201,14 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 	if ca.maxTTL > 0 && req.TTL > ca.maxTTL {
 		return nil, fmt.Errorf("%w: requested=%s max=%s", ErrTTLExceedsMaximum, req.TTL, ca.maxTTL)
 	}
+	if err := validateCertificatePermissions(req.CriticalOptions, req.Extensions, ca.allowedCriticalOptions); err != nil {
+		return nil, err
+	}
+
+	signer, err := hardenedSigner(ca.signer)
+	if err != nil {
+		return nil, err
+	}
 
 	now := ca.now().UTC()
 	validAfter := req.ValidAfter.UTC()
@@ -205,11 +228,6 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 		}
 	}
 
-	permissions, err := certificatePermissions(req.CriticalOptions, req.Extensions)
-	if err != nil {
-		return nil, err
-	}
-
 	cert := &ssh.Certificate{
 		Key:             publicKey,
 		Serial:          serial,
@@ -218,9 +236,12 @@ func (ca *CA) SignUserCertificate(req UserCertificateRequest) (*UserCertificate,
 		ValidPrincipals: principals,
 		ValidAfter:      uint64(validAfter.Unix()),
 		ValidBefore:     uint64(expiresAt.Unix()),
-		Permissions:     permissions,
+		Permissions: ssh.Permissions{
+			CriticalOptions: copyMap(req.CriticalOptions),
+			Extensions:      defaultExtensions(req.Extensions),
+		},
 	}
-	if err := cert.SignCert(rand.Reader, ca.signer); err != nil {
+	if err := cert.SignCert(rand.Reader, signer); err != nil {
 		return nil, fmt.Errorf("sign ssh user certificate: %w", err)
 	}
 
@@ -256,26 +277,58 @@ func defaultExtensions(values map[string]string) map[string]string {
 	return copyMap(values)
 }
 
-func certificatePermissions(criticalOptions, extensions map[string]string) (ssh.Permissions, error) {
-	if len(criticalOptions) > 0 {
-		return ssh.Permissions{}, fmt.Errorf("%w: critical options are not allowed", ErrUnsupportedOption)
-	}
-
-	for name, value := range extensions {
-		if name != "permit-pty" || value != "" {
-			return ssh.Permissions{}, fmt.Errorf("%w: %s", ErrUnsupportedOption, name)
+func validateCertificatePermissions(criticalOptions, extensions map[string]string, allowedCriticalOptions map[string]struct{}) error {
+	for name := range criticalOptions {
+		if _, ok := allowedCriticalOptions[name]; !ok {
+			return fmt.Errorf("%w: %s", ErrUnsupportedCritical, name)
 		}
 	}
-
-	return ssh.Permissions{Extensions: defaultExtensions(extensions)}, nil
+	for name := range extensions {
+		if name != "permit-pty" {
+			return fmt.Errorf("%w: %s", ErrUnsupportedExtension, name)
+		}
+	}
+	return nil
 }
 
-func validateSignerAlgorithm(signer ssh.Signer) error {
-	switch signer.PublicKey().Type() {
+func hardenedSigner(signer ssh.Signer) (ssh.Signer, error) {
+	if signer == nil || signer.PublicKey() == nil {
+		return nil, ErrCAPrivateKeyRequired
+	}
+
+	cryptoKey, ok := signer.PublicKey().(ssh.CryptoPublicKey)
+	if !ok {
+		return signer, validateSignerKeyType(signer.PublicKey().Type())
+	}
+
+	switch key := cryptoKey.CryptoPublicKey().(type) {
+	case ed25519.PublicKey:
+		return signer, nil
+	case *ecdsa.PublicKey:
+		if key.Curve == nil || key.Curve.Params().BitSize < 256 {
+			return nil, ErrUnsupportedSignerKey
+		}
+		return signer, nil
+	case *rsa.PublicKey:
+		if key.N == nil || key.N.BitLen() < 4096 {
+			return nil, ErrUnsupportedSignerKey
+		}
+		algorithmSigner, ok := signer.(ssh.AlgorithmSigner)
+		if !ok {
+			return nil, ErrUnsupportedSignerKey
+		}
+		return ssh.NewSignerWithAlgorithms(algorithmSigner, []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256})
+	default:
+		return nil, validateSignerKeyType(signer.PublicKey().Type())
+	}
+}
+
+func validateSignerKeyType(keyType string) error {
+	switch keyType {
 	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoECDSA384, ssh.KeyAlgoECDSA521:
 		return nil
 	default:
-		return fmt.Errorf("%w: %s", ErrUnsupportedCAKey, signer.PublicKey().Type())
+		return fmt.Errorf("%w: %s", ErrUnsupportedSignerKey, keyType)
 	}
 }
 

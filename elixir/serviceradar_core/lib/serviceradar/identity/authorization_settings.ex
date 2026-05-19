@@ -99,6 +99,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       allow_nil? false
       default true
       public? true
+
       description "Whether the RFC 8628 CLI device-code flow accepts new authorizations on this instance"
     end
 
@@ -114,6 +115,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
       allow_nil? false
       default ["dashboard.publish"]
       public? true
+
       description "Scopes the CLI device-code flow may request; out-of-list scopes 400 with invalid_scope"
     end
 

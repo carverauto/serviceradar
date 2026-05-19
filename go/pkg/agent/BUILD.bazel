@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "agent",
     srcs = [
+        "app_tcp_route.go",
         "camera_relay.go",
         "camera_relay_rtsp.go",
         "desktop_media_sender.go",
@@ -100,6 +101,7 @@ go_test(
         "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
         "sweep_service_sequencing_test.go",
+        "sync_runtime_test.go",
         "sysmon_service_test.go",
     ],
     embed = [":agent"],
@@ -120,5 +122,19 @@ go_test(
         "@org_golang_google_grpc//metadata",
         "@org_golang_google_protobuf//proto",
         "@org_uber_go_mock//gomock",
+    ],
+)
+
+go_test(
+    name = "plugin_runtime_action_test",
+    srcs = ["plugin_runtime_action_test.go"],
+    data = [
+        "//build/wasm_plugins:hello_wasm_wasm",
+        "//build/wasm_plugins:sample_northbound_wasm",
+    ],
+    embed = [":agent"],
+    deps = [
+        "//go/pkg/logger",
+        "//proto",
     ],
 )

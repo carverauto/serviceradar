@@ -385,6 +385,20 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       refute config1.plugins == []
       assert hd(config1.plugins).download_token != hd(config2.plugins).download_token
       assert hd(config1.plugins).download_url == hd(config2.plugins).download_url
+
+      payload = Jason.decode!(config1.config_json)
+      [json_plugin] = get_in(payload, ["plugins", "assignments"])
+
+      assert json_plugin["assignment_id"] == hd(config1.plugins).assignment_id
+      assert json_plugin["download_url"] == hd(config1.plugins).download_url
+      assert is_binary(json_plugin["download_token"])
+
+      assert get_in(payload, ["plugins", "engine_limits"]) == %{
+               "max_concurrent" => nil,
+               "max_cpu_ms" => nil,
+               "max_memory_mb" => nil,
+               "max_open_connections" => nil
+             }
     end
 
     test "plugin assignment overrides cannot widen approved permissions or resources", %{

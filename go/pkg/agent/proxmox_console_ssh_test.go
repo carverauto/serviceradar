@@ -37,7 +37,7 @@ import (
 
 const fakeProxmoxConsolePrompt = "login: "
 
-var errFakeProxmoxConsoleSSHAuthFailed = errors.New("auth failed for root using secret token")
+var errTestProxmoxConsoleSSHDialAuthFailed = errors.New("auth failed for root using secret token")
 
 func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -118,10 +118,10 @@ func TestRunProxmoxConsoleSSHRedactsDialErrorFromTerminal(t *testing.T) {
 		Target:  proxmoxConsoleSSHTarget{Hostname: "pve.example"},
 		SSH:     proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
 	}, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
-		return nil, errFakeProxmoxConsoleSSHAuthFailed
+		return nil, errTestProxmoxConsoleSSHDialAuthFailed
 	})
-	if !errors.Is(err, errFakeProxmoxConsoleSSHAuthFailed) {
-		t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, errFakeProxmoxConsoleSSHAuthFailed)
+	if !errors.Is(err, errTestProxmoxConsoleSSHDialAuthFailed) {
+		t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, errTestProxmoxConsoleSSHDialAuthFailed)
 	}
 
 	output, readErr := bridge.Read(t.Context())
@@ -202,6 +202,40 @@ func TestRunProxmoxConsoleSSHRejectsInvalidConfigBeforeDial(t *testing.T) {
 				t.Fatal("dialer was called for invalid config")
 			}
 		})
+	}
+}
+
+func TestRunProxmoxConsoleSSHDialFailureDoesNotLeakErrorToTerminal(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	bridge := newPluginProxmoxConsoleBridge(nil)
+	if _, err := bridge.Open(ctx, pluginProxmoxConsoleOpenRequest{}); err != nil {
+		t.Fatalf("open bridge: %v", err)
+	}
+
+	err := runProxmoxConsoleSSH(ctx, proxmoxConsoleSSHConfig{
+		Console: proxmoxConsoleSessionSpec{Cols: 120, Rows: 40},
+		Target:  proxmoxConsoleSSHTarget{Hostname: "pve.example"},
+		SSH:     proxmoxConsoleSSHAuth{Username: "root", Password: "secret"},
+	}, bridge, func(context.Context, proxmoxConsoleSSHConfig) (proxmoxConsoleSSHSession, error) {
+		return nil, errTestProxmoxConsoleSSHDialAuthFailed
+	})
+	if !errors.Is(err, errTestProxmoxConsoleSSHDialAuthFailed) {
+		t.Fatalf("runProxmoxConsoleSSH error = %v, want %v", err, errTestProxmoxConsoleSSHDialAuthFailed)
+	}
+
+	output, readErr := bridge.Read(ctx)
+	if readErr != nil {
+		t.Fatalf("read bridge output: %v", readErr)
+	}
+	if string(output) != proxmoxSSHConsoleUnavailableMessage {
+		t.Fatalf("terminal output = %q, want %q", string(output), proxmoxSSHConsoleUnavailableMessage)
+	}
+	if strings.Contains(string(output), "secret") || strings.Contains(string(output), "root") {
+		t.Fatalf("terminal output leaked sensitive detail: %q", string(output))
 	}
 }
 

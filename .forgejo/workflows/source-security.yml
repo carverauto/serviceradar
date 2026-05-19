@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   source-security:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu24
     env:
       FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
       FORGEJO_REPOSITORY: carverauto/serviceradar

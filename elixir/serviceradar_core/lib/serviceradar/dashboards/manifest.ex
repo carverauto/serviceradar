@@ -227,7 +227,10 @@ defmodule ServiceRadar.Dashboards.Manifest do
        ),
        do: errors
 
-  defp validate_renderer_interface_pair(%{"kind" => kind, "interface_version" => interface}, errors)
+  defp validate_renderer_interface_pair(
+         %{"kind" => kind, "interface_version" => interface},
+         errors
+       )
        when is_binary(kind) and is_binary(interface) do
     ["renderer.interface_version #{interface} is not valid for renderer.kind #{kind}" | errors]
   end
@@ -236,9 +239,15 @@ defmodule ServiceRadar.Dashboards.Manifest do
 
   defp validate_renderer_trust(%{"kind" => "browser_module"} = renderer, errors) do
     case Map.get(renderer, "trust") do
-      "trusted" -> {"trusted", errors}
-      nil -> {nil, ["renderer.trust must be trusted for browser_module renderers" | errors]}
-      value -> {nil, ["renderer.trust must be trusted for browser_module renderers (got #{value})" | errors]}
+      "trusted" ->
+        {"trusted", errors}
+
+      nil ->
+        {nil, ["renderer.trust must be trusted for browser_module renderers" | errors]}
+
+      value ->
+        {nil,
+         ["renderer.trust must be trusted for browser_module renderers (got #{value})" | errors]}
     end
   end
 

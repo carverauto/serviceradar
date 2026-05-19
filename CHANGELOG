@@ -1,3 +1,143 @@
+# ServiceRadar v1.2.68
+
+Armis northbound recovery, inventory metadata cleanup, plugin status durability, and CI audit fixes.
+
+## Whats New
+
+**1.2.68**
+- Fixed remaining timestamp precision mismatches in Armis/config-dispatch and sweep availability paths so persisted integration and device availability timestamps match their Ecto field precision.
+- Restored Armis northbound bulk execution visibility with runner logs for candidate loading, update/skip counts, run completion, and failure paths.
+- Fixed Armis northbound scheduling so overlapping stale `Running` rows are timed out consistently and only one active run is allowed for a source.
+- Fixed Armis-imported device type rendering in `/devices` by falling back to integration metadata when the canonical type column is empty.
+- Cleaned up Armis device details by removing redundant Discovery Details and Operating System cards, linking Sync Service to integration details, linking Armis Device ID to the Armis inventory URL, and dropping misleading per-batch total device metadata.
+- Fixed Armis integration source device counts so paged syncs report the total distinct imported devices for the source instead of the last batch size.
+- Preserved the last reported plugin status during assignment reconciliation so `/services` does not overwrite real plugin results with `plugin assignment pending result`.
+- Added an audit event detail page so CSP and security events can be opened and inspected from the audit event list.
+- Moved web-ng maintenance workers to a dedicated `web_maintenance` Oban queue so core-elx no longer attempts to run unknown `ServiceRadarWebNG.*` worker modules.
+- Gated GeoLite and IPinfo MMDB download workers behind explicit Helm/runtime enable flags and defaulted GeoIP enrichment off when MMDB storage is not configured.
+- Updated the datasvc `cowlib` lock to 2.16.1 and added a narrow audit ignore for the remaining low-severity cookie encoder advisory that has no patched release.
+
+# ServiceRadar v1.2.67
+
+Armis integration recovery, plugin status visibility, and release pipeline fixes.
+
+## Whats New
+
+**1.2.67**
+- Fixed Armis discovery sync failures when the Armis API returns a scalar device `names` value instead of the documented list format.
+- Normalized Armis sync timestamps to second precision before inventory ingestion so sub-second `first_seen`, `last_seen`, and agent observation times do not violate `:utc_datetime` resource fields.
+- Fixed integration sync status and agent config dispatch timestamp writes so recent sync and config delivery details can be recorded without microsecond precision errors.
+- Fixed Armis northbound candidate loading on PostgreSQL by casting the JSONB `availability_source_agent_id` value to text, resolving `ERROR 42P18 could not determine data type of parameter $1`.
+- Changed Armis northbound run handling so recorded runner failures finalize the run and return cleanly to Oban, preventing one-minute retry storms and stale `Running` rows after timeouts.
+- Added Armis northbound worker and runner logs around run start, completion, failure, and stale-run timeout handling to make missing agent/core execution paths visible.
+- Restored durable Wasm plugin visibility on `/services` by reconciling plugin assignments into service state and rendering plugin service cards from durable plugin rows instead of a short active-status window.
+- Added OCSF event emission for Oban job failures, including retryable/discarded status, worker, queue, job ID, attempt counts, redacted args, and stacktrace excerpts so background job failures appear in the Events stream.
+- Hardened GeoLite MMDB refresh failures so unwritable download directories and failed downloads record events and use the normal cooldown path instead of repeatedly crashing and being re-enqueued every scheduler tick.
+- Updated stale Debian package pins for `openssl`, `libssl3`, and `libpq-dev` so Bazel release CI no longer downloads removed Debian package URLs.
+
+# ServiceRadar v1.2.66
+
+Long-running northbound actions, device details UX, and inventory enrichment fixes.
+
+## Whats New
+
+**1.2.66**
+- Added deferred northbound action execution with polling, result-fetching, expiration, cancellation handling, external correlation IDs, redacted persisted results, and resumable continuation state.
+- Added token-gated and HMAC-signed northbound action webhook callbacks so external systems can report job progress or completion back to ServiceRadar without requiring only poll-based integrations.
+- Updated the sample northbound Wasm plugin to exercise immediate, polling, and webhook-style action flows for device and interface integrations.
+- Fixed the device details Logs tab so log loading runs asynchronously instead of timing out the LiveView event.
+- Improved device details metadata rendering with grouped integration sections, cleaner task history output, Armis risk score display, and better handling for integration-provided device type data.
+- Fixed stale self-scheduled Oban maintenance job reaping so stuck IP and GeoIP enrichment workers can be expired and restarted instead of silently starving NetFlow map enrichment.
+- Added agent and gateway control-stream diagnostics for command ACK failures, config ACK failures, mapper config application, config payload summaries, and stream shutdowns to make failed agent command delivery visible during managed rollouts.
+- Hardened Bazel module resolution for release CI by preferring the Bazel mirror for the transitive `rules_kotlin` archive when GitHub release downloads return transient 502s.
+- Added validation coverage for northbound action platform-schema migrations, lifecycle state transitions, redaction, poll scheduling, and expiration.
+
+# ServiceRadar v1.2.65
+
+Northbound launch authorization and device integration metadata display fixes.
+
+## Whats New
+
+**1.2.65**
+- Fixed northbound task launches so users with `northbound.actions.launch` can create the per-target invocation rows required for device and interface actions.
+- Reworked device details metadata so collected integration data from Armis, NetBox, UniFi, and other sources is shown as readable label/value sections instead of raw metadata key badges.
+- Added a fallback Integration Details section for non-debug integration metadata so newly collected fields remain visible without leaking internal `_alias_*`, `debug_*`, or raw implementation keys.
+
+# ServiceRadar v1.2.64
+
+Agent plugin config fallback, release rollout recovery, and northbound sample hardening.
+
+## Whats New
+
+**1.2.64**
+- Added a backward-compatible agent plugin config fallback so plugin assignments are also embedded in `config_json`, allowing agents to recover assignments even when typed plugin config is absent from the config response.
+- Fixed the agent plugin manager config path to load assignments and engine limits from the new JSON fallback and added coverage for download credentials, runtime params, and engine limit parsing.
+- Fixed release rollout reconciliation so agents that restart or reconnect after a dispatched release command can still advance from dispatched/in-flight states instead of remaining stuck.
+- Added cleanup handling for expired release commands so stalled attempts surface terminal state instead of lingering indefinitely.
+- Hardened the sample northbound Wasm plugin so scheduled checks report a valid ServiceRadar status and interface actions tolerate numeric interface status fields.
+- Fixed RBAC launch authorization and profile deletion edge cases discovered while validating northbound device and interface actions in demo.
+
+# ServiceRadar v1.2.63
+
+Northbound action integrations, sample Wasm action provider, RBAC fixes, and CI hardening.
+
+## Whats New
+
+**1.2.63**
+- Added the northbound action integration foundation for device, interface, and event-driven remediation workflows, including action providers, descriptors, invocation tracking, redaction policy, event handlers, and history views.
+- Added device and interface launch UI flows that discover available plugin-backed actions and collect action inputs through the northbound action contract.
+- Added a sample northbound Wasm plugin and SDK fixture coverage so device and interface action providers can be tested against a simulated external API workflow.
+- Adapted Ansible task launches to the northbound action model and fixed launch gating so unavailable integrations do not present runnable actions.
+- Fixed northbound provider, descriptor, invocation, invocation-target, and interface-target Ash reads so relationship loads and status transitions remain atomic under the Elixir quality contract.
+- Fixed RBAC launch authorization for persisted LiveView scopes by refreshing real-user permissions before northbound action checks.
+- Fixed RBAC role-profile deletion by clearing assigned users before custom profiles are destroyed and setting the database foreign key to `ON DELETE SET NULL`.
+- Fixed Elixir quality checks for projects that depend on `serviceradar_srql` by force-compiling the SRQL NIF before Boundary/xref introspection.
+- Fixed plugin runtime lint failures by replacing dynamic Go errors with static wrapped errors.
+- Restored the audit settings app shell theme and repaired sweep TCP availability and agent registry views.
+
+# ServiceRadar v1.2.62
+
+Device ingest, inventory UI, Elixir quality, and NATS platform update.
+
+## Whats New
+
+**1.2.62**
+- Fixed sync ingestion failures caused by microsecond-bearing timestamps so Armis enrichment batches can persist normalized device metadata again.
+- Fixed `/devices` matching-count and vendor/type selector regressions, including stale "Counting total results" states and unusable long facet lists.
+- Restored agent identity indicators in the device list after recent inventory metadata normalization changes.
+- Fixed integration discovery status accounting so paged Armis runs report the total discovered device count instead of the final page size.
+- Added event emission for failed integration sync runs so operators get explicit failure visibility instead of only status text.
+- Fixed Elixir quality workflows by avoiding dependency-format scanning churn and serializing project checks that were fighting over shared runner resources.
+- Updated NATS runtime images to `2.14.0-alpine`, Bazel-managed `nats-server` to `v2.14.0`, Go NATS modules to current releases, and Rust `async-nats` clients to `0.48`.
+
+# ServiceRadar v1.2.61
+
+Release pipeline and CI hotfix.
+
+## Whats New
+
+**1.2.61**
+- Fixed managed agent release-key stamping so Bazel receives the release public key from CI and resolves fallback key files from the repository root.
+- Fixed the agent Bazel target to include remote file-transfer sources and tests, restoring release builds for the agent file-transfer path.
+- Fixed first-party Wasm plugin builds after the Go 1.26 upgrade by pinning TinyGo genrules to a Bazel-managed Go 1.25 SDK while leaving the main ServiceRadar Go SDK on Go 1.26.
+- Fixed web-ng precommit formatter drift that blocked release validation after recent CI recovery changes.
+
+# ServiceRadar v1.2.60
+
+Remote access, inventory availability, object-store retention, and CI recovery release.
+
+## Whats New
+
+**1.2.60**
+- Added remote access file-transfer support with SFTP-backed agent adapters, streamed upload/download frames, transfer lifecycle records, policy checks, RBAC permissions, REST APIs, and web console integration.
+- Added per-agent device availability so inventory can distinguish global device state from the specific agent/profile evidence that observed it, including SRQL, device details, and sweep ingestion updates.
+- Added persistent Helm storage options for agent runtime and checker cache data so recent agent state is written to PVC-backed storage instead of node ephemeral storage.
+- Added NATS Object Store retention workers and documentation for pruning stale release artifacts, plugin blobs, and dashboard/package artifacts.
+- Hardened Armis and generic sync ingestion by accepting deprecated agent config fields, preserving availability state when integrations omit it, normalizing imported vendor/model/type/interface metadata, and improving large paged imports.
+- Fixed manual hostname-only device creation by resolving hostnames during create and rejecting unresolved hostnames that do not provide a primary IP address.
+- Fixed device search result counts and facet dropdown behavior so `/devices` shows total matching SRQL results and scrollable full vendor/type lists.
+- Fixed OTLP log export metadata sanitization, MTR hop hostname snapshots, stale agent control session pruning, TinyGo/Bazelisk CI fetches, Forgejo release asset uploads, and Forgejo workflow routing back to `staging`.
+
 # ServiceRadar v1.2.54
 
 Release artifact publishing hotfix.

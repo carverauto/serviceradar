@@ -71,6 +71,7 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
     json_decoder: Phoenix.json_library(),
+    body_reader: {ServiceRadarWebNGWeb.Api.RawBodyReader, :read_body, []},
     # Bumped from Plug's 8 MB default to fit the dashboard-package publish
     # multipart upload: a 50 MB renderer cap (`Storage.max_upload_bytes`)
     # plus the 256 KB manifest plus multipart framing overhead. The

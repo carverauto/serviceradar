@@ -52,11 +52,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferController do
   end
 
   def create(conn, params) do
+    manager = remote_access_file_transfer_manager()
+
     with :ok <- require_authenticated(conn),
          {:ok, request} <- normalize_create_request(params),
          :ok <- require_permission(conn, permission_for_operation(request.operation)),
          {:ok, transfer} <-
-           remote_access_file_transfer_manager().request_transfer(request.session_id, request, scope: get_scope(conn)) do
+           manager.request_transfer(request.session_id, request, scope: get_scope(conn)) do
       conn
       |> put_status(:accepted)
       |> json(%{data: transfer_json(transfer)})

@@ -22,6 +22,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     :permissions,
     :resources,
     :outputs,
+    :actions,
     :source,
     :schema_version,
     :display_contract
@@ -38,6 +39,7 @@ defmodule ServiceRadar.Plugins.Manifest do
           permissions: map(),
           resources: map(),
           outputs: String.t(),
+          actions: [map()],
           source: map(),
           schema_version: pos_integer() | nil,
           display_contract: map()
@@ -117,6 +119,7 @@ defmodule ServiceRadar.Plugins.Manifest do
 
     {resources, errors} = validate_resources(resources, errors)
     {permissions, errors} = validate_permissions(fetch(map, :permissions), errors)
+    {actions, errors} = validate_actions(fetch(map, :actions), errors)
 
     runtime = fetch(map, :runtime)
     errors = validate_runtime(runtime, errors)
@@ -143,6 +146,7 @@ defmodule ServiceRadar.Plugins.Manifest do
          permissions: permissions,
          resources: resources,
          outputs: outputs,
+         actions: actions,
          source: source,
          schema_version: schema_version,
          display_contract: display_contract
@@ -353,6 +357,165 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp validate_permissions(_permissions, errors),
     do: {%{}, ["permissions must be a map" | errors]}
+
+  defp validate_actions(nil, errors), do: {[], errors}
+
+  defp validate_actions(actions, errors) when is_list(actions) do
+    actions
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {action, index}, {acc, errors} ->
+      case validate_action(action, index) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, action_errors} -> {acc, action_errors ++ errors}
+      end
+    end)
+    |> then(fn {actions, errors} -> {Enum.reverse(actions), errors} end)
+  end
+
+  defp validate_actions(_actions, errors), do: {[], ["actions must be a list" | errors]}
+
+  defp validate_action(action, index) when is_map(action) do
+    action = normalize_map(action) || %{}
+    errors = forbidden_ui_contract_errors(action, index)
+
+    {action_id, errors} = required_action_string(action, :action_id, index, errors)
+    {label, errors} = required_action_string(action, :label, index, errors)
+    {scopes, errors} = required_action_scopes(action, index, errors)
+    {version, errors} = optional_action_string(action, :version, index, errors)
+    {description, errors} = optional_action_string(action, :description, index, errors)
+
+    {required_context, errors} =
+      optional_action_string_list(action, :required_context, index, errors)
+
+    {input_schema, errors} = optional_action_map(action, :input_schema, index, errors)
+
+    {timeout_seconds, errors} =
+      optional_action_positive_int(action, :timeout_seconds, index, errors)
+
+    {safety_classification, errors} = optional_action_safety(action, index, errors)
+
+    {credential_requirements, errors} =
+      optional_action_map(action, :credential_requirements, index, errors)
+
+    if errors == [] do
+      {:ok,
+       %{
+         action_id: action_id,
+         version: version || "1.0.0",
+         label: label,
+         description: description,
+         scopes: scopes,
+         required_context: required_context,
+         input_schema: input_schema,
+         timeout_seconds: timeout_seconds || 60,
+         safety_classification: safety_classification || "standard",
+         requires_confirmation: truthy?(fetch(action, :requires_confirmation)),
+         credential_requirements: credential_requirements,
+         result_schema_version:
+           normalize_string(fetch(action, :result_schema_version)) ||
+             "serviceradar.northbound_action_result.v1"
+       }}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_action(_action, index), do: {:error, ["actions[#{index}] must be a map"]}
+
+  defp forbidden_ui_contract_errors(action, index) do
+    forbidden = ~w(html raw_html javascript js component component_ref live_view react ui_code)
+
+    action
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in forbidden))
+    |> Enum.map(
+      &"actions[#{index}].#{&1} is not allowed; actions may not ship provider-owned UI code"
+    )
+  end
+
+  defp required_action_string(action, key, index, errors) do
+    case normalize_string(fetch(action, key)) do
+      nil -> {nil, ["actions[#{index}].#{key} must be a non-empty string" | errors]}
+      value -> {value, errors}
+    end
+  end
+
+  defp optional_action_string(action, key, _index, errors) do
+    {normalize_string(fetch(action, key)), errors}
+  end
+
+  defp required_action_scopes(action, index, errors) do
+    {scopes, errors} = optional_action_string_list(action, :scopes, index, errors)
+    invalid = Enum.reject(scopes, &(&1 in ["device", "interface", "event"]))
+
+    cond do
+      scopes == [] ->
+        {[], ["actions[#{index}].scopes must include at least one scope" | errors]}
+
+      invalid != [] ->
+        {scopes,
+         [
+           "actions[#{index}].scopes contains unsupported scopes: #{Enum.join(invalid, ", ")}"
+           | errors
+         ]}
+
+      true ->
+        {scopes, errors}
+    end
+  end
+
+  defp optional_action_string_list(action, key, index, errors) do
+    case fetch(action, key) do
+      nil ->
+        {[], errors}
+
+      list when is_list(list) ->
+        values = normalize_string_list(list)
+
+        if length(values) == length(list) do
+          {values, errors}
+        else
+          {values, ["actions[#{index}].#{key} must be a list of strings" | errors]}
+        end
+
+      _ ->
+        {[], ["actions[#{index}].#{key} must be a list of strings" | errors]}
+    end
+  end
+
+  defp optional_action_map(action, key, index, errors) do
+    case fetch(action, key) do
+      nil -> {%{}, errors}
+      value when is_map(value) -> {normalize_map(value) || %{}, errors}
+      _ -> {%{}, ["actions[#{index}].#{key} must be a map" | errors]}
+    end
+  end
+
+  defp optional_action_positive_int(action, key, index, errors) do
+    case normalize_int(fetch(action, key)) do
+      nil -> {nil, errors}
+      value when value > 0 -> {value, errors}
+      _ -> {nil, ["actions[#{index}].#{key} must be a positive integer" | errors]}
+    end
+  end
+
+  defp optional_action_safety(action, index, errors) do
+    value = normalize_string(fetch(action, :safety_classification))
+
+    if is_nil(value) or value in ["read_only", "standard", "destructive"] do
+      {value, errors}
+    else
+      {nil,
+       [
+         "actions[#{index}].safety_classification must be read_only, standard, or destructive"
+         | errors
+       ]}
+    end
+  end
+
+  defp truthy?(value) when value in [true, "true", "1", 1], do: true
+  defp truthy?(_value), do: false
 
   defp validate_runtime(nil, errors), do: errors
 

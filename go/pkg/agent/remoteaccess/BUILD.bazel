@@ -4,6 +4,8 @@ go_library(
     name = "remoteaccess",
     srcs = [
         "adapters.go",
+        "application_http.go",
+        "app_tcp_frames.go",
         "desktop_adapter.go",
         "desktop_adapter_probe.go",
         "desktop_audit.go",
@@ -29,6 +31,7 @@ go_library(
         "sftp.go",
         "ssh_open.go",
         "ssh.go",
+        "tcp_adapter.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess",
     visibility = ["//visibility:public"],
@@ -45,6 +48,8 @@ go_test(
     name = "remoteaccess_test",
     srcs = [
         "adapters_test.go",
+        "application_http_test.go",
+        "app_tcp_frames_test.go",
         "desktop_adapter_probe_test.go",
         "desktop_adapter_test.go",
         "desktop_audit_test.go",
@@ -68,6 +73,7 @@ go_test(
         "ssh_integration_test.go",
         "ssh_open_test.go",
         "ssh_test.go",
+        "tcp_adapter_test.go",
     ],
     embed = [":remoteaccess"],
     deps = [

@@ -27,6 +27,13 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRun do
     table "integration_update_runs"
     repo ServiceRadar.Repo
     schema "platform"
+
+    custom_indexes do
+      index [:integration_source_id, :run_type],
+        unique: true,
+        name: "integration_update_runs_one_running_per_source_uidx",
+        where: "status = 'running'"
+    end
   end
 
   state_machine do

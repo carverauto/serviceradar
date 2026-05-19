@@ -43,6 +43,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     :sweep_interval_seconds,
     :northbound_enabled,
     :northbound_interval_seconds,
+    :northbound_availability_source_agent_id,
     :page_size,
     :network_blacklist,
     :queries,
@@ -181,7 +182,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :device_count, :integer, default: 0
 
       change transition_state(:success)
-      change atomic_update(:last_sync_at, expr(now()))
+      change set_attribute(:last_sync_at, &__MODULE__.utc_now_second/0)
       change atomic_update(:last_sync_result, expr(^arg(:result)))
       change atomic_update(:last_device_count, expr(^arg(:device_count)))
       change atomic_update(:last_error_message, expr(nil))
@@ -202,7 +203,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :error_message, :string
 
       change transition_state(:failed)
-      change atomic_update(:last_sync_at, expr(now()))
+      change set_attribute(:last_sync_at, &__MODULE__.utc_now_second/0)
       change atomic_update(:last_sync_result, expr(^arg(:result)))
       change atomic_update(:last_device_count, expr(^arg(:device_count)))
       change atomic_update(:last_error_message, expr(^arg(:error_message)))
@@ -234,7 +235,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :skipped_count, :integer, default: 0
 
       change set_attribute(:northbound_status, :success)
-      change set_attribute(:northbound_last_run_at, &DateTime.utc_now/0)
+      change set_attribute(:northbound_last_run_at, &__MODULE__.utc_now_second/0)
       change set_attribute(:northbound_last_result, arg(:result))
       change set_attribute(:northbound_last_device_count, arg(:device_count))
       change set_attribute(:northbound_last_updated_count, arg(:updated_count))
@@ -262,7 +263,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
         changeset
         |> Ash.Changeset.change_attribute(:northbound_status, :failed)
-        |> Ash.Changeset.change_attribute(:northbound_last_run_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(:northbound_last_run_at, utc_now_second())
         |> Ash.Changeset.change_attribute(
           :northbound_last_result,
           Ash.Changeset.get_argument(changeset, :result)
@@ -312,7 +313,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
           end
 
         changeset
-        |> Ash.Changeset.change_attribute(:last_sync_at, DateTime.utc_now())
+        |> Ash.Changeset.change_attribute(:last_sync_at, utc_now_second())
         |> Ash.Changeset.change_attribute(:last_sync_result, result)
         |> Ash.Changeset.change_attribute(
           :last_device_count,
@@ -419,6 +420,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       default 3600
       public? true
       description "How often to run northbound Armis updates (seconds)"
+    end
+
+    attribute :northbound_availability_source_agent_id, :string do
+      public? true
+
+      description "Optional agent whose per-agent availability should be sent by northbound updates"
     end
 
     # Source-specific settings
@@ -662,4 +669,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   defp encrypt_credentials(changeset, credentials) do
     AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
   end
+
+  @doc false
+  def utc_now_second, do: DateTime.truncate(DateTime.utc_now(), :second)
 end

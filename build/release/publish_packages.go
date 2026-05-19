@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -934,26 +935,23 @@ func (c *githubClient) uploadAsset(uploadURL, assetPath, uploadName string) erro
 		return err
 	}
 
-	contentType := mimeTypeForExtension(filepath.Ext(name))
-
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, file)
-	if err != nil {
-		return err
-	}
-	req.ContentLength = info.Size()
-
-	if !c.dryRun {
-		if c.token != "" {
-			req.Header.Set("Authorization", "token "+c.token)
-		}
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", contentType)
-
 	if c.dryRun {
 		fmt.Printf("[dry-run] POST %s (size=%d)\n", endpoint, info.Size())
 		return nil
 	}
+
+	body, contentType := multipartFileBody(file, "attachment", name)
+
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, body)
+	if err != nil {
+		return err
+	}
+
+	if c.token != "" {
+		req.Header.Set("Authorization", "token "+c.token)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", contentType)
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -997,6 +995,30 @@ func (c *githubClient) assetUploadEndpoint(uploadURL, uploadName string) (string
 	return parsed.String(), nil
 }
 
+func multipartFileBody(file *os.File, fieldName, uploadName string) (*io.PipeReader, string) {
+	reader, writer := io.Pipe()
+	form := multipart.NewWriter(writer)
+
+	go func() {
+		part, err := form.CreateFormFile(fieldName, uploadName)
+		if err != nil {
+			_ = writer.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			_ = writer.CloseWithError(err)
+			return
+		}
+		if err := form.Close(); err != nil {
+			_ = writer.CloseWithError(err)
+			return
+		}
+		_ = writer.Close()
+	}()
+
+	return reader, form.FormDataContentType()
+}
+
 func (c *githubClient) getReleaseAssetDownloadURL(tag, assetName string) (string, error) {
 	if c.dryRun {
 		return fmt.Sprintf("%s/%s/releases/download/%s/%s", c.baseURL, c.repo, url.PathEscape(tag), url.PathEscape(assetName)), nil
@@ -1015,17 +1037,6 @@ func (c *githubClient) getReleaseAssetDownloadURL(tag, assetName string) (string
 		}
 	}
 	return "", fmt.Errorf("%w: %s", errAssetDownloadURL, assetName)
-}
-
-func mimeTypeForExtension(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".deb":
-		return "application/vnd.debian.binary-package"
-	case ".rpm":
-		return "application/x-rpm"
-	default:
-		return "application/octet-stream"
-	}
 }
 
 func newRunfileResolver() (*runfileResolver, error) {

@@ -5,6 +5,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -249,6 +250,124 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              |> Ash.read(actor: actor)
 
     assert Enum.all?(results_from(host_results_page), &(&1.status == :available))
+  end
+
+  test "ingest results records per-agent availability and honors selected canonical source", %{
+    actor: actor
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("per-agent-#{unique_id}")
+    primary_agent_id = "agent-primary-#{unique_id}"
+    secondary_agent_id = "agent-secondary-#{unique_id}"
+
+    {:ok, _primary_agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: primary_agent_id, name: "Primary"},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, _secondary_agent} =
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: secondary_agent_id, name: "Secondary"},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Per Agent #{unique_id}", partition: "partition-#{unique_id}"},
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-per-agent-#{unique_id}",
+          ip: ip,
+          hostname: "per-agent-#{unique_id}",
+          discovery_sources: ["armis"],
+          is_available: false,
+          availability_source_agent_id: primary_agent_id
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    secondary_execution_id = Ash.UUID.generate()
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => ip,
+                   "available" => true,
+                   "icmp_response_time_ns" => 6_000_000,
+                   "port_results" => [%{"port" => 80, "available" => true}]
+                 }
+               ],
+               secondary_execution_id,
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: secondary_agent_id,
+               config_version: "secondary-#{unique_id}"
+             )
+
+    {:ok, device_after_secondary} = Device.get_by_ip(ip, false, actor: actor)
+    device_after_secondary = single_result(device_after_secondary)
+
+    refute device_after_secondary.is_available
+
+    {:ok, secondary_row} =
+      DeviceAgentAvailability.get_by_device_agent(
+        device_after_secondary.uid,
+        secondary_agent_id,
+        actor: actor
+      )
+
+    assert secondary_row.is_available
+    assert secondary_row.agent_name == "Secondary"
+    assert elem(secondary_row.checked_at.microsecond, 1) == 6
+    assert secondary_row.response_time_ms == 6
+    assert secondary_row.open_ports == [80]
+
+    primary_execution_id = Ash.UUID.generate()
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => ip,
+                   "available" => true,
+                   "icmp_response_time_ns" => 4_000_000,
+                   "port_results" => []
+                 }
+               ],
+               primary_execution_id,
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: primary_agent_id,
+               config_version: "primary-#{unique_id}"
+             )
+
+    {:ok, device_after_primary} = Device.get_by_ip(ip, false, actor: actor)
+    device_after_primary = single_result(device_after_primary)
+
+    assert device_after_primary.is_available
+
+    {:ok, primary_row} =
+      DeviceAgentAvailability.get_by_device_agent(device_after_primary.uid, primary_agent_id,
+        actor: actor
+      )
+
+    assert primary_row.is_available
+    assert primary_row.agent_name == "Primary"
+    assert primary_row.response_time_ms == 4
   end
 
   test "ingest results creates provisional devices for available unknown sweep hosts", %{
@@ -1158,4 +1277,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device.metadata["sweep_mapper_promotion"]["last_status"] == "skipped"
     assert device.metadata["sweep_mapper_promotion"]["last_reason"] == "no_eligible_mapper_job"
   end
+
+  defp single_result([result]), do: result
+  defp single_result(result), do: result
 end

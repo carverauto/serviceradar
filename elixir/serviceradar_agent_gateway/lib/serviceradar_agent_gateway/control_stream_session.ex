@@ -151,7 +151,13 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   end
 
   @impl true
-  def terminate(_reason, state) do
+  def terminate(reason, state) do
+    if state.agent_id do
+      Logger.info(
+        "Control stream session ended: agent_id=#{state.agent_id}, reason=#{inspect(reason)}, pending_commands=#{map_size(state.commands)}"
+      )
+    end
+
     if state.registry_key do
       ProcessRegistry.unregister(state.registry_key)
     end

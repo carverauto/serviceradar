@@ -340,18 +340,43 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     assert html =~ "Recent Repository Releases"
     assert html =~ "v7.0.0"
     assert html =~ "v6.9.9"
-    assert html =~ "Showing 1-10 of 12"
+    assert html =~ "v6.9.6"
+    refute html =~ "v6.9.5"
     refute html =~ "v6.8.9"
+    refute html =~ "Showing 1-"
+    refute has_element?(lv, "#repo-release-next-page")
     assert has_element?(lv, "button[phx-value-release_tag='v7.0.0']:not([disabled])")
     assert has_element?(lv, "button[phx-value-release_tag='v6.9.9'][disabled]")
+  end
 
-    html =
-      lv
-      |> element("#repo-release-next-page")
-      |> render_click()
+  test "published releases list is capped to the latest five", %{conn: conn, scope: scope} do
+    base_time = ~U[2026-05-17 00:00:00Z]
 
-    assert html =~ "Showing 11-12 of 12"
-    assert html =~ "v6.8.9"
+    for index <- 0..6 do
+      version = "8.0.#{index}"
+      manifest = release_manifest(version)
+
+      {:ok, _release} =
+        AgentReleaseManager.publish_release(
+          %{
+            version: version,
+            signature: sign_manifest(manifest),
+            manifest: manifest,
+            published_at: DateTime.add(base_time, index, :second)
+          },
+          scope: scope
+        )
+    end
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/releases")
+
+    assert html =~ "8.0.6"
+    assert html =~ "8.0.5"
+    assert html =~ "8.0.4"
+    assert html =~ "8.0.3"
+    assert html =~ "8.0.2"
+    refute html =~ "8.0.1"
+    refute html =~ "8.0.0"
   end
 
   test "imports a recent repository release with one click", %{conn: conn, scope: scope} do
@@ -1365,10 +1390,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/releases")
 
-    assert has_element?(lv, "#use-release-#{older}")
+    release_selector = "#use-release-#{String.replace(older, ~r/[^A-Za-z0-9_-]+/, "-")}"
+
+    assert has_element?(lv, release_selector)
 
     lv
-    |> element("#use-release-#{older}")
+    |> element(release_selector)
     |> render_click()
 
     assert has_element?(

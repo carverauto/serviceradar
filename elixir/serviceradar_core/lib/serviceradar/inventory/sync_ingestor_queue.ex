@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -237,8 +238,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
     if should_record_sync_status?(sync_meta) do
       with_sync_service(sync_service_id, actor, fn source ->
+        device_count = sync_source_device_count(sync_service_id, sync_meta, updates)
+
         {action, action_attrs} =
-          build_sync_finish(ingest_result, sync_device_count(updates, sync_meta))
+          build_sync_finish(ingest_result, device_count)
 
         update_sync_source(source, actor, action, action_attrs, sync_service_id, "status")
       end)
@@ -381,6 +384,36 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       %{total_devices: total} when is_integer(total) and total >= 0 -> total
       _ -> length(updates)
     end
+  end
+
+  defp sync_source_device_count(sync_service_id, sync_meta, updates)
+       when is_binary(sync_service_id) and sync_service_id != "" do
+    case Repo.query(
+           """
+           SELECT COUNT(DISTINCT d.uid)
+           FROM platform.ocsf_devices AS d
+           LEFT JOIN platform.device_identifiers AS di
+             ON di.device_id = d.uid
+            AND di.identifier_type = 'integration_id'
+           WHERE d.deleted_at IS NULL
+             AND COALESCE(d.metadata->>'sync_service_id', di.metadata->>'sync_service_id') = $1
+           """,
+           [sync_service_id]
+         ) do
+      {:ok, %{rows: [[count]]}} when is_integer(count) ->
+        count
+
+      _ ->
+        sync_device_count(updates, sync_meta)
+    end
+  rescue
+    error ->
+      Logger.debug("Could not count synced devices for #{sync_service_id}: #{inspect(error)}")
+      sync_device_count(updates, sync_meta)
+  end
+
+  defp sync_source_device_count(_sync_service_id, sync_meta, updates) do
+    sync_device_count(updates, sync_meta)
   end
 
   defp should_record_sync_start?(sync_meta) do

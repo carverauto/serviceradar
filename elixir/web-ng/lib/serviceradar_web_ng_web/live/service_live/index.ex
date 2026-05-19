@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStatePubSub
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -13,7 +14,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   @default_limit 50
   @max_limit 200
   @refresh_debounce_ms 750
-  @active_state_window_ms to_timeout(minute: 15)
   @default_query "in:services time:last_1h sort:timestamp:desc limit:500"
 
   @impl true
@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
      |> assign(:limit, @default_limit)
      |> assign(:params, %{})
      |> assign(:refresh_pending, false)
+     |> assign(:service_state_reconciled, false)
      |> SRQLPage.init("services", default_limit: @default_limit)
      |> stream(:service_cards, [])}
   end
@@ -48,15 +49,16 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     socket =
       socket
+      |> maybe_reconcile_plugin_assignments()
       |> SRQLPage.load_list(params, uri, :services,
         default_limit: @default_limit,
         max_limit: @max_limit
       )
       |> assign(:params, params)
 
-    # Compute summary from the latest status per service identity (bounded by summary limit).
-    summary = load_summary(socket)
-    cards = build_service_cards(socket.assigns.services, socket.assigns.current_scope)
+    plugin_states = load_plugin_service_states(socket.assigns.current_scope)
+    summary = load_summary(socket, plugin_states)
+    cards = build_service_cards(plugin_states, socket.assigns.services, socket.assigns.current_scope)
 
     {:noreply,
      socket
@@ -158,16 +160,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     by_check = assigns.summary.by_check
     check_count = Map.get(assigns.summary, :check_count, 0)
     last_updated = Map.get(assigns.summary, :last_updated)
-    window_minutes = div(@active_state_window_ms, 60_000)
 
-    active_label =
-      if window_minutes > 0 do
-        "active services (last #{window_minutes}m)"
-      else
-        "active services"
-      end
-
-    assigns = assign(assigns, :active_label, active_label)
+    assigns = assign(assigns, :active_label, "active plugin services")
 
     # Calculate availability percentage
     avail_pct = if total > 0, do: round(available / total * 100), else: 0
@@ -451,18 +445,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp format_last_updated(_), do: "—"
 
-  defp filter_recent_states(states) when is_list(states) do
-    cutoff = DateTime.add(DateTime.utc_now(), -@active_state_window_ms, :millisecond)
-
-    Enum.filter(states, fn
-      %ServiceState{last_observed_at: %DateTime{} = observed_at} ->
-        DateTime.compare(observed_at, cutoff) != :lt
-
-      _ ->
-        false
-    end)
-  end
-
   defp filter_service_states(states) when is_list(states) do
     Enum.reject(states, fn
       %ServiceState{service_type: service_type} ->
@@ -497,19 +479,23 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     "#{agent_id}:#{partition}:#{service_type}:#{service_name}"
   end
 
-  defp load_summary(socket) do
-    scope = get_scope(socket)
+  defp load_summary(_socket, plugin_states) when is_list(plugin_states) and plugin_states != [] do
+    compute_state_summary(plugin_states)
+  end
 
+  defp load_summary(socket, _plugin_states) do
+    compute_summary(filter_plugin_services(socket.assigns.services))
+  end
+
+  defp load_plugin_service_states(scope) do
     case load_active_states(scope) do
       {:ok, states} when is_list(states) ->
         states
-        |> filter_recent_states()
         |> filter_service_states()
         |> dedupe_states()
-        |> compute_state_summary()
 
       _ ->
-        compute_summary(filter_plugin_services(socket.assigns.services))
+        []
     end
   end
 
@@ -571,8 +557,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       )
       |> assign(:params, params)
 
-    summary = load_summary(socket)
-    cards = build_service_cards(socket.assigns.services, socket.assigns.current_scope)
+    plugin_states = load_plugin_service_states(socket.assigns.current_scope)
+    summary = load_summary(socket, plugin_states)
+    cards = build_service_cards(plugin_states, socket.assigns.services, socket.assigns.current_scope)
 
     socket
     |> assign(:summary, summary)
@@ -693,9 +680,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     |> Map.new()
   end
 
-  # Extract scope from socket for Ash policy enforcement (includes actor)
-  defp get_scope(socket) do
-    Map.get(socket.assigns, :current_scope)
+  defp maybe_reconcile_plugin_assignments(socket) do
+    if socket.assigns.service_state_reconciled do
+      socket
+    else
+      _ = ServiceStateRegistry.reconcile_plugin_assignments()
+      assign(socket, :service_state_reconciled, true)
+    end
   end
 
   defp safe_param_value(nil), do: nil
@@ -720,7 +711,19 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp ensure_default_query(_params), do: %{"q" => @default_query}
 
-  defp build_service_cards(services, scope) when is_list(services) do
+  defp build_service_cards(plugin_states, _services, scope) when is_list(plugin_states) and plugin_states != [] do
+    plugin_states
+    |> Enum.map(&service_state_to_service/1)
+    |> build_service_cards_from_services(scope)
+  end
+
+  defp build_service_cards(_plugin_states, services, scope) when is_list(services) do
+    build_service_cards_from_services(services, scope)
+  end
+
+  defp build_service_cards(_plugin_states, _services, _scope), do: []
+
+  defp build_service_cards_from_services(services, scope) when is_list(services) do
     services
     |> filter_plugin_services()
     |> dedupe_services()
@@ -728,7 +731,26 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     |> Enum.map(&build_service_card(&1, scope))
   end
 
-  defp build_service_cards(_services, _scope), do: []
+  defp build_service_cards_from_services(_services, _scope), do: []
+
+  defp service_state_to_service(%ServiceState{} = state) do
+    %{
+      "service_id" => state.id,
+      "service_name" => state.service_name,
+      "service_type" => state.service_type,
+      "available" => state.available,
+      "message" => state.message,
+      "details" => state.details,
+      "timestamp" => timestamp_to_iso8601(state.last_observed_at),
+      "gateway_id" => state.gateway_id,
+      "agent_id" => state.agent_id,
+      "partition" => state.partition
+    }
+  end
+
+  defp timestamp_to_iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp timestamp_to_iso8601(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp timestamp_to_iso8601(_value), do: nil
 
   defp build_service_card(%{} = svc, scope) do
     details = parse_service_details(svc)

@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Camera.Source, as: CameraSource
@@ -18,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+  alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()
@@ -47,6 +49,237 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ uid
     assert html =~ "test-host"
     assert html =~ "in:devices"
+  end
+
+  test "renders out of service state in device list and details", %{conn: conn} do
+    uid = "test-device-inactive-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "inactive-host",
+        is_available: true,
+        is_active: false,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, list_view, _list_html} = live(conn, ~p"/devices?limit=10")
+    list_html = render_until(list_view, "inactive-host", 10_000)
+
+    assert list_html =~ "inactive-host"
+    assert list_html =~ "Out of service"
+
+    {:ok, details_view, _details_html} = live(conn, ~p"/devices/#{uid}")
+    details_html = render_until(details_view, "Out of service")
+
+    assert details_html =~ "Out of service"
+    assert details_html =~ "In Service"
+    assert details_html =~ "No"
+  end
+
+  test "disables Run Task when no launchable integrations are configured", %{conn: conn} do
+    uid = "test-device-run-task-disabled-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "run-task-disabled-host",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
+    |> render_click()
+
+    html = render_until(view, "No launchable task integrations are configured")
+
+    assert html =~ "Run Task"
+    assert html =~ "disabled"
+  end
+
+  test "launches selected devices through northbound action modal", %{conn: conn} do
+    action = northbound_action(:device)
+    with_northbound_stubs(device_actions: [action])
+
+    uid = "test-device-run-task-launch-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "run-task-launch-host",
+        ip: "192.0.2.55",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+    assert_receive {:northbound_device_actions, _scope}, 1_000
+
+    view
+    |> element("input[phx-click='toggle_device_select'][phx-value-uid='#{uid}']")
+    |> render_click()
+
+    html =
+      view
+      |> element("button[phx-click='run_task_for_selection']")
+      |> render_click()
+
+    assert html =~ "Disable Switch Port"
+    assert html =~ "Change ticket or operator reason"
+
+    view
+    |> form("#northbound_action_modal-form", %{
+      "action" => %{
+        "action_id" => action.id,
+        "input" => %{"reason" => "maintenance window"}
+      }
+    })
+    |> render_submit()
+
+    assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
+
+    assert attrs.descriptor_id == action.descriptor_id
+    assert attrs.targets == [%{kind: "device", device_uid: uid}]
+    assert attrs.input_values == %{"reason" => "maintenance window"}
+    assert attrs.metadata["ui_surface"] == "devices"
+    assert opts[:actor].email
+  end
+
+  test "northbound action modal renders schema-driven input controls" do
+    action =
+      northbound_action(:device,
+        input_schema: %{
+          "type" => "object",
+          "required" => ["reason"],
+          "properties" => %{
+            "reason" => %{
+              "type" => "string",
+              "title" => "Reason",
+              "description" => "Change ticket or operator reason",
+              "x-order" => 1
+            },
+            "mode" => %{
+              "type" => "string",
+              "enum" => ["audit", "enforce"],
+              "default" => "audit",
+              "x-order" => 2
+            },
+            "dry_run" => %{"type" => "boolean", "default" => true, "x-order" => 3},
+            "limit" => %{"type" => "integer", "default" => 10, "x-order" => 4},
+            "extra_vars" => %{"type" => "object", "x-order" => 5}
+          }
+        }
+      )
+
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_modal/1,
+        id: "northbound_action_modal",
+        title: "Run Task",
+        subtitle: "Create a task invocation",
+        form: to_form(ServiceRadarWebNG.Northbound.ActionForm.default_params(action), as: :action),
+        actions: [action],
+        action: action,
+        error: nil,
+        close_event: "close",
+        change_event: "change",
+        submit_event: "submit"
+      )
+
+    assert html =~ ~s(name="action[input][reason]")
+    assert html =~ "Change ticket or operator reason"
+    assert html =~ ~s(name="action[input][mode]")
+    assert html =~ ~s(<option value="audit" selected)
+    assert html =~ ~s(type="checkbox")
+    assert html =~ ~s(name="action[input][dry_run]")
+    assert html =~ ~s(type="number")
+    assert html =~ ~s(name="action[input][limit]")
+    assert html =~ ~s(name="action[input][extra_vars]")
+  end
+
+  test "northbound action history hides nil-like summaries and explains empty state" do
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        title: "Task History",
+        subtitle: "Recent actions",
+        entries: [
+          %{
+            invocation_id: "018f2fd1-f0ff-7cf0-9dc0-000000000999",
+            action_label: "Sample Device Lookup",
+            provider_name: "Sample Northbound NMS",
+            state: :succeeded,
+            target_status: :succeeded,
+            target_kind: :device,
+            device_uid: "sr:b195e",
+            inserted_at: ~U[2026-05-17 00:17:02Z],
+            target_result: %{"summary" => "nil"},
+            result_summary: %{"message" => "null"},
+            redacted_input_values: %{"include_neighbors" => false}
+          }
+        ],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert html =~ "Sample Device Lookup"
+    assert html =~ "Include Neighbors: No"
+    refute html =~ "nil"
+    refute html =~ "null"
+
+    empty_html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        entries: [],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert empty_html =~ "Newly launched tasks appear here"
+  end
+
+  test "northbound action history explains long-running progress" do
+    html =
+      render_component(&NorthboundActionComponents.northbound_action_history/1,
+        title: "Task History",
+        subtitle: "Recent actions",
+        entries: [
+          %{
+            invocation_id: "018f2fd1-f0ff-7cf0-9dc0-000000000998",
+            action_label: "Sample Device Lookup",
+            provider_name: "Sample Northbound NMS",
+            state: :polling,
+            target_status: :result_fetching,
+            target_kind: :device,
+            device_uid: "sr:b195e",
+            inserted_at: ~U[2026-05-17 00:17:02Z],
+            next_poll_at: ~U[2026-05-17 00:17:32Z],
+            poll_attempt_count: 2,
+            target_result: %{},
+            result_summary: %{},
+            redacted_input_values: %{"execution_mode" => "deferred"}
+          }
+        ],
+        error: nil,
+        notice: nil,
+        empty_message: "No task invocations have been recorded yet."
+      )
+
+    assert html =~ "Result fetching"
+    assert html =~ "Fetching external task results"
+    assert html =~ "next poll 2026-05-17 00:17:32"
+    assert html =~ "poll 2"
   end
 
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do
@@ -101,6 +334,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert_redirect(view, ~p"/devices?#{%{q: ~s(in:devices ip:"192.168.2.10"), limit: 50}}")
   end
 
+  test "shows query-wide matching count in the device results header", %{conn: conn} do
+    previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid)
+
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_test_pid, self())
+
+    on_exit(fn ->
+      restore_env(:srql_module, previous_srql_module)
+      restore_env(:device_live_srql_test_pid, previous_test_pid)
+    end)
+
+    query = ~s|in:devices vendor_name:"Ubiquiti" sort:last_seen:desc limit:20|
+
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: query, limit: "20"}}")
+
+    assert_receive {:srql_query, ~s|in:devices vendor_name:"Ubiquiti" stats:"count() as total"|},
+                   1_000
+
+    assert render(view) =~ "42 total"
+  end
+
   test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
     previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
     Application.put_env(:serviceradar_web_ng, :managed_device_limit, 1)
@@ -115,6 +370,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 0,
         hostname: "advisory-host-1",
         is_available: true,
+        is_managed: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       },
@@ -123,6 +379,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 0,
         hostname: "advisory-host-2",
         is_available: true,
+        is_managed: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }
@@ -151,6 +408,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 0,
         hostname: "within-limit-host",
         is_available: true,
+        is_managed: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }
@@ -481,6 +739,110 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "SNMP Owner"
     assert html =~ "SNMP Location"
     assert html =~ "SNMP Description"
+  end
+
+  test "renders curated device metadata without dumping internal keys", %{conn: conn} do
+    uid = "test-device-curated-metadata-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 12,
+        hostname: "metadata-host",
+        ip: "192.168.1.20",
+        metadata: %{
+          "integration_type" => "armis",
+          "source_device_id" => "42",
+          "sync_service_id" => "agent-dusk01",
+          "controller_name" => "Dusk UniFi",
+          "controller_url" => "https://unifi.example.local",
+          "unifi_api_names" => "tonka01",
+          "unifi_api_urls" => "https://192.168.10.1/proxy/network/integration/v1",
+          "mikrotik_api_names" => "edge-mikrotik",
+          "mikrotik_api_urls" => "http://192.168.6.167/rest",
+          "proxmox_candidate_probe_enabled" => true,
+          "sys_name" => "aruba-24g-02",
+          "sys_location" => "Minnetonka, MN",
+          "sys_contact" => "support@example.test",
+          "sys_object_id" => ".1.3.6.1.4.1.11.2.3.7.11.153",
+          "uptime" => 168_519_247,
+          "sys_descr" => "HP J9727A 2920-24G-PoE+ Switch",
+          "device_role" => "gateway",
+          "bridge_port_count" => 8,
+          "type" => "Tablet",
+          "category" => "OT",
+          "risk_score" => "7",
+          "is_active" => false,
+          "source_tags" => "managed,ot",
+          "boundary_names" => "All OT Boundaries",
+          "serial_numbers" => "SN-123",
+          "purdue_level" => "2.5",
+          "visibility" => "Full",
+          "site" => %{"name" => "Plant 7"},
+          "network_interfaces" => [%{"name" => "eth0"}, %{"name" => "eth1"}],
+          "netbox_device_id" => "nb-123",
+          "tenant_name" => "Manufacturing",
+          "rack_name" => "MDF-A",
+          "asset_tag" => "asset-7799",
+          "classification_source" => "unifi",
+          "classification_confidence" => 0.94,
+          "classification_reason" => "matched UniFi gateway role",
+          "alt_ip:10.0.0.1" => true,
+          "alt_ip:192.168.10.1" => true,
+          "alt_mac:0eea1432d277" => true,
+          "_alias_last_seen_at" => "2026-05-16T18:00:00Z",
+          "debug_unifi_payload" => %{"raw" => "payload"},
+          "device_id" => "raw-integration-id"
+        },
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "Dusk UniFi", 10_000)
+
+    assert html =~ "Metadata"
+    assert html =~ "UniFi"
+    assert html =~ "Armis"
+    assert html =~ "NetBox"
+    assert html =~ "SNMP"
+    assert html =~ "Proxmox"
+    assert html =~ "Dusk UniFi"
+    assert html =~ "gateway"
+    assert html =~ "Tablet"
+    assert html =~ "Candidate probe"
+    assert html =~ "Yes"
+    assert html =~ "aruba-24g-02"
+    assert html =~ "Minnetonka, MN"
+    assert html =~ ".1.3.6.1.4.1.11.2.3.7.11.153"
+    assert html =~ "19d 12h"
+    assert html =~ "All OT Boundaries"
+    assert html =~ "Risk Score"
+    assert html =~ "7 / 10"
+    assert html =~ "In Service"
+    assert html =~ "SN-123"
+    assert html =~ "Plant 7"
+    assert html =~ "2 items"
+    assert html =~ "nb-123"
+    assert html =~ "Manufacturing"
+    assert html =~ "MDF-A"
+    assert html =~ "matched UniFi gateway role"
+
+    refute html =~ "Additional metadata keys"
+    refute html =~ "Other Metadata"
+    refute html =~ "MikroTik"
+    refute html =~ "tonka01"
+    refute html =~ "edge-mikrotik"
+    refute html =~ "10.0.0.1"
+    refute html =~ "192.168.10.1"
+    refute html =~ "0eea1432d277"
+    refute html =~ "Integration Details"
+    refute html =~ "asset-7799"
+    refute html =~ "_alias_last_seen_at"
+    refute html =~ "debug_unifi_payload"
+    refute html =~ "raw-integration-id"
   end
 
   test "marks SNMP fallback-derived classification in list and details views", %{conn: conn} do
@@ -1019,6 +1381,61 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert has_element?(view, "input[type=checkbox]")
     end
 
+    test "launches selected interfaces through northbound action modal", %{
+      conn: conn,
+      device_uid: device_uid
+    } do
+      action = northbound_action(:interface)
+      with_northbound_stubs(interface_actions: [action])
+      insert_test_interfaces!(device_uid)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
+
+      view
+      |> element("button[phx-click='switch_tab'][phx-value-tab='interfaces']")
+      |> render_click()
+
+      assert_receive {:northbound_interface_actions, _scope}, 1_000
+
+      interface_uid = "#{device_uid}-eth0"
+
+      view
+      |> element("input[phx-click='toggle_interface_select'][phx-value-uid='#{interface_uid}']")
+      |> render_click()
+
+      html =
+        view
+        |> element("button[phx-click='run_task_for_interface_selection']")
+        |> render_click()
+
+      assert html =~ "Disable Switch Port"
+
+      view
+      |> form("#northbound_interface_action_modal-form", %{
+        "action" => %{
+          "action_id" => action.id,
+          "input" => %{"reason" => "port remediation"}
+        }
+      })
+      |> render_submit()
+
+      assert_receive {:northbound_create_and_dispatch, attrs, opts}, 1_000
+      html = render(view)
+
+      assert html =~ "Task dispatched for 1 interface"
+      assert html =~ "Results update in Task History"
+
+      assert attrs.descriptor_id == action.descriptor_id
+
+      assert attrs.targets == [
+               %{kind: "interface", device_uid: device_uid, interface_uid: interface_uid}
+             ]
+
+      assert attrs.input_values == %{"reason" => "port remediation"}
+      assert attrs.metadata["ui_surface"] == "device_interfaces"
+      assert opts[:actor].email
+    end
+
     test "can toggle interface favorite", %{conn: conn, device_uid: device_uid} do
       insert_test_interfaces!(device_uid)
       {:ok, view, _html} = live(conn, ~p"/devices/#{device_uid}")
@@ -1086,6 +1503,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       assert flows_html =~ "DNS"
     end
+
+    test "logs tab shows immediate empty state while device logs load asynchronously", %{conn: conn} do
+      previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+      previous_log_delay = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms)
+
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+      Application.put_env(:serviceradar_web_ng, :device_live_log_query_delay_ms, 250)
+
+      on_exit(fn ->
+        restore_env(:srql_module, previous_srql_module)
+        restore_env(:device_live_log_query_delay_ms, previous_log_delay)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/devices/stub-device")
+
+      html =
+        view
+        |> element("button[phx-click='switch_tab'][phx-value-tab='logs']")
+        |> render_click()
+
+      assert html =~ "No logs found for this device."
+      refute html =~ "Loading device logs"
+      assert render_until(view, "No logs found for this device.", 2_000) =~ "No logs found for this device."
+    end
+  end
+
+  test "agent availability falls back to recent sweep history when canonical rows are absent" do
+    html =
+      render_component(&ServiceRadarWebNGWeb.DeviceLive.Show.agent_availability_section/1,
+        rows: [],
+        device_row: %{},
+        sweep_results: %{
+          results: [
+            %{
+              execution: %{agent_id: "agent-dusk01"},
+              status: :available,
+              inserted_at: ~U[2026-05-17 06:42:00Z],
+              response_time_ms: 11,
+              open_ports: [],
+              sweep_modes_results: %{"icmp" => "success", "tcp" => "no_response"}
+            }
+          ]
+        }
+      )
+
+    assert html =~ "Source: recent sweep history"
+    assert html =~ "agent-dusk01"
+    assert html =~ "Available"
+    assert html =~ "ICMP ok"
+    refute html =~ "No per-agent sweep availability has been recorded"
   end
 
   describe "interfaces bulk edit" do
@@ -1628,6 +2095,86 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     %{source: source, profile: profile}
   end
 
+  defp with_northbound_stubs(opts) do
+    previous_catalog = Application.get_env(:serviceradar_web_ng, :northbound_catalog_module)
+
+    previous_invocation_service =
+      Application.get_env(:serviceradar_web_ng, :northbound_invocation_service_module)
+
+    previous_test_pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid)
+    previous_device_actions = Application.get_env(:serviceradar_web_ng, :northbound_device_actions)
+
+    previous_interface_actions =
+      Application.get_env(:serviceradar_web_ng, :northbound_interface_actions)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_catalog_module,
+      __MODULE__.NorthboundCatalogStub
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      __MODULE__.NorthboundInvocationServiceStub
+    )
+
+    Application.put_env(:serviceradar_web_ng, :northbound_action_test_pid, self())
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_device_actions,
+      Keyword.get(opts, :device_actions, [])
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_interface_actions,
+      Keyword.get(opts, :interface_actions, [])
+    )
+
+    on_exit(fn ->
+      restore_env(:northbound_catalog_module, previous_catalog)
+      restore_env(:northbound_invocation_service_module, previous_invocation_service)
+      restore_env(:northbound_action_test_pid, previous_test_pid)
+      restore_env(:northbound_device_actions, previous_device_actions)
+      restore_env(:northbound_interface_actions, previous_interface_actions)
+    end)
+  end
+
+  defp northbound_action(scope, opts \\ []) do
+    scope = to_string(scope)
+
+    %{
+      id: "northbound:#{scope}:disable-port",
+      descriptor_id: northbound_descriptor_id(scope),
+      label: "Disable Switch Port",
+      description: "Calls an external NMS to disable a selected target.",
+      provider_type: "wasm_plugin",
+      provider_name: "Network Automation",
+      scope: scope,
+      destination: nil,
+      input_schema:
+        Keyword.get(opts, :input_schema, %{
+          "type" => "object",
+          "required" => ["reason"],
+          "properties" => %{
+            "reason" => %{
+              "type" => "string",
+              "title" => "Reason",
+              "description" => "Change ticket or operator reason"
+            }
+          }
+        }),
+      safety_classification: Keyword.get(opts, :safety_classification, "destructive"),
+      requires_confirmation: Keyword.get(opts, :requires_confirmation, true),
+      timeout_seconds: Keyword.get(opts, :timeout_seconds, 120)
+    }
+  end
+
+  defp northbound_descriptor_id("device"), do: "018f2fd1-f0ff-7cf0-9dc0-000000000101"
+  defp northbound_descriptor_id(_scope), do: "018f2fd1-f0ff-7cf0-9dc0-000000000202"
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
@@ -1886,6 +2433,99 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       true ->
         Process.sleep(50)
         render_until(view, expected, deadline, html)
+    end
+  end
+
+  defmodule RecordingSRQLStub do
+    @moduledoc false
+
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    def query(query) when is_binary(query), do: query(query, %{})
+    def query(_query), do: {:error, :invalid_query}
+
+    def query(query, _opts) when is_binary(query) do
+      if pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid) do
+        send(pid, {:srql_query, query})
+      end
+
+      cond do
+        String.contains?(query, "in:logs") ->
+          if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+            Process.sleep(delay_ms)
+          end
+
+          {:ok, %{"results" => [], "pagination" => %{}}}
+
+        String.contains?(query, ~s|stats:"count() as total"|) ->
+          {:ok, %{"results" => [%{"total" => 42}], "pagination" => %{}}}
+
+        String.contains?(query, "rollup_stats:inventory_summary") ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "total" => 42,
+                 "available" => 40,
+                 "unavailable" => 2,
+                 "by_type" => [],
+                 "by_vendor" => []
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        true ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "uid" => "stub-device",
+                 "hostname" => "stub-device",
+                 "vendor_name" => "Ubiquiti",
+                 "is_available" => true
+               }
+             ],
+             "pagination" => %{}
+           }}
+      end
+    end
+
+    def query(_query, _opts), do: {:error, :invalid_query}
+
+    def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
+    def query_request(_payload), do: {:error, :invalid_request}
+  end
+
+  defmodule NorthboundCatalogStub do
+    @moduledoc false
+
+    def eligible_device_actions(scope) do
+      notify({:northbound_device_actions, scope})
+      Application.get_env(:serviceradar_web_ng, :northbound_device_actions, [])
+    end
+
+    def eligible_interface_actions(scope) do
+      notify({:northbound_interface_actions, scope})
+      Application.get_env(:serviceradar_web_ng, :northbound_interface_actions, [])
+    end
+
+    defp notify(message) do
+      if pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid) do
+        send(pid, message)
+      end
+    end
+  end
+
+  defmodule NorthboundInvocationServiceStub do
+    @moduledoc false
+
+    def create_and_dispatch(attrs, opts) do
+      if pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid) do
+        send(pid, {:northbound_create_and_dispatch, attrs, opts})
+      end
+
+      {:ok, %{id: "018f2fd1-f0ff-7cf0-9dc0-000000000999"}}
     end
   end
 end

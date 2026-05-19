@@ -8,6 +8,7 @@
 import Config
 
 alias ServiceRadar.Automation.Ansible
+alias ServiceRadar.Automation.Northbound
 
 config :adbc, :drivers, [:postgresql]
 
@@ -131,6 +132,7 @@ config :serviceradar_core,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
+    Northbound,
     Ansible,
     ServiceRadar.Security
   ]
@@ -200,6 +202,11 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   cosign_public_key_file: nil
 
 config :serviceradar_web_ng, :god_view_enabled, false
+
+config :serviceradar_web_ng, :object_store_retention,
+  enabled?: false,
+  dry_run?: true,
+  plugin_orphan_grace_seconds: 604_800
 
 config :serviceradar_web_ng, :plugin_storage,
   backend: :jetstream,
@@ -278,6 +285,7 @@ config :serviceradar_web_ng,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
+    Northbound,
     Ansible,
     ServiceRadar.Security
   ]

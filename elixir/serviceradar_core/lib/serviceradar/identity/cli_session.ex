@@ -26,6 +26,8 @@ defmodule ServiceRadar.Identity.CliSession do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
   @valid_statuses [:active, :revoked, :expired]
 
   postgres do
@@ -86,7 +88,8 @@ defmodule ServiceRadar.Identity.CliSession do
       change fn changeset, _context ->
         attrs = Ash.Changeset.get_argument(changeset, :attrs) || %{}
 
-        Enum.reduce(attrs, changeset, fn {key, value}, acc ->
+        attrs
+        |> Enum.reduce(changeset, fn {key, value}, acc ->
           Ash.Changeset.change_attribute(acc, key, value)
         end)
         |> Ash.Changeset.change_attribute(:status, :active)
@@ -133,13 +136,12 @@ defmodule ServiceRadar.Identity.CliSession do
     # Read paths gated on the cli.session.read_* permissions.
     policy action(:by_jti) do
       authorize_if actor_attribute_equals(:role, :system)
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission, permission: "cli.session.read_any"}
+      authorize_if {ActorHasPermission, permission: "cli.session.read_any"}
     end
 
     policy action(:active_by_user) do
       # Admin-style: anyone with read_any may scope by any user_id.
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "cli.session.read_any"}
+      authorize_if {ActorHasPermission, permission: "cli.session.read_any"}
 
       # Self-scope: the requested user_id must match the actor's id. The
       # default RBAC catalog grants cli.session.read_own to every role, so
@@ -150,8 +152,7 @@ defmodule ServiceRadar.Identity.CliSession do
     policy action([:active, :read, :expired_active]) do
       authorize_if actor_attribute_equals(:role, :system)
 
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "cli.session.read_any"}
+      authorize_if {ActorHasPermission, permission: "cli.session.read_any"}
     end
 
     # Revoke gated on the matching cli.session.revoke_* permission. The
@@ -160,8 +161,7 @@ defmodule ServiceRadar.Identity.CliSession do
     policy action(:revoke) do
       authorize_if actor_attribute_equals(:role, :system)
 
-      authorize_if {ServiceRadar.Policies.Checks.ActorHasPermission,
-                    permission: "cli.session.revoke_any"}
+      authorize_if {ActorHasPermission, permission: "cli.session.revoke_any"}
 
       authorize_if expr(user_id == ^actor(:id))
     end

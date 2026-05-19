@@ -6,7 +6,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   northbound flow:
   - validating whether a source can run northbound updates
   - loading persisted Armis candidates from canonical inventory state
-  - collapsing candidate device rows to one record per `armis_device_id`
+  - collapsing candidate device rows to one record per integration ID
   - batching outbound updates for bulk API submission
   - building the bulk payload written to the configured custom field
   """
@@ -18,6 +18,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Monitoring
   alias ServiceRadar.Monitoring.OcsfEvent
@@ -111,103 +112,335 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/2)
     execute_batches_fun = Keyword.get(opts, :execute_batches, &execute_batches/3)
 
-    with {:ok, run} <- start_run.(source, actor, opts),
-         {:ok, candidates} <- load_candidates_fun.(source, opts),
-         collapsed = collapse_candidates(candidates),
-         {:ok, _source} <-
-           update_source.(source, :northbound_start, %{device_count: length(collapsed)}, actor) do
-      case execute_batches_fun.(source, collapsed, opts) do
-        {:ok, result} ->
-          finalize_success(source, run, result, actor, finish_run, update_source, record_event)
+    case start_run.(source, actor, opts) do
+      {:ok, run} ->
+        run_started_for_source(
+          source,
+          run,
+          actor,
+          opts,
+          update_source,
+          finish_run,
+          record_event,
+          load_candidates_fun,
+          execute_batches_fun
+        )
 
-        {:error, result} when is_map(result) ->
-          finalize_error(source, run, result, actor, finish_run, update_source, record_event)
-
-        {:error, reason} ->
-          result = %{
-            device_count: length(collapsed),
-            updated_count: 0,
-            skipped_count: 0,
-            error_count: length(collapsed),
-            batch_count: 0,
-            errors: [%{reason: reason}]
-          }
-
-          finalize_error(source, run, result, actor, finish_run, update_source, record_event)
-      end
+      {:error, _reason} = error ->
+        error
     end
+  end
+
+  defp run_started_for_source(
+         source,
+         run,
+         actor,
+         opts,
+         update_source,
+         finish_run,
+         record_event,
+         load_candidates_fun,
+         execute_batches_fun
+       ) do
+    Logger.info("Starting Armis northbound run",
+      integration_source_id: inspect(Map.get(source, :id)),
+      run_id: inspect(Map.get(run, :id))
+    )
+
+    case load_candidates_fun.(source, opts) do
+      {:ok, candidates} ->
+        collapsed = collapse_candidates(candidates)
+        device_count = length(collapsed)
+
+        Logger.info("Loaded Armis northbound candidates",
+          integration_source_id: inspect(Map.get(source, :id)),
+          run_id: inspect(Map.get(run, :id)),
+          device_count: device_count
+        )
+
+        case update_source.(source, :northbound_start, %{device_count: device_count}, actor) do
+          {:ok, _source} ->
+            execute_started_run(
+              source,
+              run,
+              collapsed,
+              actor,
+              opts,
+              finish_run,
+              update_source,
+              record_event,
+              execute_batches_fun
+            )
+
+          {:error, reason} ->
+            fail_started_run(
+              source,
+              run,
+              failure_result(device_count, reason),
+              actor,
+              finish_run,
+              update_source,
+              record_event
+            )
+        end
+
+      {:error, reason} ->
+        fail_started_run(
+          source,
+          run,
+          failure_result(0, reason),
+          actor,
+          finish_run,
+          update_source,
+          record_event
+        )
+    end
+  rescue
+    exception ->
+      fail_started_run(
+        source,
+        run,
+        failure_result(0, {exception.__struct__, Exception.message(exception)}),
+        actor,
+        finish_run,
+        update_source,
+        record_event
+      )
+  end
+
+  defp execute_started_run(
+         source,
+         run,
+         collapsed,
+         actor,
+         opts,
+         finish_run,
+         update_source,
+         record_event,
+         execute_batches_fun
+       ) do
+    case execute_batches_fun.(source, collapsed, opts) do
+      {:ok, result} ->
+        finalize_success(source, run, result, actor, finish_run, update_source, record_event)
+
+      {:error, result} when is_map(result) ->
+        finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+
+      {:error, reason} ->
+        result = %{
+          device_count: length(collapsed),
+          updated_count: 0,
+          skipped_count: 0,
+          error_count: max(length(collapsed), 1),
+          batch_count: 0,
+          errors: [%{reason: reason}]
+        }
+
+        finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+    end
+  rescue
+    exception ->
+      fail_started_run(
+        source,
+        run,
+        failure_result(length(collapsed), {exception.__struct__, Exception.message(exception)}),
+        actor,
+        finish_run,
+        update_source,
+        record_event
+      )
+  end
+
+  defp fail_started_run(source, run, result, actor, finish_run, update_source, record_event) do
+    Logger.warning("Armis northbound run failed before completion",
+      integration_source_id: inspect(Map.get(source, :id)),
+      run_id: inspect(Map.get(run, :id)),
+      reason: summarize_errors(result.errors)
+    )
+
+    finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+  end
+
+  defp failure_result(device_count, reason) do
+    %{
+      device_count: device_count,
+      updated_count: 0,
+      skipped_count: 0,
+      error_count: max(device_count, 1),
+      batch_count: 0,
+      errors: [%{reason: reason}]
+    }
   end
 
   @spec execute_batches(IntegrationSource.t() | map(), [collapsed_candidate()], keyword()) ::
           {:ok, map()} | {:error, map()}
   def execute_batches(source, candidates, opts \\ []) do
-    with :ok <- northbound_ready?(source, opts),
-         {:ok, token} <- fetch_access_token(source, opts) do
-      request = Keyword.get(opts, :request, &default_request/5)
-      custom_field = custom_field(source)
-      batches = batch_candidates(candidates, batch_size(source))
+    with :ok <- northbound_ready?(source, opts) do
+      do_execute_batches(source, candidates, opts)
+    end
+  end
 
-      initial = %{
-        device_count: length(candidates),
-        updated_count: 0,
-        skipped_count: 0,
-        error_count: 0,
-        batch_count: length(batches),
-        errors: []
-      }
+  defp do_execute_batches(source, [], _opts) do
+    Logger.info("Skipping Armis northbound bulk update because no candidates were loaded",
+      integration_source_id: inspect(Map.get(source, :id))
+    )
 
-      result =
-        Enum.reduce_while(batches, initial, fn batch, acc ->
-          payload = build_bulk_payload(custom_field, batch)
+    {:ok,
+     %{
+       device_count: 0,
+       updated_count: 0,
+       skipped_count: 0,
+       error_count: 0,
+       batch_count: 0,
+       errors: []
+     }}
+  end
 
-          case request.(
-                 "/api/v1/devices/custom-properties/_bulk/",
-                 :post,
-                 request_headers(token),
-                 payload,
-                 request_options(source)
-               ) do
-            {:ok, %{status: status}} when status in 200..299 ->
-              {:cont, %{acc | updated_count: acc.updated_count + length(batch)}}
+  defp do_execute_batches(source, candidates, opts) do
+    request = Keyword.get(opts, :request, &default_request/5)
+    custom_field = custom_field(source)
+    batches = batch_candidates(candidates, batch_size(source))
 
-            {:ok, %{status: status, body: body}} ->
-              error = %{batch_size: length(batch), reason: {:unexpected_status, status, body}}
+    Logger.info("Fetching Armis northbound access token",
+      integration_source_id: inspect(Map.get(source, :id)),
+      endpoint: Map.get(source, :endpoint),
+      device_count: length(candidates),
+      batch_count: length(batches),
+      custom_field: custom_field
+    )
 
-              {:halt,
-               %{
-                 acc
-                 | error_count: acc.error_count + length(batch),
-                   errors: acc.errors ++ [error]
-               }}
+    case fetch_access_token(source, opts) do
+      {:ok, token} ->
+        Logger.info("Fetched Armis northbound access token",
+          integration_source_id: inspect(Map.get(source, :id)),
+          batch_count: length(batches)
+        )
 
-            {:error, reason} ->
-              error = %{batch_size: length(batch), reason: reason}
+        execute_bulk_batches(source, candidates, batches, custom_field, token, request)
 
-              {:halt,
-               %{
-                 acc
-                 | error_count: acc.error_count + length(batch),
-                   errors: acc.errors ++ [error]
-               }}
-          end
-        end)
+      {:error, reason} ->
+        Logger.warning("Failed to fetch Armis northbound access token",
+          integration_source_id: inspect(Map.get(source, :id)),
+          reason: inspect(reason)
+        )
 
-      if result.errors == [] do
-        {:ok, result}
-      else
-        {:error, result}
-      end
+        {:error,
+         %{
+           device_count: length(candidates),
+           updated_count: 0,
+           skipped_count: 0,
+           error_count: max(length(candidates), 1),
+           batch_count: length(batches),
+           errors: [%{reason: reason}]
+         }}
+    end
+  end
+
+  defp execute_bulk_batches(source, candidates, batches, custom_field, token, request) do
+    initial = %{
+      device_count: length(candidates),
+      updated_count: 0,
+      skipped_count: 0,
+      error_count: 0,
+      batch_count: length(batches),
+      errors: []
+    }
+
+    result =
+      batches
+      |> Enum.with_index(1)
+      |> Enum.reduce_while(initial, fn {batch, batch_number}, acc ->
+        payload = build_bulk_payload(custom_field, batch)
+
+        Logger.info("Sending Armis northbound bulk update batch",
+          integration_source_id: inspect(Map.get(source, :id)),
+          batch_number: batch_number,
+          batch_count: length(batches),
+          batch_size: length(batch),
+          payload_shape: bulk_payload_shape(payload)
+        )
+
+        case request.(
+               "/api/v1/devices/custom-properties/_bulk/",
+               :post,
+               request_headers(token),
+               payload,
+               request_options(source)
+             ) do
+          {:ok, %{status: status}} when status in 200..299 ->
+            Logger.info("Armis northbound bulk update batch accepted",
+              integration_source_id: inspect(Map.get(source, :id)),
+              batch_number: batch_number,
+              batch_count: length(batches),
+              batch_size: length(batch),
+              status: status
+            )
+
+            {:cont, %{acc | updated_count: acc.updated_count + length(batch)}}
+
+          {:ok, %{status: status, body: body}} ->
+            Logger.warning("Armis northbound bulk update batch rejected",
+              integration_source_id: inspect(Map.get(source, :id)),
+              batch_number: batch_number,
+              batch_count: length(batches),
+              batch_size: length(batch),
+              status: status,
+              response_body: inspect(body)
+            )
+
+            error = %{batch_size: length(batch), reason: {:unexpected_status, status, body}}
+
+            {:halt,
+             %{
+               acc
+               | error_count: acc.error_count + length(batch),
+                 errors: acc.errors ++ [error]
+             }}
+
+          {:error, reason} ->
+            Logger.warning("Armis northbound bulk update batch failed",
+              integration_source_id: inspect(Map.get(source, :id)),
+              batch_number: batch_number,
+              batch_count: length(batches),
+              batch_size: length(batch),
+              reason: inspect(reason)
+            )
+
+            error = %{batch_size: length(batch), reason: reason}
+
+            {:halt,
+             %{
+               acc
+               | error_count: acc.error_count + length(batch),
+                 errors: acc.errors ++ [error]
+             }}
+        end
+      end)
+
+    if result.errors == [] do
+      {:ok, result}
+    else
+      {:error, result}
     end
   end
 
   @spec candidates_query(IntegrationSource.t() | map()) :: Ecto.Query.t()
   def candidates_query(source) do
     source_id = to_string(Map.fetch!(source, :id))
+    availability_source_agent_id = availability_source_agent_id(source)
 
+    if blank?(availability_source_agent_id) do
+      canonical_candidates_query(source_id)
+    else
+      agent_candidates_query(source_id, availability_source_agent_id)
+    end
+  end
+
+  defp canonical_candidates_query(source_id) do
     from(di in DeviceIdentifier,
       join: d in Device,
       on: d.uid == di.device_id,
-      where: di.identifier_type == :armis_device_id,
+      where: di.identifier_type == :integration_id,
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
       where:
         fragment(
@@ -242,6 +475,55 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       },
       order_by: [asc: di.identifier_value, asc: d.uid]
     )
+  end
+
+  defp agent_candidates_query(source_id, availability_source_agent_id) do
+    from(di in DeviceIdentifier,
+      join: d in Device,
+      on: d.uid == di.device_id,
+      join: daa in DeviceAgentAvailability,
+      on: daa.device_uid == d.uid and daa.agent_id == ^availability_source_agent_id,
+      where: di.identifier_type == :integration_id,
+      where: not is_nil(d.uid) and is_nil(d.deleted_at),
+      where:
+        fragment(
+          "COALESCE(?->>'sync_service_id', ?->>'sync_service_id', '') = ?",
+          di.metadata,
+          d.metadata,
+          ^source_id
+        ),
+      where:
+        fragment(
+          "COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis'",
+          di.metadata,
+          d.metadata
+        ),
+      select: %{
+        armis_device_id: di.identifier_value,
+        is_available: fragment("COALESCE(?, false)", daa.is_available),
+        device_id: d.uid,
+        sync_service_id:
+          fragment(
+            "COALESCE(?->>'sync_service_id', ?->>'sync_service_id')",
+            di.metadata,
+            d.metadata
+          ),
+        metadata:
+          fragment(
+            "jsonb_strip_nulls(COALESCE(?, '{}'::jsonb) || jsonb_build_object('integration_type', COALESCE(?->>'integration_type', ?->>'integration_type'), 'availability_source_agent_id', ?::text))::jsonb",
+            d.metadata,
+            di.metadata,
+            d.metadata,
+            ^availability_source_agent_id
+          )
+      },
+      order_by: [asc: di.identifier_value, asc: d.uid]
+    )
+  end
+
+  defp availability_source_agent_id(source) do
+    Map.get(source, :northbound_availability_source_agent_id) ||
+      Map.get(source, "northbound_availability_source_agent_id")
   end
 
   @spec collapse_candidates([candidate()]) :: [collapsed_candidate()]
@@ -288,14 +570,41 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   def build_bulk_payload(custom_field, candidates)
       when is_binary(custom_field) and custom_field != "" do
     Enum.map(candidates, fn candidate ->
-      %{
-        "id" => candidate.armis_device_id,
-        "customProperties" => %{
-          custom_field => candidate.is_available
-        }
-      }
+      case parse_armis_device_id(candidate.armis_device_id) do
+        {:ok, device_id} ->
+          %{
+            "upsert" => %{
+              "deviceId" => device_id,
+              "key" => custom_field,
+              "value" => candidate.is_available
+            }
+          }
+
+        :error ->
+          %{
+            "id" => candidate.armis_device_id,
+            "customProperties" => %{
+              custom_field => candidate.is_available
+            }
+          }
+      end
     end)
   end
+
+  defp parse_armis_device_id(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_armis_device_id(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {device_id, ""} -> {:ok, device_id}
+      _ -> :error
+    end
+  end
+
+  defp parse_armis_device_id(_), do: :error
+
+  defp bulk_payload_shape([%{"upsert" => _} | _]), do: "upsert"
+  defp bulk_payload_shape([%{"id" => _, "customProperties" => _} | _]), do: "customProperties"
+  defp bulk_payload_shape(_), do: "unknown"
 
   defp compact_unique(values) do
     values
@@ -579,23 +888,41 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     oban_job_id = Keyword.get(opts, :oban_job_id)
     :ok = reconcile_stale_runs(source, actor, opts)
 
-    IntegrationUpdateRun
-    |> Ash.Changeset.for_create(
-      :start_run,
-      %{
-        integration_source_id: Map.fetch!(source, :id),
-        run_type: :armis_northbound,
-        oban_job_id: oban_job_id,
-        metadata: %{}
-      },
-      actor: actor
-    )
-    |> Ash.create(actor: actor)
+    if active_running_run_exists?(source, actor, opts) do
+      Logger.info("Skipping Armis northbound run because one is already running",
+        integration_source_id: inspect(Map.get(source, :id)),
+        oban_job_id: oban_job_id
+      )
+
+      {:error, :northbound_run_already_active}
+    else
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(
+        :start_run,
+        %{
+          integration_source_id: Map.fetch!(source, :id),
+          run_type: :armis_northbound,
+          oban_job_id: oban_job_id,
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+    end
+  end
+
+  defp active_running_run_exists?(source, actor, opts) do
+    list_runs = Keyword.get(opts, :list_runs, &list_recent_runs/2)
+
+    source
+    |> list_runs.(actor)
+    |> Enum.any?(&(&1.status == :running))
   end
 
   def reconcile_stale_runs(source, actor, opts) do
     list_runs = Keyword.get(opts, :list_runs, &list_recent_runs/2)
     finish_run = Keyword.get(opts, :finish_run, &default_finish_run/5)
+    update_source = Keyword.get(opts, :update_source, &default_update_source/4)
     oban_state = Keyword.get(opts, :oban_state, &fetch_oban_job_state/1)
     now = Keyword.get(opts, :now, DateTime.utc_now())
     cutoff_seconds = Keyword.get(opts, :stale_run_cutoff_seconds, @stale_run_cutoff_seconds)
@@ -619,8 +946,22 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
         }
 
         case finish_run.(run, :finish_timeout, attrs, actor, %{status: :timeout}) do
-          {:ok, _finished_run} -> :ok
-          {:error, _reason} -> :ok
+          {:ok, _finished_run} ->
+            timeout_attrs = %{
+              result: :timeout,
+              device_count: run.device_count || 0,
+              updated_count: run.updated_count || 0,
+              skipped_count: (run.skipped_count || 0) + (run.error_count || 0),
+              error_message: "Marked timed out after orphaned Oban job"
+            }
+
+            case update_source.(source, :northbound_failed, timeout_attrs, actor) do
+              {:ok, _source} -> :ok
+              {:error, _reason} -> :ok
+            end
+
+          {:error, _reason} ->
+            :ok
         end
       end
     end)
@@ -723,10 +1064,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp request_headers(token) do
     %{
-      "authorization" => "Bearer #{token}",
+      "authorization" => authorization_header(token),
       "content-type" => "application/json",
       "accept" => "application/json"
     }
+  end
+
+  defp authorization_header(token) when is_binary(token) do
+    token = String.trim(token)
+
+    if String.starts_with?(String.downcase(token), "bearer ") do
+      token
+    else
+      "Bearer #{token}"
+    end
   end
 
   defp request_options(source) do

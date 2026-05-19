@@ -132,6 +132,11 @@ type PushLoop struct {
 	mtrBulkJobSem             chan struct{}
 	cameraRelayManager        *cameraRelayManager
 	remoteConsoleManager      *remoteConsoleManager
+	applicationHTTPMu         sync.Mutex
+	applicationHTTPSessions   map[string]*remoteaccess.ApplicationHTTPAdapter
+	applicationHTTPRequests   map[string]map[string]*applicationHTTPRequestState
+	tcpMu                     sync.Mutex
+	tcpSessions               map[string]*remoteaccess.TCPAdapter
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
@@ -1991,7 +1996,7 @@ func (p *PushLoop) normalizePluginPayload(
 	if !ok {
 		return nil, false, errPluginMissingStatus
 	}
-	status := strings.ToUpper(strings.TrimSpace(statusRaw))
+	status := normalizePluginStatus(statusRaw)
 	if !isValidPluginStatus(status) {
 		return nil, false, fmt.Errorf("%w: %s", errPluginInvalidStatus, statusRaw)
 	}
@@ -2121,20 +2126,36 @@ func pluginServiceName(result PluginResult) string {
 	return "plugin"
 }
 
+const (
+	pluginStatusOK       = "OK"
+	pluginStatusWarning  = "WARNING"
+	pluginStatusCritical = "CRITICAL"
+	pluginStatusUnknown  = "UNKNOWN"
+)
+
 func isValidPluginStatus(status string) bool {
 	switch status {
-	case "OK", "WARNING", "CRITICAL", "UNKNOWN":
+	case pluginStatusOK, pluginStatusWarning, pluginStatusCritical, pluginStatusUnknown:
 		return true
 	default:
 		return false
 	}
 }
 
+func normalizePluginStatus(status string) string {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FAILED", "FAIL", "ERROR":
+		return pluginStatusCritical
+	default:
+		return strings.ToUpper(strings.TrimSpace(status))
+	}
+}
+
 func pluginStatusAvailable(status string) bool {
 	switch status {
-	case "OK", "WARNING":
+	case pluginStatusOK, pluginStatusWarning:
 		return true
-	case "CRITICAL", "UNKNOWN":
+	case pluginStatusCritical, pluginStatusUnknown:
 		return false
 	default:
 		return false
@@ -2744,9 +2765,14 @@ func (p *PushLoop) applyConfigResponse(configResp *proto.AgentConfigResponse, so
 		p.applySNMPConfig(configResp.SnmpConfig)
 	}
 
-	// Apply plugin config if present
-	if configResp.PluginConfig != nil {
-		p.applyPluginConfig(configResp.PluginConfig)
+	// Apply plugin config if present. Older generated clients may not decode
+	// the typed proto field, so keep a JSON fallback in config_json.
+	pluginConfig := configResp.PluginConfig
+	if pluginConfig == nil {
+		pluginConfig = pluginConfigFromConfigJSON(configResp.ConfigJson)
+	}
+	if pluginConfig != nil {
+		p.applyPluginConfig(pluginConfig)
 	}
 
 	// Apply check configs (icmp checks supported)
@@ -2768,6 +2794,9 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 	}
 
 	if mapperConfig == nil {
+		p.logger.Debug().
+			Int("config_json_bytes", len(configJSON)).
+			Msg("Gateway config did not include mapper configuration")
 		return
 	}
 
@@ -2783,6 +2812,10 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 	}
 
 	if mapperSvc == nil {
+		p.logger.Info().
+			Int("scheduled_jobs", len(mapperConfig.ScheduledJobs)).
+			Msg("Initializing mapper service from gateway config")
+
 		service, err := NewMapperService(compiled, p.logger)
 		if err != nil {
 			p.logger.Error().Err(err).Msg("Failed to initialize mapper service")
@@ -2830,6 +2863,124 @@ func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {
 		Msg("Received plugin assignments from gateway")
 
 	pluginManager.ApplyConfig(config)
+}
+
+type pluginConfigEnvelope struct {
+	Plugins      *pluginConfigPayload `json:"plugins"`
+	PluginConfig *pluginConfigPayload `json:"plugin_config"`
+}
+
+type pluginConfigPayload struct {
+	Assignments  []pluginAssignmentPayload `json:"assignments"`
+	EngineLimits pluginEngineLimitsPayload `json:"engine_limits"`
+}
+
+type pluginAssignmentPayload struct {
+	AssignmentID  string          `json:"assignment_id"`
+	PluginID      string          `json:"plugin_id"`
+	PackageID     string          `json:"package_id"`
+	Version       string          `json:"version"`
+	Name          string          `json:"name"`
+	Entrypoint    string          `json:"entrypoint"`
+	Runtime       string          `json:"runtime"`
+	Outputs       string          `json:"outputs"`
+	Capabilities  []string        `json:"capabilities"`
+	Params        json.RawMessage `json:"params"`
+	Permissions   json.RawMessage `json:"permissions"`
+	Resources     json.RawMessage `json:"resources"`
+	Enabled       bool            `json:"enabled"`
+	IntervalSec   int32           `json:"interval_sec"`
+	TimeoutSec    int32           `json:"timeout_sec"`
+	WasmObjectKey string          `json:"wasm_object_key"`
+	ContentHash   string          `json:"content_hash"`
+	SourceType    string          `json:"source_type"`
+	SourceRepoURL string          `json:"source_repo_url"`
+	SourceCommit  string          `json:"source_commit"`
+	DownloadURL   string          `json:"download_url"`
+	DownloadToken string          `json:"download_token"`
+}
+
+type pluginEngineLimitsPayload struct {
+	MaxMemoryMB        int32 `json:"max_memory_mb"`
+	MaxCPUMS           int32 `json:"max_cpu_ms"`
+	MaxConcurrent      int32 `json:"max_concurrent"`
+	MaxOpenConnections int32 `json:"max_open_connections"`
+}
+
+func pluginConfigFromConfigJSON(configJSON []byte) *proto.PluginConfig {
+	if len(configJSON) == 0 {
+		return nil
+	}
+
+	var envelope pluginConfigEnvelope
+	if err := json.Unmarshal(configJSON, &envelope); err != nil {
+		return nil
+	}
+
+	payload := envelope.Plugins
+	if payload == nil {
+		payload = envelope.PluginConfig
+	}
+	if payload == nil {
+		return nil
+	}
+
+	config := &proto.PluginConfig{
+		Assignments:  make([]*proto.PluginAssignmentConfig, 0, len(payload.Assignments)),
+		EngineLimits: pluginEngineLimitsFromJSON(payload.EngineLimits),
+	}
+
+	for _, assignment := range payload.Assignments {
+		config.Assignments = append(config.Assignments, pluginAssignmentFromJSON(assignment))
+	}
+
+	return config
+}
+
+func pluginAssignmentFromJSON(assignment pluginAssignmentPayload) *proto.PluginAssignmentConfig {
+	return &proto.PluginAssignmentConfig{
+		AssignmentId:    assignment.AssignmentID,
+		PluginId:        assignment.PluginID,
+		PackageId:       assignment.PackageID,
+		Version:         assignment.Version,
+		Name:            assignment.Name,
+		Entrypoint:      assignment.Entrypoint,
+		Runtime:         assignment.Runtime,
+		Outputs:         assignment.Outputs,
+		Capabilities:    assignment.Capabilities,
+		ParamsJson:      cloneRawJSON(assignment.Params),
+		PermissionsJson: cloneRawJSON(assignment.Permissions),
+		ResourcesJson:   cloneRawJSON(assignment.Resources),
+		Enabled:         assignment.Enabled,
+		IntervalSec:     assignment.IntervalSec,
+		TimeoutSec:      assignment.TimeoutSec,
+		WasmObjectKey:   assignment.WasmObjectKey,
+		ContentHash:     assignment.ContentHash,
+		SourceType:      assignment.SourceType,
+		SourceRepoUrl:   assignment.SourceRepoURL,
+		SourceCommit:    assignment.SourceCommit,
+		DownloadUrl:     assignment.DownloadURL,
+		DownloadToken:   assignment.DownloadToken,
+	}
+}
+
+func pluginEngineLimitsFromJSON(limits pluginEngineLimitsPayload) *proto.PluginEngineLimits {
+	return &proto.PluginEngineLimits{
+		MaxMemoryMb:        limits.MaxMemoryMB,
+		MaxCpuMs:           limits.MaxCPUMS,
+		MaxConcurrent:      limits.MaxConcurrent,
+		MaxOpenConnections: limits.MaxOpenConnections,
+	}
+}
+
+func cloneRawJSON(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	return out
 }
 
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
@@ -3261,6 +3412,8 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		"sysmon",
 		remoteaccess.CapabilityRemoteAccess,
 		remoteaccess.CapabilityRemoteAccessSSH,
+		remoteaccess.CapabilityRemoteAccessApp,
+		remoteaccess.CapabilityRemoteAccessTCP,
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,

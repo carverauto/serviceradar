@@ -64,11 +64,21 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   @impl true
   def handle_params(params, uri, socket) do
-    socket = SRQLPage.load_list(socket, params, uri, :agents, default_limit: @default_limit, max_limit: @max_limit)
+    socket =
+      SRQLPage.load_list(socket, params, uri, :agents,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
     query = get_in(socket.assigns, [:srql, :query]) || base_agents_query(socket.assigns.limit)
-    summary_agents = load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents)
+
+    summary_agents =
+      load_summary_agents(socket.assigns.current_scope, query, socket.assigns.agents)
+
     release_filters = release_filters_from_query(query)
-    selected_agent_ids = selected_agent_ids_for_visible(socket.assigns.selected_agent_ids, socket.assigns.agents)
+
+    selected_agent_ids =
+      selected_agent_ids_for_visible(socket.assigns.selected_agent_ids, socket.assigns.agents)
 
     {:noreply,
      socket
@@ -178,21 +188,66 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   # Load all live agents from the registry
   # Schema scoping is implicit via PostgreSQL search_path
   defp load_live_agents do
-    ServiceRadar.AgentRegistry.find_agents()
-    |> Enum.map(fn agent ->
-      %{
-        agent_id: Map.get(agent, :agent_id) || Map.get(agent, :key),
-        partition_id: Map.get(agent, :partition_id),
-        gateway_node: Map.get(agent, :gateway_node),
-        capabilities: Map.get(agent, :capabilities, []),
-        status: Map.get(agent, :status, :unknown),
-        connected_at: Map.get(agent, :connected_at),
-        last_heartbeat: Map.get(agent, :last_heartbeat),
-        spiffe_identity: Map.get(agent, :spiffe_identity)
-      }
-    end)
+    normalize_live_agents(ServiceRadar.AgentRegistry.find_agents())
+  end
+
+  @doc false
+  def normalize_live_agents(agents) when is_list(agents) do
+    agents
+    |> Enum.map(&normalize_live_agent/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(& &1.agent_id)
+    |> Enum.map(fn {_agent_id, entries} -> select_live_agent_entry(entries) end)
     |> Enum.sort_by(& &1.agent_id)
   end
+
+  def normalize_live_agents(_agents), do: []
+
+  defp normalize_live_agent(agent) when is_map(agent) do
+    case registry_agent_id(agent) do
+      nil ->
+        nil
+
+      agent_id ->
+        %{
+          agent_id: agent_id,
+          partition_id: Map.get(agent, :partition_id),
+          gateway_node: Map.get(agent, :gateway_node),
+          capabilities: Map.get(agent, :capabilities, []),
+          status: Map.get(agent, :status, :unknown),
+          connected_at: Map.get(agent, :connected_at),
+          last_heartbeat: Map.get(agent, :last_heartbeat),
+          spiffe_identity: Map.get(agent, :spiffe_identity)
+        }
+    end
+  end
+
+  defp normalize_live_agent(_agent), do: nil
+
+  defp registry_agent_id(agent) do
+    case Map.get(agent, :agent_id) || Map.get(agent, :key) do
+      value when is_binary(value) and value != "" -> value
+      {:agent, agent_id, _node} when is_binary(agent_id) and agent_id != "" -> agent_id
+      {:agent, agent_id} when is_binary(agent_id) and agent_id != "" -> agent_id
+      _ -> nil
+    end
+  end
+
+  defp select_live_agent_entry([entry]), do: entry
+
+  defp select_live_agent_entry(entries) do
+    Enum.max_by(entries, fn entry ->
+      {
+        entry.status == :connected,
+        entry.capabilities != [],
+        datetime_score(entry.last_heartbeat),
+        datetime_score(entry.connected_at)
+      }
+    end)
+  end
+
+  defp datetime_score(%DateTime{} = timestamp), do: DateTime.to_unix(timestamp, :microsecond)
+  defp datetime_score(_timestamp), do: 0
 
   @impl true
   def render(assigns) do
@@ -360,8 +415,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     """
   end
 
-  attr :id, :string, required: true
-  attr :agents, :list, default: []
+  attr(:id, :string, required: true)
+  attr(:agents, :list, default: [])
 
   defp live_agents_table(assigns) do
     ~H"""
@@ -449,7 +504,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     """
   end
 
-  attr :status, :atom, default: :unknown
+  attr(:status, :atom, default: :unknown)
 
   defp status_indicator(assigns) do
     {color, label} =
@@ -481,10 +536,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
   defp format_datetime(_), do: "—"
 
-  attr :id, :string, required: true
-  attr :agents, :list, default: []
-  attr :selected_agent_ids, :list, default: []
-  attr :allow_selection, :boolean, default: false
+  attr(:id, :string, required: true)
+  attr(:agents, :list, default: [])
+  attr(:selected_agent_ids, :list, default: [])
+  attr(:allow_selection, :boolean, default: false)
 
   defp agents_table(assigns) do
     ~H"""
@@ -628,7 +683,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   # Host Health status badge component
-  attr :capabilities, :list, default: []
+  attr(:capabilities, :list, default: [])
 
   defp sysmon_status_badge(assigns) do
     caps = assigns.capabilities || []
@@ -649,7 +704,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     """
   end
 
-  attr :type_id, :integer, default: 0
+  attr(:type_id, :integer, default: 0)
 
   defp type_badge(assigns) do
     type_id = assigns.type_id || 0
@@ -671,7 +726,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     """
   end
 
-  attr :capabilities, :list, default: []
+  attr(:capabilities, :list, default: [])
 
   defp capabilities_list(assigns) do
     caps = assigns.capabilities || []
@@ -699,8 +754,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     Map.get(agent, "gateway_id") || "—"
   end
 
-  attr :state, :any, default: nil
-  attr :has_error, :boolean, default: false
+  attr(:state, :any, default: nil)
+  attr(:has_error, :boolean, default: false)
 
   defp release_rollout_badge(assigns) do
     {label, variant} =
@@ -873,10 +928,17 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   defp extract_filter_value(query, field) when is_binary(query) do
     case Regex.run(~r/(?:^|\s)#{field}:(?:"([^"]*)"|(\([^)]*\))|([^\s]+))/, query) do
-      [_, quoted, _, _] when is_binary(quoted) and quoted != "" -> quoted
-      [_, _, list, _] when is_binary(list) and list != "" -> list |> String.trim_leading("(") |> String.trim_trailing(")")
-      [_, _, _, scalar] when is_binary(scalar) and scalar != "" -> String.replace(scalar, "\\ ", " ")
-      _ -> ""
+      [_, quoted, _, _] when is_binary(quoted) and quoted != "" ->
+        quoted
+
+      [_, _, list, _] when is_binary(list) and list != "" ->
+        list |> String.trim_leading("(") |> String.trim_trailing(")")
+
+      [_, _, _, scalar] when is_binary(scalar) and scalar != "" ->
+        String.replace(scalar, "\\ ", " ")
+
+      _ ->
+        ""
     end
   end
 

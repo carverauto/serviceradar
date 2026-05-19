@@ -27,18 +27,33 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
   @min_terminal_rows 1
   @max_terminal_rows 200
   @client_controlled_metadata_denylist ~w(
+    allowed_methods
+    allowed_path_prefixes
     allowed_principals
+    app_target_id
+    application_id
+    ca_bundle_ref
     certificate_envelope
     credential
     credential_custody_mode
     credential_mode
     credentials
+    host_header
+    http_headers
+    max_request_bytes
+    max_response_bytes
     passphrase
     password
+    path_prefixes
     principal_mappings
     private_key
     rdp.kdc_proxy_url
     rdp.kerberos_hostname
+    quota
+    recording
+    request_headers
+    route
+    route_id
     secret
     secret_payload
     ssh
@@ -48,8 +63,16 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
     ssh_principal_mappings
     target_host
     target_port
+    sni
+    tcp_target_id
     ticket
+    tls
+    tls_server_name
     token
+    upstream_host
+    upstream_port
+    upstream_url
+    url
   )
   @client_controlled_metadata_suffixes ~w(_credential _password _secret _ticket _token)
   @desktop_policy_metadata_fields [
@@ -143,6 +166,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
       when reason in [
              :missing_agent_scope,
              :missing_remote_access_target,
+             :remote_access_target_disabled,
              :unsupported_remote_access_protocol,
              :unsupported_remote_access_adapter,
              :unsupported_remote_access_target,
@@ -956,6 +980,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
 
   defp format_reason(:missing_agent_scope), do: "target has no selected edge agent for remote-access routing"
   defp format_reason(:missing_remote_access_target), do: "target host could not be resolved for remote access"
+  defp format_reason(:remote_access_target_disabled), do: "remote-access target is disabled"
   defp format_reason(:unsupported_remote_access_protocol), do: "requested remote-access protocol is not supported"
   defp format_reason(:unsupported_remote_access_adapter), do: "requested remote-access adapter is not supported"
   defp format_reason(:unsupported_remote_access_target), do: "requested remote-access target is not supported"

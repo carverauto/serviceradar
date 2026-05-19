@@ -501,7 +501,7 @@ services:
       - serviceradar-net
 
   nats:
-    image: nats:2.12.6-alpine
+    image: nats:2.14.0-alpine
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
     ports:
@@ -570,6 +570,7 @@ services:
     volumes:
       - ./docker/compose/agent.mtls.json:/etc/serviceradar/agent.json:ro
       - cert-data:/etc/serviceradar/certs:ro
+      - agent-data:/var/lib/serviceradar
       - agent-checkers:/var/lib/serviceradar/checkers
       - ./logs:/var/log/serviceradar
     environment:
@@ -991,6 +992,8 @@ services:
     restart: unless-stopped
 
 volumes:
+  agent-data:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-data"
   agent-checkers:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_agent-checkers"
   cert-data:

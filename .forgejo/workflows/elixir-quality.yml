@@ -20,91 +20,44 @@ permissions:
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'elixir/**'
-      - '.github/workflows/elixir-quality.yml'
+      - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
   pull_request:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'elixir/**'
-      - '.github/workflows/elixir-quality.yml'
+      - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
 
+env:
+  ImageOS: ubuntu24
+
 jobs:
   quality:
-    name: Elixir Quality (${{ matrix.name }})
-    runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: connection
-            project: elixir/connection
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: datasvc
-            project: elixir/datasvc
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: elixir_uuid
-            project: elixir/elixir_uuid
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: palisade
-            project: elixir/palisade
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: serviceradar_agent_gateway
-            project: elixir/serviceradar_agent_gateway
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: serviceradar_core
-            project: elixir/serviceradar_core
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: serviceradar_core_elx
-            project: elixir/serviceradar_core_elx
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: serviceradar_srql
-            project: elixir/serviceradar_srql
-            phoenix: false
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-          - name: web-ng
-            project: elixir/web-ng
-            phoenix: true
-            credo: true
-            dialyzer: false
-            warnings_as_errors: true
-
+    name: Elixir Quality
+    runs-on: ubuntu24
+    env:
+      ImageOS: ubuntu24
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup Beam
         uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        env:
+          ImageOS: ubuntu24
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
 
       - name: Cache Elixir dependencies and build
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
@@ -112,25 +65,40 @@ jobs:
           path: |
             ~/.hex
             ~/.mix
-            ${{ matrix.project }}/deps
-            ${{ matrix.project }}/_build
-          key: ${{ runner.os }}-elixir-quality-${{ matrix.name }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), format('{0}/.formatter.exs', matrix.project), format('{0}/.credo.exs', matrix.project), format('{0}/.sobelow-conf', matrix.project), 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
+            elixir/datasvc/deps
+            elixir/datasvc/_build
+            elixir/palisade/deps
+            elixir/palisade/_build
+            elixir/serviceradar_agent_gateway/deps
+            elixir/serviceradar_agent_gateway/_build
+            elixir/serviceradar_core/deps
+            elixir/serviceradar_core/_build
+            elixir/serviceradar_core_elx/deps
+            elixir/serviceradar_core_elx/_build
+            elixir/serviceradar_srql/deps
+            elixir/serviceradar_srql/_build
+            elixir/web-ng/deps
+            elixir/web-ng/_build
+          key: ${{ runner.os }}-elixir-quality-${{ hashFiles('elixir/**/mix.exs', 'elixir/**/mix.lock', 'elixir/**/.formatter.exs', 'elixir/**/.credo.exs', 'elixir/**/.sobelow-conf', 'elixir/**/.sobelow-skips', 'elixir/**/.deps_audit_ignore', 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
           restore-keys: |
-            ${{ runner.os }}-elixir-quality-${{ matrix.name }}-
+            ${{ runner.os }}-elixir-quality-
 
       - name: Run Elixir quality contract
         run: |
-          args=(--project "${{ matrix.project }}")
-          if [[ "${{ matrix.phoenix }}" == "true" ]]; then
-            args+=(--phoenix)
-          fi
-          if [[ "${{ matrix.warnings_as_errors }}" != "true" ]]; then
-            args+=(--skip-warnings-as-errors)
-          fi
-          if [[ "${{ matrix.credo }}" != "true" ]]; then
-            args+=(--skip-credo)
-          fi
-          if [[ "${{ matrix.dialyzer }}" != "true" ]]; then
-            args+=(--skip-dialyzer)
-          fi
-          ./scripts/elixir_quality.sh "${args[@]}"
+          run_quality() {
+            local name="$1"
+            local project="$2"
+            shift 2
+
+            echo "::group::Elixir Quality (${name})"
+            ./scripts/elixir_quality.sh --project "${project}" --skip-dialyzer "$@"
+            echo "::endgroup::"
+          }
+
+          run_quality datasvc elixir/datasvc
+          run_quality palisade elixir/palisade
+          run_quality serviceradar_agent_gateway elixir/serviceradar_agent_gateway
+          run_quality serviceradar_core elixir/serviceradar_core
+          run_quality serviceradar_core_elx elixir/serviceradar_core_elx
+          run_quality serviceradar_srql elixir/serviceradar_srql
+          run_quality web-ng elixir/web-ng --phoenix

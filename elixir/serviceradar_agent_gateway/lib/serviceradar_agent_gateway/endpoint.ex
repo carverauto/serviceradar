@@ -8,7 +8,7 @@ defmodule ServiceRadarAgentGateway.Endpoint do
 
   use GRPC.Endpoint
 
-  intercept(ServiceRadarAgentGateway.SafeGrpcLogger)
+  intercept(ServiceRadarAgentGateway.GRPCSafeLoggerInterceptor)
 
   run(ServiceRadarAgentGateway.AgentGatewayServer)
   run(ServiceRadarAgentGateway.CameraMediaServer)

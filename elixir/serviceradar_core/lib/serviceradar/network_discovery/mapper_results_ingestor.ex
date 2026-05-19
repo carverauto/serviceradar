@@ -696,8 +696,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          _stable_interface_ips,
          _mismatched_device_ips,
          _alias_ips
-       ),
-       do: []
+       ), do: []
 
   defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
     (stable_interface_ips ++ mismatched_device_ips)
@@ -2849,8 +2848,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp protocol_topology_evidence_class(_protocol, _source, _reason), do: nil
 
-  defp default_topology_evidence_class(protocol)
-       when protocol in ["lldp", "cdp", "unifi-api"], do: "direct-physical"
+  defp default_topology_evidence_class(protocol) when protocol in ["lldp", "cdp", "unifi-api"],
+    do: "direct-physical"
 
   defp default_topology_evidence_class("wireguard-derived"), do: "direct-logical"
 
@@ -2879,7 +2878,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp protocol_topology_relation_family("unifi-api", source, _reason, _evidence_class) do
-    if String.contains?(source, "port-table"), do: "ATTACHED_TO", else: nil
+    if String.contains?(source, "port-table"), do: "ATTACHED_TO"
   end
 
   defp protocol_topology_relation_family(_protocol, _source, _reason, "direct-physical"),
@@ -2921,16 +2920,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          "single_identifier_inference",
          "inferred-segment"
        )
-       when protocol == "snmp-l2" or source == "snmp-arp-fdb",
-       do: "OBSERVED_TO"
+       when protocol == "snmp-l2" or source == "snmp-arp-fdb", do: "OBSERVED_TO"
 
   defp default_topology_relation_family(
          _protocol,
          _source,
          "single_identifier_inference",
          "inferred-segment"
-       ),
-       do: nil
+       ), do: nil
 
   defp default_topology_relation_family(_protocol, _source, _reason, "inferred-segment"),
     do: "INFERRED_TO"

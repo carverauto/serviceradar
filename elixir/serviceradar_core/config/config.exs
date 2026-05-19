@@ -85,6 +85,12 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     api_default: [limit: 120, window_seconds: 60]
   }
 
+config :serviceradar_core, :object_store_retention,
+  enabled?: false,
+  dry_run?: true,
+  agent_release_keep_latest: 5,
+  datasvc_timeout_ms: 30_000
+
 # Plugin blob storage download configuration (used to generate signed download URLs)
 config :serviceradar_core, :plugin_storage,
   public_url: nil,
@@ -124,6 +130,7 @@ config :serviceradar_core,
     ServiceRadar.Plugins,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
+    ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Security
   ]
@@ -137,7 +144,8 @@ config :serviceradar_core,
   mtr_consensus_cohort_retention_ms: 300_000
 
 config :serviceradar_core,
-  remote_access_desktop_rdp_enabled: false
+  remote_access_desktop_rdp_enabled: false,
+  northbound_callback_base_url: nil
 
 config :serviceradar_core,
   remote_access_ssh_certificate_policy: %{}

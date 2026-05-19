@@ -76,12 +76,17 @@ pushd "${project}" >/dev/null
 
 run mix deps.get
 run mix deps.compile
-run env MIX_BUILD_PATH="${MIX_BUILD_PATH:-_build/format_check}" mix format --check-formatted
+
+if grep -q "{:serviceradar_srql" mix.exs; then
+  run mix deps.compile serviceradar_srql --force
+fi
+
+run mix format --check-formatted
 
 if [[ "${skip_warnings_as_errors}" == "true" ]]; then
-  run mix compile
+  run mix compile --no-deps-check
 else
-  run mix compile --warnings-as-errors
+  run mix compile --no-deps-check --warnings-as-errors
 fi
 run mix xref graph --format stats --label compile-connected
 if [[ "${skip_credo}" != "true" ]]; then
@@ -93,7 +98,13 @@ deps_audit_args=()
 if [[ -f ".deps_audit_ignore" ]]; then
   deps_audit_args+=(--ignore-file .deps_audit_ignore)
 fi
-run mix deps.audit "${deps_audit_args[@]}"
+
+if mix help deps.audit >/dev/null 2>&1; then
+  run mix deps.audit "${deps_audit_args[@]}"
+else
+  echo
+  echo "==> mix deps.audit unavailable; skipping dependency vulnerability audit"
+fi
 
 if [[ "${skip_dialyzer}" != "true" ]]; then
   dialyzer_args=()

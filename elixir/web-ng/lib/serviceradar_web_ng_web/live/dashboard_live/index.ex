@@ -1483,7 +1483,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   end
 
   defp map_empty?("netflow", _topology_links, traffic_links) do
-    not Enum.any?(traffic_links, &Map.get(&1, :geo_mapped, false))
+    traffic_links == []
   end
 
   defp map_empty?(_map_view, topology_links, traffic_links), do: topology_links == [] and traffic_links == []
@@ -1501,8 +1501,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   defp map_empty_detail("netflow", :configured_empty),
     do: "Collector configuration exists, but no recent flow summaries were found."
 
-  defp map_empty_detail("netflow", _state),
-    do: "Recent flow conversations need GeoIP enrichment or private-network anchors before they can be mapped."
+  defp map_empty_detail("netflow", _state), do: "No recent NetFlow conversations were found in the map window."
 
   defp map_empty_detail(_map_view, :configured_empty),
     do: "Collector configuration exists, but no recent flow summaries were found."

@@ -1,0 +1,65 @@
+
+XSS.ContentType: XSS in `put_resp_content_type`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:36,1B98639
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7059,260960
+Traversal.SendFile: Directory Traversal in `send_file`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:45,1F18D29
+XSS.ContentType: XSS in `put_resp_content_type`,lib/serviceradar_web_ng_web/controllers/api/spatial_controller.ex:71,2739E3C
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:129,73DEB0A
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:108,63E2060
+Traversal.FileModule: Directory Traversal in `File.rm`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:53,6CE256A
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:349,4118B40
+Traversal.FileModule: Directory Traversal in `File.rm_rf`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:103,55538D2
+Traversal.FileModule: Directory Traversal in `File.rm`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:359,4813369
+Traversal.FileModule: Directory Traversal in `File.mkdir_p!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:90,70E0615
+Traversal.FileModule: Directory Traversal in `File.write!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:52,2F44BA1
+Traversal.FileModule: Directory Traversal in `File.open`,lib/serviceradar_web_ng_web/plugs/upload_guard.ex:168,6BF5E3C
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7383,1EB4111
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:216,65705FD
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng/plugins/first_party_importer.ex:888,6E72540
+CI.System: Command Injection via `System` function,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:61,42AA114
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:528,28B96A3
+Traversal.FileModule: Directory Traversal in `File.read!`,lib/serviceradar_web_ng_web/live/admin/dashboard_package_live/index.ex:980,61EB013
+DOS.StringToAtom: Unsafe `String.to_atom`,lib/serviceradar_web_ng_web/controllers/cli_auth_controller.ex:408,1CCC991
+Traversal.FileModule: Directory Traversal in `File.read`,lib/serviceradar_web_ng_web/controllers/dashboard_package_publish_controller.ex:268,38F2839
+SQL.Query: SQL injection,lib/serviceradar_web_ng/topology/god_view_stream.ex:4543,313CAF2
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:60,7965C17
+Traversal.FileModule: Directory Traversal in `File.rm_rf`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:119,507AFC6
+XSS.SendResp: XSS in `send_resp`,lib/serviceradar_web_ng_web/controllers/api/spatial_controller.ex:76,5667F4
+XSS.SendResp: XSS in `send_resp`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:38,3711A5E
+Traversal.FileModule: Directory Traversal in `File.mkdir_p!`,lib/serviceradar_web_ng/plugins/cosign_verifier.ex:107,4580ACF
+XSS.ContentType: XSS in `put_resp_content_type`,lib/serviceradar_web_ng_web/controllers/dashboard_package_asset_controller.ex:43,3FDCB8
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1804,206D3CA
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1167,2105349
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1265,236E761
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:994,24A1018
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2206,36F6164
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2106,3AE7F17
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2687,3E2FF6E
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:700,47A1162
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1930,4ED0091
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2274,534EB45
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1242,646852D
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1215,66D36C8
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1767,6ABF804
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2160,73F2AC7
+SQL.Query: SQL injection,lib/serviceradar_web_ng/topology/runtime_graph.ex:281,A3C160
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2240,A4C49E
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1394,CD24A0
+
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1243,18A2DD
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1168,2B8F800
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:995,3004967
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2242,373EF17
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2276,39E4037
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2208,3B81245
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:529,3C8EF52
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1395,40F321
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1768,413892A
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1266,4857155
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:217,4CF9201
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1216,4EDB045
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:701,513BFE7
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2108,53D0698
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1931,5CCDBC9
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1805,6EBA71B
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2689,781E7D7
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2162,7AE0139

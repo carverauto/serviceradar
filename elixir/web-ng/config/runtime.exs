@@ -485,6 +485,18 @@ remote_access_desktop_rdp_enabled =
     value -> value
   end
 
+remote_access_app_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+remote_access_tcp_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TCP_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
 remote_access_ssh_host_key_skip_verify_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
     nil -> false
@@ -549,6 +561,9 @@ config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
+config :serviceradar_core,
+  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
+
 config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 
 config :serviceradar_web_ng,
@@ -569,16 +584,16 @@ config :serviceradar_web_ng,
   god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh
 
 config :serviceradar_web_ng,
+  remote_access_app_enabled: remote_access_app_enabled
+
+config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
 
 config :serviceradar_web_ng,
-  remote_access_ssh_enabled: remote_access_ssh_enabled
+  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
 
 config :serviceradar_web_ng,
-  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
-
-config :serviceradar_core,
-  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
+  remote_access_ssh_enabled: remote_access_ssh_enabled
 
 config :serviceradar_web_ng,
   remote_access_ssh_host_key_skip_verify_enabled: remote_access_ssh_host_key_skip_verify_enabled
@@ -588,6 +603,9 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_target_port_override_enabled: remote_access_target_port_override_enabled
+
+config :serviceradar_web_ng,
+  remote_access_tcp_enabled: remote_access_tcp_enabled
 
 if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,
@@ -612,6 +630,39 @@ if plugin_storage_overrides != [] do
   config :serviceradar_web_ng,
          :plugin_storage,
          Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+end
+
+object_store_retention_defaults =
+  Application.get_env(:serviceradar_web_ng, :object_store_retention, [])
+
+object_store_retention_enabled =
+  to_bool.(System.get_env("OBJECT_STORE_RETENTION_ENABLED")) || false
+
+object_store_retention_cron =
+  System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
+
+object_store_retention_overrides =
+  []
+  |> maybe_put_env.(
+    :enabled?,
+    System.get_env("OBJECT_STORE_RETENTION_ENABLED"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :dry_run?,
+    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :plugin_orphan_grace_seconds,
+    System.get_env("OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS"),
+    to_int
+  )
+
+if object_store_retention_overrides != [] do
+  config :serviceradar_web_ng,
+         :object_store_retention,
+         Keyword.merge(object_store_retention_defaults, object_store_retention_overrides)
 end
 
 plugin_verification_overrides =
@@ -930,6 +981,11 @@ if config_env() != :test do
   oban_maintenance_queue_limit =
     parse_queue_limit.(["WEB_NG_OBAN_QUEUE_MAINTENANCE", "OBAN_MAINTENANCE_QUEUE_LIMIT"], 0)
 
+  # web-ng-owned maintenance jobs must not share the core-elx :maintenance queue,
+  # because core-elx can't load ServiceRadarWebNG worker modules.
+  oban_web_maintenance_queue_limit =
+    parse_queue_limit.("WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE", 2)
+
   oban_node = System.get_env("OBAN_NODE")
 
   oban_notifier =
@@ -938,8 +994,29 @@ if config_env() != :test do
       _ -> Oban.Notifiers.Postgres
     end
 
-  # web-ng does not run scheduled jobs or acquire the Oban peer lock; core-elx remains
-  # the scheduler leader. It can still process runtime jobs within explicit budgets.
+  oban_plugins =
+    then(
+      [
+        {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
+      ],
+      fn plugins ->
+        if object_store_retention_enabled do
+          plugins ++
+            [
+              {Oban.Plugins.Cron,
+               crontab: [
+                 {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
+                  args: %{"enabled" => true}, queue: :web_maintenance}
+               ]}
+            ]
+        else
+          plugins
+        end
+      end
+    )
+
+  # web-ng does not run the global core-elx job schedules. It only schedules
+  # web-owned cleanup work when explicitly enabled.
   queues =
     []
     |> maybe_queue.(
@@ -958,16 +1035,14 @@ if config_env() != :test do
     |> maybe_queue.(:edge, parse_queue_limit.("WEB_NG_OBAN_QUEUE_EDGE", 10))
     |> maybe_queue.(:integrations, parse_queue_limit.("WEB_NG_OBAN_QUEUE_INTEGRATIONS", 5))
     |> maybe_queue.(:maintenance, oban_maintenance_queue_limit)
+    |> maybe_queue.(:web_maintenance, oban_web_maintenance_queue_limit)
 
   oban_config = [
     repo: ServiceRadar.Repo,
     prefix: "platform",
     queues: queues,
     notifier: oban_notifier,
-    plugins: [
-      {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
-      # No Cron plugin - core-elx handles all scheduled jobs
-    ],
+    plugins: oban_plugins,
     # Avoid acquiring the Oban peer lock so core-elx remains the scheduler leader.
     peer: false
   ]
@@ -1313,6 +1388,12 @@ if config_env() == :prod do
     end
 
   config :serviceradar_core, ServiceRadar.Repo, repo_config
+
+  config :serviceradar_core,
+    northbound_callback_base_url:
+      System.get_env("SERVICERADAR_NORTHBOUND_CALLBACK_BASE_URL") ||
+        System.get_env("BASE_URL") ||
+        "https://#{host}"
 
   # Guardian JWT signing secret (same as token_signing_secret for consistency)
   config :serviceradar_web_ng, ServiceRadarWebNG.Auth.Guardian, secret_key: token_signing_secret

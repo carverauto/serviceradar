@@ -279,7 +279,7 @@ Plugins compile to `wasm32-wasi` and export a zero-argument entrypoint function 
 SDKs:
 
 - Go SDK: `carverauto/serviceradar-sdk-go`
-- Rust SDK: planned (not yet generally available)
+- Rust SDK: `carverauto/serviceradar-sdk-rust`
 
 ### Go (TinyGo) With The ServiceRadar SDK
 
@@ -394,6 +394,64 @@ More examples live in the SDK repo under `examples/`:
 - `examples/udp-check`
 - `examples/widgets-check`
 
+### Northbound Action Callbacks
+
+Northbound action plugins can return deferred results when the final outcome is
+owned by an external orchestrator. Each launch target includes a `callback`
+object with a ServiceRadar job ID, callback URL or path, and a per-target token.
+Plugins should pass that callback information to the external system and should
+not write callback tokens or signing secrets to action results or logs.
+
+Token-only callbacks remain the compatibility baseline. The external system
+posts JSON back to:
+
+```text
+POST /api/northbound/action-callbacks/<job_id>
+```
+
+The token can be supplied in `x-serviceradar-callback-token`, as a bearer token,
+or as `callback_token` in the JSON body. ServiceRadar stores only a SHA-256 hash
+of this token.
+
+When an action provider or descriptor opts into signed callbacks, the same
+`callback` object also includes:
+
+```json
+{
+  "auth_mode": "hmac_required",
+  "signature_algorithm": "hmac-sha256",
+  "signature_header": "x-serviceradar-callback-signature",
+  "timestamp_header": "x-serviceradar-callback-timestamp",
+  "signature_format": "sha256=<hex>",
+  "signed_payload": "<timestamp>.<raw_body>",
+  "timestamp_tolerance_seconds": 300,
+  "signing_secret": "per-target-secret"
+}
+```
+
+Supported `auth_mode` values:
+
+- `token`: validate only the callback token.
+- `hmac_optional`: accept token-only callbacks, but verify HMAC when signature
+  headers are present.
+- `hmac_required`: require a valid token and a valid HMAC signature.
+
+To sign a callback, compute HMAC-SHA256 over the exact UTF-8 request body bytes:
+
+```text
+<timestamp>.<raw_body>
+```
+
+Send the Unix timestamp or RFC3339 timestamp in
+`x-serviceradar-callback-timestamp`, and send the lower-case hex digest as
+`x-serviceradar-callback-signature: sha256=<hex>`. ServiceRadar rejects signed
+callbacks outside the configured timestamp tolerance, defaulting to five
+minutes, to limit replay.
+
+Not every integration can sign webhooks. Use `hmac_required` for platforms where
+you control or can configure request signing. Use `token` or `hmac_optional` for
+systems that only support static headers or bearer tokens.
+
 ### Minimal Host ABI Example (No SDK)
 
 If you want to avoid the SDK, you can use direct host imports.
@@ -459,6 +517,10 @@ Response:
 3. During review, confirm capabilities, permissions, and resource requests.
 4. Approved packages can be assigned to agents.
 5. Agents download packages only from the ServiceRadar control plane (never directly from GitHub).
+
+Assigned health-result plugins, including first-party plugins such as UniFi and AlienVault OTX, are represented in `/services` with a stable `plugin` service identity. When an assignment is created, the control plane seeds a pending service row keyed by agent, gateway, partition, plugin service name, plugin ID, assignment ID, and package ID. The next agent-reported plugin result updates that row with the plugin status and summary.
+
+Plugin result payloads should use canonical statuses `OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`. The agent also accepts common failure aliases such as `failed`, `fail`, and `error` and maps them to `CRITICAL`, so a failed plugin execution is visible as unhealthy instead of being dropped as an invalid payload.
 
 ### GitHub imports and verification
 
