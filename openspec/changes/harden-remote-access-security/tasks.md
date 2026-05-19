@@ -905,10 +905,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: Manifest can show stale redaction decisions if the global CredentialRedactor secrets list changes.
       Fix: Document explicitly; optionally version-stamp the redactor snapshot in the recording.
 
-- [ ] 3.O.14 [M] `storage_backend` / `storage_bucket` / `object_key` columns are vestigial — leak misleading infra hints to clients
+- [x] 3.O.14 [M] `storage_backend` / `storage_bucket` / `object_key` columns are vestigial — leak misleading infra hints to clients
       Where: `remote_access_recording.ex:17-19`; serialized by `remote_access_recording_controller.ex:94-96` (commit: staging)
       Why: No code path writes recording bytes to datasvc today; these fields are populated with placeholder values and shipped to the browser (3.H.2). They mislead future maintainers, exaggerate the attack surface in pen tests, and tempt an attacker to attack the implied object store.
       Fix: Either drop the columns + JSON fields entirely OR feature-flag them behind `recording.storage_backend == :datasvc` (default: `:postgres`). Pair with 3.H.2.
+      Resolution: The current client-facing surface treats the Postgres recording backend as authoritative: API responses omit storage backend/bucket/object-key fields from both the recording object and export manifest, and the recordings LiveView renders only lifecycle, content, and desktop policy metadata. Controller regressions assert neither the storage fields nor the default placeholder strings are returned.
 
 **Flow diagram (actual call graph from the walk):**
 
