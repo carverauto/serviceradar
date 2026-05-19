@@ -68,6 +68,30 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
       assert result.package.component_id == "agent-dusk"
     end
+
+    test "uses partition_id as the canonical partition field", _context do
+      attrs = %{
+        label: "agent-partition",
+        component_type: :agent,
+        partition_id: "edge-partition-a"
+      }
+
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
+      assert result.package.partition_id == "edge-partition-a"
+      assert result.package.site == "edge-partition-a"
+    end
+
+    test "keeps site as a compatibility alias", _context do
+      attrs = %{
+        label: "agent-site-alias",
+        component_type: :agent,
+        site: "legacy-site-a"
+      }
+
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
+      assert result.package.partition_id == "legacy-site-a"
+      assert result.package.site == "legacy-site-a"
+    end
   end
 
   describe "get/1" do
@@ -350,7 +374,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         component_type: :agent,
         component_id: "agent-partition-mismatch",
         gateway_id: "gateway-1",
-        site: "partition-b"
+        partition_id: "partition-b"
       }
 
       actor = Map.put(@actor, :partition_id, "partition-a")
@@ -367,7 +391,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         component_type: :agent,
         component_id: "agent-actor-quota-#{unique}",
         gateway_id: "gateway-actor-quota-#{unique}",
-        site: "partition-actor-quota-#{unique}"
+        partition_id: "partition-actor-quota-#{unique}"
       }
 
       actor = %{id: "operator-actor-quota-#{unique}", role: :operator}
@@ -379,7 +403,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                  issuance_quota: quota
                )
 
-      assert {:error, {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_actor, retry_after}} =
+      assert {:error,
+              {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_actor,
+               retry_after}} =
                OnboardingPackages.create_with_gateway_cert(attrs,
                  actor: actor,
                  issuance_quota: quota
@@ -397,7 +423,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
         component_type: :agent,
         component_id: "agent-partition-quota-#{unique}",
         gateway_id: "gateway-partition-quota-#{unique}",
-        site: partition_id
+        partition_id: partition_id
       }
 
       quota = [
@@ -411,7 +437,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                  issuance_quota: quota
                )
 
-      assert {:error, {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_partition, retry_after}} =
+      assert {:error,
+              {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_partition,
+               retry_after}} =
                OnboardingPackages.create_with_gateway_cert(attrs,
                  actor: %{id: "operator-partition-quota-b-#{unique}", role: :operator},
                  issuance_quota: quota

@@ -14,18 +14,26 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
 
   defmodule BrokenEdgeBundleGenerator do
     @moduledoc false
-    def create_tarball(_package, _bundle_pem, _join_token, _opts), do: {:error, %{secret: "edge-bundle-secret"}}
+    def create_tarball(_package, _bundle_pem, _join_token, _opts),
+      do: {:error, %{secret: "edge-bundle-secret"}}
   end
 
   setup %{conn: conn} do
-    previous_private_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+    previous_private_key =
+      Application.get_env(:serviceradar_web_ng, :onboarding_token_private_key)
+
     previous_public_key = Application.get_env(:serviceradar_web_ng, :onboarding_token_public_key)
 
     Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, @private_key)
     Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, @public_key)
 
     on_exit(fn ->
-      Application.put_env(:serviceradar_web_ng, :onboarding_token_private_key, previous_private_key)
+      Application.put_env(
+        :serviceradar_web_ng,
+        :onboarding_token_private_key,
+        previous_private_key
+      )
+
       Application.put_env(:serviceradar_web_ng, :onboarding_token_public_key, previous_public_key)
     end)
 
@@ -139,10 +147,25 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert result["package"]["package_id"]
       assert result["package"]["label"] == "new-gateway"
       assert result["package"]["component_type"] == "gateway"
+      assert result["package"]["partition_id"] == "datacenter-1"
       assert result["package"]["site"] == "datacenter-1"
       assert result["package"]["status"] == "issued"
       assert result["join_token"]
       assert result["download_token"]
+    end
+
+    test "creates a package with canonical partition_id", %{conn: conn} do
+      params = %{
+        "label" => "new-partition-agent",
+        "component_type" => "agent",
+        "partition_id" => "edge-partition-1"
+      }
+
+      conn = post(conn, ~p"/api/admin/edge-packages", params)
+      result = json_response(conn, 201)
+
+      assert result["package"]["partition_id"] == "edge-partition-1"
+      assert result["package"]["site"] == "edge-partition-1"
     end
 
     test "creates a checker package", %{conn: conn} do
@@ -289,11 +312,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
 
     test "returns 401 for mismatched token partition", %{conn: _conn, actor: actor} do
       {:ok, created} =
-        OnboardingPackages.create(%{label: "test-partition-token", site: "edge-a"}, actor: actor)
+        OnboardingPackages.create(%{label: "test-partition-token", partition_id: "edge-a"},
+          actor: actor
+        )
 
       conn =
         post(build_conn(), ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
-          "onboarding_token" => signed_download_token(created.package.id, created.download_token, "edge-b")
+          "onboarding_token" =>
+            signed_download_token(created.package.id, created.download_token, "edge-b")
         })
 
       assert json_response(conn, 401)["error"] == "onboarding token invalid"
@@ -535,7 +561,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       # Step 2: Download bundle (unauthenticated, using token)
       bundle_conn =
         build_conn()
-        |> put_req_header("x-serviceradar-download-token", signed_download_token(package_id, download_token, "test-site"))
+        |> put_req_header(
+          "x-serviceradar-download-token",
+          signed_download_token(package_id, download_token, "test-site")
+        )
         |> post(~p"/api/edge-packages/#{package_id}/bundle", %{})
 
       assert response(bundle_conn, 200) != ""
@@ -544,7 +573,10 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       verify_conn =
         conn
         |> recycle()
-        |> put_req_header("authorization", conn |> get_req_header("authorization") |> List.first())
+        |> put_req_header(
+          "authorization",
+          conn |> get_req_header("authorization") |> List.first()
+        )
 
       verify_conn = get(verify_conn, ~p"/api/admin/edge-packages/#{package_id}")
       show_result = json_response(verify_conn, 200)
@@ -555,7 +587,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
   end
 
   defp signed_download_token(created) do
-    signed_download_token(created.package.id, created.download_token, created.package.site)
+    signed_download_token(
+      created.package.id,
+      created.download_token,
+      created.package.partition_id
+    )
   end
 
   defp signed_download_token(package_id, download_token, partition_id) do

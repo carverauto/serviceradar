@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   require Ash.Query
   require Logger
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   @doc """
   GET /api/admin/edge-packages/defaults
@@ -73,6 +73,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   def create(conn, params) do
     actor = get_user_actor(conn)
     source_ip = ClientIP.get(conn)
+    partition_id = request_partition_id(params)
 
     attrs = %{
       label: params["label"],
@@ -81,7 +82,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
       parent_type: params["parent_type"],
       parent_id: params["parent_id"],
       gateway_id: params["gateway_id"],
-      site: params["site"],
+      partition_id: partition_id,
+      site: partition_id,
       security_mode: params["security_mode"] || "spire",
       selectors: params["selectors"] || [],
       checker_kind: params["checker_kind"],
@@ -268,7 +270,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     conn |> put_status(:unauthorized) |> json(%{error: "onboarding token invalid"})
   end
 
-  defp handle_download_error(conn, reason) when reason in [:already_delivered, :revoked, :deleted] do
+  defp handle_download_error(conn, reason)
+       when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
   end
 
@@ -432,11 +435,13 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     }
   end
 
-  defp verify_onboarding_token_package(%{pkg: token_package_id}, package_id) when token_package_id == package_id, do: :ok
+  defp verify_onboarding_token_package(%{pkg: token_package_id}, package_id)
+       when token_package_id == package_id, do: :ok
 
   defp verify_onboarding_token_package(_payload, _package_id), do: {:error, :package_mismatch}
 
-  defp verify_onboarding_token_partition(%{partition_id: partition_id}, package) when is_binary(partition_id) do
+  defp verify_onboarding_token_partition(%{partition_id: partition_id}, package)
+       when is_binary(partition_id) do
     if normalize_partition_id(partition_id) == package_partition_id(package) do
       :ok
     else
@@ -446,7 +451,15 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
 
   defp verify_onboarding_token_partition(_payload, _package), do: {:error, :missing_partition_id}
 
+  defp package_partition_id(%{partition_id: partition_id}) when is_binary(partition_id) do
+    normalize_partition_id(partition_id)
+  end
+
   defp package_partition_id(%{site: site}), do: normalize_partition_id(site)
+
+  defp request_partition_id(params) do
+    normalize_partition_id(params["partition_id"] || params["site"])
+  end
 
   defp normalize_partition_id(value) when is_binary(value) do
     value = String.trim(value)
@@ -489,12 +502,17 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
 
   Revokes an agent mTLS certificate by component id on the selected gateway.
   """
-  def revoke_agent_certificate(conn, %{"gateway_id" => gateway_id, "component_id" => component_id} = params) do
+  def revoke_agent_certificate(
+        conn,
+        %{"gateway_id" => gateway_id, "component_id" => component_id} = params
+      ) do
     reason = params["reason"]
 
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "settings.edge.manage") do
-      case GatewayCertificateIssuer.revoke_agent_certificate(gateway_id, component_id, reason: reason) do
+      case GatewayCertificateIssuer.revoke_agent_certificate(gateway_id, component_id,
+             reason: reason
+           ) do
         {:ok, result} ->
           json(conn, result)
 
@@ -656,7 +674,8 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
       parent_type: to_str(package.parent_type),
       parent_id: to_str(package.parent_id),
       gateway_id: to_str(package.gateway_id),
-      site: to_str(package.site),
+      partition_id: package_partition_id(package),
+      site: to_str(package.site || package_partition_id(package)),
       status: package.status,
       security_mode: package.security_mode || "spire",
       downstream_spiffe_id: to_str(package.downstream_spiffe_id),

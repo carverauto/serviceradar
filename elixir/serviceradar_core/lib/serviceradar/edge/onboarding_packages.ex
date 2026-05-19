@@ -147,6 +147,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     # Prepare attributes for Ash create
     create_attrs =
       attrs
+      |> normalize_partition_attrs()
       |> normalize_component_identity()
       |> Map.put(:created_by, get_actor_name(actor))
 
@@ -495,7 +496,11 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   @spec create_with_platform_cert(map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
-    partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
+    attrs = normalize_partition_attrs(attrs)
+
+    partition_id =
+      normalize_partition_id(Keyword.get(opts, :partition_id) || attrs[:partition_id])
+
     cert_validity = Keyword.get(opts, :cert_validity_days, 1)
 
     attrs = normalize_component_identity(attrs)
@@ -547,6 +552,39 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     short_id = 8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
     "#{component_type}-#{short_id}"
   end
+
+  defp normalize_partition_attrs(attrs) when is_map(attrs) do
+    partition_id =
+      attrs
+      |> partition_attr_value()
+      |> normalize_partition_id()
+
+    attrs
+    |> Map.put(:partition_id, partition_id)
+    |> Map.put(:site, partition_id)
+  end
+
+  defp normalize_partition_attrs(attrs), do: attrs
+
+  defp partition_attr_value(attrs) do
+    Map.get(attrs, :partition_id) ||
+      Map.get(attrs, "partition_id") ||
+      Map.get(attrs, :site) ||
+      Map.get(attrs, "site")
+  end
+
+  defp normalize_partition_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: "default", else: value
+  end
+
+  defp normalize_partition_id(value) when is_atom(value) do
+    value
+    |> Atom.to_string()
+    |> normalize_partition_id()
+  end
+
+  defp normalize_partition_id(_value), do: "default"
 
   defp normalize_component_identity(attrs) when is_map(attrs) do
     component_type = Map.get(attrs, :component_type) || Map.get(attrs, "component_type")

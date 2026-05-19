@@ -762,10 +762,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Add a `partition_matches()` policy on the `OnboardingPackage` create action; add a defence-in-depth check inside `CertIssuer` so even a bug upstream can't bypass
       Resolution: Closed for partition-scoped actors without adding multitenancy fields. web-ng enforces actor partition equality on `create_with_gateway_cert/2`, forwards the authorized partition to the gateway RPC, and the agent-gateway issuer rejects mismatches independently. Unscoped system/admin actors remain allowed for deployment-wide administration.
 
-- [ ] 6.N.2 [H] `OnboardingPackage` lacks a typed `partition_id` field — uses `site: :string` as a proxy
+- [x] 6.N.2 [H] `OnboardingPackage` lacks a typed `partition_id` field — uses `site: :string` as a proxy
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/onboarding_package.ex:252` (`site: :string`); policies at `:183-209` (commit: staging)
       Why: The Ash `partition_matches()` macro can't be wired because the resource has no `partition_id` attribute — it has a free-text `site`. Type-rename is a prereq for 6.N.1's policy fix.
       Fix: Rename `site` → `partition_id`; FK to the partition (if a resource exists); migrate data
+      Resolution: Closed by adding a typed `partition_id` attribute and migration on `platform.edge_onboarding_packages`, backfilling existing `site` values and indexing the canonical field. Package creation, token partition checks, gateway certificate issuance, and bundle generation now prefer `partition_id`; `site` remains a write-through compatibility alias for older API clients and bundle metadata.
 
 - [x] 6.N.3 [H] `/api/admin/edge-packages/:id/download` runs Ash actions with `authorize?: false`
       Where: `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/api/edge_controller.ex:195-214, 227` (commit: staging)

@@ -91,7 +91,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec create(map(), keyword()) ::
-          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
+          {:ok,
+           %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
     opts = build_opts(opts)
@@ -167,7 +168,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
     gateway_id = Map.get(attrs, :gateway_id)
     component_id = Map.get(attrs, :component_id)
-    partition_id = Map.get(attrs, :site) || "default"
+    partition_id = attrs |> partition_attr_value() |> normalize_partition_id() || "default"
+    attrs = attrs |> Map.put(:partition_id, partition_id) |> Map.put(:site, partition_id)
 
     with true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
          true <- (is_binary(component_id) and component_id != "") or {:error, :invalid_identity},
@@ -205,7 +207,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec deliver(String.t(), String.t(), keyword()) ::
-          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
+          {:ok,
+           %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     opts = build_opts(opts)
@@ -351,8 +354,12 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     |> admin_or_system_actor?()
   end
 
-  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"], do: true
-  defp admin_or_system_actor?(%{"role" => role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"],
+    do: true
+
+  defp admin_or_system_actor?(%{"role" => role})
+       when role in [:admin, :system, "admin", "system"], do: true
+
   defp admin_or_system_actor?(_actor), do: false
 
   defp audit_quota_override(component_id, partition_id, opts) do
@@ -387,8 +394,18 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   end
 
   defp normalize_partition_id(nil), do: nil
-  defp normalize_partition_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_partition_id()
+
+  defp normalize_partition_id(value) when is_atom(value),
+    do: value |> Atom.to_string() |> normalize_partition_id()
+
   defp normalize_partition_id(_value), do: nil
+
+  defp partition_attr_value(attrs) do
+    Map.get(attrs, :partition_id) ||
+      Map.get(attrs, "partition_id") ||
+      Map.get(attrs, :site) ||
+      Map.get(attrs, "site")
+  end
 
   defp normalize_filters(filters) do
     filters
