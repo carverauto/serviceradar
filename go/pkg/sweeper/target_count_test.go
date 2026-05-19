@@ -17,6 +17,7 @@
 package sweeper
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -181,6 +182,24 @@ func TestEstimateTargetCountInvalidCIDR(t *testing.T) {
 	expected := 254 + 1
 	if result != expected {
 		t.Errorf("estimateTargetCount() with invalid CIDRs = %d, expected %d", result, expected)
+	}
+}
+
+func TestGenerateTargetsRejectsOversizedSweep(t *testing.T) {
+	config := &models.Config{
+		Networks:   []string{"10.0.0.0/8"},
+		SweepModes: []models.SweepMode{models.ModeTCP},
+		Ports:      []int{22, 80, 443},
+	}
+	sweeper := &NetworkSweeper{config: config}
+
+	_, err := sweeper.generateTargets()
+	if err == nil {
+		t.Fatal("expected oversized sweep to fail")
+	}
+
+	if !strings.Contains(err.Error(), "exceeds safety limit") {
+		t.Fatalf("expected safety limit error, got %v", err)
 	}
 }
 

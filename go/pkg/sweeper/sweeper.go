@@ -1430,6 +1430,15 @@ func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.Sweep
 
 // generateTargets creates scan targets from the configuration.
 func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
+	targetEstimate := estimateTargetCount(s.config)
+	if targetEstimate > defaultMaxResults {
+		return nil, fmt.Errorf(
+			"sweep target count %d exceeds safety limit %d; narrow the sweep CIDR or reduce ports/modes",
+			targetEstimate,
+			defaultMaxResults,
+		)
+	}
+
 	var targets []models.Target
 
 	totalHostCount := 0
