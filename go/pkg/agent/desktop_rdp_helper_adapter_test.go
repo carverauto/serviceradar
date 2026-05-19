@@ -391,6 +391,7 @@ func TestDesktopRDPHelperAdapterForwardsMediaFrames(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for forwarded media frame")
 	}
+	closeDesktopRDPHelperSessionAndWait(t, session)
 	if !allZeroBytes(encoded) {
 		t.Fatalf("forwarded helper media payload was not cleared: %q", string(encoded))
 	}
@@ -439,7 +440,10 @@ func TestDesktopRDPHelperAdapterMediaSenderCopiesBeforePayloadClear(t *testing.T
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for copied media frame")
 	}
-	waitForZeroBytes(t, encoded)
+	closeDesktopRDPHelperSessionAndWait(t, session)
+	if !allZeroBytes(encoded) {
+		t.Fatalf("copied helper media payload was not cleared: %q", string(encoded))
+	}
 }
 
 func TestDesktopRDPHelperAdapterRejectsTrailingHelperMediaPayload(t *testing.T) {
@@ -976,18 +980,23 @@ func allZeroBytes(data []byte) bool {
 	return true
 }
 
-func waitForZeroBytes(tb testing.TB, data []byte) {
+func closeDesktopRDPHelperSessionAndWait(tb testing.TB, session remoteaccess.DesktopAdapterSession) {
 	tb.Helper()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if allZeroBytes(data) {
-			return
-		}
-		time.Sleep(time.Millisecond)
+	rdpSession, ok := session.(*desktopRDPHelperSession)
+	if !ok {
+		tb.Fatalf("session type = %T, want *desktopRDPHelperSession", session)
 	}
 
-	tb.Fatalf("bytes were not cleared: %q", string(data))
+	if err := session.Close(context.Background(), "test done"); err != nil {
+		tb.Fatalf("Close returned error: %v", err)
+	}
+
+	select {
+	case <-rdpSession.done:
+	case <-time.After(5 * time.Second):
+		tb.Fatal("timed out waiting for helper session to stop")
+	}
 }
 
 type fakeDesktopRDPHelperMediaSender struct {

@@ -111,14 +111,6 @@ func (p *PushLoop) handleAppTCPFrame(ctx context.Context, frame *proto.ConsoleFr
 	}
 }
 
-func errorFrameTypeForAppTCP(frameType string) string {
-	if isTCPAccessFrameType(frameType) {
-		return remoteaccess.FrameTypeTCPError
-	}
-
-	return remoteaccess.FrameTypeApplicationError
-}
-
 func (p *PushLoop) handleApplicationAccessFrame(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	switch frame.GetFrameType() {
 	case remoteaccess.FrameTypeApplicationOpen:

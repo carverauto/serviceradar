@@ -157,7 +157,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleKeyMsg(msg tea.KeyMsg, cmd tea.Cmd) (tea.Model, tea.Cmd) {
-	//nolint:exhaustive // Default case handles all unlisted keys
+	//nolint:exhaustive
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyEsc:
 		return m.quit()
