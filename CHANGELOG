@@ -1,3 +1,12 @@
+# ServiceRadar v1.2.71
+
+Restricted filesystem compatibility for datasvc and db-event-writer startup.
+
+## Whats New
+
+**1.2.71**
+- Added writable `/tmp` volumes to datasvc and db-event-writer pods so their startup config rendering works with `readOnlyRootFilesystem: true`.
+
 # ServiceRadar v1.2.70
 
 Production upgrade recovery for Helm migration hooks and Elixir release workloads.
