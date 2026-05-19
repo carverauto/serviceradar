@@ -8,11 +8,13 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
   @doc """
   Validates a URL string and returns a normalized URI if allowed.
   """
-  def validate(url) when is_binary(url) do
-    SharedOutboundURLPolicy.validate_https_public_url(url)
+  def validate(url, opts \\ [])
+
+  def validate(url, opts) when is_binary(url) do
+    SharedOutboundURLPolicy.validate_https_public_url(url, opts)
   end
 
-  def validate(_), do: {:error, :invalid_url}
+  def validate(_, _opts), do: {:error, :invalid_url}
 
   @doc """
   Conservative request options for outbound metadata/JWKS calls.

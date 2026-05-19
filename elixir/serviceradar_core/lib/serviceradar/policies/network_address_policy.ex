@@ -1,17 +1,27 @@
 defmodule ServiceRadar.Policies.NetworkAddressPolicy do
   @moduledoc """
-  Shared helpers for rejecting loopback, link-local, and private network addresses
-  in outbound fetch policies.
+  Shared helpers for rejecting non-public network addresses in outbound fetch
+  policies.
   """
 
   import Bitwise
 
   @private_ipv4_cidrs [
+    {{0, 0, 0, 0}, 8},
     {{10, 0, 0, 0}, 8},
+    {{100, 64, 0, 0}, 10},
     {{172, 16, 0, 0}, 12},
     {{192, 168, 0, 0}, 16},
     {{127, 0, 0, 0}, 8},
-    {{169, 254, 0, 0}, 16}
+    {{169, 254, 0, 0}, 16},
+    {{192, 0, 0, 0}, 24},
+    {{192, 0, 2, 0}, 24},
+    {{192, 88, 99, 0}, 24},
+    {{198, 18, 0, 0}, 15},
+    {{198, 51, 100, 0}, 24},
+    {{203, 0, 113, 0}, 24},
+    {{224, 0, 0, 0}, 4},
+    {{240, 0, 0, 0}, 4}
   ]
 
   @spec validate_public_host(String.t()) :: :ok | {:error, atom()}
@@ -111,9 +121,22 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicy do
 
   defp private_or_loopback_ipv6?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
   defp private_or_loopback_ipv6?({0, 0, 0, 0, 0, 0, 0, 0}), do: true
+
+  defp private_or_loopback_ipv6?({0, 0, 0, 0, 0, 0xFFFF, high, low}) do
+    high_a = high >>> 8
+    high_b = high &&& 0xFF
+    low_a = low >>> 8
+    low_b = low &&& 0xFF
+
+    private_or_loopback_ip?({high_a, high_b, low_a, low_b})
+  end
+
   defp private_or_loopback_ipv6?({0xFE80, _, _, _, _, _, _, _}), do: true
   defp private_or_loopback_ipv6?({0xFC00, _, _, _, _, _, _, _}), do: true
   defp private_or_loopback_ipv6?({0xFD00, _, _, _, _, _, _, _}), do: true
+
+  defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _}) when band(w1, 0xFF00) == 0xFF00,
+    do: true
 
   defp private_or_loopback_ipv6?({w1, _, _, _, _, _, _, _}) when band(w1, 0xFE00) == 0xFC00,
     do: true

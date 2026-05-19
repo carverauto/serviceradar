@@ -33,6 +33,13 @@ defmodule Palisade.OutboundFetchTest do
                  resolved_address: {10, 0, 0, 1}
                )
     end
+
+    test "non-allowlisted ports are rejected before request construction" do
+      assert {:error, :disallowed_port} =
+               OutboundFetch.build_request(:get, "https://1.1.1.1:8443/foo",
+                 resolved_address: {1, 1, 1, 1}
+               )
+    end
   end
 
   describe "build_request/3 — rewrites URL to resolved IP" do
@@ -74,7 +81,10 @@ defmodule Palisade.OutboundFetchTest do
       address = {5, 6, 7, 8}
 
       {:ok, request} =
-        OutboundFetch.build_request(:get, "https://1.1.1.1:8443/x", resolved_address: address)
+        OutboundFetch.build_request(:get, "https://1.1.1.1:8443/x",
+          resolved_address: address,
+          allowed_ports: [443, 8443]
+        )
 
       host_header =
         request.headers
@@ -104,6 +114,18 @@ defmodule Palisade.OutboundFetchTest do
 
       {:ok, request} =
         OutboundFetch.build_request(:get, "https://1.1.1.1/x", resolved_address: address)
+
+      assert Map.get(request.options, :redirect) == false
+    end
+
+    test "redirects stay disabled even if caller opts try to enable them" do
+      address = {5, 6, 7, 8}
+
+      {:ok, request} =
+        OutboundFetch.build_request(:get, "https://1.1.1.1/x",
+          resolved_address: address,
+          redirect: true
+        )
 
       assert Map.get(request.options, :redirect) == false
     end

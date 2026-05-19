@@ -1,10 +1,10 @@
-defmodule ServiceRadarWebNGWeb.Auth.OutboundFetchTest do
+defmodule ServiceRadar.Policies.OutboundFetchTest do
   use ExUnit.Case, async: true
 
   alias Req.Request
-  alias ServiceRadarWebNGWeb.Auth.OutboundFetch
+  alias ServiceRadar.Policies.OutboundFetch
 
-  test "build_request binds the request to the validated address and preserves host identity" do
+  test "build_request binds to the resolved address and keeps original host identity" do
     assert {:ok, request} =
              OutboundFetch.build_request(
                :get,
@@ -15,7 +15,6 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundFetchTest do
     assert request.method == :get
     assert request.url.host == "93.184.216.34"
     assert Request.get_header(request, "host") == ["1.1.1.1"]
-
     assert Request.get_option(request, :connect_options)[:hostname] == "1.1.1.1"
     assert Request.get_option(request, :redirect) == false
   end

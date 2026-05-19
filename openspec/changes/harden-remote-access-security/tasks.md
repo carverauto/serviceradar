@@ -1114,25 +1114,29 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
 
 ## 6. Agent Gateway Desktop Media, Palisade Outbound Policy, Build / CI / Packaging
 
-- [ ] 6.1 [C] Palisade `NetworkAddressPolicy` doesn't block IPv6-mapped IPv4 (`::ffff:10.0.0.1`)
+- [x] 6.1 [C] Palisade `NetworkAddressPolicy` doesn't block IPv6-mapped IPv4 (`::ffff:10.0.0.1`)
       Where: `elixir/palisade/lib/palisade/network_address_policy.ex:114-123` (working tree)
       Why: Classic SSRF bypass — a URL like `https://[::ffff:169.254.169.254]/latest/meta-data/` reaches the cloud-metadata endpoint despite the IPv4 allowlist.
       Fix: Detect `{0,0,0,0,0,0xffff,a,b}` IPv6 form, extract the embedded IPv4, and re-run the IPv4 private/loopback check. Add `4in6` test cases.
+      Resolution: Palisade and the live ServiceRadar policy copy now extract IPv4-mapped IPv6 addresses and re-apply the IPv4 denylist; tests cover metadata, RFC1918, loopback, CGNAT, multicast, and public embedded IPv4 cases.
 
-- [ ] 6.2 [H] Palisade missing IPv4 multicast / CGNAT / reserved and IPv6 multicast ranges
+- [x] 6.2 [H] Palisade missing IPv4 multicast / CGNAT / reserved and IPv6 multicast ranges
       Where: `elixir/palisade/lib/palisade/network_address_policy.ex:29-35, 114-123` (working tree)
       Why: IPv4 `224.0.0.0/4`, `100.64.0.0/10`, `240.0.0.0/4` and IPv6 `ff00::/8` should all be denied for outbound fetches.
       Fix: Extend the CIDR list and add positive/negative tests for each range.
+      Resolution: Expanded the denylist to include unspecified, CGNAT, protocol-assignment, documentation, benchmarking, multicast, reserved, and IPv6 multicast ranges in Palisade and ServiceRadar core policy modules, with positive/negative range tests.
 
-- [ ] 6.3 [H?] Confirm `OutboundFetch` is bound to the pre-resolved IP and that redirects stay disabled
+- [x] 6.3 [H?] Confirm `OutboundFetch` is bound to the pre-resolved IP and that redirects stay disabled
       Where: `elixir/palisade/lib/palisade/outbound_fetch.ex:50-100` (working tree)
       Why: Reviewer believes this is already mitigated (request bound to resolved IP, redirects disabled). Lock the property in tests so a future change can't reopen the DNS-rebinding window.
       Fix: Add an integration test that mocks a low-TTL host returning public then private, and asserts the fetch hits the *first* address; assert redirect off by default.
+      Resolution: Existing request construction already pins the request URL to the pre-resolved address while preserving Host/SNI. Regression tests now assert that binding and redirect-disabled behavior, and the request builder forces `redirect: false` even if caller opts try to enable redirects.
 
-- [ ] 6.4 [M] `OutboundURLPolicy` has no port allowlist
+- [x] 6.4 [M] `OutboundURLPolicy` has no port allowlist
       Where: `elixir/palisade/lib/palisade/outbound_url_policy.ex:33-39` (working tree)
       Why: Allows pivoting through https-on-22/25/587 etc., bypassing scheme-only filtering.
       Fix: Default allowlist of `[443, 80]` for http/https; require explicit caller opt-in for non-standard ports.
+      Resolution: Kept the existing HTTPS-only scheme policy and added a default `[443]` port allowlist. Non-standard HTTPS ports require explicit `allowed_ports: [...]` opt-in, and that policy is applied before DNS resolution.
 
 - [x] 6.5 [C] `DesktopMediaServer.validate_desktop_media_frame!` doesn't bind frame to agent / partition
       Where: `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/desktop_media_server.ex:240-255` (working tree)

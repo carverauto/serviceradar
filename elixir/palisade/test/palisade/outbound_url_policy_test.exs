@@ -77,9 +77,19 @@ defmodule Palisade.OutboundURLPolicyTest do
                )
     end
 
-    # Note: `0.0.0.0` is NOT blocked by this policy. Some kernels
-    # route it to localhost; if needed, add 0.0.0.0/8 to the CIDR
-    # list in NetworkAddressPolicy.
+    test "special-use, CGNAT, multicast, and reserved ranges" do
+      for url <- [
+            "https://0.0.0.0/foo",
+            "https://100.64.0.1/foo",
+            "https://192.0.2.1/foo",
+            "https://198.18.0.1/foo",
+            "https://203.0.113.1/foo",
+            "https://224.0.0.1/foo",
+            "https://240.0.0.1/foo"
+          ] do
+        assert {:error, :disallowed_host} = OutboundURLPolicy.validate_https_public_url(url)
+      end
+    end
   end
 
   describe "validate_https_public_url/1 — loopback/link-local IPv6 literals" do
@@ -104,6 +114,38 @@ defmodule Palisade.OutboundURLPolicyTest do
 
       assert {:error, :disallowed_host} =
                OutboundURLPolicy.validate_https_public_url("https://[fd00::1]/foo")
+    end
+
+    test "ff00::/8 (multicast)" do
+      assert {:error, :disallowed_host} =
+               OutboundURLPolicy.validate_https_public_url("https://[ff00::1]/foo")
+    end
+
+    test "IPv4-mapped IPv6 literals are checked against the embedded IPv4 address" do
+      assert {:error, :disallowed_host} =
+               OutboundURLPolicy.validate_https_public_url("https://[::ffff:169.254.169.254]/")
+
+      assert {:ok, _} =
+               OutboundURLPolicy.validate_https_public_url("https://[::ffff:1.1.1.1]/")
+    end
+  end
+
+  describe "validate_https_public_url/2 - port allowlist" do
+    test "default allowlist accepts implicit and explicit 443" do
+      assert {:ok, _} = OutboundURLPolicy.validate_https_public_url("https://1.1.1.1/foo")
+      assert {:ok, _} = OutboundURLPolicy.validate_https_public_url("https://1.1.1.1:443/foo")
+    end
+
+    test "default allowlist rejects non-standard ports" do
+      assert {:error, :disallowed_port} =
+               OutboundURLPolicy.validate_https_public_url("https://1.1.1.1:8443/foo")
+    end
+
+    test "callers can explicitly allow non-standard HTTPS ports" do
+      assert {:ok, _} =
+               OutboundURLPolicy.validate_https_public_url("https://1.1.1.1:8443/foo",
+                 allowed_ports: [443, 8443]
+               )
     end
   end
 
