@@ -1167,10 +1167,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Strip `client_secret` from emitted JSON with `jq 'del(.client_secret)'`; unset shell var after use; rotate the dev provider secret per run.
       Resolution: The wrapper now generates a per-run client secret and passes it into fixture provisioning; the fixture JSON no longer emits `client_secret`, and the wrapper unsets the secret-bearing shell variable after token exchange / smoke-script use.
 
-- [ ] 6.12 [L] `release.yml` triggers on any `v*` tag push with no required approval gate
+- [x] 6.12 [L] `release.yml` triggers on any `v*` tag push with no required approval gate
       Where: `.forgejo/workflows/release.yml:17-21` (working tree / staging)
       Why: An accidental or unauthorised tag push releases unreviewed code; the existing `environment: release` is only a documentation aid without protection rules.
       Fix: Configure environment protection rules requiring reviewer approval; restrict tag push to a protected branch.
+      Resolution: Added an in-workflow release-source gate after checkout: release tags or manually selected release commits must resolve to a `v<version>` tag/commit reachable from `origin/staging`, otherwise the workflow fails before signing or publishing artifacts. The workflow still declares `environment: release`; required reviewer approval must be enforced in Forgejo environment protection settings because that policy is instance configuration, not repository YAML.
 
 **Positives (gateway / palisade / CI):**
 - Media server validates agent identity at *session open* via mTLS cert (`desktop_media_server.ex:23-24, 458-471`) — gap is only per-frame (see 6.5/6.7).
@@ -1575,7 +1576,7 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 | 6.9 | H | Fjo | C-P |
 | 6.10 | L | Fjo | C-P |
 | 6.11 | M | Fjo | C-P |
-| 6.12 | L | Fjo | C-P |
+| 6.12 | L | B | release source gate; environment reviewer gate is Forgejo config |
 | 6.G.1 | M | Fjo | C-P (≡ 6.9) |
 | 6.G.2 | M | Fjo | C-P |
 | 6.G.3 | L | Acc | revisit per release |

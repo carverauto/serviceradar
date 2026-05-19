@@ -110,6 +110,43 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enforce release source
+        env:
+          INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+          RELEASE_BASE_REF: origin/staging
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin +refs/heads/staging:refs/remotes/origin/staging
+
+          tag="${INPUT_TAG}"
+          if [[ -z "${tag}" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+          fi
+          if [[ -z "${tag}" ]]; then
+            version="$(tr -d '\r\n' < VERSION)"
+            tag="v${version}"
+          fi
+          if [[ ! "${tag}" =~ ^v[0-9] ]]; then
+            echo "Release tag must start with v followed by a version: ${tag}" >&2
+            exit 1
+          fi
+
+          if git rev-parse -q --verify "refs/tags/${tag}^{commit}" >/dev/null; then
+            release_commit="$(git rev-list -n1 "refs/tags/${tag}^{commit}")"
+          else
+            if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+              echo "Release tag ${tag} is not available in this checkout" >&2
+              exit 1
+            fi
+            release_commit="$(git rev-parse HEAD)"
+          fi
+
+          if ! git merge-base --is-ancestor "${release_commit}" "${RELEASE_BASE_REF}"; then
+            echo "Release commit ${release_commit} is not reachable from ${RELEASE_BASE_REF}" >&2
+            exit 1
+          fi
+
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # actions/cache@v5.0.4
         with:
