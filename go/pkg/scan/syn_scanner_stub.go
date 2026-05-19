@@ -107,7 +107,11 @@ type ScannerStats struct {
 	PortExhaustion uint64 // Number of times port allocator was exhausted
 
 	// Rate limiting statistics
-	RateLimitDeferrals uint64 // Packet send operations deferred due to rate limiting
+	RateLimitDeferrals  uint64 // Legacy aggregate of packet send deferrals
+	RateLimitWaits      uint64 // Token-bucket wait events
+	SourcePortWaits     uint64 // Source-port allocator wait events
+	RateLimitWaitNanos  uint64 // Total token-bucket wait time in nanoseconds
+	SourcePortWaitNanos uint64 // Total source-port wait time in nanoseconds
 }
 
 // GetStats returns empty stats on non-Linux platforms.

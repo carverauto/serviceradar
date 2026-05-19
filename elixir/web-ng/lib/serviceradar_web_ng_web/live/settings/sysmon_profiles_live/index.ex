@@ -470,6 +470,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
                     <.ui_badge :if={profile.collect_processes} variant="ghost" size="xs">
                       Processes
                     </.ui_badge>
+                    <.ui_badge :if={profile.collect_processes} variant="ghost" size="xs">
+                      {process_limit_label(profile.process_limit)}
+                    </.ui_badge>
                   </div>
                 </td>
                 <td>
@@ -812,6 +815,20 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           <p class="text-xs text-base-content/50">
             Note: Process collection can be resource-intensive on systems with many processes.
           </p>
+
+          <div class="max-w-xs">
+            <label class="label">
+              <span class="label-text">Process sample limit</span>
+              <span class="label-text-alt text-base-content/50">0 = unlimited</span>
+            </label>
+            <.input
+              type="number"
+              field={@form[:process_limit]}
+              min="0"
+              step="1"
+              class="input input-bordered w-full"
+            />
+          </div>
         </div>
         
     <!-- Disk Paths Section -->
@@ -926,6 +943,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
   rescue
     _ -> "{\"error\": \"Failed to compile config\"}"
   end
+
+  defp process_limit_label(limit) when is_integer(limit) and limit > 0, do: "Top #{limit}"
+  defp process_limit_label(_limit), do: "All processes"
 
   defp count_target_devices(_scope, nil), do: nil
   defp count_target_devices(_scope, ""), do: nil
@@ -1246,6 +1266,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
     params
     |> transform_csv_to_array("disk_paths")
     |> transform_csv_to_array("disk_exclude_paths")
+    |> normalize_process_limit()
+  end
+
+  defp normalize_process_limit(params) do
+    case Map.get(params, "process_limit") do
+      "" -> Map.put(params, "process_limit", "0")
+      value when is_integer(value) and value < 0 -> Map.put(params, "process_limit", 0)
+      _ -> params
+    end
   end
 
   defp transform_csv_to_array(params, field) do

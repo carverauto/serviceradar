@@ -47,6 +47,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["collect_disk"] == false
       assert config["collect_network"] == false
       assert config["collect_processes"] == false
+      assert config["process_limit"] == 0
       assert config["disk_paths"] == []
       assert config["disk_exclude_paths"] == []
       assert config["thresholds"] == %{}
@@ -120,6 +121,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
             collect_disk: false,
             collect_network: true,
             collect_processes: true,
+            process_limit: 50,
             disk_paths: ["/", "/data"],
             disk_exclude_paths: ["/var/lib/docker"],
             thresholds: %{"cpu_warning" => "75"},
@@ -139,6 +141,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["collect_disk"] == false
       assert config["collect_network"] == true
       assert config["collect_processes"] == true
+      assert config["process_limit"] == 50
       assert config["disk_paths"] == ["/", "/data"]
       assert config["disk_exclude_paths"] == ["/var/lib/docker"]
       assert config["thresholds"]["cpu_warning"] == "75"
@@ -159,6 +162,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
         collect_disk: true,
         collect_network: true,
         collect_processes: true,
+        process_limit: 100,
         disk_paths: ["/", "/var", "/home"],
         disk_exclude_paths: ["/var/lib/docker"],
         thresholds: %{
@@ -177,6 +181,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["collect_disk"] == true
       assert config["collect_network"] == true
       assert config["collect_processes"] == true
+      assert config["process_limit"] == 100
       assert config["disk_paths"] == ["/", "/var", "/home"]
       assert config["disk_exclude_paths"] == ["/var/lib/docker"]
       assert config["thresholds"]["cpu_warning"] == "70"

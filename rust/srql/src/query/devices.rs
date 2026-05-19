@@ -1,4 +1,4 @@
-use super::{BindParam, QueryPlan};
+use super::{is_negated_membership_op, BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -625,11 +625,11 @@ fn build_grouped_stats_filter_clause(
                 return Ok(None);
             }
             binds.push(DeviceSqlBindValue::TextArray(values));
-            match filter.op {
+            match &filter.op {
                 FilterOp::In | FilterOp::Eq => {
                     "coalesce(discovery_sources, ARRAY[]::text[]) @> ?".to_string()
                 }
-                FilterOp::NotIn | FilterOp::NotEq => {
+                op if is_negated_membership_op(op) => {
                     "NOT (coalesce(discovery_sources, ARRAY[]::text[]) @> ?)".to_string()
                 }
                 _ => {
@@ -928,7 +928,7 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
             }
             let expr = sql::<Bool>("coalesce(discovery_sources, ARRAY[]::text[]) @> ")
                 .bind::<Array<Text>, _>(values);
-            query = if matches!(filter.op, FilterOp::NotIn) {
+            query = if is_negated_membership_op(&filter.op) {
                 query.filter(not(expr))
             } else {
                 query.filter(expr)
