@@ -9,14 +9,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
   use Ash.Resource,
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
   import Ash.Expr
-
-  alias ServiceRadar.Policies.Checks.ActorHasPermission
-
-  @remote_access_permission "devices.remote_access.ssh.open"
-  @remote_access_check {ActorHasPermission, permission: @remote_access_permission}
 
   @create_fields [
     :recording_id,
@@ -27,6 +23,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     :occurred_at,
     :byte_count,
     :payload_sha256,
+    :prior_event_hash,
     :payload_text,
     :payload_redacted,
     :redaction_reason,
@@ -40,10 +37,20 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     schema "platform"
   end
 
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:payload_text])
+    decrypt_by_default([:payload_text])
+  end
+
   code_interface do
     define :record, action: :record
     define :list_for_recording, action: :for_recording, args: [:recording_id]
     define :list_for_session, action: :for_session, args: [:session_id]
+
+    define :latest_before_sequence,
+      action: :latest_before_sequence,
+      args: [:recording_id, :sequence]
   end
 
   actions do
@@ -61,6 +68,13 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
       prepare build(sort: [sequence: :asc, inserted_at: :asc])
     end
 
+    read :latest_before_sequence do
+      argument :recording_id, :uuid, allow_nil?: false
+      argument :sequence, :integer, allow_nil?: false
+      filter expr(recording_id == ^arg(:recording_id) and sequence < ^arg(:sequence))
+      prepare build(sort: [sequence: :desc, inserted_at: :desc], limit: 1)
+    end
+
     create :record do
       accept @create_fields
     end
@@ -70,9 +84,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@remote_access_check)
 
-    policy action_type([:create, :destroy]) do
+    policy action_type([:read, :create, :destroy]) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end
@@ -123,8 +136,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
       public? true
     end
 
+    attribute :prior_event_hash, :string do
+      public? true
+    end
+
     attribute :payload_text, :string do
       public? true
+      sensitive? true
+      description "Optional terminal payload text encrypted at rest by AshCloak"
     end
 
     attribute :payload_redacted, :boolean do

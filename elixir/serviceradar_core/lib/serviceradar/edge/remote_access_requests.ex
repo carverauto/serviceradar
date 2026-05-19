@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.RemoteAccessRequest
   alias ServiceRadar.Events.AuditWriter
+  alias ServiceRadar.Repo
 
   @default_ttl_seconds 3600
   @default_review_permission "devices.remote_access.requests.review"
@@ -33,6 +34,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     :centrally_brokered,
     :provider_ticket,
     :none
+  ]
+  @approval_metadata_scope_keys [
+    "desktop_target_id",
+    "route_policy",
+    "redirection_policy",
+    "recording_policy",
+    "screen_policy",
+    "tls_policy",
+    "target"
   ]
 
   @type request_attrs :: %{
@@ -136,19 +146,31 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
           {:ok, RemoteAccessRequest.t()} | {:error, term()}
   def bind_session(request_id, session_id, opts \\ [])
       when is_binary(request_id) and is_binary(session_id) do
-    with {:ok, %RemoteAccessRequest{} = request} <-
-           get(request_id, actor: SystemActor.system(:remote_access_request_bind)),
-         :ok <- ensure_approved(request),
-         :ok <- ensure_unexpired(request),
-         :ok <- ensure_unbound(request),
-         {:ok, bound} <-
-           RemoteAccessRequest.bind_session(
-             request,
-             %{session_id: session_id, bound_at: RemoteAccessRequest.utc_now()},
-             actor: SystemActor.system(:remote_access_request_bind)
-           ) do
-      write_audit(:remote_access_request_consumed, bound, opts)
+    with {:ok, %RemoteAccessRequest{} = bound, side_effects} <-
+           bind_session_with_side_effects(request_id, session_id, opts) do
+      side_effects.()
       {:ok, bound}
+    end
+  end
+
+  @doc false
+  @spec bind_session_with_side_effects(String.t(), String.t(), keyword()) ::
+          {:ok, RemoteAccessRequest.t(), (-> :ok)} | {:error, term()}
+  def bind_session_with_side_effects(request_id, session_id, opts \\ [])
+      when is_binary(request_id) and is_binary(session_id) do
+    fn -> bind_session_locked(request_id, session_id) end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessRequest{} = bound, notifications}} ->
+        {:ok, bound,
+         fn ->
+           Ash.Notifier.notify(notifications)
+           write_audit(:remote_access_request_consumed, bound, opts)
+           :ok
+         end}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -165,6 +187,25 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
          :ok <- ensure_unbound(request),
          :ok <- ensure_matches_context(request, context) do
       {:ok, %{access_request_id: request.id}}
+    else
+      {:error, :not_found} -> {:error, :approval_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Revalidates a file-transfer approval before terminal agent outcome frames are accepted.
+  """
+  @spec authorize_file_transfer_completion(map(), keyword()) :: :ok | {:error, term()}
+  def authorize_file_transfer_completion(context, _opts \\ []) when is_map(context) do
+    with {:ok, approval_id} <- required_string(value(context, :approval_id), :approval_id),
+         {:ok, session_id} <- required_string(value(context, :session_id), :session_id),
+         {:ok, %RemoteAccessRequest{} = request} <-
+           get(approval_id, actor: SystemActor.system(:remote_access_file_transfer_authorize)),
+         :ok <- ensure_completion_approved(request),
+         :ok <- ensure_unexpired(request),
+         :ok <- ensure_completion_bound_to_session(request, session_id) do
+      :ok
     else
       {:error, :not_found} -> {:error, :approval_not_found}
       {:error, reason} -> {:error, reason}
@@ -270,6 +311,24 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
   defp ensure_approved(%RemoteAccessRequest{status: :consumed}), do: {:error, :approval_consumed}
   defp ensure_approved(_request), do: {:error, :approval_denied}
 
+  defp ensure_completion_approved(%RemoteAccessRequest{status: status})
+       when status in [:approved, :consumed], do: :ok
+
+  defp ensure_completion_approved(%RemoteAccessRequest{} = request), do: ensure_approved(request)
+
+  defp ensure_completion_bound_to_session(
+         %RemoteAccessRequest{status: :approved, session_id: nil},
+         _session_id
+       ), do: :ok
+
+  defp ensure_completion_bound_to_session(
+         %RemoteAccessRequest{session_id: session_id},
+         session_id
+       ), do: :ok
+
+  defp ensure_completion_bound_to_session(_request, _session_id),
+    do: {:error, :approval_session_mismatch}
+
   defp ensure_unexpired(%RemoteAccessRequest{expires_at: %DateTime{} = expires_at}) do
     if DateTime.after?(expires_at, RemoteAccessRequest.utc_now()),
       do: :ok,
@@ -281,6 +340,72 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
   defp ensure_unbound(%RemoteAccessRequest{session_id: nil}), do: :ok
   defp ensure_unbound(_request), do: {:error, :approval_consumed}
 
+  defp bind_session_locked(request_id, session_id) do
+    case Repo.query(lock_approved_request_sql(), [request_id]) do
+      {:ok, %{num_rows: 1, rows: [[locked_request_id]]}} ->
+        system_opts = [actor: SystemActor.system(:remote_access_request_bind)]
+
+        with {:ok, %RemoteAccessRequest{} = request} <-
+               RemoteAccessRequest.get_by_id(locked_request_id, system_opts),
+             {:ok, %RemoteAccessRequest{} = bound, notifications} <-
+               RemoteAccessRequest.bind_session(
+                 request,
+                 %{session_id: session_id, bound_at: RemoteAccessRequest.utc_now()},
+                 Keyword.put(system_opts, :return_notifications?, true)
+               ) do
+          {bound, notifications}
+        else
+          {:ok, nil} -> Repo.rollback(:approval_not_found)
+          {:error, error} -> Repo.rollback(error)
+        end
+
+      {:ok, %{num_rows: 0}} ->
+        Repo.rollback(classify_unbindable_request(request_id))
+
+      {:error, error} ->
+        Repo.rollback(error)
+    end
+  end
+
+  defp lock_approved_request_sql do
+    """
+    SELECT id::text
+    FROM platform.remote_access_requests
+    WHERE id = $1::text::uuid
+      AND status = 'approved'
+      AND expires_at > (now() AT TIME ZONE 'utc')
+      AND session_id IS NULL
+    FOR UPDATE
+    """
+  end
+
+  defp classify_unbindable_request(request_id) do
+    case get(request_id, actor: SystemActor.system(:remote_access_request_bind)) do
+      {:ok, %RemoteAccessRequest{} = request} ->
+        cond do
+          match?({:error, _reason}, ensure_approved(request)) ->
+            unwrap_error(ensure_approved(request))
+
+          match?({:error, _reason}, ensure_unexpired(request)) ->
+            :approval_expired
+
+          match?({:error, _reason}, ensure_unbound(request)) ->
+            :approval_consumed
+
+          true ->
+            :approval_consumed
+        end
+
+      {:error, :not_found} ->
+        :approval_not_found
+
+      {:error, reason} ->
+        reason
+    end
+  end
+
+  defp unwrap_error({:error, reason}), do: reason
+
   defp ensure_reviewer_policy(%RemoteAccessRequest{} = request, opts) do
     if self_approval_allowed?(request) or request.requested_by != actor_uuid(opts),
       do: :ok,
@@ -291,7 +416,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     do: truthy?(Map.get(policy || %{}, "allow_self_approval"))
 
   defp ensure_matches_context(request, context) do
+    with :ok <- ensure_scope_fields_match(request, context) do
+      ensure_metadata_scope_matches(request, context)
+    end
+  end
+
+  defp ensure_scope_fields_match(request, context) do
     expected = %{
+      requested_by: request.requested_by,
       device_uid: request.device_uid,
       target_kind: request.target_kind,
       target_host: request.target_host,
@@ -310,6 +442,20 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
 
         is_nil(expected_value) or is_nil(context_value) or
           normalize_context_value(key, context_value) == expected_value
+      end)
+
+    if mismatches == [], do: :ok, else: {:error, :approval_scope_mismatch}
+  end
+
+  defp ensure_metadata_scope_matches(request, context) do
+    expected_metadata = sanitized_map(request.metadata)
+    context_metadata = context |> value(:metadata) |> sanitized_map()
+
+    mismatches =
+      Enum.reject(@approval_metadata_scope_keys, fn key ->
+        expected_value = Map.get(expected_metadata, key)
+
+        is_nil(expected_value) or Map.get(context_metadata, key) == expected_value
       end)
 
     if mismatches == [], do: :ok, else: {:error, :approval_scope_mismatch}
@@ -375,6 +521,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequests do
     if value == "", do: nil, else: value
   end
 
+  defp blank_to_nil(nil), do: nil
   defp blank_to_nil(value) when is_atom(value), do: Atom.to_string(value)
   defp blank_to_nil(_value), do: nil
 

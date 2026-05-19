@@ -23,6 +23,12 @@ filegroup(
 )
 
 filegroup(
+    name = "desktop_media_proto_src",
+    srcs = ["desktop_media.proto"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
     name = "data_service_proto_src",
     srcs = ["data_service.proto"],
     visibility = ["//visibility:public"],
@@ -43,6 +49,8 @@ go_library(
         "camera_media_grpc.pb.go",
         "data_service.pb.go",
         "data_service_grpc.pb.go",
+        "desktop_media.pb.go",
+        "desktop_media_grpc.pb.go",
         "kv.pb.go",
         "kv_grpc.pb.go",
         "mock_monitoring.go",

@@ -2,10 +2,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSigner do
   @moduledoc """
   SSH certificate signer boundary backed by an external command.
 
-  The command receives the bounded signing request as a private JSON file whose
-  path is passed in `SERVICERADAR_SSHCA_SIGN_REQUEST_FILE`, and returns JSON on
-  stdout. This keeps CA private-key custody outside web-ng and agent-gateway
-  while still giving the Elixir issuer a concrete signer module.
+  The command receives the bounded signing request through
+  `SERVICERADAR_SSHCA_SIGN_REQUEST_FILE` and returns JSON on stdout. This keeps
+  CA private-key custody outside web-ng and agent-gateway while still giving the
+  Elixir issuer a concrete signer module.
   """
 
   @behaviour ServiceRadar.Edge.RemoteAccessSSHCertificates
@@ -84,27 +84,28 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSigner do
     request_dir =
       Path.join(
         System.tmp_dir!(),
-        "serviceradar-sshca-request-#{System.unique_integer([:positive])}"
+        "serviceradar-sshca-request-#{Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)}"
       )
 
     request_file = Path.join(request_dir, "request.json")
 
     with :ok <- File.mkdir(request_dir),
          :ok <- File.chmod(request_dir, 0o700),
-         :ok <- File.write(request_file, payload, [:exclusive]),
+         :ok <- File.write(request_file, payload, [:write, :binary, :exclusive]),
          :ok <- File.chmod(request_file, 0o600) do
       {:ok, request_dir, request_file}
     else
-      {:error, reason} ->
-        File.rm(request_file)
-        File.rmdir(request_dir)
-        {:error, {:ssh_certificate_signer_unavailable, reason}}
+      {:error, reason} -> {:error, {:ssh_certificate_signer_unavailable, reason}}
     end
   end
 
   defp run_with_request_file(command, args, request_file, env) do
-    case System.cmd(command, args,
-           env: [{@request_file_env, request_file} | env],
+    env = [{@request_file_env, request_file} | env]
+
+    case System.cmd(
+           command,
+           args,
+           env: env,
            stderr_to_stdout: true
          ) do
       {output, 0} ->
@@ -127,23 +128,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSigner do
     with {:ok, certificate} <- required_string(decoded, "certificate", @max_certificate_bytes),
          {:ok, fingerprint} <-
            optional_string(Map.get(decoded, "fingerprint"), @max_fingerprint_bytes),
-         {:ok, ca_key_source} <-
-           optional_string(Map.get(decoded, "ca_key_source"), @max_fingerprint_bytes),
          {:ok, expires_at} <- optional_datetime(Map.get(decoded, "expires_at")) do
-      signed =
-        maybe_put(
-          %{
-            certificate: certificate,
-            expires_at: expires_at,
-            fingerprint: fingerprint,
-            serial: Map.get(decoded, "serial"),
-            ca_key_id: option(opts, :ca_key_id)
-          },
-          :ca_key_source,
-          ca_key_source
-        )
-
-      {:ok, signed}
+      {:ok,
+       %{
+         certificate: certificate,
+         expires_at: expires_at,
+         fingerprint: fingerprint,
+         serial: Map.get(decoded, "serial"),
+         ca_key_id: option(opts, :ca_key_id)
+       }}
     end
   end
 

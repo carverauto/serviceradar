@@ -186,6 +186,8 @@ spec:
               value: "info"
           {{- include "serviceradar.kvEnv" . | nindent 12 }}
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             - name: zen-rules
               mountPath: /etc/serviceradar/rules
               readOnly: true
@@ -212,6 +214,8 @@ spec:
               cpu: "100m"
               memory: "128Mi"
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: zen-rules
           configMap:
             name: serviceradar-zen-rules

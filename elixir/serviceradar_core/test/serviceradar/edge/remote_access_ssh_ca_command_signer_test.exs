@@ -3,7 +3,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCACommandSignerTest do
 
   alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 
-  test "signs a certificate by invoking an external command with JSON stdin" do
+  test "signs a certificate by invoking an external command with a JSON request file" do
     dir = tmp_dir()
     capture_path = Path.join(dir, "request.json")
 

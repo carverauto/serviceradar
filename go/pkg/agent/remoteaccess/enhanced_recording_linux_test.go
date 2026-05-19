@@ -29,7 +29,7 @@ import (
 )
 
 func TestPlatformEnhancedRecordingAvailableRequiresExplicitEBPFProfile(t *testing.T) {
-	t.Setenv(envAgentEBPFEnabled, "false")
+	t.Setenv(envAgentEBPFEnabled, enhancedMetadataFalse)
 
 	if PlatformEnhancedRecordingAvailable() {
 		t.Fatal("PlatformEnhancedRecordingAvailable() = true without explicit BPF enablement")
@@ -42,7 +42,7 @@ func TestPlatformEnhancedRecordingAvailableRequiresExplicitEBPFProfile(t *testin
 }
 
 func TestLinuxBPFRemoteAccessRuntimeReadsEnvironment(t *testing.T) {
-	t.Setenv(envAgentEBPFEnabled, "true")
+	t.Setenv(envAgentEBPFEnabled, enhancedMetadataTrue)
 	t.Setenv(envAgentEBPFBPFFSPath, "/tmp/bpffs")
 	t.Setenv(envAgentEBPFBTFPath, "/tmp/btf/vmlinux")
 	t.Setenv(envAgentEBPFCgroupPath, "/tmp/cgroup")
@@ -123,7 +123,7 @@ func TestLinuxProcEnhancedEventSourceEmitsProcfsEvents(t *testing.T) {
 		SessionID: "session-1",
 		Policy: EnhancedRecordingPolicy{
 			Enabled:                 true,
-			Mode:                    "host_events",
+			Mode:                    enhancedPolicyModeHostEvents,
 			IncludeCommandArguments: true,
 			IncludeFilePaths:        true,
 			IncludeNetworkAddresses: true,
@@ -156,6 +156,38 @@ func TestLinuxProcEnhancedEventSourceEmitsProcfsEvents(t *testing.T) {
 	}
 }
 
+func TestLinuxProcLossRetainsCountersUntilQueued(t *testing.T) {
+	t.Parallel()
+
+	source := NewLinuxProcEnhancedEventSource()
+	state := newLinuxProcState()
+	state.dropped = 5
+	events := make(chan EnhancedEvent, 1)
+	events <- EnhancedEvent{EventType: EnhancedEventCommand}
+	session := EnhancedRecordingSession{Policy: EnhancedRecordingPolicy{Mode: enhancedPolicyModeHostEvents}}
+
+	source.emitLoss(session, state, events)
+	if state.dropped != 5 {
+		t.Fatalf("dropped count after full channel = %d, want 5", state.dropped)
+	}
+
+	<-events
+	source.emitLoss(session, state, events)
+	if state.dropped != 0 {
+		t.Fatalf("dropped count after queued loss = %d, want 0", state.dropped)
+	}
+
+	loss := <-events
+	if loss.EventType != EnhancedEventLoss || loss.DroppedEvents != 5 {
+		t.Fatalf("loss event = %#v", loss)
+	}
+	if loss.Metadata["source"] != enhancedSourceLinuxProcFS ||
+		loss.Metadata["collector"] != enhancedProcFSCollectorName ||
+		loss.Metadata["policy_mode"] != enhancedPolicyModeHostEvents {
+		t.Fatalf("loss metadata = %#v", loss.Metadata)
+	}
+}
+
 func TestLinuxProcParsers(t *testing.T) {
 	t.Parallel()
 
@@ -169,6 +201,10 @@ func TestLinuxProcParsers(t *testing.T) {
 	ip, port, ok := parseProcNetAddress("0100007F:0016", false)
 	if !ok || ip != "127.0.0.1" || port != 22 {
 		t.Fatalf("address = %q:%d ok=%v", ip, port, ok)
+	}
+	argv := parseCmdline(string([]byte{'s', 's', 'h', 0, '-', 'l', 0xff, '\n', 'a', 'l', 'i', 'c', 'e', 0}))
+	if len(argv) != 2 || argv[0] != "ssh" || argv[1] != "-l?alice" {
+		t.Fatalf("argv = %#v", argv)
 	}
 }
 

@@ -147,6 +147,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     # Prepare attributes for Ash create
     create_attrs =
       attrs
+      |> normalize_partition_attrs()
       |> normalize_component_identity()
       |> Map.put(:created_by, get_actor_name(actor))
 
@@ -207,15 +208,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     with {:ok, package} <- get(package_id, actor: actor, authorize?: authorize?),
          :ok <- verify_deliverable(package),
          :ok <- verify_download_token(package, download_token) do
-      # Decrypt join token
-      join_token = Crypto.decrypt(package.join_token_ciphertext)
-
-      # Decrypt bundle if present
-      bundle_pem =
-        if package.bundle_ciphertext do
-          Crypto.decrypt(package.bundle_ciphertext)
-        end
-
       # Update package status to delivered using Ash state machine
       case package
            |> Ash.Changeset.for_update(:deliver, %{},
@@ -224,6 +216,14 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            )
            |> Ash.update() do
         {:ok, updated_package} ->
+          # Decrypt package secrets only after the single-use consume transition succeeds.
+          join_token = Crypto.decrypt(updated_package.join_token_ciphertext)
+
+          bundle_pem =
+            if updated_package.bundle_ciphertext do
+              Crypto.decrypt(updated_package.bundle_ciphertext)
+            end
+
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
             actor: get_actor_name(actor),
@@ -238,7 +238,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            }}
 
         {:error, error} ->
-          {:error, error}
+          handle_deliver_update_error(package_id, actor, authorize?, error)
       end
     end
   end
@@ -381,6 +381,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   defp verify_deliverable(package) do
     cond do
+      not is_nil(package.download_token_consumed_at) -> {:error, :already_delivered}
       package.status == :revoked -> {:error, :revoked}
       package.status == :deleted -> {:error, :deleted}
       package.status == :delivered -> {:error, :already_delivered}
@@ -412,6 +413,19 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
       {:error, :already_revoked}
     else
       :ok
+    end
+  end
+
+  defp handle_deliver_update_error(package_id, actor, authorize?, error) do
+    case get(package_id, actor: actor, authorize?: authorize?) do
+      {:ok, package} ->
+        case verify_deliverable(package) do
+          :ok -> {:error, error}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -476,14 +490,18 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   Same as `create/2`, plus:
     * `:partition_id` - Network partition (default: "default")
-    * `:cert_validity_days` - Component cert validity (default: 365)
+    * `:cert_validity_days` - Component cert validity (default: 1)
 
   """
   @spec create_with_platform_cert(map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
-    partition_id = Keyword.get(opts, :partition_id, attrs[:site] || "default")
-    cert_validity = Keyword.get(opts, :cert_validity_days, 365)
+    attrs = normalize_partition_attrs(attrs)
+
+    partition_id =
+      normalize_partition_id(Keyword.get(opts, :partition_id) || attrs[:partition_id])
+
+    cert_validity = Keyword.get(opts, :cert_validity_days, 1)
 
     attrs = normalize_component_identity(attrs)
     component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
@@ -534,6 +552,39 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     short_id = 8 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
     "#{component_type}-#{short_id}"
   end
+
+  defp normalize_partition_attrs(attrs) when is_map(attrs) do
+    partition_id =
+      attrs
+      |> partition_attr_value()
+      |> normalize_partition_id()
+
+    attrs
+    |> Map.put(:partition_id, partition_id)
+    |> Map.put(:site, partition_id)
+  end
+
+  defp normalize_partition_attrs(attrs), do: attrs
+
+  defp partition_attr_value(attrs) do
+    Map.get(attrs, :partition_id) ||
+      Map.get(attrs, "partition_id") ||
+      Map.get(attrs, :site) ||
+      Map.get(attrs, "site")
+  end
+
+  defp normalize_partition_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: "default", else: value
+  end
+
+  defp normalize_partition_id(value) when is_atom(value) do
+    value
+    |> Atom.to_string()
+    |> normalize_partition_id()
+  end
+
+  defp normalize_partition_id(_value), do: "default"
 
   defp normalize_component_identity(attrs) when is_map(attrs) do
     component_type = Map.get(attrs, :component_type) || Map.get(attrs, "component_type")

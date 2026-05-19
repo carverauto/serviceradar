@@ -27,6 +27,7 @@ spec:
         imagePullPolicy: Always
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
         command: ["/bin/bash", "-c"]
@@ -151,6 +152,7 @@ spec:
             memory: "128Mi"
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           capabilities:
             drop: ["ALL"]
       volumes:

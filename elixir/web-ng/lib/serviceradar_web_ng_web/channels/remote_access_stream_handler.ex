@@ -46,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   @max_passphrase_bytes 4_096
   @max_principal_bytes 128
   @max_requested_principals 16
+  @default_reauth_interval_ms 30_000
   @credential_controlled_keys ~w(
     agent_id
     allowed_principals
@@ -70,11 +71,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
        broker_module: Keyword.get(options, :broker_module, RemoteAccessBroker),
        sessions_module: Keyword.get(options, :sessions_module, RemoteAccessSessions),
        credential_grant_resolver: Keyword.get(options, :credential_grant_resolver, RemoteAccessCentralCredentialGrants),
+       authorization_module: Keyword.get(options, :authorization_module, ServiceRadar.Identity.RBAC),
+       reauth_interval_ms: Keyword.get(options, :reauth_interval_ms, @default_reauth_interval_ms),
        broker: nil,
        session: nil,
        attached?: false,
        idle_timer: nil,
        absolute_timer: nil,
+       reauth_timer: nil,
        closing_action: nil
      }}
   end
@@ -93,10 +97,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       state =
         state
         |> cancel_timeout_timers()
+        |> Map.merge(%{attached?: true, session: session, broker: broker})
         |> schedule_timeout_timers(session)
+        |> schedule_reauth_timer()
 
-      {:push, {:text, encode(%{type: "ready", session_id: session.id})},
-       %{state | attached?: true, session: session, broker: broker}}
+      {:push, {:text, encode(%{type: "ready", session_id: session.id})}, state}
     else
       {:error, :remote_access_broker_unavailable} ->
         _ = state.sessions_module.fail_session(state.session_id, :remote_access_broker_unavailable, scope: state.scope)
@@ -129,65 +134,81 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   def handle_in({data, [opcode: :text]}, state) do
-    case decode_json(data) do
-      {:ok, %{"type" => "data", "data" => encoded}} when is_binary(encoded) ->
-        with {:ok, payload} <- decode_base64(encoded),
-             :ok <- state.broker_module.send_input(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
+    case ensure_authorized(state) do
+      :ok ->
+        case decode_json(data) do
+          {:ok, %{"type" => "data", "data" => encoded}} when is_binary(encoded) ->
+            with {:ok, payload} <- decode_base64(encoded),
+                 :ok <- state.broker_module.send_input(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
+            with {:ok, cols} <- terminal_int(cols, @min_terminal_cols, @max_terminal_cols),
+                 {:ok, rows} <- terminal_int(rows, @min_terminal_rows, @max_terminal_rows),
+                 :ok <- state.broker_module.resize(state.broker, cols, rows) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "app_request"} = message} ->
+            with {:ok, payload} <- application_request_payload(message),
+                 :ok <- state.broker_module.send_application_request(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "app_data"} = message} ->
+            with {:ok, payload} <- application_data_payload(message),
+                 :ok <- state.broker_module.send_application_data(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "tcp_data"} = message} ->
+            with {:ok, payload} <- tcp_data_payload(message),
+                 :ok <- state.broker_module.send_tcp_data(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "file_transfer_data"} = message} ->
+            with {:ok, payload} <- file_transfer_data_payload(message),
+                 :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
+              {:ok, reset_idle_timer(state)}
+            else
+              {:error, reason} -> stop_for_broker_error(reason, state)
+            end
+
+          {:ok, %{"type" => "attach"}} ->
+            {:ok, state}
+
+          other ->
+            log_unknown_stream_message(unknown_browser_message_type(other), state, :browser_text)
+            {:ok, state}
         end
 
-      {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
-        with {:ok, cols} <- terminal_int(cols, @min_terminal_cols, @max_terminal_cols),
-             {:ok, rows} <- terminal_int(rows, @min_terminal_rows, @max_terminal_rows),
-             :ok <- state.broker_module.resize(state.broker, cols, rows) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "app_request"} = message} ->
-        with {:ok, payload} <- application_request_payload(message),
-             :ok <- state.broker_module.send_application_request(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "app_data"} = message} ->
-        with {:ok, payload} <- application_data_payload(message),
-             :ok <- state.broker_module.send_application_data(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "tcp_data"} = message} ->
-        with {:ok, payload} <- tcp_data_payload(message),
-             :ok <- state.broker_module.send_tcp_data(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "file_transfer_data"} = message} ->
-        with {:ok, payload} <- file_transfer_data_payload(message),
-             :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
-          {:ok, reset_idle_timer(state)}
-        else
-          {:error, reason} -> stop_for_broker_error(reason, state)
-        end
-
-      {:ok, %{"type" => "attach"}} ->
-        {:ok, state}
-
-      _other ->
-        {:ok, state}
+      {:error, :permission_revoked} ->
+        stop_for_permission_revoked(state)
     end
   end
 
-  def handle_in({_data, [opcode: :binary]}, state), do: {:ok, state}
+  def handle_in({_data, [opcode: :binary]}, state) do
+    case ensure_authorized(state) do
+      :ok ->
+        log_unknown_stream_message("binary", state, :browser_binary)
+        {:ok, state}
+
+      {:error, :permission_revoked} ->
+        stop_for_permission_revoked(state)
+    end
+  end
 
   @impl true
   def handle_info({:remote_access_ready, session_id}, state) do
@@ -237,8 +258,15 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
      %{state | closing_action: :expired}}
   end
 
+  def handle_info(:reauthorize, state) do
+    case ensure_authorized(state) do
+      :ok -> {:ok, schedule_reauth_timer(state)}
+      {:error, :permission_revoked} -> stop_for_permission_revoked(state)
+    end
+  end
+
   def handle_info(message, state) do
-    Logger.debug("Ignoring unexpected remote access websocket message: #{inspect(message)}")
+    log_unknown_stream_message(unknown_info_message_type(message), state, :server_info)
     {:ok, state}
   end
 
@@ -337,8 +365,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp credential_broker_opts(session, message, state) do
     credential = normalize_map(Map.get(message, "credential"))
 
-    case {custody_mode(session), credential} do
-      {"ssh_certificate", credential} when map_size(credential) > 0 ->
+    case {custody_mode(session), protocol(session), credential} do
+      {"ssh_certificate", _protocol, credential} when map_size(credential) > 0 ->
         with :ok <- reject_controlled_credential_fields(credential),
              {:ok, credential} <- normalize_certificate_credential(credential),
              attrs = certificate_request_attrs(credential, session),
@@ -351,10 +379,21 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, grant.broker_opts}
         end
 
-      {"ssh_certificate", _credential} ->
+      {"ssh_certificate", _protocol, _credential} ->
         {:error, :session_credential_required}
 
-      {"user_present", credential} when map_size(credential) > 0 ->
+      {"user_present", "rdp", credential} when map_size(credential) > 0 ->
+        with :ok <- reject_controlled_credential_fields(credential),
+             {:ok, credential} <- normalize_rdp_user_present_credential(credential),
+             {:ok, grant} <- rdp_user_present_credential_grant(session, credential, state.scope) do
+          {:ok,
+           [
+             metadata: %{"credential_grant" => grant},
+             credential_mode: "user_present"
+           ]}
+        end
+
+      {"user_present", _protocol, credential} when map_size(credential) > 0 ->
         with :ok <- reject_controlled_credential_fields(credential),
              {:ok, credential} <- normalize_user_present_credential(credential),
              attrs =
@@ -366,13 +405,13 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, grant.broker_opts}
         end
 
-      {"user_present", _credential} ->
+      {"user_present", _protocol, _credential} ->
         {:error, :session_credential_required}
 
-      {"centrally_brokered", credential} when map_size(credential) > 0 ->
+      {"centrally_brokered", _protocol, credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
 
-      {"centrally_brokered", _credential} ->
+      {"centrally_brokered", _protocol, _credential} ->
         with {:ok, grant} <-
                state.credential_grant_resolver.build_broker_grant(session,
                  scope: state.scope
@@ -380,11 +419,40 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
           {:ok, grant.broker_opts}
         end
 
-      {_mode, credential} when map_size(credential) > 0 ->
+      {_mode, _protocol, credential} when map_size(credential) > 0 ->
         {:error, :credential_policy_denied}
 
-      {_mode, _credential} ->
+      {_mode, _protocol, _credential} ->
         {:ok, []}
+    end
+  end
+
+  defp normalize_rdp_user_present_credential(credential) do
+    with {:ok, username} <- bounded_string(credential, "username", @max_username_bytes),
+         {:ok, password} <- bounded_string(credential, "password", @max_password_bytes),
+         {:ok, nil} <- optional_bounded_string(credential, "private_key", @max_private_key_bytes),
+         {:ok, nil} <- optional_bounded_string(credential, "passphrase", @max_passphrase_bytes) do
+      {:ok, %{"username" => username, "password" => password}}
+    else
+      {:ok, _unsupported_secret} -> {:error, :credential_policy_denied}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp rdp_user_present_credential_grant(session, credential, scope) do
+    with {:ok, target_id} <- required_metadata_string(session, "desktop_target_id"),
+         {:ok, route_id} <- required_session_string(session, :agent_id),
+         {:ok, actor_id} <- scope_actor_id(scope) do
+      {:ok,
+       %{
+         "mode" => "memory_user",
+         "username" => Map.fetch!(credential, "username"),
+         "password" => Map.fetch!(credential, "password"),
+         "actor_id" => actor_id,
+         "session_id" => session.id,
+         "target_id" => target_id,
+         "route_id" => route_id
+       }}
     end
   end
 
@@ -714,6 +782,68 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: %{}
 
+  defp scope_actor_id(scope) do
+    case scope_actor(scope) do
+      %{id: id} when is_binary(id) and id != "" -> {:ok, id}
+      %{"id" => id} when is_binary(id) and id != "" -> {:ok, id}
+      _actor -> {:error, :invalid_request}
+    end
+  end
+
+  defp scope_actor_id_or_unknown(scope) do
+    case scope_actor_id(scope) do
+      {:ok, actor_id} -> actor_id
+      {:error, _reason} -> "unknown"
+    end
+  end
+
+  defp log_unknown_stream_message(message_type, state, source) do
+    metadata = %{
+      topic: "remote_access:#{state.session_id}",
+      session_id: state.session_id,
+      actor_id: scope_actor_id_or_unknown(state.scope),
+      message_type: message_type,
+      source: source
+    }
+
+    Logger.warning("Ignored unknown remote access stream message", Map.to_list(metadata))
+
+    :telemetry.execute(
+      [:serviceradar, :remote_access, :stream, :unknown_message],
+      %{count: 1},
+      metadata
+    )
+  end
+
+  defp unknown_browser_message_type({:ok, %{"type" => type}}) when is_binary(type) do
+    normalize_message_type(type)
+  end
+
+  defp unknown_browser_message_type({:ok, %{"type" => _type}}), do: "non_string_type"
+  defp unknown_browser_message_type({:ok, _message}), do: "missing_type"
+  defp unknown_browser_message_type({:error, _reason}), do: "invalid_json"
+
+  defp unknown_info_message_type(message) when is_tuple(message) and tuple_size(message) > 0 do
+    message
+    |> elem(0)
+    |> normalize_message_type()
+  end
+
+  defp unknown_info_message_type(message), do: normalize_message_type(message)
+
+  defp normalize_message_type(type) when is_atom(type), do: Atom.to_string(type)
+  defp normalize_message_type(type) when is_binary(type), do: String.slice(type, 0, 64)
+  defp normalize_message_type(type) when is_tuple(type), do: "tuple"
+  defp normalize_message_type(type) when is_map(type), do: "map"
+  defp normalize_message_type(type) when is_list(type), do: "list"
+  defp normalize_message_type(type) when is_integer(type), do: "integer"
+  defp normalize_message_type(type) when is_float(type), do: "float"
+  defp normalize_message_type(type) when is_boolean(type), do: "boolean"
+  defp normalize_message_type(type) when is_pid(type), do: "pid"
+  defp normalize_message_type(type) when is_reference(type), do: "reference"
+  defp normalize_message_type(type) when is_function(type), do: "function"
+  defp normalize_message_type(_type), do: "unknown"
+
   defp scope_identity_claims(%{identity_claims: claims}) when is_map(claims), do: claims
   defp scope_identity_claims(%{"identity_claims" => claims}) when is_map(claims), do: claims
   defp scope_identity_claims(_scope), do: %{}
@@ -723,6 +853,24 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   end
 
   defp metadata_value(_session, _key), do: nil
+
+  defp required_metadata_string(session, key) do
+    case metadata_value(session, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, :invalid_request}
+    end
+  end
+
+  defp required_session_string(session, key) do
+    case Map.get(session, key) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _value -> {:error, :invalid_request}
+    end
+  end
+
+  defp protocol(%{protocol: value}) when is_atom(value), do: Atom.to_string(value)
+  defp protocol(%{protocol: value}) when is_binary(value), do: value
+  defp protocol(_session), do: "ssh"
 
   defp string_value(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, safe_existing_atom(key)) do
@@ -771,6 +919,42 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
      %{state | closing_action: :failed}}
   end
 
+  defp ensure_authorized(%{session: nil}), do: :ok
+
+  defp ensure_authorized(state) do
+    user = scope_actor(state.scope)
+    permission = permission_for_session(state.session)
+    _ = clear_authorization_process_cache(state.authorization_module)
+
+    if state.authorization_module.has_permission?(user, permission) do
+      :ok
+    else
+      {:error, :permission_revoked}
+    end
+  end
+
+  defp permission_for_session(session) do
+    case protocol(session) do
+      "rdp" -> "devices.remote_access.rdp.open"
+      _protocol -> "devices.remote_access.ssh.open"
+    end
+  end
+
+  defp clear_authorization_process_cache(module) do
+    if function_exported?(module, :clear_process_cache, 0), do: module.clear_process_cache()
+  end
+
+  defp stop_for_permission_revoked(state) do
+    _ =
+      state.sessions_module.request_close(state.session_id,
+        reason: "permission_revoked",
+        scope: state.scope
+      )
+
+    {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Remote access permission was revoked."})}],
+     %{state | closing_action: :revoked}}
+  end
+
   defp schedule_timeout_timers(state, session) do
     %{
       state
@@ -786,6 +970,17 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     %{state | idle_timer: schedule_timeout(:idle_timeout, state.session.idle_timeout_seconds)}
   end
 
+  defp schedule_reauth_timer(state) do
+    _ = cancel_timer(state.reauth_timer)
+    %{state | reauth_timer: schedule_reauth_timeout(state.reauth_interval_ms)}
+  end
+
+  defp schedule_reauth_timeout(milliseconds) when is_integer(milliseconds) and milliseconds > 0 do
+    Process.send_after(self(), :reauthorize, milliseconds)
+  end
+
+  defp schedule_reauth_timeout(_milliseconds), do: nil
+
   defp schedule_timeout(message, seconds) when is_integer(seconds) and seconds > 0 do
     Process.send_after(self(), message, seconds * 1000)
   end
@@ -795,7 +990,8 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp cancel_timeout_timers(state) do
     _ = cancel_timer(state.idle_timer)
     _ = cancel_timer(state.absolute_timer)
-    %{state | idle_timer: nil, absolute_timer: nil}
+    _ = cancel_timer(state.reauth_timer)
+    %{state | idle_timer: nil, absolute_timer: nil, reauth_timer: nil}
   end
 
   defp cancel_timer(nil), do: :ok

@@ -157,7 +157,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) handleKeyMsg(msg tea.KeyMsg, cmd tea.Cmd) (tea.Model, tea.Cmd) {
-	//nolint:exhaustive // Default case handles all unlisted keys
+	//nolint:exhaustive
 	switch msg.Type {
 	case tea.KeyCtrlC, tea.KeyEsc:
 		return m.quit()
@@ -551,7 +551,7 @@ type EnrollHandler struct{}
 // Parse reads flags for the enroll subcommand.
 func (EnrollHandler) Parse(args []string, cfg *CmdConfig) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	token := fs.String("token", "", "Enrollment token (edgepkg-v2 or collectorpkg-v2)")
+	token := fs.String("token", "", "Enrollment token (edgepkg-v3 or collectorpkg-v2)")
 	coreURL := fs.String("core-url", "", "Core API base URL (required only when the signed token does not embed one)")
 	hostIP := fs.String("host-ip", "", "Override detected host IP (agent enrollment only)")
 	configPath := fs.String("config", "/etc/serviceradar/agent.json", "Agent config path")
@@ -766,7 +766,7 @@ func parseEdgePackageShowFlags(args []string, cfg *CmdConfig) error {
 	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
 	id := fs.String("id", "", "Edge package identifier")
 	output := fs.String("output", "text", "Output format: text or json")
-	reissue := fs.Bool("reissue-token", false, "Emit a signed edgepkg-v2 token using --download-token")
+	reissue := fs.Bool("reissue-token", false, "Emit a signed edgepkg-v3 token using --download-token")
 	downloadToken := fs.String("download-token", "", "Download token to encode when --reissue-token is set")
 
 	if err := fs.Parse(args); err != nil {

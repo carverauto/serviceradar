@@ -69,6 +69,9 @@ remote_access_ssh_certificate_policy =
 remote_access_ssh_ca_signer_enabled =
   System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED", "false") in ~w(true 1 yes)
 
+remote_access_desktop_rdp_enabled =
+  System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED", "false") in ~w(true 1 yes)
+
 remote_access_ssh_ca_signer_args =
   case System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON") do
     nil ->
@@ -95,6 +98,9 @@ if is_map(remote_access_ssh_certificate_policy) and
   config :serviceradar_core,
     remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
 end
+
+config :serviceradar_core,
+  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
 
 if remote_access_ssh_ca_signer_enabled do
   signer_command =
@@ -895,7 +901,11 @@ if config_env() == :prod do
             ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
-           {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance}
+           {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+           {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
+            queue: :maintenance},
+           {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
+            queue: :maintenance}
          ] ++ object_store_retention_crontab}
     ],
     peer: Oban.Peers.Database

@@ -191,12 +191,26 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferController do
     cond do
       path == "" -> {:error, :invalid_request, "#{field_name} is required"}
       byte_size(path) > @max_path_bytes -> {:error, :invalid_request, "#{field_name} is too long"}
+      path_has_control_byte?(path) -> {:error, :invalid_request, "#{field_name} contains control bytes"}
       not String.starts_with?(path, "/") -> {:error, :invalid_request, "#{field_name} must be absolute"}
+      path_has_dot_segment?(path) -> {:error, :invalid_request, "#{field_name} contains unsafe path segments"}
       true -> {:ok, path}
     end
   end
 
   defp normalize_path(_value, field_name), do: {:error, :invalid_request, "#{field_name} is required"}
+
+  defp path_has_control_byte?(path) do
+    path
+    |> :binary.bin_to_list()
+    |> Enum.any?(&(&1 < 32 or &1 == 127))
+  end
+
+  defp path_has_dot_segment?(path) do
+    path
+    |> String.split("/", trim: true)
+    |> Enum.any?(&(&1 in [".", ".."]))
+  end
 
   defp normalize_destination_path(value, "rename"), do: normalize_path(value, "destination_path")
 

@@ -364,6 +364,8 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
 	remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
+	remoteConsoleManager.desktopGateway = desktopMediaGatewayFromClient(gateway)
+	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPath: remoteAccessRDPAdapterPath(server)}
 	remoteConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (remoteConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {
@@ -400,6 +402,47 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		cameraRelayManager:   cameraRelayManager,
 		remoteConsoleManager: remoteConsoleManager,
 	}
+}
+
+type gatewayDesktopMediaClient struct {
+	gateway *agentgateway.GatewayClient
+}
+
+func desktopMediaGatewayFromClient(gateway *agentgateway.GatewayClient) desktopMediaGateway {
+	if gateway == nil {
+		return nil
+	}
+
+	return gatewayDesktopMediaClient{gateway: gateway}
+}
+
+func (g gatewayDesktopMediaClient) OpenDesktopMediaSession(
+	ctx context.Context,
+	req *proto.OpenDesktopMediaSessionRequest,
+) (*proto.OpenDesktopMediaSessionResponse, error) {
+	return g.gateway.OpenDesktopMediaSession(ctx, req)
+}
+
+func (g gatewayDesktopMediaClient) StreamDesktopMedia(ctx context.Context) (desktopMediaStream, error) {
+	return g.gateway.StreamDesktopMedia(ctx)
+}
+
+func (g gatewayDesktopMediaClient) CloseDesktopMediaSession(
+	ctx context.Context,
+	req *proto.CloseDesktopMediaSessionRequest,
+) (*proto.CloseDesktopMediaSessionResponse, error) {
+	return g.gateway.CloseDesktopMediaSession(ctx, req)
+}
+
+func remoteAccessRDPAdapterPath(server *Server) string {
+	if server == nil || server.config == nil {
+		return ""
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return strings.TrimSpace(server.config.RemoteAccessRDPAdapterPath)
 }
 
 func remoteAccessKnownHostsFile(server *Server) string {
@@ -2410,7 +2453,11 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 
 	// Build Hello request
 	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
+	var cfg ServerConfig
+	if p.server.config != nil {
+		cfg = *p.server.config
+	}
+	agentID := cfg.AgentID
 	p.server.mu.RUnlock()
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -2419,7 +2466,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	helloReq := &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
-		Capabilities:  getAgentCapabilities(),
+		Capabilities:  getAgentCapabilities(&cfg),
 		Hostname:      hostname,
 		Os:            runtime.GOOS,
 		Arch:          runtime.GOARCH,
@@ -3307,11 +3354,19 @@ func isDockerRuntime() bool {
 	return os.Getenv("container") == "docker"
 }
 
-func getAgentCapabilities() []string {
-	return agentCapabilities(remoteaccess.PlatformEnhancedRecordingAvailable())
+type agentCapabilityOptions struct {
+	enhancedBPF bool
+	desktopRDP  bool
 }
 
-func agentCapabilities(enhancedBPF bool) []string {
+func getAgentCapabilities(cfg *ServerConfig) []string {
+	return agentCapabilities(agentCapabilityOptions{
+		enhancedBPF: remoteaccess.PlatformEnhancedRecordingAvailable(),
+		desktopRDP:  remoteAccessRDPCapabilityEnabled(cfg),
+	})
+}
+
+func agentCapabilities(options agentCapabilityOptions) []string {
 	capabilities := []string{
 		"icmp",
 		"mtr",
@@ -3329,9 +3384,24 @@ func agentCapabilities(enhancedBPF bool) []string {
 		remoteaccess.CapabilityRemoteAccessRecording,
 	}
 
-	if enhancedBPF {
+	if options.enhancedBPF {
 		capabilities = append(capabilities, remoteaccess.CapabilityRemoteAccessBPF)
+	}
+	if options.desktopRDP {
+		capabilities = append(
+			capabilities,
+			remoteaccess.CapabilityRemoteAccessDesktop,
+			remoteaccess.CapabilityRemoteAccessRDP,
+		)
 	}
 
 	return capabilities
+}
+
+func remoteAccessRDPCapabilityEnabled(cfg *ServerConfig) bool {
+	if cfg == nil || cfg.RemoteAccessRDPEnabled == nil || !*cfg.RemoteAccessRDPEnabled {
+		return false
+	}
+
+	return remoteaccess.RDPAdapterReady(cfg.RemoteAccessRDPAdapterPath)
 }

@@ -3,6 +3,16 @@
 {{- $jetstream := default (dict) $nats.jetstream -}}
 {{- $replicas := int (default 1 $nats.replicas) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $natsStorageClass := default "" $persistence.storageClassName -}}
+{{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
+  {{- $natsStorageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
+  {{- fail "nats.persistence.storageClassName or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
+{{- end -}}
 ---
 apiVersion: v1
 kind: Service
@@ -66,6 +76,7 @@ spec:
       - name: nats
         image: nats:{{ .Values.image.tags.nats | default "latest" }}
         imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.containerSecurityContext" . | nindent 8 }}
         command: ["/bin/sh", "-ec"]
         args:
         - |
@@ -316,6 +327,8 @@ spec:
         - containerPort: 6222
           name: cluster
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: nats-data
           mountPath: /data
         - name: cert-data
@@ -341,6 +354,8 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 10
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
@@ -353,6 +368,6 @@ spec:
       resources:
         requests:
           storage: {{ default "30Gi" $persistence.size }}
-      {{- if $persistence.storageClassName }}
-      storageClassName: {{ $persistence.storageClassName | quote }}
+      {{- if $natsStorageClass }}
+      storageClassName: {{ $natsStorageClass | quote }}
       {{- end }}

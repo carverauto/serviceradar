@@ -70,6 +70,13 @@ Initial `github.com/cilium/ebpf` review:
 - `cmd/bpf2go` is the likely probe generation tool, but it is a build-time tool with heavier indirect dependencies. ServiceRadar should generate BPF artifacts hermetically, commit generated `.go` and `.o` outputs, and keep normal `go test`/Bazel agent builds independent of a workstation LLVM setup.
 - Scratch compile checks for the runtime imports passed for `darwin/arm64`, `linux/amd64`, and `linux/arm64` without cgo.
 
+Maintenance window:
+
+- Revalidated on 2026-05-18 against GitHub releases and pkg.go.dev: `v0.21.0` is the latest tagged module version and was published on 2026-03-05.
+- No newer CVE-only patch release was identified during that review. GitHub release notes for `v0.21.0` call out breaking XDP attach-type changes and compatibility updates, not a post-`v0.21.0` security patch train.
+- Because eBPF runs privileged kernel-facing code, ServiceRadar should re-check `github.com/cilium/ebpf` at every ServiceRadar release cut and no later than 12 months after the last documented review.
+- A release may keep the pinned version only when the release notes / advisory check finds no relevant security fix and the implementation still compiles against ServiceRadar's supported kernels. Otherwise, upgrade or write a short deferral note that names the blocking API/kernel compatibility issue.
+
 Repository integration path:
 
 - Add `github.com/cilium/ebpf` to `go.mod` only in the implementation change that introduces `go/pkg/agent/ebpf`.

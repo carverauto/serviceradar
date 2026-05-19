@@ -19,12 +19,16 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
   `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
   """
 
+  alias ServiceRadarAgentGateway.AgentCertificateRevocation
+
   require Logger
 
   @type component_identity :: %{
           component_id: String.t(),
           partition_id: String.t(),
-          component_type: atom() | nil
+          component_type: atom() | nil,
+          certificate_fingerprint: String.t(),
+          serial_number: integer()
         }
 
   @doc """
@@ -40,12 +44,15 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
          {:ok, parsed} <- parse_cn(cn) do
       component_type = extract_component_type(otp_cert)
 
-      {:ok,
-       %{
-         component_id: parsed.component_id,
-         partition_id: parsed.partition_id,
-         component_type: component_type
-       }}
+      identity = %{
+        component_id: parsed.component_id,
+        partition_id: parsed.partition_id,
+        component_type: component_type,
+        certificate_fingerprint: certificate_fingerprint(cert_der),
+        serial_number: extract_serial_number(otp_cert)
+      }
+
+      reject_revoked(identity)
     end
   end
 
@@ -157,5 +164,27 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
     end
   rescue
     ArgumentError -> nil
+  end
+
+  defp certificate_fingerprint(cert_der) do
+    :sha256
+    |> :crypto.hash(cert_der)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp extract_serial_number({:OTPCertificate, tbs_cert, _, _}) do
+    elem(tbs_cert, 2)
+  end
+
+  defp reject_revoked(identity) do
+    if AgentCertificateRevocation.revoked?(identity) do
+      Logger.warning(
+        "Revoked agent certificate rejected: component_id=#{identity.component_id} reason=#{inspect(AgentCertificateRevocation.revoked_reason(identity))}"
+      )
+
+      {:error, :revoked_certificate}
+    else
+      {:ok, identity}
+    end
   end
 end

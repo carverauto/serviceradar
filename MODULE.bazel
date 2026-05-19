@@ -623,6 +623,24 @@ crates.spec(
     repositories = ["rust_crates"],
     version = "0.5.0",
 )
+
+# IronRDP core/PDU crates are optional for the RDP helper feature build. Keep
+# connector/CredSSP crates out of the workspace until their dependency graph is
+# reviewed separately.
+crates.spec(
+    default_features = False,
+    features = ["alloc"],
+    package = "ironrdp-core",
+    repositories = ["rust_crates"],
+    version = "0.1.5",
+)
+crates.spec(
+    default_features = False,
+    features = ["alloc"],
+    package = "ironrdp-pdu",
+    repositories = ["rust_crates"],
+    version = "0.7.0",
+)
 crates.from_cargo(
     name = "rust_crates",
     cargo_config = "//:.cargo/config.toml",
@@ -632,6 +650,17 @@ crates.from_cargo(
 use_repo(
     crates,
     "rust_crates",
+)
+
+rdp_connector_crates = use_extension("@rules_rust//crate_universe:extension.bzl", "crate")
+rdp_connector_crates.from_cargo(
+    name = "rdp_connector_crates",
+    cargo_lockfile = "//rust/rdp-connector-probe:Cargo.lock",
+    manifests = ["//rust/rdp-connector-probe:Cargo.toml"],
+)
+use_repo(
+    rdp_connector_crates,
+    "rdp_connector_crates",
 )
 
 # --- Node.js toolchain -------------------------------------------------------

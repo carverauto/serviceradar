@@ -5,7 +5,7 @@ title: Remote Access
 
 # Remote Access
 
-ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. Native Proxmox VM/LXC `termproxy` or `vncwebsocket` consoles, SFTP/SCP, database access, Kubernetes access, RDP, and application access are follow-up capabilities.
+ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. Native Proxmox VM/LXC `termproxy` or `vncwebsocket` consoles, SFTP/SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
 
 The intended enterprise model is short-lived SSH user certificates backed by your identity provider, ServiceRadar RBAC, and an edge agent that can reach the target. Operators should avoid reusable agent-local SSH secrets.
 
@@ -63,19 +63,45 @@ ssh-keygen -t ed25519 -f serviceradar_user_ca -C serviceradar-remote-access-ca
 
 Store `serviceradar_user_ca` as a private secret for the signer. Distribute only `serviceradar_user_ca.pub` to target hosts.
 
+Production deployments should keep the CA private key outside web-ng, core, and
+agent-gateway processes. The bundled `serviceradar-sshca-signer` supports a
+file-backed key for bootstrap and lab use, but the preferred production custody
+model is an isolated signer command/service backed by OpenBao Transit, Vault
+Transit, cloud KMS, or an HSM. That signer should expose the same bounded command
+interface, load the key inside the custody boundary, audit every signing request,
+and deny operation if the custody backend is unavailable.
+
+The command-signer boundary is the ServiceRadar KMS/HSM integration point. A
+production signer wrapper can keep a non-exportable key in OpenBao/Vault Transit,
+cloud KMS, or an HSM and implement the same stdin/request-file JSON contract as
+`serviceradar-sshca-signer`. ServiceRadar should receive only the signed
+certificate response. If the bootstrap signer is used with a file or environment
+key, configure `--audit-file` or `SERVICERADAR_SSHCA_AUDIT_FILE` so the signer
+records CA key-load events without writing audit data to stdout.
+
 Configure the signer in the web-ng or core environment that approves remote access sessions:
 
 ```bash
 SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED=true
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED=true
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND=serviceradar-sshca-signer
-SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secrets/serviceradar_ssh_ca","--max-ttl","8h"]'
+SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secrets/serviceradar_ssh_ca","--max-ttl","8h","--audit-file","/var/log/serviceradar/sshca-signer-audit.jsonl"]'
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 ```
 
 `SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED` defaults to `false`. Keep it disabled until targets, RBAC, host-key policy, and the SSH CA signer are ready; the device-details SSH action and remote-access session API are hidden or blocked while it is disabled.
 
-The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. File-backed secrets are usually easier to operate in Kubernetes.
+The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. Environment-variable custody is suitable only for development because process dumps, debug output, and host introspection can expose the key. File-backed Kubernetes secrets are a better bootstrap option, and OpenBao/Vault/KMS/HSM custody is the production target.
+
+Certificate issuance is rate limited per actor. The default bucket is
+`remote_access_ssh_certificate_issue` with a limit of 10 certificates per minute.
+Tune it in `ServiceRadar.Security.RateLimiter` config if your SSO/session pattern
+requires a different issuance rate, and alert on throttling because repeated
+denials can indicate credential stuffing or automation misuse.
+
+Rotate the SSH user CA by adding a new CA public key to target hosts, switching
+`SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` and signer key material, then removing
+the old public key after all certificates signed by the old CA have expired.
 
 For production, prefer a secret-store backed file instead of a long-lived environment variable. With OpenBao, Vault, or a cloud KMS, run the signer beside an agent/template process that writes the current encrypted CA key into an in-memory volume such as `/run/secrets/serviceradar_ssh_ca`, then point `--ca-key-file` at that path. Keep the mount readable only by the signer user. The signer reports the key source class (`file` or `env`) in the certificate issue result so the audit event records how the CA key was loaded without exposing the key path or material. Rotate by updating the secret-store version, restarting or reloading the signer workload, changing `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`, and leaving both old and new public CA keys trusted on targets until the maximum certificate TTL has elapsed.
 

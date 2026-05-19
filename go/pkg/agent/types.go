@@ -118,6 +118,11 @@ type ServerConfig struct {
 
 	// Deprecated: accepted for compatibility with older rendered ConfigMaps.
 	RemoteAccessKnownHostsFile string `json:"remote_access_known_hosts_file,omitempty"`
+
+	// Optional per-session RDP helper gate. Agents advertise remote_access.rdp only
+	// when enabled and the helper binary is locally executable.
+	RemoteAccessRDPEnabled     *bool  `json:"remote_access_rdp_enabled,omitempty"`
+	RemoteAccessRDPAdapterPath string `json:"remote_access_rdp_adapter_path,omitempty"`
 }
 
 // ServiceError represents an error that occurred in a specific service.

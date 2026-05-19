@@ -9,14 +9,17 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
   use Ash.Resource,
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
   import Ash.Expr
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @remote_access_permission "devices.remote_access.ssh.open"
-  @remote_access_check {ActorHasPermission, permission: @remote_access_permission}
+  @remote_access_ssh_permission "devices.remote_access.ssh.open"
+  @remote_access_rdp_permission "devices.remote_access.rdp.open"
+  @remote_access_ssh_check {ActorHasPermission, permission: @remote_access_ssh_permission}
+  @remote_access_rdp_check {ActorHasPermission, permission: @remote_access_rdp_permission}
 
   @create_fields [
     :session_id,
@@ -44,6 +47,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     schema "platform"
   end
 
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:manifest])
+    decrypt_by_default([:manifest])
+  end
+
   code_interface do
     define :create_recording, action: :create
     define :get_by_id, action: :by_id, args: [:id]
@@ -52,10 +61,16 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     define :complete, action: :complete
     define :fail, action: :fail
     define :expire, action: :expire
+    define :mark_deleted, action: :mark_deleted
+    define :destroy_recording, action: :destroy
   end
 
   actions do
     defaults [:read]
+
+    destroy :destroy do
+      primary? true
+    end
 
     read :by_id do
       argument :id, :uuid, allow_nil?: false
@@ -93,16 +108,26 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
       change set_attribute(:status, :expired)
     end
 
-    destroy :destroy
+    update :mark_deleted do
+      change set_attribute(:status, :deleted)
+    end
   end
 
   policies do
     import ServiceRadar.Policies
 
     system_bypass()
-    read_with_permission(@remote_access_check)
 
-    policy action_type([:create, :update, :destroy]) do
+    policy action_type(:read) do
+      authorize_if @remote_access_ssh_check
+      authorize_if @remote_access_rdp_check
+    end
+
+    policy action_type([:create, :update]) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action(:destroy) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end
@@ -118,7 +143,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     attribute :status, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:pending, :active, :completed, :failed, :expired]
+      constraints one_of: [:pending, :active, :completed, :failed, :expired, :deleted]
       default :pending
     end
 
@@ -146,6 +171,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
       allow_nil? false
       public? true
       default %{}
+      sensitive? true
+      description "Recording manifest encrypted at rest by AshCloak"
     end
 
     attribute :started_at, :utc_datetime do

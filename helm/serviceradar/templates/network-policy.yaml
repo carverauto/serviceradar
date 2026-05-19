@@ -1,5 +1,18 @@
 {{- $np := default (dict) .Values.networkPolicy -}}
 {{- if $np.enabled -}}
+{{- $ingress := default (dict) $np.ingress -}}
+{{- $allowIngressSameNs := default true $ingress.allowSameNamespace -}}
+{{- $ingressAllowedNamespaces := default (list) $ingress.allowedNamespaces -}}
+{{- $ingressAllowedCIDRs := default (list) $ingress.allowedCIDRs -}}
+{{- $ingressAllowedPorts := default (list) $ingress.allowedPorts -}}
+{{- $ingressErlangDist := default (dict) $ingress.erts -}}
+{{- $ingressErlangDistEnabled := default true $ingressErlangDist.enabled -}}
+{{- $ingressErlangDistSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $ingressErlangDist.podSelector -}}
+{{- $ingressErlangDistPorts := default (list (dict "protocol" "TCP" "port" 4369) (dict "protocol" "TCP" "port" 9100 "endPort" 9155)) $ingressErlangDist.ports -}}
+{{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
+{{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
+{{- $hasIngressPorts := gt (len $ingressAllowedPorts) 0 -}}
+{{- $hasIngressErlangDistPorts := gt (len $ingressErlangDistPorts) 0 -}}
 {{- $egress := default (dict) $np.egress -}}
 {{- $allowDNS := default false $egress.allowDNS -}}
 {{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
@@ -48,7 +61,52 @@ spec:
   podSelector:
 {{- toYaml $podSelector | nindent 4 }}
   policyTypes:
+    - Ingress
     - Egress
+  ingress:
+{{- if or $allowIngressSameNs $hasIngressNamespaces $hasIngressCIDRs (and $ingressErlangDistEnabled $hasIngressErlangDistPorts) }}
+{{- if $allowIngressSameNs }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+      {{- if $hasIngressPorts }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- range $namespace := $ingressAllowedNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $namespace | quote }}
+      {{- if $hasIngressPorts }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- range $cidr := $ingressAllowedCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      {{- if $hasIngressPorts }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressAllowedPorts | trim | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- if and $ingressErlangDistEnabled $hasIngressErlangDistPorts }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+{{- toYaml $ingressErlangDistSelector | nindent 12 }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $ingressErlangDistPorts | trim | nindent 8 }}
+{{- end }}
+{{- else }}
+    []
+{{- end }}
   egress:
 {{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasCIDRs $hasKubeAPICIDRs }}
 {{- if $allowDNS }}

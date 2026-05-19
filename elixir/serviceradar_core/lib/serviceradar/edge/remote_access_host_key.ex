@@ -37,6 +37,7 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
     :seen_count,
     :trusted_at,
     :trusted_by,
+    :supersedes_host_key_id,
     :metadata
   ]
 
@@ -72,6 +73,7 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
     define :record_seen, action: :record_seen
     define :trust, action: :trust
     define :mark_conflict, action: :mark_conflict
+    define :reject, action: :reject
     define :revoke, action: :revoke
     define :mark_rotated, action: :mark_rotated
   end
@@ -123,7 +125,7 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
     end
 
     update :trust do
-      accept [:trusted_at, :trusted_by, :metadata]
+      accept [:trusted_at, :trusted_by, :supersedes_host_key_id, :metadata]
       change set_attribute(:status, :trusted)
     end
 
@@ -135,6 +137,11 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
     update :revoke do
       accept [:revoked_at, :revoked_by, :revocation_reason, :metadata]
       change set_attribute(:status, :revoked)
+    end
+
+    update :reject do
+      accept [:rejected_at, :rejected_by, :rejection_reason, :metadata]
+      change set_attribute(:status, :rejected)
     end
 
     update :mark_rotated do
@@ -205,7 +212,7 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
       allow_nil? false
       public? true
       default :pending
-      constraints one_of: [:pending, :trusted, :conflict, :rotated, :revoked]
+      constraints one_of: [:pending, :trusted, :conflict, :rotated, :revoked, :rejected]
     end
 
     attribute :source, :atom do
@@ -252,6 +259,18 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
       public? true
     end
 
+    attribute :rejected_at, :utc_datetime do
+      public? true
+    end
+
+    attribute :rejected_by, :string do
+      public? true
+    end
+
+    attribute :rejection_reason, :string do
+      public? true
+    end
+
     attribute :rotated_at, :utc_datetime do
       public? true
     end
@@ -261,6 +280,10 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
     end
 
     attribute :replacement_host_key_id, :uuid do
+      public? true
+    end
+
+    attribute :supersedes_host_key_id, :uuid do
       public? true
     end
 
@@ -281,6 +304,12 @@ defmodule ServiceRadar.Edge.RemoteAccessHostKey do
   relationships do
     belongs_to :replacement_host_key, __MODULE__ do
       source_attribute :replacement_host_key_id
+      public? true
+      define_attribute? false
+    end
+
+    belongs_to :supersedes_host_key, __MODULE__ do
+      source_attribute :supersedes_host_key_id
       public? true
       define_attribute? false
     end

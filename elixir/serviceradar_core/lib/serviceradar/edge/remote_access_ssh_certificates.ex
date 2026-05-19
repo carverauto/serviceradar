@@ -10,9 +10,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
   alias ServiceRadar.Edge.RemoteAccessSSHCertificatePolicy
   alias ServiceRadar.Security.RateLimiter
 
-  @rate_limit_bucket :remote_access_ssh_certificate_issue
-  @default_rate_limit [limit: 10, window_seconds: 60]
-
   @type sign_request :: %{
           public_key: String.t(),
           key_id: String.t(),
@@ -26,8 +23,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
           expires_at: DateTime.t() | nil,
           fingerprint: String.t() | nil,
           serial: String.t() | integer() | nil,
-          ca_key_id: String.t() | nil,
-          ca_key_source: String.t() | nil
+          ca_key_id: String.t() | nil
         }
 
   @callback sign_user_certificate(sign_request(), keyword()) ::
@@ -40,7 +36,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
 
     with {:ok, signer} <- validate_signer(signer),
          {:ok, request} <- RemoteAccessSSHCertificatePolicy.authorize(actor, attrs, opts),
-         :ok <- check_rate_limit(request, opts),
+         :ok <- enforce_rate_limit(request, opts),
          {:ok, signed} <- signer.sign_user_certificate(sign_request(request), opts) do
       {:ok, issue_result(request, signed)}
     end
@@ -62,23 +58,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
 
   defp validate_signer(_signer), do: {:error, :ssh_certificate_signer_invalid}
 
-  defp check_rate_limit(request, opts) do
-    if Keyword.get(opts, :rate_limit_enabled?, true) do
-      do_check_rate_limit(request, opts)
-    else
-      :ok
-    end
-  end
+  defp enforce_rate_limit(request, opts) do
+    rate_limit_opts = Keyword.get(opts, :rate_limit, [])
 
-  defp do_check_rate_limit(request, opts) do
-    if Process.whereis(RateLimiter) do
+    if Keyword.get(rate_limit_opts, :enabled, true) do
       case RateLimiter.check_and_record(
-             @rate_limit_bucket,
+             :remote_access_ssh_certificate_issue,
              rate_limit_key(request),
-             rate_limit_opts(opts)
+             rate_limit_opts
            ) do
         :ok -> :ok
-        {:error, _retry_after} -> {:error, :ssh_certificate_rate_limited}
+        {:error, retry_after} -> {:error, {:ssh_certificate_rate_limited, retry_after}}
       end
     else
       :ok
@@ -86,22 +76,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
   end
 
   defp rate_limit_key(request) do
-    request
-    |> Map.get(:audit, %{})
-    |> Map.get(:actor_id)
-    |> case do
-      value when is_binary(value) and value != "" -> value
-      _value -> "unknown"
-    end
-  end
-
-  defp rate_limit_opts(opts) do
-    opts
-    |> Keyword.get(:rate_limit, @default_rate_limit)
-    |> case do
-      values when is_list(values) -> Keyword.take(values, [:limit, :window_seconds])
-      _value -> @default_rate_limit
-    end
+    actor_id = get_in(request, [:audit, :actor_id]) || "unknown-actor"
+    {actor_id, request.protocol}
   end
 
   defp sign_request(request) do
@@ -142,7 +118,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSSHCertificates do
       certificate_fingerprint: Map.get(signed, :fingerprint),
       certificate_serial: Map.get(signed, :serial),
       ca_key_id: Map.get(signed, :ca_key_id),
-      ca_key_source: Map.get(signed, :ca_key_source),
       expires_at: Map.get(signed, :expires_at)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)

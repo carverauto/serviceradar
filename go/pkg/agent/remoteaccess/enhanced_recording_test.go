@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/ebpf/probes"
 )
@@ -31,6 +32,7 @@ const (
 	enhancedTestSessionID       = "session-1"
 	enhancedTestRouterHost      = "router.example"
 	enhancedTestTerminalCommand = "whoami\r"
+	enhancedTestSanitizedPath   = "/usr/bin/?ssh"
 )
 
 func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) {
@@ -40,7 +42,7 @@ func TestNormalizeEnhancedEventAppliesPolicyAndSessionCorrelation(t *testing.T) 
 		SessionID:             enhancedTestSessionID,
 		Protocol:              ProtocolSSH,
 		AgentID:               enhancedTestAgentID,
-		GatewayID:             "gateway-1",
+		GatewayID:             remoteAccessTestGatewayID,
 		Target:                map[string]string{"host": enhancedTestRouterHost, "port": "22"},
 		CredentialCustodyMode: SSHCredentialModeSSHCertificate,
 		Policy: EnhancedRecordingPolicy{
@@ -219,6 +221,50 @@ func TestNormalizeBPFCommandEvent(t *testing.T) {
 	}
 }
 
+func TestNormalizeBPFCommandEventSanitizesKernelStrings(t *testing.T) {
+	t.Parallel()
+
+	raw := probes.CommandEvent{
+		Argc: uint32(probes.CommandMaxArgs + 10),
+	}
+	copy(raw.Path[:], []byte{'/', 'u', 's', 'r', '/', 'b', 'i', 'n', '/', 0xff, '\n', 's', 's', 'h'})
+	copy(raw.Argv[0][:], ProtocolSSH+"\x00ignore")
+	copy(raw.Argv[1][:], []byte{'-', 'l', 0xff, '\t', 'a', 'l', 'i', 'c', 'e'})
+	for index := 2; index < probes.CommandMaxArgs; index++ {
+		copy(raw.Argv[index][:], "arg")
+	}
+
+	event := normalizeBPFCommandEvent(raw, time.Unix(1700000000, 100))
+
+	if event.CommandPath != enhancedTestSanitizedPath {
+		t.Fatalf("command path = %q", event.CommandPath)
+	}
+	if len(event.Argv) != probes.CommandMaxArgs {
+		t.Fatalf("argv count = %d, want %d: %#v", len(event.Argv), probes.CommandMaxArgs, event.Argv)
+	}
+	if event.Argv[0] != ProtocolSSH || event.Argv[1] != "-l?alice" {
+		t.Fatalf("argv not sanitized: %#v", event.Argv)
+	}
+}
+
+func FuzzSanitizeKernelCString(f *testing.F) {
+	f.Add([]byte("ssh\x00ignored"))
+	f.Add([]byte{0xff, 0xfe, '\n', 's', 's', 'h'})
+	f.Add([]byte{})
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		got := sanitizeKernelCString(data)
+		if !utf8.ValidString(got) {
+			t.Fatalf("sanitized string is not valid UTF-8: %q", got)
+		}
+		for _, r := range got {
+			if r < ' ' || r == 0x7f {
+				t.Fatalf("sanitized string retained control rune %q in %q", r, got)
+			}
+		}
+	})
+}
+
 func TestNormalizeBPFFileEvent(t *testing.T) {
 	t.Parallel()
 
@@ -371,5 +417,62 @@ func TestBPFLossTrackerEmitsCounters(t *testing.T) {
 	}
 	if got := tracker.drainLossEvents(); len(got) != 0 {
 		t.Fatalf("loss tracker should drain counters, got %#v", got)
+	}
+}
+
+func TestBPFLossTrackerEmitsInBandAfterBackpressure(t *testing.T) {
+	t.Parallel()
+
+	tracker := newBPFLossTracker(func() time.Time { return time.Unix(1700000004, 9) })
+	events := make(chan EnhancedEvent, 1)
+
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventCommand})
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventCommand})
+
+	first := <-events
+	if first.EventType != EnhancedEventCommand {
+		t.Fatalf("first event = %#v", first)
+	}
+
+	tracker.emitOrCountBackpressure(events, EnhancedEvent{EventType: EnhancedEventFile})
+
+	loss := <-events
+	if loss.EventType != EnhancedEventLoss {
+		t.Fatalf("loss event type = %q", loss.EventType)
+	}
+	if loss.DroppedEvents != 1 {
+		t.Fatalf("dropped events = %d, want 1", loss.DroppedEvents)
+	}
+	if loss.Metadata[enhancedBPFLossEventFamily] != EnhancedEventCommand ||
+		loss.Metadata[enhancedBPFLossBackpressure] != "1" {
+		t.Fatalf("loss metadata = %#v", loss.Metadata)
+	}
+}
+
+func TestBPFLossTrackerRetainsCountersWhenLossEventCannotQueue(t *testing.T) {
+	t.Parallel()
+
+	tracker := newBPFLossTracker(func() time.Time { return time.Unix(1700000005, 10) })
+	tracker.addKernelCounters(EnhancedEventNetwork, probes.LossCounters{KernelDrops: 4})
+
+	events := make(chan EnhancedEvent, 1)
+	events <- EnhancedEvent{EventType: EnhancedEventCommand}
+
+	if sent := tracker.emitLossEvents(events); sent != 0 {
+		t.Fatalf("sent loss events = %d, want 0", sent)
+	}
+
+	<-events
+
+	if sent := tracker.emitLossEvents(events); sent != 1 {
+		t.Fatalf("sent loss events after drain = %d, want 1", sent)
+	}
+
+	loss := <-events
+	if loss.EventType != EnhancedEventLoss || loss.DroppedEvents != 4 {
+		t.Fatalf("loss = %#v", loss)
+	}
+	if got := tracker.drainLossEvents(); len(got) != 0 {
+		t.Fatalf("loss tracker should drain after successful in-band emit, got %#v", got)
 	}
 }

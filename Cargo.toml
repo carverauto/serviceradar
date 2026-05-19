@@ -17,6 +17,10 @@ members = [
     "rust/flow-collector",
     "rust/srql",
     "rust/fieldsurvey-sidekick",
+    "rust/rdp-adapter",
+]
+exclude = [
+    "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
 ]
 
 [workspace.dependencies]

@@ -362,6 +362,9 @@ message ConsoleFrame {
   uint32 rows = 5;              // Terminal rows for open/resize frames
   string reason = 6;            // Close/error reason
   int64 timestamp = 7;          // Frame creation time (unix seconds)
+  uint64 seq = 8;               // Per-session monotonic frame-auth sequence
+  string payload_sha256 = 9;     // SHA-256 hex digest of data
+  string signature = 10;         // HMAC over the frame binding fields
 }
 
 // ControlStreamRequest carries agent → gateway control messages.

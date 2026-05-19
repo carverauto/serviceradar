@@ -1,6 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSSHCertificates
   alias ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler
@@ -14,12 +16,12 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       {:ok,
        %RemoteAccessSession{
          id: opts[:session_id],
-         device_uid: "linux-1",
+         device_uid: scope_value(opts, :device_uid, "linux-1"),
          target_kind: :inventory_device,
-         target_host: "10.0.0.10",
-         target_port: 22,
-         protocol: :ssh,
-         adapter: :ssh,
+         target_host: scope_value(opts, :target_host, "10.0.0.10"),
+         target_port: scope_value(opts, :target_port, 22),
+         protocol: scope_value(opts, :protocol, :ssh),
+         adapter: scope_value(opts, :adapter, :ssh),
          agent_id: "agent-1",
          gateway_id: "gateway-1",
          credential_rule_id: scope_value(opts, :credential_rule_id, nil),
@@ -186,6 +188,26 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     end
   end
 
+  defmodule AuthorizationStub do
+    @moduledoc false
+
+    def has_permission?(%{id: id}, permission) do
+      id
+      |> permissions()
+      |> MapSet.member?(permission)
+    end
+
+    def has_permission?(_user, _permission), do: false
+
+    def set_permissions(user_id, permissions) do
+      Process.put({__MODULE__, user_id}, MapSet.new(permissions))
+    end
+
+    def clear_process_cache, do: :ok
+
+    defp permissions(user_id), do: Process.get({__MODULE__, user_id}, MapSet.new())
+  end
+
   defmodule SignerStub do
     @moduledoc false
     @behaviour RemoteAccessSSHCertificates
@@ -224,6 +246,96 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     RemoteAccessStreamHandler.terminate(:normal, attached)
   end
 
+  test "unknown browser messages are logged and emitted as telemetry" do
+    {:ok, state} = init_state("session-unknown-message")
+
+    assert {:push, {:text, _response}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-unknown-message"), [opcode: :text]}, state)
+
+    event = [:serviceradar, :remote_access, :stream, :unknown_message]
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn ^event, measurements, metadata, test_pid ->
+          send(test_pid, {:unknown_stream_message, measurements, metadata})
+        end,
+        self()
+      )
+
+    log =
+      try do
+        capture_log(fn ->
+          assert {:ok, ^attached} =
+                   RemoteAccessStreamHandler.handle_in(
+                     {Jason.encode!(%{type: "probe", payload: "ignored"}), [opcode: :text]},
+                     attached
+                   )
+        end)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert log =~ "Ignored unknown remote access stream message"
+
+    assert_receive {:unknown_stream_message, %{count: 1},
+                    %{
+                      actor_id: "user-1",
+                      message_type: "probe",
+                      session_id: "session-unknown-message",
+                      source: :browser_text,
+                      topic: "remote_access:session-unknown-message"
+                    }}
+
+    refute_receive {:broker_input, _caller, _data}
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "unexpected server messages are observable without logging payload bytes" do
+    {:ok, state} = init_state("session-unknown-info")
+
+    event = [:serviceradar, :remote_access, :stream, :unknown_message]
+    handler_id = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn ^event, measurements, metadata, test_pid ->
+          send(test_pid, {:unknown_stream_message, measurements, metadata})
+        end,
+        self()
+      )
+
+    log =
+      try do
+        capture_log(fn ->
+          assert {:ok, ^state} =
+                   RemoteAccessStreamHandler.handle_info(
+                     {:unexpected_probe, "secret-payload"},
+                     state
+                   )
+        end)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert log =~ "Ignored unknown remote access stream message"
+    refute log =~ "secret-payload"
+
+    assert_receive {:unknown_stream_message, %{count: 1},
+                    %{
+                      actor_id: "user-1",
+                      message_type: "unexpected_probe",
+                      session_id: "session-unknown-info",
+                      source: :server_info,
+                      topic: "remote_access:session-unknown-info"
+                    }}
+  end
+
   test "user-present attach passes SSH credential to broker without echoing it" do
     {:ok, state} = init_state("session-user-present", credential_custody_mode: :user_present)
 
@@ -256,6 +368,85 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert opts[:metadata]["ssh"]["passphrase"] == "session-passphrase"
 
     RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "user-present RDP attach passes a desktop credential grant to broker without echoing it" do
+    {:ok, state} =
+      init_state("session-rdp-user-present",
+        protocol: :rdp,
+        adapter: :rdp,
+        device_uid: "windows-1",
+        target_host: "win-1.example.com",
+        target_port: 3389,
+        credential_custody_mode: :user_present,
+        session_metadata: %{"desktop_target_id" => "desktop-target-1"}
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-rdp-user-present",
+        credential: %{
+          username: "EXAMPLE\\alice",
+          password: "rdp-session-password"
+        }
+      })
+
+    assert {:push, {:text, response}, attached} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "ready", "session_id" => "session-rdp-user-present"} = Jason.decode!(response)
+    refute response =~ "srra_test_ticket"
+    refute response =~ "rdp-session-password"
+
+    assert_receive {:broker_started, "session-rdp-user-present", opts}
+    assert opts[:credential_mode] == "user_present"
+
+    assert opts[:metadata]["credential_grant"] == %{
+             "mode" => "memory_user",
+             "username" => "EXAMPLE\\alice",
+             "password" => "rdp-session-password",
+             "actor_id" => "user-1",
+             "session_id" => "session-rdp-user-present",
+             "target_id" => "desktop-target-1",
+             "route_id" => "agent-1"
+           }
+
+    refute Map.has_key?(opts[:metadata], "ssh")
+
+    RemoteAccessStreamHandler.terminate(:normal, attached)
+  end
+
+  test "user-present RDP attach rejects SSH-style private key credentials" do
+    {:ok, state} =
+      init_state("session-rdp-private-key",
+        protocol: :rdp,
+        adapter: :rdp,
+        credential_custody_mode: :user_present,
+        session_metadata: %{"desktop_target_id" => "desktop-target-1"}
+      )
+
+    payload =
+      Jason.encode!(%{
+        type: "attach",
+        ticket: "srra_test_ticket",
+        session_id: "session-rdp-private-key",
+        credential: %{
+          username: "alice",
+          password: "rdp-session-password",
+          private_key: "session-private-key"
+        }
+      })
+
+    assert {:stop, :normal, 1008, [{:text, response}], ^state} =
+             RemoteAccessStreamHandler.handle_in({payload, [opcode: :text]}, state)
+
+    assert %{"type" => "error", "message" => "The supplied SSH credential was rejected by policy."} =
+             Jason.decode!(response)
+
+    assert_receive {:fail_session, "session-rdp-private-key", :credential_policy_denied, _opts}
+    refute_receive {:broker_started, "session-rdp-private-key", _opts}
   end
 
   test "ssh certificate attach issues cert from server-side identity claims" do
@@ -545,6 +736,58 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     assert after_resize.idle_timer != after_data.idle_timer
 
     RemoteAccessStreamHandler.terminate(:normal, after_resize)
+  end
+
+  test "browser frames close the session after permission revocation" do
+    AuthorizationStub.set_permissions("user-1", ["devices.remote_access.ssh.open"])
+    {:ok, state} = init_state("session-revoked-frame", authorization_module: AuthorizationStub)
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-revoked-frame"), [opcode: :text]}, state)
+
+    AuthorizationStub.set_permissions("user-1", [])
+
+    assert {:stop, :normal, 1008, [{:text, response}], closed_state} =
+             RemoteAccessStreamHandler.handle_in(
+               {Jason.encode!(%{type: "data", data: Base.encode64("whoami\r")}), [opcode: :text]},
+               attached
+             )
+
+    assert %{"type" => "error", "message" => "Remote access permission was revoked."} = Jason.decode!(response)
+    assert closed_state.closing_action == :revoked
+    assert_receive {:request_close, "session-revoked-frame", opts}
+    assert opts[:reason] == "permission_revoked"
+    refute_receive {:broker_input, _caller, _data}
+
+    RemoteAccessStreamHandler.terminate(:normal, closed_state)
+  end
+
+  test "periodic reauthorization closes idle sessions after permission revocation" do
+    AuthorizationStub.set_permissions("user-1", ["devices.remote_access.rdp.open"])
+
+    {:ok, state} =
+      init_state("session-revoked-periodic",
+        authorization_module: AuthorizationStub,
+        protocol: :rdp,
+        adapter: :rdp,
+        target_port: 3389
+      )
+
+    {:push, _response, attached} =
+      RemoteAccessStreamHandler.handle_in({attach_payload("session-revoked-periodic"), [opcode: :text]}, state)
+
+    assert is_reference(attached.reauth_timer)
+    AuthorizationStub.set_permissions("user-1", [])
+
+    assert {:stop, :normal, 1008, [{:text, response}], closed_state} =
+             RemoteAccessStreamHandler.handle_info(:reauthorize, attached)
+
+    assert %{"type" => "error", "message" => "Remote access permission was revoked."} = Jason.decode!(response)
+    assert closed_state.closing_action == :revoked
+    assert_receive {:request_close, "session-revoked-periodic", opts}
+    assert opts[:reason] == "permission_revoked"
+
+    RemoteAccessStreamHandler.terminate(:normal, closed_state)
   end
 
   test "oversized resize frames fail the session without reaching the broker" do
@@ -985,6 +1228,11 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
         test_pid: self(),
         credential_custody_mode: Keyword.get(opts, :credential_custody_mode, :none),
         credential_rule_id: Keyword.get(opts, :credential_rule_id),
+        protocol: Keyword.get(opts, :protocol, :ssh),
+        adapter: Keyword.get(opts, :adapter, :ssh),
+        device_uid: Keyword.get(opts, :device_uid, "linux-1"),
+        target_host: Keyword.get(opts, :target_host, "10.0.0.10"),
+        target_port: Keyword.get(opts, :target_port, 22),
         identity_claims: Keyword.get(opts, :identity_claims, %{}),
         user:
           Keyword.get(opts, :user, %{
@@ -998,7 +1246,9 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       },
       sessions_module: SessionsStub,
       broker_module: BrokerStub,
-      credential_grant_resolver: CentralCredentialGrantResolverStub
+      credential_grant_resolver: CentralCredentialGrantResolverStub,
+      authorization_module: Keyword.get(opts, :authorization_module, ServiceRadar.Identity.RBAC),
+      reauth_interval_ms: Keyword.get(opts, :reauth_interval_ms, 30_000)
     )
   end
 

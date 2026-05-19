@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias Ash.Error.Invalid
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Edge.OnboardingPackages
 
   @actor system_actor()
@@ -66,6 +67,30 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
       assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
       assert result.package.component_id == "agent-dusk"
+    end
+
+    test "uses partition_id as the canonical partition field", _context do
+      attrs = %{
+        label: "agent-partition",
+        component_type: :agent,
+        partition_id: "edge-partition-a"
+      }
+
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
+      assert result.package.partition_id == "edge-partition-a"
+      assert result.package.site == "edge-partition-a"
+    end
+
+    test "keeps site as a compatibility alias", _context do
+      attrs = %{
+        label: "agent-site-alias",
+        component_type: :agent,
+        site: "legacy-site-a"
+      }
+
+      assert {:ok, result} = OnboardingPackages.create(attrs, actor: @actor)
+      assert result.package.partition_id == "legacy-site-a"
+      assert result.package.site == "legacy-site-a"
     end
   end
 
@@ -156,6 +181,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
 
       assert result.package.status == :delivered
       assert result.package.delivered_at
+      assert result.package.download_token_consumed_at
       assert result.join_token == created.join_token
     end
 
@@ -309,7 +335,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
           # This is acceptable for unit tests
           assert true
 
-        {:error, _} = error ->
+        {:error, _} ->
           # Other errors (like missing PKI) are acceptable in unit tests
           assert true
       end
@@ -333,6 +359,93 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       # Verify the function completed without argument errors
       assert is_tuple(result)
       assert elem(result, 0) in [:ok, :error]
+    end
+  end
+
+  describe "create_with_gateway_cert/2" do
+    setup do
+      ensure_rate_limiter!()
+      :ok
+    end
+
+    test "rejects partition mismatch before gateway RPC", _context do
+      attrs = %{
+        label: "agent-partition-mismatch",
+        component_type: :agent,
+        component_id: "agent-partition-mismatch",
+        gateway_id: "gateway-1",
+        partition_id: "partition-b"
+      }
+
+      actor = Map.put(@actor, :partition_id, "partition-a")
+
+      assert {:error, :partition_not_authorized} =
+               OnboardingPackages.create_with_gateway_cert(attrs, actor: actor)
+    end
+
+    test "rate limits package and cert issuance per actor", _context do
+      unique = System.unique_integer([:positive])
+
+      attrs = %{
+        label: "agent-actor-quota-#{unique}",
+        component_type: :agent,
+        component_id: "agent-actor-quota-#{unique}",
+        gateway_id: "gateway-actor-quota-#{unique}",
+        partition_id: "partition-actor-quota-#{unique}"
+      }
+
+      actor = %{id: "operator-actor-quota-#{unique}", role: :operator}
+      quota = [actor_rate_limit: [limit: 1, window_seconds: 60]]
+
+      assert {:error, :gateway_unavailable} =
+               OnboardingPackages.create_with_gateway_cert(attrs,
+                 actor: actor,
+                 issuance_quota: quota
+               )
+
+      assert {:error,
+              {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_actor,
+               retry_after}} =
+               OnboardingPackages.create_with_gateway_cert(attrs,
+                 actor: actor,
+                 issuance_quota: quota
+               )
+
+      assert retry_after > 0
+    end
+
+    test "rate limits package and cert issuance per partition", _context do
+      unique = System.unique_integer([:positive])
+      partition_id = "partition-quota-#{unique}"
+
+      attrs = %{
+        label: "agent-partition-quota-#{unique}",
+        component_type: :agent,
+        component_id: "agent-partition-quota-#{unique}",
+        gateway_id: "gateway-partition-quota-#{unique}",
+        partition_id: partition_id
+      }
+
+      quota = [
+        actor_rate_limit: [limit: 100, window_seconds: 60],
+        partition_rate_limit: [limit: 1, window_seconds: 60]
+      ]
+
+      assert {:error, :gateway_unavailable} =
+               OnboardingPackages.create_with_gateway_cert(attrs,
+                 actor: %{id: "operator-partition-quota-a-#{unique}", role: :operator},
+                 issuance_quota: quota
+               )
+
+      assert {:error,
+              {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_partition,
+               retry_after}} =
+               OnboardingPackages.create_with_gateway_cert(attrs,
+                 actor: %{id: "operator-partition-quota-b-#{unique}", role: :operator},
+                 issuance_quota: quota
+               )
+
+      assert retry_after > 0
     end
   end
 
@@ -360,6 +473,14 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
       result = OnboardingPackages.create_with_platform_cert(attrs, actor: @actor)
 
       assert match?({:error, _}, result)
+    end
+  end
+
+  defp ensure_rate_limiter! do
+    if Process.whereis(RateLimiter) do
+      :ok
+    else
+      start_supervised!(RateLimiter)
     end
   end
 end

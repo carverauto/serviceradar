@@ -72,16 +72,46 @@ func (p *PushLoop) handleAppTCPFrame(ctx context.Context, frame *proto.ConsoleFr
 		return
 	}
 
+	if p.remoteConsoleManager == nil {
+		p.remoteConsoleManager = newRemoteConsoleManagerWithRoute(
+			p.agentID(),
+			gatewayIDFromClient(p.gateway),
+			p.logger,
+		)
+	}
+
+	if frame.GetFrameType() == remoteaccess.FrameTypeApplicationOpen ||
+		frame.GetFrameType() == remoteaccess.FrameTypeTCPOpen {
+		if err := p.remoteConsoleManager.registerFrameAuthenticator(frame); err != nil {
+			signedSender := p.remoteConsoleManager.signingSender(sender)
+			if isTCPAccessFrameType(frame.GetFrameType()) {
+				sendTCPError(
+					signedSender,
+					frame.GetSessionId(),
+					"invalid_open_payload",
+					err.Error(),
+					remoteaccess.TCPStatusFailed,
+				)
+			} else {
+				sendApplicationError(signedSender, frame.GetSessionId(), "invalid_open_payload", err.Error())
+			}
+
+			return
+		}
+	}
+
+	signedSender := p.remoteConsoleManager.signingSender(sender)
+
 	switch {
 	case isApplicationAccessFrameType(frame.GetFrameType()):
-		p.handleApplicationAccessFrame(ctx, frame, sender)
+		p.handleApplicationAccessFrame(ctx, frame, signedSender)
 
 	case isTCPAccessFrameType(frame.GetFrameType()):
-		p.handleTCPAccessFrame(ctx, frame, sender)
+		p.handleTCPAccessFrame(ctx, frame, signedSender)
 	}
 }
 
-func (p *PushLoop) handleApplicationAccessFrame(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleApplicationAccessFrame(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	switch frame.GetFrameType() {
 	case remoteaccess.FrameTypeApplicationOpen:
 		p.openApplicationAccess(frame, sender)
@@ -96,7 +126,7 @@ func (p *PushLoop) handleApplicationAccessFrame(ctx context.Context, frame *prot
 	}
 }
 
-func (p *PushLoop) openApplicationAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) openApplicationAccess(frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	var payload remoteaccess.ApplicationOpenPayload
 	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
 		sendApplicationError(sender, frame.GetSessionId(), "invalid_open_payload", err.Error())
@@ -133,7 +163,7 @@ func (p *PushLoop) openApplicationAccess(frame *proto.ConsoleFrame, sender *cont
 	})
 }
 
-func (p *PushLoop) executeApplicationRequest(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) executeApplicationRequest(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	adapter := p.applicationHTTPAdapter(frame.GetSessionId())
 	if adapter == nil {
 		sendApplicationError(sender, frame.GetSessionId(), "session_not_open", errApplicationSessionNotOpen.Error())
@@ -177,7 +207,7 @@ func (p *PushLoop) executeApplicationHTTPRequest(
 	adapter *remoteaccess.ApplicationHTTPAdapter,
 	payload remoteaccess.ApplicationRequestPayload,
 	body []byte,
-	sender *controlStreamSender,
+	sender proxmoxConsoleSender,
 ) {
 	result, err := adapter.Execute(ctx, payload, body)
 	if err != nil {
@@ -190,7 +220,7 @@ func (p *PushLoop) executeApplicationHTTPRequest(
 	sendJSONFrame(sender, sessionID, remoteaccess.FrameTypeApplicationProgress, result.Progress)
 }
 
-func (p *PushLoop) handleApplicationRequestData(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleApplicationRequestData(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	adapter := p.applicationHTTPAdapter(frame.GetSessionId())
 	if adapter == nil {
 		sendApplicationError(sender, frame.GetSessionId(), "session_not_open", errApplicationSessionNotOpen.Error())
@@ -240,7 +270,7 @@ func (p *PushLoop) handleApplicationRequestData(ctx context.Context, frame *prot
 	p.executeApplicationHTTPRequest(ctx, frame.GetSessionId(), adapter, request, body, sender)
 }
 
-func (p *PushLoop) closeApplicationAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) closeApplicationAccess(frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	if adapter := p.dropApplicationHTTPSession(frame.GetSessionId()); adapter != nil {
 		adapter.Close()
 	}
@@ -340,7 +370,7 @@ func applicationRequestMayHaveBody(method string) bool {
 	}
 }
 
-func (p *PushLoop) handleTCPAccessFrame(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) handleTCPAccessFrame(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	switch frame.GetFrameType() {
 	case remoteaccess.FrameTypeTCPOpen:
 		p.openTCPAccess(ctx, frame, sender)
@@ -353,7 +383,7 @@ func (p *PushLoop) handleTCPAccessFrame(ctx context.Context, frame *proto.Consol
 	}
 }
 
-func (p *PushLoop) openTCPAccess(ctx context.Context, frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) openTCPAccess(ctx context.Context, frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	var payload remoteaccess.TCPOpenPayload
 	if err := json.Unmarshal(frame.GetData(), &payload); err != nil {
 		sendTCPError(sender, frame.GetSessionId(), "invalid_open_payload", err.Error(), remoteaccess.TCPStatusFailed)
@@ -393,7 +423,7 @@ func (p *PushLoop) openTCPAccess(ctx context.Context, frame *proto.ConsoleFrame,
 	go p.readTCPAccess(ctx, frame.GetSessionId(), adapter, sender)
 }
 
-func (p *PushLoop) writeTCPAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) writeTCPAccess(frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	adapter := p.tcpAdapter(frame.GetSessionId())
 	if adapter == nil {
 		sendTCPError(sender, frame.GetSessionId(), "session_not_open", errTCPSessionNotOpen.Error(), remoteaccess.TCPStatusFailed)
@@ -425,7 +455,7 @@ func (p *PushLoop) writeTCPAccess(frame *proto.ConsoleFrame, sender *controlStre
 	sendJSONFrame(sender, frame.GetSessionId(), remoteaccess.FrameTypeTCPProgress, progress)
 }
 
-func (p *PushLoop) readTCPAccess(ctx context.Context, sessionID string, adapter *remoteaccess.TCPAdapter, sender *controlStreamSender) {
+func (p *PushLoop) readTCPAccess(ctx context.Context, sessionID string, adapter *remoteaccess.TCPAdapter, sender proxmoxConsoleSender) {
 	done := make(chan struct{})
 	go func() {
 		select {
@@ -466,7 +496,7 @@ func (p *PushLoop) readTCPAccess(ctx context.Context, sessionID string, adapter 
 	}
 }
 
-func (p *PushLoop) closeTCPAccess(frame *proto.ConsoleFrame, sender *controlStreamSender) {
+func (p *PushLoop) closeTCPAccess(frame *proto.ConsoleFrame, sender proxmoxConsoleSender) {
 	adapter := p.dropTCPAdapter(frame.GetSessionId())
 	if adapter != nil {
 		_ = adapter.Close()
@@ -499,7 +529,7 @@ func (p *PushLoop) dropTCPAdapter(sessionID string) *remoteaccess.TCPAdapter {
 	return adapter
 }
 
-func sendApplicationError(sender *controlStreamSender, sessionID string, code string, message string) {
+func sendApplicationError(sender proxmoxConsoleSender, sessionID string, code string, message string) {
 	sendAppTCPErrorFrame(sender, sessionID, remoteaccess.FrameTypeApplicationError, remoteaccess.ApplicationErrorPayload{
 		SessionID: sessionID,
 		Status:    remoteaccess.ApplicationStatusFailed,
@@ -508,7 +538,7 @@ func sendApplicationError(sender *controlStreamSender, sessionID string, code st
 	})
 }
 
-func sendTCPError(sender *controlStreamSender, sessionID string, code string, message string, status remoteaccess.RemoteAccessStreamStatus) {
+func sendTCPError(sender proxmoxConsoleSender, sessionID string, code string, message string, status remoteaccess.RemoteAccessStreamStatus) {
 	sendAppTCPErrorFrame(sender, sessionID, remoteaccess.FrameTypeTCPError, remoteaccess.TCPErrorPayload{
 		SessionID: sessionID,
 		Status:    status,
@@ -517,15 +547,15 @@ func sendTCPError(sender *controlStreamSender, sessionID string, code string, me
 	})
 }
 
-func sendAppTCPErrorFrame(sender *controlStreamSender, sessionID string, frameType string, payload any) {
+func sendAppTCPErrorFrame(sender proxmoxConsoleSender, sessionID string, frameType string, payload any) {
 	sendJSONFrame(sender, sessionID, frameType, payload)
 }
 
-func sendJSONFrame(sender *controlStreamSender, sessionID string, frameType string, payload any) {
+func sendJSONFrame(sender proxmoxConsoleSender, sessionID string, frameType string, payload any) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		data = nil
 	}
 
-	_ = sender.Send(consoleControlFrame(sessionID, frameType, data, "", 0, 0))
+	_ = sender.Send(consoleControlFrame(sessionID, frameType, data, "", 0, 0, 0, "", ""))
 }

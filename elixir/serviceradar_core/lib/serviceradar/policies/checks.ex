@@ -143,6 +143,64 @@ defmodule ServiceRadar.Policies.Checks do
     def match?(_actor, _opts, _context), do: false
   end
 
+  defmodule ActorOwnsResourceUnlessPolicyAllows do
+    @moduledoc """
+    Check if the actor owns the resource unless a resource policy flag explicitly allows it.
+
+    ## Options
+
+      * `:attribute` - The owner attribute to check (default: :user_id)
+      * `:policy_attribute` - The map attribute carrying the policy (default: :policy)
+      * `:allow_key` - The boolean map key that allows ownership (default: "allow_self")
+    """
+    use SimpleCheck
+
+    @impl true
+    def describe(opts) do
+      opts = if is_list(opts), do: opts, else: []
+      attr = Keyword.get(opts, :attribute, :user_id)
+      policy_attr = Keyword.get(opts, :policy_attribute, :policy)
+      allow_key = Keyword.get(opts, :allow_key, "allow_self")
+
+      "actor owns #{attr} unless #{policy_attr}.#{allow_key} allows it"
+    end
+
+    @impl true
+    def match?(nil, _opts, _context), do: false
+
+    def match?(actor, %Authorizer{} = authorizer, opts) when is_list(opts) do
+      match?(actor, opts, %{changeset: Map.get(authorizer, :changeset)})
+    end
+
+    def match?(actor, opts, %{changeset: %{data: resource}}) do
+      opts = if is_list(opts), do: opts, else: []
+      attr = Keyword.get(opts, :attribute, :user_id)
+      policy_attr = Keyword.get(opts, :policy_attribute, :policy)
+      allow_key = Keyword.get(opts, :allow_key, "allow_self")
+      actor_id = Map.get(actor, :id)
+      resource_owner = Map.get(resource, attr)
+
+      actor_id != nil && actor_id == resource_owner &&
+        not policy_allows?(Map.get(resource, policy_attr), allow_key)
+    end
+
+    def match?(_actor, _opts, _context), do: false
+
+    defp policy_allows?(policy, key) when is_map(policy) do
+      Map.get(policy, key) == true || Map.get(policy, safe_atom_key(key)) == true
+    end
+
+    defp policy_allows?(_policy, _key), do: false
+
+    defp safe_atom_key(key) when is_atom(key), do: key
+
+    defp safe_atom_key(key) when is_binary(key) do
+      String.to_existing_atom(key)
+    rescue
+      ArgumentError -> nil
+    end
+  end
+
   defmodule ActorSelfApprovesResource do
     @moduledoc """
     Check if the current actor is approving their own resource.

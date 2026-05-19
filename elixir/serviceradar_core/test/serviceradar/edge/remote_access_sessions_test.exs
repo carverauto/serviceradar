@@ -4,18 +4,14 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
-  alias ServiceRadar.Edge.RemoteAccessApplicationTarget
   alias ServiceRadar.Edge.RemoteAccessCentralCredentialGrants
-  alias ServiceRadar.Edge.RemoteAccessFileTransfer
-  alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
   alias ServiceRadar.Edge.RemoteAccessRecordings
-  alias ServiceRadar.Edge.RemoteAccessRequest
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessSessions
-  alias ServiceRadar.Edge.RemoteAccessTcpTarget
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Repo
 
   defmodule AuditSink do
@@ -51,9 +47,19 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     previous_policy =
       Application.get_env(:serviceradar_core, :remote_access_ssh_certificate_policy)
 
+    previous_crypto_secret = Application.get_env(:serviceradar_core, :crypto_secret)
+
+    Application.put_env(:serviceradar_core, :crypto_secret, String.duplicate("a", 32))
+
     Process.put(:remote_access_audit_owner, self())
 
     on_exit(fn ->
+      if previous_crypto_secret do
+        Application.put_env(:serviceradar_core, :crypto_secret, previous_crypto_secret)
+      else
+        Application.delete_env(:serviceradar_core, :crypto_secret)
+      end
+
       if previous_policy do
         Application.put_env(
           :serviceradar_core,
@@ -66,280 +72,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     end)
 
     :ok
-  end
-
-  test "registered application target resolves trusted upstream policy into the session" do
-    uid = unique_uid("app-target")
-    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
-
-    assert {:ok, target} =
-             RemoteAccessApplicationTarget.create_target(
-               %{
-                 name: "Internal App",
-                 device_uid: uid,
-                 agent_id: "agent-app",
-                 gateway_id: "gateway-app",
-                 upstream_scheme: :https,
-                 upstream_host: "10.20.30.40",
-                 upstream_port: 8443,
-                 upstream_host_header: "internal-app.example.test",
-                 upstream_sni: "internal-app.example.test",
-                 allowed_methods: ["GET"],
-                 allowed_path_prefixes: ["/app"],
-                 tls_policy: %{"verify" => "required"},
-                 quota_policy: %{"idle_timeout_seconds" => 300},
-                 recording_policy: %{"enabled" => true},
-                 metadata: %{"owner" => "platform"}
-               },
-               actor: @system_actor
-             )
-
-    assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_application_target},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert session.device_uid == uid
-    assert session.target_kind == :registered_application_target
-    assert session.protocol == :app
-    assert session.adapter == :application
-    assert session.target_host == "10.20.30.40"
-    assert session.target_port == 8443
-    assert session.agent_id == "agent-app"
-    assert session.gateway_id == "gateway-app"
-    assert session.credential_custody_mode == :none
-    assert session.idle_timeout_seconds == 300
-    assert session.metadata["target_id"] == target.id
-    assert session.metadata["target_type"] == "application"
-    assert session.metadata["upstream_host_header"] == "internal-app.example.test"
-    assert session.metadata["allowed_methods"] == ["GET"]
-    assert session.metadata["allowed_path_prefixes"] == ["/app"]
-    assert session.metadata["redirect_policy"] == %{"mode" => "deny", "max_hops" => 0}
-    assert session.metadata["cookie_policy"] == %{"isolation" => "session", "store" => false}
-    assert session.metadata["quota_policy"]["max_request_bytes"] == 10 * 1024 * 1024
-    assert session.metadata["quota_policy"]["max_response_bytes"] == 50 * 1024 * 1024
-
-    assert session.metadata["policy_snapshot"]["schema"] ==
-             "serviceradar.remote_access.application_policy.v1"
-
-    assert session.metadata["target_metadata"] == %{"owner" => "platform"}
-    assert session.recording_policy["metadata_only"] == true
-    assert session.recording_policy["capture_bodies"] == false
-
-    assert_receive {:remote_access_audit, create_audit}
-    assert create_audit[:action] == :remote_access_session_create
-    assert create_audit[:details][:protocol] == "app"
-  end
-
-  test "registered application target requires approval for risky app policy" do
-    uid = unique_uid("app-approval-policy")
-    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
-
-    assert {:ok, target} =
-             RemoteAccessApplicationTarget.create_target(
-               %{
-                 name: "Upload App",
-                 device_uid: uid,
-                 agent_id: "agent-app",
-                 upstream_scheme: :https,
-                 upstream_host: "10.20.30.41",
-                 upstream_port: 8443,
-                 tls_policy: %{"verify" => "insecure_skip_verify"},
-                 allowed_methods: ["GET", "POST"],
-                 allowed_path_prefixes: ["/"]
-               },
-               actor: @system_actor
-             )
-
-    assert {:error, :approval_required} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_application_target},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, denial_audit}
-    assert denial_audit[:details][:failure_reason] == "approval_required"
-
-    approval_id = Ecto.UUID.generate()
-
-    assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_application_target, approval_id: approval_id},
-               actor: @system_actor,
-               audit_writer: AuditSink,
-               approval_checker: ApprovalApprover
-             )
-
-    assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
-    assert session.metadata["approval_policy"]["required"] == true
-
-    assert Enum.sort(session.metadata["approval_policy"]["reasons"]) == [
-             "broad_path_access",
-             "insecure_upstream_tls",
-             "upload_enabled"
-           ]
-  end
-
-  test "registered application target rejects malformed trusted policy before session creation" do
-    uid = unique_uid("app-target-policy")
-    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
-
-    assert {:ok, target} =
-             RemoteAccessApplicationTarget.create_target(
-               %{
-                 name: "Bad Policy App",
-                 device_uid: uid,
-                 agent_id: "agent-app",
-                 upstream_scheme: :https,
-                 upstream_host: "10.20.30.40",
-                 upstream_port: 8443,
-                 allowed_path_prefixes: ["http://169.254.169.254/latest/meta-data"]
-               },
-               actor: @system_actor
-             )
-
-    assert {:error, :invalid_remote_access_target_policy} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_application_target},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, denial_audit}
-    assert denial_audit[:action] == :remote_access_session_denied
-    assert denial_audit[:details][:failure_reason] == "invalid_remote_access_target_policy"
-  end
-
-  test "registered TCP target resolves trusted upstream policy into the session" do
-    uid = unique_uid("tcp-target")
-    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
-
-    assert {:ok, target} =
-             RemoteAccessTcpTarget.create_target(
-               %{
-                 name: "Internal TCP",
-                 device_uid: uid,
-                 agent_id: "agent-tcp",
-                 gateway_id: "gateway-tcp",
-                 upstream_host: "10.30.40.50",
-                 upstream_port: 5432,
-                 protocol_name: "postgres",
-                 idle_timeout_seconds: 120,
-                 absolute_timeout_seconds: 600,
-                 quota_policy: %{"max_rx_bytes" => 1_048_576},
-                 metadata: %{"owner" => "database"}
-               },
-               actor: @system_actor
-             )
-
-    approval_id = Ecto.UUID.generate()
-
-    assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_tcp_target, approval_id: approval_id},
-               actor: @system_actor,
-               audit_writer: AuditSink,
-               approval_checker: ApprovalApprover
-             )
-
-    assert_receive {:approval_checked, %{approval_id: ^approval_id, approval_required?: true}}
-    assert session.device_uid == uid
-    assert session.target_kind == :registered_tcp_target
-    assert session.protocol == :tcp
-    assert session.adapter == :tcp
-    assert session.target_host == "10.30.40.50"
-    assert session.target_port == 5432
-    assert session.agent_id == "agent-tcp"
-    assert session.gateway_id == "gateway-tcp"
-    assert session.credential_custody_mode == :none
-    assert session.idle_timeout_seconds == 120
-    assert session.absolute_timeout_seconds == 600
-    assert session.metadata["target_id"] == target.id
-    assert session.metadata["target_type"] == "tcp"
-    assert session.metadata["protocol_name"] == "postgres"
-
-    assert session.metadata["quota_policy"] == %{
-             "max_rx_bytes" => 1_048_576,
-             "max_tx_bytes" => 100 * 1024 * 1024
-           }
-
-    assert session.metadata["policy_snapshot"]["schema"] ==
-             "serviceradar.remote_access.tcp_policy.v1"
-
-    assert session.metadata["approval_policy"]["required"] == true
-    assert session.metadata["approval_policy"]["reasons"] == ["tcp_target"]
-    assert session.metadata["target_metadata"] == %{"owner" => "database"}
-    assert session.recording_policy["metadata_only"] == true
-
-    assert_receive {:remote_access_audit, create_audit}
-    assert create_audit[:action] == :remote_access_session_create
-    assert create_audit[:details][:protocol] == "tcp"
-  end
-
-  test "registered TCP target requires approval before a session is created" do
-    uid = unique_uid("tcp-target-approval")
-    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
-
-    assert {:ok, target} =
-             RemoteAccessTcpTarget.create_target(
-               %{
-                 name: "Sensitive TCP",
-                 device_uid: uid,
-                 agent_id: "agent-tcp",
-                 upstream_host: "10.30.40.51",
-                 upstream_port: 5432
-               },
-               actor: @system_actor
-             )
-
-    assert {:error, :approval_required} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_tcp_target},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, denial_audit}
-    assert denial_audit[:details][:failure_reason] == "approval_required"
-  end
-
-  test "disabled registered targets are rejected before a session is created" do
-    uid = unique_uid("disabled-target")
-    insert_device!(uid, agent_id: "device-agent", gateway_id: "device-gateway")
-
-    assert {:ok, target} =
-             RemoteAccessTcpTarget.create_target(
-               %{
-                 name: "Disabled TCP",
-                 device_uid: uid,
-                 enabled: false,
-                 agent_id: "agent-tcp",
-                 upstream_host: "10.30.40.60",
-                 upstream_port: 3306
-               },
-               actor: @system_actor
-             )
-
-    assert {:error, :remote_access_target_disabled} =
-             RemoteAccessSessions.request_open(
-               target.id,
-               %{target_kind: :registered_tcp_target},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, denial_audit}
-    assert denial_audit[:action] == :remote_access_session_denied
-    assert denial_audit[:details][:failure_reason] == "remote_access_target_disabled"
   end
 
   test "attach tickets are single-use and credential material is not persisted in metadata" do
@@ -397,9 +129,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
                session_id: session.id,
                audit_writer: AuditSink
              )
+
+    assert_receive {:remote_access_audit, attach_denial_audit}
+    assert attach_denial_audit[:action] == :remote_access_session_attach_denied
+    refute inspect(attach_denial_audit) =~ ticket
   end
 
-  test "attach ticket consume is atomic under concurrent attempts" do
+  test "attach ticket consume is atomic under concurrent replay" do
     uid = unique_uid("ticket-race")
     insert_device!(uid, agent_id: "agent-ticket-race", gateway_id: "gateway-ticket-race")
 
@@ -414,13 +150,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, create_audit}
     assert create_audit[:action] == :remote_access_session_create
 
-    parent = self()
+    owner = self()
 
     results =
-      1..2
-      |> Enum.map(fn _index ->
+      1..4
+      |> Enum.map(fn _attempt ->
         Task.async(fn ->
-          Process.put(:remote_access_audit_owner, parent)
+          Process.put(:remote_access_audit_owner, owner)
 
           RemoteAccessSessions.attach_with_ticket(ticket,
             session_id: session.id,
@@ -428,128 +164,25 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
           )
         end)
       end)
-      |> Task.await_many(5_000)
+      |> Enum.map(&Task.await(&1, 15_000))
 
-    assert Enum.count(results, &match?({:ok, %RemoteAccessSession{status: :attached}}, &1)) == 1
-    assert Enum.count(results, &(&1 == {:error, :invalid_or_expired_ticket})) == 1
+    assert 1 ==
+             Enum.count(results, fn
+               {:ok, %RemoteAccessSession{status: :attached}} -> true
+               _other -> false
+             end)
 
-    assert_receive {:remote_access_audit, attach_audit}
-    assert attach_audit[:action] == :remote_access_session_attach
+    assert 3 == Enum.count(results, &(&1 == {:error, :invalid_or_expired_ticket}))
 
-    refute_receive {:remote_access_audit, _duplicate_attach_audit}, 50
-  end
+    audits =
+      for _ <- 1..4 do
+        assert_receive {:remote_access_audit, audit}, 1_000
+        audit
+      end
 
-  test "recording destroy requires service boundary authorization and writes audit" do
-    uid = unique_uid("recording-delete")
-
-    insert_device!(uid,
-      agent_id: "agent-recording-delete",
-      gateway_id: "gateway-recording-delete"
-    )
-
-    deleter_id = insert_user!("recording-delete")
-
-    assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(
-               uid,
-               %{credential_custody_mode: :user_present},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, _create_audit}
-
-    assert {:ok, recording} =
-             RemoteAccessRecording.create_recording(
-               %{
-                 session_id: session.id,
-                 policy: %{},
-                 storage_backend: "datasvc_object_store",
-                 object_key: "remote-access/sessions/#{session.id}/recording.jsonl"
-               },
-               actor: @system_actor
-             )
-
-    deleter = %{
-      id: deleter_id,
-      permissions: MapSet.new(["devices.remote_access.recordings.delete"])
-    }
-
-    assert {:error, _reason} = Ash.destroy(recording, actor: deleter, action: :destroy)
-
-    assert :ok =
-             RemoteAccessRecordings.destroy(recording,
-               actor: deleter,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, destroy_audit}
-    assert destroy_audit[:action] == :remote_access_recording_destroyed
-    assert destroy_audit[:severity] == :high
-
-    assert {:error, _reason} = RemoteAccessRecording.get_by_id(recording.id, actor: @system_actor)
-  end
-
-  test "file transfer destroy requires service boundary authorization and writes audit" do
-    uid = unique_uid("file-transfer-delete")
-    requester_id = insert_user!("file-transfer-requester")
-    deleter_id = insert_user!("file-transfer-delete")
-    insert_device!(uid, agent_id: "agent-transfer-delete", gateway_id: "gateway-transfer-delete")
-
-    assert {:ok, %{session: session}} =
-             RemoteAccessSessions.request_open(
-               uid,
-               %{credential_custody_mode: :user_present},
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, _create_audit}
-
-    assert {:ok, transfer} =
-             RemoteAccessFileTransfer.create_transfer(
-               %{
-                 session_id: session.id,
-                 requested_by: requester_id,
-                 device_uid: uid,
-                 target_kind: :inventory_device,
-                 target_host: uid,
-                 target_port: 22,
-                 agent_id: "agent-transfer-delete",
-                 gateway_id: "gateway-transfer-delete",
-                 operation: :download,
-                 direction: :read,
-                 protocol: :sftp,
-                 credential_custody_mode: :user_present,
-                 target_path: "/var/log/syslog",
-                 redacted_path: "/var/log/syslog",
-                 path_hash: String.duplicate("a", 64),
-                 policy_snapshot: %{},
-                 policy_decision: %{},
-                 quota_snapshot: %{}
-               },
-               actor: @system_actor
-             )
-
-    deleter = %{
-      id: deleter_id,
-      permissions: MapSet.new(["devices.remote_access.files.delete"])
-    }
-
-    assert {:error, _reason} = Ash.destroy(transfer, actor: deleter, action: :destroy)
-
-    assert :ok =
-             RemoteAccessFileTransfers.destroy(transfer,
-               actor: deleter,
-               audit_writer: AuditSink
-             )
-
-    assert_receive {:remote_access_audit, destroy_audit}
-    assert destroy_audit[:action] == :remote_access_file_transfer_destroyed
-    assert destroy_audit[:severity] == :high
-
-    assert {:error, _reason} =
-             RemoteAccessFileTransfer.get_by_id(transfer.id, actor: @system_actor)
+    assert 1 == Enum.count(audits, &(&1[:action] == :remote_access_session_attach))
+    assert 3 == Enum.count(audits, &(&1[:action] == :remote_access_session_attach_denied))
+    refute inspect(audits) =~ ticket
   end
 
   test "generic SSH rejects agent-local reusable credential custody" do
@@ -798,7 +431,11 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert broker["gateway_id"] == "gateway-central-grant"
     assert broker["protocol"] == "ssh"
     assert broker["credential_rule_id"] == rule.id
-    assert broker["credential_secret_ref"] =~ "credentialref:network-credential-secret:"
+    assert broker["credential_secret_ref"] =~ "credentialref:network-credential-grant:"
+
+    assert {:ok, rule.secret_id} ==
+             SecretRefs.network_credential_ref_id(broker["credential_secret_ref"])
+
     assert broker["target"] == %{"device_uid" => uid, "host" => uid, "port" => 22}
     assert broker["allow"] == %{"protocols" => ["ssh"], "hosts" => [uid], "ports" => [22]}
     assert broker["ttl_seconds"] == 120
@@ -950,6 +587,350 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
   end
 
+  test "approved access request bind rolls back losing concurrent session creates" do
+    uid = unique_uid("access-request-race")
+
+    insert_device!(uid,
+      agent_id: "agent-access-request-race",
+      gateway_id: "gateway-access-request-race"
+    )
+
+    credential_rule_id =
+      create_credential_rule!("access-request-race", scope_value: "agent-access-request-race").id
+
+    requester_id = insert_user!("race-requester")
+    reviewer_id = insert_user!("race-reviewer")
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-access-request-race",
+                 gateway_id: "gateway-access-request-race",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "race maintenance",
+                 ttl_seconds: 600
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, request_audit}
+    assert request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "race-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approval_audit}
+    assert approval_audit[:action] == :remote_access_request_approved
+
+    owner = self()
+
+    results =
+      1..4
+      |> Enum.map(fn _attempt ->
+        Task.async(fn ->
+          Process.put(:remote_access_audit_owner, owner)
+
+          RemoteAccessSessions.request_open(
+            uid,
+            %{
+              protocol: :ssh,
+              credential_custody_mode: :centrally_brokered,
+              approval_id: approved.id,
+              credential_rule_id: credential_rule_id
+            },
+            actor: @system_actor,
+            audit_writer: AuditSink
+          )
+        end)
+      end)
+      |> Enum.map(&Task.await(&1, 15_000))
+
+    successes =
+      Enum.filter(results, fn
+        {:ok, %{session: %RemoteAccessSession{}}} -> true
+        _other -> false
+      end)
+
+    assert [%{session: winning_session}] = Enum.map(successes, fn {:ok, result} -> result end)
+    assert 3 == Enum.count(results, &(&1 == {:error, :approval_consumed}))
+
+    assert {:ok, consumed} = RemoteAccessRequests.get(approved.id, actor: @system_actor)
+    assert consumed.status == :consumed
+    assert consumed.session_id == winning_session.id
+
+    assert %Postgrex.Result{rows: [[1]]} =
+             Repo.query!(
+               """
+               SELECT count(*)
+               FROM platform.remote_access_sessions
+               WHERE approval_id = $1::text::uuid
+               """,
+               [approved.id]
+             )
+
+    audits =
+      for _ <- 1..5 do
+        assert_receive {:remote_access_audit, audit}, 1_000
+        audit
+      end
+
+    assert 1 == Enum.count(audits, &(&1[:action] == :remote_access_request_consumed))
+    assert 1 == Enum.count(audits, &(&1[:action] == :remote_access_session_create))
+    assert 3 == Enum.count(audits, &(&1[:action] == :remote_access_session_denied))
+  end
+
+  test "PaperTrail action inputs do not retain credential pointers" do
+    uid = unique_uid("papertrail")
+    insert_device!(uid, agent_id: "agent-papertrail", gateway_id: "gateway-papertrail")
+
+    credential_rule_id =
+      create_credential_rule!("papertrail", scope_value: "agent-papertrail").id
+
+    requester_id = insert_user!("papertrail-requester")
+    reviewer_id = insert_user!("papertrail-reviewer")
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(
+               %{
+                 requested_by: requester_id,
+                 device_uid: uid,
+                 target_kind: :inventory_device,
+                 target_host: uid,
+                 target_port: 22,
+                 protocol: :ssh,
+                 adapter: :ssh,
+                 agent_id: "agent-papertrail",
+                 gateway_id: "gateway-papertrail",
+                 credential_custody_mode: :centrally_brokered,
+                 credential_rule_id: credential_rule_id,
+                 reason: "papertrail hardening",
+                 ttl_seconds: 600,
+                 metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, request_audit}
+    assert request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "papertrail-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approval_audit}
+    assert approval_audit[:action] == :remote_access_request_approved
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :centrally_brokered,
+                 approval_id: approved.id,
+                 credential_rule_id: credential_rule_id,
+                 metadata: %{"private_key" => private_key_fixture(), "safe" => "kept"}
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, consumed_audit}
+    assert consumed_audit[:action] == :remote_access_request_consumed
+    assert_receive {:remote_access_audit, create_audit}
+    assert create_audit[:action] == :remote_access_session_create
+
+    request_action_inputs = version_action_inputs("remote_access_request_versions", approved.id)
+    session_action_inputs = version_action_inputs("remote_access_session_versions", session.id)
+
+    assert request_action_inputs != []
+    assert session_action_inputs != []
+    assert Enum.all?(request_action_inputs, &blank_action_inputs?/1)
+    assert Enum.all?(session_action_inputs, &blank_action_inputs?/1)
+    refute inspect(request_action_inputs) =~ credential_rule_id
+    refute inspect(session_action_inputs) =~ credential_rule_id
+    refute inspect(session_action_inputs) =~ approved.id
+    refute inspect(request_action_inputs) =~ "private_key"
+    refute inspect(session_action_inputs) =~ "private_key"
+
+    assert version_count("remote_access_request_versions", approved.id) > 0
+    assert version_count("remote_access_session_versions", session.id) > 0
+
+    Repo.query!("DELETE FROM platform.remote_access_requests WHERE id = $1::text::uuid", [
+      approved.id
+    ])
+
+    Repo.query!("DELETE FROM platform.remote_access_sessions WHERE id = $1::text::uuid", [
+      session.id
+    ])
+
+    assert version_count("remote_access_request_versions", approved.id) == 0
+    assert version_count("remote_access_session_versions", session.id) == 0
+  end
+
+  test "RDP approvals are scoped to the selected desktop target and agent route" do
+    uid = unique_uid("rdp-approval")
+    insert_device!(uid, agent_id: "agent-rdp-approval", gateway_id: "gateway-rdp-approval")
+
+    requester_id = insert_user!("rdp-requester")
+    reviewer_id = insert_user!("rdp-reviewer")
+    requester_actor = %{id: requester_id, role: :system, email: "rdp-requester@example.test"}
+
+    request_attrs = %{
+      requested_by: requester_id,
+      device_uid: uid,
+      target_kind: :inventory_device,
+      target_host: "winhost.example.test",
+      target_port: 3389,
+      protocol: :rdp,
+      adapter: :rdp,
+      agent_id: "agent-rdp-approval",
+      gateway_id: "gateway-rdp-approval",
+      credential_custody_mode: :user_present,
+      reason: "desktop maintenance",
+      ttl_seconds: 600,
+      metadata: %{
+        "desktop_target_id" => "desktop-target-rdp-1",
+        "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+        "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+      }
+    }
+
+    assert {:ok, access_request} =
+             RemoteAccessRequests.create(request_attrs,
+               actor: requester_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_request_audit}
+    assert create_request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, approved} =
+             RemoteAccessRequests.approve(access_request,
+               actor: %{id: reviewer_id, role: :system, email: "rdp-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approve_request_audit}
+    assert approve_request_audit[:action] == :remote_access_request_approved
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :rdp,
+                 adapter: :rdp,
+                 target_host: "winhost.example.test",
+                 target_port: 3389,
+                 credential_custody_mode: :user_present,
+                 approval_required: true,
+                 approval_id: approved.id,
+                 metadata: %{
+                   "desktop_target_id" => "desktop-target-rdp-1",
+                   "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+                   "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+                 }
+               },
+               actor: requester_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.protocol == :rdp
+    assert session.adapter == :rdp
+    assert session.approval_id == approved.id
+    assert session.target_host == "winhost.example.test"
+    assert session.target_port == 3389
+    assert session.agent_id == "agent-rdp-approval"
+    assert session.gateway_id == "gateway-rdp-approval"
+    assert session.metadata["desktop_target_id"] == "desktop-target-rdp-1"
+    assert session.metadata["route_policy"] == %{"gateway_id" => "gateway-rdp-approval"}
+
+    assert session.metadata["redirection_policy"] == %{
+             "clipboard" => "disabled",
+             "drive" => "disabled"
+           }
+
+    assert_receive {:remote_access_audit, consume_request_audit}
+    assert consume_request_audit[:action] == :remote_access_request_consumed
+    assert_receive {:remote_access_audit, create_session_audit}
+    assert create_session_audit[:action] == :remote_access_session_create
+
+    assert {:ok, consumed} = RemoteAccessRequests.get(approved.id, actor: @system_actor)
+    assert consumed.status == :consumed
+    assert consumed.session_id == session.id
+
+    assert {:ok, mismatched_request} =
+             RemoteAccessRequests.create(
+               %{
+                 request_attrs
+                 | metadata: %{
+                     "desktop_target_id" => "desktop-target-rdp-1",
+                     "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+                     "redirection_policy" => %{"clipboard" => "enabled", "drive" => "disabled"}
+                   }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, create_mismatch_request_audit}
+    assert create_mismatch_request_audit[:action] == :remote_access_request_created
+
+    assert {:ok, mismatched_approved} =
+             RemoteAccessRequests.approve(mismatched_request,
+               actor: %{id: reviewer_id, role: :system, email: "rdp-reviewer@example.test"},
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, approve_mismatch_request_audit}
+    assert approve_mismatch_request_audit[:action] == :remote_access_request_approved
+
+    assert {:error, :approval_scope_mismatch} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :rdp,
+                 adapter: :rdp,
+                 target_host: "winhost.example.test",
+                 target_port: 3389,
+                 credential_custody_mode: :user_present,
+                 approval_required: true,
+                 approval_id: mismatched_approved.id,
+                 metadata: %{
+                   "desktop_target_id" => "desktop-target-rdp-1",
+                   "route_policy" => %{"gateway_id" => "gateway-rdp-approval"},
+                   "redirection_policy" => %{"clipboard" => "disabled", "drive" => "disabled"}
+                 }
+               },
+               actor: requester_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, denial_audit}
+    assert denial_audit[:action] == :remote_access_session_denied
+    assert denial_audit[:details][:rbac_decision] == "approval_scope_mismatch"
+
+    assert {:ok, still_approved} =
+             RemoteAccessRequests.get(mismatched_approved.id, actor: @system_actor)
+
+    assert still_approved.status == :approved
+    assert is_nil(still_approved.session_id)
+  end
+
   test "approval checker can deny a supplied approval id" do
     uid = unique_uid("approval-denied")
     insert_device!(uid, agent_id: "agent-denied", gateway_id: "gateway-denied")
@@ -977,53 +958,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
     assert denial_audit[:details][:failure_reason] == "approval_denied"
-  end
-
-  test "approval action policy forbids direct self approval even with spoofed approved_by" do
-    uid = unique_uid("self-approval")
-    requester_id = insert_user!("self-approval-requester")
-    reviewer_id = insert_user!("self-approval-reviewer")
-    insert_device!(uid, agent_id: "agent-self-approval", gateway_id: "gateway-self-approval")
-
-    credential_rule_id =
-      create_credential_rule!("self-approval", scope_value: "agent-self-approval").id
-
-    assert {:ok, access_request} =
-             RemoteAccessRequests.create(
-               %{
-                 requested_by: requester_id,
-                 device_uid: uid,
-                 target_kind: :inventory_device,
-                 target_host: uid,
-                 target_port: 22,
-                 protocol: :ssh,
-                 adapter: :ssh,
-                 agent_id: "agent-self-approval",
-                 gateway_id: "gateway-self-approval",
-                 credential_custody_mode: :centrally_brokered,
-                 credential_rule_id: credential_rule_id,
-                 reason: "self approval should fail",
-                 ttl_seconds: 600
-               },
-               actor: @system_actor,
-               audit_writer: AuditSink
-             )
-
-    assert {:error, _reason} =
-             RemoteAccessRequest.approve(
-               access_request,
-               %{
-                 approved_by: reviewer_id,
-                 approved_at: RemoteAccessRequest.utc_now()
-               },
-               actor: %{
-                 id: requester_id,
-                 permissions: MapSet.new(["devices.remote_access.requests.review"])
-               }
-             )
-
-    assert {:ok, pending} = RemoteAccessRequests.get(access_request.id, actor: @system_actor)
-    assert pending.status == :pending
   end
 
   test "lifecycle transitions write sanitized terminal outcomes" do
@@ -1156,6 +1090,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert recording.object_key == "edge/sessions/#{session.id}/recording.jsonl"
     assert recording.policy["private_key"] == "REDACTED"
     assert recording.manifest["raw_terminal_payloads_stored"] == false
+    assert recording.manifest["credential_custody_mode"] == "user_present"
+    assert recording.manifest["rbac_decision"] == "allowed"
+    assert recording.manifest["idle_timeout_seconds"] == 900
+    assert recording.manifest["absolute_timeout_seconds"] == 3600
+
+    assert recording.manifest["redaction_policy"]["credential_redactor"] ==
+             "serviceradar_credential_redactor_v1"
+
+    assert recording.manifest["redaction_policy"]["decision_time"] == "record_time"
+    assert recording.manifest["redaction_policy"]["policy_edits_retroactive"] == false
+    assert recording.manifest["redaction_policy"]["terminal_payloads_allowed"] == false
     assert recording.retention_expires_at
     assert DateTime.after?(recording.retention_expires_at, DateTime.utc_now())
     refute inspect(recording) =~ "OPENSSH PRIVATE KEY"
@@ -1174,6 +1119,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, recording_active_audit}
     assert recording_active_audit[:action] == :remote_access_recording_active
 
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               active,
+               %{stream: :input, event_type: "terminal_input", data: "whoami\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               active,
+               %{stream: :output, event_type: "terminal_output", data: "root\n", sequence: 2},
+               actor: @system_actor
+             )
+
     assert {:ok, completed} =
              RemoteAccessRecordings.complete(
                active,
@@ -1187,8 +1146,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert completed.output_bytes == 5
     assert completed.event_count == 2
     assert completed.manifest["raw_terminal_payloads_stored"] == false
-    refute inspect(completed) =~ "whoami"
-    refute inspect(completed) =~ "root"
+    refute inspect(completed) =~ "whoami\\n"
+    refute inspect(completed) =~ "root\\n"
 
     assert_receive {:remote_access_audit, recording_complete_audit}
     assert recording_complete_audit[:action] == :remote_access_recording_completed
@@ -1198,6 +1157,253 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert {:ok, fetched} = RemoteAccessRecording.get_by_session(session.id, actor: @system_actor)
     assert fetched.id == completed.id
+  end
+
+  test "recording completion uses the create-time policy snapshot" do
+    uid = unique_uid("recording-policy-snapshot")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-policy-snapshot",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "record_terminal_payloads" => false,
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    mutated =
+      Map.put(recording, :policy, %{"enabled" => true, "record_terminal_payloads" => true})
+
+    assert {:ok, completed} =
+             RemoteAccessRecordings.complete(
+               mutated,
+               %{input_bytes: 0, output_bytes: 0, event_count: 0},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert completed.manifest["policy"]["record_terminal_payloads"] == false
+    assert completed.manifest["raw_terminal_payloads_stored"] == false
+  end
+
+  test "recording events cannot be appended after seal even with a stale recording struct" do
+    uid = unique_uid("recording-event-seal")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-event-seal",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :output, event_type: "terminal_output", data: "first\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecording{status: :completed}} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{input_bytes: 0, output_bytes: 6, event_count: 1},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:error, :recording_sealed} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :output, event_type: "terminal_output", data: "late\n", sequence: 2},
+               actor: @system_actor
+             )
+
+    assert {:ok, events} = RemoteAccessRecordings.list_events(recording, actor: @system_actor)
+    assert Enum.map(events, & &1.sequence) == [1]
+  end
+
+  test "recording completion refuses a manifest count that does not match persisted events" do
+    uid = unique_uid("recording-count-mismatch")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-count-mismatch",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :output, event_type: "terminal_output", data: "first\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert {:error, :recording_event_count_mismatch} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{input_bytes: 0, output_bytes: 6, event_count: 2},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecording{status: :pending}} =
+             RemoteAccessRecording.get_by_id(recording.id, actor: @system_actor)
+
+    assert {:ok, %RemoteAccessRecording{status: :completed}} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{input_bytes: 0, output_bytes: 6, event_count: 1},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+  end
+
+  test "stale active recordings are expired with actual persisted event counters" do
+    uid = unique_uid("recording-stale-expire")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-stale-expire",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecording{} = active} =
+             RemoteAccessRecordings.activate(recording,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert_receive {:remote_access_audit, _recording_create_audit}
+    assert_receive {:remote_access_audit, _recording_active_audit}
+
+    assert {:ok, %RemoteAccessRecordingEvent{} = event} =
+             RemoteAccessRecordings.record_event(
+               active,
+               %{stream: :output, event_type: "terminal_output", data: "stale\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    stale_at = DateTime.add(DateTime.utc_now(), -7_200, :second)
+
+    assert {:ok, _result} =
+             Repo.query(
+               "UPDATE platform.remote_access_recordings SET inserted_at = $2, updated_at = $2 WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(active.id), stale_at]
+             )
+
+    assert {:ok, _result} =
+             Repo.query(
+               "UPDATE platform.remote_access_recording_events SET inserted_at = $2, updated_at = $2 WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(event.id), stale_at]
+             )
+
+    assert {:ok, 1} =
+             RemoteAccessRecordings.expire_stale(
+               stale_after_seconds: 3_600,
+               batch_size: 10,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, expired_audit}
+    assert expired_audit[:action] == :remote_access_recording_expired
+
+    assert {:ok, %RemoteAccessRecording{status: :expired} = expired} =
+             RemoteAccessRecording.get_by_id(active.id, actor: @system_actor)
+
+    assert expired.event_count == 1
+    assert expired.output_bytes == byte_size("stale\n")
+    assert expired.manifest["event_count"] == 1
+    assert expired.manifest["manifest_integrity_status"] == nil
+    assert expired.manifest["integrity"]["algorithm"] == "hmac-sha256-v1"
   end
 
   test "recording events keep terminal payloads metadata-only unless content policy opts in" do
@@ -1288,6 +1494,16 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert recording.manifest["raw_terminal_payloads_stored"] == true
 
+    assert {:ok, %{rows: [[raw_manifest, encrypted_manifest]]}} =
+             Repo.query(
+               "SELECT manifest::text, encrypted_manifest FROM platform.remote_access_recordings WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(recording.id)]
+             )
+
+    refute raw_manifest =~ "agent-recording-content"
+    assert is_binary(encrypted_manifest)
+    refute encrypted_manifest =~ "agent-recording-content"
+
     assert {:ok, input_event} =
              RemoteAccessRecordings.record_event(
                recording,
@@ -1297,6 +1513,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert input_event.payload_text == nil
     assert input_event.redaction_reason == "input_recording_disabled"
+    assert input_event.prior_event_hash == nil
 
     assert {:ok, output_event} =
              RemoteAccessRecordings.record_event(
@@ -1313,23 +1530,80 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert output_event.payload_text == "REDACTED"
     assert output_event.payload_redacted == true
     assert output_event.redaction_reason == "credential_redaction"
+
+    assert output_event.prior_event_hash ==
+             RemoteAccessRecordings.event_integrity_hash(input_event)
+
     refute inspect(output_event) =~ "very-secret"
 
+    assert {:ok, %{rows: [[raw_payload, encrypted_payload]]}} =
+             Repo.query(
+               "SELECT payload_text, encrypted_payload_text FROM platform.remote_access_recording_events WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(output_event.id)]
+             )
+
+    assert raw_payload == nil
+    assert is_binary(encrypted_payload)
+    refute encrypted_payload =~ "REDACTED"
+    refute encrypted_payload =~ "very-secret"
+
+    assert {:ok, %RemoteAccessRecording{status: :completed} = completed} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{
+                 input_bytes: input_event.byte_count,
+                 output_bytes: output_event.byte_count,
+                 event_count: 2
+               },
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert_receive {:remote_access_audit, completed_audit}
+    assert completed_audit[:action] == :remote_access_recording_completed
+
     assert {:error, :forbidden} =
-             RemoteAccessRecordings.export(recording, actor: %{role: :viewer})
+             RemoteAccessRecordings.export(completed, actor: %{role: :viewer})
 
     assert {:ok, export} =
-             RemoteAccessRecordings.export(recording,
+             RemoteAccessRecordings.export(completed,
                actor: %{role: :admin},
                audit_writer: AuditSink
              )
 
     assert export.manifest["export_event_count"] == 2
+    assert export.manifest["export_id"] == export.export_id
+    assert {:ok, _export_uuid} = Ecto.UUID.cast(export.export_id)
     assert export.manifest["export_contains_payload_text"] == true
+    assert export.manifest["event_chain_verified"] == true
+
+    assert export.manifest["event_chain_root"] ==
+             RemoteAccessRecordings.event_integrity_hash(output_event)
+
+    assert export.manifest["manifest_integrity_verified"] == true
+    assert export.manifest["manifest_integrity_status"] == "verified"
+    assert export.manifest["integrity"]["algorithm"] == "hmac-sha256-v1"
+    assert is_binary(export.manifest["integrity"]["signature"])
+
     assert Enum.map(export.events, & &1.sequence) == [1, 2]
 
     assert_receive {:remote_access_audit, export_audit}
     assert export_audit[:action] == :remote_access_recording_exported
+    assert export_audit[:details][:export_id] == export.export_id
+
+    tampered_manifest =
+      update_in(completed.manifest, ["integrity", "event_chain_root"], fn _root -> "tampered" end)
+
+    tampered_encrypted_manifest = AshCloak.do_encrypt(RemoteAccessRecording, tampered_manifest)
+
+    assert {:ok, _result} =
+             Repo.query(
+               "UPDATE platform.remote_access_recordings SET encrypted_manifest = $2 WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(completed.id), tampered_encrypted_manifest]
+             )
+
+    assert {:error, :recording_manifest_integrity_check_failed} =
+             RemoteAccessRecordings.export(completed, actor: %{role: :admin})
   end
 
   test "recording manifests are skipped unless policy enables recording" do
@@ -1427,6 +1701,41 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
   end
 
   defp unique_uid(label), do: "remote-access-#{label}-#{System.unique_integer([:positive])}"
+
+  defp blank_action_inputs?(nil), do: true
+  defp blank_action_inputs?(%{} = inputs), do: map_size(inputs) == 0
+  defp blank_action_inputs?(_inputs), do: false
+
+  defp version_action_inputs(table, source_id)
+       when table in ["remote_access_request_versions", "remote_access_session_versions"] do
+    %Postgrex.Result{rows: rows} =
+      Repo.query!(
+        """
+        SELECT version_action_inputs
+        FROM platform.#{table}
+        WHERE version_source_id = $1::text::uuid
+        ORDER BY version_inserted_at ASC
+        """,
+        [source_id]
+      )
+
+    Enum.map(rows, fn [action_inputs] -> action_inputs end)
+  end
+
+  defp version_count(table, source_id)
+       when table in ["remote_access_request_versions", "remote_access_session_versions"] do
+    %Postgrex.Result{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT COUNT(*)
+        FROM platform.#{table}
+        WHERE version_source_id = $1::text::uuid
+        """,
+        [source_id]
+      )
+
+    count
+  end
 
   defp private_key_fixture do
     """

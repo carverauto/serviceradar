@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -29,7 +30,15 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const fakeProxmoxConsoleCommand = "whoami\r"
+const (
+	fakeProxmoxConsoleCommand = "whoami\r"
+	desktopConsoleSessionID   = "desktop-session-1"
+	desktopConsoleTargetID    = "rdp-target-1"
+	desktopConsoleAgentID     = "agent-1"
+	desktopConsoleGatewayID   = "gateway-1"
+	desktopConsoleMediaID     = "desktop-media-session-1"
+	desktopConsoleLeaseToken  = "lease-token-1"
+)
 
 var errFakeProxmoxConsolePTYReadFailed = errors.New("pty read failed")
 
@@ -85,6 +94,54 @@ type fakeProxmoxConsolePTY struct {
 	resizes chan [2]uint32
 	closed  chan struct{}
 	once    sync.Once
+}
+
+type fakeDesktopAdapterSession struct {
+	frames chan remoteaccess.DesktopFrame
+	closes chan string
+}
+
+type fakeDesktopRDPAdapter struct {
+	request remoteaccess.DesktopAdapterOpenRequest
+	session remoteaccess.DesktopAdapterSession
+	err     error
+}
+
+func (f *fakeDesktopRDPAdapter) Open(
+	_ context.Context,
+	req remoteaccess.DesktopAdapterOpenRequest,
+) (remoteaccess.DesktopAdapterSession, error) {
+	f.request = req
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.session != nil {
+		return f.session, nil
+	}
+
+	return newFakeDesktopAdapterSession(), nil
+}
+
+func newFakeDesktopAdapterSession() *fakeDesktopAdapterSession {
+	return &fakeDesktopAdapterSession{
+		frames: make(chan remoteaccess.DesktopFrame, 4),
+		closes: make(chan string, 4),
+	}
+}
+
+func (f *fakeDesktopAdapterSession) SendDesktopFrame(
+	_ context.Context,
+	frame remoteaccess.DesktopFrame,
+) error {
+	f.frames <- frame
+
+	return nil
+}
+
+func (f *fakeDesktopAdapterSession) Close(_ context.Context, reason string) error {
+	f.closes <- reason
+
+	return nil
 }
 
 func newFakeProxmoxConsolePTY() *fakeProxmoxConsolePTY {
@@ -430,5 +487,369 @@ func TestProxmoxConsoleManagerFailsClosedWhenRequiredEnhancedRecordingUnavailabl
 	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
 	if !strings.Contains(errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable.Error()) {
 		t.Fatalf("error reason = %q, want %q", errorFrame.GetReason(), remoteaccess.ErrEnhancedRecordingUnavailable)
+	}
+}
+
+func TestProxmoxConsoleManagerRoutesDesktopControlFrame(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	adapterSession := newFakeDesktopAdapterSession()
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	manager.registerDesktopSession(desktopConsoleSessionID, target, adapterSession)
+	sender := newFakeProxmoxConsoleSender()
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Input: &remoteaccess.DesktopInputEvent{
+			Kind: remoteaccess.DesktopInputKindPointer,
+			X:    640,
+			Y:    360,
+		},
+	})
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Data:      payload,
+	}, sender)
+
+	select {
+	case got := <-adapterSession.frames:
+		if got.FrameType != remoteaccess.DesktopFrameTypeInput ||
+			got.Input == nil ||
+			got.Input.Kind != remoteaccess.DesktopInputKindPointer ||
+			got.Input.X != 640 ||
+			got.Input.Y != 360 {
+			t.Fatalf("desktop frame = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for desktop adapter frame")
+	}
+}
+
+func TestProxmoxConsoleManagerOpensRDPDesktopSessionWithMediaGateway(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	target.Route.SelectedGateway = desktopConsoleGatewayID
+	stream := newFakeDesktopMediaStream()
+	gateway := &fakeDesktopMediaGateway{
+		openResp: &proto.OpenDesktopMediaSessionResponse{
+			Accepted:           true,
+			MediaIngestId:      testDesktopMediaIngestID,
+			MediaSessionId:     desktopConsoleMediaID,
+			MaxChunkBytes:      4096,
+			InitialCreditBytes: 8192,
+		},
+		stream: stream,
+	}
+	adapter := &fakeDesktopRDPAdapter{}
+	manager := newProxmoxConsoleManagerWithRoute(
+		desktopConsoleAgentID,
+		desktopConsoleGatewayID,
+		createTestLogger(),
+	)
+	manager.desktopGateway = gateway
+	manager.desktopAdapter = adapter
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: consoleFrameTypeOpen,
+		Data:      encodeDesktopOpenPayloadWithGrant(t, target, testDesktopConsoleCredentialGrant()),
+	}, sender)
+
+	ready := sender.nextFrame(t, consoleFrameTypeReady)
+	var readyPayload map[string]any
+	if err := json.Unmarshal(ready.GetData(), &readyPayload); err != nil {
+		t.Fatalf("ready payload decode returned error: %v", err)
+	}
+	if readyPayload["media_session_id"] != desktopConsoleMediaID ||
+		readyPayload["max_chunk_bytes"].(float64) != 4096 {
+		t.Fatalf("ready payload = %#v", readyPayload)
+	}
+
+	if gateway.openReq.GetDesktopSessionId() != desktopConsoleSessionID ||
+		gateway.openReq.GetMediaSessionId() != desktopConsoleMediaID ||
+		gateway.openReq.GetAgentId() != desktopConsoleAgentID ||
+		gateway.openReq.GetGatewayId() != desktopConsoleGatewayID ||
+		gateway.openReq.GetTargetId() != desktopConsoleTargetID ||
+		gateway.openReq.GetRouteId() != desktopConsoleAgentID ||
+		gateway.openReq.GetLeaseToken() != desktopConsoleLeaseToken {
+		t.Fatalf("desktop media open request = %#v", gateway.openReq)
+	}
+	if adapter.request.SessionID != desktopConsoleSessionID ||
+		adapter.request.LocalAgentID != desktopConsoleAgentID ||
+		adapter.request.CurrentGatewayID != desktopConsoleGatewayID ||
+		adapter.request.Target.TargetID != desktopConsoleTargetID ||
+		adapter.request.MediaSender == nil {
+		t.Fatalf("adapter request = %#v", adapter.request)
+	}
+	if !manager.hasDesktopSession(desktopConsoleSessionID) {
+		t.Fatal("desktop session was not registered after open")
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsRDPDesktopOpenWithoutMediaBinding(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	target.Route.SelectedGateway = desktopConsoleGatewayID
+	adapter := &fakeDesktopRDPAdapter{}
+	manager := newProxmoxConsoleManagerWithRoute(
+		desktopConsoleAgentID,
+		desktopConsoleGatewayID,
+		createTestLogger(),
+	)
+	manager.desktopAdapter = adapter
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: consoleFrameTypeOpen,
+		Data:      encodeDesktopOpenPayloadWithGrant(t, target, testDesktopConsoleCredentialGrant()),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), errDesktopMediaGatewayRequired.Error()) {
+		t.Fatalf("desktop open reason = %q", errorFrame.GetReason())
+	}
+	if adapter.request.SessionID != "" {
+		t.Fatalf("adapter should not have been called: %#v", adapter.request)
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsRDPDesktopOpenWithoutCredentialGrant(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	target.Route.SelectedGateway = desktopConsoleGatewayID
+	gateway := &fakeDesktopMediaGateway{}
+	adapter := &fakeDesktopRDPAdapter{}
+	manager := newProxmoxConsoleManagerWithRoute(
+		desktopConsoleAgentID,
+		desktopConsoleGatewayID,
+		createTestLogger(),
+	)
+	manager.desktopGateway = gateway
+	manager.desktopAdapter = adapter
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: consoleFrameTypeOpen,
+		Data:      encodeDesktopOpenPayload(t, target),
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if !strings.Contains(errorFrame.GetReason(), "desktop credential grant required") {
+		t.Fatalf("desktop open reason = %q", errorFrame.GetReason())
+	}
+	if gateway.openReq != nil {
+		t.Fatalf("media gateway should not have been opened: %#v", gateway.openReq)
+	}
+	if adapter.request.SessionID != "" {
+		t.Fatalf("adapter should not have been called: %#v", adapter.request)
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsDesktopControlWithoutActiveSession(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	sender := newFakeProxmoxConsoleSender()
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeResize,
+		Width:     800,
+		Height:    600,
+	})
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeResize,
+		Data:      payload,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if errorFrame.GetReason() != errProxmoxConsoleSessionNotActive.Error() {
+		t.Fatalf("inactive desktop reason = %q", errorFrame.GetReason())
+	}
+}
+
+func TestProxmoxConsoleManagerRejectsDesktopControlFrameTypeMismatch(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	adapterSession := newFakeDesktopAdapterSession()
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	manager.registerDesktopSession(desktopConsoleSessionID, target, adapterSession)
+	sender := newFakeProxmoxConsoleSender()
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeResize,
+		Width:     800,
+		Height:    600,
+	})
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeInput,
+		Data:      payload,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if errorFrame.GetReason() != errProxmoxConsoleFrameMismatch.Error() {
+		t.Fatalf("mismatched desktop reason = %q", errorFrame.GetReason())
+	}
+
+	select {
+	case got := <-adapterSession.frames:
+		t.Fatalf("unexpected desktop frame = %#v", got)
+	default:
+	}
+}
+
+func TestProxmoxConsoleManagerClosesDesktopSession(t *testing.T) {
+	t.Parallel()
+
+	target := testDesktopConsoleTarget(t)
+	adapterSession := newFakeDesktopAdapterSession()
+	manager := newProxmoxConsoleManagerWithAgentID(desktopConsoleAgentID, createTestLogger())
+	manager.registerDesktopSession(desktopConsoleSessionID, target, adapterSession)
+	sender := newFakeProxmoxConsoleSender()
+
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: consoleFrameTypeClose,
+		Reason:    "operator closed desktop",
+	}, sender)
+
+	select {
+	case got := <-adapterSession.closes:
+		if got != "operator closed desktop" {
+			t.Fatalf("desktop close reason = %q", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for desktop adapter close")
+	}
+
+	closeFrame := sender.nextFrame(t, consoleFrameTypeClose)
+	if closeFrame.GetReason() != "operator closed desktop" {
+		t.Fatalf("close frame reason = %q", closeFrame.GetReason())
+	}
+
+	payload := encodeDesktopConsoleFrame(t, target, remoteaccess.DesktopFrame{
+		SessionID: desktopConsoleSessionID,
+		Protocol:  remoteaccess.ProtocolRDP,
+		FrameType: remoteaccess.DesktopFrameTypeQuality,
+		Quality: &remoteaccess.DesktopQuality{
+			MaxFrameRate: 24,
+			MaxBitrate:   4_000_000,
+			Width:        800,
+			Height:       600,
+		},
+	})
+	manager.HandleFrame(context.Background(), &proto.ConsoleFrame{
+		SessionId: desktopConsoleSessionID,
+		FrameType: remoteaccess.DesktopFrameTypeQuality,
+		Data:      payload,
+	}, sender)
+
+	errorFrame := sender.nextFrame(t, consoleFrameTypeError)
+	if errorFrame.GetReason() != errProxmoxConsoleSessionNotActive.Error() {
+		t.Fatalf("post-close desktop reason = %q", errorFrame.GetReason())
+	}
+}
+
+func testDesktopConsoleTarget(t *testing.T) remoteaccess.DesktopTarget {
+	t.Helper()
+
+	target, err := remoteaccess.NormalizeDesktopTarget(remoteaccess.DesktopTarget{
+		TargetID: desktopConsoleTargetID,
+		Route: remoteaccess.DesktopRoute{
+			SelectedAgentID: desktopConsoleAgentID,
+		},
+		Upstream: remoteaccess.DesktopUpstream{
+			Host: "rdp.example",
+		},
+		Credential: remoteaccess.DesktopCredentialPolicy{
+			Mode: remoteaccess.DesktopCredentialModeMemoryUser,
+		},
+		Screen: remoteaccess.DesktopScreenPolicy{
+			MaxWidth:   1280,
+			MaxHeight:  720,
+			FrameRate:  30,
+			BitrateBPS: 8_000_000,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeDesktopTarget returned error: %v", err)
+	}
+
+	return target
+}
+
+func encodeDesktopConsoleFrame(
+	t *testing.T,
+	target remoteaccess.DesktopTarget,
+	frame remoteaccess.DesktopFrame,
+) []byte {
+	t.Helper()
+
+	payload, err := remoteaccess.EncodeDesktopFramePayloadWithPolicy(frame, target.Screen, target.Redirection)
+	if err != nil {
+		t.Fatalf("EncodeDesktopFramePayloadWithPolicy returned error: %v", err)
+	}
+
+	return payload
+}
+
+func encodeDesktopOpenPayload(t *testing.T, target remoteaccess.DesktopTarget) []byte {
+	t.Helper()
+
+	return encodeDesktopOpenPayloadWithGrant(t, target, nil)
+}
+
+func encodeDesktopOpenPayloadWithGrant(
+	t *testing.T,
+	target remoteaccess.DesktopTarget,
+	grant *remoteaccess.DesktopCredentialGrant,
+) []byte {
+	t.Helper()
+
+	payload, err := json.Marshal(remoteaccess.DesktopOpenPayload{
+		Schema:  "serviceradar.desktop.open.v1",
+		ActorID: "user-1",
+		Metadata: map[string]string{
+			"media_session_id": desktopConsoleMediaID,
+			"route_id":         desktopConsoleAgentID,
+			"lease_token":      desktopConsoleLeaseToken,
+			"encoding_hint":    "srdp",
+		},
+		Target:          target,
+		CredentialGrant: grant,
+	})
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+
+	return payload
+}
+
+func testDesktopConsoleCredentialGrant() *remoteaccess.DesktopCredentialGrant {
+	return &remoteaccess.DesktopCredentialGrant{
+		Mode:      remoteaccess.DesktopCredentialModeMemoryUser,
+		Username:  "alice",
+		Password:  "secret",
+		ActorID:   "user-1",
+		SessionID: desktopConsoleSessionID,
+		TargetID:  desktopConsoleTargetID,
+		RouteID:   desktopConsoleAgentID,
 	}
 }

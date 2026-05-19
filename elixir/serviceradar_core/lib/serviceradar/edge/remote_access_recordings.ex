@@ -11,15 +11,22 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordingEvent
+  alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Repo
 
   @default_storage_backend "datasvc_object_store"
   @default_storage_bucket "remote-access-recordings"
   @default_storage_prefix "remote-access"
   @default_retention_days 30
+  @default_stale_after_seconds 4 * 60 * 60
+  @default_stale_batch_size 100
   @export_permission "devices.remote_access.recordings.export"
   @delete_permission "devices.remote_access.recordings.delete"
+  @view_all_permission "devices.remote_access.recordings.view_all"
+  @integrity_algorithm "hmac-sha256-v1"
+  @integrity_key_context "serviceradar-remote-access-recording-integrity"
 
   @spec ensure_for_session(map() | struct(), keyword()) ::
           {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
@@ -56,10 +63,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def complete(nil, _attrs, _opts), do: {:ok, nil}
 
   def complete(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
-    attrs = finish_attrs(recording, attrs)
-
-    with {:ok, updated} <-
-           RemoteAccessRecording.complete(recording, attrs, actor: system_actor(:complete)) do
+    with {:ok, updated} <- finish_recording(recording, attrs, :complete) do
       write_audit(:remote_access_recording_completed, updated, opts)
       {:ok, updated}
     end
@@ -71,15 +75,37 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def fail(nil, _reason, _attrs, _opts), do: {:ok, nil}
 
   def fail(%RemoteAccessRecording{} = recording, reason, attrs, opts) when is_map(attrs) do
-    attrs =
-      recording
-      |> finish_attrs(attrs)
-      |> Map.put(:failure_reason, format_reason(reason))
-
-    with {:ok, updated} <-
-           RemoteAccessRecording.fail(recording, attrs, actor: system_actor(:fail)) do
+    with {:ok, updated} <- finish_recording(recording, attrs, :fail, reason) do
       write_audit(:remote_access_recording_failed, updated, opts)
       {:ok, updated}
+    end
+  end
+
+  @spec expire(RemoteAccessRecording.t() | nil, map(), keyword()) ::
+          {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
+  def expire(recording, attrs, opts \\ [])
+  def expire(nil, _attrs, _opts), do: {:ok, nil}
+
+  def expire(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
+    with {:ok, updated} <- finish_recording(recording, attrs, :expire) do
+      write_audit(:remote_access_recording_expired, updated, opts)
+      {:ok, updated}
+    end
+  end
+
+  @spec expire_stale(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def expire_stale(opts \\ []) do
+    stale_after_seconds = Keyword.get(opts, :stale_after_seconds, @default_stale_after_seconds)
+    batch_size = Keyword.get(opts, :batch_size, @default_stale_batch_size)
+
+    with {:ok, stale_recordings} <- stale_recording_stats(stale_after_seconds, batch_size) do
+      Enum.reduce_while(stale_recordings, {:ok, 0}, fn stats, {:ok, count} ->
+        case expire_stale_recording(stats, opts) do
+          {:ok, %RemoteAccessRecording{}} -> {:cont, {:ok, count + 1}}
+          {:ok, nil} -> {:cont, {:ok, count}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   end
 
@@ -89,8 +115,40 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def record_event(nil, _attrs, _opts), do: {:ok, nil}
 
   def record_event(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
-    attrs = event_attrs(recording, attrs, opts)
-    RemoteAccessRecordingEvent.record(attrs, actor: system_actor(:event))
+    fn ->
+      with :ok <- lock_recording(recording.id),
+           {:ok, %RemoteAccessRecording{} = current_recording} <-
+             current_recording(recording),
+           :ok <- ensure_recordable_status(current_recording),
+           attrs = event_attrs(current_recording, attrs, opts),
+           {:ok, event, notifications} <-
+             RemoteAccessRecordingEvent.record(attrs,
+               actor: system_actor(:event),
+               return_notifications?: true
+             ) do
+        {event, notifications}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessRecordingEvent{} = event, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, event}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec event_integrity_hash(RemoteAccessRecordingEvent.t()) :: String.t()
+  def event_integrity_hash(%RemoteAccessRecordingEvent{} = event) do
+    event
+    |> event_integrity_payload()
+    |> Jason.encode!()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   @spec list_events(RemoteAccessRecording.t() | binary(), keyword()) ::
@@ -98,11 +156,14 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def list_events(recording_or_id, opts \\ [])
 
   def list_events(%RemoteAccessRecording{id: recording_id}, opts) do
-    list_events(recording_id, opts)
+    list_events_for_authorized_recording(recording_id, opts)
   end
 
   def list_events(recording_id, opts) when is_binary(recording_id) do
-    RemoteAccessRecordingEvent.list_for_recording(recording_id, scope_opts(opts))
+    with {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:event_lookup)) do
+      list_events_for_authorized_recording(recording, opts)
+    end
   end
 
   @spec export(RemoteAccessRecording.t() | binary(), keyword()) ::
@@ -110,16 +171,17 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def export(recording_or_id, opts \\ [])
 
   def export(%RemoteAccessRecording{} = recording, opts) do
-    with :ok <- authorize_export(opts),
-         {:ok, events} <- list_events(recording, opts) do
-      write_audit(:remote_access_recording_exported, recording, opts)
+    export_id = Ecto.UUID.generate()
 
-      {:ok,
-       %{
-         recording: recording,
-         manifest: export_manifest(recording, events),
-         events: events
-       }}
+    with :ok <- authorize_export(opts),
+         {:ok, export} <- locked_export(recording, opts, export_id) do
+      write_audit(
+        :remote_access_recording_exported,
+        export.recording,
+        Keyword.put(opts, :export_id, export_id)
+      )
+
+      {:ok, export}
     end
   end
 
@@ -131,23 +193,211 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
-  @spec destroy(RemoteAccessRecording.t() | binary(), keyword()) ::
-          :ok | {:error, term()}
-  def destroy(recording_or_id, opts \\ [])
-
-  def destroy(%RemoteAccessRecording{} = recording, opts) do
-    with :ok <- authorize_destroy(opts),
-         :ok <- Ash.destroy(recording, actor: system_actor(:destroy), action: :destroy) do
-      write_audit(:remote_access_recording_destroyed, recording, opts)
-      :ok
+  defp locked_export(%RemoteAccessRecording{} = recording, opts, export_id) do
+    fn ->
+      with :ok <- lock_recording(recording.id),
+           {:ok, %RemoteAccessRecording{} = current_recording} <- current_recording(recording),
+           :ok <- ensure_exportable_status(current_recording),
+           {:ok, events} <- list_events(current_recording, opts),
+           {:ok, event_integrity} <- verify_event_chain(events),
+           {:ok, manifest_integrity} <-
+             verify_manifest_integrity(current_recording.manifest, event_integrity) do
+        %{
+          recording: current_recording,
+          manifest:
+            export_manifest(
+              current_recording,
+              events,
+              event_integrity,
+              manifest_integrity,
+              export_id
+            ),
+          events: events,
+          export_id: export_id
+        }
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, export} -> {:ok, export}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  def destroy(recording_id, opts) when is_binary(recording_id) do
-    with :ok <- authorize_destroy(opts),
+  defp ensure_exportable_status(%RemoteAccessRecording{status: status})
+       when status in [:completed, :failed, :expired],
+       do: :ok
+
+  defp ensure_exportable_status(%RemoteAccessRecording{status: :deleted}),
+    do: {:error, :recording_deleted}
+
+  defp ensure_exportable_status(_recording), do: {:error, :recording_not_exportable}
+
+  defp current_recording(%RemoteAccessRecording{id: recording_id}) do
+    RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:event_recording_lookup))
+  end
+
+  defp ensure_recordable_status(%RemoteAccessRecording{status: status})
+       when status in [:pending, :active], do: :ok
+
+  defp ensure_recordable_status(_recording), do: {:error, :recording_sealed}
+
+  defp finish_recording(recording, attrs, action, reason \\ nil)
+       when action in [:complete, :fail, :expire] and is_map(attrs) do
+    fn ->
+      with :ok <- lock_recording(recording.id),
+           {:ok, %RemoteAccessRecording{} = current_recording} <- current_recording(recording),
+           :ok <- ensure_recordable_status(current_recording),
+           {:ok, event_integrity} <- recording_event_integrity(current_recording),
+           {:ok, finish_attrs} <- finish_attrs(current_recording, attrs, event_integrity),
+           finish_attrs = maybe_put_failure_reason(finish_attrs, action, reason),
+           {:ok, %RemoteAccessRecording{} = updated, notifications} <-
+             finish_recording_action(current_recording, finish_attrs, action) do
+        {updated, notifications}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessRecording{} = updated, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, updated}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp finish_recording_action(recording, attrs, :complete) do
+    RemoteAccessRecording.complete(recording, attrs,
+      actor: system_actor(:complete),
+      return_notifications?: true
+    )
+  end
+
+  defp finish_recording_action(recording, attrs, :fail) do
+    RemoteAccessRecording.fail(recording, attrs,
+      actor: system_actor(:fail),
+      return_notifications?: true
+    )
+  end
+
+  defp finish_recording_action(recording, attrs, :expire) do
+    RemoteAccessRecording.expire(recording, attrs,
+      actor: system_actor(:expire),
+      return_notifications?: true
+    )
+  end
+
+  defp maybe_put_failure_reason(attrs, :fail, reason) do
+    Map.put(attrs, :failure_reason, format_reason(reason))
+  end
+
+  defp maybe_put_failure_reason(attrs, _action, _reason), do: attrs
+
+  defp lock_recording(recording_id) do
+    case Ecto.UUID.cast(to_string(recording_id)) do
+      {:ok, uuid} ->
+        case Repo.query(lock_recording_sql(), [Ecto.UUID.dump!(uuid)]) do
+          {:ok, %{num_rows: 1}} -> :ok
+          {:ok, %{num_rows: 0}} -> {:error, :not_found}
+          {:error, reason} -> {:error, reason}
+        end
+
+      :error ->
+        {:error, :invalid_recording_id}
+    end
+  end
+
+  defp lock_recording_sql do
+    """
+    SELECT id
+    FROM platform.remote_access_recordings
+    WHERE id = $1::uuid
+    FOR UPDATE
+    """
+  end
+
+  defp stale_recording_stats(stale_after_seconds, batch_size)
+       when is_integer(stale_after_seconds) and stale_after_seconds > 0 and is_integer(batch_size) and
+              batch_size > 0 do
+    case Repo.query(stale_recording_stats_sql(), [stale_after_seconds, batch_size]) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Enum.map(rows, fn [id, event_count, input_bytes, output_bytes] ->
+           %{
+             id: id,
+             event_count: nonnegative_int(event_count),
+             input_bytes: nonnegative_int(input_bytes),
+             output_bytes: nonnegative_int(output_bytes)
+           }
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stale_recording_stats(_stale_after_seconds, _batch_size),
+    do: {:error, :invalid_stale_reaper_options}
+
+  defp stale_recording_stats_sql do
+    """
+    SELECT
+      r.id::text,
+      count(e.id)::bigint,
+      coalesce(sum(CASE WHEN e.stream = 'input' THEN e.byte_count ELSE 0 END), 0)::bigint,
+      coalesce(sum(CASE WHEN e.stream = 'output' THEN e.byte_count ELSE 0 END), 0)::bigint
+    FROM platform.remote_access_recordings r
+    LEFT JOIN platform.remote_access_recording_events e ON e.recording_id = r.id
+    WHERE r.status IN ('pending', 'active')
+    GROUP BY r.id, r.updated_at
+    HAVING greatest(r.updated_at, coalesce(max(e.inserted_at), r.updated_at)) <
+      (now() AT TIME ZONE 'utc') - ($1::int * INTERVAL '1 second')
+    ORDER BY r.updated_at ASC
+    LIMIT $2
+    """
+  end
+
+  defp expire_stale_recording(%{} = stats, opts) do
+    with {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(stats.id, actor: system_actor(:stale_expire_lookup)) do
+      expire(
+        recording,
+        %{
+          input_bytes: stats.input_bytes,
+          output_bytes: stats.output_bytes,
+          event_count: stats.event_count
+        },
+        Keyword.put_new(opts, :audit_actor, system_actor(:stale_expire))
+      )
+    end
+  end
+
+  @spec delete(RemoteAccessRecording.t() | binary(), keyword()) ::
+          {:ok, RemoteAccessRecording.t()} | {:error, term()}
+  def delete(recording_or_id, opts \\ [])
+
+  def delete(%RemoteAccessRecording{} = recording, opts) do
+    with :ok <- authorize_delete(opts),
+         {:ok, %RemoteAccessRecording{} = updated} <-
+           RemoteAccessRecording.mark_deleted(recording, actor: system_actor(:delete)) do
+      write_audit(:remote_access_recording_deleted, updated, opts)
+      {:ok, updated}
+    end
+  end
+
+  def delete(recording_id, opts) when is_binary(recording_id) do
+    with :ok <- authorize_delete(opts),
          {:ok, %RemoteAccessRecording{} = recording} <-
-           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:destroy_read)) do
-      destroy(recording, opts)
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:delete_lookup)),
+         {:ok, %RemoteAccessRecording{} = updated} <-
+           RemoteAccessRecording.mark_deleted(recording, actor: system_actor(:delete)) do
+      write_audit(:remote_access_recording_deleted, updated, opts)
+      {:ok, updated}
     end
   end
 
@@ -178,7 +428,90 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
-  defp finish_attrs(recording, attrs) do
+  defp list_events_for_authorized_recording(
+         %RemoteAccessRecording{id: recording_id} = recording,
+         opts
+       ) do
+    with :ok <- authorize_recording_read(recording, opts),
+         :ok <- ensure_playback_status(recording) do
+      RemoteAccessRecordingEvent.list_for_recording(recording_id,
+        actor: system_actor(:event_read)
+      )
+    end
+  end
+
+  defp list_events_for_authorized_recording(recording_id, opts) when is_binary(recording_id) do
+    with {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:event_lookup)) do
+      list_events_for_authorized_recording(recording, opts)
+    end
+  end
+
+  defp ensure_playback_status(%RemoteAccessRecording{status: :deleted}),
+    do: {:error, :recording_deleted}
+
+  defp ensure_playback_status(_recording), do: :ok
+
+  defp authorize_recording_read(recording, opts) do
+    case export_actor(opts) do
+      %{role: :system} = actor ->
+        authorize_recording_read_for_actor(recording, actor)
+
+      %{role: "system"} = actor ->
+        authorize_recording_read_for_actor(recording, actor)
+
+      nil ->
+        {:error, :forbidden}
+
+      actor ->
+        authorize_recording_read_for_actor(recording, actor)
+    end
+  end
+
+  defp authorize_recording_read_for_actor(_recording, %{role: role})
+       when role in [:system, "system"], do: :ok
+
+  defp authorize_recording_read_for_actor(recording, actor) do
+    cond do
+      RBAC.has_permission?(actor, @view_all_permission) ->
+        :ok
+
+      actor_uuid(actor) == nil ->
+        {:error, :forbidden}
+
+      true ->
+        authorize_session_owner(recording, actor)
+    end
+  end
+
+  defp authorize_session_owner(recording, actor) do
+    with {:ok, %RemoteAccessSession{} = session} <-
+           RemoteAccessSession.get_by_id(recording.session_id,
+             actor: system_actor(:event_session_lookup)
+           ) do
+      if session.requested_by == actor_uuid(actor), do: :ok, else: {:error, :forbidden}
+    end
+  end
+
+  defp actor_uuid(%{id: id}) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp actor_uuid(_actor), do: nil
+
+  defp recording_event_integrity(%RemoteAccessRecording{id: recording_id}) do
+    with {:ok, events} <-
+           RemoteAccessRecordingEvent.list_for_recording(recording_id,
+             actor: system_actor(:finish_event_read)
+           ) do
+      verify_event_chain(events)
+    end
+  end
+
+  defp finish_attrs(recording, attrs, event_integrity) do
     now = RemoteAccessRecording.utc_now()
     input_bytes = nonnegative_int(value(attrs, "input_bytes"))
     output_bytes = nonnegative_int(value(attrs, "output_bytes"))
@@ -192,17 +525,26 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
         "input_bytes" => input_bytes,
         "output_bytes" => output_bytes,
         "event_count" => event_count,
-        "raw_terminal_payloads_stored" => terminal_payloads_allowed?(recording.policy)
+        "raw_terminal_payloads_stored" => terminal_payloads_allowed?(snapshot_policy(recording))
       })
 
-    %{
-      input_bytes: input_bytes,
-      output_bytes: output_bytes,
-      event_count: event_count,
-      manifest: manifest,
-      completed_at: now
-    }
+    with :ok <- ensure_event_count_matches(event_count, event_integrity),
+         {:ok, manifest} <- seal_manifest(manifest, event_integrity, now) do
+      {:ok,
+       %{
+         input_bytes: input_bytes,
+         output_bytes: output_bytes,
+         event_count: event_count,
+         manifest: manifest,
+         completed_at: now
+       }}
+    end
   end
+
+  defp ensure_event_count_matches(event_count, %{count: event_count}), do: :ok
+
+  defp ensure_event_count_matches(_event_count, _event_integrity),
+    do: {:error, :recording_event_count_mismatch}
 
   defp base_manifest(session, policy, storage, extra) do
     %{
@@ -215,16 +557,71 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       "target_kind" => string_value(session, "target_kind"),
       "target_host" => string_value(session, "target_host"),
       "target_port" => nonnegative_int(value(session, "target_port")),
+      "credential_custody_mode" => string_value(session, "credential_custody_mode"),
+      "credential_rule_id" => string_value(session, "credential_rule_id"),
+      "rbac_decision" => string_value(session, "rbac_decision"),
+      "approval_id" => string_value(session, "approval_id"),
+      "idle_timeout_seconds" => nonnegative_int(value(session, "idle_timeout_seconds")),
+      "absolute_timeout_seconds" => nonnegative_int(value(session, "absolute_timeout_seconds")),
+      "desktop_policy" => desktop_policy_manifest(session),
       "storage_backend" => storage.backend,
       "storage_bucket" => storage.bucket,
       "object_key" => storage.object_key,
       "recording_mode" => Map.get(policy, "mode") || "metadata",
       "content_recording" => terminal_payloads_allowed?(policy),
+      "redaction_policy" => redaction_policy_snapshot(policy),
       "policy" => policy
     }
     |> Map.merge(extra)
     |> reject_blank()
     |> CredentialRedactor.redact()
+  end
+
+  defp redaction_policy_snapshot(policy) do
+    %{
+      "credential_redactor" => CredentialRedactor.version(),
+      "decision_time" => "record_time",
+      "policy_edits_retroactive" => false,
+      "terminal_payloads_allowed" => terminal_payloads_allowed?(policy),
+      "input_payloads_allowed" => input_payloads_allowed?(policy),
+      "output_payloads_allowed" => output_payloads_allowed?(policy)
+    }
+  end
+
+  defp snapshot_policy(%RemoteAccessRecording{manifest: manifest, policy: policy}) do
+    manifest
+    |> normalize_policy()
+    |> Map.get("policy")
+    |> normalize_policy()
+    |> case do
+      map when map_size(map) > 0 -> map
+      _empty -> normalize_policy(policy)
+    end
+  end
+
+  defp desktop_policy_manifest(session) do
+    metadata =
+      session
+      |> value("metadata")
+      |> normalize_policy()
+
+    %{}
+    |> maybe_put("tls", first_policy(metadata, ["target_tls", "tls_policy", "tls"]))
+    |> maybe_put("nla", first_policy(metadata, ["nla", "nla_policy"]))
+    |> maybe_put("screen", first_policy(metadata, ["screen_policy", "screen"]))
+    |> maybe_put("redirection", first_policy(metadata, ["redirection_policy", "redirection"]))
+    |> maybe_put("approval", first_policy(metadata, ["approval_policy", "approval"]))
+    |> reject_blank()
+  end
+
+  defp first_policy(metadata, keys) do
+    Enum.find_value(keys, fn key ->
+      case value(metadata, key) do
+        value when is_map(value) -> value
+        value when value in [nil, "", %{}] -> nil
+        value -> value
+      end
+    end)
   end
 
   defp storage_config(policy, session_id) do
@@ -282,16 +679,18 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     byte_count = event_byte_count(attrs, payload)
     metadata = event_metadata(attrs, payload)
     payload_decision = payload_decision(policy, stream, payload)
+    sequence = positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts)
 
     reject_nil(%{
       recording_id: recording.id,
       session_id: recording.session_id,
-      sequence: positive_int(value(attrs, "sequence")) || next_sequence(recording.id, opts),
+      sequence: sequence,
       stream: stream,
       event_type: event_type(attrs, stream),
       occurred_at: event_time(attrs),
       byte_count: byte_count,
       payload_sha256: payload_hash,
+      prior_event_hash: prior_event_hash(recording.id, sequence, opts),
       payload_text: payload_decision.text,
       payload_redacted: payload_decision.redacted?,
       redaction_reason: payload_decision.reason,
@@ -493,6 +892,37 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
+  defp prior_event_hash(_recording_id, sequence, _opts) when sequence <= 1, do: nil
+
+  defp prior_event_hash(recording_id, sequence, opts) do
+    recording_id
+    |> RemoteAccessRecordingEvent.latest_before_sequence(sequence, scope_opts(opts))
+    |> case do
+      {:ok, [event | _]} -> event_integrity_hash(event)
+      _ -> nil
+    end
+  end
+
+  defp event_integrity_payload(%RemoteAccessRecordingEvent{} = event) do
+    stringify_nested(%{
+      "id" => event.id,
+      "recording_id" => event.recording_id,
+      "session_id" => event.session_id,
+      "sequence" => event.sequence,
+      "stream" => format_atom(event.stream),
+      "event_type" => event.event_type,
+      "occurred_at" => format_datetime(event.occurred_at),
+      "byte_count" => event.byte_count,
+      "payload_sha256" => event.payload_sha256,
+      "payload_text" => event.payload_text,
+      "payload_redacted" => event.payload_redacted,
+      "redaction_reason" => event.redaction_reason,
+      "metadata" => event.metadata || %{},
+      "retention_expires_at" => format_datetime(event.retention_expires_at),
+      "prior_event_hash" => event.prior_event_hash
+    })
+  end
+
   defp content_persistence(policy) do
     if terminal_payloads_allowed?(policy), do: "terminal_payloads", else: "metadata"
   end
@@ -519,16 +949,149 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       value(policy, "record_outputs") not in [false, "false", "no", "0", 0]
   end
 
-  defp export_manifest(recording, events) do
+  defp export_manifest(recording, events, event_integrity, manifest_integrity, export_id) do
     recording.manifest
     |> normalize_policy()
     |> Map.merge(%{
+      "export_id" => export_id,
       "exported_at" => DateTime.to_iso8601(RemoteAccessRecording.utc_now()),
       "export_event_count" => length(events),
       "export_contains_payload_text" => Enum.any?(events, &is_binary(&1.payload_text)),
-      "export_payloads_redacted" => Enum.any?(events, & &1.payload_redacted)
+      "export_payloads_redacted" => Enum.any?(events, & &1.payload_redacted),
+      "event_chain_verified" => Map.get(event_integrity, :verified?),
+      "event_chain_root" => Map.get(event_integrity, :root),
+      "manifest_integrity_verified" => Map.get(manifest_integrity, :verified?),
+      "manifest_integrity_status" => Map.get(manifest_integrity, :status)
     })
+    |> reject_blank()
   end
+
+  defp verify_event_chain(events) when is_list(events) do
+    events = Enum.sort_by(events, &{&1.sequence, &1.inserted_at || &1.occurred_at})
+
+    case verify_event_chain(events, nil, 0) do
+      {:ok, nil, count} -> {:ok, %{verified?: true, root: nil, count: count}}
+      {:ok, last_hash, count} -> {:ok, %{verified?: true, root: last_hash, count: count}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp verify_event_chain([], previous_hash, count), do: {:ok, previous_hash, count}
+
+  defp verify_event_chain([event | rest], expected_prior_hash, count) do
+    if event.prior_event_hash == expected_prior_hash do
+      verify_event_chain(rest, event_integrity_hash(event), count + 1)
+    else
+      {:error, :recording_integrity_check_failed}
+    end
+  end
+
+  defp seal_manifest(manifest, event_integrity, signed_at) do
+    unsigned_manifest =
+      manifest
+      |> normalize_policy()
+      |> Map.delete("integrity")
+
+    integrity =
+      reject_nil(%{
+        "algorithm" => @integrity_algorithm,
+        "event_chain_root" => Map.get(event_integrity, :root),
+        "event_count" => Map.get(unsigned_manifest, "event_count"),
+        "manifest_sha256" => sha256_hex(canonical_json(unsigned_manifest)),
+        "signed_at" => DateTime.to_iso8601(signed_at)
+      })
+
+    with {:ok, signature} <- sign_manifest(unsigned_manifest, integrity) do
+      {:ok, Map.put(unsigned_manifest, "integrity", Map.put(integrity, "signature", signature))}
+    end
+  end
+
+  defp verify_manifest_integrity(manifest, event_integrity) do
+    manifest = normalize_policy(manifest)
+    integrity = manifest |> Map.get("integrity") |> normalize_policy()
+    signature = string_value(integrity, "signature")
+
+    cond do
+      is_nil(signature) ->
+        {:ok, %{verified?: false, status: "unsigned_legacy_manifest"}}
+
+      Map.get(integrity, "algorithm") != @integrity_algorithm ->
+        {:error, :recording_manifest_integrity_check_failed}
+
+      Map.get(integrity, "event_chain_root") != Map.get(event_integrity, :root) ->
+        {:error, :recording_manifest_integrity_check_failed}
+
+      true ->
+        unsigned_manifest = Map.delete(manifest, "integrity")
+        unsigned_integrity = Map.delete(integrity, "signature")
+
+        with {:ok, expected_signature} <- sign_manifest(unsigned_manifest, unsigned_integrity) do
+          if :crypto.hash_equals(signature, expected_signature) do
+            {:ok, %{verified?: true, status: "verified"}}
+          else
+            {:error, :recording_manifest_integrity_check_failed}
+          end
+        end
+    end
+  end
+
+  defp sign_manifest(unsigned_manifest, unsigned_integrity) do
+    with {:ok, key} <- integrity_key() do
+      signature =
+        :hmac
+        |> :crypto.mac(
+          :sha256,
+          key,
+          canonical_json(%{
+            "integrity" => unsigned_integrity,
+            "manifest" => unsigned_manifest
+          })
+        )
+        |> Base.encode16(case: :lower)
+
+      {:ok, signature}
+    end
+  end
+
+  defp integrity_key do
+    secret =
+      Application.get_env(:serviceradar_core, :recording_integrity_secret) ||
+        Application.get_env(:serviceradar_core, :crypto_secret) ||
+        System.get_env("SERVICERADAR_RECORDING_INTEGRITY_SECRET") ||
+        System.get_env("SERVICERADAR_EDGE_CRYPTO_SECRET") ||
+        System.get_env("EDGE_ONBOARDING_ENCRYPTION_KEY")
+
+    if is_binary(secret) and byte_size(secret) >= 32 do
+      {:ok, :crypto.mac(:hmac, :sha256, @integrity_key_context, secret)}
+    else
+      {:error, :recording_integrity_secret_missing}
+    end
+  end
+
+  defp sha256_hex(payload) when is_binary(payload) do
+    :sha256
+    |> :crypto.hash(payload)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical_json(value) when is_map(value) do
+    entries =
+      value
+      |> stringify_map()
+      |> Enum.sort_by(fn {key, _value} -> key end)
+      |> Enum.map(fn {key, nested_value} ->
+        Jason.encode!(key) <> ":" <> canonical_json(nested_value)
+      end)
+
+    "{" <> Enum.join(entries, ",") <> "}"
+  end
+
+  defp canonical_json(value) when is_list(value) do
+    "[" <> Enum.map_join(value, ",", &canonical_json/1) <> "]"
+  end
+
+  defp canonical_json(value) when is_atom(value), do: value |> Atom.to_string() |> Jason.encode!()
+  defp canonical_json(value), do: Jason.encode!(value)
 
   defp authorize_export(opts) do
     case export_actor(opts) do
@@ -546,7 +1109,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     end
   end
 
-  defp authorize_destroy(opts) do
+  defp authorize_delete(opts) do
     case export_actor(opts) do
       %{role: :system} ->
         :ok
@@ -642,7 +1205,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
           input_bytes: recording.input_bytes,
           output_bytes: recording.output_bytes,
           event_count: recording.event_count,
-          failure_reason: recording.failure_reason
+          failure_reason: recording.failure_reason,
+          export_id: Keyword.get(opts, :export_id)
         }
         |> CredentialRedactor.redact()
         |> reject_blank(),
@@ -652,14 +1216,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   end
 
   defp audit_severity(:remote_access_recording_failed), do: :high
-  defp audit_severity(:remote_access_recording_destroyed), do: :high
+  defp audit_severity(:remote_access_recording_deleted), do: :high
   defp audit_severity(_action), do: :medium
 
   defp action_suffix(:remote_access_recording_created), do: "created"
   defp action_suffix(:remote_access_recording_active), do: "active"
   defp action_suffix(:remote_access_recording_completed), do: "completed"
+  defp action_suffix(:remote_access_recording_expired), do: "expired"
   defp action_suffix(:remote_access_recording_failed), do: "failed"
-  defp action_suffix(:remote_access_recording_destroyed), do: "destroyed"
+  defp action_suffix(:remote_access_recording_deleted), do: "deleted"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp system_actor(suffix), do: SystemActor.system(:"remote_access_recording_#{suffix}")
@@ -731,6 +1296,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp format_datetime(nil), do: nil
   defp format_datetime(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp format_datetime(value), do: value
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, value) when value == %{}, do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp reject_blank(map) do
     map

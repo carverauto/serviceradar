@@ -3409,6 +3409,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_remote_access_app, can_remote_access_app?(assigns.current_scope))
+      |> assign(:can_manage_rdp_targets, can_manage_rdp_targets?(assigns.current_scope))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(
         :can_view_northbound_history,
@@ -3515,6 +3516,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               size="sm"
             >
               <.icon name="hero-window" class="size-4" /> Apps
+            </.ui_button>
+            <.ui_button
+              :if={@can_manage_rdp_targets and not @device_deleted}
+              href={rdp_target_new_path(@device_uid, @device_row)}
+              variant="outline"
+              size="sm"
+            >
+              <.icon name="hero-computer-desktop" class="size-4" /> Enable RDP
             </.ui_button>
             <.ui_button
               :if={@can_edit and not @editing}
@@ -11165,7 +11174,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     FeatureFlags.remote_access_app_enabled?() and RBAC.can?(scope, "devices.remote_access.app.open")
   end
 
+  defp can_manage_rdp_targets?(scope) do
+    FeatureFlags.remote_access_desktop_rdp_enabled?() and RBAC.can?(scope, "settings.edge.manage")
+  end
+
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
+
+  defp rdp_target_new_path(device_uid, device_row) do
+    params =
+      %{
+        device_uid: device_uid,
+        target_host: rdp_target_host(device_row),
+        name: rdp_target_name(device_row),
+        target_tls_server_name: rdp_target_server_name(device_row)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+      |> Map.new()
+
+    ~p"/settings/networks/desktop-targets/new?#{params}"
+  end
+
+  defp rdp_target_host(row) when is_map(row) do
+    first_present([Map.get(row, "ip"), Map.get(row, "hostname"), Map.get(row, "name")])
+  end
+
+  defp rdp_target_host(_row), do: nil
+
+  defp rdp_target_name(row) when is_map(row) do
+    case device_display_name(row) do
+      "Device" -> nil
+      label -> "#{label} RDP"
+    end
+  end
+
+  defp rdp_target_name(_row), do: nil
+
+  defp rdp_target_server_name(row) when is_map(row) do
+    first_present([Map.get(row, "hostname"), Map.get(row, "name")])
+  end
+
+  defp rdp_target_server_name(_row), do: nil
 
   defp ssh_capable_device?(nil), do: false
 

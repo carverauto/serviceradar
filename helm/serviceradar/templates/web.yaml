@@ -105,6 +105,7 @@ spec:
         imagePullPolicy: IfNotPresent
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           runAsUser: 10001
           runAsGroup: 10001
           capabilities:
@@ -202,7 +203,7 @@ spec:
         - name: PHX_HOST
           value: {{ default "serviceradar-web-ng" $webHost | quote }}
         - name: PHX_CHECK_ORIGIN
-          value: {{ default "false" $webNg.checkOrigin | quote }}
+          value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
           value: {{ default "true" $webNg.godViewEnabled | quote }}
         - name: SERVICERADAR_DEV_ROUTES

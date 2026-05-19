@@ -35,8 +35,13 @@ const (
 	defaultAgentRuntimeArch          = "amd64"
 	defaultAgentRuntimeFormat        = "tar.gz"
 	defaultAgentRuntimeEntrypoint    = "serviceradar-agent"
+	defaultRDPHelperProtocolVersion  = "srdp-helper-v1"
+	defaultRDPHelperBinary           = "serviceradar-rdp-adapter"
+	defaultRDPHelperInstallPath      = "/usr/local/bin/serviceradar-rdp-adapter"
+	defaultRDPConnectorReadyReason   = "connector_loop_not_implemented"
 	releasePrivateKeyEnv             = "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY"
 	releasePrivateKeyFileEnv         = "SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE"
+	agentRDPRuntimeArtifactEnv       = "SERVICERADAR_AGENT_RDP_RUNTIME_ARTIFACT"
 )
 
 var (
@@ -112,12 +117,32 @@ type agentReleaseManifest struct {
 }
 
 type agentReleaseManifestArtifact struct {
-	URL        string `json:"url"`
-	SHA256     string `json:"sha256"`
-	OS         string `json:"os"`
-	Arch       string `json:"arch"`
-	Format     string `json:"format,omitempty"`
-	Entrypoint string `json:"entrypoint,omitempty"`
+	URL                     string                            `json:"url"`
+	SHA256                  string                            `json:"sha256"`
+	OS                      string                            `json:"os"`
+	Arch                    string                            `json:"arch"`
+	Format                  string                            `json:"format,omitempty"`
+	Entrypoint              string                            `json:"entrypoint,omitempty"`
+	Capabilities            []string                          `json:"capabilities,omitempty"`
+	HelperProtocolVersion   string                            `json:"helper_protocol_version,omitempty"`
+	CompatibleAgentVersions *agentReleaseManifestVersionRange `json:"compatible_agent_versions,omitempty"`
+	Checksums               map[string]string                 `json:"checksums,omitempty"`
+	Signatures              []agentReleaseManifestReference   `json:"signatures,omitempty"`
+	SBOM                    []agentReleaseManifestReference   `json:"sbom,omitempty"`
+	LicenseReview           *agentReleaseManifestReference    `json:"license_review,omitempty"`
+	DeploymentRequirements  map[string]interface{}            `json:"deployment_requirements,omitempty"`
+}
+
+type agentReleaseManifestVersionRange struct {
+	Min string `json:"min,omitempty"`
+	Max string `json:"max,omitempty"`
+}
+
+type agentReleaseManifestReference struct {
+	Name      string `json:"name,omitempty"`
+	URL       string `json:"url,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
 }
 
 type publishConfig struct {
@@ -134,6 +159,12 @@ type publishConfig struct {
 	appendNotes     bool
 	manifestPath    string
 	forgejoURL      string
+	agentRDPRuntime string
+}
+
+type managedAgentManifestOptions struct {
+	RDPRuntimeURL          string
+	RDPRuntimeArtifactPath string
 }
 
 type publishContext struct {
@@ -191,6 +222,7 @@ func parsePublishConfig() publishConfig {
 	appendNotesFlag := flag.Bool("append_notes", false, "Append release notes when the release already exists")
 	manifestFlag := flag.String("manifest", defaultManifestRunfile, "Path to the package manifest runfile")
 	forgejoURLFlag := flag.String("forgejo-url", firstNonEmpty(strings.TrimSpace(os.Getenv("FORGEJO_URL")), "https://code.carverauto.dev"), "Base Forgejo URL")
+	agentRDPRuntimeFlag := flag.String("agent-rdp-runtime", strings.TrimSpace(os.Getenv(agentRDPRuntimeArtifactEnv)), "Optional RDP-enabled agent runtime bundle artifact path")
 
 	flag.Parse()
 
@@ -208,6 +240,7 @@ func parsePublishConfig() publishConfig {
 		appendNotes:     *appendNotesFlag,
 		manifestPath:    *manifestFlag,
 		forgejoURL:      strings.TrimRight(strings.TrimSpace(*forgejoURLFlag), "/"),
+		agentRDPRuntime: strings.TrimSpace(*agentRDPRuntimeFlag),
 	}
 }
 
@@ -356,11 +389,36 @@ func uploadManagedAgentArtifacts(ctx *publishContext, rel *release, existingAsse
 		return fmt.Errorf("failed to resolve managed agent runtime download url: %w", err)
 	}
 
+	manifestOptions := managedAgentManifestOptions{}
+	if ctx.config.agentRDPRuntime != "" {
+		rdpRuntimeArtifact, err := resolveOptionalArtifact(ctx.resolver, ctx.config.agentRDPRuntime)
+		if err != nil {
+			return fmt.Errorf("failed to resolve managed agent RDP runtime artifact: %w", err)
+		}
+
+		rdpUploadName := managedAgentRDPRuntimeUploadName(ctx.releaseVersion)
+		if err := uploadReleaseAsset(ctx.client, rel.UploadURL, existingAssets, uploadAsset{
+			sourcePath: rdpRuntimeArtifact,
+			uploadName: rdpUploadName,
+		}, ctx.config.overwriteAssets); err != nil {
+			return fmt.Errorf("failed to upload managed agent RDP runtime asset %q: %w", rdpUploadName, err)
+		}
+
+		rdpRuntimeURL, err := ctx.client.getReleaseAssetDownloadURL(rel.TagName, rdpUploadName)
+		if err != nil {
+			return fmt.Errorf("failed to resolve managed agent RDP runtime download url: %w", err)
+		}
+
+		manifestOptions.RDPRuntimeURL = rdpRuntimeURL
+		manifestOptions.RDPRuntimeArtifactPath = rdpRuntimeArtifact
+	}
+
 	tempDir, manifestAssets, err := buildManagedAgentManifestAssets(
 		ctx.releaseVersion,
 		runtimeURL,
 		agentRuntimeArtifact,
 		ctx.config.dryRun,
+		manifestOptions,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to build managed agent release manifest assets: %w", err)
@@ -410,11 +468,21 @@ func managedAgentRuntimeUploadName(version string) string {
 	)
 }
 
+func managedAgentRDPRuntimeUploadName(version string) string {
+	return fmt.Sprintf(
+		"serviceradar-agent-rdp_%s_%s_%s.tar.gz",
+		version,
+		defaultAgentRuntimeOS,
+		defaultAgentRuntimeArch,
+	)
+}
+
 func buildManagedAgentManifestAssets(
 	version string,
 	runtimeURL string,
 	runtimeArtifactPath string,
 	dryRun bool,
+	opts managedAgentManifestOptions,
 ) (string, []uploadAsset, error) {
 	runtimeDigest, err := fileSHA256(runtimeArtifactPath)
 	if err != nil {
@@ -424,29 +492,25 @@ func buildManagedAgentManifestAssets(
 	manifest := agentReleaseManifest{
 		Version: version,
 		Artifacts: []agentReleaseManifestArtifact{
-			{
-				URL:        runtimeURL,
-				SHA256:     runtimeDigest,
-				OS:         defaultAgentRuntimeOS,
-				Arch:       defaultAgentRuntimeArch,
-				Format:     defaultAgentRuntimeFormat,
-				Entrypoint: defaultAgentRuntimeEntrypoint,
-			},
+			baseAgentManifestArtifact(runtimeURL, runtimeDigest),
 		},
 	}
 
-	manifestPayload := map[string]interface{}{
-		"version": manifest.Version,
-		"artifacts": []interface{}{
-			map[string]interface{}{
-				"url":        manifest.Artifacts[0].URL,
-				"sha256":     manifest.Artifacts[0].SHA256,
-				"os":         manifest.Artifacts[0].OS,
-				"arch":       manifest.Artifacts[0].Arch,
-				"format":     manifest.Artifacts[0].Format,
-				"entrypoint": manifest.Artifacts[0].Entrypoint,
-			},
-		},
+	if opts.RDPRuntimeURL != "" && opts.RDPRuntimeArtifactPath != "" {
+		rdpDigest, err := fileSHA256(opts.RDPRuntimeArtifactPath)
+		if err != nil {
+			return "", nil, err
+		}
+
+		manifest.Artifacts = append(
+			[]agentReleaseManifestArtifact{rdpAgentManifestArtifact(version, opts.RDPRuntimeURL, rdpDigest)},
+			manifest.Artifacts...,
+		)
+	}
+
+	manifestPayload, err := manifestCanonicalPayload(manifest)
+	if err != nil {
+		return "", nil, err
 	}
 
 	canonicalJSON, err := marshalCanonicalJSON(manifestPayload)
@@ -492,6 +556,66 @@ func buildManagedAgentManifestAssets(
 			uploadName: defaultAgentManifestSigAssetName,
 		},
 	}, nil
+}
+
+func baseAgentManifestArtifact(runtimeURL string, runtimeDigest string) agentReleaseManifestArtifact {
+	return agentReleaseManifestArtifact{
+		URL:        runtimeURL,
+		SHA256:     runtimeDigest,
+		OS:         defaultAgentRuntimeOS,
+		Arch:       defaultAgentRuntimeArch,
+		Format:     defaultAgentRuntimeFormat,
+		Entrypoint: defaultAgentRuntimeEntrypoint,
+		Capabilities: []string{
+			"agent",
+		},
+		Checksums: map[string]string{
+			"sha256": runtimeDigest,
+		},
+	}
+}
+
+func rdpAgentManifestArtifact(version string, runtimeURL string, runtimeDigest string) agentReleaseManifestArtifact {
+	return agentReleaseManifestArtifact{
+		URL:                   runtimeURL,
+		SHA256:                runtimeDigest,
+		OS:                    defaultAgentRuntimeOS,
+		Arch:                  defaultAgentRuntimeArch,
+		Format:                defaultAgentRuntimeFormat,
+		Entrypoint:            defaultAgentRuntimeEntrypoint,
+		Capabilities:          []string{"agent", "remote_access.rdp"},
+		HelperProtocolVersion: defaultRDPHelperProtocolVersion,
+		CompatibleAgentVersions: &agentReleaseManifestVersionRange{
+			Min: version,
+			Max: version,
+		},
+		Checksums: map[string]string{
+			"sha256": runtimeDigest,
+		},
+		DeploymentRequirements: map[string]interface{}{
+			"helper":                          defaultRDPHelperBinary,
+			"install_path":                    defaultRDPHelperInstallPath,
+			"helper_capabilities_arg":         "--capabilities",
+			"helper_connector_ready":          false,
+			"helper_connector_ready_reason":   defaultRDPConnectorReadyReason,
+			"requires_helper_readiness_probe": true,
+			"release_phase":                   "experimental",
+		},
+	}
+}
+
+func manifestCanonicalPayload(manifest agentReleaseManifest) (map[string]interface{}, error) {
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		return nil, err
+	}
+
+	return payload, nil
 }
 
 func fileSHA256(path string) (string, error) {
@@ -994,6 +1118,12 @@ func newRunfileResolver() (*runfileResolver, error) {
 }
 
 func (r *runfileResolver) resolve(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+	}
+
 	//nolint:staticcheck // bazel.Runfile is deprecated but required for compatibility
 	if resolved, err := bazel.Runfile(path); err == nil {
 		if _, statErr := os.Stat(resolved); statErr == nil {
@@ -1035,6 +1165,15 @@ func (r *runfileResolver) resolve(path string) (string, error) {
 	}
 
 	return "", fmt.Errorf("%w: %q", errRunfileNotFound, path)
+}
+
+func resolveOptionalArtifact(resolver *runfileResolver, path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errRunfileNotFound
+	}
+
+	return resolver.resolve(path)
 }
 
 var rpmSanitizePattern = regexp.MustCompile(`[^A-Za-z0-9._+]`)

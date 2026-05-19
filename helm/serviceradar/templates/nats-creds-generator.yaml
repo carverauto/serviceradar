@@ -30,7 +30,11 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["secrets"]
-  verbs: ["get", "list", "create", "update", "patch"]
+  resourceNames: ["serviceradar-nats-creds"]
+  verbs: ["get", "patch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create"]
 ---
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
@@ -167,4 +171,10 @@ spec:
               -d "${secret_json}" \
               "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets" >/dev/null
           fi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
 {{- end }}

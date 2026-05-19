@@ -43,6 +43,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugins'},
         {type: 'doc', id: 'ansible', label: 'Ansible Integration'},
         {type: 'doc', id: 'remote-access', label: 'Remote Access'},
+        {type: 'doc', id: 'remote-access-rdp', label: 'Remote Access: RDP'},
         {type: 'doc', id: 'proxmox', label: 'Proxmox VE'},
       ],
     },

@@ -1,7 +1,10 @@
 defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
   use ExUnit.Case, async: false
 
+  import ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry, only: [assert_receive_telemetry: 2]
+
   alias ServiceRadarAgentGateway.CameraMediaSessionTracker
+  alias ServiceRadarAgentGateway.TestSupport.MediaSessionTrackerTelemetry
 
   setup do
     previous_agent_limit =
@@ -32,7 +35,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
       restore_env(:camera_relay_max_sessions_per_gateway, previous_gateway_limit)
     end)
 
-    :ok = attach_telemetry_handler(self())
+    :ok = MediaSessionTrackerTelemetry.attach(telemetry_handler_id(), telemetry_events(), self())
 
     :ok
   end
@@ -260,30 +263,13 @@ defmodule ServiceRadarAgentGateway.CameraMediaSessionTrackerTest do
     Map.put(state, :sessions, %{})
   end
 
-  defp attach_telemetry_handler(test_pid) do
-    :telemetry.attach_many(
-      telemetry_handler_id(),
-      [
-        [:serviceradar, :camera_relay, :session, :opened],
-        [:serviceradar, :camera_relay, :session, :closing],
-        [:serviceradar, :camera_relay, :session, :closed],
-        [:serviceradar, :camera_relay, :session, :saturation_denied]
-      ],
-      &__MODULE__.handle_telemetry_event/4,
-      test_pid
-    )
-  end
-
-  def handle_telemetry_event(event, measurements, metadata, test_pid) do
-    send(test_pid, {:telemetry_event, event, measurements, metadata})
-  end
-
-  defp assert_receive_telemetry(event, expected_metadata) do
-    assert_receive {:telemetry_event, ^event, _measurements, metadata}
-
-    Enum.each(expected_metadata, fn {key, value} ->
-      assert Map.get(metadata, key) == value
-    end)
+  defp telemetry_events do
+    [
+      [:serviceradar, :camera_relay, :session, :opened],
+      [:serviceradar, :camera_relay, :session, :closing],
+      [:serviceradar, :camera_relay, :session, :closed],
+      [:serviceradar, :camera_relay, :session, :saturation_denied]
+    ]
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)

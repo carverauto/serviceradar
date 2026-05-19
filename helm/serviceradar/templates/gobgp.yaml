@@ -65,6 +65,7 @@ spec:
         imagePullPolicy: {{ .Values.gobgp.image.pullPolicy | default (include "serviceradar.imagePullPolicy" .) }}
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           runAsUser: 1001
           runAsGroup: 1001
           capabilities:

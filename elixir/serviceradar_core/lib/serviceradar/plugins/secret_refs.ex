@@ -9,6 +9,11 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   @secret_prefix "secretref:"
   @network_credential_prefix "credentialref:network-credential-secret:"
+  @network_credential_grant_prefix "credentialref:network-credential-grant:"
+  @network_credential_grant_schema "serviceradar.network_credential_grant_ref.v1"
+  @network_credential_grant_default_ttl_seconds 60
+  @network_credential_grant_max_ttl_seconds 60
+  @network_credential_grant_replay_table :serviceradar_network_credential_grant_replays
   @secret_material_key "_secret_material"
 
   @spec prepare_params_for_storage(map(), map(), map()) :: map()
@@ -122,18 +127,40 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     @network_credential_prefix <> secret_id
   end
 
+  @spec network_credential_grant_ref(String.t(), keyword()) :: String.t()
+  def network_credential_grant_ref(secret_id, opts \\ []) when is_binary(secret_id) do
+    ttl_seconds =
+      opts
+      |> Keyword.get(:ttl_seconds, @network_credential_grant_default_ttl_seconds)
+      |> clamp_int(1, @network_credential_grant_max_ttl_seconds)
+
+    payload =
+      %{
+        "schema" => @network_credential_grant_schema,
+        "secret_id" => secret_id,
+        "exp" => Keyword.get(opts, :expires_at_unix, current_unix_second() + ttl_seconds),
+        "nonce" => Crypto.generate_token()
+      }
+      |> put_optional_claims(Keyword.get(opts, :claims, %{}))
+      |> Jason.encode!()
+
+    @network_credential_grant_prefix <>
+      Base.url_encode64(payload, padding: false) <>
+      "." <>
+      Base.url_encode64(sign_network_credential_grant_payload(payload), padding: false)
+  end
+
   @spec network_credential_ref_id(String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def network_credential_ref_id(ref) when is_binary(ref) do
-    if network_credential_ref?(ref) do
-      secret_id = String.replace_prefix(ref, @network_credential_prefix, "")
+    cond do
+      legacy_network_credential_ref?(ref) ->
+        legacy_network_credential_ref_id(ref)
 
-      if secret_id == "" do
-        {:error, "has an empty network credential reference"}
-      else
-        {:ok, secret_id}
-      end
-    else
-      {:error, "is not a network credential reference"}
+      network_credential_grant_ref?(ref) ->
+        network_credential_grant_ref_id(ref)
+
+      true ->
+        {:error, "is not a network credential reference"}
     end
   end
 
@@ -466,10 +493,174 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   defp plugin_inputs_payload?(_params), do: false
 
   defp network_credential_ref?(value) when is_binary(value) do
-    String.starts_with?(value, @network_credential_prefix)
+    legacy_network_credential_ref?(value) or network_credential_grant_ref?(value)
   end
 
   defp network_credential_ref?(_value), do: false
+
+  defp legacy_network_credential_ref?(value) when is_binary(value) do
+    String.starts_with?(value, @network_credential_prefix)
+  end
+
+  defp legacy_network_credential_ref?(_value), do: false
+
+  defp network_credential_grant_ref?(value) when is_binary(value) do
+    String.starts_with?(value, @network_credential_grant_prefix)
+  end
+
+  defp network_credential_grant_ref?(_value), do: false
+
+  defp legacy_network_credential_ref_id(ref) do
+    secret_id = String.replace_prefix(ref, @network_credential_prefix, "")
+
+    if secret_id == "" do
+      {:error, "has an empty network credential reference"}
+    else
+      {:ok, secret_id}
+    end
+  end
+
+  defp network_credential_grant_ref_id(ref) do
+    token = String.replace_prefix(ref, @network_credential_grant_prefix, "")
+
+    with [payload_token, mac_token] <- String.split(token, ".", parts: 2),
+         {:ok, payload} <-
+           decode_url64(payload_token, "has an invalid network credential grant payload"),
+         {:ok, mac} <-
+           decode_url64(mac_token, "has an invalid network credential grant signature"),
+         :ok <- verify_network_credential_grant_signature(payload, mac),
+         {:ok, claims} <- decode_network_credential_grant_claims(payload),
+         :ok <- validate_network_credential_grant_claims(claims),
+         :ok <- consume_network_credential_grant_nonce(claims),
+         {:ok, secret_id} <- network_credential_grant_secret_id(claims) do
+      {:ok, secret_id}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, "has a malformed network credential grant reference"}
+    end
+  end
+
+  defp decode_url64(value, error) do
+    case Base.url_decode64(value, padding: false) do
+      {:ok, decoded} -> {:ok, decoded}
+      :error -> {:error, error}
+    end
+  end
+
+  defp verify_network_credential_grant_signature(payload, mac) do
+    expected = sign_network_credential_grant_payload(payload)
+
+    if secure_compare(mac, expected),
+      do: :ok,
+      else: {:error, "has an invalid network credential grant signature"}
+  end
+
+  defp sign_network_credential_grant_payload(payload) do
+    :crypto.mac(:hmac, :sha256, network_credential_grant_key(), payload)
+  end
+
+  defp network_credential_grant_key do
+    secret = Application.get_env(:serviceradar_core, :crypto_secret)
+
+    if is_binary(secret) and byte_size(secret) >= 32 do
+      :crypto.mac(:hmac, :sha256, "serviceradar-network-credential-grant-ref", secret)
+    else
+      raise "crypto_secret must be configured and at least 32 bytes"
+    end
+  end
+
+  defp decode_network_credential_grant_claims(payload) do
+    case Jason.decode(payload) do
+      {:ok, claims} when is_map(claims) -> {:ok, claims}
+      _ -> {:error, "has an invalid network credential grant payload"}
+    end
+  end
+
+  defp validate_network_credential_grant_claims(%{
+         "schema" => @network_credential_grant_schema,
+         "exp" => exp,
+         "nonce" => nonce
+       })
+       when is_integer(exp) and is_binary(nonce) and nonce != "" do
+    if exp >= current_unix_second(),
+      do: :ok,
+      else: {:error, "has an expired network credential grant reference"}
+  end
+
+  defp validate_network_credential_grant_claims(_claims),
+    do: {:error, "has an invalid network credential grant payload"}
+
+  defp network_credential_grant_secret_id(%{"secret_id" => secret_id})
+       when is_binary(secret_id) and secret_id != "",
+       do: {:ok, secret_id}
+
+  defp network_credential_grant_secret_id(_claims),
+    do: {:error, "has an empty network credential reference"}
+
+  defp consume_network_credential_grant_nonce(%{"exp" => exp, "nonce" => nonce})
+       when is_integer(exp) and is_binary(nonce) do
+    table = ensure_network_credential_grant_replay_table()
+    now = current_unix_second()
+
+    :ets.select_delete(table, [{{:"$1", :"$2"}, [{:<, :"$2", now}], [true]}])
+
+    if :ets.insert_new(table, {nonce, exp}),
+      do: :ok,
+      else: {:error, "has already been used"}
+  end
+
+  defp ensure_network_credential_grant_replay_table do
+    case :ets.whereis(@network_credential_grant_replay_table) do
+      :undefined ->
+        try do
+          :ets.new(@network_credential_grant_replay_table, [
+            :named_table,
+            :public,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          ArgumentError -> @network_credential_grant_replay_table
+        end
+
+      table ->
+        table
+    end
+  end
+
+  defp put_optional_claims(payload, claims) when is_map(claims) do
+    claims
+    |> stringify_keys()
+    |> Map.take(["session_id", "actor_id", "agent_id", "gateway_id", "protocol", "target"])
+    |> Enum.reject(fn {_key, value} ->
+      is_nil(value) or value == "" or value == %{} or value == []
+    end)
+    |> Map.new()
+    |> Map.merge(payload)
+  end
+
+  defp put_optional_claims(payload, _claims), do: payload
+
+  defp clamp_int(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)
+  defp clamp_int(_value, min, _max), do: min
+
+  defp current_unix_second, do: System.system_time(:second)
+
+  defp secure_compare(left, right) when byte_size(left) == byte_size(right) do
+    left_bytes = :binary.bin_to_list(left)
+    right_bytes = :binary.bin_to_list(right)
+
+    result =
+      left_bytes
+      |> Enum.zip(right_bytes)
+      |> Enum.reduce(0, fn {left_byte, right_byte}, acc ->
+        Bitwise.bor(acc, Bitwise.bxor(left_byte, right_byte))
+      end)
+
+    result == 0
+  end
+
+  defp secure_compare(_left, _right), do: false
 
   defp remove_secret_material(%{} = map) do
     map

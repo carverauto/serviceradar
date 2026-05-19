@@ -279,12 +279,13 @@ func (p *PushLoop) sendControlHello(sender *controlStreamSender) error {
 
 func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	configSource := ""
+	var cfg ServerConfig
 	if p.server.config != nil {
-		configSource = normalizeConfigSourceLabel(p.server.config)
+		cfg = *p.server.config
 	}
+	agentID := cfg.AgentID
+	partition := cfg.Partition
+	configSource := normalizeConfigSourceLabel(p.server.config)
 	p.server.mu.RUnlock()
 	hostname, err := os.Hostname()
 	if err != nil {
@@ -296,7 +297,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 			Hello: &proto.ControlStreamHello{
 				AgentId:       agentID,
 				Partition:     partition,
-				Capabilities:  getAgentCapabilities(),
+				Capabilities:  getAgentCapabilities(&cfg),
 				ConfigVersion: p.getConfigVersion(),
 				Version:       Version,
 				Hostname:      hostname,

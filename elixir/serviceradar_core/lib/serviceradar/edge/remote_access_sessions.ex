@@ -85,8 +85,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
            attrs
            |> Map.delete(:__attach_ticket__)
            |> Map.delete(:__approval__),
-         {:ok, session} <- RemoteAccessSession.create_session(session_attrs, ash_opts(opts)),
-         {:ok, _bound_request} <- maybe_bind_access_request(approval, session, opts) do
+         {:ok, session} <- create_session_and_maybe_bind(session_attrs, approval, opts) do
       write_audit(:remote_access_session_create, session, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -120,8 +119,10 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     system_opts = [actor: SystemActor.system(:remote_access_ticket)]
 
     with {:ok, ticket_hash} <- hash_ticket(ticket),
+         {:ok, expected_session_id} <-
+           normalize_expected_session_id(Keyword.get(opts, :session_id)),
          {:ok, attached} <-
-           consume_attach_ticket(ticket_hash, Keyword.get(opts, :session_id), system_opts) do
+           consume_attach_ticket(ticket_hash, expected_session_id, system_opts) do
       write_audit(:remote_access_session_attach, attached, opts,
         terminal_outcome: nil,
         close_reason: nil,
@@ -131,9 +132,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       {:ok, attached}
     else
       {:error, error} ->
-        if not_found_error?(error),
-          do: {:error, :invalid_or_expired_ticket},
-          else: {:error, error}
+        if invalid_attach_ticket_error?(error) do
+          write_attach_denial_audit(:invalid_or_expired_ticket, opts)
+          {:error, :invalid_or_expired_ticket}
+        else
+          {:error, error}
+        end
 
       error ->
         error
@@ -697,6 +701,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp allowed_custody_modes(:ssh), do: [:ssh_certificate, :user_present, :centrally_brokered]
   defp allowed_custody_modes(:proxmox_console), do: [:provider_ticket]
+  defp allowed_custody_modes(:rdp), do: [:user_present, :centrally_brokered, :none]
+  defp allowed_custody_modes(:desktop), do: [:user_present, :centrally_brokered, :none]
   defp allowed_custody_modes(_protocol), do: [:none, :centrally_brokered]
 
   defp to_known_atom(value, allowed) do
@@ -737,7 +743,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
         credential_custody_mode: custody_mode,
         target_kind: value(request, :target_kind),
         credential_rule_id: blank_to_nil(value(request, :credential_rule_id)),
-        requested_by: requested_by(opts)
+        requested_by: requested_by(opts),
+        metadata: request |> value(:metadata) |> sanitized_map()
       }
 
       case run_approval_checker(context, opts) do
@@ -957,6 +964,15 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp hash_ticket(_ticket), do: {:error, :invalid_ticket}
 
+  defp normalize_expected_session_id(nil), do: {:ok, nil}
+
+  defp normalize_expected_session_id(expected_id) do
+    case Ecto.UUID.cast(to_string(expected_id)) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_or_expired_ticket}
+    end
+  end
+
   defp ensure_session_match(_session, nil), do: :ok
 
   defp ensure_session_match(%{id: id}, expected_id) do
@@ -965,20 +981,60 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       else: {:error, :invalid_or_expired_ticket}
   end
 
-  defp maybe_bind_access_request(%{access_request_id: nil}, _session, _opts), do: {:ok, nil}
+  defp invalid_attach_ticket_error?(:invalid_ticket), do: true
+  defp invalid_attach_ticket_error?(:invalid_or_expired_ticket), do: true
 
-  defp maybe_bind_access_request(%{access_request_id: access_request_id}, session, opts)
-       when is_binary(access_request_id) do
-    case RemoteAccessRequests.bind_session(access_request_id, session.id,
-           audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
-           actor: audit_actor(opts)
-         ) do
-      {:ok, request} -> {:ok, request}
-      {:error, reason} -> {:error, reason}
+  defp invalid_attach_ticket_error?(error) do
+    not_found_error?(error)
+  end
+
+  defp create_session_and_maybe_bind(session_attrs, approval, opts) do
+    create_opts =
+      opts
+      |> ash_opts()
+      |> Keyword.put(:return_notifications?, true)
+
+    fn ->
+      with {:ok, %RemoteAccessSession{} = session, session_notifications} <-
+             RemoteAccessSession.create_session(session_attrs, create_opts),
+           {:ok, _bound_request, approval_side_effects} <-
+             bind_access_request_with_side_effects(approval, session, opts) do
+        {session, session_notifications, approval_side_effects}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessSession{} = session, session_notifications, approval_side_effects}} ->
+        Ash.Notifier.notify(session_notifications)
+        approval_side_effects.()
+        {:ok, session}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp maybe_bind_access_request(_approval, _session, _opts), do: {:ok, nil}
+  defp bind_access_request_with_side_effects(%{access_request_id: nil}, _session, _opts) do
+    {:ok, nil, fn -> :ok end}
+  end
+
+  defp bind_access_request_with_side_effects(
+         %{access_request_id: access_request_id},
+         session,
+         opts
+       )
+       when is_binary(access_request_id) do
+    RemoteAccessRequests.bind_session_with_side_effects(access_request_id, session.id,
+      audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
+      actor: audit_actor(opts)
+    )
+  end
+
+  defp bind_access_request_with_side_effects(_approval, _session, _opts) do
+    {:ok, nil, fn -> :ok end}
+  end
 
   defp write_audit(action, session, opts, extra_details) do
     actor = audit_actor(opts)
@@ -1041,6 +1097,27 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
     )
   end
 
+  defp write_attach_denial_audit(reason, opts) do
+    session_id = Keyword.get(opts, :session_id)
+    resource_id = if is_nil(session_id), do: "unknown", else: to_string(session_id)
+    audit_writer = Keyword.get(opts, :audit_writer, AuditWriter)
+
+    audit_writer.write_async(
+      action: :remote_access_session_attach_denied,
+      resource_type: "remote_access_session",
+      resource_id: resource_id,
+      resource_name: resource_id,
+      actor: audit_actor(opts),
+      details:
+        CredentialRedactor.redact(%{
+          session_id: session_id,
+          failure_reason: format_atom(reason)
+        }),
+      severity: :high,
+      message: "Remote access session attach denied"
+    )
+  end
+
   defp audit_action(:request_close), do: :remote_access_session_close_requested
   defp audit_action(:close), do: :remote_access_session_closed
   defp audit_action(:expire), do: :remote_access_session_expired
@@ -1057,6 +1134,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp audit_severity(:remote_access_session_failed), do: :high
   defp audit_severity(:remote_access_session_denied), do: :high
+  defp audit_severity(:remote_access_session_attach_denied), do: :high
   defp audit_severity(_action), do: :medium
 
   defp denial_decision(:approval_required), do: "approval_required"
@@ -1069,6 +1147,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
 
   defp action_suffix(:remote_access_session_create), do: "created"
   defp action_suffix(:remote_access_session_attach), do: "attached"
+  defp action_suffix(:remote_access_session_attach_denied), do: "attach denied"
   defp action_suffix(:remote_access_session_close_requested), do: "close requested"
   defp action_suffix(:remote_access_session_closed), do: "closed"
   defp action_suffix(:remote_access_session_expired), do: "expired"

@@ -97,6 +97,20 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @admin_roles
         },
         %{
+          key: "devices.remote_access.ssh.target.override",
+          label: "Override SSH remote-access targets",
+          description:
+            "Open SSH remote-access sessions with explicit upstream host or port overrides",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.rdp.open",
+          label: "Open RDP remote access",
+          description:
+            "Open graphical RDP remote-access sessions through approved desktop targets",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.remote_access.app.open",
           label: "Open application remote access",
           description: "Open policy-registered HTTP and HTTPS application access sessions",
@@ -118,6 +132,18 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           key: "devices.remote_access.recordings.export",
           label: "Export remote-access recordings",
           description: "Export remote-access replay manifests and transcript events",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.recordings.view_all",
+          label: "View all remote-access recordings",
+          description: "View remote-access recordings for sessions owned by other users",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.recordings.delete",
+          label: "Delete remote-access recordings",
+          description: "Delete remote-access recording manifests and replay events",
           default_roles: @admin_roles
         },
         %{
@@ -155,6 +181,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Export retained remote file artifacts",
           description:
             "Export file-transfer content-audit artifacts when retention is explicitly enabled",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "devices.remote_access.file_transfers.delete",
+          label: "Delete remote file-transfer records",
+          description: "Delete remote-access file-transfer metadata records",
           default_roles: @admin_roles
         }
       ]

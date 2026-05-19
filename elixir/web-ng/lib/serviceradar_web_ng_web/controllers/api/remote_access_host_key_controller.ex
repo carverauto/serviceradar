@@ -66,6 +66,10 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessHostKeyController do
     transition(conn, id, :revoke, reason: params["reason"])
   end
 
+  def reject(conn, %{"id" => id} = params) do
+    transition(conn, id, :reject, reason: params["reason"])
+  end
+
   def rotate(conn, %{"id" => id, "replacement_host_key_id" => replacement_id} = params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, @manage_permission),
@@ -87,6 +91,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessHostKeyController do
 
       {:error, :host_key_target_mismatch} ->
         invalid_request(conn, "replacement_host_key_id must reference the same target")
+
+      {:error, :host_key_conflict_requires_rotation} ->
+        invalid_request(conn, "conflict host keys must be accepted through rotation")
 
       {:error, other} ->
         {:error, other}
@@ -110,6 +117,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessHostKeyController do
 
       {:error, :not_found} ->
         not_found(conn)
+
+      {:error, :host_key_conflict_requires_rotation} ->
+        invalid_request(conn, "conflict host keys must be accepted through rotation")
+
+      {:error, :host_key_rejected} ->
+        invalid_request(conn, "rejected host keys cannot be trusted")
 
       {:error, other} ->
         {:error, other}
@@ -143,9 +156,13 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessHostKeyController do
       revoked_at: format_value(host_key.revoked_at),
       revoked_by: host_key.revoked_by,
       revocation_reason: host_key.revocation_reason,
+      rejected_at: format_value(host_key.rejected_at),
+      rejected_by: host_key.rejected_by,
+      rejection_reason: host_key.rejection_reason,
       rotated_at: format_value(host_key.rotated_at),
       rotated_by: host_key.rotated_by,
       replacement_host_key_id: host_key.replacement_host_key_id,
+      supersedes_host_key_id: host_key.supersedes_host_key_id,
       rotation_reason: host_key.rotation_reason,
       metadata: host_key.metadata || %{}
     }

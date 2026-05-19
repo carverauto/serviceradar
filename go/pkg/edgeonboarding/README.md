@@ -60,7 +60,7 @@ func main() {
 ```bash
 # Just set a signed onboarding token - everything else is automatic
 docker run \
-  -e ONBOARDING_TOKEN=edgepkg-v2:<signed-token> \
+  -e ONBOARDING_TOKEN=edgepkg-v3:<signed-token> \
   -e KV_ENDPOINT=23.138.124.23:50057 \
   ghcr.io/carverauto/serviceradar-agent-gateway:latest
 ```
@@ -76,7 +76,7 @@ docker run \
 2. **Package Download**
    - Downloads onboarding package from Core using verified HTTPS
    - Validates package contents and status
-   - Verifies signed `edgepkg-v2` tokens before trusting embedded metadata
+   - Verifies signed `edgepkg-v3` tokens before trusting embedded metadata
    - Extracts decrypted SPIRE credentials
 
 3. **SPIRE Configuration**

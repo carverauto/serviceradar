@@ -479,6 +479,12 @@ remote_access_ssh_enabled =
     value -> value
   end
 
+remote_access_desktop_rdp_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
 remote_access_app_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
     nil -> false
@@ -555,6 +561,9 @@ config :serviceradar_core,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
+config :serviceradar_core,
+  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
+
 config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 
 config :serviceradar_web_ng,
@@ -579,6 +588,9 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled
+
+config :serviceradar_web_ng,
+  remote_access_desktop_rdp_enabled: remote_access_desktop_rdp_enabled
 
 config :serviceradar_web_ng,
   remote_access_ssh_enabled: remote_access_ssh_enabled

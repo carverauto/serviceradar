@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.RemoteAccessBrokerRegistry
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.Edge.RemoteAccessRecordings
@@ -25,6 +26,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @callback send_application_request(pid(), map()) :: :ok | {:error, term()}
   @callback send_application_data(pid(), map()) :: :ok | {:error, term()}
   @callback send_tcp_data(pid(), map()) :: :ok | {:error, term()}
+  @callback send_desktop_control(pid(), map()) :: :ok | {:error, term()}
   @callback send_file_transfer_data(pid(), map()) :: :ok | {:error, term()}
   @callback resize(pid(), pos_integer(), pos_integer()) :: :ok | {:error, term()}
   @callback close(pid(), term()) :: :ok
@@ -33,12 +35,20 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   @default_credential_mode "user_present"
   @default_terminal_type "xterm-256color"
   @default_ssh_host_key_policy "known_hosts"
+  @frame_auth_algorithm "hmac-sha256-v1"
+  @frame_auth_domain "serviceradar.remote_access.frame.v1"
   @ssh_host_key_policies ~w(known_hosts trust_on_first_use skip_verify)
   @file_transfer_frame_types ~w(
     file_transfer_progress
     file_transfer_data
     file_transfer_outcome
     file_transfer_error
+  )
+  @desktop_control_frame_types ~w(
+    desktop.input
+    desktop.resize
+    desktop.quality
+    desktop.disconnect
   )
   @application_frame_types ~w(
     app_response_metadata
@@ -84,6 +94,10 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     GenServer.call(pid, {:send_tcp_data, payload})
   end
 
+  def send_desktop_control(pid, frame) when is_pid(pid) and is_map(frame) do
+    GenServer.call(pid, {:send_desktop_control, frame})
+  end
+
   def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
     GenServer.call(pid, {:send_file_transfer_data, payload})
   end
@@ -100,6 +114,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   def init({session, owner, opts}) do
     Process.monitor(owner)
     :ok = pubsub(opts).subscribe(session_id(session))
+    frame_auth = new_frame_auth()
 
     state = %{
       session: session,
@@ -108,11 +123,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
       required_gateway_node: required_gateway_node(session, opts),
       audit_writer: Keyword.get(opts, :audit_writer, AuditWriter),
       audit_actor: Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor),
+      broker_registry: Keyword.get(opts, :broker_registry, RemoteAccessBrokerRegistry),
       file_transfers: Keyword.get(opts, :file_transfers, RemoteAccessFileTransfers),
       lifecycle: Keyword.get(opts, :lifecycle, lifecycle_for(session)),
       recordings: Keyword.get(opts, :recordings, RemoteAccessRecordings),
       recording: nil,
+      recording_completed?: false,
       recording_stats: %{input_bytes: 0, output_bytes: 0, event_count: 0},
+      frame_auth: frame_auth,
       pubsub: pubsub(opts),
       closed?: false
     }
@@ -120,19 +138,27 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     cols = Keyword.get(opts, :cols)
     rows = Keyword.get(opts, :rows)
 
-    case open_frame(session, opts) do
+    case open_frame_data(session, opts, frame_auth) do
       {:ok, {frame_type, data}} ->
         case send_frame(state, frame_type, data, cols, rows, nil) do
           :ok ->
-            lifecycle(state, :mark_opening)
+            case register_broker(state) do
+              :ok ->
+                lifecycle(state, :mark_opening)
 
-            write_audit(
-              state,
-              :remote_access_session_opened,
-              open_audit_details(data, cols, rows)
-            )
+                write_audit(
+                  state,
+                  :remote_access_session_opened,
+                  open_audit_details(data, cols, rows)
+                )
 
-            {:ok, start_recording(state)}
+                {:ok, start_recording(state)}
+
+              {:error, reason} ->
+                lifecycle(state, :fail_session, [reason])
+                write_audit(state, :remote_access_session_failed, failure_details(reason))
+                {:stop, reason}
+            end
 
           {:error, reason} ->
             lifecycle(state, :fail_session, [reason])
@@ -193,6 +219,18 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:reply, result, state}
   end
 
+  def handle_call({:send_desktop_control, frame}, _from, state) do
+    case desktop_control_payload(state, frame) do
+      {:ok, frame_type, data, audit_details} ->
+        result = send_frame(state, frame_type, data, nil, nil, nil)
+        write_audit(state, :remote_access_desktop_control, audit_details)
+        {:reply, result, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
   def handle_call({:send_file_transfer_data, payload}, _from, state) do
     result = send_frame(state, "file_transfer_data", Jason.encode!(payload), nil, nil, nil)
     {:reply, result, state}
@@ -220,10 +258,13 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   @impl true
   def handle_info({:remote_access_frame, frame}, state) when is_map(frame) do
-    if owns_remote_access_frame?(state.session, frame) do
-      handle_remote_access_frame(frame, state)
-    else
-      {:noreply, state}
+    case verify_remote_access_frame(frame, state) do
+      {:ok, state} ->
+        handle_remote_access_frame(frame, state)
+
+      {:error, reason, state} ->
+        reject_remote_access_frame(frame, state, reason)
+        {:noreply, state}
     end
   end
 
@@ -279,21 +320,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     {:stop, :normal, %{state | closed?: true}}
   end
 
+  defp handle_remote_access_frame(%{frame_type: frame_type} = frame, state)
+       when is_binary(frame_type) do
+    reject_remote_access_frame(frame, state, :unknown_frame_type)
+    {:noreply, state}
+  end
+
   defp handle_remote_access_frame(frame, state) do
-    frame_type = string_value(frame, "frame_type") || "missing"
-
-    Logger.warning("Remote access broker rejected unknown agent frame",
-      session_id: session_id(state.session),
-      agent_id: agent_id(state.session),
-      frame_type: frame_type
-    )
-
-    write_audit(state, :remote_access_session_protocol_violation, %{
-      frame_type: frame_type,
-      rejected_agent_id: string_value(frame, "agent_id"),
-      rejected_session_id: string_value(frame, "session_id")
-    })
-
+    reject_remote_access_frame(frame, state, :missing_frame_type)
     {:noreply, state}
   end
 
@@ -309,71 +343,169 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     _kind, _reason -> :ok
   end
 
-  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
-       when frame_type in ["app_error", "tcp_error"] do
-    reason = agent_frame_reason(frame, frame_type)
-    send(state.owner, {:remote_access_closed, reason})
-    lifecycle_close(state, "error", reason)
-    write_audit(state, :remote_access_session_failed, %{close_reason: reason})
-    state = finish_recording_for_close(state, "error", reason)
-    {:stop, :normal, %{state | closed?: true}}
-  end
+  defp verify_remote_access_frame(frame, state) do
+    cond do
+      string_value(frame, "session_id") != session_id(state.session) ->
+        {:error, :route_binding_mismatch, state}
 
-  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
-       when frame_type in ["app_close", "tcp_close"] do
-    reason = agent_frame_reason(frame, frame_type)
-    send(state.owner, {:remote_access_closed, reason})
-    lifecycle_close(state, "close", reason)
-    write_audit(state, :remote_access_session_closed, %{close_reason: reason})
-    state = finish_recording_for_close(state, "close", reason)
-    {:stop, :normal, %{state | closed?: true}}
-  end
+      string_value(frame, "agent_id") != agent_id(state.session) ->
+        {:error, :route_binding_mismatch, state}
 
-  defp maybe_close_application_or_tcp_frame(_frame_type, _frame, state), do: {:noreply, state}
-
-  defp agent_frame_reason(frame, fallback_reason) do
-    string_value(frame, "reason") ||
-      frame
-      |> value("data")
-      |> decode_frame_data()
-      |> frame_payload_reason() ||
-      fallback_reason
-  end
-
-  defp frame_payload_reason(payload) do
-    string_value(payload, "message") || string_value(payload, "reason")
-  end
-
-  defp decode_frame_data(data) when is_binary(data) do
-    case Jason.decode(data) do
-      {:ok, decoded} when is_map(decoded) -> decoded
-      _other -> %{}
+      true ->
+        verify_frame_auth(frame, state)
     end
   end
 
-  defp decode_frame_data(_data), do: %{}
+  defp verify_frame_auth(frame, %{frame_auth: %{key: key, last_seq: last_seq}} = state) do
+    with {:ok, seq} <- frame_auth_seq(frame),
+         :ok <- frame_auth_replay_check(seq, last_seq),
+         {:ok, payload_hash} <- frame_payload_hash(frame),
+         :ok <- verify_frame_payload_hash(frame, payload_hash),
+         :ok <- verify_frame_signature(frame, key, seq, payload_hash) do
+      {:ok, put_in(state.frame_auth.last_seq, seq)}
+    else
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
 
-  defp owns_remote_access_frame?(session, frame) do
-    string_value(frame, "session_id") == session_id(session) and
-      string_value(frame, "agent_id") == agent_id(session)
+  defp frame_auth_seq(frame) do
+    case map_value(frame, "seq") do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _value -> {:error, :missing_frame_auth}
+    end
+  end
+
+  defp frame_auth_replay_check(seq, last_seq) when seq > last_seq, do: :ok
+  defp frame_auth_replay_check(_seq, _last_seq), do: {:error, :frame_auth_replay}
+
+  defp frame_payload_hash(frame) do
+    hash = :sha256 |> :crypto.hash(frame_data(frame)) |> Base.encode16(case: :lower)
+
+    {:ok, hash}
+  end
+
+  defp verify_frame_payload_hash(frame, payload_hash) do
+    case string_value(frame, "payload_sha256") do
+      nil -> {:error, :missing_frame_auth}
+      ^payload_hash -> :ok
+      _other -> {:error, :invalid_frame_payload_hash}
+    end
+  end
+
+  defp verify_frame_signature(frame, key, seq, payload_hash) do
+    expected =
+      :hmac
+      |> :crypto.mac(:sha256, key, canonical_frame_binding(frame, seq, payload_hash))
+      |> Base.url_encode64(padding: false)
+
+    case string_value(frame, "signature") do
+      nil ->
+        {:error, :missing_frame_auth}
+
+      signature when byte_size(signature) == byte_size(expected) ->
+        if :crypto.hash_equals(signature, expected),
+          do: :ok,
+          else: {:error, :invalid_frame_signature}
+
+      _other ->
+        {:error, :invalid_frame_signature}
+    end
+  end
+
+  defp canonical_frame_binding(frame, seq, payload_hash) do
+    Enum.join(
+      [
+        @frame_auth_domain,
+        string_value(frame, "session_id") || "",
+        string_value(frame, "agent_id") || "",
+        Integer.to_string(seq),
+        string_value(frame, "frame_type") || "",
+        Integer.to_string(uint32(map_value(frame, "cols"))),
+        Integer.to_string(uint32(map_value(frame, "rows"))),
+        string_value(frame, "reason") || "",
+        payload_hash
+      ],
+      "\n"
+    )
+  end
+
+  defp frame_data(frame) do
+    case map_value(frame, "data") do
+      data when is_binary(data) -> data
+      nil -> ""
+      data -> to_string(data)
+    end
+  end
+
+  defp reject_remote_access_frame(frame, state, reason) do
+    frame_type = frame_type_label(string_value(frame, "frame_type"))
+
+    metadata = %{
+      session_id: session_id(state.session),
+      agent_id: agent_id(state.session),
+      frame_type: frame_type,
+      reason: Atom.to_string(reason)
+    }
+
+    Logger.warning("Rejected remote access frame", Map.to_list(metadata))
+
+    :telemetry.execute(
+      [:serviceradar, :remote_access, :broker, :frame_rejected],
+      %{count: 1},
+      metadata
+    )
+
+    write_audit(state, :remote_access_session_frame_rejected, %{
+      frame_type: frame_type,
+      failure_reason: Atom.to_string(reason)
+    })
   end
 
   @impl true
   def terminate(reason, %{closed?: false} = state) do
+    unregister_broker(state)
     _ = send_frame(state, "close", "", nil, nil, inspect(reason))
 
-    if reason in [:normal, :shutdown] do
-      _ = complete_recording(state)
-    else
-      lifecycle(state, :fail_session, [reason])
-      write_audit(state, :remote_access_session_failed, failure_details(reason))
-      _ = fail_recording(state, reason)
+    cond do
+      state.recording_completed? ->
+        :ok
+
+      reason in [:normal, :shutdown] ->
+        _ = complete_recording(state)
+
+      true ->
+        lifecycle(state, :fail_session, [reason])
+        write_audit(state, :remote_access_session_failed, failure_details(reason))
+        _ = fail_recording(state, reason)
     end
 
     :ok
   end
 
-  def terminate(_reason, _state), do: :ok
+  def terminate(_reason, state) do
+    unregister_broker(state)
+    :ok
+  end
+
+  defp register_broker(state) do
+    state.broker_registry.register(session_id(state.session), %{
+      agent_id: agent_id(state.session),
+      gateway_id: value(state.session, "gateway_id"),
+      protocol:
+        string_value(metadata(state.session), "protocol") ||
+          string_value(state.session, "protocol") ||
+          @default_protocol
+    })
+  end
+
+  defp unregister_broker(%{broker_registry: registry, session: session}) do
+    _ = registry.unregister(session_id(session))
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
 
   defp start_recording(state) do
     case state.recordings.ensure_for_session(state.session, recording_opts(state)) do
@@ -492,6 +624,50 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     end)
   end
 
+  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
+       when frame_type in ["app_error", "tcp_error"] do
+    reason = agent_frame_reason(frame, frame_type)
+    send(state.owner, {:remote_access_closed, reason})
+    lifecycle_close(state, "error", reason)
+    write_audit(state, :remote_access_session_failed, %{close_reason: reason})
+    state = finish_recording_for_close(state, "error", reason)
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp maybe_close_application_or_tcp_frame(frame_type, frame, state)
+       when frame_type in ["app_close", "tcp_close"] do
+    reason = agent_frame_reason(frame, frame_type)
+    send(state.owner, {:remote_access_closed, reason})
+    lifecycle_close(state, "close", reason)
+    write_audit(state, :remote_access_session_closed, %{close_reason: reason})
+    state = finish_recording_for_close(state, "close", reason)
+    {:stop, :normal, %{state | closed?: true}}
+  end
+
+  defp maybe_close_application_or_tcp_frame(_frame_type, _frame, state), do: {:noreply, state}
+
+  defp agent_frame_reason(frame, fallback_reason) do
+    string_value(frame, "reason") ||
+      frame
+      |> value("data")
+      |> decode_frame_data()
+      |> frame_payload_reason() ||
+      fallback_reason
+  end
+
+  defp frame_payload_reason(payload) do
+    string_value(payload, "message") || string_value(payload, "reason")
+  end
+
+  defp decode_frame_data(data) when is_binary(data) do
+    case Jason.decode(data) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      _other -> %{}
+    end
+  end
+
+  defp decode_frame_data(_data), do: %{}
+
   defp application_tcp_metadata(kind, frame_type, frame, payload) do
     %{
       kind: Atom.to_string(kind),
@@ -594,6 +770,38 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
   defp body_data_byte_count(_data), do: nil
 
+  defp desktop_control_payload(state, frame) do
+    frame = stringify_nested(frame)
+    frame_type = string_value(frame, "frame_type")
+
+    cond do
+      frame_type not in @desktop_control_frame_types ->
+        {:error, :invalid_desktop_control_frame}
+
+      string_value(frame, "session_id") != session_id(state.session) ->
+        {:error, :desktop_control_session_mismatch}
+
+      string_value(frame, "protocol") not in ["rdp", "desktop"] ->
+        {:error, :invalid_desktop_control_protocol}
+
+      true ->
+        {:ok, frame_type, Jason.encode!(frame), desktop_control_audit_details(frame)}
+    end
+  end
+
+  defp desktop_control_audit_details(frame) do
+    %{
+      frame_type: string_value(frame, "frame_type"),
+      protocol: string_value(frame, "protocol"),
+      width: positive_int(value(frame, "width")),
+      height: positive_int(value(frame, "height")),
+      input_kind: frame |> map_value("input") |> string_value("kind"),
+      reason_present: not blank?(string_value(frame, "reason"))
+    }
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
+  end
+
   defp record_replay_event(%{recording: nil}, _attrs), do: :ok
 
   defp record_replay_event(state, attrs) do
@@ -608,28 +816,30 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp finish_recording_for_close(state, "error", reason), do: fail_recording(state, reason)
   defp finish_recording_for_close(state, _frame_type, _reason), do: complete_recording(state)
 
+  defp complete_recording(%{recording_completed?: true} = state), do: state
   defp complete_recording(%{recording: nil} = state), do: state
 
   defp complete_recording(state) do
     _ = state.recordings.complete(state.recording, state.recording_stats, recording_opts(state))
-    %{state | recording: nil}
+    %{state | recording: nil, recording_completed?: true}
   rescue
-    _error -> %{state | recording: nil}
+    _error -> %{state | recording: nil, recording_completed?: true}
   catch
-    _kind, _reason -> %{state | recording: nil}
+    _kind, _reason -> %{state | recording: nil, recording_completed?: true}
   end
 
+  defp fail_recording(%{recording_completed?: true} = state, _reason), do: state
   defp fail_recording(%{recording: nil} = state, _reason), do: state
 
   defp fail_recording(state, reason) do
     _ =
       state.recordings.fail(state.recording, reason, state.recording_stats, recording_opts(state))
 
-    %{state | recording: nil}
+    %{state | recording: nil, recording_completed?: true}
   rescue
-    _error -> %{state | recording: nil}
+    _error -> %{state | recording: nil, recording_completed?: true}
   catch
-    _kind, _reason -> %{state | recording: nil}
+    _kind, _reason -> %{state | recording: nil, recording_completed?: true}
   end
 
   defp recording_opts(state) do
@@ -698,10 +908,16 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> case do
       {:ok, decoded} when is_map(decoded) ->
         %{
-          protocol: Map.get(decoded, "protocol"),
-          credential_mode: Map.get(decoded, "credential_mode"),
-          agent_id: Map.get(decoded, "agent_id"),
-          gateway_id: Map.get(decoded, "gateway_id"),
+          protocol: Map.get(decoded, "protocol") || get_in(decoded, ["target", "protocol"]),
+          credential_mode:
+            Map.get(decoded, "credential_mode") ||
+              get_in(decoded, ["target", "credential", "mode"]),
+          agent_id:
+            Map.get(decoded, "agent_id") ||
+              get_in(decoded, ["target", "route", "selected_agent_id"]),
+          gateway_id:
+            Map.get(decoded, "gateway_id") ||
+              get_in(decoded, ["target", "route", "selected_gateway_id"]),
           target: Map.get(decoded, "target"),
           terminal_type: Map.get(decoded, "terminal_type"),
           ssh_host_key_policy: Map.get(decoded, "ssh_host_key_policy"),
@@ -747,7 +963,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp close_action(_frame_type), do: :remote_access_session_closed
 
   defp audit_severity(:remote_access_session_failed), do: :high
-  defp audit_severity(:remote_access_session_protocol_violation), do: :high
+  defp audit_severity(:remote_access_session_frame_rejected), do: :high
   defp audit_severity(_action), do: :medium
 
   defp audit_suffix(:remote_access_session_opened), do: "opened"
@@ -756,7 +972,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp audit_suffix(:remote_access_session_close_requested), do: "close requested"
   defp audit_suffix(:remote_access_session_closed), do: "closed"
   defp audit_suffix(:remote_access_session_failed), do: "failed"
-  defp audit_suffix(:remote_access_session_protocol_violation), do: "protocol violation"
+  defp audit_suffix(:remote_access_session_frame_rejected), do: "frame rejected"
   defp audit_suffix(action), do: Atom.to_string(action)
 
   defp lifecycle_for(%RemoteAccessSession{}), do: RemoteAccessSessions
@@ -791,16 +1007,27 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     |> String.slice(0, 500)
   end
 
-  defp open_frame(session, opts) do
-    case session_protocol(session, opts) do
-      "app" -> application_open_frame_data(session)
-      "application" -> application_open_frame_data(session)
-      "tcp" -> tcp_open_frame_data(session)
-      _protocol -> terminal_open_frame_data(session, opts)
+  defp frame_type_label(nil), do: "missing"
+
+  defp frame_type_label(frame_type) when is_binary(frame_type),
+    do: String.slice(frame_type, 0, 120)
+
+  defp frame_type_label(frame_type), do: frame_type |> inspect() |> String.slice(0, 120)
+
+  defp open_frame_data(session, opts, frame_auth) do
+    protocol = string_option(session, opts, "protocol", @default_protocol)
+
+    case protocol do
+      "rdp" -> rdp_open_frame_data(session, opts, protocol, frame_auth)
+      "desktop" -> rdp_open_frame_data(session, opts, protocol, frame_auth)
+      "app" -> application_open_frame_data(session, frame_auth)
+      "application" -> application_open_frame_data(session, frame_auth)
+      "tcp" -> tcp_open_frame_data(session, frame_auth)
+      _protocol -> ssh_open_frame_data(session, opts, protocol, frame_auth)
     end
   end
 
-  defp terminal_open_frame_data(session, opts) do
+  defp ssh_open_frame_data(session, opts, protocol, frame_auth) do
     session_metadata = metadata(session)
     opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
     ssh_certificate = ssh_certificate_envelope(session, opts, opts_metadata, session_metadata)
@@ -818,7 +1045,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
 
       data =
         %{
-          protocol: string_option(session, opts, "protocol", @default_protocol),
+          protocol: protocol,
           session_id: session_id(session),
           agent_id: agent_id(session),
           gateway_id: value(session, "gateway_id"),
@@ -831,7 +1058,8 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           timeout_ms: int_option(session, opts, "timeout_ms"),
           ssh_host_key_policy: ssh_host_key_policy,
           recording_policy: policy_option(session, opts, "recording_policy"),
-          enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy")
+          enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy"),
+          frame_auth: frame_auth_open_payload(frame_auth)
         }
         |> Enum.reject(fn {_key, value} -> blank?(value) end)
         |> Map.new()
@@ -841,7 +1069,68 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     end
   end
 
-  defp application_open_frame_data(session) do
+  defp rdp_open_frame_data(session, opts, protocol, frame_auth) do
+    session_metadata = metadata(session)
+    opts_metadata = opts |> Keyword.get(:metadata, %{}) |> normalize_metadata()
+    target = target(session, opts_metadata, session_metadata)
+    target_id = desktop_target_id(session, target, session_metadata)
+    upstream_host = string_value(target, "host")
+    upstream_port = positive_int(map_value(target, "port")) || 3389
+    selected_agent_id = agent_id(session)
+
+    cond do
+      blank?(target_id) ->
+        {:error, :desktop_target_id_required}
+
+      blank?(upstream_host) ->
+        {:error, :desktop_target_host_required}
+
+      blank?(selected_agent_id) ->
+        {:error, :desktop_selected_agent_required}
+
+      true ->
+        payload =
+          %{
+            schema: "serviceradar.desktop.open.v1",
+            protocol: protocol,
+            session_id: session_id(session),
+            actor_id: string_value(session, "requested_by"),
+            agent_id: selected_agent_id,
+            gateway_id: string_value(session, "gateway_id"),
+            metadata: desktop_media_metadata(session, target_id, selected_agent_id),
+            target: %{
+              target_id: target_id,
+              display_name: string_value(session_metadata, "target_display_name"),
+              device_uid:
+                string_value(session, "device_uid") || string_value(target, "device_uid"),
+              protocol: "rdp",
+              route: %{
+                selected_agent_id: selected_agent_id,
+                selected_gateway_id: string_value(session, "gateway_id")
+              },
+              upstream: %{
+                host: upstream_host,
+                port: upstream_port
+              },
+              tls: desktop_tls_policy(session_metadata),
+              credential: desktop_credential_policy(session, session_metadata),
+              screen: desktop_screen_policy(session_metadata),
+              redirection: desktop_redirection_policy(session_metadata),
+              approval_required: truthy?(value(session, "approval_required")),
+              recording: desktop_recording_policy(session),
+              metadata: desktop_target_metadata(session_metadata)
+            },
+            credential_grant: desktop_credential_grant(opts_metadata, session_metadata),
+            frame_auth: frame_auth_open_payload(frame_auth)
+          }
+          |> reject_blank_map()
+          |> Jason.encode!()
+
+        {:ok, {"open", payload}}
+    end
+  end
+
+  defp application_open_frame_data(session, frame_auth) do
     session_metadata = metadata(session)
 
     data =
@@ -863,13 +1152,14 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
         approval_id: string_value(session, "approval_id"),
         recording_policy: policy_option(session, [], "recording_policy"),
         enhanced_recording_policy: policy_option(session, [], "enhanced_recording_policy"),
-        metadata: policy_metadata(session_metadata, "target_metadata")
+        metadata: policy_metadata(session_metadata, "target_metadata"),
+        frame_auth: frame_auth_open_payload(frame_auth)
       })
 
     {:ok, {"app_open", data}}
   end
 
-  defp tcp_open_frame_data(session) do
+  defp tcp_open_frame_data(session, frame_auth) do
     session_metadata = metadata(session)
     session_id = session_id(session)
 
@@ -887,14 +1177,12 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
         approval_id: string_value(session, "approval_id"),
         recording_policy: policy_option(session, [], "recording_policy"),
         enhanced_recording_policy: policy_option(session, [], "enhanced_recording_policy"),
-        metadata: policy_metadata(session_metadata, "target_metadata")
+        metadata: policy_metadata(session_metadata, "target_metadata"),
+        frame_auth: frame_auth_open_payload(frame_auth)
       })
 
     {:ok, {"tcp_open", data}}
   end
-
-  defp session_protocol(session, opts),
-    do: string_option(session, opts, "protocol", @default_protocol)
 
   defp required_gateway_node(session, opts) do
     case Keyword.get(opts, :required_gateway_node) do
@@ -906,37 +1194,172 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
     end
   end
 
-  defp encode_typed_open_payload(payload) do
-    payload
-    |> Enum.reject(fn {_key, value} -> empty_payload_value?(value) end)
-    |> Map.new()
-    |> CredentialRedactor.redact()
-    |> Jason.encode!()
+  defp desktop_target_id(session, target, session_metadata) do
+    string_value(session_metadata, "desktop_target_id") ||
+      string_value(target, "id") ||
+      string_value(session, "device_uid") ||
+      string_value(target, "device_uid") ||
+      string_value(target, "host")
   end
 
-  defp empty_payload_value?(value) when value in [nil, "", 0], do: true
-  defp empty_payload_value?(value) when is_map(value), do: map_size(value) == 0
-  defp empty_payload_value?(value) when is_list(value), do: value == []
-  defp empty_payload_value?(_value), do: false
+  defp desktop_media_metadata(session, target_id, selected_agent_id) do
+    reject_blank_map(%{
+      media_session_id: "desktop-media-" <> session_id(session),
+      route_id: selected_agent_id,
+      target_id: target_id,
+      lease_token: desktop_media_lease_token(),
+      encoding_hint: "srdp"
+    })
+  end
 
-  defp policy_metadata(session_metadata, key) do
+  defp new_frame_auth do
+    key = :crypto.strong_rand_bytes(32)
+
+    %{
+      key: key,
+      key_b64: Base.url_encode64(key, padding: false),
+      last_seq: 0
+    }
+  end
+
+  defp frame_auth_open_payload(frame_auth) do
+    %{
+      alg: @frame_auth_algorithm,
+      key: frame_auth.key_b64,
+      required: true
+    }
+  end
+
+  defp desktop_media_lease_token do
+    16
+    |> :crypto.strong_rand_bytes()
+    |> Base.encode16(case: :lower)
+  end
+
+  defp desktop_tls_policy(session_metadata) do
+    tls = session_metadata |> map_value("target_tls") |> normalize_metadata()
+    nla = session_metadata |> map_value("nla") |> normalize_metadata()
+
+    reject_blank_map(%{
+      mode: desktop_tls_mode(string_value(tls, "mode")),
+      ca_bundle_id: string_value(tls, "ca_bundle_id"),
+      ca_bundle_pem: string_value(tls, "ca_bundle_pem"),
+      nla_mode: if(truthy?(Map.get(nla, "required", true)), do: "required", else: "disabled"),
+      server_name: string_value(tls, "server_name") || string_value(tls, "server")
+    })
+  end
+
+  defp desktop_tls_mode("skip_verify"), do: "insecure"
+  defp desktop_tls_mode("insecure"), do: "insecure"
+  defp desktop_tls_mode("system"), do: "system"
+  defp desktop_tls_mode("tofu"), do: "tofu"
+  defp desktop_tls_mode("pinned_ca"), do: "pinned_ca"
+  defp desktop_tls_mode(_mode), do: "verify"
+
+  defp desktop_credential_policy(session, session_metadata) do
+    custody =
+      string_value(session, "credential_custody_mode") ||
+        string_value(session_metadata, "credential_custody_mode") ||
+        @default_credential_mode
+
+    metadata = session_metadata |> map_value("metadata") |> normalize_metadata()
+
+    reject_blank_map(%{
+      mode: desktop_credential_mode(custody),
+      allowed_principals: list_value(metadata, "allowed_principals"),
+      credential_secret_ref: desktop_credential_secret_ref(session, session_metadata, custody)
+    })
+  end
+
+  defp desktop_credential_mode("domain_delegation"), do: "domain_delegation"
+  defp desktop_credential_mode("smart_card"), do: "smart_card"
+  defp desktop_credential_mode("centrally_brokered"), do: "brokered_secret"
+  defp desktop_credential_mode(_custody), do: "memory_user"
+
+  defp desktop_credential_secret_ref(session, session_metadata, "centrally_brokered") do
+    string_value(session_metadata, "credential_secret_ref") ||
+      string_value(session, "credential_secret_ref") ||
+      case string_value(session, "credential_rule_id") do
+        nil -> nil
+        credential_rule_id -> "credential_rule:" <> credential_rule_id
+      end
+  end
+
+  defp desktop_credential_secret_ref(_session, _session_metadata, _custody), do: nil
+
+  defp desktop_screen_policy(session_metadata) do
+    policy = session_metadata |> map_value("screen_policy") |> normalize_metadata()
+    bitrate_bps = positive_int(map_value(policy, "bitrate_bps"))
+    bitrate_kbps = positive_int(map_value(policy, "bitrate_kbps"))
+
+    reject_blank_map(%{
+      max_width: positive_int(map_value(policy, "max_width")),
+      max_height: positive_int(map_value(policy, "max_height")),
+      frame_rate: positive_int(map_value(policy, "frame_rate")),
+      bitrate_bps: bitrate_bps || (bitrate_kbps && bitrate_kbps * 1000),
+      idle_seconds: positive_int(map_value(policy, "idle_seconds")),
+      ttl_seconds: positive_int(map_value(policy, "ttl_seconds"))
+    })
+  end
+
+  defp desktop_redirection_policy(session_metadata) do
+    policy = session_metadata |> map_value("redirection_policy") |> normalize_metadata()
+
+    reject_blank_map(%{
+      clipboard_mode: desktop_clipboard_mode(string_value(policy, "clipboard")),
+      drive: truthy?(Map.get(policy, "drive")),
+      printer: truthy?(Map.get(policy, "printer")),
+      audio: truthy?(Map.get(policy, "audio")),
+      smart_card: truthy?(Map.get(policy, "smart_card")),
+      file_copy: truthy?(Map.get(policy, "file_copy"))
+    })
+  end
+
+  defp desktop_clipboard_mode("local_to_remote"), do: "text_to_remote"
+  defp desktop_clipboard_mode("remote_to_local"), do: "text_to_browser"
+  defp desktop_clipboard_mode("bidirectional"), do: "text_bidirectional"
+  defp desktop_clipboard_mode("text_to_remote"), do: "text_to_remote"
+  defp desktop_clipboard_mode("text_to_browser"), do: "text_to_browser"
+  defp desktop_clipboard_mode("text_bidirectional"), do: "text_bidirectional"
+  defp desktop_clipboard_mode(_mode), do: "disabled"
+
+  defp desktop_recording_policy(session) do
+    policy = policy_option(session, [], "recording_policy") || %{}
+
+    screen_enabled =
+      string_value(policy, "mode") == "screen_content" ||
+        truthy?(Map.get(policy, "screen_enabled"))
+
+    reject_blank_map(%{
+      metadata_enabled: true,
+      screen_enabled: screen_enabled,
+      clipboard_enabled: truthy?(Map.get(policy, "clipboard_enabled")),
+      file_enabled: truthy?(Map.get(policy, "file_enabled")),
+      audio_enabled: truthy?(Map.get(policy, "audio_enabled"))
+    })
+  end
+
+  defp desktop_target_metadata(session_metadata) do
     session_metadata
-    |> map_value(key)
+    |> Map.drop([
+      "credential_grant",
+      "credential_secret_ref",
+      "nla",
+      "redirection_policy",
+      "screen_policy",
+      "ssh",
+      "target_tls"
+    ])
+    |> CredentialRedactor.redact()
+    |> reject_blank_map()
+  end
+
+  defp desktop_credential_grant(opts_metadata, session_metadata) do
+    opts_metadata
+    |> map_value("credential_grant")
+    |> fallback(map_value(session_metadata, "credential_grant"))
     |> normalize_metadata()
     |> non_empty_map()
-    |> sanitize_policy()
-  end
-
-  defp list_metadata(session_metadata, key) do
-    case map_value(session_metadata, key) do
-      values when is_list(values) ->
-        values
-        |> Enum.map(&string_or_nil/1)
-        |> Enum.reject(&is_nil/1)
-
-      _value ->
-        nil
-    end
   end
 
   defp ssh_certificate_envelope(_session, opts, opts_metadata, _session_metadata) do
@@ -1163,6 +1586,29 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp sanitize_policy(policy) when is_map(policy), do: CredentialRedactor.redact(policy)
   defp sanitize_policy(_policy), do: nil
 
+  defp encode_typed_open_payload(payload) do
+    payload
+    |> Enum.reject(fn {_key, value} -> empty_payload_value?(value) end)
+    |> Map.new()
+    |> CredentialRedactor.redact()
+    |> Jason.encode!()
+  end
+
+  defp empty_payload_value?(value) when value in [nil, "", 0], do: true
+  defp empty_payload_value?(value) when is_map(value), do: map_size(value) == 0
+  defp empty_payload_value?(value) when is_list(value), do: value == []
+  defp empty_payload_value?(_value), do: false
+
+  defp policy_metadata(session_metadata, key) do
+    session_metadata
+    |> map_value(key)
+    |> normalize_metadata()
+    |> non_empty_map()
+    |> sanitize_policy()
+  end
+
+  defp list_metadata(session_metadata, key), do: list_value(session_metadata, key)
+
   defp metadata(session), do: session |> value("metadata") |> normalize_metadata()
 
   defp normalize_metadata(metadata) when is_map(metadata), do: stringify_map(metadata)
@@ -1218,12 +1664,31 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   defp non_empty_map(%{} = map) when map_size(map) == 0, do: nil
   defp non_empty_map(%{} = map), do: map
 
-  defp blank?(value) when value in [nil, "", 0], do: true
-  defp blank?(value) when is_map(value), do: map_size(value) == 0
-  defp blank?(_value), do: false
+  defp reject_blank_map(map) when is_map(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> blank?(value) or value == false end)
+    |> Map.new()
+  end
 
   defp truthy?(value) when value in [true, "true", "1", 1, "yes", "on"], do: true
   defp truthy?(_value), do: false
+
+  defp list_value(container, key) do
+    case map_value(container, key) do
+      values when is_list(values) ->
+        values
+        |> Enum.map(&string_or_nil/1)
+        |> Enum.reject(&is_nil/1)
+
+      _value ->
+        nil
+    end
+  end
+
+  defp blank?(value) when value in [nil, "", 0], do: true
+  defp blank?(value) when is_map(value), do: map_size(value) == 0
+  defp blank?(value) when is_list(value), do: value == []
+  defp blank?(_value), do: false
 
   defp stringify_map(map) do
     Map.new(map, fn

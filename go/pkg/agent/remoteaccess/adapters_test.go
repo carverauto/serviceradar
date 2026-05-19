@@ -28,14 +28,14 @@ func TestAdapterRegistryDispatchesByProtocol(t *testing.T) {
 	pty := newFakePTY()
 	registry := NewAdapterRegistry()
 	registry.Register(ProtocolKubernetes, func(_ context.Context, frame Frame) (PTY, error) {
-		if frame.SessionID != "session-1" {
+		if frame.SessionID != desktopMediaTestSessionID {
 			t.Fatalf("frame = %#v", frame)
 		}
 		return pty, nil
 	})
 
 	got, err := registry.Open(context.Background(), Frame{
-		SessionID: "session-1",
+		SessionID: desktopMediaTestSessionID,
 		Protocol:  ProtocolKubernetes,
 	})
 	if err != nil {
@@ -55,7 +55,7 @@ func TestAdapterRegistryDefaultsToSSHAndRejectsUnsupportedProtocols(t *testing.T
 		return pty, nil
 	})
 
-	got, err := registry.Open(context.Background(), Frame{SessionID: "session-1"})
+	got, err := registry.Open(context.Background(), Frame{SessionID: desktopMediaTestSessionID})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestAdapterRegistryDefaultsToSSHAndRejectsUnsupportedProtocols(t *testing.T
 	}
 
 	_, err = registry.Open(context.Background(), Frame{
-		SessionID: "session-1",
+		SessionID: desktopMediaTestSessionID,
 		Protocol:  ProtocolDatabase,
 	})
 	if !errors.Is(err, ErrUnsupportedProtocolAdapter) {
@@ -85,7 +85,7 @@ func TestAdapterRegistryOpenerIsManagerCompatible(t *testing.T) {
 	sender := newFakeSender()
 
 	manager.HandleFrame(context.Background(), Frame{
-		SessionID: "session-1",
+		SessionID: desktopMediaTestSessionID,
 		Protocol:  ProtocolApp,
 		FrameType: FrameTypeOpen,
 	}, sender)

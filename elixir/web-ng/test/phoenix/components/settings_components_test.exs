@@ -24,10 +24,13 @@ defmodule ServiceRadarWebNGWeb.SettingsComponentsTest do
 
   test "remote access tabs are hidden when SSH remote access is disabled" do
     previous = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+    previous_rdp = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
     Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, false)
 
     on_exit(fn ->
       restore_env(:remote_access_ssh_enabled, previous)
+      restore_env(:remote_access_desktop_rdp_enabled, previous_rdp)
     end)
 
     scope =
@@ -47,6 +50,29 @@ defmodule ServiceRadarWebNGWeb.SettingsComponentsTest do
 
     refute html =~ "Host Keys"
     refute html =~ "Recordings"
+  end
+
+  test "recordings tab is visible for RDP-only remote access deployments" do
+    previous_ssh = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
+    previous_rdp = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+    Application.put_env(:serviceradar_web_ng, :remote_access_ssh_enabled, false)
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
+
+    on_exit(fn ->
+      restore_env(:remote_access_ssh_enabled, previous_ssh)
+      restore_env(:remote_access_desktop_rdp_enabled, previous_rdp)
+    end)
+
+    scope = %Scope{permissions: MapSet.new(["devices.remote_access.rdp.open"])}
+
+    html =
+      render_component(&SettingsComponents.network_nav/1,
+        current_path: "/settings/networks/recordings",
+        current_scope: scope
+      )
+
+    assert html =~ "Recordings"
+    refute html =~ "Host Keys"
   end
 
   test "remote access tabs are visible when SSH remote access is enabled" do

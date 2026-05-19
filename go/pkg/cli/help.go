@@ -27,10 +27,10 @@ Commands:
   edge package show    Display detailed information for a package
   edge package download Download onboarding artifacts (tar.gz or JSON)
   edge package revoke  Revoke an onboarding package (alias: edge-package-revoke)
-  edge package token   Emit a signed edgepkg-v2 token (alias: edge-package-token)
+  edge package token   Emit a signed edgepkg-v3 token (alias: edge-package-token)
   edge package mtls    Issue an mTLS sysmon-osx package (alias for create with mTLS defaults)
   edge-package-download Download the onboarding archive for a package (tar.gz)
-  edge-package-token    Emit a signed edgepkg-v2 onboarding token for ONBOARDING_TOKEN
+  edge-package-token    Emit a signed edgepkg-v3 onboarding token for ONBOARDING_TOKEN
   edge-package-revoke   Revoke an onboarding package and downstream entry
 
 Options for bcrypt generation:
@@ -110,7 +110,7 @@ Options for spire-join-token:
   -output string          Write the response JSON to the given file path
 
 Options for enroll:
-  -token string           Enrollment token (edgepkg-v2 or collectorpkg-v2)
+  -token string           Enrollment token (edgepkg-v3 or collectorpkg-v2)
   -core-url string        Core API base URL (required only when the signed token does not embed one)
   -host-ip string         Override detected host IP (agent enrollment only)
   -config string          Agent config path (default /etc/serviceradar/agent.json)
@@ -182,7 +182,7 @@ Options for edge package show:
   --bearer string          Bearer token used to authenticate with core
   --id string              Edge package identifier (required)
   --output string          Output format: text or json (default text)
-  --reissue-token          Emit a signed edgepkg-v2 token using --download-token
+  --reissue-token          Emit a signed edgepkg-v3 token using --download-token
   --download-token string  Download token to encode when --reissue-token is set
 `)
 }

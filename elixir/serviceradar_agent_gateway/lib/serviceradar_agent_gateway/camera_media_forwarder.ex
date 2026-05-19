@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   authoritative ingress for relay session ownership and media pipeline startup.
   """
 
+  alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarCoreElx.CameraMediaIngress
 
   require Logger
@@ -96,7 +97,7 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
         node
 
       nil ->
-        select_core_node()
+        CoreNodeForwarder.select_core_node("camera media ingress")
 
       other ->
         raise ArgumentError, "invalid core node for camera media forwarder: #{inspect(other)}"
@@ -104,65 +105,11 @@ defmodule ServiceRadarAgentGateway.CameraMediaForwarder do
   end
 
   defp resolve_core_node(opts) do
-    case core_node_resolver(opts).() do
-      node when is_atom(node) and not is_nil(node) ->
-        {:ok, node}
-
-      other ->
-        Logger.error(
-          "Failed to resolve core node for camera media forwarder: #{inspect(other)} (connected=#{inspect(Node.list())})"
-        )
-
-        {:error, :core_unavailable}
-    end
+    CoreNodeForwarder.resolve_core_node("camera media forwarder", core_node_resolver(opts))
   end
 
   defp ensure_core_connected(node, opts) when is_atom(node) do
-    case connectivity_module(opts).ping(node) do
-      :pong ->
-        :ok
-
-      :pang ->
-        Logger.error("Failed to establish distributed Erlang connection to core node #{inspect(node)}")
-        {:error, :core_unavailable}
-
-      other ->
-        Logger.error("Unexpected core connectivity probe result for #{inspect(node)}: #{inspect(other)}")
-        {:error, :core_unavailable}
-    end
-  end
-
-  defp ensure_core_connected(node, _opts) do
-    Logger.error("Failed to establish distributed Erlang connection to core node #{inspect(node)}")
-    {:error, :core_unavailable}
-  end
-
-  defp select_core_node do
-    nodes = Node.list()
-
-    nodes
-    |> Enum.find(fn node ->
-      case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-        pid when is_pid(pid) -> true
-        _ -> false
-      end
-    end)
-    |> Kernel.||(Enum.find(nodes, &core_node?/1))
-    |> case do
-      nil -> raise ArgumentError, "no core-elx node available for camera media ingress"
-      node -> node
-    end
-  end
-
-  defp core_node?(node) when is_atom(node) do
-    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
-  end
-
-  defp core_node?(_node), do: false
-
-  defp core_node_basename do
-    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
-      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename, "serviceradar_core")
+    CoreNodeForwarder.ensure_core_connected(node, connectivity_module(opts))
   end
 
   defp ingress_module(opts) do

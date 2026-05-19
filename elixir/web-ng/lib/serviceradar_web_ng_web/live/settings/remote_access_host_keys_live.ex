@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   @current_path "/settings/networks/host-keys"
   @manage_permission "settings.remote_access_host_keys.manage"
-  @statuses ~w(pending trusted conflict rotated revoked)
+  @statuses ~w(pending trusted conflict rotated revoked rejected)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -39,98 +39,136 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    filters = normalize_filters(params)
+    if fresh_can_manage?(socket.assigns.current_scope) do
+      filters = normalize_filters(params)
 
-    socket =
-      socket
-      |> assign(:current_path, @current_path)
-      |> assign(:filters, filters)
+      socket =
+        socket
+        |> assign(:current_path, @current_path)
+        |> assign(:filters, filters)
 
-    if connected?(socket) do
-      {:noreply, load_host_keys(socket)}
+      if connected?(socket) do
+        {:noreply, load_host_keys(socket)}
+      else
+        {:noreply, socket}
+      end
     else
-      {:noreply, socket}
+      {:noreply, unauthorized(socket)}
     end
   end
 
   @impl true
   def handle_event("filter", params, socket) do
-    {:noreply, push_patch(socket, to: filter_path(params))}
+    authorize_manage_event(socket, fn ->
+      {:noreply, push_patch(socket, to: filter_path(params))}
+    end)
   end
 
   def handle_event("clear_filters", _params, socket) do
-    {:noreply, push_patch(socket, to: ~p"/settings/networks/host-keys")}
+    authorize_manage_event(socket, fn ->
+      {:noreply, push_patch(socket, to: ~p"/settings/networks/host-keys")}
+    end)
   end
 
   def handle_event("trust_host_key", %{"id" => id}, socket) do
-    case RemoteAccessHostKeys.trust(id, scope: socket.assigns.current_scope) do
-      {:ok, _host_key} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Host key trusted")
-         |> load_host_keys()}
+    authorize_manage_event(socket, fn ->
+      case RemoteAccessHostKeys.trust(id, scope: socket.assigns.current_scope) do
+        {:ok, _host_key} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Host key trusted")
+           |> load_host_keys()}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to trust host key: #{format_error(reason)}")}
-    end
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to trust host key: #{format_error(reason)}")}
+      end
+    end)
   end
 
   def handle_event("revoke_host_key", %{"id" => id}, socket) do
-    case RemoteAccessHostKeys.revoke(id,
-           scope: socket.assigns.current_scope,
-           reason: "operator revoked"
-         ) do
-      {:ok, _host_key} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Host key revoked")
-         |> assign(:rotation_host_key, nil)
-         |> assign(:rotation_candidates, [])
-         |> load_host_keys()}
+    authorize_manage_event(socket, fn ->
+      case RemoteAccessHostKeys.revoke(id,
+             scope: socket.assigns.current_scope,
+             reason: "operator revoked"
+           ) do
+        {:ok, _host_key} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Host key revoked")
+           |> assign(:rotation_host_key, nil)
+           |> assign(:rotation_candidates, [])
+           |> load_host_keys()}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to revoke host key: #{format_error(reason)}")}
-    end
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to revoke host key: #{format_error(reason)}")}
+      end
+    end)
+  end
+
+  def handle_event("reject_host_key", %{"id" => id}, socket) do
+    authorize_manage_event(socket, fn ->
+      case RemoteAccessHostKeys.reject(id,
+             scope: socket.assigns.current_scope,
+             reason: "operator rejected"
+           ) do
+        {:ok, _host_key} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Host key rejected")
+           |> assign(:rotation_host_key, nil)
+           |> assign(:rotation_candidates, [])
+           |> load_host_keys()}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to reject host key: #{format_error(reason)}")}
+      end
+    end)
   end
 
   def handle_event("show_rotate", %{"id" => id}, socket) do
-    scope = socket.assigns.current_scope
+    authorize_manage_event(socket, fn ->
+      scope = socket.assigns.current_scope
 
-    with {:ok, %RemoteAccessHostKey{} = host_key} <- RemoteAccessHostKeys.get(id, scope: scope),
-         {:ok, candidates} <- rotation_candidates(host_key, scope) do
-      {:noreply,
-       socket
-       |> assign(:rotation_host_key, host_key)
-       |> assign(:rotation_candidates, candidates)}
-    else
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to prepare rotation: #{format_error(reason)}")}
-    end
+      with {:ok, %RemoteAccessHostKey{} = host_key} <- RemoteAccessHostKeys.get(id, scope: scope),
+           {:ok, candidates} <- rotation_candidates(host_key, scope) do
+        {:noreply,
+         socket
+         |> assign(:rotation_host_key, host_key)
+         |> assign(:rotation_candidates, candidates)}
+      else
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to prepare rotation: #{format_error(reason)}")}
+      end
+    end)
   end
 
   def handle_event("cancel_rotation", _params, socket) do
-    {:noreply, close_rotation(socket)}
+    authorize_manage_event(socket, fn ->
+      {:noreply, close_rotation(socket)}
+    end)
   end
 
   def handle_event("rotate_host_key", %{"rotation" => %{"replacement_host_key_id" => replacement_id} = params}, socket) do
-    with %RemoteAccessHostKey{} = old_host_key <- socket.assigns.rotation_host_key,
-         {:ok, _result} <-
-           RemoteAccessHostKeys.rotate(old_host_key.id, replacement_id,
-             scope: socket.assigns.current_scope,
-             reason: blank_to_nil(params["reason"]) || "operator rotation"
-           ) do
-      {:noreply,
-       socket
-       |> put_flash(:info, "Host key rotated")
-       |> close_rotation()
-       |> load_host_keys()}
-    else
-      nil ->
-        {:noreply, put_flash(socket, :error, "No host key selected for rotation")}
+    authorize_manage_event(socket, fn ->
+      with %RemoteAccessHostKey{} = old_host_key <- socket.assigns.rotation_host_key,
+           {:ok, _result} <-
+             RemoteAccessHostKeys.rotate(old_host_key.id, replacement_id,
+               scope: socket.assigns.current_scope,
+               reason: blank_to_nil(params["reason"]) || "operator rotation"
+             ) do
+        {:noreply,
+         socket
+         |> put_flash(:info, "Host key rotated")
+         |> close_rotation()
+         |> load_host_keys()}
+      else
+        nil ->
+          {:noreply, put_flash(socket, :error, "No host key selected for rotation")}
 
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to rotate host key: #{format_error(reason)}")}
-    end
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to rotate host key: #{format_error(reason)}")}
+      end
+    end)
   end
 
   @impl true
@@ -253,13 +291,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                     <td class="text-right">
                       <div class="flex flex-wrap justify-end gap-2">
                         <button
-                          :if={host_key.status in [:pending, :conflict]}
+                          :if={host_key.status == :pending}
                           type="button"
                           class="btn btn-primary btn-xs"
                           phx-click="trust_host_key"
                           phx-value-id={host_key.id}
                         >
                           Trust
+                        </button>
+                        <button
+                          :if={host_key.status in [:pending, :conflict]}
+                          type="button"
+                          class="btn btn-error btn-outline btn-xs"
+                          phx-click="reject_host_key"
+                          phx-value-id={host_key.id}
+                        >
+                          Reject
                         </button>
                         <button
                           :if={host_key.status == :trusted}
@@ -271,7 +318,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                           Rotate
                         </button>
                         <button
-                          :if={host_key.status != :revoked}
+                          :if={host_key.status not in [:revoked, :rejected]}
                           type="button"
                           class="btn btn-error btn-outline btn-xs"
                           phx-click="revoke_host_key"
@@ -420,6 +467,27 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
 
   defp blank_to_nil(_value), do: nil
 
+  defp authorize_manage_event(socket, fun) when is_function(fun, 0) do
+    if fresh_can_manage?(socket.assigns.current_scope) do
+      fun.()
+    else
+      {:noreply, unauthorized(socket)}
+    end
+  end
+
+  defp unauthorized(socket) do
+    socket
+    |> put_flash(:error, "Not authorized to manage remote access host keys")
+    |> redirect(to: ~p"/settings/profile")
+  end
+
+  defp fresh_can_manage?(%{user: user}) when not is_nil(user) do
+    ServiceRadar.Identity.RBAC.clear_process_cache()
+    ServiceRadar.Identity.RBAC.has_permission?(user, @manage_permission)
+  end
+
+  defp fresh_can_manage?(scope), do: can_manage?(scope)
+
   defp can_manage?(scope), do: RBAC.can?(scope, @manage_permission)
 
   defp status_label(status), do: status |> to_string() |> String.replace("_", " ") |> String.capitalize()
@@ -430,6 +498,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
   defp status_badge_class(:pending), do: "badge-warning"
   defp status_badge_class(:rotated), do: "badge-info"
   defp status_badge_class(:revoked), do: "badge-neutral"
+  defp status_badge_class(:rejected), do: "badge-neutral"
   defp status_badge_class(_status), do: "badge-ghost"
 
   defp format_datetime(nil), do: "-"

@@ -8,16 +8,35 @@ topologySpread:
   # topologyKey: kubernetes.io/hostname
   # whenUnsatisfiable: ScheduleAnyway
 
+podDisruptionBudgets:
+  # Protect the remote-access control plane during voluntary disruptions such
+  # as node drains. Disable only for tiny lab clusters where PDBs would block
+  # maintenance.
+  enabled: true
+  minAvailable: 1
+
 # Global settings that apply across all services
 global:
-  # Override all ServiceRadar image tags at once. Defaults to "latest" so
-  # published charts track the latest image tags without manual updates.
-  imageTag: "latest"
+  # Override all ServiceRadar image tags at once. Defaults to the chart
+  # appVersion tag; use a sha-* tag or image.digests.* for production
+  # rollouts that require immutable image references.
+  imageTag: "v1.2.54"
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
   # When true, stamp the pod template with a Helm-managed revision so a normal
   # `helm upgrade` rolls mutable-tag workloads and pulls fresh images.
   forceRolloutOnUpgrade: false
+  storage:
+    # StorageClass used for durable data that may contain remote-access
+    # recordings, object-store payloads, database rows, credentials, or audit
+    # material. Production clusters should provide this class with encryption
+    # at rest enabled by the underlying CSI/storage backend.
+    encryptedStorageClassName: "encrypted"
+    # Set true only for local/lab clusters where the encrypted class does not
+    # exist. When false, durable storage templates default to
+    # encryptedStorageClassName instead of silently inheriting the cluster
+    # default StorageClass.
+    allowInsecureStorage: false
 
 image:
   # Base registry/repository prefix for first-party ServiceRadar images.
@@ -26,7 +45,7 @@ image:
   registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
-    appTag: &appTag "latest"
+    appTag: &appTag "v1.2.54"
     core: *appTag
     webNg: *appTag
     nats: "2.14.0-alpine"
@@ -46,6 +65,10 @@ image:
     faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
+  # Optional per-service digest pins. Keys match image.tags service names
+  # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
+  # either "sha256:..." or "@sha256:..."; when set they override tags.
+  digests: {}
 
 argocdImageUpdater:
   pullSecretReader:
@@ -465,7 +488,7 @@ cnpg:
   enabled: true
   clusterName: cnpg
   instances: 3
-  storageClass: local-path
+  storageClass: ""
   storageSize: 100Gi
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.
@@ -610,7 +633,9 @@ webNg:
   host: ""
   publicUrl: ""
   godViewEnabled: "true"
-  checkOrigin: "false"
+  # Keep Phoenix/LiveView WebSocket origin checks enabled by default.
+  # Set to "false" only for local/lab reverse-proxy debugging.
+  checkOrigin: "true"
   devRoutes: "false"
   localMailer: "false"
   # When true, the bootstrap step resets the stored admin password hash to
@@ -1211,6 +1236,85 @@ networkPolicy:
   podSelector:
     matchLabels:
       app.kubernetes.io/part-of: serviceradar
+  ingress:
+    # When network policies are enabled, restrict inbound traffic to the
+    # release namespace by default. Add explicit namespaces or CIDRs for
+    # external ingress controllers / load balancers that run elsewhere.
+    allowSameNamespace: true
+    allowedNamespaces: []
+    allowedCIDRs: []
+    # Ordinary application ingress ports. ERTS distribution is intentionally
+    # excluded and handled by ingress.erts below so the BEAM cookie cannot be
+    # abused by arbitrary same-namespace pods.
+    allowedPorts:
+      - protocol: TCP
+        port: 4000
+      - protocol: TCP
+        port: 4222
+      - protocol: TCP
+        port: 4317
+      - protocol: TCP
+        port: 50040
+      - protocol: TCP
+        port: 50041
+      - protocol: TCP
+        port: 50043
+      - protocol: TCP
+        port: 50044
+      - protocol: TCP
+        port: 50046
+      - protocol: TCP
+        port: 50051
+      - protocol: TCP
+        port: 50052
+      - protocol: TCP
+        port: 50053
+      - protocol: TCP
+        port: 50057
+      - protocol: TCP
+        port: 50081
+      - protocol: TCP
+        port: 5432
+      - protocol: TCP
+        port: 6222
+      - protocol: TCP
+        port: 8080
+      - protocol: TCP
+        port: 8081
+      - protocol: TCP
+        port: 8090
+      - protocol: TCP
+        port: 8222
+      - protocol: TCP
+        port: 9090
+      - protocol: TCP
+        port: 11019
+      - protocol: UDP
+        port: 162
+      - protocol: UDP
+        port: 514
+      - protocol: UDP
+        port: 2055
+      - protocol: UDP
+        port: 4739
+      - protocol: UDP
+        port: 6343
+    erts:
+      enabled: true
+      podSelector:
+        matchExpressions:
+          - key: app
+            operator: In
+            values:
+              - serviceradar-core
+              - serviceradar-web-ng
+              - serviceradar-agent-gateway
+      ports:
+        - protocol: TCP
+          port: 4369
+        - protocol: TCP
+          port: 9100
+          endPort: 9155
   egress:
     allowDNS: true
     allowKubeAPIServer: true

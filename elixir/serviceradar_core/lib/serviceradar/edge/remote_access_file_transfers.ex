@@ -15,16 +15,15 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   alias ServiceRadar.Edge.RemoteAccessFileTransfer
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
-  alias ServiceRadar.Edge.RemoteAccessRequest
+  alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
 
   @active_session_statuses [:attached, :opening, :active]
   @default_protocol :sftp
-  @delete_permission "devices.remote_access.files.delete"
   @frame_type "file_transfer_request"
-  @remote_path_control_pattern ~r/[\x00-\x1F\x7F]/
+  @delete_permission "devices.remote_access.file_transfers.delete"
   @agent_frame_types [
     "file_transfer_progress",
     "file_transfer_outcome",
@@ -39,7 +38,6 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
     with {:ok, session_id} <- normalize_uuid(session_id),
          {:ok, %RemoteAccessSession{} = session} <- fetch_session(session_id, opts),
          :ok <- ensure_transferable_session(session),
-         :ok <- validate_request_paths(request),
          attrs = transfer_attrs(session, request, opts),
          {:ok, transfer} <- transfer_resource(opts).create_transfer(attrs, system_opts),
          :ok <- dispatch_transfer_request(session, transfer, request, opts) do
@@ -93,22 +91,25 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
     end
   end
 
-  @spec destroy(RemoteAccessFileTransfer.t() | String.t(), keyword()) :: :ok | {:error, term()}
-  def destroy(transfer_or_id, opts \\ [])
+  @spec delete_transfer(RemoteAccessFileTransfer.t() | binary(), keyword()) ::
+          {:ok, RemoteAccessFileTransfer.t()} | {:error, term()}
+  def delete_transfer(transfer_or_id, opts \\ [])
 
-  def destroy(%RemoteAccessFileTransfer{} = transfer, opts) do
-    with :ok <- authorize_destroy(opts),
-         :ok <- Ash.destroy(transfer, actor: system_actor(:destroy), action: :destroy) do
-      write_audit_event(:remote_access_file_transfer_destroyed, transfer, %{}, opts)
-      :ok
+  def delete_transfer(%RemoteAccessFileTransfer{} = transfer, opts) do
+    with :ok <- authorize_delete(opts),
+         :ok <- transfer_resource(opts).destroy_transfer(transfer, actor: system_actor(:delete)) do
+      write_audit_event(:remote_access_file_transfer_deleted, transfer, %{}, opts)
+      {:ok, transfer}
     end
   end
 
-  def destroy(transfer_id, opts) when is_binary(transfer_id) do
-    with :ok <- authorize_destroy(opts),
-         {:ok, transfer} <-
-           transfer_resource(opts).get_by_id(transfer_id, actor: system_actor(:destroy_read)) do
-      destroy(transfer, opts)
+  def delete_transfer(transfer_id, opts) when is_binary(transfer_id) do
+    with :ok <- authorize_delete(opts),
+         {:ok, %RemoteAccessFileTransfer{} = transfer} <-
+           transfer_resource(opts).get_by_id(transfer_id, actor: system_actor(:delete_lookup)),
+         :ok <- transfer_resource(opts).destroy_transfer(transfer, actor: system_actor(:delete)) do
+      write_audit_event(:remote_access_file_transfer_deleted, transfer, %{}, opts)
+      {:ok, transfer}
     end
   end
 
@@ -227,14 +228,15 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   end
 
   defp apply_terminal_agent_frame(transfer, payload, opts, extra_opts \\ []) do
-    with :ok <- ensure_terminal_frame_approval_current(transfer, payload, opts) do
-      attrs = lifecycle_attrs(payload)
+    attrs = lifecycle_attrs(payload)
 
-      reason =
-        Keyword.get(extra_opts, :reason) || string_value(payload, :failure_reason) || :completed
+    reason =
+      Keyword.get(extra_opts, :reason) || string_value(payload, :failure_reason) || :completed
 
-      opts = Keyword.put(opts, :finish_attrs, attrs)
+    opts = Keyword.put(opts, :finish_attrs, attrs)
 
+    with :ok <- ensure_terminal_approval_echo(transfer, payload),
+         :ok <- revalidate_transfer_approval(transfer, opts) do
       case normalize_transfer_status(value(payload, :status)) do
         :completed -> finish(transfer, attrs, opts)
         :denied -> deny(transfer, reason, opts)
@@ -283,76 +285,34 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
     end
   end
 
-  defp ensure_terminal_frame_approval_current(transfer, payload, opts) do
-    transfer_approval_id = string_value(transfer, :approval_id)
-
-    if blank?(transfer_approval_id) do
-      :ok
-    else
-      with :ok <- ensure_terminal_frame_approval_echo(transfer_approval_id, payload),
-           {:ok, approval} <- fetch_transfer_approval(transfer_approval_id, opts),
-           :ok <- ensure_transfer_approval_active(approval) do
-        ensure_transfer_approval_bound_to_session(approval, transfer)
-      end
-    end
-  end
-
-  defp ensure_terminal_frame_approval_echo(approval_id, payload) do
-    if string_value(payload, :approval_id) == approval_id do
-      :ok
-    else
-      {:error, :file_transfer_approval_mismatch}
-    end
-  end
-
-  defp fetch_transfer_approval(approval_id, opts) do
-    case approval_resource(opts).get_by_id(approval_id, actor: system_actor(:approval)) do
-      {:ok, nil} -> {:error, :file_transfer_approval_not_found}
-      {:ok, approval} -> {:ok, approval}
-      {:error, %NotFound{}} -> {:error, :file_transfer_approval_not_found}
-      {:error, :not_found} -> {:error, :file_transfer_approval_not_found}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp ensure_transfer_approval_active(approval) do
-    status = normalize_approval_status(value(approval, :status))
-
-    cond do
-      status not in [:approved, :consumed] ->
-        {:error, :file_transfer_approval_not_active}
-
-      approval_expired?(approval) ->
-        {:error, :file_transfer_approval_expired}
-
-      true ->
+  defp ensure_terminal_approval_echo(transfer, payload) do
+    case string_value(transfer, :approval_id) do
+      nil ->
         :ok
+
+      approval_id ->
+        if string_value(payload, :approval_id) == approval_id do
+          :ok
+        else
+          {:error, :file_transfer_approval_mismatch}
+        end
     end
   end
 
-  defp normalize_approval_status(status) when is_atom(status), do: status
-  defp normalize_approval_status("approved"), do: :approved
-  defp normalize_approval_status("consumed"), do: :consumed
-  defp normalize_approval_status(_status), do: nil
+  defp revalidate_transfer_approval(transfer, opts) do
+    case string_value(transfer, :approval_id) do
+      nil ->
+        :ok
 
-  defp approval_expired?(approval) do
-    case value(approval, :expires_at) do
-      %DateTime{} = expires_at ->
-        DateTime.compare(expires_at, RemoteAccessFileTransfer.utc_now()) != :gt
-
-      _value ->
-        false
-    end
-  end
-
-  defp ensure_transfer_approval_bound_to_session(approval, transfer) do
-    approval_session_id = string_value(approval, :session_id)
-    transfer_session_id = string_value(transfer, :session_id)
-
-    if blank?(approval_session_id) or approval_session_id == transfer_session_id do
-      :ok
-    else
-      {:error, :file_transfer_approval_scope_mismatch}
+      approval_id ->
+        approval_checker(opts).authorize_file_transfer_completion(
+          %{
+            approval_id: approval_id,
+            session_id: string_value(transfer, :session_id),
+            transfer_id: string_value(transfer, :id)
+          },
+          opts
+        )
     end
   end
 
@@ -396,36 +356,6 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
        when status in @active_session_statuses, do: :ok
 
   defp ensure_transferable_session(_session), do: {:error, :remote_access_session_not_active}
-
-  defp validate_request_paths(request) do
-    with :ok <- validate_remote_path(value(request, :path)) do
-      validate_optional_remote_path(value(request, :destination_path))
-    end
-  end
-
-  defp validate_optional_remote_path(path) do
-    if blank?(path), do: :ok, else: validate_remote_path(path)
-  end
-
-  defp validate_remote_path(path) when is_binary(path) do
-    path = String.trim(path)
-
-    cond do
-      path == "" or not String.starts_with?(path, "/") ->
-        {:error, :invalid_file_transfer_path}
-
-      String.match?(path, @remote_path_control_pattern) ->
-        {:error, :invalid_file_transfer_path}
-
-      Enum.any?(String.split(path, "/"), &(&1 in [".", ".."])) ->
-        {:error, :invalid_file_transfer_path}
-
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_remote_path(_path), do: {:error, :invalid_file_transfer_path}
 
   defp transfer_attrs(session, request, opts) do
     direction = normalize_atom(value(request, :direction))
@@ -625,8 +555,8 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
       destination_path: value(request, :destination_path),
       display_name: value(request, :display_name),
       policy: safe_map(value(transfer, :policy_snapshot)),
-      approved: not blank?(value(transfer, :approval_id)),
-      approval_id: string_value(transfer, :approval_id)
+      approval_id: string_value(transfer, :approval_id),
+      approved: not blank?(value(transfer, :approval_id))
     }
     |> Enum.reject(fn {_key, value} -> blank?(value) end)
     |> Map.new()
@@ -792,7 +722,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
       (Keyword.get(opts, :scope) && Map.get(Keyword.get(opts, :scope), :user))
   end
 
-  defp authorize_destroy(opts) do
+  defp authorize_delete(opts) do
     case audit_actor(opts) do
       %{role: :system} ->
         :ok
@@ -812,12 +742,12 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
        when action in [
               :remote_access_file_transfer_denied,
               :remote_access_file_transfer_failed,
-              :remote_access_file_transfer_quota_exhausted,
-              :remote_access_file_transfer_destroyed
+              :remote_access_file_transfer_quota_exhausted
             ],
        do: :high
 
   defp audit_severity(:remote_access_file_transfer_canceled), do: :medium
+  defp audit_severity(:remote_access_file_transfer_deleted), do: :high
   defp audit_severity(_action), do: :medium
 
   defp action_suffix(:remote_access_file_transfer_allowed), do: "allowed"
@@ -826,7 +756,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   defp action_suffix(:remote_access_file_transfer_failed), do: "failed"
   defp action_suffix(:remote_access_file_transfer_canceled), do: "canceled"
   defp action_suffix(:remote_access_file_transfer_quota_exhausted), do: "quota exhausted"
-  defp action_suffix(:remote_access_file_transfer_destroyed), do: "destroyed"
+  defp action_suffix(:remote_access_file_transfer_deleted), do: "deleted"
   defp action_suffix(action), do: Atom.to_string(action)
 
   defp recording_opts(opts) do
@@ -852,8 +782,8 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   defp audit_writer(opts), do: Keyword.get(opts, :audit_writer, AuditWriter)
   defp recordings(opts), do: Keyword.get(opts, :recordings, RemoteAccessRecordings)
   defp recording_resource(opts), do: Keyword.get(opts, :recording_resource, RemoteAccessRecording)
-  defp approval_resource(opts), do: Keyword.get(opts, :approval_resource, RemoteAccessRequest)
   defp session_resource(opts), do: Keyword.get(opts, :session_resource, RemoteAccessSession)
+  defp approval_checker(opts), do: Keyword.get(opts, :approval_checker, RemoteAccessRequests)
 
   defp transfer_resource(opts),
     do: Keyword.get(opts, :transfer_resource, RemoteAccessFileTransfer)

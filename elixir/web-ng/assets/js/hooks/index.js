@@ -7,6 +7,7 @@ import LocalTime from "./LocalTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import OperationsTrafficMap from "./OperationsTrafficMap"
 import ProxmoxConsoleTerminal from "./ProxmoxConsoleTerminal"
+import RemoteAccessDesktopSession from "./RemoteAccessDesktopSession"
 import RemoteAccessApplication from "./RemoteAccessApplication"
 import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
 import RemoteAccessTCPText from "./RemoteAccessTCPText"
@@ -41,6 +42,7 @@ export default {
   MapboxFlowMap,
   OperationsTrafficMap,
   ProxmoxConsoleTerminal,
+  RemoteAccessDesktopSession,
   RemoteAccessApplication,
   RemoteAccessSSHConsole,
   RemoteAccessTCPText,

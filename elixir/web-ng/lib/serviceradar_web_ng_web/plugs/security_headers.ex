@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeaders do
 
   import Plug.Conn
 
-  @default_permissions_policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), fullscreen=()"
+  @default_permissions_policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), fullscreen=(), display-capture=()"
   @default_hsts_max_age 63_072_000
 
   @impl true

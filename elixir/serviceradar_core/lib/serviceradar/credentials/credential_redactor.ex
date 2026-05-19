@@ -9,6 +9,10 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
   """
 
   @redacted "REDACTED"
+  @version "serviceradar_credential_redactor_v1"
+
+  @spec version() :: String.t()
+  def version, do: @version
 
   @spec redact(term()) :: term()
   def redact(value) when is_map(value) do

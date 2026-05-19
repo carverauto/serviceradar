@@ -83,6 +83,7 @@ spec:
           {{- if or $agentAllowNetRaw $agentEBPFEnabled }}
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             runAsUser: 0
             runAsNonRoot: false
             {{- if $agentEBPFPrivileged }}
@@ -184,14 +185,19 @@ spec:
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
       {{- if $agentEBPFEnabled }}
+      # bpffs is required for pinned eBPF maps/programs shared across agent
+      # restarts. Keep this mount limited to the configured bpffs path.
       - name: bpffs
         hostPath:
           path: {{ default "/sys/fs/bpf" $agentEBPF.bpffsPath | quote }}
           type: Directory
+      # Kernel BTF is read-only input for CO-RE eBPF program loading.
       - name: kernel-btf
         hostPath:
           path: {{ default "/sys/kernel/btf" $agentEBPF.btfMountPath | quote }}
           type: Directory
+      # cgroupfs is used by cgroup-attached probes. Prefer read-only mode when
+      # a probe set does not require cgroup directory creation.
       - name: cgroup-fs
         hostPath:
           path: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}

@@ -45,6 +45,8 @@ config :serviceradar_core, Oban,
        {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
        {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
        {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+       {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker, queue: :maintenance},
+       {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance},
        {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance}
      ]}
   ],
@@ -73,10 +75,13 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     cli_device_auth: [limit: 30, window_seconds: 60],
     dashboard_publish: [limit: 10, window_seconds: 60],
     dashboard_publish_admin: [limit: 30, window_seconds: 60],
+    edge_onboarding_package_create_actor: [limit: 10, window_seconds: 60],
+    edge_onboarding_package_create_partition: [limit: 30, window_seconds: 60],
     cli_token_poll: [limit: 60, window_seconds: 60],
     plugin_upload: [limit: 10, window_seconds: 60],
     oauth_password_grant: [limit: 10, window_seconds: 60],
     oauth_client_credentials: [limit: 20, window_seconds: 60],
+    remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
     api_default: [limit: 120, window_seconds: 60]
   }
 
@@ -139,6 +144,7 @@ config :serviceradar_core,
   mtr_consensus_cohort_retention_ms: 300_000
 
 config :serviceradar_core,
+  remote_access_desktop_rdp_enabled: false,
   northbound_callback_base_url: nil
 
 config :serviceradar_core,

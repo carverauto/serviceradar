@@ -15,6 +15,10 @@ global:
   imageTag: "sha-217d693de66908133302bffea9a1091b03e45d87"
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
+  storage:
+    # The demo k3s cluster uses local-path storage. Keep this override explicit
+    # so production installs fail closed unless an encrypted class is supplied.
+    allowInsecureStorage: true
 
 image:
   registryPullSecret: registry-carverauto-dev-cred
@@ -157,6 +161,12 @@ gatewayApi:
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
+  ingress:
+    allowSameNamespace: true
+    allowedNamespaces:
+      # The demo HTTPRoute attaches to the shared Gateway in this namespace;
+      # allow its Envoy data-plane pods to reach ServiceRadar backends.
+      - serviceradar-system
   egress:
     allowDNS: true
     allowKubeAPIServer: true
@@ -259,6 +269,7 @@ webNg:
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
+    SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Trust first-party Wasm upload signatures published by the release pipeline.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
   resources:
@@ -383,6 +394,7 @@ core:
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
+    SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Keep last-known topology visible in demo when external mapper agents are
     # briefly offline or being re-enrolled.
     SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES: "10080"

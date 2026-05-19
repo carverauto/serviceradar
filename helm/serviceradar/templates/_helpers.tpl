@@ -91,6 +91,22 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{/*
+Render a Kubernetes NetworkPolicy ports list from values entries shaped as:
+  - protocol: TCP
+    port: 50052
+    endPort: 50060 # optional
+*/}}
+{{- define "serviceradar.networkPolicyPorts" -}}
+{{- range . }}
+- protocol: {{ default "TCP" .protocol }}
+  port: {{ .port }}
+  {{- if .endPort }}
+  endPort: {{ .endPort }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "serviceradar.runtimeCertsSecretName" -}}
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}
@@ -255,6 +271,10 @@ Usage: {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
 {{- define "serviceradar.podSecurityContext" -}}
 securityContext:
   runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  fsGroupChangePolicy: OnRootMismatch
   seccompProfile:
     type: RuntimeDefault
 {{- end -}}
@@ -266,6 +286,7 @@ Usage: {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
 {{- define "serviceradar.containerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
 {{- end -}}
@@ -278,6 +299,7 @@ Usage: {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10
 {{- define "serviceradar.networkContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   runAsUser: 0
   runAsNonRoot: false
   capabilities:
@@ -291,6 +313,7 @@ Usage: {{- include "serviceradar.bindServiceContainerSecurityContext" . | ninden
 {{- define "serviceradar.bindServiceContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
     add: ["NET_BIND_SERVICE"]
@@ -304,6 +327,7 @@ Usage: {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10
 {{- define "serviceradar.nonRootContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   runAsUser: 1001
   runAsGroup: 1001
   capabilities:

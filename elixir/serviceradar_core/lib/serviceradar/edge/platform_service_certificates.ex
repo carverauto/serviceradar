@@ -81,6 +81,7 @@ defmodule ServiceRadar.Edge.PlatformServiceCertificates do
       component_id: component_id,
       component_type: component_type,
       security_mode: :mtls,
+      partition_id: partition_id,
       site: partition_id,
       metadata_json: metadata
     }

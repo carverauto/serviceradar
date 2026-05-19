@@ -460,6 +460,10 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/desktop_media.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/rperf/rperf.proto
 	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \

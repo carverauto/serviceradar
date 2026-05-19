@@ -71,12 +71,18 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `global.imageTag` | Docker image tag for all components | `latest` |
+| `global.imageTag` | Docker image tag for all first-party components | `v1.2.54` |
+| `image.digests.<service>` | Optional digest pin for a first-party component, overriding tags | `{}` |
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
 | `ingress.tls.secretName` | TLS secret name | `""` |
 | `networkPolicy.enabled` | Render Kubernetes/Calico network policies | `false` |
 | `networkPolicy.podSelectorMatchAll` | Apply Kubernetes NetworkPolicy to all pods in the namespace | `false` |
+| `networkPolicy.ingress.allowSameNamespace` | Allow ingress from pods in the release namespace when NetworkPolicy is enabled | `true` |
+| `networkPolicy.ingress.allowedNamespaces` | Additional namespace names allowed to initiate ingress | `[]` |
+| `networkPolicy.ingress.allowedCIDRs` | Additional ingress CIDR allow list | `[]` |
+| `networkPolicy.ingress.allowedPorts` | Application ingress ports allowed from same-namespace / allowed namespace / allowed CIDR peers | ServiceRadar defaults excluding ERTS |
+| `networkPolicy.ingress.erts.enabled` | Render a separate EPMD / Erlang distribution ingress rule scoped to cluster-member pods | `true` |
 | `networkPolicy.egress.allowDNS` | Allow DNS to kube-system (53/TCP+UDP) | `true` |
 | `networkPolicy.egress.allowKubeAPIServer` | Allow egress to the kube-apiserver endpoints (via Helm lookup) | `true` |
 | `networkPolicy.egress.allowDefaultNamespace` | Allow egress to the `default` namespace (Kubernetes API) | `true` |
@@ -85,6 +91,14 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.calicoLogDenied.enabled` | Render Calico policy to log denied egress | `false` |
 | `networkPolicy.calicoLogDenied.selector` | Calico selector for matching pods | `app.kubernetes.io/part-of == 'serviceradar'` |
 | `networkPolicy.calicoLogDenied.order` | Calico policy order (lower is higher priority) | `1000` |
+| `podDisruptionBudgets.enabled` | Render PDBs for core, web-ng, datasvc, and agent-gateway | `true` |
+| `podDisruptionBudgets.minAvailable` | Minimum available pods for ServiceRadar PDBs | `1` |
+| `global.storage.encryptedStorageClassName` | StorageClass used by durable database/object-store PVCs when no service-specific class is set | `encrypted` |
+| `global.storage.allowInsecureStorage` | Allow durable PVCs to inherit the cluster default or use a known non-encrypted class. Lab/demo only. | `false` |
+| `cnpg.storageClass` | StorageClass for CNPG database volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
+| `nats.persistence.storageClassName` | StorageClass for NATS JetStream file-store volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
+| `datasvc.data.storageClassName` | StorageClass for optional datasvc local object-store volumes. Defaults to `global.storage.encryptedStorageClassName` when enabled and empty. | `""` |
+| `webNg.checkOrigin` | Enable Phoenix/LiveView origin checks for browser and WebSocket requests. Disable only for local reverse-proxy debugging. | `"true"` |
 | `cnpg.pooler.enabled` | Deploy a CNPG-managed PgBouncer pooler | `false` |
 | `cnpg.pooler.instances` | PgBouncer pooler pod count | `3` |
 | `cnpg.pooler.ha.podAntiAffinity.type` | Pooler pod spreading mode, `preferred` or `required` | `preferred` |
@@ -107,6 +121,27 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |
 | `agent.runtimeStorage.enabled` | Persist managed agent release runtime under `/var/lib/serviceradar/agent` | `true` |
 | `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Set this explicitly when the agent gateway is exposed on a different host than the web ingress. Otherwise it defaults to `ingress.host:50052` when set, or the in-cluster service. | `""` |
+
+### Storage Encryption
+
+Remote-access recordings currently persist as CNPG rows. The planned object-store path uses the NATS/datasvc durable storage path. Production installs therefore fail closed by default to an encrypted storage class:
+
+```yaml
+global:
+  storage:
+    encryptedStorageClassName: encrypted
+    allowInsecureStorage: false
+```
+
+Set `cnpg.storageClass`, `nats.persistence.storageClassName`, or `datasvc.data.storageClassName` when a cluster uses service-specific encrypted classes. Local/demo clusters without encrypted CSI support must opt in explicitly:
+
+```yaml
+global:
+  storage:
+    allowInsecureStorage: true
+```
+
+Do not use the insecure override for production remote-access deployments.
 
 ### ServiceRadar Observability Bundle
 
@@ -258,5 +293,5 @@ core:
 
 **Firewall Requirements:**
 - Only port 50052 (gRPC) needs to be accessible from edge networks
-- ERTS distribution ports (4369, 9100-9155) should NOT be exposed to edge networks
+- ERTS distribution ports (4369, 9100-9155) are not part of the ordinary ingress allowlist. When `networkPolicy.enabled=true`, they are allowed only from pods matching `networkPolicy.ingress.erts.podSelector` in the release namespace. Rotate `cluster-cookie` when changing cluster membership trust boundaries.
 - Edge agents do not need database or internal API access

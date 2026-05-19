@@ -83,10 +83,10 @@ defmodule Palisade.OutboundFetch do
   defp resolve_target(url, opts) do
     case Keyword.get(opts, :resolved_address) do
       nil ->
-        OutboundURLPolicy.resolve_https_public_url(url)
+        OutboundURLPolicy.resolve_https_public_url(url, url_policy_opts(opts))
 
       resolved_address ->
-        with {:ok, uri} <- OutboundURLPolicy.validate_https_public_url(url),
+        with {:ok, uri} <- OutboundURLPolicy.validate_https_public_url(url, url_policy_opts(opts)),
              false <- NetworkAddressPolicy.private_or_loopback_ip?(resolved_address) do
           {:ok, %{uri: uri, address: resolved_address, host: uri.host}}
         else
@@ -104,6 +104,7 @@ defmodule Palisade.OutboundFetch do
     opts =
       opts
       |> Keyword.delete(:resolved_address)
+      |> Keyword.delete(:allowed_ports)
       |> Keyword.update(:connect_options, connect_options(target), fn current ->
         Keyword.merge(current, connect_options(target))
       end)
@@ -115,7 +116,15 @@ defmodule Palisade.OutboundFetch do
         opts
       end
 
-    Keyword.merge(req_opts(), opts)
+    req_opts()
+    |> Keyword.merge(opts)
+    |> Keyword.put(:redirect, false)
+  end
+
+  defp url_policy_opts(opts) do
+    opts
+    |> Keyword.take([:allowed_ports])
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
   end
 
   defp connect_options(%{host: host}) do

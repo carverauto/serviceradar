@@ -12,4 +12,5 @@ defmodule ServiceRadarAgentGateway.Endpoint do
 
   run(ServiceRadarAgentGateway.AgentGatewayServer)
   run(ServiceRadarAgentGateway.CameraMediaServer)
+  run(ServiceRadarAgentGateway.DesktopMediaServer)
 end

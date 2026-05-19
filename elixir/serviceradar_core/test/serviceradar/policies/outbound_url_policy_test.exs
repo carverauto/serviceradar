@@ -22,5 +22,21 @@ defmodule ServiceRadar.Policies.OutboundURLPolicyTest do
 
     assert {:error, :disallowed_host} =
              OutboundURLPolicy.validate_https_public_url("https://10.0.0.5/path")
+
+    assert {:error, :disallowed_host} =
+             OutboundURLPolicy.validate_https_public_url("https://[::ffff:169.254.169.254]/")
+  end
+
+  test "requires allowlisted ports" do
+    assert {:ok, _} = OutboundURLPolicy.validate_https_public_url("https://1.1.1.1")
+    assert {:ok, _} = OutboundURLPolicy.validate_https_public_url("https://1.1.1.1:443")
+
+    assert {:error, :disallowed_port} =
+             OutboundURLPolicy.validate_https_public_url("https://1.1.1.1:8443")
+
+    assert {:ok, _} =
+             OutboundURLPolicy.validate_https_public_url("https://1.1.1.1:8443",
+               allowed_ports: [443, 8443]
+             )
   end
 end

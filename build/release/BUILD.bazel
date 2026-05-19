@@ -21,6 +21,7 @@ go_binary(
     data = [
         ":package_manifest",
         ":package_artifacts",
+        "//build/packaging/agent:agent_rdp_release_runtime_archive",
         "//build/packaging/agent:agent_release_runtime_archive",
     ],
     visibility = ["//visibility:public"],
@@ -29,5 +30,11 @@ go_binary(
 go_test(
     name = "publish_packages_test",
     srcs = ["publish_packages_test.go"],
+    data = [
+        ":package_manifest",
+        ":package_artifacts",
+        "//build/packaging/agent:agent_rdp_release_runtime_archive",
+        "//build/packaging/agent:agent_release_runtime_archive",
+    ],
     embed = [":publish_packages_lib"],
 )

@@ -110,6 +110,34 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   end
 
   attr :id, :string, required: true
+  attr :session, :map, required: true
+  attr :title, :string, default: "RDP remote access"
+  attr :class, :string, default: ""
+
+  def remote_access_desktop_session(assigns) do
+    assigns =
+      assign(assigns, :props, %{
+        session: assigns.session,
+        title: assigns.title
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["h-full min-h-0 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="RemoteAccessDesktopSession"
+      data-props={Jason.encode!(@props)}
+    >
+      <div class="flex h-full min-h-[420px] items-center justify-center text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading RDP session...</span>
+      </div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
   attr :target_id, :string, required: true
   attr :create_path, :string, default: "/api/remote-access/app-sessions"
   attr :title, :string, default: "Application access"

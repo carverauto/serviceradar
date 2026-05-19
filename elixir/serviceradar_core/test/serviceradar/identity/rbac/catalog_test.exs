@@ -10,15 +10,34 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     devices.remote_access.files.manage
     devices.remote_access.files.approve
     devices.remote_access.files.export
+    devices.remote_access.file_transfers.delete
   )
 
-  @app_tcp_permissions ~w(
+  @recording_permissions ~w(
+    devices.remote_access.recordings.export
+    devices.remote_access.recordings.view_all
+    devices.remote_access.recordings.delete
+  )
+
+  @remote_access_open_permissions ~w(
+    devices.remote_access.ssh.open
+    devices.remote_access.ssh.target.override
+    devices.remote_access.rdp.open
     devices.remote_access.app.open
     devices.remote_access.tcp.open
-    devices.remote_access.requests.review
-    devices.remote_access.recordings.export
-    settings.remote_access_targets.manage
   )
+
+  test "remote-access open permissions are admin-only catalog keys" do
+    keys = Catalog.permission_keys()
+    admin_permissions = Catalog.permissions_for_role(:admin)
+    operator_permissions = Catalog.permissions_for_role(:operator)
+
+    for permission <- @remote_access_open_permissions do
+      assert permission in keys
+      assert MapSet.member?(admin_permissions, permission)
+      refute MapSet.member?(operator_permissions, permission)
+    end
+  end
 
   test "remote-access file-transfer permissions are admin-only catalog keys" do
     keys = Catalog.permission_keys()
@@ -32,40 +51,15 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
-  test "remote-access app and tcp permissions are admin-only catalog keys" do
+  test "remote-access recording permissions are admin-only catalog keys" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)
     operator_permissions = Catalog.permissions_for_role(:operator)
 
-    for permission <- @app_tcp_permissions do
+    for permission <- @recording_permissions do
       assert permission in keys
       assert MapSet.member?(admin_permissions, permission)
       refute MapSet.member?(operator_permissions, permission)
     end
-  end
-
-  test "northbound action permissions use least-privilege defaults" do
-    keys = Catalog.permission_keys()
-    admin_permissions = Catalog.permissions_for_role(:admin)
-    operator_permissions = Catalog.permissions_for_role(:operator)
-    viewer_permissions = Catalog.permissions_for_role(:viewer)
-
-    assert "northbound.actions.view" in keys
-    assert "northbound.actions.manage" in keys
-    assert "northbound.actions.launch" in keys
-    assert "northbound.actions.cancel" in keys
-    assert "northbound.event_handlers.manage" in keys
-
-    assert MapSet.member?(admin_permissions, "northbound.actions.manage")
-    assert MapSet.member?(admin_permissions, "northbound.event_handlers.manage")
-    refute MapSet.member?(operator_permissions, "northbound.actions.manage")
-    refute MapSet.member?(operator_permissions, "northbound.event_handlers.manage")
-
-    assert MapSet.member?(operator_permissions, "northbound.actions.launch")
-    assert MapSet.member?(operator_permissions, "northbound.actions.cancel")
-    refute MapSet.member?(viewer_permissions, "northbound.actions.launch")
-    refute MapSet.member?(viewer_permissions, "northbound.actions.cancel")
-
-    assert MapSet.member?(viewer_permissions, "northbound.actions.view")
   end
 end

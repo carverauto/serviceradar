@@ -4,6 +4,16 @@
 {{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
 {{- if and (default true $cnpg.enabled) (not $spiffeCnpgManaged) }}
 {{- $ns := .Release.Namespace -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $cnpgStorageClass := default "" $cnpg.storageClass -}}
+{{- if and (eq $cnpgStorageClass "") (not $allowInsecureStorage) -}}
+  {{- $cnpgStorageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- if and (eq $cnpgStorageClass "") (not $allowInsecureStorage) -}}
+  {{- fail "cnpg.storageClass or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
+{{- end -}}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
@@ -81,8 +91,8 @@ spec:
   {{- end }}
   storage:
     size: {{ default "100Gi" $cnpg.storageSize }}
-    {{- if $cnpg.storageClass }}
-    storageClass: {{ $cnpg.storageClass | quote }}
+    {{- if $cnpgStorageClass }}
+    storageClass: {{ $cnpgStorageClass | quote }}
     {{- end }}
   bootstrap:
     initdb:

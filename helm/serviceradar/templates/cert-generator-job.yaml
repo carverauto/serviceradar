@@ -243,3 +243,9 @@ spec:
           urllib.request.urlopen(request, context=context).read()
           print(f"{action} Secret {secret_name}")
           PY
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

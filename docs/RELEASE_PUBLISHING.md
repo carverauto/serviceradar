@@ -54,7 +54,7 @@ The `publish_packages` binary performs the following:
 2. Creates or updates the GitHub release identified by `--tag` (optionally pointing to `--commit` or the stamped commit SHA).
 3. Uploads each generated `.deb` and `.rpm` file, replacing existing assets when `--overwrite_assets` (default `true`).
 4. Uploads a rollout-ready `serviceradar-agent_<version>_linux_amd64.tar.gz` runtime archive for self-update delivery.
-5. Generates and signs `serviceradar-agent-release-manifest.json` plus `serviceradar-agent-release-manifest.sig`, then uploads both assets to the same GitHub release.
+5. Generates and signs `serviceradar-agent-release-manifest.json` plus `serviceradar-agent-release-manifest.sig`, then uploads both assets to the same GitHub release. The default managed-agent manifest marks the archive with `capabilities: ["agent"]` and a `checksums.sha256` entry so EdgeOps can distinguish base-agent artifacts from optional helper or RDP-enabled bundles. When `--agent-rdp-runtime` or `SERVICERADAR_AGENT_RDP_RUNTIME_ARTIFACT` points at an explicit RDP-enabled runtime bundle, the publisher uploads that bundle as `serviceradar-agent-rdp_<version>_linux_amd64.tar.gz` and inserts it before the base artifact with `remote_access.rdp` metadata. The Bazel-built optional bundle is available as `build/packaging/agent/agent_rdp_release_runtime_archive.tar.gz` when running `//build/release:publish_packages` from Bazel runfiles.
 
 ### Useful flags
 
@@ -67,12 +67,36 @@ The `publish_packages` binary performs the following:
 | `--append_notes` | Append notes when updating an existing release instead of replacing them. |
 | `--overwrite_assets=false` | Skip uploading artifacts that already exist on the release. |
 | `--dry_run` | Print the actions without calling the GitHub API (useful for validation). |
+| `--agent-rdp-runtime` | Optional path or runfile for an RDP-enabled agent runtime bundle. Omit this for standard base-agent releases. |
+
+Example optional RDP release invocation:
+
+```
+bazel run --stamp //build/release:publish_packages -- \
+  --tag v$(cat VERSION) \
+  --agent-rdp-runtime build/packaging/agent/agent_rdp_release_runtime_archive.tar.gz
+```
+
+The current optional bundle includes `serviceradar-agent` and the `serviceradar-rdp-adapter` helper binary. The helper is distributed only in the RDP-enabled archive and remains fail-closed while the live connector/open path reports `connector_ready: false` with a `connector_ready_reason`. Until then, RDP bundle manifest entries are marked with `deployment_requirements.release_phase: "experimental"` and `helper_connector_ready: false`; installed agents still advertise `remote_access.rdp` only after the helper readiness probe reports `connector_ready: true`.
 
 ### Environment variables
 
 - `GITHUB_TOKEN` / `GH_TOKEN` – Required unless `--dry_run` is set.
 - `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` / `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY_FILE` – Required unless `--dry_run` is set so the publisher can sign the agent release manifest assets.
+- `SERVICERADAR_AGENT_RDP_RUNTIME_ARTIFACT` – Optional path or Bazel runfile for the RDP-enabled runtime bundle; equivalent to `--agent-rdp-runtime`.
 - `COMMIT_SHA`, `STABLE_COMMIT_SHA`, or `GITHUB_SHA` – Optional; used automatically when `--commit` is omitted.
+
+### Agent manifest metadata
+
+Each artifact may carry deployment metadata used by EdgeOps and one-click installs:
+
+- `capabilities`: artifact feature labels such as `agent` or `remote_access.rdp`.
+- `helper_protocol_version`: helper control protocol version, used by helper-backed artifacts.
+- `compatible_agent_versions`: object with `min` / `max` bounds for helper compatibility.
+- `checksums`, `signatures`, `sbom`, `license_review`: integrity and review references for the artifact and helper payloads.
+- `deployment_requirements`: object describing required helper binaries, services, or host settings. Experimental RDP artifacts with `helper_connector_ready: false` must also include `helper_connector_ready_reason`.
+
+Deployments that do not set `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true` hide artifacts whose capabilities include `remote_access.rdp` or `remote_access.desktop`.
 
 ## Step 3 – Verify the release
 

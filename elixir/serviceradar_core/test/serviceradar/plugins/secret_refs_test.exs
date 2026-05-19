@@ -143,6 +143,45 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
              )
   end
 
+  test "network credential grant refs are signed expiring opaque refs" do
+    secret_id = "018f3f56-1111-7222-8333-123456789abc"
+
+    ref =
+      SecretRefs.network_credential_grant_ref(secret_id,
+        ttl_seconds: 60,
+        claims: %{
+          "session_id" => "session-1",
+          "agent_id" => "agent-1",
+          "gateway_id" => "gateway-1",
+          "protocol" => "ssh"
+        }
+      )
+
+    assert SecretRefs.secret_ref?(ref)
+    assert String.starts_with?(ref, "credentialref:network-credential-grant:")
+    assert {:ok, ^secret_id} = SecretRefs.network_credential_ref_id(ref)
+    assert {:error, "has already been used"} = SecretRefs.network_credential_ref_id(ref)
+  end
+
+  test "network credential grant refs reject tampering and expiry" do
+    secret_id = "018f3f56-1111-7222-8333-123456789abc"
+    ref = SecretRefs.network_credential_grant_ref(secret_id, ttl_seconds: 60)
+
+    [payload, _signature] = String.split(ref, ".", parts: 2)
+    tampered = payload <> ".tampered"
+    assert {:error, reason} = SecretRefs.network_credential_ref_id(tampered)
+    assert reason =~ "invalid network credential grant"
+
+    expired =
+      SecretRefs.network_credential_grant_ref(secret_id,
+        ttl_seconds: 60,
+        expires_at_unix: System.system_time(:second) - 1
+      )
+
+    assert {:error, reason} = SecretRefs.network_credential_ref_id(expired)
+    assert reason =~ "expired network credential grant"
+  end
+
   defp plugin_inputs_payload(template) do
     %{
       "schema" => "serviceradar.plugin_inputs.v1",

@@ -18,10 +18,12 @@ defmodule ServiceRadarWebNGWeb.Router do
          "style-src 'self' 'unsafe-inline'; " <>
          "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; " <>
          "font-src 'self' data:; " <>
+         "media-src 'none'; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
          "child-src blob:; " <>
          "frame-src #{@frame_src}; " <>
+         "frame-ancestors 'none'; " <>
          "object-src 'none'; " <>
          "base-uri 'self'; " <>
          "form-action 'self'"
@@ -31,10 +33,12 @@ defmodule ServiceRadarWebNGWeb.Router do
                   "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; " <>
                   "img-src 'self' data: https:; " <>
                   "font-src 'self' data: https://fonts.gstatic.com; " <>
+                  "media-src 'none'; " <>
                   "connect-src 'self' https: wss:; " <>
                   "worker-src 'self' blob:; " <>
                   "child-src blob:; " <>
                   "frame-src #{@frame_src}; " <>
+                  "frame-ancestors 'none'; " <>
                   "object-src 'none'; " <>
                   "base-uri 'self'; " <>
                   "form-action 'self'"
@@ -326,18 +330,41 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/remote-access/host-keys", RemoteAccessHostKeyController, :index)
     post("/remote-access/host-keys/observations", RemoteAccessHostKeyController, :observe)
     post("/remote-access/host-keys/:id/trust", RemoteAccessHostKeyController, :trust)
+    post("/remote-access/host-keys/:id/reject", RemoteAccessHostKeyController, :reject)
     post("/remote-access/host-keys/:id/revoke", RemoteAccessHostKeyController, :revoke)
     post("/remote-access/host-keys/:id/rotate", RemoteAccessHostKeyController, :rotate)
+    get("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :index)
     post("/remote-access/app-sessions", RemoteAccessTargetIntentController, :create_app)
     post("/remote-access/tcp-sessions", RemoteAccessTargetIntentController, :create_tcp)
     post("/remote-access/sessions", RemoteAccessSessionController, :create)
     get("/remote-access/sessions/:id", RemoteAccessSessionController, :show)
     post("/remote-access/sessions/:id/close", RemoteAccessSessionController, :close)
+    post("/remote-access/sessions/:id/webrtc/session", RemoteDesktopWebRTCController, :create_session)
+
+    post(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id/answer",
+      RemoteDesktopWebRTCController,
+      :submit_answer
+    )
+
+    post(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id/candidates",
+      RemoteDesktopWebRTCController,
+      :add_candidate
+    )
+
+    delete(
+      "/remote-access/sessions/:id/webrtc/session/:viewer_session_id",
+      RemoteDesktopWebRTCController,
+      :close_session
+    )
+
     get("/remote-access/file-transfers", RemoteAccessFileTransferController, :index)
     post("/remote-access/file-transfers", RemoteAccessFileTransferController, :create)
     get("/remote-access/recordings/:id", RemoteAccessRecordingController, :show)
     get("/remote-access/recordings/:id/events", RemoteAccessRecordingController, :events)
     get("/remote-access/recordings/:id/export", RemoteAccessRecordingController, :export)
+    delete("/remote-access/recordings/:id", RemoteAccessRecordingController, :delete)
     post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
 
     post(
@@ -395,6 +422,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     patch("/camera-analysis-workers/:id", CameraAnalysisWorkerController, :update)
     post("/camera-analysis-workers/:id/enable", CameraAnalysisWorkerController, :enable)
     post("/camera-analysis-workers/:id/disable", CameraAnalysisWorkerController, :disable)
+    get("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :admin_index)
+    post("/remote-access/desktop-targets", RemoteAccessDesktopTargetController, :admin_create)
+    get("/remote-access/desktop-targets/:id", RemoteAccessDesktopTargetController, :admin_show)
+    patch("/remote-access/desktop-targets/:id", RemoteAccessDesktopTargetController, :admin_update)
+    post("/remote-access/desktop-targets/:id/enable", RemoteAccessDesktopTargetController, :admin_enable)
+    post("/remote-access/desktop-targets/:id/disable", RemoteAccessDesktopTargetController, :admin_disable)
 
     post("/topology/route-analysis", TopologyController, :route_analysis)
   end
@@ -418,6 +451,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Package actions
     post("/edge-packages/:id/revoke", EdgeController, :revoke)
+    post("/gateways/:gateway_id/agent-certs/:component_id/revoke", EdgeController, :revoke_agent_certificate)
 
     # Plugin registry
     get("/plugins", PluginController, :index)
@@ -746,6 +780,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
       live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
       live("/settings/networks/host-keys", Settings.RemoteAccessHostKeysLive, :index)
+      live("/settings/networks/desktop-targets", Settings.RemoteAccessDesktopTargetsLive, :index)
+      live("/settings/networks/desktop-targets/new", Settings.RemoteAccessDesktopTargetsLive, :new)
+      live("/settings/networks/desktop-targets/:id/edit", Settings.RemoteAccessDesktopTargetsLive, :edit)
       live("/settings/networks/recordings", Settings.RemoteAccessRecordingsLive, :index)
       live("/settings/networks/recordings/:id", Settings.RemoteAccessRecordingsLive, :show)
       live("/settings/networks/bmp", Settings.BmpLive.Index, :index)

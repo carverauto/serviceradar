@@ -64,6 +64,7 @@ func TestParseToken(t *testing.T) {
 			wantPayload: &TokenPayload{
 				PackageID:     "pkg-123",
 				DownloadToken: "dl-token-abc",
+				PartitionID:   "default",
 				CoreURL:       "https://core:8090",
 			},
 		},
@@ -104,6 +105,7 @@ func TestParseToken(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantPayload.PackageID, payload.PackageID)
 				assert.Equal(t, tt.wantPayload.DownloadToken, payload.DownloadToken)
+				assert.Equal(t, tt.wantPayload.PartitionID, payload.PartitionID)
 				assert.Equal(t, tt.wantPayload.CoreURL, payload.CoreURL)
 			}
 		})
@@ -120,13 +122,14 @@ func makeSignedTestToken(t *testing.T, packageID, downloadToken, coreURL string)
 	payload := TokenPayload{
 		PackageID:     packageID,
 		DownloadToken: downloadToken,
+		PartitionID:   "default",
 		CoreURL:       coreURL,
 	}
 	data, err := json.Marshal(payload)
 	require.NoError(t, err)
 
 	signature := ed25519.Sign(privateKey, data)
-	return tokenV2Prefix +
+	return tokenV3Prefix +
 		base64.RawURLEncoding.EncodeToString(data) +
 		onboardingTokenSignatureSep +
 		base64.RawURLEncoding.EncodeToString(signature)

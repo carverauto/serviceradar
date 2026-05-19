@@ -231,6 +231,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
            |> assign(:creating, false)
            |> put_flash(:error, "Missing gateway or component identity for package creation.")}
 
+        {:error, {:edge_onboarding_quota_exceeded, _bucket, retry_after}} ->
+          {:noreply,
+           socket
+           |> assign(:creating, false)
+           |> put_flash(:error, "Package creation quota exceeded. Try again in #{retry_after} seconds.")}
+
         {:error, %Invalid{} = error} ->
           form = AshPhoenix.Form.add_error(form, error)
 
@@ -816,7 +822,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         <div class="collapse collapse-arrow bg-base-200">
           <input type="checkbox" />
           <div class="collapse-title text-sm font-medium">
-            Show onboarding token (edgepkg-v2)
+            Show onboarding token (edgepkg-v3)
           </div>
           <div class="collapse-content">
             <div class="flex items-center gap-2">

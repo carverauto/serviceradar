@@ -102,6 +102,15 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     end
   end
 
+  defmodule ApprovalCheckerStub do
+    @moduledoc false
+
+    def authorize_file_transfer_completion(context, _opts) do
+      send(Process.get(:remote_access_file_transfer_owner), {:approval_revalidated, context})
+      Process.get(:remote_access_file_transfer_approval_result, :ok)
+    end
+  end
+
   setup do
     Process.put(:remote_access_file_transfer_owner, self())
 
@@ -442,6 +451,59 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfersTest do
     assert audit_opts[:action] == :remote_access_file_transfer_completed
     assert_metadata_only(audit_opts[:details])
     refute Map.has_key?(audit_opts[:details], :content_artifact_ref)
+  end
+
+  test "terminal agent outcome frames must echo and revalidate approval id" do
+    session_id = Ecto.UUID.generate()
+    approval_id = Ecto.UUID.generate()
+    transfer = Map.put(transfer_fixture(session_id), :approval_id, approval_id)
+    Process.put(:remote_access_file_transfer_lookup, transfer)
+
+    opts = [
+      transfer_resource: TransferResourceStub,
+      approval_checker: ApprovalCheckerStub,
+      recordings: RecordingsStub,
+      recording: recording_fixture(session_id),
+      audit_writer: AuditWriterStub
+    ]
+
+    missing_approval_frame = %{
+      session_id: session_id,
+      frame_type: "file_transfer_outcome",
+      data: Jason.encode!(%{transfer_id: transfer.id, status: "completed"})
+    }
+
+    assert {:error, :file_transfer_approval_mismatch} =
+             RemoteAccessFileTransfers.handle_agent_frame(missing_approval_frame, opts)
+
+    refute_receive {:update_transfer, :completed, _attrs}
+    refute_receive {:approval_revalidated, _context}
+
+    Process.put(:remote_access_file_transfer_approval_result, {:error, :approval_denied})
+
+    denied_frame = %{
+      session_id: session_id,
+      frame_type: "file_transfer_outcome",
+      data:
+        Jason.encode!(%{
+          transfer_id: transfer.id,
+          approval_id: approval_id,
+          status: "completed"
+        })
+    }
+
+    assert {:error, :approval_denied} =
+             RemoteAccessFileTransfers.handle_agent_frame(denied_frame, opts)
+
+    assert_receive {:approval_revalidated,
+                    %{
+                      approval_id: ^approval_id,
+                      session_id: ^session_id,
+                      transfer_id: transfer_id
+                    }}
+
+    assert transfer_id == transfer.id
+    refute_receive {:update_transfer, :completed, _attrs}
   end
 
   test "rejects agent file transfer frames for the wrong session" do

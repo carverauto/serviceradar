@@ -22,14 +22,23 @@ defmodule ServiceRadar.Policies.NetworkAddressPolicyTest do
   end
 
   test "identifies private and loopback IP tuples" do
+    assert NetworkAddressPolicy.private_or_loopback_ip?({0, 0, 0, 0})
     assert NetworkAddressPolicy.private_or_loopback_ip?({10, 0, 0, 1})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({100, 64, 0, 1})
     assert NetworkAddressPolicy.private_or_loopback_ip?({172, 16, 5, 9})
     assert NetworkAddressPolicy.private_or_loopback_ip?({192, 168, 0, 1})
     assert NetworkAddressPolicy.private_or_loopback_ip?({127, 0, 0, 1})
     assert NetworkAddressPolicy.private_or_loopback_ip?({169, 254, 1, 2})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({192, 0, 2, 1})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({198, 18, 0, 1})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({224, 0, 0, 1})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({240, 0, 0, 1})
     assert NetworkAddressPolicy.private_or_loopback_ip?({0, 0, 0, 0, 0, 0, 0, 1})
     assert NetworkAddressPolicy.private_or_loopback_ip?({0xFC00, 0, 0, 0, 0, 0, 0, 1})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({0xFF00, 0, 0, 0, 0, 0, 0, 1})
+    assert NetworkAddressPolicy.private_or_loopback_ip?({0, 0, 0, 0, 0, 0xFFFF, 0x0A00, 1})
     refute NetworkAddressPolicy.private_or_loopback_ip?({8, 8, 8, 8})
+    refute NetworkAddressPolicy.private_or_loopback_ip?({0, 0, 0, 0, 0, 0xFFFF, 0x0101, 0x0101})
   end
 
   test "matches IPs against configured CIDRs" do

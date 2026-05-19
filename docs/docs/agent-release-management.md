@@ -19,7 +19,7 @@ Before using release management in production:
 - Ensure the control plane has the trusted Ed25519 public key configured before operators publish releases.
 - Ensure every managed agent package embeds the trusted Ed25519 public key through build-time `ReleaseSigningPublicKey` injection.
 - Publish artifacts over HTTPS.
-- Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format` and `entrypoint`.
+- Include per-platform artifact metadata in the release manifest, including `os`, `arch`, `url`, `sha256`, and optional `format`, `entrypoint`, `capabilities`, `helper_protocol_version`, `compatible_agent_versions`, `checksums`, `signatures`, `sbom`, `license_review`, and `deployment_requirements`.
 - If repository-hosted release assets redirect to object storage or a CDN, keep the redirect chain on HTTPS. The control plane mirrors those artifacts into internal storage at publish time, and agents still reject insecure redirects, digest mismatches, and manifest-signature failures.
 
 ## Publish A Release
@@ -54,9 +54,9 @@ Recommended repository-release asset convention:
 - `serviceradar-agent-release-manifest.sig`
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
 
-The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional `format` / `entrypoint` fields.
+The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional capability and helper metadata. Base agent artifacts should use `capabilities: ["agent"]`. RDP-capable helper or bundle artifacts should include `remote_access.rdp`, the helper protocol version, compatible agent version range, checksums, signature references, SBOM/license-review references, and any deployment requirements needed by the one-click installer. Experimental RDP artifacts whose connector is not ready must include `deployment_requirements.helper_connector_ready_reason`.
 
-The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work.
+The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work. RDP-enabled releases may also attach `serviceradar-agent-rdp_<version>_linux_amd64.tar.gz`; when present, the signed manifest should list that RDP bundle before the base agent artifact so RDP-enabled deployments select the bundle while default deployments filter it out and keep using the base artifact.
 
 ## Signing Key Handling
 
@@ -74,6 +74,11 @@ Relevant agent settings:
 - Package-managed agents verify release manifests with the build-time embedded `ReleaseSigningPublicKey`.
 - Package-managed agents use fixed package-owned paths for the updater, seed binary, and mutable runtime root.
 - The control plane still reads `SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY` at runtime for release import and validation.
+- RDP-capable agent/helper artifacts must declare `remote_access.rdp` in their manifest `capabilities`.
+- RDP helper artifacts that carry a placeholder or fail-closed connector must mark `deployment_requirements.release_phase` as `experimental`, set `helper_connector_ready` to `false`, and require the helper readiness probe. EdgeOps may show these only to RDP-enabled deployments, but installed agents must not advertise `remote_access.rdp` until the local helper `--capabilities` probe reports `connector_ready: true`. When readiness is false, preserve the helper's `connector_ready_reason` in operator-facing diagnostics.
+- RDP-capable artifacts are hidden from the EdgeOps release catalog and rejected by rollout artifact selection unless `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true`.
+- One-click rollout commands include an RDP helper install plan only for the selected signed artifact that declares `remote_access.rdp`; base-agent rollouts omit helper installation metadata.
+- Keep the default base-agent release artifact free of the IronRDP helper so standard deployments do not install desktop remote-access components.
 
 Onboarding propagation:
 

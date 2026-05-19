@@ -175,7 +175,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 
 	pty := newFakePTY()
 	manager := NewManager(func(_ context.Context, frame Frame) (PTY, error) {
-		if frame.Protocol != "ssh" {
+		if frame.Protocol != ProtocolSSH {
 			t.Fatalf("protocol = %q, want ssh", frame.Protocol)
 		}
 		if frame.Cols != 120 || frame.Rows != 40 {
@@ -188,7 +188,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 
 	manager.HandleFrame(ctx, Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Cols:      120,
 		Rows:      40,
@@ -198,13 +198,13 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 	if ready.SessionID != fakeRemoteSessionID {
 		t.Fatalf("ready SessionID = %q", ready.SessionID)
 	}
-	if ready.Protocol != "ssh" {
+	if ready.Protocol != ProtocolSSH {
 		t.Fatalf("ready Protocol = %q, want ssh", ready.Protocol)
 	}
 
 	manager.HandleFrame(ctx, Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeData,
 		Data:      []byte(fakeCommand),
 	}, sender)
@@ -220,7 +220,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 
 	manager.HandleFrame(ctx, Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeResize,
 		Cols:      100,
 		Rows:      30,
@@ -243,7 +243,7 @@ func TestManagerRoutesSessionFrames(t *testing.T) {
 
 	manager.HandleFrame(ctx, Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeClose,
 		Reason:    "operator closed session",
 	}, sender)
@@ -269,7 +269,7 @@ func TestManagerRejectsDuplicateOpen(t *testing.T) {
 	})
 	sender := newFakeSender()
 
-	frame := Frame{SessionID: fakeRemoteSessionID, Protocol: "ssh", FrameType: FrameTypeOpen}
+	frame := Frame{SessionID: fakeRemoteSessionID, Protocol: ProtocolSSH, FrameType: FrameTypeOpen}
 	manager.HandleFrame(context.Background(), frame, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
 
@@ -292,7 +292,7 @@ func TestManagerRejectsInvalidOpenTerminalSize(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Cols:      MaxTerminalCols + 1,
 		Rows:      40,
@@ -319,7 +319,7 @@ func TestManagerRejectsOversizedOpenPayloadBeforeOpener(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 		Data:      make([]byte, MaxOpenFrameData+1),
 	}, sender)
@@ -344,14 +344,14 @@ func TestManagerRejectsOversizedDataFrameBeforePTYWrite(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeData,
 		Data:      make([]byte, MaxTerminalFrameData+1),
 	}, sender)
@@ -388,7 +388,7 @@ func TestManagerChunksOversizedPTYOutput(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
@@ -424,14 +424,14 @@ func TestManagerRejectsInvalidResizeBeforePTYResize(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeResize,
 		Cols:      MaxTerminalCols + 1,
 		Rows:      30,
@@ -461,7 +461,7 @@ func TestManagerReportsReadFailure(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeOpen,
 	}, sender)
 	_ = sender.nextFrame(t, FrameTypeReady)
@@ -484,7 +484,7 @@ func TestManagerEchoesHeartbeat(t *testing.T) {
 
 	manager.HandleFrame(context.Background(), Frame{
 		SessionID: fakeRemoteSessionID,
-		Protocol:  "ssh",
+		Protocol:  ProtocolSSH,
 		FrameType: FrameTypeHeartbeat,
 		Metadata:  map[string]string{"sent_bytes": "12"},
 	}, sender)
@@ -679,7 +679,7 @@ func TestManagerEmitsNormalizedEnhancedRecordingEvents(t *testing.T) {
 			"protocol":        ProtocolSSH,
 			"session_id":      fakeRemoteSessionID,
 			"agent_id":        "agent-1",
-			"gateway_id":      "gateway-1",
+			"gateway_id":      remoteAccessTestGatewayID,
 			"credential_mode": "ssh_certificate",
 			"target": map[string]any{
 				"host": "router.example",

@@ -26,15 +26,13 @@ defmodule ServiceRadarWebNG.RBAC do
 
   def permissions_for_scope(_), do: MapSet.new()
 
-  def can?(%Scope{user: %User{} = user, permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
-    MapSet.member?(permissions, permission) ||
-      RBAC.has_permission?(user, permission, fresh?: true)
+  def can?(%Scope{user: %User{}, permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
+    MapSet.member?(permissions, permission)
   end
 
   def can?(%Scope{user: user, permissions: %MapSet{} = permissions}, permission)
       when not is_nil(user) and is_binary(permission) do
-    MapSet.member?(permissions, permission) ||
-      RBAC.has_permission?(user, permission, fresh?: true)
+    MapSet.member?(permissions, permission)
   end
 
   def can?(%Scope{permissions: %MapSet{} = permissions}, permission) when is_binary(permission) do
@@ -46,4 +44,10 @@ defmodule ServiceRadarWebNG.RBAC do
   end
 
   def can?(_, _), do: false
+
+  def can_any?(scope, permissions) when is_list(permissions) do
+    Enum.any?(permissions, &can?(scope, &1))
+  end
+
+  def can_any?(_scope, _permissions), do: false
 end

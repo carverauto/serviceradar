@@ -119,7 +119,7 @@ func TestSSHConfigFromOpenFrameRejectsPayloadScopeMismatch(t *testing.T) {
 			frame: Frame{
 				SessionID: "session-1",
 				Protocol:  ProtocolSSH,
-				Metadata:  map[string]string{"gateway_id": "gateway-1"},
+				Metadata:  map[string]string{"gateway_id": remoteAccessTestGatewayID},
 			},
 			want: ErrSSHOpenGatewayMismatch,
 		},

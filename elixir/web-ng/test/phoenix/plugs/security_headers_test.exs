@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.SecurityHeadersTest do
 
       assert [policy] = get_resp_header(conn, "permissions-policy")
 
-      for feature <- ~w(camera microphone geolocation payment usb serial fullscreen) do
+      for feature <- ~w(camera microphone geolocation payment usb serial fullscreen display-capture) do
         assert policy =~ "#{feature}=()", "expected permissions-policy to deny #{feature}"
       end
     end

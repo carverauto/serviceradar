@@ -45,14 +45,29 @@ import (
 )
 
 const (
-	defaultReleaseRuntimeRoot        = "/var/lib/serviceradar/agent"
-	releaseVersionsDirName           = "versions"
-	releaseTmpDirName                = "tmp"
-	releaseMetadataFileName          = ".serviceradar-release.json"
-	releaseDefaultEntrypoint         = "serviceradar-agent"
-	releaseArtifactFormatTarGz       = "tar.gz"
-	releaseArtifactMaxBytes    int64 = 256 * 1024 * 1024
-	releasePublicKeyEnv              = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
+	defaultReleaseRuntimeRoot                 = "/var/lib/serviceradar/agent"
+	releaseVersionsDirName                    = "versions"
+	releaseTmpDirName                         = "tmp"
+	releaseMetadataFileName                   = ".serviceradar-release.json"
+	releaseDefaultEntrypoint                  = "serviceradar-agent"
+	releaseArtifactFormatTarGz                = "tar.gz"
+	releaseArtifactMaxBytes             int64 = 256 * 1024 * 1024
+	releasePublicKeyEnv                       = "SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY"
+	releaseCapabilityRemoteAccessRDP          = "remote_access.rdp"
+	releaseRDPHelperBinary                    = "serviceradar-rdp-adapter"
+	releaseRDPHelperInstallPath               = "/usr/local/bin/serviceradar-rdp-adapter"
+	releaseRDPHelperReadinessProbe            = "--capabilities"
+	releaseRequirementHelper                  = "helper"
+	releaseRequirementInstallPath             = "install_path"
+	releaseRequirementHelperCapArg            = "helper_capabilities_arg"
+	releaseRequirementRequiresProbe           = "requires_helper_readiness_probe"
+	releaseRequirementHelperReady             = "helper_connector_ready"
+	releaseRequirementHelperReadyReason       = "helper_connector_ready_reason"
+	releaseRequirementReleasePhase            = "release_phase"
+	releaseReleasePhaseExperimental           = "experimental"
+	releaseCompatibleAgentMin                 = "min"
+	releaseCompatibleAgentMax                 = "max"
+	releaseHelperReadyReasonMaxBytes          = 256
 )
 
 var (
@@ -78,6 +93,9 @@ var (
 	errReleaseRedirectLimitExceeded   = errors.New("release artifact redirect limit exceeded")
 	errReleaseGatewaySecurityRequired = errors.New("gateway security configuration is required for release download")
 	errReleaseGatewayCAAppendFailed   = errors.New("failed to append gateway CA certificate")
+	errReleaseHelperCapabilityMissing = errors.New("release helper install requires signed artifact capability")
+	errReleaseHelperReadinessMissing  = errors.New("release helper install requires signed readiness metadata")
+	errReleaseHelperConnectorNotReady = errors.New("release helper install requires connector-ready artifact")
 )
 
 // ReleaseSigningPublicKey is set at build time for managed release verification.
@@ -94,15 +112,20 @@ type releaseUpdatePayload struct {
 	Signature         string                   `json:"signature,omitempty"`
 	Artifact          releaseArtifactPayload   `json:"artifact"`
 	ArtifactTransport releaseArtifactTransport `json:"artifact_transport,omitempty"`
+	HelperInstall     *releaseHelperInstall    `json:"helper_install,omitempty"`
 }
 
 type releaseArtifactPayload struct {
-	URL        string `json:"url,omitempty"`
-	SHA256     string `json:"sha256,omitempty"`
-	OS         string `json:"os,omitempty"`
-	Arch       string `json:"arch,omitempty"`
-	Format     string `json:"format,omitempty"`
-	Entrypoint string `json:"entrypoint,omitempty"`
+	URL                     string                 `json:"url,omitempty"`
+	SHA256                  string                 `json:"sha256,omitempty"`
+	OS                      string                 `json:"os,omitempty"`
+	Arch                    string                 `json:"arch,omitempty"`
+	Format                  string                 `json:"format,omitempty"`
+	Entrypoint              string                 `json:"entrypoint,omitempty"`
+	Capabilities            []string               `json:"capabilities,omitempty"`
+	HelperProtocolVersion   string                 `json:"helper_protocol_version,omitempty"`
+	CompatibleAgentVersions map[string]string      `json:"compatible_agent_versions,omitempty"`
+	DeploymentRequirements  map[string]interface{} `json:"deployment_requirements,omitempty"`
 }
 
 type releaseArtifactTransport struct {
@@ -110,6 +133,14 @@ type releaseArtifactTransport struct {
 	Path     string `json:"path,omitempty"`
 	Port     int    `json:"port,omitempty"`
 	TargetID string `json:"target_id,omitempty"`
+}
+
+type releaseHelperInstall struct {
+	Enabled                 bool                   `json:"enabled,omitempty"`
+	Capability              string                 `json:"capability,omitempty"`
+	HelperProtocolVersion   string                 `json:"helper_protocol_version,omitempty"`
+	CompatibleAgentVersions map[string]string      `json:"compatible_agent_versions,omitempty"`
+	DeploymentRequirements  map[string]interface{} `json:"deployment_requirements,omitempty"`
 }
 
 type releaseStageResult struct {
@@ -230,9 +261,15 @@ func normalizeReleasePayload(payload releaseUpdatePayload) releaseUpdatePayload 
 	payload.Artifact.Arch = strings.TrimSpace(payload.Artifact.Arch)
 	payload.Artifact.Format = strings.TrimSpace(payload.Artifact.Format)
 	payload.Artifact.Entrypoint = strings.TrimSpace(payload.Artifact.Entrypoint)
+	payload.Artifact.Capabilities = normalizeReleaseCapabilities(payload.Artifact.Capabilities)
+	payload.Artifact.HelperProtocolVersion = strings.TrimSpace(payload.Artifact.HelperProtocolVersion)
 	payload.ArtifactTransport.Kind = strings.TrimSpace(payload.ArtifactTransport.Kind)
 	payload.ArtifactTransport.Path = strings.TrimSpace(payload.ArtifactTransport.Path)
 	payload.ArtifactTransport.TargetID = strings.TrimSpace(payload.ArtifactTransport.TargetID)
+	if payload.HelperInstall != nil {
+		payload.HelperInstall.Capability = strings.TrimSpace(payload.HelperInstall.Capability)
+		payload.HelperInstall.HelperProtocolVersion = strings.TrimSpace(payload.HelperInstall.HelperProtocolVersion)
+	}
 	return payload
 }
 
@@ -256,8 +293,54 @@ func validateReleasePayload(payload releaseUpdatePayload) error {
 		if err := validateSignedArtifact(payload.Manifest, payload.Artifact); err != nil {
 			return err
 		}
+		if err := validateReleaseHelperInstall(payload); err != nil {
+			return err
+		}
 		return nil
 	}
+}
+
+func validateReleaseHelperInstall(payload releaseUpdatePayload) error {
+	if payload.HelperInstall == nil || !payload.HelperInstall.Enabled {
+		return nil
+	}
+
+	capability := payload.HelperInstall.Capability
+	if capability == "" {
+		capability = releaseCapabilityRemoteAccessRDP
+	}
+	if capability != releaseCapabilityRemoteAccessRDP {
+		return fmt.Errorf("%w: %s", errReleaseHelperCapabilityMissing, capability)
+	}
+	if !releaseArtifactHasCapability(payload.Artifact, capability) {
+		return fmt.Errorf("%w: %s", errReleaseHelperCapabilityMissing, capability)
+	}
+	connectorReady, err := validateRDPHelperArtifactReadiness(payload.Artifact)
+	if err != nil {
+		return err
+	}
+	if !connectorReady {
+		return errReleaseHelperConnectorNotReady
+	}
+	if err := validateRDPHelperInstallMatchesArtifact(*payload.HelperInstall, payload.Artifact); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateRDPHelperInstallMatchesArtifact(helper releaseHelperInstall, artifact releaseArtifactPayload) error {
+	if helper.HelperProtocolVersion != artifact.HelperProtocolVersion {
+		return errReleaseHelperReadinessMissing
+	}
+	if canonicalArtifactValue(helper.CompatibleAgentVersions) != canonicalArtifactValue(artifact.CompatibleAgentVersions) {
+		return errReleaseHelperReadinessMissing
+	}
+	if canonicalArtifactValue(helper.DeploymentRequirements) != canonicalArtifactValue(artifact.DeploymentRequirements) {
+		return errReleaseHelperReadinessMissing
+	}
+
+	return nil
 }
 
 func validateSignedArtifact(manifest map[string]interface{}, artifact releaseArtifactPayload) error {
@@ -270,7 +353,133 @@ func validateSignedArtifact(manifest map[string]interface{}, artifact releaseArt
 	if !manifestContainsArtifact(manifest, artifact) {
 		return errReleaseArtifactNotSigned
 	}
+	if releaseArtifactHasCapability(artifact, releaseCapabilityRemoteAccessRDP) {
+		if _, err := validateRDPHelperArtifactReadiness(artifact); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateRDPHelperArtifactReadiness(artifact releaseArtifactPayload) (bool, error) {
+	if strings.TrimSpace(artifact.HelperProtocolVersion) == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if strings.TrimSpace(artifact.CompatibleAgentVersions[releaseCompatibleAgentMin]) == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if strings.TrimSpace(artifact.CompatibleAgentVersions[releaseCompatibleAgentMax]) == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelper,
+	) != releaseRDPHelperBinary {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementInstallPath,
+	) != releaseRDPHelperInstallPath {
+		return false, errReleaseHelperReadinessMissing
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelperCapArg,
+	) != releaseRDPHelperReadinessProbe {
+		return false, errReleaseHelperReadinessMissing
+	}
+	requiresProbe, ok := releaseDeploymentRequirementBool(
+		artifact.DeploymentRequirements,
+		releaseRequirementRequiresProbe,
+	)
+	if !ok || !requiresProbe {
+		return false, errReleaseHelperReadinessMissing
+	}
+	connectorReady, ok := releaseDeploymentRequirementBool(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelperReady,
+	)
+	if !ok {
+		return false, errReleaseHelperReadinessMissing
+	}
+	readinessReason := normalizeReleaseHelperReadyReason(releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementHelperReadyReason,
+	))
+	if connectorReady {
+		if readinessReason != "" {
+			return false, errReleaseHelperReadinessMissing
+		}
+
+		return true, nil
+	}
+	if releaseDeploymentRequirementString(
+		artifact.DeploymentRequirements,
+		releaseRequirementReleasePhase,
+	) != releaseReleasePhaseExperimental || readinessReason == "" {
+		return false, errReleaseHelperReadinessMissing
+	}
+
+	return false, nil
+}
+
+func normalizeReleaseHelperReadyReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return ""
+	}
+
+	var out strings.Builder
+	for _, r := range reason {
+		if r < ' ' || r == 0x7f {
+			r = ' '
+		}
+
+		next := string(r)
+		if out.Len()+len(next) > releaseHelperReadyReasonMaxBytes {
+			break
+		}
+		out.WriteString(next)
+	}
+
+	return strings.TrimSpace(out.String())
+}
+
+func releaseDeploymentRequirementString(requirements map[string]interface{}, key string) string {
+	value, ok := requirements[key]
+	if !ok {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func releaseDeploymentRequirementBool(requirements map[string]interface{}, key string) (bool, bool) {
+	value, ok := requirements[key]
+	if !ok {
+		return false, false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		normalized := strings.TrimSpace(typed)
+		switch {
+		case strings.EqualFold(normalized, "true"):
+			return true, true
+		case strings.EqualFold(normalized, "false"):
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
 }
 
 func validateReleaseArtifactURL(rawURL string) error {
@@ -339,7 +548,11 @@ func manifestArtifactMatches(candidate map[string]interface{}, artifact releaseA
 		normalizedArtifactField(candidate["os"]) == normalizedArtifactField(artifact.OS) &&
 		normalizedArtifactField(candidate["arch"]) == normalizedArtifactField(artifact.Arch) &&
 		normalizedArtifactField(candidate["format"]) == normalizedArtifactField(artifact.Format) &&
-		normalizedArtifactField(candidate["entrypoint"]) == normalizedArtifactField(artifact.Entrypoint)
+		normalizedArtifactField(candidate["entrypoint"]) == normalizedArtifactField(artifact.Entrypoint) &&
+		optionalArtifactFieldMatches(candidate, "capabilities", artifact.Capabilities) &&
+		optionalArtifactFieldMatches(candidate, "helper_protocol_version", artifact.HelperProtocolVersion) &&
+		optionalArtifactFieldMatches(candidate, "compatible_agent_versions", artifact.CompatibleAgentVersions) &&
+		optionalArtifactFieldMatches(candidate, "deployment_requirements", artifact.DeploymentRequirements)
 }
 
 func normalizedArtifactField(value interface{}) string {
@@ -347,6 +560,108 @@ func normalizedArtifactField(value interface{}) string {
 		return ""
 	}
 	return strings.TrimSpace(strings.ToLower(fmt.Sprint(value)))
+}
+
+func optionalArtifactFieldMatches(candidate map[string]interface{}, field string, value interface{}) bool {
+	if releaseArtifactFieldEmpty(value) {
+		return true
+	}
+
+	return canonicalArtifactValue(candidate[field]) == canonicalArtifactValue(value)
+}
+
+func releaseArtifactFieldEmpty(value interface{}) bool {
+	switch typed := value.(type) {
+	case nil:
+		return true
+	case string:
+		return strings.TrimSpace(typed) == ""
+	case []string:
+		return len(typed) == 0
+	case map[string]string:
+		return len(typed) == 0
+	case map[string]interface{}:
+		return len(typed) == 0
+	default:
+		return false
+	}
+}
+
+func canonicalArtifactValue(value interface{}) string {
+	normalized := normalizeArtifactValue(value)
+	encoded, err := marshalCanonicalJSON(normalized)
+	if err != nil {
+		return ""
+	}
+
+	return string(encoded)
+}
+
+func normalizeArtifactValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case []string:
+		values := make([]interface{}, 0, len(typed))
+		for _, entry := range normalizeReleaseCapabilities(typed) {
+			values = append(values, entry)
+		}
+		return values
+	case []interface{}:
+		values := make([]interface{}, 0, len(typed))
+		for _, entry := range typed {
+			values = append(values, normalizeArtifactValue(entry))
+		}
+		return values
+	case map[string]string:
+		values := make(map[string]interface{}, len(typed))
+		for key, entry := range typed {
+			values[key] = strings.TrimSpace(entry)
+		}
+		return values
+	case map[string]interface{}:
+		values := make(map[string]interface{}, len(typed))
+		for key, entry := range typed {
+			values[key] = normalizeArtifactValue(entry)
+		}
+		return values
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return typed
+	}
+}
+
+func releaseArtifactHasCapability(artifact releaseArtifactPayload, capability string) bool {
+	capability = strings.TrimSpace(capability)
+	if capability == "" {
+		return false
+	}
+
+	for _, candidate := range artifact.Capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+
+	return false
+}
+
+func normalizeReleaseCapabilities(capabilities []string) []string {
+	seen := make(map[string]struct{}, len(capabilities))
+	normalized := make([]string, 0, len(capabilities))
+
+	for _, capability := range capabilities {
+		capability = strings.TrimSpace(capability)
+		if capability == "" {
+			continue
+		}
+		if _, ok := seen[capability]; ok {
+			continue
+		}
+		seen[capability] = struct{}{}
+		normalized = append(normalized, capability)
+	}
+
+	return normalized
 }
 
 func verifyReleaseManifestSignature(manifestJSON []byte, signature string) error {

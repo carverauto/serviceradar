@@ -9,7 +9,9 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   require Logger
 
   @default_cert_dir "/etc/serviceradar/certs"
-  @default_validity_days 365
+  @default_validity_days 1
+  @max_validity_days 30
+  @identity_token_regex ~r/\A[A-Za-z0-9_-]+\z/
 
   @spec issue_agent_bundle(String.t(), String.t(), atom() | String.t(), keyword()) ::
           {:ok, map()} | {:error, atom() | term()}
@@ -20,12 +22,21 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     component_type = normalize_component_type(component_type)
 
     with :ok <- validate_component_type(component_type),
+         :ok <- validate_identity_tokens(component_id, partition_id),
+         :ok <- authorize_identity(component_id, partition_id, opts),
+         {:ok, validity_days} <- validate_validity_days(opts),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
-      generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts)
+      generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts)
     end
   end
 
   def issue_agent_bundle(_, _, _, _), do: {:error, :invalid_identity}
+
+  @doc false
+  def default_validity_days, do: @default_validity_days
+
+  @doc false
+  def max_validity_days, do: @max_validity_days
 
   defp normalize_component_type(type) when is_atom(type), do: type
 
@@ -46,6 +57,88 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp validate_component_type(:agent), do: :ok
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
 
+  defp validate_identity_tokens(component_id, partition_id) do
+    with :ok <- validate_identity_token(component_id, :invalid_component_id) do
+      validate_identity_token(partition_id, :invalid_partition_id)
+    end
+  end
+
+  defp validate_identity_token(value, error) do
+    trimmed = String.trim(value)
+
+    if value == trimmed and byte_size(value) in 1..128 and Regex.match?(@identity_token_regex, value) do
+      :ok
+    else
+      {:error, error}
+    end
+  end
+
+  defp authorize_identity(component_id, partition_id, opts) do
+    with :ok <- authorize_component(component_id, opts) do
+      authorize_partition(partition_id, opts)
+    end
+  end
+
+  defp authorize_component(component_id, opts) do
+    authorized_component_id =
+      opts
+      |> Keyword.get(:authorized_component_id)
+      |> normalize_identity_id()
+
+    cond do
+      is_nil(authorized_component_id) -> :ok
+      authorized_component_id == component_id -> :ok
+      true -> {:error, :component_not_authorized}
+    end
+  end
+
+  defp authorize_partition(partition_id, opts) do
+    authorized_partition_id =
+      opts
+      |> Keyword.get(:authorized_partition_id)
+      |> normalize_identity_id()
+
+    cond do
+      is_nil(authorized_partition_id) -> :ok
+      authorized_partition_id == partition_id -> :ok
+      true -> {:error, :partition_not_authorized}
+    end
+  end
+
+  defp normalize_identity_id(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp normalize_identity_id(nil), do: nil
+  defp normalize_identity_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_identity_id()
+  defp normalize_identity_id(_value), do: nil
+
+  defp validate_validity_days(opts) do
+    validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
+
+    cond do
+      not is_integer(validity_days) ->
+        {:error, :invalid_validity_days}
+
+      validity_days <= 0 ->
+        {:error, :invalid_validity_days}
+
+      validity_days > @max_validity_days and Keyword.get(opts, :allow_long_ttl?, false) != true ->
+        {:error, :validity_days_exceeds_limit}
+
+      validity_days > @default_validity_days and not long_ttl_approved?(opts) ->
+        {:error, :long_ttl_approval_required}
+
+      true ->
+        if validity_days > 7 do
+          Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
+        end
+
+        {:ok, validity_days}
+    end
+  end
+
   defp load_ca_paths(opts) do
     cert_dir = Keyword.get(opts, :cert_dir, System.get_env("GATEWAY_CERT_DIR", @default_cert_dir))
 
@@ -64,9 +157,18 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, opts) do
+  defp long_ttl_approved?(opts) do
+    opts
+    |> Keyword.get(:long_ttl_approved_by)
+    |> admin_or_system_actor?()
+  end
+
+  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(%{"role" => role}) when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(_actor), do: false
+
+  defp generate_bundle(component_id, partition_id, component_type, ca_cert, ca_key, validity_days, opts) do
     cn = "#{component_id}.#{partition_id}.serviceradar"
-    validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
     temp_parent_dir = Keyword.get(opts, :temp_parent_dir, System.tmp_dir!())
     temp_dir = create_secure_temp_dir!(temp_parent_dir)
 
@@ -117,6 +219,28 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
         key_pem = File.read!(key_path)
         ca_chain_pem = File.read!(ca_cert)
 
+        spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+        certificate_fingerprint = certificate_fingerprint(cert_pem)
+        predecessor_revocation = revoke_predecessor_certificate(opts)
+
+        emit_issuance_audit(
+          opts,
+          component_id: component_id,
+          component_type: component_type,
+          requested_partition_id: partition_id,
+          granted_partition_id: partition_id,
+          authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
+          authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
+          validity_days: validity_days,
+          long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
+          predecessor_certificate_fingerprint: predecessor_revocation.fingerprint,
+          predecessor_certificate_serial_number: predecessor_revocation.serial_number,
+          predecessor_certificate_revoked: predecessor_revocation.revoked?,
+          certificate_fingerprint: certificate_fingerprint,
+          cn: cn,
+          spiffe_id: spiffe_id
+        )
+
         bundle_pem = build_bundle(cert_pem, key_pem, ca_chain_pem)
 
         {:ok,
@@ -125,8 +249,10 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            certificate_pem: cert_pem,
            private_key_pem: key_pem,
            ca_chain_pem: ca_chain_pem,
-           spiffe_id: build_spiffe_id(component_type, partition_id, component_id),
-           cn: cn
+           spiffe_id: spiffe_id,
+           cn: cn,
+           validity_days: validity_days,
+           certificate_fingerprint: certificate_fingerprint
          }}
       end
     rescue
@@ -199,6 +325,104 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp build_spiffe_id(component_type, partition_id, component_id) do
     "spiffe://serviceradar.local/#{component_type}/#{partition_id}/#{component_id}"
   end
+
+  defp certificate_fingerprint(cert_pem) do
+    cert_pem
+    |> :public_key.pem_decode()
+    |> Enum.find_value(fn
+      {:Certificate, der, _} -> der
+      _ -> nil
+    end)
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp revoke_predecessor_certificate(opts) do
+    revocation_module = Keyword.get(opts, :revocation_module, ServiceRadarAgentGateway.AgentCertificateRevocation)
+    fingerprint = normalize_fingerprint(Keyword.get(opts, :predecessor_certificate_fingerprint))
+    serial_number = normalize_serial_number(Keyword.get(opts, :predecessor_certificate_serial_number))
+    reason = Keyword.get(opts, :predecessor_revocation_reason, "renewed")
+
+    revoked? =
+      Enum.any?([
+        revoke_predecessor_fingerprint(revocation_module, fingerprint, reason),
+        revoke_predecessor_serial_number(revocation_module, serial_number, reason)
+      ])
+
+    %{
+      fingerprint: fingerprint,
+      serial_number: serial_number,
+      revoked?: revoked?
+    }
+  rescue
+    error ->
+      Logger.warning("[CertIssuer] Predecessor certificate revocation failed: #{inspect(error)}")
+      %{fingerprint: nil, serial_number: nil, revoked?: false}
+  end
+
+  defp revoke_predecessor_fingerprint(_module, nil, _reason), do: false
+
+  defp revoke_predecessor_fingerprint(module, fingerprint, reason) when is_atom(module) do
+    module.revoke_fingerprint(fingerprint, reason: reason)
+    true
+  end
+
+  defp revoke_predecessor_serial_number(_module, nil, _reason), do: false
+
+  defp revoke_predecessor_serial_number(module, serial_number, reason) when is_atom(module) do
+    module.revoke_serial_number(serial_number, reason: reason)
+    true
+  end
+
+  defp normalize_fingerprint(value) when is_binary(value) do
+    value = value |> String.trim() |> String.downcase()
+
+    cond do
+      value == "" -> nil
+      Regex.match?(~r/\A(?:sha256:)?[a-z0-9_+\/=:-]{16,256}\z/, value) -> value
+      true -> nil
+    end
+  end
+
+  defp normalize_fingerprint(_value), do: nil
+
+  defp normalize_serial_number(value) when is_integer(value) and value > 0, do: value
+  defp normalize_serial_number(_value), do: nil
+
+  defp emit_issuance_audit(opts, details) do
+    event = %{
+      action: :agent_certificate_issue,
+      resource_type: "agent_certificate",
+      resource_id: Keyword.fetch!(details, :component_id),
+      resource_name: Keyword.fetch!(details, :cn),
+      actor: audit_actor(opts),
+      details: Map.new(details),
+      severity: audit_severity(Keyword.fetch!(details, :validity_days))
+    }
+
+    case Keyword.get(opts, :audit_writer, ServiceRadarAgentGateway.CertIssuanceAudit) do
+      writer when is_function(writer, 1) -> writer.(event)
+      nil -> :ok
+      writer when is_atom(writer) -> writer.write(event)
+    end
+  rescue
+    error ->
+      Logger.warning("[CertIssuer] Certificate issuance audit failed: #{inspect(error)}")
+      :ok
+  end
+
+  defp audit_actor(opts) do
+    Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor) || %{id: "system", email: "system@serviceradar.local"}
+  end
+
+  defp actor_identifier(nil), do: nil
+  defp actor_identifier(%{id: id}) when not is_nil(id), do: to_string(id)
+  defp actor_identifier(%{"id" => id}) when not is_nil(id), do: to_string(id)
+  defp actor_identifier(actor) when is_binary(actor), do: actor
+  defp actor_identifier(_actor), do: nil
+
+  defp audit_severity(validity_days) when validity_days > 7, do: :medium
+  defp audit_severity(_validity_days), do: :informational
 
   defp write_extfile(path, component_type, partition_id, component_id, cn) do
     spiffe_id = build_spiffe_id(component_type, partition_id, component_id)

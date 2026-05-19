@@ -112,6 +112,7 @@ spec:
           {{- toYaml .Values.bmpCollector.resources | nindent 10 }}
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           runAsUser: 1001
           runAsGroup: 1001
           capabilities:

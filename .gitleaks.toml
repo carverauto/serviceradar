@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow deterministic fake credential UUID used in secret ref tests"
+regexes = ['''018f3f56-1111-7222-8333-123456789abc''']

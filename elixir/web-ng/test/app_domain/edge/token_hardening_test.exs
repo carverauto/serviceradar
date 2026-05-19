@@ -12,6 +12,18 @@ defmodule ServiceRadarWebNG.Edge.TokenHardeningTest do
              OnboardingToken.encode("pkg-123", "dl-123", "https://demo.serviceradar.cloud")
   end
 
+  test "onboarding tokens include a partition binding" do
+    assert {:ok, token} =
+             OnboardingToken.encode("pkg-123", "dl-123", "https://demo.serviceradar.cloud",
+               private_key: @private_key,
+               partition_id: "edge-a"
+             )
+
+    assert String.starts_with?(token, "edgepkg-v3:")
+    assert {:ok, decoded} = OnboardingToken.decode(token, public_key: @public_key)
+    assert decoded.partition_id == "edge-a"
+  end
+
   test "onboarding decode rejects legacy unsigned tokens" do
     payload =
       Base.url_encode64(~s({"pkg":"pkg-123","dl":"dl-123","api":"https://demo.serviceradar.cloud"}), padding: false)

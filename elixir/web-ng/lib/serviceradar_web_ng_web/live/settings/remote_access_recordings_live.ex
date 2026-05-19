@@ -9,13 +9,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   alias ServiceRadar.Edge.RemoteAccessRecording
   alias ServiceRadar.Edge.RemoteAccessRecordings
+  alias ServiceRadar.Edge.RemoteAccessSession
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
 
   @current_path "/settings/networks/recordings"
-  @view_permission "devices.remote_access.ssh.open"
+  @ssh_view_permission "devices.remote_access.ssh.open"
+  @rdp_view_permission "devices.remote_access.rdp.open"
+  @view_permissions [@ssh_view_permission, @rdp_view_permission]
   @export_permission "devices.remote_access.recordings.export"
+  @view_all_permission "devices.remote_access.recordings.view_all"
   @list_limit 100
 
   @impl true
@@ -42,12 +47,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   @impl true
   def handle_params(params, _uri, socket) do
-    socket = assign(socket, :current_path, @current_path)
+    if fresh_can_view?(socket.assigns.current_scope) do
+      socket =
+        socket
+        |> assign(:current_path, @current_path)
+        |> assign(:can_export?, can_export?(socket.assigns.current_scope))
 
-    if connected?(socket) do
-      {:noreply, load_recordings(socket, params["id"])}
+      if connected?(socket) do
+        {:noreply, load_recordings(socket, params["id"])}
+      else
+        {:noreply, socket}
+      end
     else
-      {:noreply, socket}
+      {:noreply, unauthorized(socket)}
     end
   end
 
@@ -155,19 +167,29 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
         <.summary_item label="Input bytes" value={@recording.input_bytes} />
         <.summary_item label="Output bytes" value={@recording.output_bytes} />
         <.summary_item label="Retention" value={format_datetime(@recording.retention_expires_at)} />
+        <.summary_item label="Started" value={format_datetime(@recording.started_at)} />
+        <.summary_item label="Completed" value={format_datetime(@recording.completed_at)} />
+        <.summary_item label="Failure" value={@recording.failure_reason || "-"} />
       </dl>
 
-      <div class="mt-4 grid gap-3 lg:grid-cols-2">
-        <div>
-          <div class="text-xs font-semibold uppercase text-base-content/60">Storage</div>
-          <div class="mt-1 break-all font-mono text-xs">
-            {@recording.storage_backend}/{@recording.storage_bucket}/{@recording.object_key}
-          </div>
-        </div>
+      <div class="mt-4">
         <div>
           <div class="text-xs font-semibold uppercase text-base-content/60">Content</div>
           <div class="mt-1 text-sm">{content_label(@recording.manifest)}</div>
         </div>
+      </div>
+
+      <div :if={desktop_recording?(@recording)} class="mt-4">
+        <div class="text-xs font-semibold uppercase text-base-content/60">
+          Desktop Policy Snapshot
+        </div>
+        <dl class="mt-2 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <.summary_item
+            :for={item <- desktop_policy_items(@recording)}
+            label={item.label}
+            value={item.value}
+          />
+        </dl>
       </div>
     </section>
     """
@@ -229,6 +251,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   defp load_recordings(socket, selected_id) do
     case list_recent(socket.assigns.current_scope) do
       {:ok, recordings} ->
+        recordings = Enum.filter(recordings, &recording_view_allowed?(socket.assigns.current_scope, &1))
+
         socket
         |> assign(:recordings, recordings)
         |> assign(:loading?, false)
@@ -256,6 +280,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
     with {:ok, normalized_id} <- normalize_uuid(id),
          {:ok, %RemoteAccessRecording{} = recording} <-
            get_recording(normalized_id, recordings, scope),
+         :ok <- ensure_recording_allowed(recording, scope),
          {:ok, events} <- RemoteAccessRecordings.list_events(recording, scope: scope) do
       socket
       |> assign(:selected_recording, recording)
@@ -284,6 +309,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   defp list_recent(scope) do
     RemoteAccessRecording
     |> Ash.Query.for_read(:read)
+    |> Ash.Query.load(:session)
     |> Ash.Query.sort(inserted_at: :desc)
     |> Ash.Query.limit(@list_limit)
     |> Ash.read(scope: scope)
@@ -295,14 +321,23 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
         {:ok, recording}
 
       nil ->
-        case RemoteAccessRecording.get_by_id(id, scope: scope) do
-          {:ok, %RemoteAccessRecording{} = recording} -> {:ok, recording}
-          {:ok, nil} -> {:error, :not_found}
-          {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
-          {:error, reason} -> {:error, reason}
-        end
+        case_result =
+          case RemoteAccessRecording.get_by_id(id, scope: scope) do
+            {:ok, %RemoteAccessRecording{} = recording} -> {:ok, recording}
+            {:ok, nil} -> {:error, :not_found}
+            {:error, %Ash.Error.Query.NotFound{}} -> {:error, :not_found}
+            {:error, reason} -> {:error, reason}
+          end
+
+        load_recording_session(case_result, scope)
     end
   end
+
+  defp load_recording_session({:ok, %RemoteAccessRecording{} = recording}, scope) do
+    Ash.load(recording, :session, scope: scope)
+  end
+
+  defp load_recording_session(result, _scope), do: result
 
   defp normalize_uuid(id) do
     case Ecto.UUID.cast(id) do
@@ -311,8 +346,57 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
     end
   end
 
-  defp can_view?(scope), do: RBAC.can?(scope, @view_permission)
+  defp unauthorized(socket) do
+    socket
+    |> put_flash(:error, "Not authorized to view remote access recordings")
+    |> redirect(to: ~p"/settings/profile")
+  end
+
+  defp fresh_can_view?(%{user: user}) when not is_nil(user) do
+    ServiceRadar.Identity.RBAC.clear_process_cache()
+    Enum.any?(@view_permissions, &ServiceRadar.Identity.RBAC.has_permission?(user, &1))
+  end
+
+  defp fresh_can_view?(scope), do: can_view?(scope)
+
+  defp can_view?(scope), do: RBAC.can_any?(scope, @view_permissions)
   defp can_export?(scope), do: RBAC.can?(scope, @export_permission)
+
+  defp ensure_recording_allowed(%RemoteAccessRecording{} = recording, scope) do
+    if recording_view_allowed?(scope, recording), do: :ok, else: {:error, :not_found}
+  end
+
+  defp recording_view_allowed?(scope, %RemoteAccessRecording{} = recording) do
+    RBAC.can?(scope, permission_for_recording(recording)) and
+      (recording_requested_by_scope_user?(recording, scope) or RBAC.can?(scope, @view_all_permission))
+  end
+
+  defp permission_for_recording(%RemoteAccessRecording{} = recording) do
+    case recording_protocol(recording) do
+      "rdp" -> @rdp_view_permission
+      _protocol -> @ssh_view_permission
+    end
+  end
+
+  defp recording_protocol(%RemoteAccessRecording{manifest: manifest}) when is_map(manifest) do
+    manifest["protocol"] || manifest[:protocol]
+  end
+
+  defp recording_protocol(_recording), do: "ssh"
+
+  defp recording_requested_by_scope_user?(
+         %RemoteAccessRecording{session: %RemoteAccessSession{requested_by: requested_by}},
+         %Scope{user: %{id: user_id}}
+       )
+       when not is_nil(requested_by) and not is_nil(user_id) do
+    requested_by == user_id
+  end
+
+  defp recording_requested_by_scope_user?(_recording, _scope), do: false
+
+  defp desktop_recording?(%RemoteAccessRecording{} = recording) do
+    recording_protocol(recording) in ["rdp", "desktop"]
+  end
 
   defp selected?(%RemoteAccessRecording{id: id}, %RemoteAccessRecording{id: id}), do: true
   defp selected?(_selected, _recording), do: false
@@ -337,6 +421,151 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   end
 
   defp content_label(_manifest), do: "Metadata-only"
+
+  defp desktop_policy_items(%RemoteAccessRecording{manifest: manifest}) when is_map(manifest) do
+    policy = policy_value(manifest, "desktop_policy") || %{}
+    tls = policy_value(policy, "tls") || %{}
+    nla = policy_value(policy, "nla") || %{}
+    screen = policy_value(policy, "screen") || %{}
+    redirection = policy_value(policy, "redirection") || %{}
+    approval = policy_value(policy, "approval") || %{}
+
+    Enum.reject(
+      [
+        %{label: "Route", value: route_label(manifest)},
+        %{label: "Credential", value: display_label(policy_value(manifest, "credential_custody_mode"))},
+        %{label: "TLS/NLA", value: tls_nla_label(tls, nla)},
+        %{label: "Screen quota", value: screen_quota_label(screen)},
+        %{label: "Redirection", value: redirection_label(redirection)},
+        %{label: "Approval", value: approval_label(manifest, approval)},
+        %{label: "Recording", value: recording_policy_label(manifest)}
+      ],
+      &blank?(&1.value)
+    )
+  end
+
+  defp desktop_policy_items(_recording), do: []
+
+  defp route_label(manifest) do
+    join_present([policy_value(manifest, "agent_id"), policy_value(manifest, "gateway_id")], " / ")
+  end
+
+  defp tls_nla_label(tls, nla) do
+    join_present(
+      [tls_mode_label(tls), nla_label(nla), policy_value(tls, "server_name") || policy_value(tls, "tls_server_name")],
+      " · "
+    )
+  end
+
+  defp tls_mode_label(tls) do
+    mode =
+      policy_value(tls, "mode") ||
+        policy_value(tls, "certificate_trust_mode") ||
+        policy_value(tls, "trust_mode")
+
+    if blank?(mode), do: nil, else: "#{display_label(mode)} TLS"
+  end
+
+  defp nla_label(nla) do
+    cond do
+      truthy?(policy_value(nla, "required")) or truthy?(policy_value(nla, "enabled")) ->
+        "NLA required"
+
+      policy_value(nla, "required") in [false, "false", "no", "0", 0] ->
+        "NLA not required"
+
+      true ->
+        nil
+    end
+  end
+
+  defp screen_quota_label(screen) do
+    resolution =
+      case {policy_value(screen, "max_width"), policy_value(screen, "max_height")} do
+        {width, height} when not is_nil(width) and not is_nil(height) -> "#{width}x#{height}"
+        _other -> nil
+      end
+
+    join_present(
+      [
+        resolution,
+        numeric_suffix(policy_value(screen, "max_frame_rate"), "fps"),
+        numeric_suffix(policy_value(screen, "max_bitrate_kbps"), "kbps"),
+        numeric_suffix(policy_value(screen, "color_depth"), "bit")
+      ],
+      " · "
+    )
+  end
+
+  defp redirection_label(redirection) when is_map(redirection) do
+    redirection
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.flat_map(fn {key, value} -> redirection_feature_label(key, value) end)
+    |> Enum.take(4)
+    |> join_present(" · ")
+  end
+
+  defp redirection_label(_redirection), do: nil
+
+  defp redirection_feature_label(key, value) do
+    feature = key |> to_string() |> String.replace("_", " ")
+
+    cond do
+      truthy?(value) -> ["#{String.capitalize(feature)} enabled"]
+      value in [false, "false", "disabled", "deny", "none", "no", "0", 0] -> ["#{String.capitalize(feature)} disabled"]
+      is_binary(value) and String.trim(value) != "" -> ["#{String.capitalize(feature)} #{display_label(value)}"]
+      true -> []
+    end
+  end
+
+  defp approval_label(manifest, approval) do
+    join_present(
+      [
+        manifest |> policy_value("rbac_decision") |> display_label(),
+        if(policy_value(manifest, "approval_id"), do: "Approval #{short_id(policy_value(manifest, "approval_id"))}"),
+        if(truthy?(policy_value(approval, "required")), do: "Approval required")
+      ],
+      " · "
+    )
+  end
+
+  defp recording_policy_label(manifest) do
+    join_present([manifest |> policy_value("recording_mode") |> display_label(), content_label(manifest)], " · ")
+  end
+
+  defp policy_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, safe_existing_atom(key))
+  end
+
+  defp policy_value(_map, _key), do: nil
+
+  defp safe_existing_atom(key) when is_binary(key) do
+    String.to_existing_atom(key)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp display_label(nil), do: nil
+
+  defp display_label(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
+  defp numeric_suffix(nil, _suffix), do: nil
+  defp numeric_suffix("", _suffix), do: nil
+  defp numeric_suffix(value, suffix), do: "#{value} #{suffix}"
+
+  defp join_present(values, separator) do
+    values
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(separator)
+  end
+
+  defp truthy?(value) when value in [true, "true", "required", "yes", "1", 1], do: true
+  defp truthy?(_value), do: false
 
   defp short_id(nil), do: "-"
   defp short_id(id), do: id |> to_string() |> String.slice(0, 8)
