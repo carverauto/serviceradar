@@ -1494,6 +1494,16 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert recording.manifest["raw_terminal_payloads_stored"] == true
 
+    assert {:ok, %{rows: [[raw_manifest, encrypted_manifest]]}} =
+             Repo.query(
+               "SELECT manifest::text, encrypted_manifest FROM platform.remote_access_recordings WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(recording.id)]
+             )
+
+    refute raw_manifest =~ "agent-recording-content"
+    assert is_binary(encrypted_manifest)
+    refute encrypted_manifest =~ "agent-recording-content"
+
     assert {:ok, input_event} =
              RemoteAccessRecordings.record_event(
                recording,
@@ -1525,6 +1535,17 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              RemoteAccessRecordings.event_integrity_hash(input_event)
 
     refute inspect(output_event) =~ "very-secret"
+
+    assert {:ok, %{rows: [[raw_payload, encrypted_payload]]}} =
+             Repo.query(
+               "SELECT payload_text, encrypted_payload_text FROM platform.remote_access_recording_events WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(output_event.id)]
+             )
+
+    assert raw_payload == nil
+    assert is_binary(encrypted_payload)
+    refute encrypted_payload =~ "REDACTED"
+    refute encrypted_payload =~ "very-secret"
 
     assert {:ok, %RemoteAccessRecording{status: :completed} = completed} =
              RemoteAccessRecordings.complete(
@@ -1573,10 +1594,12 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     tampered_manifest =
       update_in(completed.manifest, ["integrity", "event_chain_root"], fn _root -> "tampered" end)
 
+    tampered_encrypted_manifest = AshCloak.do_encrypt(RemoteAccessRecording, tampered_manifest)
+
     assert {:ok, _result} =
              Repo.query(
-               "UPDATE platform.remote_access_recordings SET manifest = ($2::text)::jsonb WHERE id = $1::uuid",
-               [Ecto.UUID.dump!(completed.id), Jason.encode!(tampered_manifest)]
+               "UPDATE platform.remote_access_recordings SET encrypted_manifest = $2 WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(completed.id), tampered_encrypted_manifest]
              )
 
     assert {:error, :recording_manifest_integrity_check_failed} =

@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
   use Ash.Resource,
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
   import Ash.Expr
@@ -34,6 +35,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
     table "remote_access_recording_events"
     repo ServiceRadar.Repo
     schema "platform"
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:payload_text])
+    decrypt_by_default([:payload_text])
   end
 
   code_interface do
@@ -135,6 +142,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordingEvent do
 
     attribute :payload_text, :string do
       public? true
+      sensitive? true
+      description "Optional terminal payload text encrypted at rest by AshCloak"
     end
 
     attribute :payload_redacted, :boolean do

@@ -9,6 +9,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
   use Ash.Resource,
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshCloak],
     authorizers: [Ash.Policy.Authorizer]
 
   import Ash.Expr
@@ -44,6 +45,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     table "remote_access_recordings"
     repo ServiceRadar.Repo
     schema "platform"
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    attributes([:manifest])
+    decrypt_by_default([:manifest])
   end
 
   code_interface do
@@ -164,6 +171,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
       allow_nil? false
       public? true
       default %{}
+      sensitive? true
+      description "Recording manifest encrypted at rest by AshCloak"
     end
 
     attribute :started_at, :utc_datetime do
