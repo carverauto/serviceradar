@@ -32,7 +32,7 @@ spec:
     spec:
       restartPolicy: OnFailure
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
-      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-migrations
         image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}

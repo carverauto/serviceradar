@@ -66,7 +66,7 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
-      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-elx
         image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-core-elx" "service" "core") }}

@@ -280,6 +280,21 @@ securityContext:
 {{- end -}}
 
 {{/*
+Restricted-compliant pod securityContext for Elixir release images.
+The release root under /app is owned by the image runtime UID.
+*/}}
+{{- define "serviceradar.elixirReleasePodSecurityContext" -}}
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+  seccompProfile:
+    type: RuntimeDefault
+{{- end -}}
+
+{{/*
 Restricted-compliant container-level securityContext.
 Usage: {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
 */}}
