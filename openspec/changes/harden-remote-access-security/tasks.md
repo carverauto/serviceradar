@@ -851,10 +851,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Compute `manifest_sha256 = HMAC(server_key, canonical_json(manifest) ++ canonical_event_digest)`; persist; verify on export and on integrity-audit cron
       Resolution: Recording completion/failure now seals the manifest with an `hmac-sha256-v1` integrity block using a key derived from the ServiceRadar edge crypto secret. The signed input includes canonical manifest JSON and the event-chain integrity metadata; export verifies signed manifests before returning them and rejects tampered manifests. Legacy unsigned manifests remain exportable but are explicitly labeled `unsigned_legacy_manifest`.
 
-- [ ] 3.O.4 [M] Concurrent export of same recording — no lock, no `export_id`, audit row per call
+- [x] 3.O.4 [M] Concurrent export of same recording — no lock, no `export_id`, audit row per call
       Where: `remote_access_recordings.ex:114` (commit: staging)
       Why: Two operators export simultaneously → two artefacts, two audit rows, no correlation; if downstream watermarking exists, the watermarks can mix.
       Fix: Optimistic lock on `recording.export_in_progress?`; mint a unique `export_id` per call.
+      Resolution: Export now serializes on the recording row with the same `FOR UPDATE` lock used by event/seal writes, reloads the authoritative recording before building the artifact, mints a UUID `export_id`, and stamps that ID into both the export manifest and audit details. Regression coverage asserts manifest/audit export-id correlation and verifies persisted manifest tampering is rejected after the locked reload.
 
 - [ ] 3.O.5 [M] Partial-write ghost — manifest row created but first event write swallowed → orphan `:active`/`:pending`
       Where: `remote_access_recordings.ex:25-32` + `remote_access_broker.ex:95, 213-221` (commit: staging)

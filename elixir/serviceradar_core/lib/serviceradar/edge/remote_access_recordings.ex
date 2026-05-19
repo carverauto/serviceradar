@@ -141,20 +141,17 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def export(recording_or_id, opts \\ [])
 
   def export(%RemoteAccessRecording{} = recording, opts) do
-    with :ok <- authorize_export(opts),
-         :ok <- ensure_exportable_status(recording),
-         {:ok, events} <- list_events(recording, opts),
-         {:ok, event_integrity} <- verify_event_chain(events),
-         {:ok, manifest_integrity} <-
-           verify_manifest_integrity(recording.manifest, event_integrity) do
-      write_audit(:remote_access_recording_exported, recording, opts)
+    export_id = Ecto.UUID.generate()
 
-      {:ok,
-       %{
-         recording: recording,
-         manifest: export_manifest(recording, events, event_integrity, manifest_integrity),
-         events: events
-       }}
+    with :ok <- authorize_export(opts),
+         {:ok, export} <- locked_export(recording, opts, export_id) do
+      write_audit(
+        :remote_access_recording_exported,
+        export.recording,
+        Keyword.put(opts, :export_id, export_id)
+      )
+
+      {:ok, export}
     end
   end
 
@@ -163,6 +160,39 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
          {:ok, %RemoteAccessRecording{} = recording} <-
            RemoteAccessRecording.get_by_id(recording_id, scope_opts(opts)) do
       export(recording, opts)
+    end
+  end
+
+  defp locked_export(%RemoteAccessRecording{} = recording, opts, export_id) do
+    fn ->
+      with :ok <- lock_recording(recording.id),
+           {:ok, %RemoteAccessRecording{} = current_recording} <- current_recording(recording),
+           :ok <- ensure_exportable_status(current_recording),
+           {:ok, events} <- list_events(current_recording, opts),
+           {:ok, event_integrity} <- verify_event_chain(events),
+           {:ok, manifest_integrity} <-
+             verify_manifest_integrity(current_recording.manifest, event_integrity) do
+        %{
+          recording: current_recording,
+          manifest:
+            export_manifest(
+              current_recording,
+              events,
+              event_integrity,
+              manifest_integrity,
+              export_id
+            ),
+          events: events,
+          export_id: export_id
+        }
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, export} -> {:ok, export}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -815,10 +845,11 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       value(policy, "record_outputs") not in [false, "false", "no", "0", 0]
   end
 
-  defp export_manifest(recording, events, event_integrity, manifest_integrity) do
+  defp export_manifest(recording, events, event_integrity, manifest_integrity, export_id) do
     recording.manifest
     |> normalize_policy()
     |> Map.merge(%{
+      "export_id" => export_id,
       "exported_at" => DateTime.to_iso8601(RemoteAccessRecording.utc_now()),
       "export_event_count" => length(events),
       "export_contains_payload_text" => Enum.any?(events, &is_binary(&1.payload_text)),
@@ -1070,7 +1101,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
           input_bytes: recording.input_bytes,
           output_bytes: recording.output_bytes,
           event_count: recording.event_count,
-          failure_reason: recording.failure_reason
+          failure_reason: recording.failure_reason,
+          export_id: Keyword.get(opts, :export_id)
         }
         |> CredentialRedactor.redact()
         |> reject_blank(),

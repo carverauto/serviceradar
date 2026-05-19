@@ -1469,6 +1469,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
 
     assert export.manifest["export_event_count"] == 2
+    assert export.manifest["export_id"] == export.export_id
+    assert {:ok, _export_uuid} = Ecto.UUID.cast(export.export_id)
     assert export.manifest["export_contains_payload_text"] == true
     assert export.manifest["event_chain_verified"] == true
 
@@ -1484,14 +1486,19 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert_receive {:remote_access_audit, export_audit}
     assert export_audit[:action] == :remote_access_recording_exported
+    assert export_audit[:details][:export_id] == export.export_id
 
-    tampered =
-      completed.manifest
-      |> update_in(["integrity", "event_chain_root"], fn _root -> "tampered" end)
-      |> then(&Map.put(completed, :manifest, &1))
+    tampered_manifest =
+      update_in(completed.manifest, ["integrity", "event_chain_root"], fn _root -> "tampered" end)
+
+    assert {:ok, _result} =
+             Repo.query(
+               "UPDATE platform.remote_access_recordings SET manifest = ($2::text)::jsonb WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(completed.id), Jason.encode!(tampered_manifest)]
+             )
 
     assert {:error, :recording_manifest_integrity_check_failed} =
-             RemoteAccessRecordings.export(tampered, actor: %{role: :admin})
+             RemoteAccessRecordings.export(completed, actor: %{role: :admin})
   end
 
   test "recording manifests are skipped unless policy enables recording" do
