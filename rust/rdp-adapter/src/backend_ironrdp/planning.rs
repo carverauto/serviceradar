@@ -49,8 +49,11 @@ fn build_nonsecret_connection_plan(
 }
 
 fn tls_server_name_is_valid_dns_name(name: &str) -> bool {
-    if name.parse::<std::net::IpAddr>().is_ok()
-        || name.is_empty()
+    if name.parse::<std::net::IpAddr>().is_ok() {
+        return true;
+    }
+
+    if name.is_empty()
         || name.len() > MAX_DIAL_HOST_LEN
         || name.starts_with('.')
         || name.ends_with('.')
@@ -144,4 +147,3 @@ fn split_domain_username(username: &str) -> (Option<&str>, &str) {
 
     (None, username)
 }
-

@@ -25,7 +25,10 @@ fn connector_probe_builds_config_from_validated_open_payload() {
     assert!(!config.enable_tls);
     assert!(config.enable_credssp);
     assert_eq!(config.domain.as_deref(), Some("EXAMPLE"));
-    let ironrdp_connector::Credentials::UsernamePassword { username, .. } = config.credentials;
+    let ironrdp_connector::Credentials::UsernamePassword { username, .. } = config.credentials
+    else {
+        panic!("memory-user credential should build username/password config");
+    };
     assert_eq!(username, "alice");
 }
 
@@ -250,8 +253,10 @@ fn connector_probe_tcp_tls_upgrade_rejects_server_name_mismatch_without_password
     let begin_handoff =
         begin_connector_handoff_with_tcp_dial_for_probe(&plan, &credential, Duration::from_secs(1))
             .expect("connector begin handoff");
-    let err = upgrade_connector_handoff_tls_for_probe(begin_handoff)
-        .expect_err("server name mismatch rejected");
+    let err = match upgrade_connector_handoff_tls_for_probe(begin_handoff) {
+        Ok(_) => panic!("server name mismatch should be rejected"),
+        Err(err) => err,
+    };
     let initial_request = server.join().expect("server thread");
 
     assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
@@ -287,8 +292,10 @@ fn connector_probe_tcp_tls_upgrade_rejects_untrusted_ca_without_password() {
     let begin_handoff =
         begin_connector_handoff_with_tcp_dial_for_probe(&plan, &credential, Duration::from_secs(1))
             .expect("connector begin handoff");
-    let err =
-        upgrade_connector_handoff_tls_for_probe(begin_handoff).expect_err("untrusted CA rejected");
+    let err = match upgrade_connector_handoff_tls_for_probe(begin_handoff) {
+        Ok(_) => panic!("untrusted CA should be rejected"),
+        Err(err) => err,
+    };
     let initial_request = server.join().expect("server thread");
 
     assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));

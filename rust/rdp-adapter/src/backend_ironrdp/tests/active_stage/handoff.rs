@@ -195,13 +195,14 @@ fn connector_probe_finalized_handoff_opens_network_pump_session() {
     let missing_binding_err = finalized_connector_handoff_into_network_pump_session_for_probe(
         ConnectorFinalizedHandoff {
             framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),
-            connection_result: connection_result.clone(),
+            connection_result,
             desktop_size,
         },
         io::sink(),
         &payload,
     )
-    .expect_err("missing media binding rejected");
+    .err()
+    .expect("missing media binding rejected");
 
     assert_eq!(
         missing_binding_err,
@@ -212,6 +213,7 @@ fn connector_probe_finalized_handoff_opens_network_pump_session() {
         .target
         .metadata
         .insert(METADATA_MEDIA_SESSION_ID.to_owned(), "media-1".to_owned());
+    let (connection_result, desktop_size) = build_connection_result_for_probe(&plan, &credential);
     let mut session = finalized_connector_handoff_into_network_pump_session_for_probe(
         ConnectorFinalizedHandoff {
             framed: ironrdp_blocking::Framed::new(ScriptedStream::new(Vec::new())),

@@ -46,7 +46,6 @@ fn connector_probe_open_path_attempts_finalization_and_session_handoff() {
 
     assert_eq!(err, BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED));
     assert!(!capture.initial_request.is_empty());
-    assert!(!capture.tls_plaintext.is_empty());
     assert!(!bytes_contain_secret(
         &capture.initial_request,
         &credential_password

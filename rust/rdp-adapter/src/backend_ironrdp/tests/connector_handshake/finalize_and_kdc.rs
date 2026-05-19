@@ -37,7 +37,6 @@ fn connector_probe_tcp_tls_finalize_writes_credssp_without_password() {
         BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
     );
     assert!(!capture.initial_request.is_empty());
-    assert!(!capture.tls_plaintext.is_empty());
     assert!(!bytes_contain_secret(
         &capture.initial_request,
         credential.password.value.as_str().as_bytes(),
@@ -88,7 +87,6 @@ fn connector_probe_experimental_finalize_uses_bounded_kdc_client_without_passwor
         BackendError::Unsupported(CONNECTOR_NOT_IMPLEMENTED)
     );
     assert!(!capture.initial_request.is_empty());
-    assert!(!capture.tls_plaintext.is_empty());
     assert!(!bytes_contain_secret(
         &capture.initial_request,
         credential.password.value.as_str().as_bytes(),

@@ -50,19 +50,16 @@ fn nonsecret_connection_plan_falls_back_to_upstream_host_for_tls_name() {
 }
 
 #[test]
-fn nonsecret_connection_plan_rejects_ip_literal_tls_server_name() {
+fn nonsecret_connection_plan_accepts_ip_literal_tls_server_name() {
     let raw = valid_open_payload().replace(
         r#""tls":{"mode":"verify","nla_mode":"required","server_name":"win.example"}"#,
         r#""tls":{"mode":"verify","nla_mode":"required","server_name":"192.168.1.45"}"#,
     );
     let payload = parse_open_payload(raw.as_bytes()).expect("valid payload");
 
-    let err = build_nonsecret_connection_plan(&payload).expect_err("plan rejected");
+    let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
-    assert!(matches!(
-        err,
-        BackendError::Unsupported(INVALID_CONNECTION_PLAN)
-    ));
+    assert_eq!(plan.tls_server_name, "192.168.1.45");
 }
 
 #[test]

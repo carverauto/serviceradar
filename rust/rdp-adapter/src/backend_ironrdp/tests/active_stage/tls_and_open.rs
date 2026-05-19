@@ -75,7 +75,8 @@ fn connector_probe_rejects_invalid_tls_certificate_for_public_key_binding() {
 #[test]
 fn connector_probe_registered_ca_bundle_rejects_der_material() {
     let err = build_verified_tls_client_config_for_registered_ca_bundle(&fixture_server_cert_der())
-        .expect_err("der material rejected");
+        .err()
+        .expect("der material rejected");
 
     assert_eq!(err, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
 }
@@ -102,9 +103,11 @@ fn connector_probe_registered_ca_bundle_builds_verified_tls_client_config_from_p
 #[test]
 fn connector_probe_registered_ca_bundle_rejects_empty_or_invalid_material() {
     let empty = build_verified_tls_client_config_for_registered_ca_bundle(b" \n\t")
-        .expect_err("empty rejected");
+        .err()
+        .expect("empty rejected");
     let invalid = build_verified_tls_client_config_for_registered_ca_bundle(b"not a certificate")
-        .expect_err("invalid rejected");
+        .err()
+        .expect("invalid rejected");
 
     assert_eq!(empty, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
     assert_eq!(invalid, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
@@ -139,8 +142,9 @@ fn connector_probe_rejects_invalid_plan_bundle_material() {
     payload.target.tls.ca_bundle_pem = "not a certificate".to_owned();
     let plan = build_nonsecret_connection_plan(&payload).expect("plan");
 
-    let err =
-        build_verified_tls_client_config_for_plan(&plan).expect_err("invalid plan bundle rejected");
+    let err = build_verified_tls_client_config_for_plan(&plan)
+        .err()
+        .expect("invalid plan bundle rejected");
 
     assert_eq!(err, BackendError::Unsupported(INVALID_TLS_CA_BUNDLE));
 }
