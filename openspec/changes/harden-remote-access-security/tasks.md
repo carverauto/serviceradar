@@ -892,10 +892,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: Permission revoked mid-stream continues serving until the connection closes.
       Fix: Per-chunk re-check or subscribe to permission-revocation pubsub (mirrors fix proposed for 5.2).
 
-- [ ] 3.O.11 [M] No `:deleted` terminal state — playback can race with delete and return raw "object missing" errors
+- [x] 3.O.11 [M] No `:deleted` terminal state — playback can race with delete and return raw "object missing" errors
       Where: no delete action in `remote_access_recording_controller.ex` (commit: staging)
       Why: Operator gets a confusing error mid-playback instead of a clean `410 Gone` + audit linkage.
       Fix: Add `:deleted` state; transition before any storage-side removal; playback path checks status first.
+      Resolution: Recording deletion is now a soft terminal transition to `:deleted`, exposed through `DELETE /api/remote-access/recordings/:id` with the existing delete permission and ownership/view-all guard. Playback/events and export paths check the terminal deleted state and return `410 Gone` with a stable `remote_access_recording_deleted` error instead of falling through to missing storage/object errors. Regression coverage verifies the API delete marks the row deleted and subsequent events/export calls return gone.
 
 - [x] 3.O.12 [M] `record_event` trusts `attrs["session_id"]` instead of `recording.session_id`
       Where: `remote_access_recordings.ex:90-93` (commit: staging)
@@ -941,7 +942,7 @@ operator POST /export ─► (no status check, 3.O.2)
                         └─ audit row
 operator GET /events ─► RBAC check once (TOCTOU per chunk, 3.O.10) ─► stream
 
-DELETE not surfaced in controller (3.O.11)
+operator DELETE /recording ─► mark `:deleted` + audit; later playback/export returns 410 (3.O.11 fixed)
 ```
 
 **Positives (3.O):**
@@ -1516,7 +1517,7 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 | 3.O.8 | M | Fjo | C-B |
 | 3.O.9 | M | Acc | bundle with C-B if cheap |
 | 3.O.10 | M | Fjo | C-C |
-| 3.O.11 | M | Fjo | C-C |
+| 3.O.11 | M | B | deleted terminal state |
 | 3.O.12 | M | Acc | defensive only |
 | 3.O.13 | L | Acc | documented intent |
 | 3.O.14 | M | Fjo | C-C |

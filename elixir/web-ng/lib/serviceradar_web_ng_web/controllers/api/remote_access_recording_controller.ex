@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
   @rdp_open_permission "devices.remote_access.rdp.open"
   @view_permissions [@ssh_open_permission, @rdp_open_permission]
   @export_permission "devices.remote_access.recordings.export"
+  @delete_permission "devices.remote_access.recordings.delete"
   @view_all_permission "devices.remote_access.recordings.view_all"
 
   def show(conn, %{"id" => id}) do
@@ -45,6 +46,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       {:error, :forbidden} -> forbidden(conn, "remote access")
       {:error, :not_found} -> not_found(conn)
       {:error, :invalid_id} -> invalid_request(conn, "id must be a valid UUID")
+      {:error, :recording_deleted} -> gone(conn)
       {:error, other} -> {:error, other}
     end
   end
@@ -71,6 +73,26 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
       {:error, :not_found} -> not_found(conn)
       {:error, :invalid_id} -> invalid_request(conn, "id must be a valid UUID")
       {:error, :recording_not_exportable} -> conflict(conn, "recording_not_exportable")
+      {:error, :recording_deleted} -> gone(conn)
+      {:error, other} -> {:error, other}
+    end
+  end
+
+  def delete(conn, %{"id" => id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, @delete_permission),
+         {:ok, recording} <- fetch_recording(id, conn),
+         :ok <- require_recording_view_permission(conn, recording),
+         {:ok, _deleted} <-
+           RemoteAccessRecordings.delete(recording,
+             scope: get_scope(conn),
+             actor: get_scope(conn).user
+           ) do
+      send_resp(conn, :no_content, "")
+    else
+      {:error, :forbidden} -> forbidden(conn, @delete_permission)
+      {:error, :not_found} -> not_found(conn)
+      {:error, :invalid_id} -> invalid_request(conn, "id must be a valid UUID")
       {:error, other} -> {:error, other}
     end
   end
@@ -79,7 +101,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
     with {:ok, normalized_id} <- normalize_uuid(id),
          {:ok, %RemoteAccessRecording{} = recording} <-
            RemoteAccessRecording.get_by_id(normalized_id, scope: get_scope(conn)),
-         {:ok, %RemoteAccessRecording{} = recording} <- Ash.load(recording, :session, scope: get_scope(conn)) do
+         {:ok, %RemoteAccessRecording{} = recording} <-
+           Ash.load(recording, :session, scope: get_scope(conn)) do
       {:ok, recording}
     else
       {:ok, nil} -> {:error, :not_found}
@@ -158,6 +181,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingController do
     conn
     |> put_status(:conflict)
     |> json(%{error: reason})
+  end
+
+  defp gone(conn) do
+    conn
+    |> put_status(:gone)
+    |> json(%{
+      error: "remote_access_recording_deleted",
+      message: "remote-access recording has been deleted"
+    })
   end
 
   defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)

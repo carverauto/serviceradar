@@ -230,6 +230,9 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
        when status in [:completed, :failed, :expired],
        do: :ok
 
+  defp ensure_exportable_status(%RemoteAccessRecording{status: :deleted}),
+    do: {:error, :recording_deleted}
+
   defp ensure_exportable_status(_recording), do: {:error, :recording_not_exportable}
 
   defp current_recording(%RemoteAccessRecording{id: recording_id}) do
@@ -380,9 +383,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   def delete(%RemoteAccessRecording{} = recording, opts) do
     with :ok <- authorize_delete(opts),
-         :ok <- RemoteAccessRecording.destroy_recording(recording, actor: system_actor(:delete)) do
-      write_audit(:remote_access_recording_deleted, recording, opts)
-      {:ok, recording}
+         {:ok, %RemoteAccessRecording{} = updated} <-
+           RemoteAccessRecording.mark_deleted(recording, actor: system_actor(:delete)) do
+      write_audit(:remote_access_recording_deleted, updated, opts)
+      {:ok, updated}
     end
   end
 
@@ -390,9 +394,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     with :ok <- authorize_delete(opts),
          {:ok, %RemoteAccessRecording{} = recording} <-
            RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:delete_lookup)),
-         :ok <- RemoteAccessRecording.destroy_recording(recording, actor: system_actor(:delete)) do
-      write_audit(:remote_access_recording_deleted, recording, opts)
-      {:ok, recording}
+         {:ok, %RemoteAccessRecording{} = updated} <-
+           RemoteAccessRecording.mark_deleted(recording, actor: system_actor(:delete)) do
+      write_audit(:remote_access_recording_deleted, updated, opts)
+      {:ok, updated}
     end
   end
 
@@ -427,7 +432,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
          %RemoteAccessRecording{id: recording_id} = recording,
          opts
        ) do
-    with :ok <- authorize_recording_read(recording, opts) do
+    with :ok <- authorize_recording_read(recording, opts),
+         :ok <- ensure_playback_status(recording) do
       RemoteAccessRecordingEvent.list_for_recording(recording_id,
         actor: system_actor(:event_read)
       )
@@ -440,6 +446,11 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       list_events_for_authorized_recording(recording, opts)
     end
   end
+
+  defp ensure_playback_status(%RemoteAccessRecording{status: :deleted}),
+    do: {:error, :recording_deleted}
+
+  defp ensure_playback_status(_recording), do: :ok
 
   defp authorize_recording_read(recording, opts) do
     case export_actor(opts) do

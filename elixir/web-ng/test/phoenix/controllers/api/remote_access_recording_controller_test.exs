@@ -62,7 +62,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     refute inspect(body) =~ "very-secret"
   end
 
-  test "RDP user cannot read another user's RDP recording without view-all permission", %{conn: conn} do
+  test "RDP user cannot read another user's RDP recording without view-all permission", %{
+    conn: conn
+  } do
     owner = AccountsFixtures.user_fixture(%{role: :viewer})
     recording = recording_fixture(owner, :rdp)
 
@@ -82,8 +84,15 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     assert %{"error" => "remote_access_recording_not_found"} = json_response(conn, 404)
   end
 
-  test "RDP user with view-all permission can read another user's RDP recording", %{conn: conn, user: user} do
-    grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.view_all"])
+  test "RDP user with view-all permission can read another user's RDP recording", %{
+    conn: conn,
+    user: user
+  } do
+    grant_permissions(user, [
+      "devices.remote_access.rdp.open",
+      "devices.remote_access.recordings.view_all"
+    ])
+
     owner = AccountsFixtures.user_fixture(%{role: :viewer})
     recording = recording_fixture(owner, :rdp)
 
@@ -95,7 +104,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
   end
 
   test "recording export does not expose storage identifiers", %{conn: conn, user: user} do
-    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
+    user =
+      grant_permissions(user, [
+        "devices.remote_access.rdp.open",
+        "devices.remote_access.recordings.export"
+      ])
+
     recording = recording_fixture(user, :rdp)
 
     conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/export")
@@ -115,7 +129,11 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
   end
 
   test "recording export requires ownership or view-all permission", %{conn: conn, user: user} do
-    grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
+    grant_permissions(user, [
+      "devices.remote_access.rdp.open",
+      "devices.remote_access.recordings.export"
+    ])
+
     owner = AccountsFixtures.user_fixture(%{role: :viewer})
     recording = recording_fixture(owner, :rdp)
 
@@ -125,12 +143,43 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
   end
 
   test "recording export refuses active recordings", %{conn: conn, user: user} do
-    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.export"])
+    user =
+      grant_permissions(user, [
+        "devices.remote_access.rdp.open",
+        "devices.remote_access.recordings.export"
+      ])
+
     recording = active_recording_fixture(user, :rdp)
 
     conn = get(conn, ~p"/api/remote-access/recordings/#{recording.id}/export")
 
     assert %{"error" => "recording_not_exportable"} = json_response(conn, 409)
+  end
+
+  test "recording delete marks a terminal deleted state and playback/export return gone", %{
+    conn: conn,
+    user: user
+  } do
+    user =
+      grant_permissions(user, [
+        "devices.remote_access.rdp.open",
+        "devices.remote_access.recordings.delete",
+        "devices.remote_access.recordings.export"
+      ])
+
+    recording = recording_fixture(user, :rdp)
+
+    conn = delete(conn, ~p"/api/remote-access/recordings/#{recording.id}")
+    assert response(conn, 204) == ""
+
+    assert {:ok, %RemoteAccessRecording{status: :deleted}} =
+             RemoteAccessRecording.get_by_id(recording.id, actor: system_actor())
+
+    conn = get(recycle(conn), ~p"/api/remote-access/recordings/#{recording.id}/events")
+    assert %{"error" => "remote_access_recording_deleted"} = json_response(conn, 410)
+
+    conn = get(recycle(conn), ~p"/api/remote-access/recordings/#{recording.id}/export")
+    assert %{"error" => "remote_access_recording_deleted"} = json_response(conn, 410)
   end
 
   test "RDP-only user cannot read SSH recording metadata", %{conn: conn, user: user} do
@@ -202,9 +251,17 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
     {:ok, recording} =
       user
       |> recording_session(protocol)
-      |> RemoteAccessRecordings.ensure_for_session(audit_writer: AuditSink, audit_actor: system_actor())
+      |> RemoteAccessRecordings.ensure_for_session(
+        audit_writer: AuditSink,
+        audit_actor: system_actor()
+      )
 
-    {:ok, active} = RemoteAccessRecordings.activate(recording, audit_writer: AuditSink, audit_actor: system_actor())
+    {:ok, active} =
+      RemoteAccessRecordings.activate(recording,
+        audit_writer: AuditSink,
+        audit_actor: system_actor()
+      )
+
     active
   end
 
@@ -259,7 +316,9 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
+        actor: system_actor()
+      )
       |> Ash.update!()
 
     RBAC.clear_process_cache()

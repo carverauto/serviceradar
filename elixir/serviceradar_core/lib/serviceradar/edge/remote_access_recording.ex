@@ -54,6 +54,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     define :complete, action: :complete
     define :fail, action: :fail
     define :expire, action: :expire
+    define :mark_deleted, action: :mark_deleted
     define :destroy_recording, action: :destroy
   end
 
@@ -99,6 +100,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
       accept @finish_fields
       change set_attribute(:status, :expired)
     end
+
+    update :mark_deleted do
+      change set_attribute(:status, :deleted)
+    end
   end
 
   policies do
@@ -131,7 +136,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecording do
     attribute :status, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:pending, :active, :completed, :failed, :expired]
+      constraints one_of: [:pending, :active, :completed, :failed, :expired, :deleted]
       default :pending
     end
 

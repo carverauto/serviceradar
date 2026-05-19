@@ -356,6 +356,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/remote-access/recordings/:id", RemoteAccessRecordingController, :show)
     get("/remote-access/recordings/:id/events", RemoteAccessRecordingController, :events)
     get("/remote-access/recordings/:id/export", RemoteAccessRecordingController, :export)
+    delete("/remote-access/recordings/:id", RemoteAccessRecordingController, :delete)
     post("/camera-relay-sessions/:id/webrtc/session", CameraRelayWebRTCController, :create_session)
 
     post(
