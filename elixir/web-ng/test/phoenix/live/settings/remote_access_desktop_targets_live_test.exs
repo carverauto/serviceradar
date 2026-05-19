@@ -85,6 +85,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
         "credential_custody_mode" => "user_present",
         "credential_rule_id" => "",
         "target_tls_mode" => "verify_ca",
+        "target_tls_server_name" => "win-finance-1.example.test",
+        "target_tls_ca_bundle_id" => "finance-rdp-ca",
+        "target_tls_ca_bundle_pem" => test_ca_bundle_pem(),
         "nla_required" => "true",
         "recording_mode" => "metadata_only",
         "kdc_proxy_url" => "tcp://kdc.finance.example.test:88",
@@ -106,6 +109,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
 
     target = get_target_by_name!(scope, target_name)
     assert target.agent_id == "agent-finance"
+    assert target.target_tls["mode"] == "verify_ca"
+    assert target.target_tls["server_name"] == "win-finance-1.example.test"
+    assert target.target_tls["ca_bundle_id"] == "finance-rdp-ca"
+    assert target.target_tls["ca_bundle_pem"] == test_ca_bundle_pem()
     assert target.allowed_principals == ["CARVER\\alice", "CARVER\\bob"]
     assert target.screen_policy["max_width"] == 1920
     assert target.redirection_policy["clipboard"] == "disabled"
@@ -125,6 +132,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
         Map.merge(target_form_params(target), %{
           "description" => "Updated target",
           "target_port" => "3390",
+          "target_tls_server_name" => "rdp-patch.example.test",
+          "target_tls_ca_bundle_id" => "patch-rdp-ca",
+          "target_tls_ca_bundle_pem" => test_ca_bundle_pem(),
           "clipboard" => "local_to_remote",
           "kdc_proxy_url" => "tcp://kdc.patch.example.test:88",
           "kerberos_hostname" => "rdp-patch.example.test"
@@ -139,6 +149,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
 
     updated = get_target_by_name!(scope, target.name)
     assert updated.target_port == 3390
+    assert updated.target_tls["server_name"] == "rdp-patch.example.test"
+    assert updated.target_tls["ca_bundle_id"] == "patch-rdp-ca"
+    assert updated.target_tls["ca_bundle_pem"] == test_ca_bundle_pem()
     assert updated.redirection_policy["clipboard"] == "local_to_remote"
     assert updated.metadata["rdp.kdc_proxy_url"] == "tcp://kdc.patch.example.test:88"
     assert updated.metadata["rdp.kerberos_hostname"] == "rdp-patch.example.test"
@@ -174,6 +187,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
           "credential_custody_mode" => "user_present",
           "credential_rule_id" => "",
           "target_tls_mode" => "verify_ca",
+          "target_tls_server_name" => "",
+          "target_tls_ca_bundle_id" => "",
+          "target_tls_ca_bundle_pem" => "",
           "nla_required" => "true",
           "recording_mode" => "metadata_only",
           "kdc_proxy_url" => "https://kdc.example.test",
@@ -189,6 +205,47 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
       |> render_submit()
 
     assert html =~ "KDC Proxy URL must use tcp://"
+  end
+
+  test "rejects incomplete TLS CA bundle policy in the settings form", %{conn: conn} do
+    target_name = "Invalid CA bundle #{System.unique_integer([:positive])}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/desktop-targets/new")
+
+    html =
+      lv
+      |> form("form[phx-submit='save_target']",
+        desktop_target: %{
+          "name" => target_name,
+          "description" => "",
+          "enabled" => "true",
+          "target_kind" => "inventory_device",
+          "device_uid" => "win-invalid-ca-1",
+          "target_host" => "win-invalid-ca-1.example.test",
+          "target_port" => "3389",
+          "agent_id" => "agent-invalid-ca",
+          "gateway_id" => "gateway-invalid-ca",
+          "credential_custody_mode" => "user_present",
+          "credential_rule_id" => "",
+          "target_tls_mode" => "verify_ca",
+          "target_tls_server_name" => "win-invalid-ca-1.example.test",
+          "target_tls_ca_bundle_id" => "missing-pem",
+          "target_tls_ca_bundle_pem" => "",
+          "nla_required" => "true",
+          "recording_mode" => "metadata_only",
+          "kdc_proxy_url" => "",
+          "kerberos_hostname" => "",
+          "max_width" => "",
+          "max_height" => "",
+          "frame_rate" => "",
+          "bitrate_kbps" => "",
+          "clipboard" => "disabled",
+          "allowed_principals" => ""
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "CA Bundle ID and CA Bundle PEM must be provided together"
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do
@@ -239,7 +296,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
+        actor: system_actor()
+      )
       |> Ash.update!()
 
     RBAC.clear_process_cache()
@@ -262,6 +321,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
       "credential_custody_mode" => to_string(target.credential_custody_mode),
       "credential_rule_id" => target.credential_rule_id || "",
       "target_tls_mode" => target.target_tls["mode"],
+      "target_tls_server_name" => target.target_tls["server_name"] || "",
+      "target_tls_ca_bundle_id" => target.target_tls["ca_bundle_id"] || "",
+      "target_tls_ca_bundle_pem" => target.target_tls["ca_bundle_pem"] || "",
       "nla_required" => "true",
       "recording_mode" => target.recording_policy["mode"],
       "kdc_proxy_url" => target.metadata["rdp.kdc_proxy_url"] || "",
@@ -282,4 +344,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp test_ca_bundle_pem do
+    Enum.join(
+      [
+        "-----BEGIN CERTIFICATE-----",
+        "MIIB",
+        "-----END CERTIFICATE-----"
+      ],
+      "\n"
+    )
+  end
 end

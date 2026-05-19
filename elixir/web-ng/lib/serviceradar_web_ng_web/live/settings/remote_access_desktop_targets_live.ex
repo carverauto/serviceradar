@@ -262,13 +262,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
     """
   end
 
-  attr :form, :map, required: true
-  attr :mode, :atom, required: true
-  attr :target_kind_options, :list, required: true
-  attr :credential_mode_options, :list, required: true
-  attr :target_tls_mode_options, :list, required: true
-  attr :clipboard_mode_options, :list, required: true
-  attr :recording_mode_options, :list, required: true
+  attr(:form, :map, required: true)
+  attr(:mode, :atom, required: true)
+  attr(:target_kind_options, :list, required: true)
+  attr(:credential_mode_options, :list, required: true)
+  attr(:target_tls_mode_options, :list, required: true)
+  attr(:clipboard_mode_options, :list, required: true)
+  attr(:recording_mode_options, :list, required: true)
 
   defp target_form_modal(assigns) do
     ~H"""
@@ -331,6 +331,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                   label="Target TLS"
                   options={@target_tls_mode_options}
                   required
+                />
+                <.input field={@form[:target_tls_server_name]} label="TLS Server Name" />
+                <.input field={@form[:target_tls_ca_bundle_id]} label="CA Bundle ID" />
+                <.input
+                  field={@form[:target_tls_ca_bundle_pem]}
+                  type="textarea"
+                  label="CA Bundle PEM"
                 />
                 <.input field={@form[:nla_required]} type="checkbox" label="Require NLA" />
                 <.input
@@ -443,11 +450,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
          |> push_patch(to: ~p"/settings/networks/desktop-targets")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to create RDP desktop target: #{format_error(reason)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to create RDP desktop target: #{format_error(reason)}")}
     end
   end
 
-  defp save_target(%{assigns: %{form_mode: :edit, editing_target: %RemoteAccessDesktopTarget{} = target}} = socket, attrs) do
+  defp save_target(
+         %{assigns: %{form_mode: :edit, editing_target: %RemoteAccessDesktopTarget{} = target}} =
+           socket,
+         attrs
+       ) do
     attrs = merge_existing_target_metadata(attrs, target)
 
     case RemoteAccessDesktopTargets.update_managed(socket.assigns.current_scope, target, attrs) do
@@ -458,7 +470,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
          |> push_patch(to: ~p"/settings/networks/desktop-targets")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update RDP desktop target: #{format_error(reason)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to update RDP desktop target: #{format_error(reason)}")}
     end
   end
 
@@ -467,8 +480,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   end
 
   defp set_enabled(socket, id, enabled, success_message) do
-    with %RemoteAccessDesktopTarget{} = target <- Enum.find(socket.assigns.targets, &(to_string(&1.id) == to_string(id))),
-         {:ok, _target} <- RemoteAccessDesktopTargets.set_managed_enabled(socket.assigns.current_scope, target, enabled) do
+    with %RemoteAccessDesktopTarget{} = target <-
+           Enum.find(socket.assigns.targets, &(to_string(&1.id) == to_string(id))),
+         {:ok, _target} <-
+           RemoteAccessDesktopTargets.set_managed_enabled(
+             socket.assigns.current_scope,
+             target,
+             enabled
+           ) do
       {:noreply,
        socket
        |> put_flash(:info, success_message)
@@ -478,7 +497,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
         {:noreply, put_flash(socket, :error, "RDP desktop target not found")}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update RDP desktop target: #{format_error(reason)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to update RDP desktop target: #{format_error(reason)}")}
     end
   end
 
@@ -489,10 +509,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
          {:ok, target_port} <- parse_port(params["target_port"]),
          {:ok, target_kind} <- enum_value(params["target_kind"], @target_kinds, "target_kind"),
          {:ok, credential_mode} <-
-           enum_value(params["credential_custody_mode"], @credential_modes, "credential_custody_mode"),
+           enum_value(
+             params["credential_custody_mode"],
+             @credential_modes,
+             "credential_custody_mode"
+           ),
          {:ok, credential_rule_id} <- optional_uuid(params["credential_rule_id"]),
          {:ok, kdc_proxy_url} <- optional_kdc_proxy_url(params["kdc_proxy_url"]),
-         {:ok, kerberos_hostname} <- optional_kerberos_hostname(params["kerberos_hostname"]) do
+         {:ok, kerberos_hostname} <- optional_kerberos_hostname(params["kerberos_hostname"]),
+         {:ok, target_tls} <- target_tls_policy(params) do
       {:ok,
        %{
          name: name,
@@ -508,17 +533,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
          credential_rule_id: credential_rule_id,
          approval_required: false,
          allowed_principals: split_principals(params["allowed_principals"]),
-         target_tls: %{"mode" => safe_option(params["target_tls_mode"], @target_tls_modes, "verify_ca")},
+         target_tls: target_tls,
          nla: %{"required" => truthy?(params["nla_required"])},
          screen_policy: screen_policy(params),
-         redirection_policy: %{"clipboard" => safe_option(params["clipboard"], @clipboard_modes, "disabled")},
-         recording_policy: %{"mode" => safe_option(params["recording_mode"], @recording_modes, "metadata_only")},
+         redirection_policy: %{
+           "clipboard" => safe_option(params["clipboard"], @clipboard_modes, "disabled")
+         },
+         recording_policy: %{
+           "mode" => safe_option(params["recording_mode"], @recording_modes, "metadata_only")
+         },
          metadata: rdp_kerberos_metadata(kdc_proxy_url, kerberos_hostname)
        }}
     end
   end
 
-  defp merge_existing_target_metadata(%{metadata: metadata} = attrs, %RemoteAccessDesktopTarget{} = target)
+  defp merge_existing_target_metadata(
+         %{metadata: metadata} = attrs,
+         %RemoteAccessDesktopTarget{} = target
+       )
        when is_map(metadata) do
     existing =
       target.metadata
@@ -594,6 +626,31 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
     end
   end
 
+  defp target_tls_policy(params) do
+    ca_bundle_id = blank_to_nil(params["target_tls_ca_bundle_id"])
+    ca_bundle_pem = blank_to_nil(params["target_tls_ca_bundle_pem"])
+
+    if ca_bundle_id_present?(ca_bundle_id) == ca_bundle_pem_present?(ca_bundle_pem) do
+      {:ok,
+       %{"mode" => safe_option(params["target_tls_mode"], @target_tls_modes, "verify_ca")}
+       |> put_policy_string("server_name", params["target_tls_server_name"])
+       |> put_policy_string("ca_bundle_id", ca_bundle_id)
+       |> put_policy_string("ca_bundle_pem", ca_bundle_pem)}
+    else
+      {:error, "CA Bundle ID and CA Bundle PEM must be provided together"}
+    end
+  end
+
+  defp ca_bundle_id_present?(value), do: not is_nil(value)
+  defp ca_bundle_pem_present?(value), do: not is_nil(value)
+
+  defp put_policy_string(map, key, value) do
+    case blank_to_nil(value) do
+      nil -> map
+      value -> Map.put(map, key, value)
+    end
+  end
+
   defp optional_kdc_proxy_url(value) do
     case blank_to_nil(value) do
       nil ->
@@ -645,6 +702,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       "credential_custody_mode" => "user_present",
       "credential_rule_id" => "",
       "target_tls_mode" => "verify_ca",
+      "target_tls_server_name" => "",
+      "target_tls_ca_bundle_id" => "",
+      "target_tls_ca_bundle_pem" => "",
       "nla_required" => "true",
       "recording_mode" => "metadata_only",
       "kdc_proxy_url" => "",
@@ -672,6 +732,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       "credential_custody_mode" => to_string(target.credential_custody_mode || :user_present),
       "credential_rule_id" => target.credential_rule_id || "",
       "target_tls_mode" => policy_value(target.target_tls, "mode", "verify_ca"),
+      "target_tls_server_name" =>
+        policy_value(target.target_tls, "server_name", nil) ||
+          policy_value(target.target_tls, "server", ""),
+      "target_tls_ca_bundle_id" => policy_value(target.target_tls, "ca_bundle_id", ""),
+      "target_tls_ca_bundle_pem" => policy_value(target.target_tls, "ca_bundle_pem", ""),
       "nla_required" => if(policy_value(target.nla, "required", true), do: "true", else: "false"),
       "recording_mode" => policy_value(target.recording_policy, "mode", "metadata_only"),
       "kdc_proxy_url" => policy_value(target.metadata, "rdp.kdc_proxy_url", ""),
@@ -727,7 +792,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   end
 
   defp enum_options(values), do: Enum.map(values, &{enum_label(&1), &1})
-  defp enum_label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  defp enum_label(value),
+    do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
   defp authorize_manage_event(socket, fun) when is_function(fun, 0) do
     if fresh_can_manage?(socket.assigns.current_scope) do
@@ -755,6 +822,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
   defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
+
+  defp format_error(reason) when is_atom(reason),
+    do: reason |> to_string() |> String.replace("_", " ")
+
   defp format_error(reason), do: inspect(reason)
 end
