@@ -860,10 +860,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: No reaper for stuck `:pending` / `:active` recordings; they consume slots and skew retention/quota math.
       Fix: Oban cron — recordings stuck > N hours without event activity flip to `:expired` + audit.
 
-- [ ] 3.O.6 [H] Export reads `recording.policy` live from the row, not from a sealed snapshot
+- [x] 3.O.6 [H] Export reads `recording.policy` live from the row, not from a sealed snapshot
       Where: `remote_access_recordings.ex:533-542` (commit: staging)
       Why: Even though the policy is *initially* snapshotted at create, the export merges the *current* row value back in — an admin who edits the recording policy retro-applies it to the export.
       Fix: Stop merging live `recording.policy` into export manifest; sign the snapshot at finalisation; export uses only that
+      Resolution: Completion now computes raw-payload storage from the create-time policy snapshot embedded in the recording manifest, falling back to row policy only for legacy manifests without a snapshot. Regression coverage mutates the row policy before completion and verifies the sealed manifest preserves the original snapshot.
 
 - [ ] 3.O.7 [H] No integrity primitive at all today — once 3.O.3 lands, also bind to the canonical event hash
       Where: `remote_access_recordings.ex:160-184` (commit: staging)

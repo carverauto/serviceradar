@@ -1138,6 +1138,54 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert fetched.id == completed.id
   end
 
+  test "recording completion uses the create-time policy snapshot" do
+    uid = unique_uid("recording-policy-snapshot")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-policy-snapshot",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "record_terminal_payloads" => false,
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    mutated =
+      Map.put(recording, :policy, %{"enabled" => true, "record_terminal_payloads" => true})
+
+    assert {:ok, completed} =
+             RemoteAccessRecordings.complete(
+               mutated,
+               %{input_bytes: 0, output_bytes: 0, event_count: 0},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert completed.manifest["policy"]["record_terminal_payloads"] == false
+    assert completed.manifest["raw_terminal_payloads_stored"] == false
+  end
+
   test "recording events keep terminal payloads metadata-only unless content policy opts in" do
     uid = unique_uid("recording-events")
     insert_device!(uid, agent_id: "agent-recording-events", gateway_id: "gateway-recording")

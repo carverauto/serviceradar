@@ -284,7 +284,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
         "input_bytes" => input_bytes,
         "output_bytes" => output_bytes,
         "event_count" => event_count,
-        "raw_terminal_payloads_stored" => terminal_payloads_allowed?(recording.policy)
+        "raw_terminal_payloads_stored" => terminal_payloads_allowed?(snapshot_policy(recording))
       })
 
     %{
@@ -324,6 +324,17 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     |> Map.merge(extra)
     |> reject_blank()
     |> CredentialRedactor.redact()
+  end
+
+  defp snapshot_policy(%RemoteAccessRecording{manifest: manifest, policy: policy}) do
+    manifest
+    |> normalize_policy()
+    |> Map.get("policy")
+    |> normalize_policy()
+    |> case do
+      map when map_size(map) > 0 -> map
+      _empty -> normalize_policy(policy)
+    end
   end
 
   defp desktop_policy_manifest(session) do
