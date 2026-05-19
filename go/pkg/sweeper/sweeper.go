@@ -1110,6 +1110,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
+	routeSummary := summarizeTargetRoutes(targets)
 
 	// Prepare device result aggregators for multi-IP devices
 	s.prepareDeviceAggregators(targets)
@@ -1137,6 +1138,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		Int("icmpTargets", len(icmpTargets)).
 		Int("tcpTargets", len(tcpTargets)).
 		Int("tcpConnectTargets", len(tcpConnectTargets)).
+		Int("ipv4Targets", routeSummary.ipv4Targets).
+		Int("ipv6Targets", routeSummary.ipv6Targets).
+		Int("ipv6TCPConnectFallbackTargets", routeSummary.ipv6TCPConnectFallbackTargets).
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
@@ -1251,6 +1255,9 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		Int("icmpTargets", runner.icmpCount).
 		Int("tcpTargets", runner.tcpCount).
 		Int("tcpConnectTargets", runner.tcpConnectCount).
+		Int("ipv4Targets", runner.ipv4Count).
+		Int("ipv6Targets", runner.ipv6Count).
+		Int("ipv6TCPConnectFallbackTargets", runner.ipv6TCPConnectFallbackCount).
 		Msg("Batched sweep completed successfully")
 
 	return nil
@@ -1335,21 +1342,26 @@ func (s *NetworkSweeper) startStreamingScan(
 }
 
 type sweepBatchRunner struct {
-	sweeper           *NetworkSweeper
-	ctx               context.Context
-	icmpScanner       scan.Scanner
-	tcpScanner        scan.Scanner
-	tcpConnectScanner scan.Scanner
-	tcpStream         *sweepTargetStream
-	icmpTargets       []models.Target
-	tcpTargets        []models.Target
-	tcpConnectTargets []models.Target
-	icmpCount         int
-	tcpCount          int
-	tcpConnectCount   int
+	sweeper                     *NetworkSweeper
+	ctx                         context.Context
+	icmpScanner                 scan.Scanner
+	tcpScanner                  scan.Scanner
+	tcpConnectScanner           scan.Scanner
+	tcpStream                   *sweepTargetStream
+	icmpTargets                 []models.Target
+	tcpTargets                  []models.Target
+	tcpConnectTargets           []models.Target
+	icmpCount                   int
+	tcpCount                    int
+	tcpConnectCount             int
+	ipv4Count                   int
+	ipv6Count                   int
+	ipv6TCPConnectFallbackCount int
 }
 
 func (r *sweepBatchRunner) addTarget(target models.Target) error {
+	r.recordRoute(target)
+
 	switch target.Mode {
 	case models.ModeICMP:
 		r.icmpTargets = append(r.icmpTargets, target)
@@ -1384,6 +1396,23 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 	}
 
 	return nil
+}
+
+func (r *sweepBatchRunner) recordRoute(target models.Target) {
+	if target.Metadata == nil {
+		return
+	}
+
+	switch target.Metadata["address_family"] {
+	case "ipv4":
+		r.ipv4Count++
+	case "ipv6":
+		r.ipv6Count++
+	}
+
+	if fallback, ok := target.Metadata["ipv6_raw_syn_fallback"].(bool); ok && fallback {
+		r.ipv6TCPConnectFallbackCount++
+	}
 }
 
 func (r *sweepBatchRunner) flushAll() error {
@@ -1882,30 +1911,31 @@ func (s *NetworkSweeper) emitTargetsForIP(
 	metadata map[string]interface{},
 	emit func(models.Target) error,
 ) error {
-	sweepModes = effectiveSweepModesForIP(ip, sweepModes)
+	requestedModes := sweepModes
+	effectiveModes := effectiveSweepModesForIP(ip, requestedModes)
 
-	if containsMode(sweepModes, models.ModeICMP) {
+	if containsMode(effectiveModes, models.ModeICMP) {
 		target := scan.TargetFromIP(ip, models.ModeICMP)
-		target.Metadata = metadata
+		target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeICMP)
 		if err := emit(target); err != nil {
 			return err
 		}
 	}
 
-	if containsMode(sweepModes, models.ModeTCP) {
+	if containsMode(effectiveModes, models.ModeTCP) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCP, port)
-			target.Metadata = metadata
+			target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeTCP)
 			if err := emit(target); err != nil {
 				return err
 			}
 		}
 	}
 
-	if containsMode(sweepModes, models.ModeTCPConnect) {
+	if containsMode(effectiveModes, models.ModeTCPConnect) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
-			target.Metadata = metadata
+			target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeTCPConnect)
 			if err := emit(target); err != nil {
 				return err
 			}
@@ -1913,6 +1943,88 @@ func (s *NetworkSweeper) emitTargetsForIP(
 	}
 
 	return nil
+}
+
+func metadataForTarget(
+	base map[string]interface{},
+	ip string,
+	requestedModes []models.SweepMode,
+	effectiveMode models.SweepMode,
+) map[string]interface{} {
+	metadata := make(map[string]interface{}, len(base)+6)
+	for key, value := range base {
+		metadata[key] = value
+	}
+
+	addressFamily := "ipv4"
+	if isIPv6String(ip) {
+		addressFamily = "ipv6"
+	}
+
+	requestedMode := effectiveMode
+	ipv6TCPFallback := false
+
+	if addressFamily == "ipv6" && effectiveMode == models.ModeTCPConnect && containsMode(requestedModes, models.ModeTCP) {
+		requestedMode = models.ModeTCP
+		ipv6TCPFallback = true
+	}
+
+	scannerPath := string(effectiveMode)
+	if ipv6TCPFallback {
+		scannerPath = "tcp_connect_ipv6_raw_syn_fallback"
+	}
+
+	metadata["address_family"] = addressFamily
+	metadata["requested_sweep_modes"] = sweepModeStrings(requestedModes)
+	metadata["requested_sweep_mode"] = string(requestedMode)
+	metadata["effective_sweep_mode"] = string(effectiveMode)
+	metadata["scanner_path"] = scannerPath
+	metadata["ipv6_raw_syn_fallback"] = ipv6TCPFallback
+
+	return metadata
+}
+
+func sweepModeStrings(modes []models.SweepMode) []string {
+	strings := make([]string, 0, len(modes))
+	for _, mode := range modes {
+		strings = append(strings, string(mode))
+	}
+
+	return strings
+}
+
+func isIPv6String(ip string) bool {
+	parsed := net.ParseIP(ip)
+	return parsed != nil && parsed.To4() == nil
+}
+
+type targetRouteSummary struct {
+	ipv4Targets                   int
+	ipv6Targets                   int
+	ipv6TCPConnectFallbackTargets int
+}
+
+func summarizeTargetRoutes(targets []models.Target) targetRouteSummary {
+	var summary targetRouteSummary
+
+	for _, target := range targets {
+		if target.Metadata == nil {
+			continue
+		}
+
+		switch target.Metadata["address_family"] {
+		case "ipv4":
+			summary.ipv4Targets++
+		case "ipv6":
+			summary.ipv6Targets++
+		}
+
+		if fallback, ok := target.Metadata["ipv6_raw_syn_fallback"].(bool); ok && fallback {
+			summary.ipv6TCPConnectFallbackTargets++
+		}
+	}
+
+	return summary
 }
 
 func effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {

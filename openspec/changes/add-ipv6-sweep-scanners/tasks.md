@@ -22,9 +22,9 @@
 - [x] 4.4 Implement fallback from IPv6 TCP mode to TCP connect without duplicate target/result accounting.
 
 ## 5. Config, Metrics, and Operator Visibility
-- [ ] 5.1 Update sweep profile/config handling to preserve mode intent while reporting effective scanner execution paths.
+- [x] 5.1 Update sweep profile/config handling to preserve mode intent while reporting effective scanner execution paths.
 - [ ] 5.2 Add protocol/family labels to scanner metrics and logs.
-- [ ] 5.3 Surface execution diagnostics for skipped or fallback IPv6 scanner paths.
+- [x] 5.3 Surface execution diagnostics for skipped or fallback IPv6 scanner paths.
 
 ## 6. Regression and Release Validation
 - [x] 6.1 Add regression tests proving broad IPv6 CIDRs are not expanded accidentally.
