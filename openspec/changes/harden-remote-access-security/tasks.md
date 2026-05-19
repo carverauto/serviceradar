@@ -845,10 +845,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Refuse export unless status ∈ `[:completed, :failed, :expired]`; or label the export `partial: true` and force a fresh export after seal
       Resolution: `RemoteAccessRecordings.export/2` now refuses recordings unless their status is sealed (`:completed`, `:failed`, or `:expired`), and the API returns `409 recording_not_exportable` for active/pending exports. Controller regression coverage verifies an active recording cannot be exported.
 
-- [ ] 3.O.3 [H] Manifest is plain JSON with no signature / hash binding to the event list
+- [x] 3.O.3 [H] Manifest is plain JSON with no signature / hash binding to the event list
       Where: `remote_access_recordings.ex:160-184` (`finish_attrs`); no `manifest_sha256` / signature column (commit: staging)
       Why: DB-level access can edit events, leaving manifest stale; no offline-verifiable integrity. Pairs with 3.H.4 (event chain) and 3.J.5 (server-side integrity).
       Fix: Compute `manifest_sha256 = HMAC(server_key, canonical_json(manifest) ++ canonical_event_digest)`; persist; verify on export and on integrity-audit cron
+      Resolution: Recording completion/failure now seals the manifest with an `hmac-sha256-v1` integrity block using a key derived from the ServiceRadar edge crypto secret. The signed input includes canonical manifest JSON and the event-chain integrity metadata; export verifies signed manifests before returning them and rejects tampered manifests. Legacy unsigned manifests remain exportable but are explicitly labeled `unsigned_legacy_manifest`.
 
 - [ ] 3.O.4 [M] Concurrent export of same recording — no lock, no `export_id`, audit row per call
       Where: `remote_access_recordings.ex:114` (commit: staging)
@@ -866,10 +867,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Stop merging live `recording.policy` into export manifest; sign the snapshot at finalisation; export uses only that
       Resolution: Completion now computes raw-payload storage from the create-time policy snapshot embedded in the recording manifest, falling back to row policy only for legacy manifests without a snapshot. Regression coverage mutates the row policy before completion and verifies the sealed manifest preserves the original snapshot.
 
-- [ ] 3.O.7 [H] No integrity primitive at all today — once 3.O.3 lands, also bind to the canonical event hash
+- [x] 3.O.7 [H] No integrity primitive at all today — once 3.O.3 lands, also bind to the canonical event hash
       Where: `remote_access_recordings.ex:160-184` (commit: staging)
       Why: Without binding manifest + events, a future "let's sign the manifest" patch is still bypassable by swapping the event list under it.
       Fix: When 3.O.3 lands, ensure the signing input is `manifest ++ Σ payload_sha256` (already on each event) — single signature covers both.
+      Resolution: The sealed manifest signature input includes the verified event-chain root and event count alongside the canonical manifest body. Export recomputes the event chain before verifying the manifest signature, so swapping or truncating events causes export to fail with `:recording_integrity_check_failed` or `:recording_manifest_integrity_check_failed`.
 
 - [ ] 3.O.8 [M] `complete` updates manifest and events without a wrapping transaction
       Where: `remote_access_recordings.ex:57-65` (commit: staging)

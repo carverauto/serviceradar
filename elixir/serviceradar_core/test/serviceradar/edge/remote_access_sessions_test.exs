@@ -1364,11 +1364,26 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     refute inspect(output_event) =~ "very-secret"
 
+    assert {:ok, %RemoteAccessRecording{status: :completed} = completed} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{
+                 input_bytes: input_event.byte_count,
+                 output_bytes: output_event.byte_count,
+                 event_count: 2
+               },
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert_receive {:remote_access_audit, completed_audit}
+    assert completed_audit[:action] == :remote_access_recording_completed
+
     assert {:error, :forbidden} =
-             RemoteAccessRecordings.export(recording, actor: %{role: :viewer})
+             RemoteAccessRecordings.export(completed, actor: %{role: :viewer})
 
     assert {:ok, export} =
-             RemoteAccessRecordings.export(recording,
+             RemoteAccessRecordings.export(completed,
                actor: %{role: :admin},
                audit_writer: AuditSink
              )
@@ -1380,10 +1395,23 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert export.manifest["event_chain_root"] ==
              RemoteAccessRecordings.event_integrity_hash(output_event)
 
+    assert export.manifest["manifest_integrity_verified"] == true
+    assert export.manifest["manifest_integrity_status"] == "verified"
+    assert export.manifest["integrity"]["algorithm"] == "hmac-sha256-v1"
+    assert is_binary(export.manifest["integrity"]["signature"])
+
     assert Enum.map(export.events, & &1.sequence) == [1, 2]
 
     assert_receive {:remote_access_audit, export_audit}
     assert export_audit[:action] == :remote_access_recording_exported
+
+    tampered =
+      completed.manifest
+      |> update_in(["integrity", "event_chain_root"], fn _root -> "tampered" end)
+      |> then(&Map.put(completed, :manifest, &1))
+
+    assert {:error, :recording_manifest_integrity_check_failed} =
+             RemoteAccessRecordings.export(tampered, actor: %{role: :admin})
   end
 
   test "recording manifests are skipped unless policy enables recording" do

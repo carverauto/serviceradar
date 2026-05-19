@@ -22,6 +22,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   @export_permission "devices.remote_access.recordings.export"
   @delete_permission "devices.remote_access.recordings.delete"
   @view_all_permission "devices.remote_access.recordings.view_all"
+  @integrity_algorithm "hmac-sha256-v1"
+  @integrity_key_context "serviceradar-remote-access-recording-integrity"
 
   @spec ensure_for_session(map() | struct(), keyword()) ::
           {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
@@ -58,9 +60,9 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def complete(nil, _attrs, _opts), do: {:ok, nil}
 
   def complete(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
-    attrs = finish_attrs(recording, attrs)
-
-    with {:ok, updated} <-
+    with {:ok, event_integrity} <- recording_event_integrity(recording),
+         {:ok, attrs} <- finish_attrs(recording, attrs, event_integrity),
+         {:ok, updated} <-
            RemoteAccessRecording.complete(recording, attrs, actor: system_actor(:complete)) do
       write_audit(:remote_access_recording_completed, updated, opts)
       {:ok, updated}
@@ -73,12 +75,10 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def fail(nil, _reason, _attrs, _opts), do: {:ok, nil}
 
   def fail(%RemoteAccessRecording{} = recording, reason, attrs, opts) when is_map(attrs) do
-    attrs =
-      recording
-      |> finish_attrs(attrs)
-      |> Map.put(:failure_reason, format_reason(reason))
-
-    with {:ok, updated} <-
+    with {:ok, event_integrity} <- recording_event_integrity(recording),
+         {:ok, attrs} <- finish_attrs(recording, attrs, event_integrity),
+         attrs = Map.put(attrs, :failure_reason, format_reason(reason)),
+         {:ok, updated} <-
            RemoteAccessRecording.fail(recording, attrs, actor: system_actor(:fail)) do
       write_audit(:remote_access_recording_failed, updated, opts)
       {:ok, updated}
@@ -131,13 +131,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     with :ok <- authorize_export(opts),
          :ok <- ensure_exportable_status(recording),
          {:ok, events} <- list_events(recording, opts),
-         {:ok, event_integrity} <- verify_event_chain(events) do
+         {:ok, event_integrity} <- verify_event_chain(events),
+         {:ok, manifest_integrity} <-
+           verify_manifest_integrity(recording.manifest, event_integrity) do
       write_audit(:remote_access_recording_exported, recording, opts)
 
       {:ok,
        %{
          recording: recording,
-         manifest: export_manifest(recording, events, event_integrity),
+         manifest: export_manifest(recording, events, event_integrity, manifest_integrity),
          events: events
        }}
     end
@@ -283,7 +285,16 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
 
   defp actor_uuid(_actor), do: nil
 
-  defp finish_attrs(recording, attrs) do
+  defp recording_event_integrity(%RemoteAccessRecording{id: recording_id}) do
+    with {:ok, events} <-
+           RemoteAccessRecordingEvent.list_for_recording(recording_id,
+             actor: system_actor(:finish_event_read)
+           ) do
+      verify_event_chain(events)
+    end
+  end
+
+  defp finish_attrs(recording, attrs, event_integrity) do
     now = RemoteAccessRecording.utc_now()
     input_bytes = nonnegative_int(value(attrs, "input_bytes"))
     output_bytes = nonnegative_int(value(attrs, "output_bytes"))
@@ -300,13 +311,16 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
         "raw_terminal_payloads_stored" => terminal_payloads_allowed?(snapshot_policy(recording))
       })
 
-    %{
-      input_bytes: input_bytes,
-      output_bytes: output_bytes,
-      event_count: event_count,
-      manifest: manifest,
-      completed_at: now
-    }
+    with {:ok, manifest} <- seal_manifest(manifest, event_integrity, now) do
+      {:ok,
+       %{
+         input_bytes: input_bytes,
+         output_bytes: output_bytes,
+         event_count: event_count,
+         manifest: manifest,
+         completed_at: now
+       }}
+    end
   end
 
   defp base_manifest(session, policy, storage, extra) do
@@ -700,7 +714,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       value(policy, "record_outputs") not in [false, "false", "no", "0", 0]
   end
 
-  defp export_manifest(recording, events, event_integrity) do
+  defp export_manifest(recording, events, event_integrity, manifest_integrity) do
     recording.manifest
     |> normalize_policy()
     |> Map.merge(%{
@@ -709,7 +723,9 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       "export_contains_payload_text" => Enum.any?(events, &is_binary(&1.payload_text)),
       "export_payloads_redacted" => Enum.any?(events, & &1.payload_redacted),
       "event_chain_verified" => Map.get(event_integrity, :verified?),
-      "event_chain_root" => Map.get(event_integrity, :root)
+      "event_chain_root" => Map.get(event_integrity, :root),
+      "manifest_integrity_verified" => Map.get(manifest_integrity, :verified?),
+      "manifest_integrity_status" => Map.get(manifest_integrity, :status)
     })
     |> reject_blank()
   end
@@ -733,6 +749,113 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       {:error, :recording_integrity_check_failed}
     end
   end
+
+  defp seal_manifest(manifest, event_integrity, signed_at) do
+    unsigned_manifest =
+      manifest
+      |> normalize_policy()
+      |> Map.delete("integrity")
+
+    integrity =
+      reject_nil(%{
+        "algorithm" => @integrity_algorithm,
+        "event_chain_root" => Map.get(event_integrity, :root),
+        "event_count" => Map.get(unsigned_manifest, "event_count"),
+        "manifest_sha256" => sha256_hex(canonical_json(unsigned_manifest)),
+        "signed_at" => DateTime.to_iso8601(signed_at)
+      })
+
+    with {:ok, signature} <- sign_manifest(unsigned_manifest, integrity) do
+      {:ok, Map.put(unsigned_manifest, "integrity", Map.put(integrity, "signature", signature))}
+    end
+  end
+
+  defp verify_manifest_integrity(manifest, event_integrity) do
+    manifest = normalize_policy(manifest)
+    integrity = manifest |> Map.get("integrity") |> normalize_policy()
+    signature = string_value(integrity, "signature")
+
+    cond do
+      is_nil(signature) ->
+        {:ok, %{verified?: false, status: "unsigned_legacy_manifest"}}
+
+      Map.get(integrity, "algorithm") != @integrity_algorithm ->
+        {:error, :recording_manifest_integrity_check_failed}
+
+      Map.get(integrity, "event_chain_root") != Map.get(event_integrity, :root) ->
+        {:error, :recording_manifest_integrity_check_failed}
+
+      true ->
+        unsigned_manifest = Map.delete(manifest, "integrity")
+        unsigned_integrity = Map.delete(integrity, "signature")
+
+        with {:ok, expected_signature} <- sign_manifest(unsigned_manifest, unsigned_integrity) do
+          if :crypto.hash_equals(signature, expected_signature) do
+            {:ok, %{verified?: true, status: "verified"}}
+          else
+            {:error, :recording_manifest_integrity_check_failed}
+          end
+        end
+    end
+  end
+
+  defp sign_manifest(unsigned_manifest, unsigned_integrity) do
+    with {:ok, key} <- integrity_key() do
+      signature =
+        :hmac
+        |> :crypto.mac(
+          :sha256,
+          key,
+          canonical_json(%{
+            "integrity" => unsigned_integrity,
+            "manifest" => unsigned_manifest
+          })
+        )
+        |> Base.encode16(case: :lower)
+
+      {:ok, signature}
+    end
+  end
+
+  defp integrity_key do
+    secret =
+      Application.get_env(:serviceradar_core, :recording_integrity_secret) ||
+        Application.get_env(:serviceradar_core, :crypto_secret) ||
+        System.get_env("SERVICERADAR_RECORDING_INTEGRITY_SECRET") ||
+        System.get_env("SERVICERADAR_EDGE_CRYPTO_SECRET") ||
+        System.get_env("EDGE_ONBOARDING_ENCRYPTION_KEY")
+
+    if is_binary(secret) and byte_size(secret) >= 32 do
+      {:ok, :crypto.mac(:hmac, :sha256, @integrity_key_context, secret)}
+    else
+      {:error, :recording_integrity_secret_missing}
+    end
+  end
+
+  defp sha256_hex(payload) when is_binary(payload) do
+    :sha256
+    |> :crypto.hash(payload)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical_json(value) when is_map(value) do
+    entries =
+      value
+      |> stringify_map()
+      |> Enum.sort_by(fn {key, _value} -> key end)
+      |> Enum.map(fn {key, nested_value} ->
+        Jason.encode!(key) <> ":" <> canonical_json(nested_value)
+      end)
+
+    "{" <> Enum.join(entries, ",") <> "}"
+  end
+
+  defp canonical_json(value) when is_list(value) do
+    "[" <> Enum.map_join(value, ",", &canonical_json/1) <> "]"
+  end
+
+  defp canonical_json(value) when is_atom(value), do: value |> Atom.to_string() |> Jason.encode!()
+  defp canonical_json(value), do: Jason.encode!(value)
 
   defp authorize_export(opts) do
     case export_actor(opts) do
