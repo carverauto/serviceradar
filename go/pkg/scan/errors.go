@@ -25,6 +25,8 @@ var (
 	ErrShortIPv4Header     = errors.New("short IPv4 header")
 	ErrNotIPv4             = errors.New("not IPv4")
 	ErrBadIPv4HeaderLength = errors.New("bad IPv4 header length")
+	ErrShortIPv6Header     = errors.New("short IPv6 header")
+	ErrNotIPv6             = errors.New("not IPv6")
 	ErrShortTCPHeader      = errors.New("short TCP header")
 	ErrBadTCPHeaderLength  = errors.New("bad TCP header length")
 

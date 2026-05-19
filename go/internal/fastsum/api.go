@@ -40,3 +40,24 @@ func TCPv4(src, dst [4]byte, tcpHdr, payload []byte) uint16 {
 
 	return Fold32(sum)
 }
+
+// TCPv6 computes the TCP checksum (IPv6 pseudo-header + TCP header + payload).
+// The TCP header's checksum field must be zeroed by the caller.
+func TCPv6(src, dst [16]byte, tcpHdr, payload []byte) uint16 {
+	var sum uint32
+
+	sum += SumBE16(src[:])
+	sum += SumBE16(dst[:])
+
+	tcpLen := len(tcpHdr) + len(payload)
+	sum += uint32(uint16(tcpLen >> 16))
+	sum += uint32(uint16(tcpLen))
+	sum += uint32(syscall.IPPROTO_TCP)
+
+	sum += SumBE16(tcpHdr)
+	if len(payload) != 0 {
+		sum += SumBE16(payload)
+	}
+
+	return Fold32(sum)
+}

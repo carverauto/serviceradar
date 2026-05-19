@@ -21,7 +21,9 @@ package scan
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"net"
 	"os"
 	"strings"
 	"syscall"
@@ -34,6 +36,60 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
+
+func TestBuildSYNPacketIPv6(t *testing.T) {
+	t.Parallel()
+
+	src := net.ParseIP("2001:db8::10")
+	dst := net.ParseIP("2001:db8::20")
+	packet := buildSYNPacketIPv6(src, dst, 40000, 443, 0x10203040)
+	require.Len(t, packet, ipv6TcpPacketSize)
+
+	ip, ipLen, err := parseIPv6(packet)
+	require.NoError(t, err)
+	assert.Equal(t, ipv6HeaderSize, ipLen)
+	assert.Equal(t, uint8(syscall.IPPROTO_TCP), ip.NextHeader)
+	assert.Equal(t, src.String(), ip.SrcIP.String())
+	assert.Equal(t, dst.String(), ip.DstIP.String())
+	assert.Equal(t, uint16(tcpHeaderMinSize), binary.BigEndian.Uint16(packet[4:6]))
+
+	tcp, tcpLen, err := parseTCP(packet[ipLen:])
+	require.NoError(t, err)
+	assert.Equal(t, tcpHeaderMinSize, tcpLen)
+	assert.Equal(t, uint16(40000), tcp.SrcPort)
+	assert.Equal(t, uint16(443), tcp.DstPort)
+	assert.Equal(t, uint32(0x10203040), tcp.Seq)
+	assert.Equal(t, uint8(synFlag), tcp.Flags)
+
+	checksum := binary.BigEndian.Uint16(packet[ipLen+16 : ipLen+18])
+	assert.NotZero(t, checksum)
+	assert.Equal(t, uint16(0), TCPChecksumIPv6New(src, dst, packet[ipLen:], nil))
+}
+
+func TestBuildSYNPacketIPv6RejectsIPv4(t *testing.T) {
+	t.Parallel()
+
+	packet := buildSYNPacketIPv6(net.ParseIP("192.0.2.10"), net.ParseIP("2001:db8::20"), 40000, 443, 1)
+	assert.Nil(t, packet)
+}
+
+func TestParseIPv6(t *testing.T) {
+	t.Parallel()
+
+	packet := buildSYNPacketIPv6(net.ParseIP("2001:db8::10"), net.ParseIP("2001:db8::20"), 40000, 443, 1)
+	ip, ipLen, err := parseIPv6(packet)
+	require.NoError(t, err)
+	assert.Equal(t, ipv6HeaderSize, ipLen)
+	assert.Equal(t, uint8(syscall.IPPROTO_TCP), ip.NextHeader)
+
+	_, _, err = parseIPv6(packet[:ipv6HeaderSize-1])
+	assert.ErrorIs(t, err, ErrShortIPv6Header)
+
+	notIPv6 := append([]byte(nil), packet...)
+	notIPv6[0] = 0x45
+	_, _, err = parseIPv6(notIPv6)
+	assert.ErrorIs(t, err, ErrNotIPv6)
+}
 
 func permissionError(err error) bool {
 	if err == nil {

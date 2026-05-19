@@ -131,10 +131,13 @@ const (
 
 	// Network packet size constants
 	ipv4HeaderMinSize  = 20   // Minimum IPv4 header size
+	ipv6HeaderSize     = 40   // Fixed IPv6 header size
 	tcpHeaderMinSize   = 20   // Minimum TCP header size
 	ethernetHeaderSize = 14   // Ethernet header size
 	ipv4TcpPacketSize  = 40   // Combined IPv4 (20) + TCP (20) header size
+	ipv6TcpPacketSize  = 60   // Combined IPv6 (40) + TCP (20) header size
 	ipv4Version        = 4    // IPv4 version number
+	ipv6Version        = 6    // IPv6 version number
 	ipv4ProtocolCheck  = 0x01 // IPv4 protocol check value
 
 	// Buffer and memory constants
@@ -714,6 +717,29 @@ func parseIPv4(b []byte) (*IPv4Hdr, int, error) {
 		SrcIP:    net.IPv4(b[12], b[13], b[14], b[15]),
 		DstIP:    net.IPv4(b[16], b[17], b[18], b[19]),
 	}, hdrLen, nil
+}
+
+// IPv6
+type IPv6Hdr struct {
+	NextHeader uint8
+	SrcIP      net.IP
+	DstIP      net.IP
+}
+
+func parseIPv6(b []byte) (*IPv6Hdr, int, error) {
+	if len(b) < ipv6HeaderSize {
+		return nil, 0, ErrShortIPv6Header
+	}
+
+	if b[0]>>4 != ipv6Version {
+		return nil, 0, ErrNotIPv6
+	}
+
+	return &IPv6Hdr{
+		NextHeader: b[6],
+		SrcIP:      append(net.IP(nil), b[8:24]...),
+		DstIP:      append(net.IP(nil), b[24:40]...),
+	}, ipv6HeaderSize, nil
 }
 
 // TCP
@@ -1779,6 +1805,41 @@ func (s *SYNScanner) buildSynPacketFromTemplate(srcIP, destIP net.IP, srcPort, d
 	copy(dst4[:], destIP.To4())
 	tcpCS := fastsum.TCPv4(src4, dst4, packet[20:40], nil)
 	binary.BigEndian.PutUint16(packet[36:], tcpCS)
+
+	return packet
+}
+
+func buildSYNPacketIPv6(srcIP, destIP net.IP, srcPort, destPort uint16, seq uint32) []byte {
+	src16 := srcIP.To16()
+	dst16 := destIP.To16()
+	if src16 == nil || dst16 == nil || srcIP.To4() != nil || destIP.To4() != nil {
+		return nil
+	}
+
+	packet := make([]byte, ipv6TcpPacketSize)
+
+	packet[0] = 0x60
+	binary.BigEndian.PutUint16(packet[4:], tcpHeaderMinSize)
+	packet[6] = syscall.IPPROTO_TCP
+	packet[7] = defaultTTL
+	copy(packet[8:24], src16)
+	copy(packet[24:40], dst16)
+
+	tcp := packet[ipv6HeaderSize:]
+	binary.BigEndian.PutUint16(tcp[0:], srcPort)
+	binary.BigEndian.PutUint16(tcp[2:], destPort)
+	binary.BigEndian.PutUint32(tcp[4:], seq)
+	binary.BigEndian.PutUint32(tcp[8:], 0)
+	tcp[12] = 5 << 4
+	tcp[13] = synFlag
+	binary.BigEndian.PutUint16(tcp[14:], defaultTCPWindow)
+	binary.BigEndian.PutUint16(tcp[16:], 0)
+	binary.BigEndian.PutUint16(tcp[18:], 0)
+
+	var src, dst [16]byte
+	copy(src[:], src16)
+	copy(dst[:], dst16)
+	binary.BigEndian.PutUint16(tcp[16:], fastsum.TCPv6(src, dst, tcp, nil))
 
 	return packet
 }
@@ -3120,6 +3181,15 @@ func TCPChecksumNew(src, dst net.IP, tcpHdr, payload []byte) uint16 {
 	copy(dst4[:], dst.To4())
 
 	return fastsum.TCPv4(src4, dst4, tcpHdr, payload)
+}
+
+// TCPChecksumIPv6New computes the TCP checksum with an IPv6 pseudo-header.
+func TCPChecksumIPv6New(src, dst net.IP, tcpHdr, payload []byte) uint16 {
+	var src16, dst16 [16]byte
+	copy(src16[:], src.To16())
+	copy(dst16[:], dst.To16())
+
+	return fastsum.TCPv6(src16, dst16, tcpHdr, payload)
 }
 
 // readLocalPortRange reads the system's ephemeral port range from /proc
