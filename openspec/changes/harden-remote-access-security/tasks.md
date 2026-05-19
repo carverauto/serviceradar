@@ -1022,10 +1022,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: For a *bastion*, any pod in the namespace can speak to core / web-ng / agent-gateway / datasvc — that includes compromised sidecars or co-tenant workloads. Combined with 6.P.11 this is in-namespace cluster takeover.
       Fix: Default-deny ingress + explicit allow ingress edges (`agent → agent-gateway`, `web-ng → core`, `ingress-controller → web-ng`, `core/web-ng/gateway → datasvc`); emit a second NetworkPolicy or extend the template.
 
-- [ ] 6.P.2 [H] Agent DaemonSet runs `privileged: true` despite already requesting `CAP_BPF`+`CAP_PERFMON`
+- [x] 6.P.2 [H] Agent DaemonSet runs `privileged: true` despite already requesting `CAP_BPF`+`CAP_PERFMON`
       Where: `helm/serviceradar/templates/agent.yaml:87` (`privileged: true`) + caps at `:95` (working tree)
       Why: `privileged: true` grants *all* capabilities, write-access to `/dev/*`, and host-device control. With `CAP_BPF` + `CAP_PERFMON` already explicit, this is a *node-level privesc* primitive on every node running the agent.
       Fix: Drop `privileged: true`; rely on the explicit cap set; verify on each supported kernel (≥5.8 per 3.L.1) that the eBPF programs load with caps only. Fall back to `privileged: true` only with a feature flag + audit on use.
+      Resolution: Closed by verification against the current chart: `agent.ebpf.privileged` defaults to `false`, and an eBPF-enabled render grants only the configured `BPF`, `PERFMON`, and `SYS_RESOURCE` capabilities without emitting `privileged: true`. The privileged path remains an explicit operator override for kernels/environments that cannot run the probes with scoped caps.
 
 - [x] 6.P.3 [H] datasvc PVC has no `storageClassName` — defaults to whatever the cluster supplies, often unencrypted
       Where: `helm/serviceradar/templates/datasvc.yaml:148-160` (working tree)
