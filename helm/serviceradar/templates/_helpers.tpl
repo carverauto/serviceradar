@@ -91,6 +91,22 @@ imagePullSecrets:
 {{- end }}
 {{- end -}}
 
+{{/*
+Render a Kubernetes NetworkPolicy ports list from values entries shaped as:
+  - protocol: TCP
+    port: 50052
+    endPort: 50060 # optional
+*/}}
+{{- define "serviceradar.networkPolicyPorts" -}}
+{{- range . }}
+- protocol: {{ default "TCP" .protocol }}
+  port: {{ .port }}
+  {{- if .endPort }}
+  endPort: {{ .endPort }}
+  {{- end }}
+{{- end }}
+{{- end -}}
+
 {{- define "serviceradar.runtimeCertsSecretName" -}}
 {{- default "serviceradar-runtime-certs" .Values.certs.runtimeSecretName -}}
 {{- end -}}

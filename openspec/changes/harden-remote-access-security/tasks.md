@@ -1052,10 +1052,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Add `runAsUser: 65534` (or 1001 to match) and `fsGroup: 1001` (+ `fsGroupChangePolicy: OnRootMismatch`) to the pod helper; containers override only when they need a specific UID.
       Resolution: Closed by updating the shared Helm pod securityContext helper to set `runAsUser: 1001`, `runAsGroup: 1001`, `fsGroup: 1001`, and `fsGroupChangePolicy: OnRootMismatch` alongside `runAsNonRoot` and `RuntimeDefault` seccomp. Containers with explicit runtime needs still override at container scope.
 
-- [ ] 6.P.7 [M] Elixir cluster cookie shared via env-Secret; no NetworkPolicy gate on epmd / dist port
+- [x] 6.P.7 [M] Elixir cluster cookie shared via env-Secret; no NetworkPolicy gate on epmd / dist port
       Where: `core.yaml:131-134`, `web.yaml:273-277`, `agent-gateway.yaml:107-111` (`RELEASE_COOKIE` from Secret); no `:4369` allow rule (working tree)
       Why: Erlang distribution is unauthenticated once the cookie matches; any pod that obtains the cookie *and* can reach `epmd` (4369) + a distribution port can join the cluster as a peer. With 6.P.1 (ingress wide-open) this is reachable from any namespace pod.
       Fix: NetworkPolicy ingress allows `:4369` + distribution port range *only* from matching label selector; rotate the cookie on a schedule; document SPIRE mTLS dependency as the primary identity gate.
+      Resolution: NetworkPolicy ingress now separates ordinary application ports from ERTS. EPMD `4369/TCP` and distribution `9100-9155/TCP` are allowed only from same-namespace pods matching the configured cluster-member selector (`serviceradar-core`, `serviceradar-web-ng`, `serviceradar-agent-gateway` by default), and the chart README documents the cookie/port boundary.
 
 - [x] 6.P.8 [M] `PHX_CHECK_ORIGIN` defaults to `"false"` in the web-ng pod template
       Where: `helm/serviceradar/templates/web.yaml:203` (working tree)

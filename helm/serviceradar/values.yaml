@@ -1221,6 +1221,78 @@ networkPolicy:
     allowSameNamespace: true
     allowedNamespaces: []
     allowedCIDRs: []
+    # Ordinary application ingress ports. ERTS distribution is intentionally
+    # excluded and handled by ingress.erts below so the BEAM cookie cannot be
+    # abused by arbitrary same-namespace pods.
+    allowedPorts:
+      - protocol: TCP
+        port: 4000
+      - protocol: TCP
+        port: 4222
+      - protocol: TCP
+        port: 4317
+      - protocol: TCP
+        port: 50040
+      - protocol: TCP
+        port: 50041
+      - protocol: TCP
+        port: 50043
+      - protocol: TCP
+        port: 50044
+      - protocol: TCP
+        port: 50046
+      - protocol: TCP
+        port: 50051
+      - protocol: TCP
+        port: 50052
+      - protocol: TCP
+        port: 50053
+      - protocol: TCP
+        port: 50057
+      - protocol: TCP
+        port: 50081
+      - protocol: TCP
+        port: 5432
+      - protocol: TCP
+        port: 6222
+      - protocol: TCP
+        port: 8080
+      - protocol: TCP
+        port: 8081
+      - protocol: TCP
+        port: 8090
+      - protocol: TCP
+        port: 8222
+      - protocol: TCP
+        port: 9090
+      - protocol: TCP
+        port: 11019
+      - protocol: UDP
+        port: 162
+      - protocol: UDP
+        port: 514
+      - protocol: UDP
+        port: 2055
+      - protocol: UDP
+        port: 4739
+      - protocol: UDP
+        port: 6343
+    erts:
+      enabled: true
+      podSelector:
+        matchExpressions:
+          - key: app
+            operator: In
+            values:
+              - serviceradar-core
+              - serviceradar-web-ng
+              - serviceradar-agent-gateway
+      ports:
+        - protocol: TCP
+          port: 4369
+        - protocol: TCP
+          port: 9100
+          endPort: 9155
   egress:
     allowDNS: true
     allowKubeAPIServer: true
