@@ -901,10 +901,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Always overwrite with `recording.session_id`; ignore the input field.
       Resolution: Current event construction persists `session_id: recording.session_id`; controller regression coverage now records an event with a spoofed `session_id` attr and asserts the API returns the authoritative recording session id.
 
-- [ ] 3.O.13 [L] Redaction-decision metadata is captured at record-time; policy edits don't retro-apply (consistency, not security)
+- [x] 3.O.13 [L] Redaction-decision metadata is captured at record-time; policy edits don't retro-apply (consistency, not security)
       Where: `remote_access_recordings.ex:288-312` (commit: staging)
       Why: Manifest can show stale redaction decisions if the global CredentialRedactor secrets list changes.
       Fix: Document explicitly; optionally version-stamp the redactor snapshot in the recording.
+      Resolution: Recording manifests now include a signed `redaction_policy` snapshot with the credential redactor version, `decision_time: record_time`, `policy_edits_retroactive: false`, and the terminal/input/output payload policy booleans. Regression coverage asserts the snapshot is present on created manifests.
 
 - [x] 3.O.14 [M] `storage_backend` / `storage_bucket` / `object_key` columns are vestigial — leak misleading infra hints to clients
       Where: `remote_access_recording.ex:17-19`; serialized by `remote_access_recording_controller.ex:94-96` (commit: staging)

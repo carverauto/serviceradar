@@ -435,11 +435,23 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
       "object_key" => storage.object_key,
       "recording_mode" => Map.get(policy, "mode") || "metadata",
       "content_recording" => terminal_payloads_allowed?(policy),
+      "redaction_policy" => redaction_policy_snapshot(policy),
       "policy" => policy
     }
     |> Map.merge(extra)
     |> reject_blank()
     |> CredentialRedactor.redact()
+  end
+
+  defp redaction_policy_snapshot(policy) do
+    %{
+      "credential_redactor" => CredentialRedactor.version(),
+      "decision_time" => "record_time",
+      "policy_edits_retroactive" => false,
+      "terminal_payloads_allowed" => terminal_payloads_allowed?(policy),
+      "input_payloads_allowed" => input_payloads_allowed?(policy),
+      "output_payloads_allowed" => output_payloads_allowed?(policy)
+    }
   end
 
   defp snapshot_policy(%RemoteAccessRecording{manifest: manifest, policy: policy}) do

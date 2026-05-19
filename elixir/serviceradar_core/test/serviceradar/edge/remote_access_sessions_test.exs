@@ -1094,6 +1094,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert recording.manifest["rbac_decision"] == "allowed"
     assert recording.manifest["idle_timeout_seconds"] == 900
     assert recording.manifest["absolute_timeout_seconds"] == 3600
+
+    assert recording.manifest["redaction_policy"]["credential_redactor"] ==
+             "serviceradar_credential_redactor_v1"
+
+    assert recording.manifest["redaction_policy"]["decision_time"] == "record_time"
+    assert recording.manifest["redaction_policy"]["policy_edits_retroactive"] == false
+    assert recording.manifest["redaction_policy"]["terminal_payloads_allowed"] == false
     assert recording.retention_expires_at
     assert DateTime.after?(recording.retention_expires_at, DateTime.utc_now())
     refute inspect(recording) =~ "OPENSSH PRIVATE KEY"
