@@ -1,7 +1,7 @@
 ## 1. Scanner Capability Audit
-- [ ] 1.1 Inventory current IPv4 ICMP, TCP connect, and raw SYN scanner interfaces and their result contracts.
-- [ ] 1.2 Identify shared packet encoding, response classification, metrics, and batching logic that can be reused without forcing IPv4 assumptions.
-- [ ] 1.3 Document runtime privilege requirements for Linux packages, containers, and systemd deployments.
+- [x] 1.1 Inventory current IPv4 ICMP, TCP connect, and raw SYN scanner interfaces and their result contracts.
+- [x] 1.2 Identify shared packet encoding, response classification, metrics, and batching logic that can be reused without forcing IPv4 assumptions.
+- [x] 1.3 Document runtime privilege requirements for Linux packages, containers, and systemd deployments.
 
 ## 2. ICMPv6 Scanner
 - [x] 2.1 Implement ICMPv6 echo request packet construction and response parsing.
@@ -29,5 +29,5 @@
 ## 6. Regression and Release Validation
 - [x] 6.1 Add regression tests proving broad IPv6 CIDRs are not expanded accidentally.
 - [x] 6.2 Add focused Go tests for `go/pkg/scan`, `go/pkg/sweeper`, and `go/cmd/agent`.
-- [ ] 6.3 Add a documented manual validation path using an IPv6 loopback target and a reachable IPv6 host.
-- [ ] 6.4 Verify package/container manifests still grant the capabilities required for raw scanners.
+- [x] 6.3 Add a documented manual validation path using an IPv6 loopback target and a reachable IPv6 host.
+- [x] 6.4 Verify package/container manifests still grant the capabilities required for raw scanners.
