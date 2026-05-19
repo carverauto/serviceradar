@@ -431,7 +431,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionController do
          agent_id: get_in(target, ["route", "agent_id"]),
          gateway_id: get_in(target, ["route", "gateway_id"]),
          credential_custody_mode: Map.get(target, "credential_custody_mode", "user_present"),
-         credential_rule_id: nil,
+         credential_rule_id: Map.get(target, "credential_rule_id"),
          approval_required: Map.get(target, "approval_required"),
          approval_id: approval_id,
          cols: nil,

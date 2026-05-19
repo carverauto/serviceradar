@@ -160,6 +160,7 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
       agent_id: target.agent_id,
       gateway_id: target.gateway_id,
       credential_custody_mode: target.credential_custody_mode,
+      credential_rule_id: target.credential_rule_id,
       approval_required: target.approval_required,
       target_tls: target.target_tls,
       nla: target.nla,
@@ -187,6 +188,7 @@ defmodule ServiceRadarWebNG.RemoteAccessDesktopTargets do
          "adapter" => "rdp",
          "credential_custody_mode" =>
            string_field_value(target, ["credential_custody_mode", :credential_custody_mode]) || "user_present",
+         "credential_rule_id" => string_field_value(target, ["credential_rule_id", :credential_rule_id]),
          "approval_required" => boolean_field(target, ["approval_required", :approval_required], false),
          "route" =>
            compact_map(%{

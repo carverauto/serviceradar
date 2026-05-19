@@ -3409,6 +3409,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_remote_access_app, can_remote_access_app?(assigns.current_scope))
+      |> assign(:can_manage_rdp_targets, can_manage_rdp_targets?(assigns.current_scope))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(
         :can_view_northbound_history,
@@ -3517,6 +3518,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-window" class="size-4" /> Apps
             </.ui_button>
             <.ui_button
+              :if={@can_manage_rdp_targets and not @device_deleted}
+              href={rdp_target_new_path(@device_uid, @device_row)}
+              variant="outline"
+              size="sm"
+            >
+              <.icon name="hero-computer-desktop" class="size-4" /> Enable RDP
+            </.ui_button>
+            <.ui_button
               :if={@can_edit and not @editing}
               phx-click="toggle_edit"
               variant="outline"
@@ -3569,7 +3578,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-
+          
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -3676,7 +3685,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </div>
             </div>
           </div>
-
+          
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -4051,7 +4060,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </.form>
             </div>
           </div>
-
+          
     <!-- Tabs Navigation -->
           <div
             :if={is_map(@device_row)}
@@ -4120,7 +4129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
             </button>
           </div>
-
+          
     <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
@@ -4262,12 +4271,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-
+          
     <!-- Guests Tab Content -->
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
-
+          
     <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content
@@ -4284,7 +4293,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
             />
           </div>
-
+          
     <!-- Flows Tab Content -->
           <div :if={@active_tab == "flows" and @has_flows}>
             <.flows_tab_content
@@ -4324,7 +4333,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               limit={@logs_limit}
             />
           </div>
-
+          
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
@@ -4336,7 +4345,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
             </div>
           </div>
-
+          
     <!-- MTR Diagnostics Tab Content -->
           <div :if={@active_tab == "mtr"}>
             <% mtr_dashboard = mtr_trace_dashboard(@mtr_traces, @mtr_pending_jobs, @mtr_trends) %>
@@ -11165,7 +11174,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     FeatureFlags.remote_access_app_enabled?() and RBAC.can?(scope, "devices.remote_access.app.open")
   end
 
+  defp can_manage_rdp_targets?(scope) do
+    FeatureFlags.remote_access_desktop_rdp_enabled?() and RBAC.can?(scope, "settings.edge.manage")
+  end
+
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
+
+  defp rdp_target_new_path(device_uid, device_row) do
+    params =
+      %{
+        device_uid: device_uid,
+        target_host: rdp_target_host(device_row),
+        name: rdp_target_name(device_row),
+        target_tls_server_name: rdp_target_server_name(device_row)
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+      |> Map.new()
+
+    ~p"/settings/networks/desktop-targets/new?#{params}"
+  end
+
+  defp rdp_target_host(row) when is_map(row) do
+    first_present([Map.get(row, "ip"), Map.get(row, "hostname"), Map.get(row, "name")])
+  end
+
+  defp rdp_target_host(_row), do: nil
+
+  defp rdp_target_name(row) when is_map(row) do
+    case device_display_name(row) do
+      "Device" -> nil
+      label -> "#{label} RDP"
+    end
+  end
+
+  defp rdp_target_name(_row), do: nil
+
+  defp rdp_target_server_name(row) when is_map(row) do
+    first_present([Map.get(row, "hostname"), Map.get(row, "name")])
+  end
+
+  defp rdp_target_server_name(_row), do: nil
 
   defp ssh_capable_device?(nil), do: false
 

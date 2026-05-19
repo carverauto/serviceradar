@@ -182,6 +182,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       user: user
     } do
       session_id = Ecto.UUID.generate()
+      credential_rule_id = Ecto.UUID.generate()
       put_test_permissions(user, ["devices.remote_access.rdp.open"])
       Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, true)
 
@@ -194,7 +195,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
           target_port: 3389,
           agent_id: "agent-1",
           gateway_id: "gateway-1",
-          credential_custody_mode: "user_present",
+          credential_custody_mode: "centrally_brokered",
+          credential_rule_id: credential_rule_id,
           approval_required: true,
           target_tls: %{"mode" => "verify_ca", "password" => "must-not-forward"},
           nla: %{"required" => true},
@@ -259,7 +261,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.target_port == 3389
       assert request.agent_id == "agent-1"
       assert request.gateway_id == "gateway-1"
-      assert request.credential_custody_mode == "user_present"
+      assert request.credential_custody_mode == "centrally_brokered"
+      assert request.credential_rule_id == credential_rule_id
       assert request.approval_required == true
       assert request.metadata["desktop_target_id"] == "desktop-target-1"
       assert request.metadata["target_display_name"] == "Finance Desktop"

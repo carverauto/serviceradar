@@ -1,27 +1,34 @@
 defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   @moduledoc """
-  Operator settings page for registered RDP desktop targets.
+  Operator settings page for registered RDP hosts.
   """
 
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.RemoteAccessDesktopTarget
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RemoteAccessDesktopTargets
   alias ServiceRadarWebNGWeb.FeatureFlags
 
+  require Ash.Query
+
   @current_path "/settings/networks/desktop-targets"
   @manage_permission "settings.edge.manage"
   @credential_modes %{
-    "domain_delegation" => :domain_delegation,
-    "smart_card" => :smart_card,
-    "certificate" => :certificate,
     "user_present" => :user_present,
     "centrally_brokered" => :centrally_brokered
   }
-  @target_kinds %{"inventory_device" => :inventory_device, "freeform_target" => :freeform_target}
+  @credential_mode_options [
+    {"Prompt user when connecting", "user_present"},
+    {"Use a credential rule", "centrally_brokered"}
+  ]
+  @target_kinds %{"inventory_device" => :inventory_device}
   @clipboard_modes ~w(disabled local_to_remote remote_to_local bidirectional)
   @recording_modes ~w(metadata_only screen_content)
   @target_tls_modes ~w(verify_ca skip_verify)
@@ -40,18 +47,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       not can_manage?(scope) ->
         {:ok,
          socket
-         |> put_flash(:error, "Not authorized to manage RDP desktop targets")
+         |> put_flash(:error, "Not authorized to manage RDP hosts")
          |> redirect(to: ~p"/settings/profile")}
 
       true ->
         {:ok,
          socket
-         |> assign(:page_title, "RDP Desktop Targets")
+         |> assign(:page_title, "RDP Access")
          |> assign(:current_path, @current_path)
          |> assign(:targets, [])
          |> assign(:loading?, true)
          |> assign(:form_mode, nil)
          |> assign(:editing_target, nil)
+         |> assign(:device_options, [])
+         |> assign(:device_option_data, %{})
+         |> assign(:agent_options, [])
+         |> assign(:agent_option_data, %{})
+         |> assign(:gateway_options, [])
+         |> assign(:credential_rule_options, [])
          |> assign(:target_form, target_form(default_target_params()))}
     end
   end
@@ -77,6 +90,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   @impl true
   def handle_event("change_target", %{"desktop_target" => params}, socket) do
     authorize_manage_event(socket, fn ->
+      params =
+        params
+        |> apply_selected_device(socket.assigns.device_option_data)
+        |> apply_selected_agent(socket.assigns.agent_option_data)
+
       {:noreply, assign(socket, :target_form, target_form(normalize_form_params(params)))}
     end)
   end
@@ -98,13 +116,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   def handle_event("disable_target", %{"id" => id}, socket) do
     authorize_manage_event(socket, fn ->
-      set_enabled(socket, id, false, "RDP desktop target disabled")
+      set_enabled(socket, id, false, "RDP host disabled")
     end)
   end
 
   def handle_event("enable_target", %{"id" => id}, socket) do
     authorize_manage_event(socket, fn ->
-      set_enabled(socket, id, true, "RDP desktop target enabled")
+      set_enabled(socket, id, true, "RDP host enabled")
     end)
   end
 
@@ -112,8 +130,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   def render(assigns) do
     assigns =
       assigns
-      |> assign(:target_kind_options, enum_options(Map.keys(@target_kinds)))
-      |> assign(:credential_mode_options, enum_options(Map.keys(@credential_modes)))
+      |> assign(:credential_mode_options, @credential_mode_options)
       |> assign(:target_tls_mode_options, enum_options(@target_tls_modes))
       |> assign(:clipboard_mode_options, enum_options(@clipboard_modes))
       |> assign(:recording_mode_options, enum_options(@recording_modes))
@@ -129,16 +146,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 class="text-xl font-semibold">RDP Desktop Targets</h1>
+              <h1 class="text-xl font-semibold">RDP Access</h1>
               <p class="mt-1 text-sm text-base-content/70">
-                Register trusted Windows desktop endpoints that users can open through routed agents.
+                Make Windows desktops available through trusted edge agents.
               </p>
             </div>
             <.link
               navigate={~p"/settings/networks/desktop-targets/new"}
               class="btn btn-primary btn-sm"
             >
-              New Target
+              Add RDP Host
             </.link>
           </div>
 
@@ -159,12 +176,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                 <tbody>
                   <tr :if={@loading?}>
                     <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
-                      Loading RDP desktop targets.
+                      Loading RDP hosts.
                     </td>
                   </tr>
                   <tr :if={!@loading? and @targets == []}>
                     <td colspan="7" class="py-8 text-center text-sm text-base-content/60">
-                      No RDP desktop targets found.
+                      No RDP hosts are configured yet. Open a device and choose Enable RDP, or add
+                      one here.
                     </td>
                   </tr>
                   <tr :for={target <- @targets}>
@@ -251,11 +269,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
           :if={@form_mode in [:new, :edit]}
           form={@target_form}
           mode={@form_mode}
-          target_kind_options={@target_kind_options}
           credential_mode_options={@credential_mode_options}
           target_tls_mode_options={@target_tls_mode_options}
           clipboard_mode_options={@clipboard_mode_options}
           recording_mode_options={@recording_mode_options}
+          device_options={@device_options}
+          agent_options={@agent_options}
+          gateway_options={@gateway_options}
+          credential_rule_options={@credential_rule_options}
         />
       </.settings_shell>
     </Layouts.app>
@@ -264,11 +285,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   attr(:form, :map, required: true)
   attr(:mode, :atom, required: true)
-  attr(:target_kind_options, :list, required: true)
   attr(:credential_mode_options, :list, required: true)
   attr(:target_tls_mode_options, :list, required: true)
   attr(:clipboard_mode_options, :list, required: true)
   attr(:recording_mode_options, :list, required: true)
+  attr(:device_options, :list, required: true)
+  attr(:agent_options, :list, required: true)
+  attr(:gateway_options, :list, required: true)
+  attr(:credential_rule_options, :list, required: true)
 
   defp target_form_modal(assigns) do
     ~H"""
@@ -276,7 +300,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       <div class="modal-box max-w-5xl rounded-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-lg font-semibold">
-            {if @mode == :new, do: "New RDP Desktop Target", else: "Edit RDP Desktop Target"}
+            {if @mode == :new, do: "Enable RDP Access", else: "Edit RDP Access"}
           </h2>
           <.link navigate={~p"/settings/networks/desktop-targets"} class="btn btn-ghost btn-sm">
             Close
@@ -292,15 +316,25 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
               label="Enabled"
             />
             <.input field={@form[:description]} type="textarea" label="Description" />
-            <.input
-              field={@form[:target_kind]}
-              type="select"
-              label="Target Kind"
-              options={@target_kind_options}
-              required
-            />
-            <.input field={@form[:device_uid]} label="Device UID" required />
-            <.input field={@form[:target_host]} label="Target Host" required />
+            <.input field={@form[:target_kind]} type="hidden" />
+            <%= if @device_options == [] do %>
+              <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm md:col-span-2">
+                No inventory devices are available to select. <.link
+                  navigate={~p"/devices"}
+                  class="link link-primary"
+                >Open device inventory</.link>.
+              </div>
+            <% else %>
+              <.input
+                field={@form[:device_uid]}
+                type="select"
+                label="Device"
+                prompt="Select a device"
+                options={@device_options}
+                required
+              />
+            <% end %>
+            <.input field={@form[:target_host]} label="RDP Hostname or IP" required />
             <.input
               field={@form[:target_port]}
               type="number"
@@ -309,21 +343,63 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
               max="65535"
               required
             />
-            <.input field={@form[:agent_id]} label="Agent ID" />
-            <.input field={@form[:gateway_id]} label="Gateway ID" />
+            <%= if @agent_options == [] do %>
+              <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+                No active agents are available. The target can be saved, but sessions need an RDP-capable agent.
+              </div>
+            <% else %>
+              <.input
+                field={@form[:agent_id]}
+                type="select"
+                label="Edge Agent"
+                prompt="Auto-route or select an agent"
+                options={@agent_options}
+              />
+            <% end %>
+            <%= if @gateway_options == [] do %>
+              <div class="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+                No healthy gateways are available. The selected agent can still supply its gateway when known.
+              </div>
+            <% else %>
+              <.input
+                field={@form[:gateway_id]}
+                type="select"
+                label="Gateway"
+                prompt="Use agent gateway"
+                options={@gateway_options}
+              />
+            <% end %>
             <.input
               field={@form[:credential_custody_mode]}
               type="select"
-              label="Credential Mode"
+              label="RDP Sign-in"
               options={@credential_mode_options}
               required
             />
-            <.input field={@form[:credential_rule_id]} label="Credential Rule ID" />
+            <%= if @credential_rule_options == [] do %>
+              <div class="rounded-lg border border-info/40 bg-info/10 p-3 text-sm">
+                No credential rules exist yet.
+                <.link navigate={~p"/settings/networks/credentials/new"} class="link link-primary">
+                  Create a credential rule
+                </.link>
+                if you want stored/brokered credentials. Users can still connect by entering
+                credentials at session start.
+              </div>
+              <.input field={@form[:credential_rule_id]} type="hidden" />
+            <% else %>
+              <.input
+                field={@form[:credential_rule_id]}
+                type="select"
+                label="Credential Rule"
+                prompt="Prompt user instead"
+                options={@credential_rule_options}
+              />
+            <% end %>
           </div>
 
           <div class="grid gap-4 lg:grid-cols-3">
             <fieldset class="rounded-lg border border-base-300 p-4">
-              <legend class="px-1 text-sm font-medium">Desktop Security</legend>
+              <legend class="px-1 text-sm font-medium">RDP Security</legend>
               <div class="space-y-3">
                 <.input
                   field={@form[:target_tls_mode]}
@@ -333,11 +409,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
                   required
                 />
                 <.input field={@form[:target_tls_server_name]} label="TLS Server Name" />
-                <.input field={@form[:target_tls_ca_bundle_id]} label="CA Bundle ID" />
+                <.input field={@form[:target_tls_ca_bundle_id]} type="hidden" />
                 <.input
                   field={@form[:target_tls_ca_bundle_pem]}
                   type="textarea"
-                  label="CA Bundle PEM"
+                  label="CA Certificate"
+                  placeholder="Paste the issuing CA PEM when Target TLS is Verify CA"
                 />
                 <.input field={@form[:nla_required]} type="checkbox" label="Require NLA" />
                 <.input
@@ -400,32 +477,42 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   end
 
   defp load_page(socket, params) do
+    form_options = load_form_options(socket.assigns.current_scope)
+
     case RemoteAccessDesktopTargets.list_managed(socket.assigns.current_scope) do
       {:ok, targets} ->
         socket
+        |> assign(form_options)
         |> assign(:targets, targets)
         |> assign(:loading?, false)
         |> assign_form(params, targets)
 
       {:error, reason} ->
         socket
+        |> assign(form_options)
         |> assign(:targets, [])
         |> assign(:loading?, false)
-        |> put_flash(:error, "Failed to load RDP desktop targets: #{format_error(reason)}")
+        |> put_flash(:error, "Failed to load RDP hosts: #{format_error(reason)}")
     end
   end
 
-  defp assign_form(%{assigns: %{form_mode: :new}} = socket, _params, _targets) do
+  defp assign_form(%{assigns: %{form_mode: :new}} = socket, params, _targets) do
+    form_params =
+      params
+      |> default_target_params()
+      |> apply_selected_device(socket.assigns.device_option_data)
+      |> apply_selected_agent(socket.assigns.agent_option_data)
+
     socket
     |> assign(:editing_target, nil)
-    |> assign(:target_form, target_form(default_target_params()))
+    |> assign(:target_form, target_form(form_params))
   end
 
   defp assign_form(%{assigns: %{form_mode: :edit}} = socket, params, targets) do
     case Enum.find(targets, &(to_string(&1.id) == to_string(params["id"]))) do
       nil ->
         socket
-        |> put_flash(:error, "RDP desktop target not found")
+        |> put_flash(:error, "RDP host not found")
         |> push_patch(to: ~p"/settings/networks/desktop-targets")
 
       target ->
@@ -441,42 +528,204 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
     |> assign(:target_form, target_form(default_target_params()))
   end
 
+  defp load_form_options(scope) do
+    devices = load_devices(scope)
+    agents = load_agents(scope)
+    gateways = load_gateways(scope)
+    credential_rules = load_credential_rules(scope)
+
+    %{
+      device_options: Enum.map(devices, &device_option/1),
+      device_option_data: Map.new(devices, &device_option_data/1),
+      agent_options: Enum.map(agents, &agent_option/1),
+      agent_option_data: Map.new(agents, &agent_option_data/1),
+      gateway_options: Enum.map(gateways, &gateway_option/1),
+      credential_rule_options: Enum.map(credential_rules, &credential_rule_option/1)
+    }
+  end
+
+  defp load_devices(scope) do
+    Device
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(hostname: :asc, ip: :asc, uid: :asc)
+    |> Ash.Query.limit(2_000)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, devices} -> ash_results(devices)
+      _ -> []
+    end
+  end
+
+  defp load_agents(scope) do
+    Agent
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(uid: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> agents |> ash_results() |> Enum.filter(&active_agent?/1)
+      _ -> []
+    end
+  end
+
+  defp load_gateways(scope) do
+    Gateway
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(id: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, gateways} -> gateways |> ash_results() |> Enum.filter(&active_gateway?/1)
+      _ -> []
+    end
+  end
+
+  defp load_credential_rules(scope) do
+    NetworkCredentialRule
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(enabled == true and purpose in [:console_access, :generic])
+    |> Ash.Query.sort(priority: :asc, name: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, rules} -> ash_results(rules)
+      _ -> []
+    end
+  end
+
+  defp ash_results(%Ash.Page.Keyset{results: results}), do: results
+  defp ash_results(results) when is_list(results), do: results
+  defp ash_results(_results), do: []
+
+  defp active_agent?(%Agent{last_seen_time: %DateTime{} = last_seen_time, status: status})
+       when status in [:connected, :degraded, :connecting] do
+    DateTime.diff(DateTime.utc_now(), last_seen_time, :minute) <= 30
+  end
+
+  defp active_agent?(%Agent{status: status}) when status in [:connected, :degraded], do: true
+  defp active_agent?(_agent), do: false
+
+  defp active_gateway?(%Gateway{last_seen: %DateTime{} = last_seen, status: status})
+       when status in [:healthy, :degraded] do
+    DateTime.diff(DateTime.utc_now(), last_seen, :minute) <= 30
+  end
+
+  defp active_gateway?(%Gateway{status: :healthy}), do: true
+  defp active_gateway?(_gateway), do: false
+
+  defp device_option(%Device{} = device), do: {device_label(device), device.uid}
+
+  defp device_option_data(%Device{} = device) do
+    {device.uid,
+     %{
+       "name" => first_non_empty([device.hostname, device.name, device.ip, device.uid]),
+       "target_host" => first_non_empty([device.ip, device.hostname]),
+       "agent_id" => blank_to_string(device.availability_source_agent_id || device.agent_id),
+       "gateway_id" => blank_to_string(device.gateway_id)
+     }}
+  end
+
+  defp agent_option(%Agent{} = agent), do: {agent_label(agent), agent.uid}
+
+  defp agent_option_data(%Agent{} = agent) do
+    {agent.uid, %{"gateway_id" => blank_to_string(agent.gateway_id)}}
+  end
+
+  defp gateway_option(%Gateway{} = gateway) do
+    label =
+      [gateway.component_id, gateway.id, gateway.status]
+      |> Enum.reject(&empty_label_part?/1)
+      |> Enum.join(" - ")
+
+    {label, gateway.id}
+  end
+
+  defp credential_rule_option(%NetworkCredentialRule{} = rule) do
+    route =
+      [rule.scope_type, rule.scope_value]
+      |> Enum.reject(&empty_label_part?/1)
+      |> Enum.join(":")
+
+    label =
+      [rule.name, rule.provider, route]
+      |> Enum.reject(&empty_label_part?/1)
+      |> Enum.join(" - ")
+
+    {label, rule.id}
+  end
+
+  defp device_label(%Device{} = device) do
+    [first_non_empty([device.hostname, device.name, device.ip, device.uid]), device.ip, device.type]
+    |> Enum.reject(&empty_label_part?/1)
+    |> Enum.uniq()
+    |> Enum.join(" - ")
+  end
+
+  defp agent_label(%Agent{} = agent) do
+    status = if is_nil(agent.status), do: nil, else: to_string(agent.status)
+
+    [agent.name, agent.uid, agent.host || agent.ip, status]
+    |> Enum.reject(&empty_label_part?/1)
+    |> Enum.uniq()
+    |> Enum.join(" - ")
+  end
+
+  defp apply_selected_device(params, device_data) when is_map(params) and is_map(device_data) do
+    selected = blank_to_nil(params["device_uid"])
+    data = if selected, do: Map.get(device_data, selected, %{}), else: %{}
+    default_name = Map.get(data, "name")
+
+    params
+    |> put_if_blank("target_host", Map.get(data, "target_host"))
+    |> put_if_blank("agent_id", Map.get(data, "agent_id"))
+    |> put_if_blank("gateway_id", Map.get(data, "gateway_id"))
+    |> put_if_blank("name", if(default_name, do: "#{default_name} RDP"))
+  end
+
+  defp apply_selected_agent(params, agent_data) when is_map(params) and is_map(agent_data) do
+    selected = blank_to_nil(params["agent_id"])
+    data = if selected, do: Map.get(agent_data, selected, %{}), else: %{}
+
+    put_if_blank(params, "gateway_id", Map.get(data, "gateway_id"))
+  end
+
+  defp put_if_blank(params, _key, nil), do: params
+  defp put_if_blank(params, _key, ""), do: params
+
+  defp put_if_blank(params, key, value) do
+    case blank_to_nil(params[key]) do
+      nil -> Map.put(params, key, value)
+      _ -> params
+    end
+  end
+
   defp save_target(%{assigns: %{form_mode: :new}} = socket, attrs) do
     case RemoteAccessDesktopTargets.create_managed(socket.assigns.current_scope, attrs) do
       {:ok, _target} ->
         {:noreply,
          socket
-         |> put_flash(:info, "RDP desktop target created")
+         |> put_flash(:info, "RDP host created")
          |> push_patch(to: ~p"/settings/networks/desktop-targets")}
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to create RDP desktop target: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to create RDP host: #{format_error(reason)}")}
     end
   end
 
-  defp save_target(
-         %{assigns: %{form_mode: :edit, editing_target: %RemoteAccessDesktopTarget{} = target}} =
-           socket,
-         attrs
-       ) do
+  defp save_target(%{assigns: %{form_mode: :edit, editing_target: %RemoteAccessDesktopTarget{} = target}} = socket, attrs) do
     attrs = merge_existing_target_metadata(attrs, target)
 
     case RemoteAccessDesktopTargets.update_managed(socket.assigns.current_scope, target, attrs) do
       {:ok, _target} ->
         {:noreply,
          socket
-         |> put_flash(:info, "RDP desktop target updated")
+         |> put_flash(:info, "RDP host updated")
          |> push_patch(to: ~p"/settings/networks/desktop-targets")}
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to update RDP desktop target: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to update RDP host: #{format_error(reason)}")}
     end
   end
 
   defp save_target(socket, _attrs) do
-    {:noreply, put_flash(socket, :error, "No RDP desktop target selected")}
+    {:noreply, put_flash(socket, :error, "No RDP host selected")}
   end
 
   defp set_enabled(socket, id, enabled, success_message) do
@@ -494,11 +743,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
        |> load_page(%{})}
     else
       nil ->
-        {:noreply, put_flash(socket, :error, "RDP desktop target not found")}
+        {:noreply, put_flash(socket, :error, "RDP host not found")}
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to update RDP desktop target: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to update RDP host: #{format_error(reason)}")}
     end
   end
 
@@ -515,6 +763,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
              "credential_custody_mode"
            ),
          {:ok, credential_rule_id} <- optional_uuid(params["credential_rule_id"]),
+         :ok <- validate_credential_rule_selection(credential_mode, credential_rule_id),
          {:ok, kdc_proxy_url} <- optional_kdc_proxy_url(params["kdc_proxy_url"]),
          {:ok, kerberos_hostname} <- optional_kerberos_hostname(params["kerberos_hostname"]),
          {:ok, target_tls} <- target_tls_policy(params) do
@@ -547,10 +796,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
     end
   end
 
-  defp merge_existing_target_metadata(
-         %{metadata: metadata} = attrs,
-         %RemoteAccessDesktopTarget{} = target
-       )
+  defp merge_existing_target_metadata(%{metadata: metadata} = attrs, %RemoteAccessDesktopTarget{} = target)
        when is_map(metadata) do
     existing =
       target.metadata
@@ -584,10 +830,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
       value ->
         case Ecto.UUID.cast(value) do
           {:ok, uuid} -> {:ok, uuid}
-          :error -> {:error, "Credential rule ID must be a valid UUID"}
+          :error -> {:error, "Credential rule is invalid"}
         end
     end
   end
+
+  defp validate_credential_rule_selection(:centrally_brokered, nil),
+    do: {:error, "Choose a credential rule or use Prompt user when connecting"}
+
+  defp validate_credential_rule_selection(_credential_mode, _credential_rule_id), do: :ok
 
   defp enum_value(value, allowed, field) do
     value = blank_to_nil(value)
@@ -627,7 +878,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   end
 
   defp target_tls_policy(params) do
-    ca_bundle_id = blank_to_nil(params["target_tls_ca_bundle_id"])
+    ca_bundle_id =
+      params["target_tls_ca_bundle_id"]
+      |> blank_to_nil()
+      |> generated_ca_bundle_id(params)
+
     ca_bundle_pem = blank_to_nil(params["target_tls_ca_bundle_pem"])
 
     if ca_bundle_id_present?(ca_bundle_id) == ca_bundle_pem_present?(ca_bundle_pem) do
@@ -637,12 +892,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
        |> put_policy_string("ca_bundle_id", ca_bundle_id)
        |> put_policy_string("ca_bundle_pem", ca_bundle_pem)}
     else
-      {:error, "CA Bundle ID and CA Bundle PEM must be provided together"}
+      {:error, "CA certificate and generated bundle identifier must be provided together"}
     end
   end
 
   defp ca_bundle_id_present?(value), do: not is_nil(value)
   defp ca_bundle_pem_present?(value), do: not is_nil(value)
+
+  defp generated_ca_bundle_id(nil, params) do
+    if blank_to_nil(params["target_tls_ca_bundle_pem"]) do
+      source =
+        first_non_empty([
+          params["target_tls_server_name"],
+          params["target_host"],
+          params["name"],
+          "rdp-ca"
+        ])
+
+      "rdp-ca-" <> slugify(source)
+    end
+  end
+
+  defp generated_ca_bundle_id(value, _params), do: value
 
   defp put_policy_string(map, key, value) do
     case blank_to_nil(value) do
@@ -688,34 +959,52 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp parse_positive_integer(_value), do: nil
 
-  defp default_target_params do
-    %{
-      "name" => "",
-      "description" => "",
-      "enabled" => "true",
-      "target_kind" => "inventory_device",
-      "device_uid" => "",
-      "target_host" => "",
-      "target_port" => "3389",
-      "agent_id" => "",
-      "gateway_id" => "",
-      "credential_custody_mode" => "user_present",
-      "credential_rule_id" => "",
-      "target_tls_mode" => "verify_ca",
-      "target_tls_server_name" => "",
-      "target_tls_ca_bundle_id" => "",
-      "target_tls_ca_bundle_pem" => "",
-      "nla_required" => "true",
-      "recording_mode" => "metadata_only",
-      "kdc_proxy_url" => "",
-      "kerberos_hostname" => "",
-      "max_width" => "",
-      "max_height" => "",
-      "frame_rate" => "",
-      "bitrate_kbps" => "",
-      "clipboard" => "disabled",
-      "allowed_principals" => ""
-    }
+  defp default_target_params(params \\ %{}) do
+    params = Map.new(params || %{})
+
+    Map.merge(
+      %{
+        "name" => "",
+        "description" => "",
+        "enabled" => "true",
+        "target_kind" => "inventory_device",
+        "device_uid" => "",
+        "target_host" => "",
+        "target_port" => "3389",
+        "agent_id" => "",
+        "gateway_id" => "",
+        "credential_custody_mode" => "user_present",
+        "credential_rule_id" => "",
+        "target_tls_mode" => "verify_ca",
+        "target_tls_server_name" => "",
+        "target_tls_ca_bundle_id" => "",
+        "target_tls_ca_bundle_pem" => "",
+        "nla_required" => "true",
+        "recording_mode" => "metadata_only",
+        "kdc_proxy_url" => "",
+        "kerberos_hostname" => "",
+        "max_width" => "",
+        "max_height" => "",
+        "frame_rate" => "",
+        "bitrate_kbps" => "",
+        "clipboard" => "disabled",
+        "allowed_principals" => ""
+      },
+      Map.take(params, default_target_prefill_keys())
+    )
+  end
+
+  defp default_target_prefill_keys do
+    [
+      "name",
+      "description",
+      "device_uid",
+      "target_host",
+      "target_port",
+      "agent_id",
+      "gateway_id",
+      "target_tls_server_name"
+    ]
   end
 
   defp target_params(%RemoteAccessDesktopTarget{} = target) do
@@ -777,6 +1066,43 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp blank_to_nil(_value), do: nil
 
+  defp blank_to_string(value) do
+    blank_to_nil(value) || ""
+  end
+
+  defp first_non_empty(values) when is_list(values) do
+    Enum.find_value(values, fn
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      value when is_atom(value) ->
+        value |> to_string() |> blank_to_nil()
+
+      value when not is_nil(value) ->
+        value |> to_string() |> blank_to_nil()
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp empty_label_part?(nil), do: true
+  defp empty_label_part?(value) when is_binary(value), do: String.trim(value) == ""
+  defp empty_label_part?(_value), do: false
+
+  defp slugify(value) do
+    value
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "rdp-ca"
+      slug -> slug
+    end
+  end
+
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_metadata), do: %{}
 
@@ -793,8 +1119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp enum_options(values), do: Enum.map(values, &{enum_label(&1), &1})
 
-  defp enum_label(value),
-    do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
+  defp enum_label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
   defp authorize_manage_event(socket, fun) when is_function(fun, 0) do
     if fresh_can_manage?(socket.assigns.current_scope) do
@@ -806,7 +1131,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
 
   defp unauthorized(socket) do
     socket
-    |> put_flash(:error, "Not authorized to manage RDP desktop targets")
+    |> put_flash(:error, "Not authorized to manage RDP hosts")
     |> redirect(to: ~p"/settings/profile")
   end
 
@@ -823,8 +1148,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLive do
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
   defp format_error(reason) when is_binary(reason), do: reason
 
-  defp format_error(reason) when is_atom(reason),
-    do: reason |> to_string() |> String.replace("_", " ")
+  defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
 
   defp format_error(reason), do: inspect(reason)
 end
