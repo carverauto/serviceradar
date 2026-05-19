@@ -151,6 +151,71 @@ func TestTargetGeneration_AllModesIncludingTCPConnect(t *testing.T) {
 	assert.Len(t, tcpConnectTargets, 2, "2 TCP Connect targets (one per port)")
 }
 
+func TestTargetGeneration_IPv6UsesTCPConnectOnly(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22, 443},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, nil)
+
+	assert.Len(t, targets, 2)
+	assert.Empty(t, filterByMode(targets, models.ModeICMP))
+	assert.Empty(t, filterByMode(targets, models.ModeTCP))
+
+	tcpConnectTargets := filterByMode(targets, models.ModeTCPConnect)
+	require.Len(t, tcpConnectTargets, 2)
+
+	for _, target := range tcpConnectTargets {
+		assert.Equal(t, "2001:470:c0b5:2::100", target.Host)
+	}
+}
+
+func TestTargetGeneration_IPv6DoesNotDuplicateTCPConnect(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22, 443},
+		SweepModes: []models.SweepMode{models.ModeTCP, models.ModeTCPConnect},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, nil)
+
+	assert.Len(t, targets, 2)
+	assert.Empty(t, filterByMode(targets, models.ModeTCP))
+	assert.Len(t, filterByMode(targets, models.ModeTCPConnect), 2)
+}
+
+func TestTargetGeneration_IPv6ICMPOnlyIsUnsupported(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Networks:   []string{"2001:db8::/64"},
+		SweepModes: []models.SweepMode{models.ModeICMP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets, err := sweeper.generateTargets()
+	require.NoError(t, err)
+	assert.Empty(t, targets)
+}
+
 // TestTargetGeneration_DeviceTargetsGetAllPorts verifies that device targets
 // from sync service get all configured ports.
 func TestTargetGeneration_DeviceTargetsGetAllPorts(t *testing.T) {
