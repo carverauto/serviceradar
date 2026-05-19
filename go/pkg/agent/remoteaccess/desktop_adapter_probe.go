@@ -30,7 +30,7 @@ const (
 	DefaultRDPAdapterBinary       = "serviceradar-rdp-adapter"
 	RDPAdapterCapabilitiesArg     = "--capabilities"
 	RDPAdapterCapabilitiesSchema  = "serviceradar.rdp.helper.capabilities.v1"
-	RDPAdapterProbeTimeout        = 2 * time.Second
+	RDPAdapterProbeTimeout        = 5 * time.Second
 	RDPAdapterMinProtocolVersion  = 1
 	rdpAdapterMaxCapabilitiesJSON = 16 * 1024
 	rdpAdapterMaxReadyReasonBytes = 256
@@ -107,10 +107,10 @@ func runRDPAdapterCapabilitiesProbe(ctx context.Context, resolved string) ([]byt
 	cmd := exec.CommandContext(ctx, resolved, RDPAdapterCapabilitiesArg)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("%w: capability probe failed", ErrDesktopAdapterUnavailable)
+		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("%w: capability probe failed", ErrDesktopAdapterUnavailable)
+		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, err)
 	}
 
 	output, readErr := io.ReadAll(io.LimitReader(stdout, rdpAdapterMaxCapabilitiesJSON+1))
@@ -125,10 +125,10 @@ func runRDPAdapterCapabilitiesProbe(ctx context.Context, resolved string) ([]byt
 
 	waitErr := cmd.Wait()
 	if readErr != nil {
-		return nil, fmt.Errorf("%w: capability probe failed", ErrDesktopAdapterUnavailable)
+		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, readErr)
 	}
 	if waitErr != nil {
-		return nil, fmt.Errorf("%w: capability probe failed", ErrDesktopAdapterUnavailable)
+		return nil, fmt.Errorf("%w: capability probe failed: %v", ErrDesktopAdapterUnavailable, waitErr)
 	}
 
 	return output, nil
