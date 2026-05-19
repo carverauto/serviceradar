@@ -87,7 +87,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
            ]
   end
 
-  test "build_bulk_payload writes the configured custom field" do
+  test "build_bulk_payload writes inverted availability to the configured custom field" do
     payload =
       ArmisNorthboundRunner.build_bulk_payload("availability", [
         %{
@@ -107,8 +107,33 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"id" => "armis-1", "customProperties" => %{"availability" => true}},
-             %{"id" => "armis-2", "customProperties" => %{"availability" => false}}
+             %{"id" => "armis-1", "customProperties" => %{"availability" => false}},
+             %{"id" => "armis-2", "customProperties" => %{"availability" => true}}
+           ]
+  end
+
+  test "build_bulk_payload uses the same inversion for compliance and isolation fields" do
+    payload =
+      ArmisNorthboundRunner.build_bulk_payload("OT_Isolation_Compliant", [
+        %{
+          armis_device_id: "armis-1",
+          is_available: true,
+          device_ids: ["dev-a"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        },
+        %{
+          armis_device_id: "armis-2",
+          is_available: false,
+          device_ids: ["dev-b"],
+          sync_service_ids: ["source-1"],
+          metadata: %{}
+        }
+      ])
+
+    assert payload == [
+             %{"id" => "armis-1", "customProperties" => %{"OT_Isolation_Compliant" => false}},
+             %{"id" => "armis-2", "customProperties" => %{"OT_Isolation_Compliant" => true}}
            ]
   end
 
@@ -132,8 +157,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => true}},
-             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => false}}
+             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => false}},
+             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => true}}
            ]
   end
 
@@ -274,6 +299,69 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert headers1["content-type"] == "application/json"
     assert length(body1) == 2
     assert length(body2) == 1
+  end
+
+  test "execute_batches posts inverted sample availability data to a fake Armis bulk endpoint" do
+    {:ok, endpoint, stop_server} = start_fake_armis_bulk_server(self())
+    on_exit(stop_server)
+
+    source = %{
+      id: "source-faker-contract",
+      northbound_enabled: true,
+      endpoint: endpoint,
+      custom_fields: ["OT_Isolation_Compliant"],
+      settings: %{"batch_size" => 2},
+      credentials: %{"api_key" => "fake-secret"}
+    }
+
+    candidates = [
+      %{
+        armis_device_id: "101",
+        is_available: true,
+        device_ids: ["sr-device-available"],
+        sync_service_ids: ["source-faker-contract"],
+        metadata: %{}
+      },
+      %{
+        armis_device_id: "202",
+        is_available: false,
+        device_ids: ["sr-device-unavailable"],
+        sync_service_ids: ["source-faker-contract"],
+        metadata: %{}
+      }
+    ]
+
+    assert {:ok, result} =
+             ArmisNorthboundRunner.execute_batches(source, candidates,
+               token_fetcher: fn _source -> {:ok, "fake-token-test"} end
+             )
+
+    assert result.device_count == 2
+    assert result.updated_count == 2
+    assert result.error_count == 0
+    assert result.batch_count == 1
+
+    assert_receive {:fake_armis_bulk_request, request}, 1_000
+    assert request.path == "/api/v1/devices/custom-properties/_bulk/"
+    assert request.headers["authorization"] == "Bearer fake-token-test"
+    assert request.headers["content-type"] =~ "application/json"
+
+    assert request.body == [
+             %{
+               "upsert" => %{
+                 "deviceId" => 101,
+                 "key" => "OT_Isolation_Compliant",
+                 "value" => false
+               }
+             },
+             %{
+               "upsert" => %{
+                 "deviceId" => 202,
+                 "key" => "OT_Isolation_Compliant",
+                 "value" => true
+               }
+             }
+           ]
   end
 
   test "execute_batches returns partial results when a later batch fails" do
@@ -851,5 +939,126 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     refute_received {:finish_run, "run-fresh", _, _, _}
     refute_received {:finish_run, "run-active", _, _, _}
     refute_received {:finish_run, "run-success", _, _, _}
+  end
+
+  defp start_fake_armis_bulk_server(parent) do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    pid = spawn(fn -> accept_fake_armis_requests(listen_socket, parent) end)
+
+    stop = fn ->
+      :gen_tcp.close(listen_socket)
+
+      if Process.alive?(pid) do
+        Process.exit(pid, :shutdown)
+      end
+    end
+
+    {:ok, "http://127.0.0.1:#{port}", stop}
+  end
+
+  defp accept_fake_armis_requests(listen_socket, parent) do
+    case :gen_tcp.accept(listen_socket) do
+      {:ok, socket} ->
+        handle_fake_armis_socket(socket, parent)
+        accept_fake_armis_requests(listen_socket, parent)
+
+      {:error, :closed} ->
+        :ok
+    end
+  end
+
+  defp handle_fake_armis_socket(socket, parent) do
+    with {:ok, header_bytes} <- recv_until(socket, "\r\n\r\n"),
+         {header_part, initial_body} <- split_http_header_and_body(header_bytes),
+         {headers, content_length} <- parse_http_headers(header_part),
+         {:ok, body_bytes} <- recv_exact_body(socket, content_length, initial_body),
+         {:ok, body} <- Jason.decode(body_bytes) do
+      path =
+        header_part
+        |> String.split("\r\n", parts: 2)
+        |> hd()
+        |> String.split(" ")
+        |> Enum.at(1)
+
+      send(parent, {:fake_armis_bulk_request, %{path: path, headers: headers, body: body}})
+      send_json_response(socket, %{"success" => true, "data" => %{"updated" => length(body)}})
+    else
+      _ ->
+        send_json_response(socket, %{"success" => false}, 400)
+    end
+
+    :gen_tcp.close(socket)
+  end
+
+  defp split_http_header_and_body(bytes) do
+    [header_part, body] = String.split(bytes, "\r\n\r\n", parts: 2)
+    {header_part, body}
+  end
+
+  defp recv_until(socket, marker, acc \\ "") do
+    if String.contains?(acc, marker) do
+      {:ok, acc}
+    else
+      case :gen_tcp.recv(socket, 0, 1_000) do
+        {:ok, bytes} -> recv_until(socket, marker, acc <> bytes)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp recv_exact_body(_socket, 0, _initial_body), do: {:ok, ""}
+
+  defp recv_exact_body(socket, length, initial_body) do
+    existing = byte_size(initial_body)
+
+    cond do
+      existing == length ->
+        {:ok, initial_body}
+
+      existing > length ->
+        {:ok, binary_part(initial_body, 0, length)}
+
+      true ->
+        case :gen_tcp.recv(socket, length - existing, 1_000) do
+          {:ok, bytes} -> {:ok, initial_body <> bytes}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp parse_http_headers(header_bytes) do
+    [_request_line | header_lines] = String.split(header_bytes, "\r\n")
+
+    headers =
+      Map.new(header_lines, fn line ->
+        [key, value] = String.split(line, ":", parts: 2)
+        {String.downcase(key), String.trim(value)}
+      end)
+
+    content_length =
+      headers
+      |> Map.get("content-length", "0")
+      |> String.to_integer()
+
+    {headers, content_length}
+  end
+
+  defp send_json_response(socket, body, status \\ 200) do
+    encoded = Jason.encode!(body)
+    reason = if status in 200..299, do: "OK", else: "Bad Request"
+
+    response = [
+      "HTTP/1.1 #{status} #{reason}\r\n",
+      "Content-Type: application/json\r\n",
+      "Content-Length: #{byte_size(encoded)}\r\n",
+      "Connection: close\r\n",
+      "\r\n",
+      encoded
+    ]
+
+    :gen_tcp.send(socket, response)
   end
 end

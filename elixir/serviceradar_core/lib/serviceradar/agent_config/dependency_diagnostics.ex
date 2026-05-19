@@ -54,7 +54,11 @@ defmodule ServiceRadar.AgentConfig.DependencyDiagnostics do
 
   @impl true
   def handle_call({:record, diagnostic}, _from, state) do
-    entry = Map.put_new_lazy(diagnostic, :recorded_at, &DateTime.utc_now/0)
+    entry =
+      diagnostic
+      |> Map.put_new_lazy(:recorded_at, &utc_now_second/0)
+      |> normalize_recorded_at()
+
     entries = Enum.take([entry | state.entries], state.limit)
     {:reply, :ok, %{state | entries: entries}}
   end
@@ -66,4 +70,14 @@ defmodule ServiceRadar.AgentConfig.DependencyDiagnostics do
   def handle_call(:clear, _from, state) do
     {:reply, :ok, %{state | entries: []}}
   end
+
+  defp utc_now_second do
+    DateTime.truncate(DateTime.utc_now(), :second)
+  end
+
+  defp normalize_recorded_at(%{recorded_at: %DateTime{} = recorded_at} = diagnostic) do
+    %{diagnostic | recorded_at: DateTime.truncate(recorded_at, :second)}
+  end
+
+  defp normalize_recorded_at(diagnostic), do: diagnostic
 end

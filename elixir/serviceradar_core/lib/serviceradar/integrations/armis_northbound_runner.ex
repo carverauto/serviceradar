@@ -350,7 +350,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       batches
       |> Enum.with_index(1)
       |> Enum.reduce_while(initial, fn {batch, batch_number}, acc ->
-        payload = build_bulk_payload(custom_field, batch)
+        payload = build_bulk_payload(custom_field, batch, source: source)
 
         Logger.info("Sending Armis northbound bulk update batch",
           integration_source_id: inspect(Map.get(source, :id)),
@@ -437,26 +437,33 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp canonical_candidates_query(source_id) do
-    from(di in DeviceIdentifier,
-      join: d in Device,
-      on: d.uid == di.device_id,
-      where: di.identifier_type == :integration_id,
+    from(d in Device,
+      left_join: di in DeviceIdentifier,
+      on: di.device_id == d.uid and di.identifier_type in [:armis_device_id, :integration_id],
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
-      where:
-        fragment(
-          "COALESCE(?->>'sync_service_id', ?->>'sync_service_id', '') = ?",
-          di.metadata,
-          d.metadata,
-          ^source_id
-        ),
-      where:
-        fragment(
-          "COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis'",
-          di.metadata,
-          d.metadata
-        ),
+      where: ^armis_device_predicate(),
+      where: ^source_linkage_predicate(source_id),
+      where: ^armis_identity_present_predicate(),
       select: %{
-        armis_device_id: di.identifier_value,
+        armis_device_id:
+          fragment(
+            """
+            COALESCE(
+              NULLIF(?->>'armis_device_id', ''),
+              NULLIF(CASE WHEN COALESCE(?->>'integration_type', '') = 'armis' THEN ?->>'integration_id' END, ''),
+              NULLIF(?->>'source_device_id', ''),
+              NULLIF(CASE WHEN ? = 'armis_device_id' OR COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis' THEN ? END, '')
+            )
+            """,
+            d.metadata,
+            d.metadata,
+            d.metadata,
+            d.metadata,
+            di.identifier_type,
+            di.metadata,
+            d.metadata,
+            di.identifier_value
+          ),
         is_available: fragment("COALESCE(?, false)", d.is_available),
         device_id: d.uid,
         sync_service_id:
@@ -478,28 +485,35 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp agent_candidates_query(source_id, availability_source_agent_id) do
-    from(di in DeviceIdentifier,
-      join: d in Device,
-      on: d.uid == di.device_id,
+    from(d in Device,
+      left_join: di in DeviceIdentifier,
+      on: di.device_id == d.uid and di.identifier_type in [:armis_device_id, :integration_id],
       join: daa in DeviceAgentAvailability,
       on: daa.device_uid == d.uid and daa.agent_id == ^availability_source_agent_id,
-      where: di.identifier_type == :integration_id,
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
-      where:
-        fragment(
-          "COALESCE(?->>'sync_service_id', ?->>'sync_service_id', '') = ?",
-          di.metadata,
-          d.metadata,
-          ^source_id
-        ),
-      where:
-        fragment(
-          "COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis'",
-          di.metadata,
-          d.metadata
-        ),
+      where: ^armis_device_predicate(),
+      where: ^source_linkage_predicate(source_id),
+      where: ^armis_identity_present_predicate(),
       select: %{
-        armis_device_id: di.identifier_value,
+        armis_device_id:
+          fragment(
+            """
+            COALESCE(
+              NULLIF(?->>'armis_device_id', ''),
+              NULLIF(CASE WHEN COALESCE(?->>'integration_type', '') = 'armis' THEN ?->>'integration_id' END, ''),
+              NULLIF(?->>'source_device_id', ''),
+              NULLIF(CASE WHEN ? = 'armis_device_id' OR COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis' THEN ? END, '')
+            )
+            """,
+            d.metadata,
+            d.metadata,
+            d.metadata,
+            d.metadata,
+            di.identifier_type,
+            di.metadata,
+            d.metadata,
+            di.identifier_value
+          ),
         is_available: fragment("COALESCE(?, false)", daa.is_available),
         device_id: d.uid,
         sync_service_id:
@@ -518,6 +532,77 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           )
       },
       order_by: [asc: di.identifier_value, asc: d.uid]
+    )
+  end
+
+  defp armis_device_predicate do
+    dynamic(
+      [d, di],
+      fragment(
+        """
+        'armis' = ANY(COALESCE(?, ARRAY[]::text[]))
+        OR COALESCE(?->>'integration_type', '') = 'armis'
+        OR COALESCE(?->>'source', '') = 'armis'
+        OR ? = 'armis_device_id'
+        OR COALESCE(?->>'integration_type', '') = 'armis'
+        """,
+        d.discovery_sources,
+        d.metadata,
+        d.metadata,
+        di.identifier_type,
+        di.metadata
+      )
+    )
+  end
+
+  defp source_linkage_predicate(source_id) do
+    dynamic(
+      [d, di],
+      fragment(
+        """
+        COALESCE(?->>'sync_service_id', '') = ?
+        OR COALESCE(?->>'sync_service_id', '') = ?
+        OR (
+          COALESCE(?->>'sync_service_id', '') = ''
+          AND NOT EXISTS (
+            SELECT 1
+            FROM platform.device_identifiers source_di
+            WHERE source_di.device_id = ?
+              AND COALESCE(source_di.metadata->>'sync_service_id', '') <> ''
+          )
+        )
+        """,
+        d.metadata,
+        ^source_id,
+        di.metadata,
+        ^source_id,
+        d.metadata,
+        d.uid
+      )
+    )
+  end
+
+  defp armis_identity_present_predicate do
+    dynamic(
+      [d, di],
+      fragment(
+        """
+        COALESCE(
+          NULLIF(?->>'armis_device_id', ''),
+          NULLIF(CASE WHEN COALESCE(?->>'integration_type', '') = 'armis' THEN ?->>'integration_id' END, ''),
+          NULLIF(?->>'source_device_id', ''),
+          NULLIF(CASE WHEN ? = 'armis_device_id' OR COALESCE(?->>'integration_type', ?->>'integration_type', '') = 'armis' THEN ? END, '')
+        ) IS NOT NULL
+        """,
+        d.metadata,
+        d.metadata,
+        d.metadata,
+        d.metadata,
+        di.identifier_type,
+        di.metadata,
+        d.metadata,
+        di.identifier_value
+      )
     )
   end
 
@@ -566,17 +651,19 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     Enum.chunk_every(candidates, batch_size)
   end
 
-  @spec build_bulk_payload(String.t(), [collapsed_candidate()]) :: [map()]
-  def build_bulk_payload(custom_field, candidates)
+  @spec build_bulk_payload(String.t(), [collapsed_candidate()], keyword()) :: [map()]
+  def build_bulk_payload(custom_field, candidates, _opts \\ [])
       when is_binary(custom_field) and custom_field != "" do
     Enum.map(candidates, fn candidate ->
+      value = northbound_value(candidate.is_available)
+
       case parse_armis_device_id(candidate.armis_device_id) do
         {:ok, device_id} ->
           %{
             "upsert" => %{
               "deviceId" => device_id,
               "key" => custom_field,
-              "value" => candidate.is_available
+              "value" => value
             }
           }
 
@@ -584,12 +671,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           %{
             "id" => candidate.armis_device_id,
             "customProperties" => %{
-              custom_field => candidate.is_available
+              custom_field => value
             }
           }
       end
     end)
   end
+
+  defp northbound_value(is_available), do: not is_available
 
   defp parse_armis_device_id(value) when is_integer(value), do: {:ok, value}
 

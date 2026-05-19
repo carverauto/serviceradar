@@ -63,6 +63,29 @@ curl "http://localhost:8080/api/v1/search/?aql=in:devices&length=100&from=0"
 curl "http://localhost:8080/api/v1/search/?aql=in:devices&length=100&from=100"
 ```
 
+### Inspect Northbound Updates
+
+Faker accepts the Armis bulk custom-properties endpoint used by ServiceRadar northbound availability updates:
+
+```bash
+curl -X POST http://localhost:8080/api/v1/devices/custom-properties/_bulk/ \
+  -H "Authorization: Bearer fake-token" \
+  -H "Content-Type: application/json" \
+  -d '[{"upsert":{"deviceId":1,"key":"OT_Isolation_Compliant","value":true}}]'
+```
+
+For test assertions, faker records each accepted bulk operation:
+
+```bash
+# Show captured northbound operations and field counts
+curl http://localhost:8080/debug/armis/northbound/updates
+
+# Reset captured operations between test runs
+curl -X DELETE http://localhost:8080/debug/armis/northbound/updates
+```
+
+The debug response includes total operations, successfully matched devices, missing device IDs, per-field counts, payload shape, and the submitted property values. Updated custom properties are also visible through normal search responses on each device's `customProperties` field.
+
 ## BGP/BMP Simulation (Arancini Path)
 
 This mode is disabled by default and is intended for demo/test environments.

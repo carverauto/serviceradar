@@ -194,6 +194,27 @@ type bulkCustomPropertyResponse struct {
 	Success bool `json:"success"`
 }
 
+type northboundUpdateRecord struct {
+	Sequence     int64                  `json:"sequence"`
+	TimestampUTC time.Time              `json:"timestamp_utc"`
+	DeviceID     string                 `json:"device_id"`
+	Properties   map[string]interface{} `json:"properties"`
+	Updated      bool                   `json:"updated"`
+	PayloadShape string                 `json:"payload_shape"`
+}
+
+type northboundUpdatesResponse struct {
+	Data struct {
+		Total         int                      `json:"total"`
+		Updated       int                      `json:"updated"`
+		Missing       int                      `json:"missing"`
+		Fields        map[string]int           `json:"fields"`
+		LastUpdatedAt *time.Time               `json:"last_updated_at,omitempty"`
+		Results       []northboundUpdateRecord `json:"results"`
+	} `json:"data"`
+	Success bool `json:"success"`
+}
+
 type BGPSimulationPeer struct {
 	Name        string `json:"name"`
 	IP          string `json:"ip"`
@@ -583,6 +604,10 @@ func NewDeviceGenerator() *DeviceGenerator {
 var (
 	deviceGen *DeviceGenerator
 	config    *Config
+
+	northboundUpdatesMu      sync.Mutex
+	northboundUpdates        []northboundUpdateRecord
+	northboundUpdateSequence int64
 )
 
 // Initialize sets up the device generator and loads or generates device data
@@ -861,6 +886,7 @@ func main() {
 	mux.HandleFunc("/api/v1/access_token/", tokenHandler)
 	mux.HandleFunc("/api/v1/search/", searchHandler)
 	mux.HandleFunc("/api/v1/devices/custom-properties/_bulk/", bulkCustomPropertiesHandler)
+	mux.HandleFunc("/debug/armis/northbound/updates", northboundUpdatesHandler)
 	// Legacy endpoint if needed
 	mux.HandleFunc("/v1/devices", devicesHandler)
 
@@ -1008,14 +1034,12 @@ func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deviceGen.mu.Lock()
-	defer deviceGen.mu.Unlock()
-
 	response := bulkCustomPropertyResponse{Success: true}
 	response.Data.Results = make([]bulkCustomPropertyResult, 0, len(operations))
 
+	deviceGen.mu.Lock()
 	for _, op := range operations {
-		deviceID, props, ok := normalizeBulkCustomPropertyOperation(op)
+		deviceID, props, payloadShape, ok := normalizeBulkCustomPropertyOperation(op)
 		if !ok {
 			continue
 		}
@@ -1029,6 +1053,12 @@ func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 			DeviceID: deviceID,
 			Updated:  updated,
 		})
+		recordNorthboundUpdate(deviceID, props, updated, payloadShape, time.Now().UTC())
+	}
+	deviceGen.mu.Unlock()
+
+	if config != nil && config.Storage.PersistChanges && response.Data.Updated > 0 {
+		deviceGen.saveToStorage()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1038,21 +1068,21 @@ func bulkCustomPropertiesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func normalizeBulkCustomPropertyOperation(op bulkCustomPropertyOperation) (string, map[string]interface{}, bool) {
+func normalizeBulkCustomPropertyOperation(op bulkCustomPropertyOperation) (string, map[string]interface{}, string, bool) {
 	if op.Upsert != nil {
 		deviceID := strconv.Itoa(op.Upsert.DeviceID)
 		if deviceID == "0" || strings.TrimSpace(op.Upsert.Key) == "" {
-			return "", nil, false
+			return "", nil, "", false
 		}
 
-		return deviceID, map[string]interface{}{op.Upsert.Key: op.Upsert.Value}, true
+		return deviceID, map[string]interface{}{op.Upsert.Key: op.Upsert.Value}, "upsert", true
 	}
 
 	if strings.TrimSpace(op.ID) == "" || len(op.CustomProperties) == 0 {
-		return "", nil, false
+		return "", nil, "", false
 	}
 
-	return strings.TrimSpace(op.ID), op.CustomProperties, true
+	return strings.TrimSpace(op.ID), op.CustomProperties, "customProperties", true
 }
 
 func applyCustomPropertiesToDevice(deviceID string, props map[string]interface{}) bool {
@@ -1084,6 +1114,91 @@ func applyCustomPropertiesToDevice(deviceID string, props map[string]interface{}
 	}
 
 	return false
+}
+
+func recordNorthboundUpdate(deviceID string, props map[string]interface{}, updated bool, payloadShape string, timestamp time.Time) {
+	propsCopy := make(map[string]interface{}, len(props))
+	for key, value := range props {
+		propsCopy[key] = value
+	}
+
+	northboundUpdatesMu.Lock()
+	defer northboundUpdatesMu.Unlock()
+
+	northboundUpdateSequence++
+	northboundUpdates = append(northboundUpdates, northboundUpdateRecord{
+		Sequence:     northboundUpdateSequence,
+		TimestampUTC: timestamp,
+		DeviceID:     deviceID,
+		Properties:   propsCopy,
+		Updated:      updated,
+		PayloadShape: payloadShape,
+	})
+}
+
+func resetNorthboundUpdates() {
+	northboundUpdatesMu.Lock()
+	defer northboundUpdatesMu.Unlock()
+
+	northboundUpdates = nil
+	northboundUpdateSequence = 0
+}
+
+func northboundUpdatesSnapshot() northboundUpdatesResponse {
+	northboundUpdatesMu.Lock()
+	defer northboundUpdatesMu.Unlock()
+
+	response := northboundUpdatesResponse{Success: true}
+	response.Data.Fields = make(map[string]int)
+	response.Data.Results = make([]northboundUpdateRecord, len(northboundUpdates))
+	copy(response.Data.Results, northboundUpdates)
+
+	response.Data.Total = len(northboundUpdates)
+	for i := range response.Data.Results {
+		record := &response.Data.Results[i]
+		propsCopy := make(map[string]interface{}, len(record.Properties))
+		for key, value := range record.Properties {
+			propsCopy[key] = value
+			response.Data.Fields[key]++
+		}
+		record.Properties = propsCopy
+
+		if record.Updated {
+			response.Data.Updated++
+		} else {
+			response.Data.Missing++
+		}
+		response.Data.LastUpdatedAt = &record.TimestampUTC
+	}
+
+	return response
+}
+
+func northboundUpdatesHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(northboundUpdatesSnapshot()); err != nil {
+			log.Printf("Error encoding northbound updates response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		}
+
+	case http.MethodDelete:
+		resetNorthboundUpdates()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"data": map[string]interface{}{
+				"reset": true,
+			},
+		}); err != nil {
+			log.Printf("Error encoding northbound reset response: %v", err)
+			http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+		}
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // searchHandler handles GET requests for /api/v1/search/
