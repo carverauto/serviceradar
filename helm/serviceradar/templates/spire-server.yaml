@@ -253,6 +253,7 @@ spec:
       initContainers:
         - name: init-config
           image: {{ $serverVals.initConfigImage }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           command: ["sh", "-c"]
           args:
             - |
@@ -272,6 +273,7 @@ spec:
       containers:
         - name: spire-server
           image: {{ $serverVals.image }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           args:
             - -config
             - /run/spire/config/server.conf
@@ -312,6 +314,7 @@ spec:
 {{- if $cmEnabled }}
         - name: spire-controller-manager
           image: {{ $cmImage }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           args:
             - --config=/spire-controller-manager-config.yaml
 {{- if not $cmWebhooksEnabled }}

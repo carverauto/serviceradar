@@ -81,6 +81,7 @@ spec:
           {{- if or $agentAllowNetRaw $agentEBPFEnabled }}
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             runAsUser: 0
             runAsNonRoot: false
             {{- if $agentEBPFPrivileged }}

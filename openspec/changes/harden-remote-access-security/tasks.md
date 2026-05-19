@@ -1041,10 +1041,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Add `resourceNames: ["<the specific secret>"]` and restrict verbs to `["get","create","patch"]` (no `list`/`delete`/`update`).
       Resolution: Closed for the two cited bootstrap jobs. `get`/`patch` are now scoped to `serviceradar-nats-creds` or the configured `secrets.existingSecretName`, and `list`/`update` were removed. `create` remains unscoped because Kubernetes RBAC cannot enforce `resourceNames` on create for an object that does not exist yet.
 
-- [ ] 6.P.5 [M] `readOnlyRootFilesystem: true` not set on any container
+- [x] 6.P.5 [M] `readOnlyRootFilesystem: true` not set on any container
       Where: all pod templates (working tree); helper `_helpers.tpl:256-260`
       Why: An RCE foothold writes its own binary into root-fs and persists; with `readOnlyRootFS` + named `emptyDir` mounts the same compromise has no persistence on disk.
       Fix: Flip default to `readOnlyRootFilesystem: true`; declare per-container `emptyDir` (or `emptyDir: { medium: Memory }` for secret scratch like cert generation). eBPF DaemonSet documented exception.
+      Resolution: Shared container security-context helpers now set `readOnlyRootFilesystem: true`, explicit inline container contexts were updated, and scratch-writing jobs/stateful workloads mount named `emptyDir` volumes for `/tmp` where needed. Helm render checks cover default, demo, SPIRE-enabled, cert-regenerator, GoBGP, checker-template bootstrap, db-event-writer bootstrap, CNPG client-cert, and eBPF-enabled permutations.
 
 - [x] 6.P.6 [M] Pod-level `securityContext` missing `runAsUser` and `fsGroup`
       Where: `helm/serviceradar/templates/_helpers.tpl:256-260` (pod helper only sets `runAsNonRoot`+`seccompProfile`); call sites: `core.yaml:68`, `agent-gateway.yaml:52`, `datasvc.yaml:34`, `core-migrations-job.yaml:32`, `nats-creds-generator.yaml:78`, `secret-generator-job.yaml:79`, `cert-generator-job.yaml:78` (working tree)

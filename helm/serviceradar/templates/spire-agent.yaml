@@ -118,6 +118,7 @@ spec:
       initContainers:
         - name: cleanup-agent-socket
           image: {{ default "busybox:1.36.1" $agentVals.cleanupImage }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           command: ["sh", "-c"]
           args:
             - |
@@ -127,10 +128,12 @@ spec:
               mountPath: /run/spire/sockets
         - name: wait-for-server
           image: {{ default "cgr.dev/chainguard/wait-for-it" $agentVals.waitForImage }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           args: ["-t", "30", "{{ $serverName }}:8081"]
       containers:
         - name: spire-agent
           image: {{ $agentVals.image }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           args: ["-config", "/run/spire/config/agent.conf"]
           env:
             - name: MY_NODE_NAME

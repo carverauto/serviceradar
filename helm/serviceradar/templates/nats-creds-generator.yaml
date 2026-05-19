@@ -171,4 +171,10 @@ spec:
               -d "${secret_json}" \
               "${APISERVER}/api/v1/namespaces/${NAMESPACE}/secrets" >/dev/null
           fi
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
 {{- end }}

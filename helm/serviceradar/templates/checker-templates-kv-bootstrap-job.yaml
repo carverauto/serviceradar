@@ -22,6 +22,7 @@ spec:
         - name: kv-bootstrap
           image: {{ include "serviceradar.imageRef" (dict "Values" .Values "name" "serviceradar-tools" "service" "tools") }}
           imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
           env:
             - name: NATS_URL
               value: "tls://serviceradar-nats.{{ .Release.Namespace }}.svc.cluster.local:4222"

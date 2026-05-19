@@ -286,6 +286,7 @@ Usage: {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
 {{- define "serviceradar.containerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
 {{- end -}}
@@ -298,6 +299,7 @@ Usage: {{- include "serviceradar.networkContainerSecurityContext" . | nindent 10
 {{- define "serviceradar.networkContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   runAsUser: 0
   runAsNonRoot: false
   capabilities:
@@ -311,6 +313,7 @@ Usage: {{- include "serviceradar.bindServiceContainerSecurityContext" . | ninden
 {{- define "serviceradar.bindServiceContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
     add: ["NET_BIND_SERVICE"]
@@ -324,6 +327,7 @@ Usage: {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 10
 {{- define "serviceradar.nonRootContainerSecurityContext" -}}
 securityContext:
   allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
   runAsUser: 1001
   runAsGroup: 1001
   capabilities:
