@@ -19,6 +19,7 @@ package sweeper
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,8 @@ const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
+	intSizeBits          = 32 << (^uint(0) >> 63)
+	maxInt               = int(^uint(0) >> 1)
 )
 
 // DeviceRegistryService interface for device registry operations
@@ -818,27 +821,27 @@ func estimateTargetCount(config *models.Config) int {
 
 	// Count targets from global networks and sweep modes
 	for _, network := range config.Networks {
-		ips, err := scan.ExpandCIDR(network)
+		hostCount, err := countCIDRHosts(network)
 		if err != nil {
 			continue
 		}
 
 		if containsMode(config.SweepModes, models.ModeICMP) {
-			total += len(ips)
+			total = saturatingAdd(total, hostCount)
 		}
 
 		if containsMode(config.SweepModes, models.ModeTCP) {
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 
 		if containsMode(config.SweepModes, models.ModeTCPConnect) {
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 	}
 
 	// Count targets from device-specific configurations
 	for _, deviceTarget := range config.DeviceTargets {
-		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		hostCount, err := countCIDRHosts(deviceTarget.Network)
 		if err != nil {
 			continue
 		}
@@ -850,21 +853,80 @@ func estimateTargetCount(config *models.Config) int {
 		}
 
 		if containsMode(sweepModes, models.ModeICMP) {
-			total += len(ips)
+			total = saturatingAdd(total, hostCount)
 		}
 
 		if containsMode(sweepModes, models.ModeTCP) {
 			// DeviceTarget doesn't have its own ports, use global ports
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 
 		if containsMode(sweepModes, models.ModeTCPConnect) {
 			// DeviceTarget doesn't have its own ports, use global ports
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 	}
 
 	return total
+}
+
+func countCIDRHosts(cidr string) (int, error) {
+	ip, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	ones, bits := ipNet.Mask.Size()
+	if ones < 0 || bits <= 0 || ones > bits {
+		return 0, nil
+	}
+
+	hostBits := bits - ones
+	count := pow2Saturating(hostBits)
+
+	// Keep parity with scan.ExpandCIDR: for IPv4 CIDRs other than /32, network
+	// and broadcast addresses are skipped. This means /31 currently counts as 0.
+	if ip.To4() != nil && ones != 32 {
+		if count <= 2 {
+			return 0, nil
+		}
+
+		count -= 2
+	}
+
+	return count, nil
+}
+
+func pow2Saturating(exp int) int {
+	if exp <= 0 {
+		return 1
+	}
+
+	if exp >= intSizeBits-1 {
+		return maxInt
+	}
+
+	return 1 << exp
+}
+
+func saturatingAdd(a, b int) int {
+	if b > maxInt-a {
+		return maxInt
+	}
+
+	return a + b
+}
+
+func saturatingMul(a, b int) int {
+	if a == 0 || b == 0 {
+		return 0
+	}
+
+	if a > maxInt/b {
+		return maxInt
+	}
+
+	return a * b
 }
 
 // StoreOptionsForConfig returns memory store options tuned to the sweep config.

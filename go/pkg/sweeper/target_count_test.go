@@ -130,6 +130,23 @@ func TestEstimateTargetCount(t *testing.T) {
 			},
 			expected: 0,
 		},
+		{
+			name: "large CIDR counted without expansion",
+			config: &models.Config{
+				Networks:   []string{"10.0.0.0/8"},
+				SweepModes: []models.SweepMode{models.ModeTCP},
+				Ports:      []int{22, 80, 443},
+			},
+			expected: 16_777_214 * 3,
+		},
+		{
+			name: "IPv4 /31 follows current expansion semantics",
+			config: &models.Config{
+				Networks:   []string{"192.168.1.0/31"},
+				SweepModes: []models.SweepMode{models.ModeICMP},
+			},
+			expected: 0,
+		},
 	}
 
 	for _, tt := range tests {
