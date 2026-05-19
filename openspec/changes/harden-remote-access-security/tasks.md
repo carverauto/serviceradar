@@ -887,10 +887,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Either drain in-flight before seal (with bounded wait), or reject inserts where `recording.status` is terminal.
       Resolution: `record_event/3` now reloads the authoritative recording row before writing and refuses any sealed status with `{:error, :recording_sealed}`. Regression coverage completes a recording, then attempts to append through a stale pre-completion struct and verifies no late event is stored.
 
-- [ ] 3.O.10 [M] Playback events stream doesn't re-check RBAC per chunk (TOCTOU on permission revoke)
+- [x] 3.O.10 [M] Playback events stream doesn't re-check RBAC per chunk (TOCTOU on permission revoke)
       Where: `remote_access_recording_controller.ex:35-48` (commit: staging)
       Why: Permission revoked mid-stream continues serving until the connection closes.
       Fix: Per-chunk re-check or subscribe to permission-revocation pubsub (mirrors fix proposed for 5.2).
+      Resolution: Closed as stale for the current implementation. Recording replay is not a long-lived chunked stream today; `GET /api/remote-access/recordings/:id/events` authorizes each HTTP request with `require_recording_view_permission/2` and then returns a bounded JSON response. Any future streaming replay endpoint must re-open this item and either re-check RBAC per chunk or subscribe to permission-revocation PubSub before serving incremental chunks.
 
 - [x] 3.O.11 [M] No `:deleted` terminal state — playback can race with delete and return raw "object missing" errors
       Where: no delete action in `remote_access_recording_controller.ex` (commit: staging)
@@ -940,7 +941,7 @@ operator POST /export ─► (no status check, 3.O.2)
                         ├─ list_events
                         ├─ export_manifest (re-reads recording.policy live, 3.O.6)
                         └─ audit row
-operator GET /events ─► RBAC check once (TOCTOU per chunk, 3.O.10) ─► stream
+operator GET /events ─► RBAC check ─► bounded one-shot JSON list (3.O.10 closed)
 
 operator DELETE /recording ─► mark `:deleted` + audit; later playback/export returns 410 (3.O.11 fixed)
 ```
@@ -962,7 +963,7 @@ operator DELETE /recording ─► mark `:deleted` + audit; later playback/export
 - **Reshapes §3.J** — see reconciliation note above; several J items become N/A or move to "wake up when datasvc writer lands".
 - **3.O.3 + 3.O.7 jointly close 3.H.4** — same fix family (signed manifest binding events).
 - **3.O.6 strengthens 4.9** (redaction allowlist) — both are "policy data flows back into a sink that re-renders it later".
-- **3.O.10 is the recording-flow instance of 5.2** (post-attach reauth) — single fix family (perm-revocation pubsub).
+- **3.O.10 was closed as stale for current recording replay** — re-open only if a future chunked replay stream is added.
 - **3.O.14 + 3.H.2 + 3.J.2** — all pull on the same thread: storage-backend hints leak to clients; for now they're meaningless, but they will become live attack surface the moment the writer lands. Fix this *before* the writer.
 
 ### 4.M Coverage Follow-Up (cross-cutting Elixir hygiene scan)
@@ -1336,7 +1337,7 @@ Each cluster below is a unit of work tracked in this proposal — typically corr
 
 - **C-C. Recording IDOR / playback authz + drop vestigial object-store hints**
   Members: 5.4, 5.8, 3.H.2, 3.O.2, 3.O.10, 3.O.11, 3.O.14.
-  Body: per-session/actor scope on recording read; `require_recording_view_permission` before export; reject export unless terminal status; per-chunk RBAC recheck (or perm-revocation pubsub); `:deleted` terminal state with 410 Gone playback; remove `storage_backend`/`storage_bucket`/`object_key` from JSON view + LiveView (or feature-flag).
+  Body: per-session/actor scope on recording read; `require_recording_view_permission` before export; reject export unless terminal status; record that current events replay is bounded one-shot JSON rather than chunked streaming; `:deleted` terminal state with 410 Gone playback; remove `storage_backend`/`storage_bucket`/`object_key` from JSON view + LiveView (or feature-flag).
 
 - **C-D. Frame-signing contract — broker, media server, control stream, registry**
   Members: 4.4, 6.5, 6.7, 3.H.6.
@@ -1516,7 +1517,7 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 | 3.O.7 | H | Fjo | C-B |
 | 3.O.8 | M | Fjo | C-B |
 | 3.O.9 | M | Acc | bundle with C-B if cheap |
-| 3.O.10 | M | Fjo | C-C |
+| 3.O.10 | M | Cls | current endpoint is one-shot JSON, not a stream |
 | 3.O.11 | M | B | deleted terminal state |
 | 3.O.12 | M | Acc | defensive only |
 | 3.O.13 | L | Acc | documented intent |
