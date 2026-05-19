@@ -619,18 +619,22 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		}
 
 		return &models.ScannerStats{
-			PacketsSent:         scanStats.PacketsSent,
-			PacketsRecv:         scanStats.PacketsRecv,
-			PacketsDropped:      scanStats.PacketsDropped,
-			RingBlocksProcessed: scanStats.RingBlocksProcessed,
-			RingBlocksDropped:   scanStats.RingBlocksDropped,
-			RetriesAttempted:    scanStats.RetriesAttempted,
-			RetriesSuccessful:   scanStats.RetriesSuccessful,
-			PortsAllocated:      scanStats.PortsAllocated,
-			PortsReleased:       scanStats.PortsReleased,
-			PortExhaustionCount: scanStats.PortExhaustion,
-			RateLimitDeferrals:  scanStats.RateLimitDeferrals,
-			RxDropRatePercent:   rxDropRate,
+			PacketsSent:          scanStats.PacketsSent,
+			PacketsRecv:          scanStats.PacketsRecv,
+			PacketsDropped:       scanStats.PacketsDropped,
+			RingBlocksProcessed:  scanStats.RingBlocksProcessed,
+			RingBlocksDropped:    scanStats.RingBlocksDropped,
+			RetriesAttempted:     scanStats.RetriesAttempted,
+			RetriesSuccessful:    scanStats.RetriesSuccessful,
+			PortsAllocated:       scanStats.PortsAllocated,
+			PortsReleased:        scanStats.PortsReleased,
+			PortExhaustionCount:  scanStats.PortExhaustion,
+			RateLimitDeferrals:   scanStats.RateLimitDeferrals,
+			RateLimitWaits:       scanStats.RateLimitWaits,
+			SourcePortWaits:      scanStats.SourcePortWaits,
+			RateLimitWaitTimeMs:  scanStats.RateLimitWaitNanos / uint64(time.Millisecond),
+			SourcePortWaitTimeMs: scanStats.SourcePortWaitNanos / uint64(time.Millisecond),
+			RxDropRatePercent:    rxDropRate,
 		}
 	}
 

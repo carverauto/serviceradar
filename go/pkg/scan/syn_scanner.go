@@ -194,7 +194,11 @@ type ScannerStats struct {
 	PortExhaustion uint64 // Number of times port allocator was exhausted
 
 	// Rate limiting statistics
-	RateLimitDeferrals uint64 // Packet send operations deferred due to rate limiting
+	RateLimitDeferrals  uint64 // Legacy aggregate of packet send deferrals
+	RateLimitWaits      uint64 // Token-bucket wait events
+	SourcePortWaits     uint64 // Source-port allocator wait events
+	RateLimitWaitNanos  uint64 // Total token-bucket wait time in nanoseconds
+	SourcePortWaitNanos uint64 // Total source-port wait time in nanoseconds
 
 	// Timing statistics (in nanoseconds, for precision)
 	LastStatsReset int64 // Timestamp of last stats reset (UnixNano)
@@ -216,6 +220,10 @@ func (s *SYNScanner) GetStats() ScannerStats {
 		PortsReleased:       atomic.LoadUint64(&s.stats.PortsReleased),
 		PortExhaustion:      atomic.LoadUint64(&s.stats.PortExhaustion),
 		RateLimitDeferrals:  atomic.LoadUint64(&s.stats.RateLimitDeferrals),
+		RateLimitWaits:      atomic.LoadUint64(&s.stats.RateLimitWaits),
+		SourcePortWaits:     atomic.LoadUint64(&s.stats.SourcePortWaits),
+		RateLimitWaitNanos:  atomic.LoadUint64(&s.stats.RateLimitWaitNanos),
+		SourcePortWaitNanos: atomic.LoadUint64(&s.stats.SourcePortWaitNanos),
 		LastStatsReset:      atomic.LoadInt64(&s.stats.LastStatsReset),
 	}
 }
@@ -233,7 +241,23 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreUint64(&s.stats.PortsReleased, 0)
 	atomic.StoreUint64(&s.stats.PortExhaustion, 0)
 	atomic.StoreUint64(&s.stats.RateLimitDeferrals, 0)
+	atomic.StoreUint64(&s.stats.RateLimitWaits, 0)
+	atomic.StoreUint64(&s.stats.SourcePortWaits, 0)
+	atomic.StoreUint64(&s.stats.RateLimitWaitNanos, 0)
+	atomic.StoreUint64(&s.stats.SourcePortWaitNanos, 0)
 	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
+}
+
+func (s *SYNScanner) recordRateLimitWait(d time.Duration) {
+	atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+	atomic.AddUint64(&s.stats.RateLimitWaits, 1)
+	atomic.AddUint64(&s.stats.RateLimitWaitNanos, uint64(d))
+}
+
+func (s *SYNScanner) recordSourcePortWait(d time.Duration) {
+	atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+	atomic.AddUint64(&s.stats.SourcePortWaits, 1)
+	atomic.AddUint64(&s.stats.SourcePortWaitNanos, uint64(d))
 }
 
 // sampleKernelStats samples PACKET_STATISTICS from all ring buffers to track kernel drops
@@ -319,6 +343,8 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					Uint64("retries_successful", stats.RetriesSuccessful).
 					Uint64("ports_allocated", stats.PortsAllocated).
 					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
+					Uint64("rate_limit_waits", stats.RateLimitWaits).
+					Uint64("source_port_waits", stats.SourcePortWaits).
 					Int("rl_shards", rlShards).
 					Msg("SYN scanner telemetry")
 			}
@@ -1876,7 +1902,7 @@ func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]mode
 		if s.portAlloc != nil {
 			free := s.portAlloc.Free()
 			if free <= 0 {
-				atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+				s.recordSourcePortWait(rateLimitBackoff)
 				time.Sleep(rateLimitBackoff)
 
 				continue
@@ -1889,7 +1915,7 @@ func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]mode
 
 		if allowed == 0 {
 			// tiny sleep to avoid busy spinning
-			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+			s.recordRateLimitWait(rateLimitBackoff)
 			time.Sleep(rateLimitBackoff)
 
 			continue
@@ -2290,6 +2316,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			Uint64("packetsRecv", stats.PacketsRecv).
 			Uint64("packetsDropped", stats.PacketsDropped).
 			Uint64("rateLimitDeferrals", stats.RateLimitDeferrals).
+			Uint64("rateLimitWaits", stats.RateLimitWaits).
+			Uint64("sourcePortWaits", stats.SourcePortWaits).
 			Msg("Scan completed")
 
 		close(stopEmit) // signal emitter to drain and close resultCh
@@ -2455,7 +2483,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 		allowed := s.allowN(len(pending))
 		if allowed == 0 {
 			// tiny nap to let tokens accrue
-			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+			s.recordRateLimitWait(rateLimitBackoff)
 			time.Sleep(rateLimitBackoff)
 
 			continue

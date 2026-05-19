@@ -48,9 +48,9 @@ type Config struct {
 	MaxLifetime   time.Duration  `json:"max_lifetime"`
 	IdleTimeout   time.Duration  `json:"idle_timeout"`
 	// Agent/Partition information for proper device identification
-	AgentID      string `json:"agent_id,omitempty"`
-	GatewayID    string `json:"gateway_id,omitempty"`
-	Partition    string `json:"partition,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
+	GatewayID string `json:"gateway_id,omitempty"`
+	Partition string `json:"partition,omitempty"`
 	// Execution tracking for sweep results
 	SweepGroupID string `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
 	ConfigHash   string `json:"config_hash,omitempty"`    // Hash of config for change detection
@@ -259,8 +259,8 @@ type SweepSummary struct {
 	LastSweep      int64        `json:"last_sweep"` // Unix timestamp
 	Ports          []PortCount  `json:"ports"`
 	Hosts          []HostResult `json:"hosts"`
-	ExecutionID    string       `json:"execution_id,omitempty"`    // Sweep execution UUID for result tracking
-	SweepGroupID   string       `json:"sweep_group_id,omitempty"`  // Sweep group UUID this execution belongs to
+	ExecutionID    string       `json:"execution_id,omitempty"`   // Sweep execution UUID for result tracking
+	SweepGroupID   string       `json:"sweep_group_id,omitempty"` // Sweep group UUID this execution belongs to
 }
 
 // SweepConfig defines the network sweep tool configuration.
@@ -291,7 +291,7 @@ type DeviceTarget struct {
 // SweepHostState represents the latest sweep state for a host in the versioned KV store.
 type SweepHostState struct {
 	HostIP           string            `json:"host_ip"`
-	GatewayID         string            `json:"gateway_id"`
+	GatewayID        string            `json:"gateway_id"`
 	AgentID          string            `json:"agent_id"`
 	Partition        string            `json:"partition"`
 	NetworkCIDR      *string           `json:"network_cidr,omitempty"`
@@ -325,12 +325,18 @@ type ScannerStats struct {
 	RetriesSuccessful uint64 `json:"retries_successful"`
 
 	// Port allocation statistics
-	PortsAllocated     uint64 `json:"ports_allocated"`
-	PortsReleased      uint64 `json:"ports_released"`
+	PortsAllocated      uint64 `json:"ports_allocated"`
+	PortsReleased       uint64 `json:"ports_released"`
 	PortExhaustionCount uint64 `json:"port_exhaustion_count"`
 
 	// Rate limiting statistics
 	RateLimitDeferrals uint64 `json:"rate_limit_deferrals"`
+	RateLimitWaits     uint64 `json:"rate_limit_waits"`
+	SourcePortWaits    uint64 `json:"source_port_waits"`
+
+	// Wait duration metrics
+	RateLimitWaitTimeMs  uint64 `json:"rate_limit_wait_time_ms"`
+	SourcePortWaitTimeMs uint64 `json:"source_port_wait_time_ms"`
 
 	// Computed metrics
 	RxDropRatePercent float64 `json:"rx_drop_rate_percent"`

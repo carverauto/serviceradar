@@ -1177,11 +1177,16 @@ type SweepScannerStats struct {
 	PortsReleased       uint64 `protobuf:"varint,9,opt,name=ports_released,json=portsReleased,proto3" json:"ports_released,omitempty"`                      // Total source port releases
 	PortExhaustionCount uint64 `protobuf:"varint,10,opt,name=port_exhaustion_count,json=portExhaustionCount,proto3" json:"port_exhaustion_count,omitempty"` // Times port allocator was exhausted
 	// Rate limiting statistics
-	RateLimitDeferrals uint64 `protobuf:"varint,11,opt,name=rate_limit_deferrals,json=rateLimitDeferrals,proto3" json:"rate_limit_deferrals,omitempty"` // Packet sends deferred due to rate limiting
+	RateLimitDeferrals uint64 `protobuf:"varint,11,opt,name=rate_limit_deferrals,json=rateLimitDeferrals,proto3" json:"rate_limit_deferrals,omitempty"` // Legacy aggregate of deferred send loops
 	// Computed metrics
 	RxDropRatePercent float64 `protobuf:"fixed64,12,opt,name=rx_drop_rate_percent,json=rxDropRatePercent,proto3" json:"rx_drop_rate_percent,omitempty"` // Percentage of received packets dropped
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Detailed throttle metrics
+	RateLimitWaits       uint64 `protobuf:"varint,13,opt,name=rate_limit_waits,json=rateLimitWaits,proto3" json:"rate_limit_waits,omitempty"`                       // Token-bucket wait events
+	SourcePortWaits      uint64 `protobuf:"varint,14,opt,name=source_port_waits,json=sourcePortWaits,proto3" json:"source_port_waits,omitempty"`                    // Source-port allocator wait events
+	RateLimitWaitTimeMs  uint64 `protobuf:"varint,15,opt,name=rate_limit_wait_time_ms,json=rateLimitWaitTimeMs,proto3" json:"rate_limit_wait_time_ms,omitempty"`    // Total token-bucket wait time
+	SourcePortWaitTimeMs uint64 `protobuf:"varint,16,opt,name=source_port_wait_time_ms,json=sourcePortWaitTimeMs,proto3" json:"source_port_wait_time_ms,omitempty"` // Total source-port wait time
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SweepScannerStats) Reset() {
@@ -1294,6 +1299,34 @@ func (x *SweepScannerStats) GetRateLimitDeferrals() uint64 {
 func (x *SweepScannerStats) GetRxDropRatePercent() float64 {
 	if x != nil {
 		return x.RxDropRatePercent
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRateLimitWaits() uint64 {
+	if x != nil {
+		return x.RateLimitWaits
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetSourcePortWaits() uint64 {
+	if x != nil {
+		return x.SourcePortWaits
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRateLimitWaitTimeMs() uint64 {
+	if x != nil {
+		return x.RateLimitWaitTimeMs
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetSourcePortWaitTimeMs() uint64 {
+	if x != nil {
+		return x.SourcePortWaitTimeMs
 	}
 	return 0
 }
@@ -4551,7 +4584,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vIN_PROGRESS\x10\x02\x12\r\n" +
 	"\tCOMPLETED\x10\x03\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x04\"\xa9\x04\n" +
+	"\x06FAILED\x10\x04\"\xed\x05\n" +
 	"\x11SweepScannerStats\x12!\n" +
 	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12!\n" +
 	"\fpackets_recv\x18\x02 \x01(\x04R\vpacketsRecv\x12'\n" +
@@ -4565,7 +4598,11 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x15port_exhaustion_count\x18\n" +
 	" \x01(\x04R\x13portExhaustionCount\x120\n" +
 	"\x14rate_limit_deferrals\x18\v \x01(\x04R\x12rateLimitDeferrals\x12/\n" +
-	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\x92\x03\n" +
+	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\x12(\n" +
+	"\x10rate_limit_waits\x18\r \x01(\x04R\x0erateLimitWaits\x12*\n" +
+	"\x11source_port_waits\x18\x0e \x01(\x04R\x0fsourcePortWaits\x124\n" +
+	"\x17rate_limit_wait_time_ms\x18\x0f \x01(\x04R\x13rateLimitWaitTimeMs\x126\n" +
+	"\x18source_port_wait_time_ms\x18\x10 \x01(\x04R\x14sourcePortWaitTimeMs\"\x92\x03\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +

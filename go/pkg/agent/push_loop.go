@@ -332,6 +332,9 @@ const (
 	defaultEnrollRetryDelay        = 2 * time.Second
 	maxEnrollRetryDelay            = 30 * time.Second
 	defaultStatusHeartbeatInterval = 5 * time.Minute
+	minSweepResultsStreamTimeout   = 30 * time.Second
+	maxSweepResultsStreamTimeout   = 30 * time.Minute
+	sweepResultsTimeoutPerChunk    = time.Second
 )
 
 func gatewayIDFromClient(gateway *agentgateway.GatewayClient) string {
@@ -1440,7 +1443,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 			return sentAny
 		}
 
-		pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		pushCtx, cancel := context.WithTimeout(ctx, sweepResultsStreamTimeout(len(statusChunks)))
 		_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
 		cancel()
 		if err != nil {
@@ -1449,6 +1452,12 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 		}
 
 		if pendingSeq != "" {
+			if ack, ok := sweepSvc.(interface {
+				AcknowledgeSweepResults(groupID string, sequence string)
+			}); ok {
+				ack.AcknowledgeSweepResults(response.SweepGroupId, pendingSeq)
+			}
+
 			p.setSweepResultsSequence(pendingSeq)
 			lastSequence = pendingSeq
 		}
@@ -1751,6 +1760,19 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 	}
 
 	return chunks, nil
+}
+
+func sweepResultsStreamTimeout(chunkCount int) time.Duration {
+	if chunkCount <= 0 {
+		return minSweepResultsStreamTimeout
+	}
+
+	timeout := minSweepResultsStreamTimeout + time.Duration(chunkCount)*sweepResultsTimeoutPerChunk
+	if timeout > maxSweepResultsStreamTimeout {
+		return maxSweepResultsStreamTimeout
+	}
+
+	return timeout
 }
 
 // collectAllStatusesSeparated gathers status from all services, separating sysmon from others.

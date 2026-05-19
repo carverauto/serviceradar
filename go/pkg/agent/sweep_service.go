@@ -408,18 +408,22 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	// Populate scanner stats if available
 	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
 		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
-			PacketsSent:         scannerStats.PacketsSent,
-			PacketsRecv:         scannerStats.PacketsRecv,
-			PacketsDropped:      scannerStats.PacketsDropped,
-			RingBlocksProcessed: scannerStats.RingBlocksProcessed,
-			RingBlocksDropped:   scannerStats.RingBlocksDropped,
-			RetriesAttempted:    scannerStats.RetriesAttempted,
-			RetriesSuccessful:   scannerStats.RetriesSuccessful,
-			PortsAllocated:      scannerStats.PortsAllocated,
-			PortsReleased:       scannerStats.PortsReleased,
-			PortExhaustionCount: scannerStats.PortExhaustionCount,
-			RateLimitDeferrals:  scannerStats.RateLimitDeferrals,
-			RxDropRatePercent:   scannerStats.RxDropRatePercent,
+			PacketsSent:          scannerStats.PacketsSent,
+			PacketsRecv:          scannerStats.PacketsRecv,
+			PacketsDropped:       scannerStats.PacketsDropped,
+			RingBlocksProcessed:  scannerStats.RingBlocksProcessed,
+			RingBlocksDropped:    scannerStats.RingBlocksDropped,
+			RetriesAttempted:     scannerStats.RetriesAttempted,
+			RetriesSuccessful:    scannerStats.RetriesSuccessful,
+			PortsAllocated:       scannerStats.PortsAllocated,
+			PortsReleased:        scannerStats.PortsReleased,
+			PortExhaustionCount:  scannerStats.PortExhaustionCount,
+			RateLimitDeferrals:   scannerStats.RateLimitDeferrals,
+			RateLimitWaits:       scannerStats.RateLimitWaits,
+			SourcePortWaits:      scannerStats.SourcePortWaits,
+			RateLimitWaitTimeMs:  scannerStats.RateLimitWaitTimeMs,
+			SourcePortWaitTimeMs: scannerStats.SourcePortWaitTimeMs,
+			RxDropRatePercent:    scannerStats.RxDropRatePercent,
 		}
 	}
 
