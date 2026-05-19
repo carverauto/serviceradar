@@ -85,6 +85,11 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.calicoLogDenied.enabled` | Render Calico policy to log denied egress | `false` |
 | `networkPolicy.calicoLogDenied.selector` | Calico selector for matching pods | `app.kubernetes.io/part-of == 'serviceradar'` |
 | `networkPolicy.calicoLogDenied.order` | Calico policy order (lower is higher priority) | `1000` |
+| `global.storage.encryptedStorageClassName` | StorageClass used by durable database/object-store PVCs when no service-specific class is set | `encrypted` |
+| `global.storage.allowInsecureStorage` | Allow durable PVCs to inherit the cluster default or use a known non-encrypted class. Lab/demo only. | `false` |
+| `cnpg.storageClass` | StorageClass for CNPG database volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
+| `nats.persistence.storageClassName` | StorageClass for NATS JetStream file-store volumes. Defaults to `global.storage.encryptedStorageClassName` when empty. | `""` |
+| `datasvc.data.storageClassName` | StorageClass for optional datasvc local object-store volumes. Defaults to `global.storage.encryptedStorageClassName` when enabled and empty. | `""` |
 | `cnpg.pooler.enabled` | Deploy a CNPG-managed PgBouncer pooler | `false` |
 | `cnpg.pooler.instances` | PgBouncer pooler pod count | `3` |
 | `cnpg.pooler.ha.podAntiAffinity.type` | Pooler pod spreading mode, `preferred` or `required` | `preferred` |
@@ -104,6 +109,27 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `spire.enabled` | Enable SPIRE identity plane | `false` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
 | `webNg.gatewayAddress` | External gateway address for edge agents (host:port). Set this explicitly when the agent gateway is exposed on a different host than the web ingress. Otherwise it defaults to `ingress.host:50052` when set, or the in-cluster service. | `""` |
+
+### Storage Encryption
+
+Remote-access recordings currently persist as CNPG rows. The planned object-store path uses the NATS/datasvc durable storage path. Production installs therefore fail closed by default to an encrypted storage class:
+
+```yaml
+global:
+  storage:
+    encryptedStorageClassName: encrypted
+    allowInsecureStorage: false
+```
+
+Set `cnpg.storageClass`, `nats.persistence.storageClassName`, or `datasvc.data.storageClassName` when a cluster uses service-specific encrypted classes. Local/demo clusters without encrypted CSI support must opt in explicitly:
+
+```yaml
+global:
+  storage:
+    allowInsecureStorage: true
+```
+
+Do not use the insecure override for production remote-access deployments.
 
 ### ServiceRadar Observability Bundle
 

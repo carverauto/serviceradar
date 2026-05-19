@@ -18,6 +18,17 @@ global:
   # When true, stamp the pod template with a Helm-managed revision so a normal
   # `helm upgrade` rolls mutable-tag workloads and pulls fresh images.
   forceRolloutOnUpgrade: false
+  storage:
+    # StorageClass used for durable data that may contain remote-access
+    # recordings, object-store payloads, database rows, credentials, or audit
+    # material. Production clusters should provide this class with encryption
+    # at rest enabled by the underlying CSI/storage backend.
+    encryptedStorageClassName: "encrypted"
+    # Set true only for local/lab clusters where the encrypted class does not
+    # exist. When false, durable storage templates default to
+    # encryptedStorageClassName instead of silently inheriting the cluster
+    # default StorageClass.
+    allowInsecureStorage: false
 
 image:
   # Base registry/repository prefix for first-party ServiceRadar images.
@@ -465,7 +476,7 @@ cnpg:
   enabled: true
   clusterName: cnpg
   instances: 3
-  storageClass: local-path
+  storageClass: ""
   storageSize: 100Gi
   # Optional full CNPG image reference. When blank, image.registry is used with
   # the default ServiceRadar CNPG tag.

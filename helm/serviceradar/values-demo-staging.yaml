@@ -6,6 +6,10 @@ namespace: demo-staging
 global:
   imageTag: "sha-ac23dc0ebcbee0d6a964dc8307826bf2a063536c"
   imagePullPolicy: Always
+  storage:
+    # demo-staging currently rides the lab cluster default/local-path storage.
+    # Production values should leave this false and provide an encrypted class.
+    allowInsecureStorage: true
 
 image:
   registryPullSecret: registry-carverauto-dev-cred

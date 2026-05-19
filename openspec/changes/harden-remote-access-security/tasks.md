@@ -682,10 +682,11 @@ Result: cert *shape* and *bind* are correct — partition_id is issuer-derived, 
 
 This makes several earlier findings load-bearing in a new way: 3.H.2 (storage fields leaked to client) is worse than first scored because the storage layer has *no* second authz gate to fall back on; recordings IDOR (5.4 / 5.8) collapses to "any cluster pod with a valid mTLS cert reads any recording".
 
-- [ ] 3.J.1 [H] No encryption at rest on the recording object store
+- [x] 3.J.1 [H] No encryption at rest on the recording object store
       Where: `go/pkg/datasvc/nats.go:885-893` (`objectStoreConfig`); `helm/serviceradar/templates/datasvc.yaml` (commit: staging)
       Why: JetStream stores recording bytes plaintext on the datasvc PVC. PVC snapshot/backup leak or node-disk theft → every recording readable.
       Fix: Layer 1 (infra) — encrypted PVC storage class. Layer 2 (app) — per-recording AEAD (ChaCha20-Poly1305 / AES-256-GCM) with a KMS-wrapped data key stored on the recording row; datasvc only sees ciphertext
+      Resolution: Closed for the infra layer. Helm now fails closed to `global.storage.encryptedStorageClassName` for CNPG (current recording rows), NATS JetStream (object-store backing storage), and optional datasvc local data PVCs unless `global.storage.allowInsecureStorage=true` is set explicitly. Per-recording AEAD remains a future app-layer defense if/when the datasvc recording writer is enabled.
 
 - [x] 3.J.2 [M] Object keys are deterministic and enumerable (`remote-access/sessions/{session_id}/recording.jsonl`)
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recordings.ex:17-19, 267-274` (commit: staging)
@@ -1026,10 +1027,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: `privileged: true` grants *all* capabilities, write-access to `/dev/*`, and host-device control. With `CAP_BPF` + `CAP_PERFMON` already explicit, this is a *node-level privesc* primitive on every node running the agent.
       Fix: Drop `privileged: true`; rely on the explicit cap set; verify on each supported kernel (≥5.8 per 3.L.1) that the eBPF programs load with caps only. Fall back to `privileged: true` only with a feature flag + audit on use.
 
-- [ ] 6.P.3 [H] datasvc PVC has no `storageClassName` — defaults to whatever the cluster supplies, often unencrypted
+- [x] 6.P.3 [H] datasvc PVC has no `storageClassName` — defaults to whatever the cluster supplies, often unencrypted
       Where: `helm/serviceradar/templates/datasvc.yaml:148-160` (working tree)
       Why: The infra-layer fix for 3.J.1 (recordings plaintext at rest). Without forcing an encrypted storage class, the PVC inherits the cluster default which is rarely encrypted.
       Fix: Default `storageClassName: "encrypted"` (or site-configurable); document the requirement; refuse to install without an encrypted class unless `--values insecure-storage.yaml` opt-in.
+      Resolution: Closed by adding `global.storage.encryptedStorageClassName` and `global.storage.allowInsecureStorage`. CNPG, NATS JetStream, and datasvc data PVC templates now default to the encrypted class and only omit/accept insecure storage when the lab/demo override is explicit.
 
 - [ ] 6.P.4 [M] Bootstrap Jobs grant `secrets *` verbs with no `resourceNames` scope
       Where: `helm/serviceradar/templates/nats-creds-generator.yaml:30-33`; `secret-generator-job.yaml:30-33` (working tree)

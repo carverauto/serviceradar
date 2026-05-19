@@ -2,6 +2,16 @@
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $datasvcData := default (dict) (get $datasvc "data") -}}
 {{- $datasvcDataEnabled := ne false (get $datasvcData "enabled") -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $datasvcStorageClass := default "" (get $datasvcData "storageClassName") -}}
+{{- if and $datasvcDataEnabled (eq $datasvcStorageClass "") (not $allowInsecureStorage) -}}
+  {{- $datasvcStorageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- if and $datasvcDataEnabled (eq $datasvcStorageClass "") (not $allowInsecureStorage) -}}
+  {{- fail "datasvc.data.storageClassName or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
+{{- end -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -154,7 +164,7 @@ spec:
   resources:
     requests:
       storage: {{ get $datasvcData "size" | default "5Gi" | quote }}
-  {{- if get $datasvcData "storageClassName" }}
-  storageClassName: {{ get $datasvcData "storageClassName" | quote }}
+  {{- if $datasvcStorageClass }}
+  storageClassName: {{ $datasvcStorageClass | quote }}
   {{- end }}
 {{- end }}

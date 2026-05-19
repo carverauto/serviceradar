@@ -15,6 +15,10 @@ global:
   imageTag: "sha-217d693de66908133302bffea9a1091b03e45d87"
   imagePullPolicy: Always
   forceRolloutOnUpgrade: true
+  storage:
+    # The demo k3s cluster uses local-path storage. Keep this override explicit
+    # so production installs fail closed unless an encrypted class is supplied.
+    allowInsecureStorage: true
 
 image:
   registryPullSecret: registry-carverauto-dev-cred

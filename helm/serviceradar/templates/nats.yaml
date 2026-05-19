@@ -3,6 +3,16 @@
 {{- $jetstream := default (dict) $nats.jetstream -}}
 {{- $replicas := int (default 1 $nats.replicas) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
+{{- $globalStorage := default (dict) .Values.global.storage -}}
+{{- $encryptedStorageClass := default "encrypted" $globalStorage.encryptedStorageClassName -}}
+{{- $allowInsecureStorage := default false $globalStorage.allowInsecureStorage -}}
+{{- $natsStorageClass := default "" $persistence.storageClassName -}}
+{{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
+  {{- $natsStorageClass = $encryptedStorageClass -}}
+{{- end -}}
+{{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
+  {{- fail "nats.persistence.storageClassName or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
+{{- end -}}
 ---
 apiVersion: v1
 kind: Service
@@ -353,6 +363,6 @@ spec:
       resources:
         requests:
           storage: {{ default "30Gi" $persistence.size }}
-      {{- if $persistence.storageClassName }}
-      storageClassName: {{ $persistence.storageClassName | quote }}
+      {{- if $natsStorageClass }}
+      storageClassName: {{ $natsStorageClass | quote }}
       {{- end }}
