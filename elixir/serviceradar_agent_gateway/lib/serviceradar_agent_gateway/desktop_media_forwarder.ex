@@ -6,6 +6,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   owns the viewer/media ingress boundary that browser delivery attaches to.
   """
 
+  alias ServiceRadarAgentGateway.CoreNodeForwarder
   alias ServiceRadarCoreElx.DesktopMediaIngress
 
   require Logger
@@ -21,7 +22,13 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   end
 
   defp do_forward_frame(frame, session, opts, remaining_attempts) do
-    case rpc_module(opts).call(core_node(opts), ingress_module(opts), :forward_frame, [frame, session], timeout(opts)) do
+    case rpc_module(opts).call(
+           core_node(opts),
+           ingress_module(opts),
+           :forward_frame,
+           [frame, session],
+           timeout(opts)
+         ) do
       {:badrpc, :nodedown} when remaining_attempts > 0 ->
         Logger.warning(
           "Desktop media frame forward hit :nodedown talking to core-elx; retrying (remaining=#{remaining_attempts})"
@@ -62,7 +69,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
         node
 
       nil ->
-        select_core_node()
+        CoreNodeForwarder.select_core_node("desktop media ingress")
 
       other ->
         raise ArgumentError, "invalid core node for desktop media forwarder: #{inspect(other)}"
@@ -70,65 +77,11 @@ defmodule ServiceRadarAgentGateway.DesktopMediaForwarder do
   end
 
   defp resolve_core_node(opts) do
-    case core_node_resolver(opts).() do
-      node when is_atom(node) and not is_nil(node) ->
-        {:ok, node}
-
-      other ->
-        Logger.error(
-          "Failed to resolve core node for desktop media forwarder: #{inspect(other)} (connected=#{inspect(Node.list())})"
-        )
-
-        {:error, :core_unavailable}
-    end
+    CoreNodeForwarder.resolve_core_node("desktop media forwarder", core_node_resolver(opts))
   end
 
   defp ensure_core_connected(node, opts) when is_atom(node) do
-    case connectivity_module(opts).ping(node) do
-      :pong ->
-        :ok
-
-      :pang ->
-        Logger.error("Failed to establish distributed Erlang connection to core node #{inspect(node)}")
-        {:error, :core_unavailable}
-
-      other ->
-        Logger.error("Unexpected core connectivity probe result for #{inspect(node)}: #{inspect(other)}")
-        {:error, :core_unavailable}
-    end
-  end
-
-  defp ensure_core_connected(node, _opts) do
-    Logger.error("Failed to establish distributed Erlang connection to core node #{inspect(node)}")
-    {:error, :core_unavailable}
-  end
-
-  defp select_core_node do
-    nodes = Node.list()
-
-    nodes
-    |> Enum.find(fn node ->
-      case :rpc.call(node, Process, :whereis, [ServiceRadar.ClusterHealth], 5_000) do
-        pid when is_pid(pid) -> true
-        _other -> false
-      end
-    end)
-    |> Kernel.||(Enum.find(nodes, &core_node?/1))
-    |> case do
-      nil -> raise ArgumentError, "no core-elx node available for desktop media ingress"
-      node -> node
-    end
-  end
-
-  defp core_node?(node) when is_atom(node) do
-    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
-  end
-
-  defp core_node?(_node), do: false
-
-  defp core_node_basename do
-    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
-      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename, "serviceradar_core")
+    CoreNodeForwarder.ensure_core_connected(node, connectivity_module(opts))
   end
 
   defp ingress_module(opts) do

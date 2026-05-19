@@ -202,7 +202,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     assert_receive {:DOWN, ^monitor_ref, :process, ^pid, :normal}
 
-    assert_receive {:control_stream_message_rejected, [:serviceradar, :control_stream, :message, :rejected], %{count: 1},
+    rejected_event = [:serviceradar, :control_stream, :message, :rejected]
+
+    assert_receive {:control_stream_message_rejected, ^rejected_event, %{count: 1},
                     %{
                       agent_id: "agent-owned",
                       identity_partition_id: "partition-b",

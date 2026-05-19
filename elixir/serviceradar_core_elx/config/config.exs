@@ -41,6 +41,7 @@ config :serviceradar_core,
     ServiceRadar.Spatial,
     ServiceRadar.WifiMap,
     ServiceRadar.Credentials,
+    ServiceRadar.Automation.Northbound,
     ServiceRadar.Automation.Ansible,
     ServiceRadar.Security
   ]

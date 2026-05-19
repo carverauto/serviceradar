@@ -10,9 +10,19 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
 
   use GRPC.Server, service: Desktopmedia.DesktopMediaService.Service
 
+  import ServiceRadarAgentGateway.MediaIdentity,
+    only: [
+      enforce_component_identity!: 3,
+      gateway_id: 0,
+      required_agent_id: 1,
+      required_string: 2,
+      resolve_partition: 1
+    ]
+
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.DesktopMediaForwarder
   alias ServiceRadarAgentGateway.DesktopMediaSessionTracker
+  alias ServiceRadarAgentGateway.MediaIdentity
 
   require Logger
 
@@ -71,32 +81,33 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
   end
 
   def stream_desktop_media(request_stream, stream) do
-    Enum.reduce_while(request_stream, :ok, fn
-      %Desktopmedia.DesktopMediaClientMessage{message: {:heartbeat, heartbeat}}, :ok ->
-        ack = heartbeat(heartbeat, stream)
+    :ok =
+      Enum.reduce_while(request_stream, :ok, fn
+        %Desktopmedia.DesktopMediaClientMessage{message: {:heartbeat, heartbeat}}, :ok ->
+          ack = heartbeat(heartbeat, stream)
 
-        send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
-          message: {:heartbeat, ack}
-        })
+          send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
+            message: {:heartbeat, ack}
+          })
 
-      %Desktopmedia.DesktopMediaClientMessage{message: {:close, close}}, :ok ->
-        response = close_desktop_media_stream(close, stream)
+        %Desktopmedia.DesktopMediaClientMessage{message: {:close, close}}, :ok ->
+          response = close_desktop_media_stream(close, stream)
 
-        send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
-          message: {:close, response}
-        })
+          send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
+            message: {:close, response}
+          })
 
-      %Desktopmedia.DesktopMediaClientMessage{message: {:frame, frame}}, :ok ->
-        {agent_id, session} = validate_desktop_media_frame!(frame, stream)
-        ack = forward_desktop_media_frame!(frame, session, agent_id)
+        %Desktopmedia.DesktopMediaClientMessage{message: {:frame, frame}}, :ok ->
+          {agent_id, session} = validate_desktop_media_frame!(frame, stream)
+          ack = forward_desktop_media_frame!(frame, session, agent_id)
 
-        send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
-          message: {:ack, ack}
-        })
+          send_stream_reply(stream, %Desktopmedia.DesktopMediaServerMessage{
+            message: {:ack, ack}
+          })
 
-      _other, :ok ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "unsupported desktop media stream message"
-    end)
+        _other, :ok ->
+          raise GRPC.RPCError, status: :invalid_argument, message: "unsupported desktop media stream message"
+      end)
 
     :ok
   end
@@ -480,79 +491,7 @@ defmodule ServiceRadarAgentGateway.DesktopMediaServer do
     "per-gateway desktop media session limit exceeded (limit=#{limit})"
   end
 
-  defp required_agent_id(value) do
-    case value do
-      nil ->
-        raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
-
-      value ->
-        case value |> to_string() |> String.trim() do
-          "" ->
-            raise GRPC.RPCError, status: :invalid_argument, message: "agent_id is required"
-
-          agent_id ->
-            agent_id
-        end
-    end
-  end
-
-  defp required_string(value, field_name) do
-    case value |> to_string() |> String.trim() do
-      "" ->
-        raise ArgumentError, "#{field_name} is required"
-
-      normalized ->
-        normalized
-    end
-  end
-
-  defp gateway_id, do: Atom.to_string(node())
-
-  defp resolve_partition(identity), do: Map.get(identity, :partition_id, "default")
-
-  defp enforce_component_identity!(identity, component_id, allowed_types) do
-    cert_component_id = Map.get(identity, :component_id)
-    cert_component_type = Map.get(identity, :component_type)
-
-    cond do
-      cert_component_id != component_id ->
-        raise GRPC.RPCError, status: :permission_denied, message: "component identity mismatch"
-
-      cert_component_type not in allowed_types ->
-        raise GRPC.RPCError, status: :permission_denied, message: "component type is not allowed"
-
-      true ->
-        :ok
-    end
-  end
-
   defp extract_identity_from_stream(stream) do
-    with {:ok, cert_der} <- get_peer_cert(stream),
-         {:ok, identity} <- identity_resolver().resolve_from_cert(cert_der) do
-      identity
-    else
-      {:error, reason} ->
-        Logger.warning("Desktop media certificate validation failed: #{inspect(reason)}")
-        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
-    end
-  end
-
-  defp get_peer_cert(stream) do
-    adapter = stream.adapter
-    payload = stream.payload
-
-    if is_atom(adapter) and Code.ensure_loaded?(adapter) and function_exported?(adapter, :get_cert, 1) do
-      case adapter.get_cert(payload) do
-        :undefined -> {:error, :no_certificate}
-        cert_der when is_binary(cert_der) -> {:ok, cert_der}
-        other -> {:error, {:unexpected_cert_result, other}}
-      end
-    else
-      {:error, {:cert_extraction_unsupported, adapter}}
-    end
-  rescue
-    error -> {:error, {:extraction_failed, Exception.message(error)}}
-  catch
-    kind, reason -> {:error, {:extraction_failed, kind, inspect(reason)}}
+    MediaIdentity.extract_identity_from_stream(stream, identity_resolver(), "Desktop media")
   end
 end

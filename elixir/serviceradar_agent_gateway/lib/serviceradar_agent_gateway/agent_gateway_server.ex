@@ -900,7 +900,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp cert_fingerprint_sha256(cert_der) do
     cert_der
-    |> :crypto.hash(:sha256)
+    |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
 
