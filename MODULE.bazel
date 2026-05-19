@@ -70,6 +70,23 @@ archive_override(
     ],
 )
 
+# zlib's BCR source points at GitHub releases. Prefer the Bazel mirror first so
+# release CI can complete analysis during transient GitHub 5xx responses.
+archive_override(
+    module_name = "zlib",
+    integrity = "sha256-mpOyt9/ax3zrpaVYpYDnRmfdb+3kWFuR7vtg8Dty3yM=",
+    patch_strip = 0,
+    patches = [
+        "//third_party/patches/zlib:add_build_file.patch",
+        "//third_party/patches/zlib:module_dot_bazel.patch",
+    ],
+    strip_prefix = "zlib-1.3.1",
+    urls = [
+        "https://mirror.bazel.build/github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+        "https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz",
+    ],
+)
+
 single_version_override(
     module_name = "rules_java",
     patch_strip = 0,
