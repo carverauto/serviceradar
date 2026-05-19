@@ -53,7 +53,20 @@ where
     W: Write,
 {
     let ironrdp_backend_linked = cfg!(feature = "ironrdp-backend");
-    let connector_ready = false;
+    let connector_ready = cfg!(all(
+        feature = "ironrdp-backend",
+        serviceradar_rdp_connector_link_probe
+    ));
+
+    if connector_ready {
+        return writeln!(
+            writer,
+            "{{\"schema\":\"{}\",\"protocol\":\"rdp\",\"helper_protocol_version\":{},\"ironrdp_backend_linked\":true,\"connector_ready\":true}}",
+            HELPER_CAPABILITIES_SCHEMA,
+            HELPER_PROTOCOL_VERSION
+        );
+    }
+
     let connector_ready_reason = if ironrdp_backend_linked {
         HELPER_CONNECTOR_NOT_READY_REASON
     } else {
@@ -66,7 +79,7 @@ where
         HELPER_CAPABILITIES_SCHEMA,
         HELPER_PROTOCOL_VERSION,
         ironrdp_backend_linked,
-        connector_ready,
+        false,
         connector_ready_reason
     )
 }

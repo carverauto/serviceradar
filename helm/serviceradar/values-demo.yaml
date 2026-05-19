@@ -269,6 +269,7 @@ webNg:
   extraEnv:
     # City MMDB is large; we only enable it in demo where we can allocate more memory.
     GEOLITE_CITY_ENABLED: "true"
+    SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Trust first-party Wasm upload signatures published by the release pipeline.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo="
   resources:
@@ -393,6 +394,7 @@ core:
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
+    SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Keep last-known topology visible in demo when external mapper agents are
     # briefly offline or being re-enrolled.
     SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES: "10080"
