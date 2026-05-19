@@ -194,7 +194,11 @@ type ScannerStats struct {
 	PortExhaustion uint64 // Number of times port allocator was exhausted
 
 	// Rate limiting statistics
-	RateLimitDeferrals uint64 // Packet send operations deferred due to rate limiting
+	RateLimitDeferrals  uint64 // Legacy aggregate of packet send deferrals
+	RateLimitWaits      uint64 // Token-bucket wait events
+	SourcePortWaits     uint64 // Source-port allocator wait events
+	RateLimitWaitNanos  uint64 // Total token-bucket wait time in nanoseconds
+	SourcePortWaitNanos uint64 // Total source-port wait time in nanoseconds
 
 	// Timing statistics (in nanoseconds, for precision)
 	LastStatsReset int64 // Timestamp of last stats reset (UnixNano)
@@ -216,6 +220,10 @@ func (s *SYNScanner) GetStats() ScannerStats {
 		PortsReleased:       atomic.LoadUint64(&s.stats.PortsReleased),
 		PortExhaustion:      atomic.LoadUint64(&s.stats.PortExhaustion),
 		RateLimitDeferrals:  atomic.LoadUint64(&s.stats.RateLimitDeferrals),
+		RateLimitWaits:      atomic.LoadUint64(&s.stats.RateLimitWaits),
+		SourcePortWaits:     atomic.LoadUint64(&s.stats.SourcePortWaits),
+		RateLimitWaitNanos:  atomic.LoadUint64(&s.stats.RateLimitWaitNanos),
+		SourcePortWaitNanos: atomic.LoadUint64(&s.stats.SourcePortWaitNanos),
 		LastStatsReset:      atomic.LoadInt64(&s.stats.LastStatsReset),
 	}
 }
@@ -233,7 +241,23 @@ func (s *SYNScanner) ResetStats() {
 	atomic.StoreUint64(&s.stats.PortsReleased, 0)
 	atomic.StoreUint64(&s.stats.PortExhaustion, 0)
 	atomic.StoreUint64(&s.stats.RateLimitDeferrals, 0)
+	atomic.StoreUint64(&s.stats.RateLimitWaits, 0)
+	atomic.StoreUint64(&s.stats.SourcePortWaits, 0)
+	atomic.StoreUint64(&s.stats.RateLimitWaitNanos, 0)
+	atomic.StoreUint64(&s.stats.SourcePortWaitNanos, 0)
 	atomic.StoreInt64(&s.stats.LastStatsReset, time.Now().UnixNano())
+}
+
+func (s *SYNScanner) recordRateLimitWait(d time.Duration) {
+	atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+	atomic.AddUint64(&s.stats.RateLimitWaits, 1)
+	atomic.AddUint64(&s.stats.RateLimitWaitNanos, uint64(d))
+}
+
+func (s *SYNScanner) recordSourcePortWait(d time.Duration) {
+	atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+	atomic.AddUint64(&s.stats.SourcePortWaits, 1)
+	atomic.AddUint64(&s.stats.SourcePortWaitNanos, uint64(d))
 }
 
 // sampleKernelStats samples PACKET_STATISTICS from all ring buffers to track kernel drops
@@ -319,6 +343,8 @@ func (s *SYNScanner) logTelemetry(ctx context.Context) {
 					Uint64("retries_successful", stats.RetriesSuccessful).
 					Uint64("ports_allocated", stats.PortsAllocated).
 					Uint64("rate_limit_deferrals", stats.RateLimitDeferrals).
+					Uint64("rate_limit_waits", stats.RateLimitWaits).
+					Uint64("source_port_waits", stats.SourcePortWaits).
 					Int("rl_shards", rlShards).
 					Msg("SYN scanner telemetry")
 			}
@@ -1123,6 +1149,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // uses atomic.Value and is safe to call anytime, including during active scans.
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
+//
 //nolint:gocyclo // Complex initialization with many configuration options and platform-specific setup
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Debug().Msg("Starting SYN scanner initialization")
@@ -1514,18 +1541,18 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	log.Debug().Int("sendBatchSize", batchSize).Msg("Using configurable sendmmsg batch size")
 
 	scanner := &SYNScanner{
-		timeout:        timeout,
-		concurrency:    concurrency,
-		logger:         log,
-		sendSocket:     sendSocket,
-		rings:          rings,
-		sourceIP:       sourceIP,
-		iface:          iface,
-		fanoutGroup:    fanoutGroup,
-		retireTovMs:    retireTov,
-		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
-		scanPortStart:  scanPortStart,
-		scanPortEnd:    scanPortEnd,
+		timeout:       timeout,
+		concurrency:   concurrency,
+		logger:        log,
+		sendSocket:    sendSocket,
+		rings:         rings,
+		sourceIP:      sourceIP,
+		iface:         iface,
+		fanoutGroup:   fanoutGroup,
+		retireTovMs:   retireTov,
+		portAlloc:     NewPortAllocator(scanPortStart, scanPortEnd),
+		scanPortStart: scanPortStart,
+		scanPortEnd:   scanPortEnd,
 		// Use a single retry by default to reduce false negatives from packet loss
 		// without significantly increasing scan duration.
 		retryAttempts:  2,
@@ -1875,7 +1902,7 @@ func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]mode
 		if s.portAlloc != nil {
 			free := s.portAlloc.Free()
 			if free <= 0 {
-				atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+				s.recordSourcePortWait(rateLimitBackoff)
 				time.Sleep(rateLimitBackoff)
 
 				continue
@@ -1888,7 +1915,7 @@ func (s *SYNScanner) sendPendingWithLimiter(ctx context.Context, pending *[]mode
 
 		if allowed == 0 {
 			// tiny sleep to avoid busy spinning
-			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+			s.recordRateLimitWait(rateLimitBackoff)
 			time.Sleep(rateLimitBackoff)
 
 			continue
@@ -2043,6 +2070,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 }
 
 // Scan performs SYN scanning on the given targets
+//
 //nolint:gocyclo // Complex scanning logic with multiple execution paths and error handling
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	tcpTargets := filterTCPTargets(targets)
@@ -2288,6 +2316,8 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			Uint64("packetsRecv", stats.PacketsRecv).
 			Uint64("packetsDropped", stats.PacketsDropped).
 			Uint64("rateLimitDeferrals", stats.RateLimitDeferrals).
+			Uint64("rateLimitWaits", stats.RateLimitWaits).
+			Uint64("sourcePortWaits", stats.SourcePortWaits).
 			Msg("Scan completed")
 
 		close(stopEmit) // signal emitter to drain and close resultCh
@@ -2330,6 +2360,91 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	return resultCh, nil
 }
 
+// ScanStream consumes targets incrementally and runs the existing SYN packet
+// engine in bounded batches. This keeps large sweeps from forcing callers to
+// materialize every host/port pair before scanning.
+func (s *SYNScanner) ScanStream(
+	ctx context.Context,
+	targets <-chan models.Target,
+	opts StreamOptions,
+) (<-chan models.Result, <-chan error, error) {
+	batchSize := opts.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100000
+	}
+
+	resultBuffer := batchSize
+	if resultBuffer > 10000 {
+		resultBuffer = 10000
+	}
+
+	resultCh := make(chan models.Result, resultBuffer)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(resultCh)
+		defer close(errCh)
+
+		batch := make([]models.Target, 0, batchSize)
+
+		flush := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+
+			results, err := s.Scan(ctx, batch)
+			if err != nil {
+				return err
+			}
+
+			for result := range results {
+				select {
+				case resultCh <- result:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
+			batch = batch[:0]
+
+			return nil
+		}
+
+		for {
+			select {
+			case target, ok := <-targets:
+				if !ok {
+					if err := flush(); err != nil {
+						errCh <- err
+					}
+
+					return
+				}
+
+				if target.Mode != models.ModeTCP {
+					continue
+				}
+
+				batch = append(batch, target)
+				if len(batch) >= batchSize {
+					if err := flush(); err != nil {
+						errCh <- err
+
+						return
+					}
+				}
+
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+
+				return
+			}
+		}
+	}()
+
+	return resultCh, errCh, nil
+}
+
 // worker sends SYN packets to targets from the work channel
 func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 	pending := make([]models.Target, 0, s.sendBatchSize)
@@ -2368,7 +2483,7 @@ func (s *SYNScanner) worker(ctx context.Context, workCh <-chan models.Target) {
 		allowed := s.allowN(len(pending))
 		if allowed == 0 {
 			// tiny nap to let tokens accrue
-			atomic.AddUint64(&s.stats.RateLimitDeferrals, 1)
+			s.recordRateLimitWait(rateLimitBackoff)
 			time.Sleep(rateLimitBackoff)
 
 			continue

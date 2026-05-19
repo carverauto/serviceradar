@@ -1177,11 +1177,16 @@ type SweepScannerStats struct {
 	PortsReleased       uint64 `protobuf:"varint,9,opt,name=ports_released,json=portsReleased,proto3" json:"ports_released,omitempty"`                      // Total source port releases
 	PortExhaustionCount uint64 `protobuf:"varint,10,opt,name=port_exhaustion_count,json=portExhaustionCount,proto3" json:"port_exhaustion_count,omitempty"` // Times port allocator was exhausted
 	// Rate limiting statistics
-	RateLimitDeferrals uint64 `protobuf:"varint,11,opt,name=rate_limit_deferrals,json=rateLimitDeferrals,proto3" json:"rate_limit_deferrals,omitempty"` // Packet sends deferred due to rate limiting
+	RateLimitDeferrals uint64 `protobuf:"varint,11,opt,name=rate_limit_deferrals,json=rateLimitDeferrals,proto3" json:"rate_limit_deferrals,omitempty"` // Legacy aggregate of deferred send loops
 	// Computed metrics
 	RxDropRatePercent float64 `protobuf:"fixed64,12,opt,name=rx_drop_rate_percent,json=rxDropRatePercent,proto3" json:"rx_drop_rate_percent,omitempty"` // Percentage of received packets dropped
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Detailed throttle metrics
+	RateLimitWaits       uint64 `protobuf:"varint,13,opt,name=rate_limit_waits,json=rateLimitWaits,proto3" json:"rate_limit_waits,omitempty"`                       // Token-bucket wait events
+	SourcePortWaits      uint64 `protobuf:"varint,14,opt,name=source_port_waits,json=sourcePortWaits,proto3" json:"source_port_waits,omitempty"`                    // Source-port allocator wait events
+	RateLimitWaitTimeMs  uint64 `protobuf:"varint,15,opt,name=rate_limit_wait_time_ms,json=rateLimitWaitTimeMs,proto3" json:"rate_limit_wait_time_ms,omitempty"`    // Total token-bucket wait time
+	SourcePortWaitTimeMs uint64 `protobuf:"varint,16,opt,name=source_port_wait_time_ms,json=sourcePortWaitTimeMs,proto3" json:"source_port_wait_time_ms,omitempty"` // Total source-port wait time
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SweepScannerStats) Reset() {
@@ -1294,6 +1299,34 @@ func (x *SweepScannerStats) GetRateLimitDeferrals() uint64 {
 func (x *SweepScannerStats) GetRxDropRatePercent() float64 {
 	if x != nil {
 		return x.RxDropRatePercent
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRateLimitWaits() uint64 {
+	if x != nil {
+		return x.RateLimitWaits
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetSourcePortWaits() uint64 {
+	if x != nil {
+		return x.SourcePortWaits
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetRateLimitWaitTimeMs() uint64 {
+	if x != nil {
+		return x.RateLimitWaitTimeMs
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetSourcePortWaitTimeMs() uint64 {
+	if x != nil {
+		return x.SourcePortWaitTimeMs
 	}
 	return 0
 }
@@ -3347,9 +3380,11 @@ type SysmonConfig struct {
 	// Values: percentage as string (e.g., "80", "95")
 	Thresholds map[string]string `protobuf:"bytes,10,rep,name=thresholds,proto3" json:"thresholds,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Profile metadata (for UI display and debugging)
-	ProfileId     string `protobuf:"bytes,11,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`          // UUID of the profile this config came from
-	ProfileName   string `protobuf:"bytes,12,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`    // Name of the profile for logging
-	ConfigSource  string `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source: "profile", "tag", "device", "default"
+	ProfileId    string `protobuf:"bytes,11,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`          // UUID of the profile this config came from
+	ProfileName  string `protobuf:"bytes,12,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`    // Name of the profile for logging
+	ConfigSource string `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source: "profile", "tag", "device", "default"
+	// Maximum process metrics retained per sample. 0 means unlimited.
+	ProcessLimit  int32 `protobuf:"varint,15,opt,name=process_limit,json=processLimit,proto3" json:"process_limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3473,6 +3508,13 @@ func (x *SysmonConfig) GetConfigSource() string {
 		return x.ConfigSource
 	}
 	return ""
+}
+
+func (x *SysmonConfig) GetProcessLimit() int32 {
+	if x != nil {
+		return x.ProcessLimit
+	}
+	return 0
 }
 
 // AgentCheckConfig defines a single check for the agent to perform.
@@ -4575,7 +4617,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vIN_PROGRESS\x10\x02\x12\r\n" +
 	"\tCOMPLETED\x10\x03\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x04\"\xa9\x04\n" +
+	"\x06FAILED\x10\x04\"\xed\x05\n" +
 	"\x11SweepScannerStats\x12!\n" +
 	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12!\n" +
 	"\fpackets_recv\x18\x02 \x01(\x04R\vpacketsRecv\x12'\n" +
@@ -4589,7 +4631,11 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x15port_exhaustion_count\x18\n" +
 	" \x01(\x04R\x13portExhaustionCount\x120\n" +
 	"\x14rate_limit_deferrals\x18\v \x01(\x04R\x12rateLimitDeferrals\x12/\n" +
-	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\"\x92\x03\n" +
+	"\x14rx_drop_rate_percent\x18\f \x01(\x01R\x11rxDropRatePercent\x12(\n" +
+	"\x10rate_limit_waits\x18\r \x01(\x04R\x0erateLimitWaits\x12*\n" +
+	"\x11source_port_waits\x18\x0e \x01(\x04R\x0fsourcePortWaits\x124\n" +
+	"\x17rate_limit_wait_time_ms\x18\x0f \x01(\x04R\x13rateLimitWaitTimeMs\x126\n" +
+	"\x18source_port_wait_time_ms\x18\x10 \x01(\x04R\x14sourcePortWaitTimeMs\"\x92\x03\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -4799,7 +4845,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0fsource_repo_url\x18\x13 \x01(\tR\rsourceRepoUrl\x12#\n" +
 	"\rsource_commit\x18\x14 \x01(\tR\fsourceCommit\x12!\n" +
 	"\fdownload_url\x18\x15 \x01(\tR\vdownloadUrl\x12%\n" +
-	"\x0edownload_token\x18\x16 \x01(\tR\rdownloadToken\"\xd5\x04\n" +
+	"\x0edownload_token\x18\x16 \x01(\tR\rdownloadToken\"\xfa\x04\n" +
 	"\fSysmonConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12'\n" +
 	"\x0fsample_interval\x18\x02 \x01(\tR\x0esampleInterval\x12\x1f\n" +
@@ -4819,7 +4865,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"profile_id\x18\v \x01(\tR\tprofileId\x12!\n" +
 	"\fprofile_name\x18\f \x01(\tR\vprofileName\x12#\n" +
-	"\rconfig_source\x18\r \x01(\tR\fconfigSource\x1a=\n" +
+	"\rconfig_source\x18\r \x01(\tR\fconfigSource\x12#\n" +
+	"\rprocess_limit\x18\x0f \x01(\x05R\fprocessLimit\x1a=\n" +
 	"\x0fThresholdsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\t\x10\n" +

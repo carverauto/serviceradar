@@ -32,6 +32,18 @@ type Scanner interface {
 	Stop() error
 }
 
+// StreamOptions tunes bounded scanner-owned batching for streamed target input.
+type StreamOptions struct {
+	TargetEstimate int
+	BatchSize      int
+}
+
+// StreamingScanner is an optional Scanner extension for callers that can produce
+// targets incrementally without materializing the full target list.
+type StreamingScanner interface {
+	ScanStream(context.Context, <-chan models.Target, StreamOptions) (<-chan models.Result, <-chan error, error)
+}
+
 // StatsProvider is an optional interface for scanners that can provide statistics.
 type StatsProvider interface {
 	// GetStats returns a snapshot of scanner performance statistics

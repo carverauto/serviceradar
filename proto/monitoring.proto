@@ -155,10 +155,16 @@ message SweepScannerStats {
   uint64 port_exhaustion_count = 10; // Times port allocator was exhausted
 
   // Rate limiting statistics
-  uint64 rate_limit_deferrals = 11;  // Packet sends deferred due to rate limiting
+  uint64 rate_limit_deferrals = 11;  // Legacy aggregate of deferred send loops
 
   // Computed metrics
   double rx_drop_rate_percent = 12;  // Percentage of received packets dropped
+
+  // Detailed throttle metrics
+  uint64 rate_limit_waits = 13;         // Token-bucket wait events
+  uint64 source_port_waits = 14;        // Source-port allocator wait events
+  uint64 rate_limit_wait_time_ms = 15;  // Total token-bucket wait time
+  uint64 source_port_wait_time_ms = 16; // Total source-port wait time
 }
 
 
@@ -457,6 +463,9 @@ message SysmonConfig {
   string profile_id = 11;           // UUID of the profile this config came from
   string profile_name = 12;         // Name of the profile for logging
   string config_source = 13;        // Source: "profile", "tag", "device", "default"
+
+  // Maximum process metrics retained per sample. 0 means unlimited.
+  int32 process_limit = 15;
 }
 
 // AgentCheckConfig defines a single check for the agent to perform.

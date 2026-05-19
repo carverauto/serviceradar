@@ -147,6 +147,23 @@ func (s *MultiSweepService) RunSweepGroup(ctx context.Context, groupID string) e
 	return svc.RunOnce(ctx)
 }
 
+// AcknowledgeSweepResults marks a group's results sequence as delivered after
+// the push loop has successfully streamed every chunk to the gateway.
+func (s *MultiSweepService) AcknowledgeSweepResults(groupID string, sequence string) {
+	if groupID == "" || sequence == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.groups[groupID]; !ok {
+		return
+	}
+
+	s.groupSequences[groupID] = sequence
+}
+
 // UpdateConfig updates the sweep config, treating it as a single group.
 func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 	if config == nil {
@@ -331,13 +348,11 @@ func (s *MultiSweepService) GetSweepResults(ctx context.Context, _ string) (*pro
 			continue
 		}
 
-		if response.CurrentSequence != "" && response.CurrentSequence != lastSeq {
-			s.mu.Lock()
-			s.groupSequences[groupID] = response.CurrentSequence
-			s.mu.Unlock()
-		}
-
 		if response.HasNewData && len(response.Data) > 0 {
+			if response.SweepGroupId == "" {
+				response.SweepGroupId = groupID
+			}
+
 			s.mu.Lock()
 			s.nextIndex = (idx + 1) % len(groupOrder)
 			s.mu.Unlock()

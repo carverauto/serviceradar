@@ -186,9 +186,39 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
 
     assert has_element?(view, "[data-testid='traffic-map-empty']")
     assert has_element?(view, "[data-testid='security-events-empty']", "No event trend data")
-    assert has_element?(view, "[data-testid='alerts-feed-empty']", "No recent alerts")
+    assert has_element?(view, "[data-testid='alerts-feed-empty']", "No alerts in the last 24 hours")
     refute has_element?(view, "[data-testid='fieldsurvey-heatmap']")
     refute has_element?(view, "[data-testid='camera-operations']")
+  end
+
+  test "alerts feed keeps older retained alerts out of the default dashboard window", %{conn: conn} do
+    observed_at =
+      DateTime.utc_now()
+      |> DateTime.add(-2, :day)
+      |> DateTime.truncate(:second)
+
+    alert =
+      alert_fixture(%{
+        title: "Older retained alert",
+        severity: :critical,
+        description: "Still retained in the alert stream"
+      })
+
+    Repo.query!(
+      """
+      UPDATE platform.alerts
+      SET triggered_at = $2, created_at = $2
+      WHERE id = $1
+      """,
+      [alert.id, observed_at]
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard")
+    _html = render_async(view, 5_000)
+
+    refute has_element?(view, "[data-testid='alerts-feed'] a[href='/alerts/#{alert.id}']")
+    assert has_element?(view, "[data-testid='alerts-feed-empty']", "No alerts in the last 24 hours")
+    assert has_element?(view, "a[data-testid='alerts-feed-empty'][href='/alerts']")
   end
 
   defp create_dashboard_instance!(route_slug) do

@@ -1177,6 +1177,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       collect_disk: Map.get(config, "collect_disk", true),
       collect_network: Map.get(config, "collect_network", false),
       collect_processes: Map.get(config, "collect_processes", false),
+      process_limit: Map.get(config, "process_limit", 0),
       disk_paths: Map.get(config, "disk_paths", []),
       disk_exclude_paths: Map.get(config, "disk_exclude_paths", []),
       thresholds: Map.get(config, "thresholds", %{}),

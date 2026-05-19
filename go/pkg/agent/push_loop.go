@@ -56,11 +56,43 @@ var Version = "dev"
 var (
 	errSweepMissingHosts    = errors.New("sweep data missing hosts field")
 	errSweepHostsNotArray   = errors.New("hosts field is not an array")
+	errJSONPayloadTooLarge  = errors.New("json payload exceeds limit")
 	errPluginEmptyPayload   = errors.New("plugin payload empty")
 	errPluginMissingStatus  = errors.New("plugin status missing")
 	errPluginInvalidStatus  = errors.New("plugin status invalid")
 	errPluginMissingSummary = errors.New("plugin summary missing")
 )
+
+const maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
+
+type limitedJSONBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *limitedJSONBuffer) Write(p []byte) (int, error) {
+	if b.limit > 0 && b.Len()+len(p) > b.limit {
+		remaining := b.limit - b.Len()
+		if remaining > 0 {
+			_, _ = b.Buffer.Write(p[:remaining])
+		}
+
+		return 0, fmt.Errorf("%w: limit=%d", errJSONPayloadTooLarge, b.limit)
+	}
+
+	return b.Buffer.Write(p)
+}
+
+func marshalJSONLimited(v any, limit int) ([]byte, error) {
+	buf := &limitedJSONBuffer{limit: limit}
+	enc := json.NewEncoder(buf)
+
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
 
 type icmpCheckConfig struct {
 	ID       string
@@ -118,8 +150,6 @@ type PushLoop struct {
 	icmpChecks                map[string]*icmpCheckConfig
 	icmpLastRun               map[string]time.Time
 	icmpMu                    sync.RWMutex
-	sysmonLastSent            time.Time
-	sysmonMu                  sync.RWMutex
 	statusDebounce            time.Duration
 	statusHeartbeat           time.Duration
 	statusDebounceConfigured  bool
@@ -302,6 +332,9 @@ const (
 	defaultEnrollRetryDelay        = 2 * time.Second
 	maxEnrollRetryDelay            = 30 * time.Second
 	defaultStatusHeartbeatInterval = 5 * time.Minute
+	minSweepResultsStreamTimeout   = 30 * time.Second
+	maxSweepResultsStreamTimeout   = 30 * time.Minute
+	sweepResultsTimeoutPerChunk    = time.Second
 )
 
 func gatewayIDFromClient(gateway *agentgateway.GatewayClient) string {
@@ -823,8 +856,9 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	}
 
 	// Push sysmon via StreamStatus (it can have large payloads with all processes)
+	sentSysmonMetrics := false
 	if sysmonStatus != nil {
-		p.pushSysmonStatus(ctx, sysmonStatus)
+		sentSysmonMetrics = p.pushSysmonStatus(ctx, sysmonStatus)
 	}
 
 	sentICMPResults := p.pushICMPResults(ctx)
@@ -838,7 +872,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
 	if len(statuses) == 0 &&
-		sysmonStatus == nil &&
+		!sentSysmonMetrics &&
 		!sentICMPResults &&
 		!sentMtrResults &&
 		!sentSweepResults &&
@@ -933,7 +967,7 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 }
 
 // pushSysmonStatus sends sysmon metrics via StreamStatus for large payloads.
-func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewayServiceStatus) {
+func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayServiceStatus) bool {
 	p.server.mu.RLock()
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
@@ -971,27 +1005,8 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 		}
 	}
 
-	// If no buffered metrics (or service nil), fall back to sending the current status (heartbeat)
-	if len(chunks) == 0 && status != nil {
-		chunks = append(chunks, &proto.GatewayStatusChunk{
-			Services:    []*proto.GatewayServiceStatus{status},
-			GatewayId:   gatewayID,
-			AgentId:     agentID,
-			Timestamp:   time.Now().UnixNano(),
-			Partition:   partition,
-			SourceIp:    p.getSourceIP(),
-			IsFinal:     true,
-			ChunkIndex:  0,
-			TotalChunks: 1,
-			Version:     runtimeMetadata.Version,
-			Hostname:    runtimeMetadata.Hostname,
-			Os:          runtimeMetadata.Os,
-			Arch:        runtimeMetadata.Arch,
-		})
-	}
-
 	if len(chunks) == 0 {
-		return
+		return false
 	}
 
 	// Update chunk metadata
@@ -1008,13 +1023,15 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, status *proto.GatewaySe
 	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream sysmon metrics to gateway")
-		return
+		return false
 	}
 
 	if resp.Received {
 		p.logger.Info().Int("sample_count", len(chunks)).Msg("Successfully streamed sysmon metrics to gateway")
+		return true
 	} else {
 		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
+		return false
 	}
 }
 
@@ -1041,9 +1058,15 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 		Status:       sample,
 	}
 
-	messageBytes, err := json.Marshal(payload)
+	messageBytes, err := marshalJSONLimited(payload, maxSysmonStatusPayloadBytes)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal sysmon sample payload")
+		logEvent := p.logger.Error()
+		if errors.Is(err, errJSONPayloadTooLarge) {
+			logEvent = p.logger.Warn().Int("payload_limit_bytes", maxSysmonStatusPayloadBytes)
+		}
+
+		logEvent.Err(err).Msg("Failed to marshal sysmon sample payload")
+
 		return nil
 	}
 
@@ -1367,47 +1390,6 @@ func (p *PushLoop) buildSNMPDrainedResults(
 	return results
 }
 
-func (p *PushLoop) shouldSendSysmon(sample *sysmon.MetricSample) bool {
-	ts, ok := parseSysmonSampleTimestamp(sample)
-	if !ok {
-		return true
-	}
-
-	p.sysmonMu.RLock()
-	last := p.sysmonLastSent
-	p.sysmonMu.RUnlock()
-
-	return ts.After(last)
-}
-
-func (p *PushLoop) markSysmonSent(sample *sysmon.MetricSample) {
-	ts, ok := parseSysmonSampleTimestamp(sample)
-	if !ok {
-		return
-	}
-
-	p.sysmonMu.Lock()
-	if ts.After(p.sysmonLastSent) {
-		p.sysmonLastSent = ts
-	}
-	p.sysmonMu.Unlock()
-}
-
-func parseSysmonSampleTimestamp(sample *sysmon.MetricSample) (time.Time, bool) {
-	if sample == nil || sample.Timestamp == "" {
-		return time.Time{}, false
-	}
-
-	if ts, err := time.Parse(time.RFC3339Nano, sample.Timestamp); err == nil {
-		return ts, true
-	}
-	if ts, err := time.Parse(time.RFC3339, sample.Timestamp); err == nil {
-		return ts, true
-	}
-
-	return time.Time{}, false
-}
-
 func parseSNMPMetricName(raw string) (string, string) {
 	if raw == "" {
 		return "", ""
@@ -1504,7 +1486,7 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 			return sentAny
 		}
 
-		pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		pushCtx, cancel := context.WithTimeout(ctx, sweepResultsStreamTimeout(len(statusChunks)))
 		_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
 		cancel()
 		if err != nil {
@@ -1513,6 +1495,12 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 		}
 
 		if pendingSeq != "" {
+			if ack, ok := sweepSvc.(interface {
+				AcknowledgeSweepResults(groupID string, sequence string)
+			}); ok {
+				ack.AcknowledgeSweepResults(response.SweepGroupId, pendingSeq)
+			}
+
 			p.setSweepResultsSequence(pendingSeq)
 			lastSequence = pendingSeq
 		}
@@ -1817,6 +1805,19 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 	return chunks, nil
 }
 
+func sweepResultsStreamTimeout(chunkCount int) time.Duration {
+	if chunkCount <= 0 {
+		return minSweepResultsStreamTimeout
+	}
+
+	timeout := minSweepResultsStreamTimeout + time.Duration(chunkCount)*sweepResultsTimeoutPerChunk
+	if timeout > maxSweepResultsStreamTimeout {
+		return maxSweepResultsStreamTimeout
+	}
+
+	return timeout
+}
+
 // collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
 // Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
 func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
@@ -1851,16 +1852,7 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 
 	// Collect from embedded sysmon service - separate from regular statuses
 	if sysmonSvc != nil && sysmonSvc.IsEnabled() {
-		sample := sysmonSvc.GetLatestSample()
-		if sample == nil || p.shouldSendSysmon(sample) {
-			status, err := sysmonSvc.GetStatus(ctx)
-			if err != nil {
-				p.logger.Warn().Err(err).Msg("Failed to get sysmon status")
-			} else if status != nil {
-				sysmonStatus = p.convertToSysmonGatewayStatus(status)
-				p.markSysmonSent(sysmonSvc.GetLatestSample())
-			}
-		}
+		sysmonStatus = &proto.GatewayServiceStatus{}
 	}
 
 	if status, err := p.server.GetSNMPStatus(ctx); err == nil && status != nil {
@@ -1914,34 +1906,6 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		GatewayId:    gatewayID,
 		Partition:    partition,
 		Source:       "status",
-		KvStoreId:    kvStoreID,
-	}
-}
-
-// convertToSysmonGatewayStatus converts a sysmon StatusResponse to a GatewayServiceStatus.
-// Uses Source: "sysmon-metrics" to distinguish from other metrics sources (e.g., SNMP).
-func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *proto.GatewayServiceStatus {
-	if resp == nil {
-		return nil
-	}
-
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  SysmonServiceName,
-		Available:    resp.Available,
-		Message:      resp.Message,
-		ServiceType:  SysmonServiceType,
-		ResponseTime: resp.ResponseTime,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "sysmon-metrics",
 		KvStoreId:    kvStoreID,
 	}
 }
@@ -3239,6 +3203,7 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 		CollectDisk:      proto.CollectDisk,
 		CollectNetwork:   proto.CollectNetwork,
 		CollectProcesses: proto.CollectProcesses,
+		ProcessLimit:     int(proto.ProcessLimit),
 		DiskPaths:        proto.DiskPaths,
 		DiskExcludePaths: proto.DiskExcludePaths,
 		Thresholds:       proto.Thresholds,

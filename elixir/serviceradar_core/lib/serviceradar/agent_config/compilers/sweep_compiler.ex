@@ -77,6 +77,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       |> Enum.map(&compile_group(&1, profile_map, actor))
       |> Enum.reject(&is_nil/1)
 
+    Logger.info(
+      "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
+      groups: Enum.map(compiled_groups, &compiled_group_summary/1)
+    )
+
     # Compute config hash for change detection
     config_hash = config_hash(compiled_groups)
 
@@ -127,6 +132,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
     |> String.slice(0, 16)
+  end
+
+  defp compiled_group_summary(group) do
+    %{
+      id: group["id"],
+      name: group["name"],
+      static_targets: length(group["targets"] || []),
+      device_targets: length(group["device_targets"] || []),
+      ports: group["ports"] || [],
+      modes: group["modes"] || []
+    }
   end
 
   defp load_sweep_groups(partition, agent_id, actor) do
@@ -182,8 +198,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Build schedule
     schedule = compile_schedule(group)
 
-    # Build targets from SRQL query and static targets
-    targets = compile_targets(group, actor)
+    # Build targets from static CIDRs/IPs and device targets from SRQL rows.
+    {targets, device_targets} = compile_targets(group, actor)
 
     # Merge ports from profile and group overrides
     ports = merge_ports(profile, group)
@@ -197,7 +213,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Build settings from profile with overrides
     settings = compile_settings(profile, group)
 
-    %{
+    compiled = %{
       "id" => group.id,
       "sweep_group_id" => group.id,
       "name" => group.name,
@@ -208,6 +224,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       "modes" => modes,
       "settings" => settings
     }
+
+    if device_targets == [] do
+      compiled
+    else
+      Map.put(compiled, "device_targets", device_targets)
+    end
   end
 
   defp compile_schedule(group) do
@@ -230,38 +252,38 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Start with static targets
     static_targets = group.static_targets || []
 
-    # Get targets from SRQL query if defined
-    srql_targets =
+    # Get device targets from SRQL query if defined. These stay separate from
+    # static CIDRs so the agent can preserve inventory context while scanning.
+    device_targets =
       case group.target_query do
         nil -> []
         "" -> []
-        query -> get_targets_from_query(query, actor)
+        query -> get_device_targets_from_query(query, group, actor)
       end
 
-    # Combine and deduplicate
-    Enum.uniq(static_targets ++ srql_targets)
+    {Enum.uniq(static_targets), device_targets}
   end
 
-  defp get_targets_from_query(query, _actor) when is_binary(query) do
+  defp get_device_targets_from_query(query, group, _actor) when is_binary(query) do
     query = normalize_target_query(query)
 
     query
-    |> fetch_srql_device_ips(nil, MapSet.new())
-    |> MapSet.to_list()
-    |> Enum.sort()
+    |> fetch_srql_device_targets(nil, %{}, group)
+    |> Map.values()
+    |> Enum.sort_by(& &1["network"])
   rescue
     _ -> []
   end
 
-  defp get_targets_from_query(_query, _actor), do: []
+  defp get_device_targets_from_query(_query, _group, _actor), do: []
 
   defp normalize_target_query(query) do
     SRQLQuery.ensure_target(query, :devices)
   end
 
-  defp fetch_srql_device_ips(_query, _cursor, acc) when is_nil(acc), do: MapSet.new()
+  defp fetch_srql_device_targets(_query, _cursor, acc, _group) when is_nil(acc), do: %{}
 
-  defp fetch_srql_device_ips(query, cursor, acc) do
+  defp fetch_srql_device_targets(query, cursor, acc, group) do
     case SRQLRunner.query_page(query,
            limit: srql_page_limit(),
            cursor: cursor,
@@ -269,10 +291,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
            text_param_decoder: &decode_cidr_text_param/1
          ) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} ->
-        acc = add_ips(acc, rows)
+        acc = add_device_targets(acc, rows, group)
 
         if is_binary(next_cursor) do
-          fetch_srql_device_ips(query, next_cursor, acc)
+          fetch_srql_device_targets(query, next_cursor, acc, group)
         else
           acc
         end
@@ -287,24 +309,68 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     Application.get_env(:serviceradar_core, :sweep_srql_page_limit, @srql_page_limit_default)
   end
 
-  defp add_ips(acc, rows) when is_list(rows) do
-    Enum.reduce(rows, acc, &put_ip_from_row/2)
+  defp add_device_targets(acc, rows, group) when is_list(rows) do
+    Enum.reduce(rows, acc, &put_device_target_from_row(&1, &2, group))
   end
 
-  defp put_ip_from_row(row, set) when is_map(row) do
+  defp put_device_target_from_row(row, targets, group) when is_map(row) do
     case Map.get(row, "ip") do
       value when is_binary(value) ->
         case normalize_device_ip_target(value) do
-          nil -> set
-          target -> MapSet.put(set, target)
+          nil -> targets
+          target -> Map.put_new(targets, target, device_target_from_row(row, target, group))
         end
 
       _ ->
-        set
+        targets
     end
   end
 
-  defp put_ip_from_row(_row, set), do: set
+  defp put_device_target_from_row(_row, targets, _group), do: targets
+
+  defp device_target_from_row(row, target, group) do
+    metadata =
+      %{
+        "sweep_group_id" => group.id,
+        "target_query" => group.target_query
+      }
+      |> maybe_put_string("device_uid", Map.get(row, "uid"))
+      |> maybe_put_string("hostname", Map.get(row, "hostname"))
+      |> maybe_put_discovery_sources(row)
+
+    %{
+      "network" => target,
+      "query_label" => group.name,
+      "source" => "srql",
+      "metadata" => metadata
+    }
+  end
+
+  defp maybe_put_string(metadata, _key, value) when value in [nil, ""], do: metadata
+
+  defp maybe_put_string(metadata, key, value) when is_binary(value),
+    do: Map.put(metadata, key, value)
+
+  defp maybe_put_string(metadata, key, value), do: Map.put(metadata, key, to_string(value))
+
+  defp maybe_put_discovery_sources(metadata, row) do
+    case Map.get(row, "discovery_sources") do
+      sources when is_list(sources) ->
+        sources = sources |> Enum.map(&to_string/1) |> Enum.reject(&(&1 == "")) |> Enum.uniq()
+
+        if sources == [] do
+          metadata
+        else
+          Map.put(metadata, "discovery_sources", Enum.join(sources, ","))
+        end
+
+      source when is_binary(source) and source != "" ->
+        Map.put(metadata, "discovery_sources", source)
+
+      _ ->
+        metadata
+    end
+  end
 
   defp normalize_device_ip_target(value) when is_binary(value) do
     value = String.trim(value)

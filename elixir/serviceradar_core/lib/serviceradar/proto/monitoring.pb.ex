@@ -274,6 +274,10 @@ defmodule Monitoring.SweepScannerStats do
   field(:port_exhaustion_count, 10, type: :uint64, json_name: "portExhaustionCount")
   field(:rate_limit_deferrals, 11, type: :uint64, json_name: "rateLimitDeferrals")
   field(:rx_drop_rate_percent, 12, type: :double, json_name: "rxDropRatePercent")
+  field(:rate_limit_waits, 13, type: :uint64, json_name: "rateLimitWaits")
+  field(:source_port_waits, 14, type: :uint64, json_name: "sourcePortWaits")
+  field(:rate_limit_wait_time_ms, 15, type: :uint64, json_name: "rateLimitWaitTimeMs")
+  field(:source_port_wait_time_ms, 16, type: :uint64, json_name: "sourcePortWaitTimeMs")
 end
 
 defmodule Monitoring.GatewayStatusRequest do
@@ -692,6 +696,7 @@ defmodule Monitoring.SysmonConfig do
   field(:profile_id, 11, type: :string, json_name: "profileId")
   field(:profile_name, 12, type: :string, json_name: "profileName")
   field(:config_source, 13, type: :string, json_name: "configSource")
+  field(:process_limit, 15, type: :int32, json_name: "processLimit")
 end
 
 defmodule Monitoring.AgentCheckConfig.SettingsEntry do

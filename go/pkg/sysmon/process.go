@@ -36,10 +36,10 @@ type processInfo struct {
 	createTime  int64
 }
 
-// CollectProcesses gathers metrics for all running processes.
-// Results are sorted by CPU usage (descending) for convenience, but all processes are returned.
-// The backend decides what to display (e.g., top N by CPU/memory).
-func CollectProcesses(ctx context.Context) ([]ProcessMetric, error) {
+// CollectProcesses gathers metrics for running processes.
+// Results are sorted by CPU usage (descending), then memory (descending), and
+// bounded by limit to avoid retaining or streaming unbounded process payloads.
+func CollectProcesses(ctx context.Context, limit int) ([]ProcessMetric, error) {
 	procs, err := process.ProcessesWithContext(ctx)
 	if err != nil {
 		return nil, err
@@ -65,7 +65,9 @@ func CollectProcesses(ctx context.Context) ([]ProcessMetric, error) {
 		return infos[i].memoryBytes > infos[j].memoryBytes
 	})
 
-	// Convert to metrics - return ALL processes
+	infos = limitProcessInfos(infos, limit)
+
+	// Convert to metrics.
 	metrics := make([]ProcessMetric, 0, len(infos))
 	for _, info := range infos {
 		startTime := unknownStatus
@@ -84,6 +86,14 @@ func CollectProcesses(ctx context.Context) ([]ProcessMetric, error) {
 	}
 
 	return metrics, nil
+}
+
+func limitProcessInfos(infos []processInfo, limit int) []processInfo {
+	if limit <= 0 || len(infos) <= limit {
+		return infos
+	}
+
+	return infos[:limit]
 }
 
 // collectProcessInfo gathers information about a single process.

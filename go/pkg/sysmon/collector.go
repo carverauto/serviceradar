@@ -148,6 +148,7 @@ func (c *DefaultCollector) Start(ctx context.Context) error {
 		Bool("collect_disk", c.config.CollectDisk).
 		Bool("collect_network", c.config.CollectNetwork).
 		Bool("collect_processes", c.config.CollectProcesses).
+		Int("process_limit", c.config.ProcessLimit).
 		Msg("sysmon collector started")
 
 	return nil
@@ -235,7 +236,7 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 
 	// Collect process metrics
 	if config.CollectProcesses {
-		processes, err := CollectProcesses(ctx)
+		processes, err := CollectProcesses(ctx, config.ProcessLimit)
 		if err != nil {
 			c.log.Warn().Err(err).Msg("process collection failed")
 		} else {
@@ -275,6 +276,7 @@ func (c *DefaultCollector) Reconfigure(config *ParsedConfig) error {
 		Bool("collect_disk", config.CollectDisk).
 		Bool("collect_network", config.CollectNetwork).
 		Bool("collect_processes", config.CollectProcesses).
+		Int("process_limit", config.ProcessLimit).
 		Msg("sysmon collector reconfigured")
 
 	return nil

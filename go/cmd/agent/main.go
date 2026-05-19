@@ -26,6 +26,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -182,6 +184,8 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	pushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	startPprofServer(pushCtx, log)
+
 	// Start the server's services (checkers, sweep, etc.)
 	if err := server.Start(pushCtx); err != nil {
 		return fmt.Errorf("failed to start agent services: %w", err)
@@ -252,4 +256,36 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 
 	log.Info().Msg("Agent shutdown complete")
 	return nil
+}
+
+func startPprofServer(ctx context.Context, log logger.Logger) {
+	addr := os.Getenv("SERVICERADAR_AGENT_PPROF_ADDR")
+	if addr == "" {
+		return
+	}
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Warn().Err(err).Msg("Agent pprof server shutdown failed")
+		}
+	}()
+
+	go func() {
+		log.Info().Str("addr", addr).Msg("Agent pprof server starting")
+
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error().Err(err).Str("addr", addr).Msg("Agent pprof server failed")
+		}
+	}()
 }
