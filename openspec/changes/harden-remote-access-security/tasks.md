@@ -1034,10 +1034,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Default `storageClassName: "encrypted"` (or site-configurable); document the requirement; refuse to install without an encrypted class unless `--values insecure-storage.yaml` opt-in.
       Resolution: Closed by adding `global.storage.encryptedStorageClassName` and `global.storage.allowInsecureStorage`. CNPG, NATS JetStream, and datasvc data PVC templates now default to the encrypted class and only omit/accept insecure storage when the lab/demo override is explicit.
 
-- [ ] 6.P.4 [M] Bootstrap Jobs grant `secrets *` verbs with no `resourceNames` scope
+- [x] 6.P.4 [M] Bootstrap Jobs grant `secrets *` verbs with no `resourceNames` scope
       Where: `helm/serviceradar/templates/nats-creds-generator.yaml:30-33`; `secret-generator-job.yaml:30-33` (working tree)
       Why: A compromised Job pod can list/patch every Secret in the namespace including cluster-cookie, admin-password, CNPG creds, OnboardingToken private key. Transient or not, the role is over-privileged.
       Fix: Add `resourceNames: ["<the specific secret>"]` and restrict verbs to `["get","create","patch"]` (no `list`/`delete`/`update`).
+      Resolution: Closed for the two cited bootstrap jobs. `get`/`patch` are now scoped to `serviceradar-nats-creds` or the configured `secrets.existingSecretName`, and `list`/`update` were removed. `create` remains unscoped because Kubernetes RBAC cannot enforce `resourceNames` on create for an object that does not exist yet.
 
 - [ ] 6.P.5 [M] `readOnlyRootFilesystem: true` not set on any container
       Where: all pod templates (working tree); helper `_helpers.tpl:256-260`
