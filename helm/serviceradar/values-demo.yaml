@@ -165,8 +165,11 @@ networkPolicy:
     allowSameNamespace: true
     allowedNamespaces:
       # The demo HTTPRoute attaches to the shared Gateway in this namespace;
-      # allow its Envoy data-plane pods to reach ServiceRadar backends.
+      # keep access for compatibility with in-namespace gateway deployments.
       - serviceradar-system
+      # Envoy Gateway runs shared Gateway data-plane pods in this namespace;
+      # allow those proxies to reach ServiceRadar backends.
+      - envoy-gateway-system
   egress:
     allowDNS: true
     allowKubeAPIServer: true
