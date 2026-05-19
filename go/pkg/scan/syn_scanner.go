@@ -132,6 +132,7 @@ const (
 	// Network packet size constants
 	ipv4HeaderMinSize  = 20   // Minimum IPv4 header size
 	ipv6HeaderSize     = 40   // Fixed IPv6 header size
+	icmpv6HeaderSize   = 8    // ICMPv6 error header size before the embedded packet
 	tcpHeaderMinSize   = 20   // Minimum TCP header size
 	ethernetHeaderSize = 14   // Ethernet header size
 	ipv4TcpPacketSize  = 40   // Combined IPv4 (20) + TCP (20) header size
@@ -139,6 +140,10 @@ const (
 	ipv4Version        = 4    // IPv4 version number
 	ipv6Version        = 6    // IPv6 version number
 	ipv4ProtocolCheck  = 0x01 // IPv4 protocol check value
+	ipProtoICMPv6      = 58   // IPv6 ICMP protocol number
+	icmpv6DstUnreach   = 1    // ICMPv6 Destination Unreachable
+	icmpv6PacketTooBig = 2    // ICMPv6 Packet Too Big
+	icmpv6TimeExceeded = 3    // ICMPv6 Time Exceeded
 
 	// Buffer and memory constants
 	sendBufferSizeMB    = 8     // Send buffer size in MB (8MB = 8<<20)
@@ -2596,11 +2601,15 @@ func (s *SYNScanner) listenForReplies(ctx context.Context) {
 // processEthernetFrame parses an Ethernet frame and extracts TCP response information.
 func (s *SYNScanner) processEthernetFrame(frame []byte) {
 	reply, ok := parseTCPReplyFromEthernet(frame)
-	if !ok {
+	if ok {
+		s.processTCPReply(reply.srcIP, reply.tcp)
 		return
 	}
 
-	s.processTCPReply(reply.srcIP, reply.tcp)
+	icmpv6Reply, ok := parseICMPv6ErrorFromEthernet(frame)
+	if ok {
+		s.processICMPv6Error(icmpv6Reply)
+	}
 }
 
 type tcpReplyFrame struct {
@@ -2622,6 +2631,57 @@ func parseTCPReplyFromEthernet(frame []byte) (tcpReplyFrame, bool) {
 	default:
 		return tcpReplyFrame{}, false
 	}
+}
+
+type icmpv6ErrorFrame struct {
+	targetIP net.IP
+	srcPort  uint16
+	err      error
+}
+
+func parseICMPv6ErrorFromEthernet(frame []byte) (icmpv6ErrorFrame, bool) {
+	ethType, l3off, err := ethernetL3(frame)
+	if err != nil || ethType != etherTypeIPv6 || len(frame) < l3off+ipv6HeaderSize+icmpv6HeaderSize {
+		return icmpv6ErrorFrame{}, false
+	}
+
+	ip, ipLen, err := parseIPv6(frame[l3off:])
+	if err != nil || ip.NextHeader != ipProtoICMPv6 {
+		return icmpv6ErrorFrame{}, false
+	}
+
+	icmpOff := l3off + ipLen
+	icmpType := frame[icmpOff]
+
+	var resultErr error
+	switch icmpType {
+	case icmpv6DstUnreach:
+		resultErr = ErrICMPv6Unreachable
+	case icmpv6PacketTooBig:
+		resultErr = ErrICMPv6PacketTooBig
+	case icmpv6TimeExceeded:
+		resultErr = ErrICMPv6TimeExceeded
+	default:
+		return icmpv6ErrorFrame{}, false
+	}
+
+	embeddedOff := icmpOff + icmpv6HeaderSize
+	embeddedIP, embeddedIPLen, err := parseIPv6(frame[embeddedOff:])
+	if err != nil || embeddedIP.NextHeader != syscall.IPPROTO_TCP {
+		return icmpv6ErrorFrame{}, false
+	}
+
+	tcpOff := embeddedOff + embeddedIPLen
+	if len(frame) < tcpOff+tcpHeaderMinSize {
+		return icmpv6ErrorFrame{}, false
+	}
+
+	tcp, _, err := parseTCP(frame[tcpOff:])
+	if err != nil {
+		return icmpv6ErrorFrame{}, false
+	}
+
+	return icmpv6ErrorFrame{targetIP: embeddedIP.DstIP, srcPort: tcp.SrcPort, err: resultErr}, true
 }
 
 func parseIPv4TCPReply(frame []byte, l3off int) (tcpReplyFrame, bool) {
@@ -2673,13 +2733,33 @@ func sameCanonicalIPString(a, b string) bool {
 }
 
 func (s *SYNScanner) processTCPReply(srcIP net.IP, tcp *TCPHdr) {
+	var resultErr error
+	available := false
+
+	switch {
+	case tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag):
+		available = true
+	case tcp.Flags&rstFlag != 0:
+		resultErr = ErrPortClosed
+	default:
+		return
+	}
+
+	s.processTCPFinalResult(srcIP, tcp.DstPort, available, resultErr)
+}
+
+func (s *SYNScanner) processICMPv6Error(reply icmpv6ErrorFrame) {
+	s.processTCPFinalResult(reply.targetIP, reply.srcPort, false, reply.err)
+}
+
+func (s *SYNScanner) processTCPFinalResult(peerIP net.IP, localSrcPort uint16, available bool, resultErr error) {
 	// Update stats counter for each parsed packet
 	atomic.AddUint64(&s.stats.PacketsRecv, 1)
 
 	// Precompute inexpensive bits *outside* the lock.
 	now := time.Now()
 
-	src := canonicalIPString(srcIP.String())
+	src := canonicalIPString(peerIP.String())
 	if src == "" {
 		return
 	}
@@ -2698,7 +2778,7 @@ func (s *SYNScanner) processTCPReply(srcIP net.IP, tcp *TCPHdr) {
 
 	var ok bool
 
-	targetKey, ok = s.portTargetMap[tcp.DstPort]
+	targetKey, ok = s.portTargetMap[localSrcPort]
 	if !ok {
 		s.mu.Unlock()
 		return
@@ -2715,21 +2795,9 @@ func (s *SYNScanner) processTCPReply(srcIP net.IP, tcp *TCPHdr) {
 		return
 	}
 
-	// Decide if this packet makes the port state "definitive".
-	// We keep this simple and conservative: any SYN/ACK or RST is definitive.
-	switch {
-	case tcp.Flags&(synFlag|ackFlag) == (synFlag | ackFlag):
-		result.Available = true
-		result.Error = nil
-		emit = true
-	case tcp.Flags&rstFlag != 0:
-		result.Available = false
-		result.Error = ErrPortClosed
-		emit = true
-	default:
-		s.mu.Unlock()
-		return
-	}
+	result.Available = available
+	result.Error = resultErr
+	emit = true
 
 	result.RespTime = time.Since(result.FirstSeen)
 	result.LastSeen = now

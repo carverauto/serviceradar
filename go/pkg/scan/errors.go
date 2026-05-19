@@ -40,6 +40,9 @@ var (
 	ErrPortClosed         = errors.New("port closed (RST)")
 	ErrICMPv4Unavailable  = errors.New("ICMPv4 scanner unavailable")
 	ErrICMPv6Unavailable  = errors.New("ICMPv6 scanner unavailable")
+	ErrICMPv6Unreachable  = errors.New("ICMPv6 destination unreachable")
+	ErrICMPv6PacketTooBig = errors.New("ICMPv6 packet too big")
+	ErrICMPv6TimeExceeded = errors.New("ICMPv6 time exceeded")
 
 	// Interface errors
 	ErrNoSuitableInterface = errors.New("no suitable local IP address and interface found")

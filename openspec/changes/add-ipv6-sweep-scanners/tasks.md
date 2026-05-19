@@ -11,7 +11,7 @@
 
 ## 3. IPv6 Raw SYN Scanner
 - [x] 3.1 Implement IPv6 + TCP SYN packet construction with IPv6 pseudo-header checksum support.
-- [ ] 3.2 Decode IPv6 TCP and ICMPv6 responses into open, closed, unreachable, timeout, and error states.
+- [x] 3.2 Decode IPv6 TCP and ICMPv6 responses into open, closed, unreachable, timeout, and error states.
 - [ ] 3.3 Preserve bounded streaming/batch execution for large target sets without materializing all host-port pairs.
 - [ ] 3.4 Add tests for packet encoding, response classification, retries, and rate metrics.
 

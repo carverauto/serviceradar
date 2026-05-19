@@ -193,6 +193,95 @@ func TestProcessEthernetFrameIPv6IgnoresWrongSource(t *testing.T) {
 	}
 }
 
+func TestProcessEthernetFrameICMPv6Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		icmpTyp uint8
+		wantErr error
+	}{
+		{name: "destination unreachable", icmpTyp: icmpv6DstUnreach, wantErr: ErrICMPv6Unreachable},
+		{name: "packet too big", icmpTyp: icmpv6PacketTooBig, wantErr: ErrICMPv6PacketTooBig},
+		{name: "time exceeded", icmpTyp: icmpv6TimeExceeded, wantErr: ErrICMPv6TimeExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			local := net.ParseIP("2001:db8::10")
+			remote := net.ParseIP("2001:db8::20")
+			router := net.ParseIP("2001:db8::1")
+			ourSrc := uint16(40000)
+			targetPort := uint16(443)
+			key := net.JoinHostPort(remote.String(), "443")
+
+			resultCh := make(chan models.Result, 1)
+			scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, targetPort, resultCh)
+
+			scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, remote, router, ourSrc, targetPort, tt.icmpTyp))
+
+			select {
+			case result := <-resultCh:
+				assert.False(t, result.Available)
+				assert.ErrorIs(t, result.Error, tt.wantErr)
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for ICMPv6 error result")
+			}
+		})
+	}
+}
+
+func TestProcessEthernetFrameICMPv6IgnoresWrongEmbeddedTarget(t *testing.T) {
+	t.Parallel()
+
+	local := net.ParseIP("2001:db8::10")
+	remote := net.ParseIP("2001:db8::20")
+	wrongRemote := net.ParseIP("2001:db8::21")
+	router := net.ParseIP("2001:db8::1")
+	ourSrc := uint16(40000)
+	targetPort := uint16(443)
+	key := net.JoinHostPort(remote.String(), "443")
+
+	resultCh := make(chan models.Result, 1)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, targetPort, resultCh)
+
+	scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, wrongRemote, router, ourSrc, targetPort, icmpv6DstUnreach))
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("unexpected result from wrong embedded IPv6 target: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func newTestSYNScannerForIPv6Reply(
+	key string,
+	targetIP string,
+	ourSrc uint16,
+	targetPort uint16,
+	resultCh chan<- models.Result,
+) *SYNScanner {
+	scanner := &SYNScanner{
+		portTargetMap: map[uint16]string{ourSrc: key},
+		targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},
+		targetIP:      map[string]string{key: targetIP},
+		results: map[string]models.Result{key: {
+			Target:    models.Target{Host: targetIP, Port: int(targetPort), Mode: models.ModeTCP},
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+		}},
+		portAlloc: NewPortAllocator(ourSrc, ourSrc),
+		logger:    logger.NewTestLogger(),
+	}
+	scanner.resultCallback = func(result models.Result) {
+		resultCh <- result
+	}
+
+	return scanner
+}
+
 func permissionError(err error) bool {
 	if err == nil {
 		return false
@@ -201,6 +290,28 @@ func permissionError(err error) bool {
 	return errors.Is(err, syscall.EPERM) ||
 		errors.Is(err, syscall.EACCES) ||
 		strings.Contains(err.Error(), "requires root")
+}
+
+func buildICMPv6ErrorFrame(localIP, remoteIP, routerIP net.IP, srcPort, dstPort uint16, icmpType uint8) []byte {
+	embedded := buildSYNPacketIPv6(localIP, remoteIP, srcPort, dstPort, 0x10203040)
+	frame := make([]byte, ethernetHeaderSize+ipv6HeaderSize+icmpv6HeaderSize+len(embedded))
+
+	eth := frame[:ethernetHeaderSize]
+	binary.BigEndian.PutUint16(eth[12:], etherTypeIPv6)
+
+	ip := frame[ethernetHeaderSize : ethernetHeaderSize+ipv6HeaderSize]
+	ip[0] = 0x60
+	binary.BigEndian.PutUint16(ip[4:], uint16(icmpv6HeaderSize+len(embedded)))
+	ip[6] = ipProtoICMPv6
+	ip[7] = defaultTTL
+	copy(ip[8:24], routerIP.To16())
+	copy(ip[24:40], localIP.To16())
+
+	icmp := frame[ethernetHeaderSize+ipv6HeaderSize:]
+	icmp[0] = icmpType
+	copy(icmp[icmpv6HeaderSize:], embedded)
+
+	return frame
 }
 
 func buildTCPReplyFrameIPv6(localIP, remoteIP net.IP, dstPort, srcPort uint16, flags uint8) []byte {
