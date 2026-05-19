@@ -51,6 +51,8 @@ spec:
         - containerPort: 50057
           name: grpc
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: serviceradar-config
           mountPath: /etc/serviceradar
         - name: cert-data
@@ -115,6 +117,8 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: serviceradar-config
         configMap:
           name: serviceradar-config

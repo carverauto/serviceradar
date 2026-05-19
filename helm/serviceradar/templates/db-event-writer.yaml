@@ -41,6 +41,8 @@ spec:
         - containerPort: 50041
           name: grpc
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: db-event-writer-config
           mountPath: /etc/serviceradar/templates
           readOnly: true
@@ -161,6 +163,8 @@ spec:
           timeoutSeconds: 10
           failureThreshold: 3
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: db-event-writer-config
         configMap:
           name: serviceradar-db-event-writer-config
