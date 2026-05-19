@@ -35,6 +35,8 @@ service AgentGatewayService {
   // GetConfig is called by the agent to fetch its configuration.
   // Supports versioning - returns not_modified if config hasn't changed.
   rpc GetConfig(AgentConfigRequest) returns (AgentConfigResponse) {}
+  // StreamConfig streams chunked agent configuration for large payloads.
+  rpc StreamConfig(AgentConfigRequest) returns (stream AgentConfigChunk) {}
   // PushStatus sends a batch of service statuses from the agent to the gateway.
   rpc PushStatus(GatewayStatusRequest) returns (GatewayStatusResponse) {}
   // StreamStatus streams service status chunks for large payloads.
@@ -289,6 +291,19 @@ message AgentConfigResponse {
 
   // Wasm plugin configuration assignments
   PluginConfig plugin_config = 11;
+}
+
+// AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
+message AgentConfigChunk {
+  string agent_id = 1;              // Agent requesting config
+  string config_version = 2;        // Config version for the full response
+  int64 config_timestamp = 3;       // Config timestamp for the full response
+  bool not_modified = 4;            // True when the config_version is current
+  bytes payload = 5;                // Chunk of encoded AgentConfigResponse
+  bool is_final = 6;                // Whether this is the last chunk
+  int32 chunk_index = 7;            // Zero-based chunk index
+  int32 total_chunks = 8;           // Total chunks in this stream
+  string payload_sha256 = 9;        // SHA-256 hex digest of the full payload
 }
 
 // ============================================================================

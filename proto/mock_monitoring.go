@@ -277,6 +277,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) GetConfig(ctx, in any, opts
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).GetConfig), varargs...)
 }
 
+// StreamConfig mocks base method.
+func (m *MockAgentGatewayServiceClient) StreamConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[AgentConfigChunk], error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "StreamConfig", varargs...)
+	ret0, _ := ret[0].(grpc.ServerStreamingClient[AgentConfigChunk])
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StreamConfig indicates an expected call of StreamConfig.
+func (mr *MockAgentGatewayServiceClientMockRecorder) StreamConfig(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).StreamConfig), varargs...)
+}
+
 // Hello mocks base method.
 func (m *MockAgentGatewayServiceClient) Hello(ctx context.Context, in *AgentHelloRequest, opts ...grpc.CallOption) (*AgentHelloResponse, error) {
 	m.ctrl.T.Helper()
@@ -387,6 +407,20 @@ func (m *MockAgentGatewayServiceServer) GetConfig(arg0 context.Context, arg1 *Ag
 func (mr *MockAgentGatewayServiceServerMockRecorder) GetConfig(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).GetConfig), arg0, arg1)
+}
+
+// StreamConfig mocks base method.
+func (m *MockAgentGatewayServiceServer) StreamConfig(arg0 *AgentConfigRequest, arg1 grpc.ServerStreamingServer[AgentConfigChunk]) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StreamConfig", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StreamConfig indicates an expected call of StreamConfig.
+func (mr *MockAgentGatewayServiceServerMockRecorder) StreamConfig(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).StreamConfig), arg0, arg1)
 }
 
 // Hello mocks base method.

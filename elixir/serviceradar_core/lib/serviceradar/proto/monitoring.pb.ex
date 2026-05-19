@@ -440,6 +440,25 @@ defmodule Monitoring.AgentConfigResponse do
   field(:plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig")
 end
 
+defmodule Monitoring.AgentConfigChunk do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.AgentConfigChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:agent_id, 1, type: :string, json_name: "agentId")
+  field(:config_version, 2, type: :string, json_name: "configVersion")
+  field(:config_timestamp, 3, type: :int64, json_name: "configTimestamp")
+  field(:not_modified, 4, type: :bool, json_name: "notModified")
+  field(:payload, 5, type: :bytes)
+  field(:is_final, 6, type: :bool, json_name: "isFinal")
+  field(:chunk_index, 7, type: :int32, json_name: "chunkIndex")
+  field(:total_chunks, 8, type: :int32, json_name: "totalChunks")
+  field(:payload_sha256, 9, type: :string, json_name: "payloadSha256")
+end
+
 defmodule Monitoring.ControlStreamHello.LabelsEntry do
   @moduledoc false
 
@@ -934,6 +953,8 @@ defmodule Monitoring.AgentGatewayService.Service do
   rpc(:Hello, Monitoring.AgentHelloRequest, Monitoring.AgentHelloResponse)
 
   rpc(:GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse)
+
+  rpc(:StreamConfig, Monitoring.AgentConfigRequest, stream(Monitoring.AgentConfigChunk))
 
   rpc(:PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse)
 
