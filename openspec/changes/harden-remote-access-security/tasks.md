@@ -307,10 +307,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
 
 > Tenancy model (resolved): ServiceRadar deployments are predominantly **single-tenant** today; `@prefix "platform"` is internal namespace separation. Findings 4.1 and 4.6 are downgraded from C/M to M/L respectively โ€” they remain on the list as defence-in-depth + multi-tenant readiness, not as ship-blockers. See `design.md` for the rescoring rationale.
 
-- [ ] 4.1 [M] Sessions resource has no explicit tenant scoping at the Ash layer (multi-tenant readiness)
+- [x] 4.1 [M] Sessions resource has no explicit tenant scoping at the Ash layer (multi-tenant readiness)
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_session.ex` (no tenant_id attribute / multi-tenancy block); migration `20260509090000_create_remote_access_sessions.exs` (commit: staging)
       Why: Isolation depends entirely on Ash policy + schema prefix. If a policy is bypassed or actor lacks a tenant binding, cross-tenant reads become possible. Same concern applies to broker/target/grant lookups built on session_id.
       Fix: Confirm tenancy model (attribute vs prefix-per-tenant). If attribute: add `tenant_id` + multitenancy block + include it in unique indexes. If prefix: add a regression test that proves cross-prefix queries fail closed and document the model in `design.md`
+      Resolution: Accepted-with-note under C-V. ServiceRadar is a single-deployment system and the repo guardrails explicitly reject application-level multitenancy; schema-prefix isolation is the current boundary. Reopen only if ServiceRadar adopts shared-schema multi-tenancy.
 
 - [x] 4.2 [C] Session attach ticket is single-window but not single-use
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_sessions.ex:107-134` (commit: staging)
@@ -334,10 +335,11 @@ Triage for every finding lives in ยง8 (in-branch fix, remediation cluster `C-A`โ
       Fix: Add `:rejected` terminal state, require the rotation acceptance to record `superseded_by` linkage to the previous trusted key, and emit an audit event with diff
       Resolution: Host keys now support terminal `:rejected` state with operator/reason metadata, direct trust of `:conflict` keys is refused, rotation is the only path that can trust a conflicted replacement, and accepted replacements persist `supersedes_host_key_id` while the old key records `replacement_host_key_id`. Trust/reject/rotate audit details include both linkage fields.
 
-- [ ] 4.6 [L] Host-key unique index omits `tenant_id` (multi-tenant readiness)
+- [x] 4.6 [L] Host-key unique index omits `tenant_id` (multi-tenant readiness)
       Where: `elixir/serviceradar_core/priv/repo/migrations/20260512110000_create_remote_access_host_keys.exs:66-72` (commit: staging)
       Why: Current isolation appears to be schema-prefix, but a future move to shared-schema multi-tenancy would silently collide host-key rows across tenants.
       Fix: Add `tenant_id` to the unique index now; safe under both isolation models
+      Resolution: Accepted-with-note under C-V. ServiceRadar is a single-deployment system and the repo guardrails explicitly reject application-level multitenancy; no `tenant_id` column should be added under the current model. Reopen only if ServiceRadar adopts shared-schema multi-tenancy.
 
 - [x] 4.7 [M] `bind_session` for approvals is not atomic with the state check
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_requests.ex:148-161` (commit: staging)
