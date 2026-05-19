@@ -71,7 +71,8 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `global.imageTag` | Docker image tag for all components | `latest` |
+| `global.imageTag` | Docker image tag for all first-party components | `v1.2.54` |
+| `image.digests.<service>` | Optional digest pin for a first-party component, overriding tags | `{}` |
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
 | `ingress.tls.secretName` | TLS secret name | `""` |

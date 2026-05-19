@@ -1069,10 +1069,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Add `minAvailable: 1` PDBs for `core`, `web-ng`, `agent-gateway`, `datasvc`.
       Resolution: Closed by adding a Helm PDB template for core, web-ng, datasvc, and enabled agent-gateway deployments, controlled by `podDisruptionBudgets.enabled` and `podDisruptionBudgets.minAvailable`.
 
-- [ ] 6.P.10 [L] `imageTag` defaults to `latest`; no digest pinning by default
+- [x] 6.P.10 [L] `imageTag` defaults to `latest`; no digest pinning by default
       Where: `helm/serviceradar/values.yaml:15`; `_helpers.tpl:82-84` (working tree)
       Why: Mutable tag means a compromised registry / re-tag silently ships malicious code on the next pull.
       Fix: Default to a versioned tag; expose `image.digests.*` per service; helm-lint or CI gate that refuses `:latest` in production install.
+      Resolution: Chart defaults now use the versioned `v1.2.54` tag for first-party ServiceRadar images and document `image.digests.<service>` pins, which the image helper already honors over tags.
 
 - [x] 6.P.11 [L] eBPF agent's `hostPath` mounts lack inline justification
       Where: `helm/serviceradar/templates/agent.yaml:112-120` (`/sys/fs/bpf`, `/sys/kernel/btf`, `/sys/fs/cgroup`) (working tree)

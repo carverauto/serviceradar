@@ -17,9 +17,10 @@ podDisruptionBudgets:
 
 # Global settings that apply across all services
 global:
-  # Override all ServiceRadar image tags at once. Defaults to "latest" so
-  # published charts track the latest image tags without manual updates.
-  imageTag: "latest"
+  # Override all ServiceRadar image tags at once. Defaults to the chart
+  # appVersion tag; use a sha-* tag or image.digests.* for production
+  # rollouts that require immutable image references.
+  imageTag: "v1.2.54"
   # Image pull policy: IfNotPresent (default), Always (for staging/mutable tags), Never
   imagePullPolicy: IfNotPresent
   # When true, stamp the pod template with a Helm-managed revision so a normal
@@ -44,7 +45,7 @@ image:
   registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for ServiceRadar images. Use global.imageTag to override all at once.
-    appTag: &appTag "latest"
+    appTag: &appTag "v1.2.54"
     core: *appTag
     webNg: *appTag
     nats: "2.12.6-alpine"
@@ -64,6 +65,10 @@ image:
     faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
+  # Optional per-service digest pins. Keys match image.tags service names
+  # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
+  # either "sha256:..." or "@sha256:..."; when set they override tags.
+  digests: {}
 
 argocdImageUpdater:
   pullSecretReader:
