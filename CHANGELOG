@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.70
+
+Production upgrade recovery for Helm migration hooks and Elixir release workloads.
+
+## Whats New
+
+**1.2.70**
+- Fixed Helm core migration hooks so they no longer depend on the GeoIP MMDB PVC during pre-upgrade execution.
+- Added migration-hook controls for hook-specific image pull policy and pod annotations so operators can force fresh pulls or opt out of pod mutation webhooks when needed.
+- Aligned core-elx, datasvc, agent-gateway, and core migration pods with the Elixir release image UID so `/app` remains executable under restricted pod security contexts.
+
 # ServiceRadar v1.2.69
 
 Experimental RDP remote desktop access, hardened desktop media controls, and large sweep stability fixes.
