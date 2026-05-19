@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Repo
 
   @default_storage_backend "datasvc_object_store"
   @default_storage_bucket "remote-access-recordings"
@@ -60,10 +61,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def complete(nil, _attrs, _opts), do: {:ok, nil}
 
   def complete(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
-    with {:ok, event_integrity} <- recording_event_integrity(recording),
-         {:ok, attrs} <- finish_attrs(recording, attrs, event_integrity),
-         {:ok, updated} <-
-           RemoteAccessRecording.complete(recording, attrs, actor: system_actor(:complete)) do
+    with {:ok, updated} <- finish_recording(recording, attrs, :complete) do
       write_audit(:remote_access_recording_completed, updated, opts)
       {:ok, updated}
     end
@@ -75,11 +73,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def fail(nil, _reason, _attrs, _opts), do: {:ok, nil}
 
   def fail(%RemoteAccessRecording{} = recording, reason, attrs, opts) when is_map(attrs) do
-    with {:ok, event_integrity} <- recording_event_integrity(recording),
-         {:ok, attrs} <- finish_attrs(recording, attrs, event_integrity),
-         attrs = Map.put(attrs, :failure_reason, format_reason(reason)),
-         {:ok, updated} <-
-           RemoteAccessRecording.fail(recording, attrs, actor: system_actor(:fail)) do
+    with {:ok, updated} <- finish_recording(recording, attrs, :fail, reason) do
       write_audit(:remote_access_recording_failed, updated, opts)
       {:ok, updated}
     end
@@ -91,11 +85,30 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def record_event(nil, _attrs, _opts), do: {:ok, nil}
 
   def record_event(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
-    with {:ok, %RemoteAccessRecording{} = current_recording} <-
-           current_recording(recording),
-         :ok <- ensure_recordable_status(current_recording) do
-      attrs = event_attrs(current_recording, attrs, opts)
-      RemoteAccessRecordingEvent.record(attrs, actor: system_actor(:event))
+    fn ->
+      with :ok <- lock_recording(recording.id),
+           {:ok, %RemoteAccessRecording{} = current_recording} <-
+             current_recording(recording),
+           :ok <- ensure_recordable_status(current_recording),
+           attrs = event_attrs(current_recording, attrs, opts),
+           {:ok, event, notifications} <-
+             RemoteAccessRecordingEvent.record(attrs,
+               actor: system_actor(:event),
+               return_notifications?: true
+             ) do
+        {event, notifications}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessRecordingEvent{} = event, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, event}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -167,6 +180,76 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
        when status in [:pending, :active], do: :ok
 
   defp ensure_recordable_status(_recording), do: {:error, :recording_sealed}
+
+  defp finish_recording(recording, attrs, action, reason \\ nil)
+       when action in [:complete, :fail] and is_map(attrs) do
+    fn ->
+      with :ok <- lock_recording(recording.id),
+           {:ok, %RemoteAccessRecording{} = current_recording} <- current_recording(recording),
+           :ok <- ensure_recordable_status(current_recording),
+           {:ok, event_integrity} <- recording_event_integrity(current_recording),
+           {:ok, finish_attrs} <- finish_attrs(current_recording, attrs, event_integrity),
+           finish_attrs = maybe_put_failure_reason(finish_attrs, action, reason),
+           {:ok, %RemoteAccessRecording{} = updated, notifications} <-
+             finish_recording_action(current_recording, finish_attrs, action) do
+        {updated, notifications}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, {%RemoteAccessRecording{} = updated, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, updated}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp finish_recording_action(recording, attrs, :complete) do
+    RemoteAccessRecording.complete(recording, attrs,
+      actor: system_actor(:complete),
+      return_notifications?: true
+    )
+  end
+
+  defp finish_recording_action(recording, attrs, :fail) do
+    RemoteAccessRecording.fail(recording, attrs,
+      actor: system_actor(:fail),
+      return_notifications?: true
+    )
+  end
+
+  defp maybe_put_failure_reason(attrs, :fail, reason) do
+    Map.put(attrs, :failure_reason, format_reason(reason))
+  end
+
+  defp maybe_put_failure_reason(attrs, _action, _reason), do: attrs
+
+  defp lock_recording(recording_id) do
+    case Ecto.UUID.cast(to_string(recording_id)) do
+      {:ok, uuid} ->
+        case Repo.query(lock_recording_sql(), [Ecto.UUID.dump!(uuid)]) do
+          {:ok, %{num_rows: 1}} -> :ok
+          {:ok, %{num_rows: 0}} -> {:error, :not_found}
+          {:error, reason} -> {:error, reason}
+        end
+
+      :error ->
+        {:error, :invalid_recording_id}
+    end
+  end
+
+  defp lock_recording_sql do
+    """
+    SELECT id
+    FROM platform.remote_access_recordings
+    WHERE id = $1::uuid
+    FOR UPDATE
+    """
+  end
 
   @spec delete(RemoteAccessRecording.t() | binary(), keyword()) ::
           {:ok, RemoteAccessRecording.t()} | {:error, term()}
@@ -311,7 +394,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
         "raw_terminal_payloads_stored" => terminal_payloads_allowed?(snapshot_policy(recording))
       })
 
-    with {:ok, manifest} <- seal_manifest(manifest, event_integrity, now) do
+    with :ok <- ensure_event_count_matches(event_count, event_integrity),
+         {:ok, manifest} <- seal_manifest(manifest, event_integrity, now) do
       {:ok,
        %{
          input_bytes: input_bytes,
@@ -322,6 +406,11 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
        }}
     end
   end
+
+  defp ensure_event_count_matches(event_count, %{count: event_count}), do: :ok
+
+  defp ensure_event_count_matches(_event_count, _event_integrity),
+    do: {:error, :recording_event_count_mismatch}
 
   defp base_manifest(session, policy, storage, extra) do
     %{
@@ -733,18 +822,18 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp verify_event_chain(events) when is_list(events) do
     events = Enum.sort_by(events, &{&1.sequence, &1.inserted_at || &1.occurred_at})
 
-    case verify_event_chain(events, nil) do
-      {:ok, nil} -> {:ok, %{verified?: true, root: nil}}
-      {:ok, last_hash} -> {:ok, %{verified?: true, root: last_hash}}
+    case verify_event_chain(events, nil, 0) do
+      {:ok, nil, count} -> {:ok, %{verified?: true, root: nil, count: count}}
+      {:ok, last_hash, count} -> {:ok, %{verified?: true, root: last_hash, count: count}}
       {:error, _reason} = error -> error
     end
   end
 
-  defp verify_event_chain([], previous_hash), do: {:ok, previous_hash}
+  defp verify_event_chain([], previous_hash, count), do: {:ok, previous_hash, count}
 
-  defp verify_event_chain([event | rest], expected_prior_hash) do
+  defp verify_event_chain([event | rest], expected_prior_hash, count) do
     if event.prior_event_hash == expected_prior_hash do
-      verify_event_chain(rest, event_integrity_hash(event))
+      verify_event_chain(rest, event_integrity_hash(event), count + 1)
     else
       {:error, :recording_integrity_check_failed}
     end

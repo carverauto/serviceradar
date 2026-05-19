@@ -873,10 +873,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: When 3.O.3 lands, ensure the signing input is `manifest ++ Σ payload_sha256` (already on each event) — single signature covers both.
       Resolution: The sealed manifest signature input includes the verified event-chain root and event count alongside the canonical manifest body. Export recomputes the event chain before verifying the manifest signature, so swapping or truncating events causes export to fail with `:recording_integrity_check_failed` or `:recording_manifest_integrity_check_failed`.
 
-- [ ] 3.O.8 [M] `complete` updates manifest and events without a wrapping transaction
+- [x] 3.O.8 [M] `complete` updates manifest and events without a wrapping transaction
       Where: `remote_access_recordings.ex:57-65` (commit: staging)
       Why: Partial failure leaves a manifest claiming `event_count = N` with fewer than N events persisted; export will be silently incomplete.
       Fix: `Ecto.Multi` wrapping the final-batch insert + manifest update; assert event count matches before commit.
+      Resolution: Event writes and recording seal operations now serialize on `platform.remote_access_recordings.id FOR UPDATE`, with Ash notifications collected inside the transaction and emitted after commit. Completion/failure reread and verify the event chain under the lock, refuse mismatched manifest/event counts with `:recording_event_count_mismatch`, and only then sign and seal the manifest.
 
 - [x] 3.O.9 [M] Late-arrival events accepted after manifest seal — no fence
       Where: `remote_access_broker.ex:222-229`; event insert path (commit: staging)

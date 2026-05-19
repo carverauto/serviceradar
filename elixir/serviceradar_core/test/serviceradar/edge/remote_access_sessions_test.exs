@@ -1112,6 +1112,20 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert_receive {:remote_access_audit, recording_active_audit}
     assert recording_active_audit[:action] == :remote_access_recording_active
 
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               active,
+               %{stream: :input, event_type: "terminal_input", data: "whoami\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               active,
+               %{stream: :output, event_type: "terminal_output", data: "root\n", sequence: 2},
+               actor: @system_actor
+             )
+
     assert {:ok, completed} =
              RemoteAccessRecordings.complete(
                active,
@@ -1125,8 +1139,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert completed.output_bytes == 5
     assert completed.event_count == 2
     assert completed.manifest["raw_terminal_payloads_stored"] == false
-    refute inspect(completed) =~ "whoami"
-    refute inspect(completed) =~ "root"
+    refute inspect(completed) =~ "whoami\\n"
+    refute inspect(completed) =~ "root\\n"
 
     assert_receive {:remote_access_audit, recording_complete_audit}
     assert recording_complete_audit[:action] == :remote_access_recording_completed
@@ -1242,6 +1256,65 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
 
     assert {:ok, events} = RemoteAccessRecordings.list_events(recording, actor: @system_actor)
     assert Enum.map(events, & &1.sequence) == [1]
+  end
+
+  test "recording completion refuses a manifest count that does not match persisted events" do
+    uid = unique_uid("recording-count-mismatch")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-count-mismatch",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :output, event_type: "terminal_output", data: "first\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert {:error, :recording_event_count_mismatch} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{input_bytes: 0, output_bytes: 6, event_count: 2},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecording{status: :pending}} =
+             RemoteAccessRecording.get_by_id(recording.id, actor: @system_actor)
+
+    assert {:ok, %RemoteAccessRecording{status: :completed}} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{input_bytes: 0, output_bytes: 6, event_count: 1},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
   end
 
   test "recording events keep terminal payloads metadata-only unless content policy opts in" do
