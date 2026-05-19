@@ -48,14 +48,6 @@ import (
 // This ensures correct ABI/struct layout across all supported architectures
 // Definitions are provided in separate files with build tags for each architecture
 //
-// TODO: IPv6 Support - implement separate v6 scanner with RAWv6 + eBPF/XDP or cBPF on ETH_P_IPV6
-// This would require:
-// - Separate IPv6 packet templates and header construction
-// - IPv6-aware BPF filters (etherType 0x86DD, ICMPv6 handling)
-// - AF_INET6 raw sockets with IPV6_HDRINCL equivalent
-// - Neighbor discovery for L2 address resolution
-// - Consider eBPF/XDP for better performance with IPv6 extension headers
-
 // getRetireTovMs returns the configurable retire timeout in milliseconds.
 // Checks TPACKET_RETIRE_TOV_MS environment variable, falls back to defaultRetireTovMs.
 func getRetireTovMs() uint32 {
@@ -555,12 +547,14 @@ type SYNScanner struct {
 	concurrency int
 	logger      logger.Logger
 
-	sendSocket int // Raw IPv4 socket for sending (IP_HDRINCL enabled)
-	rings      []*ringBuf
-	cancel     context.CancelFunc
+	sendSocket  int // Raw IPv4 socket for sending (IP_HDRINCL enabled)
+	sendSocket6 int // Raw IPv6 socket for sending full IPv6 packets
+	rings       []*ringBuf
+	cancel      context.CancelFunc
 
-	sourceIP net.IP
-	iface    string // Network interface name
+	sourceIP  net.IP
+	sourceIP6 net.IP
+	iface     string // Network interface name
 
 	fanoutGroup int
 	retireTovMs uint32 // configurable retire timeout in milliseconds
@@ -687,11 +681,15 @@ type SYNScannerOptions struct {
 func (s *SYNScanner) Capabilities() ScannerCapabilities {
 	caps := ScannerCapabilities{
 		RawSYNIPv4:  s != nil && s.sendSocket != 0 && s.sourceIP.To4() != nil,
-		RawSYNIPv6:  false,
+		RawSYNIPv6:  s != nil && s.sendSocket6 != 0 && s.sourceIP6.To16() != nil && s.sourceIP6.To4() == nil,
 		Diagnostics: make(map[string]string, 1),
 	}
 
-	caps.Diagnostics["raw_syn_ipv6"] = "IPv6 packet construction and reply classification are implemented; live raw IPv6 socket send path and BPF capture are not enabled"
+	if caps.RawSYNIPv6 {
+		caps.Diagnostics["raw_syn_ipv6"] = "enabled"
+	} else {
+		caps.Diagnostics["raw_syn_ipv6"] = "unavailable: no raw IPv6 send socket and usable local IPv6 source address on the scanner interface"
+	}
 
 	return caps
 }
@@ -699,6 +697,7 @@ func (s *SYNScanner) Capabilities() ScannerCapabilities {
 // batchArrays holds reusable arrays for sendmmsg batching
 type batchArrays struct {
 	addrs  []unix.RawSockaddrInet4
+	addrs6 []unix.RawSockaddrInet6
 	iovecs []unix.Iovec
 	hdrs   []Mmsghdr
 }
@@ -792,7 +791,103 @@ func parseTCP(b []byte) (*TCPHdr, int, error) {
 
 // BPF + Fanout
 // TODO: double-tag (QinQ) variant or an auxdata-aware approach
-func attachBPF(fd int, localIP net.IP, sportLo, sportHi uint16) error {
+func attachBPF(fd int, localIP4, localIP6 net.IP, sportLo, sportHi uint16) error {
+	ip6 := localIP6.To16()
+	if ip6 == nil || localIP6.To4() != nil {
+		return attachBPFIPv4(fd, localIP4, sportLo, sportHi)
+	}
+
+	ip4 := localIP4.To4()
+	if ip4 == nil {
+		return ErrNonIPv4LocalIP
+	}
+
+	ipHi := uint32(binary.BigEndian.Uint16(ip4[0:2]))
+	ipLo := uint32(binary.BigEndian.Uint16(ip4[2:4]))
+	lo := uint32(sportLo)
+	hi := uint32(sportHi)
+
+	v6 := [4]uint32{
+		binary.BigEndian.Uint32(ip6[0:4]),
+		binary.BigEndian.Uint32(ip6[4:8]),
+		binary.BigEndian.Uint32(ip6[8:12]),
+		binary.BigEndian.Uint32(ip6[12:16]),
+	}
+
+	prog := []unix.SockFilter{
+		// Non-VLAN dispatch.
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 12},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherTypeVLAN, Jt: 27, Jf: 0},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherTypeQinQ, Jt: 26, Jf: 0},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherType9100, Jt: 25, Jf: 0},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherTypeIPv4, Jt: 2, Jf: 0},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherTypeIPv6, Jt: 13, Jf: 0},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+
+		// Non-VLAN IPv4 TCP replies to the scanner source-port range.
+		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 23},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: syscall.IPPROTO_TCP, Jt: 0, Jf: 9},
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 30},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipHi, Jt: 0, Jf: 7},
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 32},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipLo, Jt: 0, Jf: 5},
+		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 14},
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 16},
+		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
+		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+
+		// Non-VLAN IPv6 packets destined to the scanner's local IPv6.
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 38},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[0], Jt: 0, Jf: 7},
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 42},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[1], Jt: 0, Jf: 5},
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 46},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[2], Jt: 0, Jf: 3},
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 50},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[3], Jt: 0, Jf: 1},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+
+		// VLAN dispatch.
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 16},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherTypeIPv4, Jt: 1, Jf: 0},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: etherTypeIPv6, Jt: 12, Jf: 21},
+
+		// VLAN IPv4 TCP replies to the scanner source-port range.
+		{Code: unix.BPF_LD | unix.BPF_B | unix.BPF_ABS, K: 27},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: syscall.IPPROTO_TCP, Jt: 0, Jf: 9},
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 34},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipHi, Jt: 0, Jf: 7},
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_ABS, K: 36},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: ipLo, Jt: 0, Jf: 5},
+		{Code: unix.BPF_LDX | unix.BPF_MSH | unix.BPF_B | unix.BPF_ABS, K: 18},
+		{Code: unix.BPF_LD | unix.BPF_H | unix.BPF_IND, K: 20},
+		{Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K, K: lo, Jt: 0, Jf: 2},
+		{Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K, K: hi, Jt: 1, Jf: 0},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+
+		// VLAN IPv6 packets destined to the scanner's local IPv6.
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 42},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[0], Jt: 0, Jf: 7},
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 46},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[1], Jt: 0, Jf: 5},
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 50},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[2], Jt: 0, Jf: 3},
+		{Code: unix.BPF_LD | unix.BPF_W | unix.BPF_ABS, K: 54},
+		{Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K, K: v6[3], Jt: 0, Jf: 1},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0xFFFFFFFF},
+		{Code: unix.BPF_RET | unix.BPF_K, K: 0},
+	}
+
+	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
+
+	return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
+}
+
+func attachBPFIPv4(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	ip4 := localIP.To4()
 	if ip4 == nil {
 		return ErrNonIPv4LocalIP
@@ -1230,6 +1325,18 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	_ = unix.SetNonblock(sendSocket, true)
 	_ = syscall.SetsockoptInt(sendSocket, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift) // 8MB send buffer
 
+	sendSocket6 := 0
+	if fd, err := syscall.Socket(syscall.AF_INET6, syscall.SOCK_RAW, syscall.IPPROTO_RAW); err != nil {
+		log.Warn().Err(err).Msg("Raw IPv6 send socket unavailable; raw SYN IPv6 will be disabled")
+	} else {
+		sendSocket6 = fd
+		_ = unix.SetNonblock(sendSocket6, true)
+		_ = syscall.SetsockoptInt(sendSocket6, syscall.SOL_SOCKET, syscall.SO_SNDBUF, sendBufferSizeMB<<bitsPerShift)
+		if err := unix.SetsockoptInt(sendSocket6, unix.IPPROTO_IPV6, unix.IPV6_HDRINCL, 1); err != nil {
+			log.Debug().Err(err).Msg("IPV6_HDRINCL not accepted on raw IPv6 socket; continuing with IPPROTO_RAW")
+		}
+	}
+
 	log.Debug().Msg("IP_HDRINCL set successfully")
 	log.Debug().Msg("Getting local IP and interface")
 
@@ -1245,9 +1352,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	sourceIP, iface, err := getLocalIPAndInterfaceWithTarget(routeDiscoveryTarget)
 	if err != nil {
-		if closeErr := syscall.Close(sendSocket); closeErr != nil {
-			log.Warn().Err(closeErr).Msg("Failed to close socket")
-		}
+		closeRawSendSockets(log, sendSocket, sendSocket6)
 
 		return nil, fmt.Errorf("failed to get local IP and interface: %w", err)
 	}
@@ -1258,9 +1363,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	if opts != nil && opts.Interface != "" {
 		ifi, err := net.InterfaceByName(opts.Interface)
 		if err != nil {
-			if closeErr := syscall.Close(sendSocket); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Failed to close socket")
-			}
+			closeRawSendSockets(log, sendSocket, sendSocket6)
 
 			return nil, fmt.Errorf("interface %q: %w", opts.Interface, err)
 		}
@@ -1277,9 +1380,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		}
 
 		if ip4 == nil {
-			if closeErr := syscall.Close(sendSocket); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Failed to close socket")
-			}
+			closeRawSendSockets(log, sendSocket, sendSocket6)
 
 			return nil, fmt.Errorf("%w: %q", ErrInterfaceNoIPv4, opts.Interface)
 		}
@@ -1292,11 +1393,18 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 	sourceIP = sourceIP.To4()
 	if sourceIP == nil {
-		if closeErr := syscall.Close(sendSocket); closeErr != nil {
-			log.Warn().Err(closeErr).Msg("Failed to close socket")
-		}
+		closeRawSendSockets(log, sendSocket, sendSocket6)
 
 		return nil, ErrNonIPv4SourceIP
+	}
+
+	sourceIP6 := getInterfaceIPv6(iface)
+	if sourceIP6 == nil && sendSocket6 != 0 {
+		log.Warn().Str("interface", iface).Msg("No usable IPv6 source address on scanner interface; raw SYN IPv6 disabled")
+		_ = syscall.Close(sendSocket6)
+		sendSocket6 = 0
+	} else if sourceIP6 != nil {
+		log.Info().Str("sourceIP6", sourceIP6.String()).Str("interface", iface).Msg("Using local IPv6 source for raw SYN scanner")
 	}
 
 	// Detect safe port range for scanning
@@ -1354,9 +1462,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			if closeErr := syscall.Close(sendSocket); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Failed to close socket")
-			}
+			closeRawSendSockets(log, sendSocket, sendSocket6)
 
 			return nil, fmt.Errorf("openSnifferOnInterface failed: %w", err)
 		}
@@ -1375,9 +1481,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			if closeErr := syscall.Close(sendSocket); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Failed to close socket")
-			}
+			closeRawSendSockets(log, sendSocket, sendSocket6)
 
 			return nil, fmt.Errorf("enableFanout failed: %w", err)
 		}
@@ -1385,7 +1489,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		log.Debug().Msg("Packet fanout enabled successfully")
 		log.Debug().Msg("Attaching BPF filter")
 
-		if err := attachBPF(fd, sourceIP, scanPortStart, scanPortEnd); err != nil {
+		if err := attachBPF(fd, sourceIP, sourceIP6, scanPortStart, scanPortEnd); err != nil {
 			log.Error().Err(err).Msg("Failed to attach BPF filter")
 
 			_ = unix.Close(fd)
@@ -1395,9 +1499,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			if closeErr := syscall.Close(sendSocket); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Failed to close socket")
-			}
+			closeRawSendSockets(log, sendSocket, sendSocket6)
 
 			return nil, fmt.Errorf("BPF filter attachment failed: %w", err)
 		}
@@ -1556,9 +1658,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 				_ = unix.Close(r.fd)
 			}
 
-			if closeErr := syscall.Close(sendSocket); closeErr != nil {
-				log.Warn().Err(closeErr).Msg("Failed to close socket")
-			}
+			closeRawSendSockets(log, sendSocket, sendSocket6)
 
 			return nil, fmt.Errorf("setupTPacketV3 failed: %w", err)
 		}
@@ -1590,8 +1690,10 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		concurrency:   concurrency,
 		logger:        log,
 		sendSocket:    sendSocket,
+		sendSocket6:   sendSocket6,
 		rings:         rings,
 		sourceIP:      sourceIP,
+		sourceIP6:     sourceIP6,
 		iface:         iface,
 		fanoutGroup:   fanoutGroup,
 		retireTovMs:   retireTov,
@@ -1631,6 +1733,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		New: func() interface{} {
 			return &batchArrays{
 				addrs:  make([]unix.RawSockaddrInet4, 0, batchSize),
+				addrs6: make([]unix.RawSockaddrInet6, 0, batchSize),
 				iovecs: make([]unix.Iovec, 0, batchSize),
 				hdrs:   make([]Mmsghdr, 0, batchSize),
 			}
@@ -1739,6 +1842,20 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		Msg("SYN scanner configuration")
 
 	return scanner, nil
+}
+
+func closeRawSendSockets(log logger.Logger, sendSocket, sendSocket6 int) {
+	if sendSocket != 0 {
+		if closeErr := syscall.Close(sendSocket); closeErr != nil {
+			log.Warn().Err(closeErr).Msg("Failed to close IPv4 raw send socket")
+		}
+	}
+
+	if sendSocket6 != 0 {
+		if closeErr := syscall.Close(sendSocket6); closeErr != nil {
+			log.Warn().Err(closeErr).Msg("Failed to close IPv6 raw send socket")
+		}
+	}
 }
 
 // initPacketTemplate initializes the reusable packet template with static fields
@@ -2913,8 +3030,11 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 	type entry struct {
 		tgt       models.Target
 		dst4      [4]byte
+		dst6      [16]byte
+		ipv6      bool
 		srcPort   uint16
 		packet    []byte
+		pooled    bool
 		targetKey string
 	}
 
@@ -2937,15 +3057,21 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 			continue
 		}
 
-		dst4 := dst.To4()
-		if dst4 == nil {
-			continue
-		}
-
-		if dst4.IsLoopback() {
+		if dst.IsLoopback() {
 			// loopback: use connect path immediately
 			s.handleLoopbackTarget(ctx, t)
 
+			continue
+		}
+
+		dst4 := dst.To4()
+		dst16 := dst.To16()
+		ipv6 := dst4 == nil
+		if ipv6 {
+			if dst16 == nil || s.sendSocket6 == 0 || s.sourceIP6.To16() == nil || s.sourceIP6.To4() != nil {
+				continue
+			}
+		} else if dst4 == nil {
 			continue
 		}
 
@@ -2985,7 +3111,11 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 		s.portTargetMap[srcPort] = key
 		s.targetPorts[key] = append(s.targetPorts[key], srcPort)
-		s.targetIP[key] = net.IP(dst4).String()
+		if ipv6 {
+			s.targetIP[key] = net.IP(dst16).String()
+		} else {
+			s.targetIP[key] = net.IP(dst4).String()
+		}
 
 		if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
 			existing.LastSeen = time.Now()
@@ -3007,18 +3137,34 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		s.portDeadline[srcPort] = deadline
 		s.mu.Unlock()
 
-		// Build packet
-		pkt := s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port))
+		var (
+			addr4  [4]byte
+			addr6  [16]byte
+			pkt    []byte
+			pooled bool
+		)
 
-		var addr4 [4]byte
-
-		copy(addr4[:], dst4)
+		if ipv6 {
+			copy(addr6[:], dst16)
+			pkt = buildSYNPacketIPv6(s.sourceIP6, net.IP(dst16), srcPort, uint16(t.Port), s.randUint32())
+		} else {
+			copy(addr4[:], dst4)
+			pkt = s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port))
+			pooled = true
+		}
+		if len(pkt) == 0 {
+			s.tryReleaseMapping(srcPort, key)
+			continue
+		}
 
 		entries = append(entries, entry{
 			tgt:       t,
 			dst4:      addr4,
+			dst6:      addr6,
+			ipv6:      ipv6,
 			srcPort:   srcPort,
 			packet:    pkt,
+			pooled:    pooled,
 			targetKey: key,
 		})
 	}
@@ -3027,100 +3173,121 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		return
 	}
 
-	// Get pooled arrays for sendmmsg to reduce allocations
-	ba := s.batchPool.Get().(*batchArrays)
+	sendFamily := func(socket int, familyEntries []entry, ipv6 bool) {
+		if len(familyEntries) == 0 || socket == 0 {
+			for _, entry := range familyEntries {
+				s.tryReleaseMapping(entry.srcPort, entry.targetKey)
+			}
 
-	defer func() {
-		// Reset slices for reuse
-		ba.addrs = ba.addrs[:0]
-		ba.iovecs = ba.iovecs[:0]
-		ba.hdrs = ba.hdrs[:0]
-		s.batchPool.Put(ba)
-	}()
-
-	// Resize arrays if needed
-	if cap(ba.addrs) < len(entries) {
-		ba.addrs = make([]unix.RawSockaddrInet4, len(entries))
-		ba.iovecs = make([]unix.Iovec, len(entries))
-		ba.hdrs = make([]Mmsghdr, len(entries))
-	} else {
-		ba.addrs = ba.addrs[:len(entries)]
-		ba.iovecs = ba.iovecs[:len(entries)]
-		ba.hdrs = ba.hdrs[:len(entries)]
-	}
-
-	// Use the pooled arrays
-	addrs := ba.addrs
-	iovecs := ba.iovecs
-	hdrs := ba.hdrs
-
-	// Fill descriptors
-	for i := range entries {
-		// sockaddr_in
-		addrs[i] = unix.RawSockaddrInet4{
-			Family: unix.AF_INET,
-			Port:   0, // ignored by kernel for raw sockets with IP_HDRINCL
-			Addr:   entries[i].dst4,
+			return
 		}
 
-		// iovec pointing at the packet bytes
-		iovecs[i].Base = &entries[i].packet[0]
-		iovecs[i].SetLen(len(entries[i].packet)) // arch‑safe setter
+		ba := s.batchPool.Get().(*batchArrays)
+		defer func() {
+			ba.addrs = ba.addrs[:0]
+			ba.addrs6 = ba.addrs6[:0]
+			ba.iovecs = ba.iovecs[:0]
+			ba.hdrs = ba.hdrs[:0]
+			s.batchPool.Put(ba)
+		}()
 
-		// msghdr
-		hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&addrs[i]))
-		hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(addrs[i]))
-		hdrs[i].Hdr.Iov = &iovecs[i]
-		hdrs[i].Hdr.SetIovlen(1) // arch‑safe setter
-	}
-
-	// Send in a loop to handle partial sends; kernel will send them in order.
-	off := 0
-
-	for off < len(hdrs) {
-		n, err := sendmmsg(s.sendSocket, hdrs[off:], 0)
-		if n > 0 {
-			off += n
-
-			// Update stats counter after successful send
-			atomic.AddUint64(&s.stats.PacketsSent, uint64(n))
+		if cap(ba.iovecs) < len(familyEntries) {
+			ba.iovecs = make([]unix.Iovec, len(familyEntries))
+			ba.hdrs = make([]Mmsghdr, len(familyEntries))
+		} else {
+			ba.iovecs = ba.iovecs[:len(familyEntries)]
+			ba.hdrs = ba.hdrs[:len(familyEntries)]
 		}
 
-		if err == nil {
-			continue
+		if ipv6 {
+			if cap(ba.addrs6) < len(familyEntries) {
+				ba.addrs6 = make([]unix.RawSockaddrInet6, len(familyEntries))
+			} else {
+				ba.addrs6 = ba.addrs6[:len(familyEntries)]
+			}
+		} else {
+			if cap(ba.addrs) < len(familyEntries) {
+				ba.addrs = make([]unix.RawSockaddrInet4, len(familyEntries))
+			} else {
+				ba.addrs = ba.addrs[:len(familyEntries)]
+			}
 		}
 
-		// Retry the same offset on transient errors
-		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) {
-			// tiny backoff; keep pressure high
-			runtime.Gosched()
+		for i := range familyEntries {
+			if ipv6 {
+				ba.addrs6[i] = unix.RawSockaddrInet6{
+					Family: unix.AF_INET6,
+					Port:   0,
+					Addr:   familyEntries[i].dst6,
+				}
+				ba.hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&ba.addrs6[i]))
+				ba.hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(ba.addrs6[i]))
+			} else {
+				ba.addrs[i] = unix.RawSockaddrInet4{
+					Family: unix.AF_INET,
+					Port:   0, // ignored by kernel for raw sockets with IP_HDRINCL
+					Addr:   familyEntries[i].dst4,
+				}
+				ba.hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&ba.addrs[i]))
+				ba.hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(ba.addrs[i]))
+			}
 
-			continue
+			ba.iovecs[i].Base = &familyEntries[i].packet[0]
+			ba.iovecs[i].SetLen(len(familyEntries[i].packet))
+			ba.hdrs[i].Hdr.Iov = &ba.iovecs[i]
+			ba.hdrs[i].Hdr.SetIovlen(1)
 		}
 
-		// Hard error: release the remaining unsent src ports and drop mappings
-		s.logger.Debug().Err(err).Int("remaining", len(hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
+		off := 0
+		for off < len(ba.hdrs) {
+			n, err := sendmmsg(socket, ba.hdrs[off:], 0)
+			if n > 0 {
+				off += n
+				atomic.AddUint64(&s.stats.PacketsSent, uint64(n))
+			}
 
-		break
+			if err == nil {
+				continue
+			}
+
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) {
+				runtime.Gosched()
+				continue
+			}
+
+			s.logger.Debug().Err(err).Bool("ipv6", ipv6).Int("remaining", len(ba.hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
+			break
+		}
+
+		runtime.KeepAlive(ba.hdrs)
+		runtime.KeepAlive(ba.iovecs)
+		runtime.KeepAlive(ba.addrs)
+		runtime.KeepAlive(ba.addrs6)
+		runtime.KeepAlive(familyEntries)
+
+		for i := range familyEntries {
+			if familyEntries[i].pooled {
+				s.packetPool.Put(familyEntries[i].packet) //nolint:staticcheck // slice is reference type, Put accepts interface{}
+			}
+		}
+
+		for i := off; i < len(familyEntries); i++ {
+			s.tryReleaseMapping(familyEntries[i].srcPort, familyEntries[i].targetKey)
+		}
 	}
 
-	// Ensure GC liveness across the syscall
-	runtime.KeepAlive(hdrs)
-	runtime.KeepAlive(iovecs)
-	runtime.KeepAlive(addrs)
-	runtime.KeepAlive(entries)
-
-	// Return all packet buffers to pool after sendmmsg completes
-	for i := range entries {
-		s.packetPool.Put(entries[i].packet) //nolint:staticcheck // slice is reference type, Put accepts interface{}
+	entries4 := make([]entry, 0, len(entries))
+	entries6 := make([]entry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ipv6 {
+			entries6 = append(entries6, entry)
+		} else {
+			entries4 = append(entries4, entry)
+		}
 	}
 
-	// Release *unsent* ports immediately, since their SYN never left the machine.
-	// Use tryReleaseMapping to keep all mappings in sync.
-	for i := off; i < len(entries); i++ {
-		sp := entries[i].srcPort
-		s.tryReleaseMapping(sp, entries[i].targetKey)
-	}
+	sendFamily(s.sendSocket, entries4, false)
+	sendFamily(s.sendSocket6, entries6, true)
 }
 
 // SetResultCallback sets a callback function that will be called immediately when a result becomes available
@@ -3303,6 +3470,14 @@ func (s *SYNScanner) Stop() error {
 		}
 
 		s.sendSocket = 0
+	}
+
+	if s.sendSocket6 != 0 {
+		if e := syscall.Close(s.sendSocket6); e != nil && err == nil {
+			err = e
+		}
+
+		s.sendSocket6 = 0
 	}
 
 	return err
@@ -3590,6 +3765,36 @@ func getLocalIPAndInterfaceWithTarget(target string) (net.IP, string, error) {
 	}
 
 	return nil, "", fmt.Errorf("%w %s", ErrInterfaceNotFound, localIP)
+}
+
+func getInterfaceIPv6(name string) net.IP {
+	ifi, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil
+	}
+
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		return nil
+	}
+
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+
+		ip := ipNet.IP
+		if ip == nil || ip.To4() != nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+
+		if ip16 := ip.To16(); ip16 != nil {
+			return append(net.IP(nil), ip16...)
+		}
+	}
+
+	return nil
 }
 
 // Host to network short/long byte order conversions

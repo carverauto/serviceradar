@@ -5,7 +5,7 @@
 - `scan.Scanner` is the common execution contract: `Scan(ctx, []models.Target)` returns a result channel and `Stop()` releases runtime resources.
 - `scan.StreamingScanner` is the bounded large-sweep contract. The raw SYN scanner implements `ScanStream` so callers can feed targets incrementally instead of materializing every host/port pair.
 - `scan.StatsProvider` is currently implemented by the raw SYN scanner. These counters describe raw SYN packet/ring/retry/rate behavior and are exported through sweep completion scanner stats.
-- `scan.CapabilityProvider` reports runtime address-family support. ICMP reports available IPv4/IPv6 packet connections, TCP connect reports IPv4/IPv6 support, and raw SYN currently reports IPv4 enabled with IPv6 disabled until live send/capture support lands.
+- `scan.CapabilityProvider` reports runtime address-family support. ICMP reports available IPv4/IPv6 packet connections, TCP connect reports IPv4/IPv6 support, and raw SYN reports IPv6 only when the agent has a raw IPv6 send socket plus a usable local IPv6 source address on the scanner interface.
 
 ## Shared Logic Reuse
 
@@ -44,7 +44,7 @@
    go test ./go/pkg/sweeper -run 'TestTargetGeneration_IPv6|TestTargetGenerationMixedFamilyRouteSummary|TestGetScannerStatsLabels' -count=1
    ```
 
-4. For a reachable IPv6 host, create a sweep group with a literal IPv6 target and modes `icmp,tcp`. Until live raw SYNv6 send/capture is enabled, TCP targets should report `scanner_path=tcp_connect_ipv6_raw_syn_fallback`, while ICMP targets should use `scanner_path=icmp`.
+4. For a reachable IPv6 host, create a sweep group with a literal IPv6 target and modes `icmp,tcp`. On an agent with `tcpRawSYNIPv6Available=true`, TCP targets should report `scanner_path=tcp`. On an agent without a usable raw SYNv6 path, TCP targets should report `scanner_path=tcp_connect_ipv6_raw_syn_fallback`, while ICMP targets should use `scanner_path=icmp`.
 
 5. In Kubernetes, verify the Helm-rendered agent container includes `NET_RAW`:
 
@@ -54,6 +54,6 @@
      | grep -A5 -B2 NET_RAW
    ```
 
-## Remaining Raw SYNv6 Enablement
+## Raw SYNv6 Enablement
 
-The current branch has IPv6 SYN packet construction, TCP/ICMPv6 reply classification, target routing, fallback, and diagnostics. It intentionally does not advertise live raw SYNv6 capability yet. Enabling that requires the Linux send socket path and packet capture filter to accept IPv6 traffic end to end, then flipping `RawSYNIPv6` only when that live path is verified.
+The raw SYN scanner opens an IPv6 raw send socket when the platform permits it, selects a non-link-local IPv6 source address from the scanner interface, and attaches an AF_PACKET filter that admits IPv4 TCP replies plus IPv6 TCP/ICMPv6 traffic for that local IPv6 address. `RawSYNIPv6` is advertised only when all of those runtime prerequisites are present; otherwise IPv6 TCP targets continue to use TCP connect fallback.

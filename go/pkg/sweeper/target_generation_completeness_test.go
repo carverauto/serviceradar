@@ -25,6 +25,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
 // TestTargetGeneration_AllPortsForEveryIP verifies that createTargetsForIP
@@ -191,6 +192,38 @@ func TestTargetGeneration_IPv6KeepsICMPAndUsesTCPConnect(t *testing.T) {
 		assert.Equal(t, "tcp_connect", target.Metadata["effective_sweep_mode"])
 		assert.Equal(t, "tcp_connect_ipv6_raw_syn_fallback", target.Metadata["scanner_path"])
 		assert.Equal(t, true, target.Metadata["ipv6_raw_syn_fallback"])
+	}
+}
+
+func TestTargetGeneration_IPv6UsesRawSYNWhenCapabilityAvailable(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22, 443},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+		tcpScanner: statsCapabilityScanner{
+			caps: scan.ScannerCapabilities{RawSYNIPv6: true},
+		},
+	}
+
+	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, nil)
+
+	assert.Len(t, targets, 3)
+	tcpTargets := filterByMode(targets, models.ModeTCP)
+	require.Len(t, tcpTargets, 2)
+	assert.Empty(t, filterByMode(targets, models.ModeTCPConnect))
+
+	for _, target := range tcpTargets {
+		assert.Equal(t, "ipv6", target.Metadata["address_family"])
+		assert.Equal(t, "tcp", target.Metadata["requested_sweep_mode"])
+		assert.Equal(t, "tcp", target.Metadata["effective_sweep_mode"])
+		assert.Equal(t, "tcp", target.Metadata["scanner_path"])
+		assert.Equal(t, false, target.Metadata["ipv6_raw_syn_fallback"])
 	}
 }
 

@@ -103,7 +103,21 @@ func TestSYNScannerCapabilitiesReportRawIPv6Disabled(t *testing.T) {
 	caps := scanner.Capabilities()
 	assert.True(t, caps.RawSYNIPv4)
 	assert.False(t, caps.RawSYNIPv6)
-	assert.Contains(t, caps.Diagnostics["raw_syn_ipv6"], "not enabled")
+	assert.Contains(t, caps.Diagnostics["raw_syn_ipv6"], "unavailable")
+}
+
+func TestSYNScannerCapabilitiesReportRawIPv6Enabled(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		sendSocket6: 43,
+		sourceIP6:   net.ParseIP("2001:db8::10"),
+	}
+
+	caps := scanner.Capabilities()
+	assert.False(t, caps.RawSYNIPv4)
+	assert.True(t, caps.RawSYNIPv6)
+	assert.Equal(t, "enabled", caps.Diagnostics["raw_syn_ipv6"])
 }
 
 func TestProcessEthernetFrameIPv6TCPReply(t *testing.T) {
