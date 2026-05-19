@@ -1060,10 +1060,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Fix: Default to `"true"`; require an explicit `webNg.checkOrigin: false` override with a values comment about risk; add a helm-lint rule.
       Resolution: Closed by changing the chart and values default to `webNg.checkOrigin: "true"` / `PHX_CHECK_ORIGIN=true`; insecure local reverse-proxy debugging now requires an explicit values override and is documented in the chart README.
 
-- [ ] 6.P.9 [L] Bastion control-plane pods have no PodDisruptionBudget
+- [x] 6.P.9 [L] Bastion control-plane pods have no PodDisruptionBudget
       Where: no PDB templates in `helm/serviceradar/templates/` (working tree)
       Why: Node drain or eviction can take all replicas down; operator lockout from the bastion = outage of the audit/control path during the incident.
       Fix: Add `minAvailable: 1` PDBs for `core`, `web-ng`, `agent-gateway`, `datasvc`.
+      Resolution: Closed by adding a Helm PDB template for core, web-ng, datasvc, and enabled agent-gateway deployments, controlled by `podDisruptionBudgets.enabled` and `podDisruptionBudgets.minAvailable`.
 
 - [ ] 6.P.10 [L] `imageTag` defaults to `latest`; no digest pinning by default
       Where: `helm/serviceradar/values.yaml:15`; `_helpers.tpl:82-84` (working tree)

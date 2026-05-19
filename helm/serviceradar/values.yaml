@@ -8,6 +8,13 @@ topologySpread:
   # topologyKey: kubernetes.io/hostname
   # whenUnsatisfiable: ScheduleAnyway
 
+podDisruptionBudgets:
+  # Protect the remote-access control plane during voluntary disruptions such
+  # as node drains. Disable only for tiny lab clusters where PDBs would block
+  # maintenance.
+  enabled: true
+  minAvailable: 1
+
 # Global settings that apply across all services
 global:
   # Override all ServiceRadar image tags at once. Defaults to "latest" so
