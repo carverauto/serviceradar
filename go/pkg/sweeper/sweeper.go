@@ -1133,6 +1133,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	tcpScanner := s.tcpScanner
 	tcpConnectScanner := s.tcpConnectScanner
 	s.mu.RUnlock()
+	icmpCaps := scannerCapabilities(icmpScanner)
+	tcpCaps := scannerCapabilities(tcpScanner)
+	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
 
 	s.logger.Info().
 		Int("icmpTargets", len(icmpTargets)).
@@ -1144,6 +1147,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Bool("icmpIPv4Available", icmpCaps.ICMPv4).
+		Bool("icmpIPv6Available", icmpCaps.ICMPv6).
+		Bool("tcpRawSYNIPv4Available", tcpCaps.RawSYNIPv4).
+		Bool("tcpRawSYNIPv6Available", tcpCaps.RawSYNIPv6).
+		Bool("tcpConnectIPv4Available", tcpConnectCaps.TCPConnectIPv4).
+		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting sweep")
 
 	var wg sync.WaitGroup
@@ -1208,6 +1217,9 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	tcpScanner := s.tcpScanner
 	tcpConnectScanner := s.tcpConnectScanner
 	s.mu.RUnlock()
+	icmpCaps := scannerCapabilities(icmpScanner)
+	tcpCaps := scannerCapabilities(tcpScanner)
+	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
 
 	s.resultsMu.Lock()
 	s.deviceResults = make(map[string]*DeviceResultAggregator)
@@ -1237,6 +1249,12 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Bool("icmpIPv4Available", icmpCaps.ICMPv4).
+		Bool("icmpIPv6Available", icmpCaps.ICMPv6).
+		Bool("tcpRawSYNIPv4Available", tcpCaps.RawSYNIPv4).
+		Bool("tcpRawSYNIPv6Available", tcpCaps.RawSYNIPv6).
+		Bool("tcpConnectIPv4Available", tcpConnectCaps.TCPConnectIPv4).
+		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting batched sweep")
 
 	if err := s.generateTargetsBatched(runner.addTarget); err != nil {
@@ -2025,6 +2043,14 @@ func summarizeTargetRoutes(targets []models.Target) targetRouteSummary {
 	}
 
 	return summary
+}
+
+func scannerCapabilities(scanner scan.Scanner) scan.ScannerCapabilities {
+	if provider, ok := scanner.(scan.CapabilityProvider); ok {
+		return provider.Capabilities()
+	}
+
+	return scan.ScannerCapabilities{}
 }
 
 func effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {

@@ -35,6 +35,7 @@ type TCPSweeper struct {
 }
 
 var _ Scanner = (*TCPSweeper)(nil)
+var _ CapabilityProvider = (*TCPSweeper)(nil)
 
 func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *TCPSweeper {
 	if timeout == 0 {
@@ -50,6 +51,13 @@ func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *T
 		timeout:     timeout,
 		concurrency: concurrency,
 		logger:      log,
+	}
+}
+
+func (*TCPSweeper) Capabilities() ScannerCapabilities {
+	return ScannerCapabilities{
+		TCPConnectIPv4: true,
+		TCPConnectIPv6: true,
 	}
 }
 

@@ -74,6 +74,7 @@ type hostICMPStats struct {
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
+var _ CapabilityProvider = (*ICMPSweeper)(nil)
 
 const (
 	defaultIdentifierMod = 65536
@@ -156,6 +157,17 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 		Msg("Created ICMP sweeper with multi-packet support")
 
 	return s, nil
+}
+
+func (s *ICMPSweeper) Capabilities() ScannerCapabilities {
+	if s == nil {
+		return ScannerCapabilities{}
+	}
+
+	return ScannerCapabilities{
+		ICMPv4: s.conn != nil,
+		ICMPv6: s.conn6 != nil,
+	}
 }
 
 // ICMPSweeperOption configures an ICMPSweeper instance.

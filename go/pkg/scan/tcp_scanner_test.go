@@ -139,6 +139,18 @@ func TestTCPSweeper_checkPort(t *testing.T) {
 	}
 }
 
+func TestTCPSweeperCapabilities(t *testing.T) {
+	t.Parallel()
+
+	caps := (&TCPSweeper{}).Capabilities()
+	if !caps.TCPConnectIPv4 || !caps.TCPConnectIPv6 {
+		t.Fatalf("expected TCP connect IPv4 and IPv6 capabilities, got %#v", caps)
+	}
+	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
+		t.Fatalf("TCP connect scanner should not advertise raw SYN capabilities: %#v", caps)
+	}
+}
+
 func TestTCPSweeper_worker(t *testing.T) {
 	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 

@@ -628,6 +628,7 @@ type SYNScanner struct {
 }
 
 var _ Scanner = (*SYNScanner)(nil)
+var _ CapabilityProvider = (*SYNScanner)(nil)
 
 // SYNScannerOptions contains optional configuration for the SYN scanner
 type SYNScannerOptions struct {
@@ -681,6 +682,18 @@ type SYNScannerOptions struct {
 	// If 0, defaults to max(TPACKET_RETIRE_TOV_MS, 50). Raising this reduces
 	// wakeups when traffic is sparse, cutting CPU in listenForReplies.
 	RingPollTimeoutMs int
+}
+
+func (s *SYNScanner) Capabilities() ScannerCapabilities {
+	caps := ScannerCapabilities{
+		RawSYNIPv4:  s != nil && s.sendSocket != 0 && s.sourceIP.To4() != nil,
+		RawSYNIPv6:  false,
+		Diagnostics: make(map[string]string, 1),
+	}
+
+	caps.Diagnostics["raw_syn_ipv6"] = "IPv6 packet construction and reply classification are implemented; live raw IPv6 socket send path and BPF capture are not enabled"
+
+	return caps
 }
 
 // batchArrays holds reusable arrays for sendmmsg batching

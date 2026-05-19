@@ -18,7 +18,7 @@
 ## 4. Target Routing and Fallback
 - [x] 4.1 Route sweep targets by parsed IP family and requested sweep mode.
 - [x] 4.2 Ensure mixed IPv4/IPv6 sweep groups execute each target on the correct scanner path.
-- [ ] 4.3 Add capability checks for raw IPv6 scanners and explicit diagnostics for unavailable modes.
+- [x] 4.3 Add capability checks for raw IPv6 scanners and explicit diagnostics for unavailable modes.
 - [x] 4.4 Implement fallback from IPv6 TCP mode to TCP connect without duplicate target/result accounting.
 
 ## 5. Config, Metrics, and Operator Visibility
