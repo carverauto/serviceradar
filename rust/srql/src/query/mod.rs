@@ -91,6 +91,13 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+pub(crate) fn is_negated_membership_op(op: &crate::parser::FilterOp) -> bool {
+    matches!(
+        op,
+        &crate::parser::FilterOp::NotEq | &crate::parser::FilterOp::NotIn
+    )
+}
+
 /// Normalizes a MAC address value by stripping non-hex characters and lowercasing.
 ///
 /// When `allow_wildcards` is true, `%` and `_` (SQL LIKE wildcards) are preserved.
@@ -901,6 +908,31 @@ mod tests {
         assert!(seen_values
             .iter()
             .any(|values| values == &vec!["armis".to_string()]));
+    }
+
+    #[test]
+    fn devices_discovery_sources_negation_builds_negative_array_filter() {
+        let query = "in:devices !discovery_sources:(armis)";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::Devices));
+        assert!(plan.filters.iter().any(|filter| {
+            filter.field == "discovery_sources"
+                && matches!(filter.op, FilterOp::NotIn)
+                && matches!(&filter.value, FilterValue::List(values) if values == &vec!["armis".to_string()])
+        }));
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        assert!(
+            sql.contains("NOT (coalesce(discovery_sources, ARRAY[]::text[]) @>"),
+            "expected SQL to negate discovery_sources containment, got: {sql}"
+        );
+        assert!(
+            params
+                .iter()
+                .any(|param| matches!(param, BindParam::TextArray(values) if values == &vec!["armis".to_string()])),
+            "expected an armis text-array bind param, got: {params:?}"
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
@@ -827,7 +828,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       # Create device that matches criteria
       {:ok, device} =
-        ServiceRadar.Inventory.Device
+        Device
         |> Ash.Changeset.for_create(
           :create,
           %{
@@ -868,10 +869,86 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           end)
 
         if group do
-          # Device IP should be in targets
-          assert device.ip in group["targets"]
+          assert group["targets"] == []
+
+          device_target =
+            Enum.find(group["device_targets"] || [], fn target ->
+              target["network"] == device.ip
+            end)
+
+          assert device_target
+          assert device_target["source"] == "srql"
+          assert device_target["query_label"] == "Criteria Sweep Group #{unique_id}"
         end
       end
+    end
+
+    test "SRQL sweep targeting excludes Armis discovery sources", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent_uid = "non-armis-sweep-agent-#{unique_id}"
+      armis_ip = unique_ip("armis-sweep-#{unique_id}")
+      non_armis_ip = unique_ip("non-armis-sweep-#{unique_id}")
+
+      {:ok, _armis_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "armis-sweep-target-device-#{unique_id}",
+            ip: armis_ip,
+            hostname: "armis-host-#{unique_id}",
+            discovery_sources: ["armis"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _non_armis_device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "non-armis-sweep-target-device-#{unique_id}",
+            ip: non_armis_ip,
+            hostname: "non-armis-host-#{unique_id}",
+            discovery_sources: ["sweep"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Non Armis Criteria Sweep #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: "in:devices !discovery_sources:(armis)",
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      group =
+        Enum.find(payload["sweep"]["groups"] || [], fn g ->
+          g["name"] == "Non Armis Criteria Sweep #{unique_id}"
+        end)
+
+      assert group
+
+      networks = Enum.map(group["device_targets"] || [], & &1["network"])
+      assert non_armis_ip in networks
+      refute armis_ip in networks
     end
 
     test "sweep config version changes when SRQL targeting updated", %{
@@ -969,6 +1046,38 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         assert "Agent Specific Sweep #{unique_id}" in group_names
         assert "Partition Wide Sweep #{unique_id}" in group_names
       end
+    end
+
+    test "agent-specific sweep groups are excluded for other agents", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      assigned_agent_uid = "assigned-sweep-agent-#{unique_id}"
+      other_agent_uid = "other-sweep-agent-#{unique_id}"
+
+      {:ok, _group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Other Agent Should Not Receive #{unique_id}",
+            partition: "default",
+            agent_id: assigned_agent_uid,
+            interval: "15m",
+            static_targets: ["10.0.199.1"],
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      ConfigServer.invalidate(:sweep)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(other_agent_uid)
+      payload = Jason.decode!(config.config_json)
+      group_names = Enum.map(payload["sweep"]["groups"] || [], & &1["name"])
+
+      refute "Other Agent Should Not Receive #{unique_id}" in group_names
     end
   end
 
