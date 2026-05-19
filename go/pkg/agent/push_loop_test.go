@@ -1,12 +1,35 @@
 package agent
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+func TestMarshalJSONLimited(t *testing.T) {
+	payload := map[string]string{"status": "ok"}
+
+	data, err := marshalJSONLimited(payload, 1024)
+	if err != nil {
+		t.Fatalf("expected marshal to fit under limit: %v", err)
+	}
+	if string(data) != `{"status":"ok"}` {
+		t.Fatalf("unexpected JSON payload: %s", data)
+	}
+}
+
+func TestMarshalJSONLimitedRejectsOversizedPayload(t *testing.T) {
+	payload := map[string]string{"status": strings.Repeat("x", 1024)}
+
+	_, err := marshalJSONLimited(payload, 64)
+	if !errors.Is(err, errJSONPayloadTooLarge) {
+		t.Fatalf("expected payload limit error, got %v", err)
+	}
+}
 
 func TestHashStatusMessageScrubsResponseTime(t *testing.T) {
 	messageA := []byte(`{"state":"ok","response_time":123,"nested":{"response_time_ns":456,"value":1}}`)

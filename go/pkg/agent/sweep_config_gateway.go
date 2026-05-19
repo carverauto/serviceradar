@@ -175,20 +175,40 @@ func normalizeTargets(targets []string, log logger.Logger) []string {
 			continue
 		}
 
-		if strings.Contains(target, "/") {
-			normalized = append(normalized, target)
+		network, ok := normalizeSweepNetwork(target, log)
+		if ok {
+			normalized = append(normalized, network)
 			continue
 		}
 
-		if ip := net.ParseIP(target); ip != nil {
-			normalized = append(normalized, target+"/32")
-			continue
+		if !strings.Contains(target, "/") {
+			log.Warn().Str("target", target).Msg("Skipping invalid sweep target")
 		}
-
-		log.Warn().Str("target", target).Msg("Skipping invalid sweep target")
 	}
 
 	return normalized
+}
+
+func normalizeSweepNetwork(network string, log logger.Logger) (string, bool) {
+	if strings.Contains(network, "/") {
+		if _, _, err := net.ParseCIDR(network); err != nil {
+			log.Warn().Err(err).Str("network", network).Msg("Skipping invalid sweep CIDR")
+			return "", false
+		}
+
+		return network, true
+	}
+
+	ip := net.ParseIP(network)
+	if ip == nil {
+		return "", false
+	}
+
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4.String() + "/32", true
+	}
+
+	return ip.String() + "/128", true
 }
 
 func parseSweepModes(modes []string, log logger.Logger) []models.SweepMode {
@@ -223,18 +243,17 @@ func convertDeviceTargets(targets []gatewayDeviceTarget, log logger.Logger) []mo
 			continue
 		}
 
-		// Normalize to CIDR if it's a plain IP
-		if !strings.Contains(network, "/") {
-			if ip := net.ParseIP(network); ip != nil {
-				network += "/32"
-			} else {
+		normalized, ok := normalizeSweepNetwork(network, log)
+		if !ok {
+			if !strings.Contains(network, "/") {
 				log.Warn().Str("network", t.Network).Msg("Skipping invalid device target network")
-				continue
 			}
+
+			continue
 		}
 
 		converted = append(converted, models.DeviceTarget{
-			Network:    network,
+			Network:    normalized,
 			SweepModes: parseSweepModes(t.SweepModes, log),
 			QueryLabel: t.QueryLabel,
 			Source:     t.Source,

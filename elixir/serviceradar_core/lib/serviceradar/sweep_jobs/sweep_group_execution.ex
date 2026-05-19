@@ -231,7 +231,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       Scanner performance metrics from the agent.
       Contains: packets_sent, packets_recv, packets_dropped, ring_blocks_processed,
       ring_blocks_dropped, retries_attempted, retries_successful, ports_allocated,
-      ports_released, port_exhaustion_count, rate_limit_deferrals, rx_drop_rate_percent
+      ports_released, port_exhaustion_count, rate_limit_deferrals, rate_limit_waits,
+      source_port_waits, rate_limit_wait_time_ms, source_port_wait_time_ms,
+      rx_drop_rate_percent
       """
     end
 

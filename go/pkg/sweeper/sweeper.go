@@ -19,6 +19,7 @@ package sweeper
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,9 @@ const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
+	defaultTargetBatch   = 100000
+	intSizeBits          = 32 << (^uint(0) >> 63)
+	maxInt               = int(^uint(0) >> 1)
 )
 
 // DeviceRegistryService interface for device registry operations
@@ -615,18 +619,22 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		}
 
 		return &models.ScannerStats{
-			PacketsSent:         scanStats.PacketsSent,
-			PacketsRecv:         scanStats.PacketsRecv,
-			PacketsDropped:      scanStats.PacketsDropped,
-			RingBlocksProcessed: scanStats.RingBlocksProcessed,
-			RingBlocksDropped:   scanStats.RingBlocksDropped,
-			RetriesAttempted:    scanStats.RetriesAttempted,
-			RetriesSuccessful:   scanStats.RetriesSuccessful,
-			PortsAllocated:      scanStats.PortsAllocated,
-			PortsReleased:       scanStats.PortsReleased,
-			PortExhaustionCount: scanStats.PortExhaustion,
-			RateLimitDeferrals:  scanStats.RateLimitDeferrals,
-			RxDropRatePercent:   rxDropRate,
+			PacketsSent:          scanStats.PacketsSent,
+			PacketsRecv:          scanStats.PacketsRecv,
+			PacketsDropped:       scanStats.PacketsDropped,
+			RingBlocksProcessed:  scanStats.RingBlocksProcessed,
+			RingBlocksDropped:    scanStats.RingBlocksDropped,
+			RetriesAttempted:     scanStats.RetriesAttempted,
+			RetriesSuccessful:    scanStats.RetriesSuccessful,
+			PortsAllocated:       scanStats.PortsAllocated,
+			PortsReleased:        scanStats.PortsReleased,
+			PortExhaustionCount:  scanStats.PortExhaustion,
+			RateLimitDeferrals:   scanStats.RateLimitDeferrals,
+			RateLimitWaits:       scanStats.RateLimitWaits,
+			SourcePortWaits:      scanStats.SourcePortWaits,
+			RateLimitWaitTimeMs:  scanStats.RateLimitWaitNanos / uint64(time.Millisecond),
+			SourcePortWaitTimeMs: scanStats.SourcePortWaitNanos / uint64(time.Millisecond),
+			RxDropRatePercent:    rxDropRate,
 		}
 	}
 
@@ -818,27 +826,27 @@ func estimateTargetCount(config *models.Config) int {
 
 	// Count targets from global networks and sweep modes
 	for _, network := range config.Networks {
-		ips, err := scan.ExpandCIDR(network)
+		hostCount, err := countCIDRHosts(network)
 		if err != nil {
 			continue
 		}
 
 		if containsMode(config.SweepModes, models.ModeICMP) {
-			total += len(ips)
+			total = saturatingAdd(total, hostCount)
 		}
 
 		if containsMode(config.SweepModes, models.ModeTCP) {
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 
 		if containsMode(config.SweepModes, models.ModeTCPConnect) {
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 	}
 
 	// Count targets from device-specific configurations
 	for _, deviceTarget := range config.DeviceTargets {
-		ips, err := scan.ExpandCIDR(deviceTarget.Network)
+		hostCount, err := countCIDRHosts(deviceTarget.Network)
 		if err != nil {
 			continue
 		}
@@ -850,21 +858,80 @@ func estimateTargetCount(config *models.Config) int {
 		}
 
 		if containsMode(sweepModes, models.ModeICMP) {
-			total += len(ips)
+			total = saturatingAdd(total, hostCount)
 		}
 
 		if containsMode(sweepModes, models.ModeTCP) {
 			// DeviceTarget doesn't have its own ports, use global ports
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 
 		if containsMode(sweepModes, models.ModeTCPConnect) {
 			// DeviceTarget doesn't have its own ports, use global ports
-			total += len(ips) * len(config.Ports)
+			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
 		}
 	}
 
 	return total
+}
+
+func countCIDRHosts(cidr string) (int, error) {
+	ip, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	ones, bits := ipNet.Mask.Size()
+	if ones < 0 || bits <= 0 || ones > bits {
+		return 0, nil
+	}
+
+	hostBits := bits - ones
+	count := pow2Saturating(hostBits)
+
+	// Keep parity with scan.ExpandCIDR: for IPv4 CIDRs other than /32, network
+	// and broadcast addresses are skipped. This means /31 currently counts as 0.
+	if ip.To4() != nil && ones != 32 {
+		if count <= 2 {
+			return 0, nil
+		}
+
+		count -= 2
+	}
+
+	return count, nil
+}
+
+func pow2Saturating(exp int) int {
+	if exp <= 0 {
+		return 1
+	}
+
+	if exp >= intSizeBits-1 {
+		return maxInt
+	}
+
+	return 1 << exp
+}
+
+func saturatingAdd(a, b int) int {
+	if b > maxInt-a {
+		return maxInt
+	}
+
+	return a + b
+}
+
+func saturatingMul(a, b int) int {
+	if a == 0 || b == 0 {
+		return 0
+	}
+
+	if a > maxInt/b {
+		return maxInt
+	}
+
+	return a * b
 }
 
 // StoreOptionsForConfig returns memory store options tuned to the sweep config.
@@ -891,6 +958,10 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	scanner scan.Scanner, targets []models.Target, scanType string) error {
 	defer wg.Done()
 
+	return s.scanAndProcessBatch(ctx, scanner, targets, scanType)
+}
+
+func (s *NetworkSweeper) scanAndProcessBatch(ctx context.Context, scanner scan.Scanner, targets []models.Target, scanType string) error {
 	s.logger.Debug().Str("scanType", scanType).Msg("Running scan")
 
 	results, err := scanner.Scan(ctx, targets)
@@ -1015,6 +1086,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		_ = s.store.PruneResults(context.Background(), 0)
 	}
 
+	targetEstimate := estimateTargetCount(s.config)
+	if targetEstimate > defaultTargetBatch {
+		return s.runBatchedSweep(ctx, targetEstimate)
+	}
+
 	targets, err := s.generateTargets()
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
@@ -1105,6 +1181,241 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	s.logger.Info().Msg("Sweep completed successfully")
 
 	return nil
+}
+
+func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int) error {
+	s.mu.RLock()
+	icmpScanner := s.icmpScanner
+	tcpScanner := s.tcpScanner
+	tcpConnectScanner := s.tcpConnectScanner
+	s.mu.RUnlock()
+
+	s.resultsMu.Lock()
+	s.deviceResults = make(map[string]*DeviceResultAggregator)
+	s.resultsMu.Unlock()
+
+	runner := &sweepBatchRunner{
+		sweeper:           s,
+		ctx:               ctx,
+		icmpScanner:       icmpScanner,
+		tcpScanner:        tcpScanner,
+		tcpConnectScanner: tcpConnectScanner,
+		icmpTargets:       make([]models.Target, 0, defaultTargetBatch),
+		tcpTargets:        make([]models.Target, 0, defaultTargetBatch),
+		tcpConnectTargets: make([]models.Target, 0, defaultTargetBatch),
+	}
+
+	if tcpStream, ok, err := s.startStreamingScan(ctx, tcpScanner, "tcp", targetEstimate); err != nil {
+		return err
+	} else if ok {
+		runner.tcpStream = tcpStream
+	}
+
+	s.logger.Info().
+		Int("estimatedTargets", targetEstimate).
+		Int("batchSize", defaultTargetBatch).
+		Bool("tcpStreaming", runner.tcpStream != nil).
+		Bool("icmpScannerAvailable", icmpScanner != nil).
+		Bool("tcpScannerAvailable", tcpScanner != nil).
+		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Msg("Starting batched sweep")
+
+	if err := s.generateTargetsBatched(runner.addTarget); err != nil {
+		runner.closeStreams()
+		return fmt.Errorf("failed to generate batched targets: %w", err)
+	}
+
+	if err := runner.flushAll(); err != nil {
+		return err
+	}
+
+	s.finalizeDeviceAggregators(ctx)
+
+	s.logger.Info().
+		Int("estimatedTargets", targetEstimate).
+		Int("icmpTargets", runner.icmpCount).
+		Int("tcpTargets", runner.tcpCount).
+		Int("tcpConnectTargets", runner.tcpConnectCount).
+		Msg("Batched sweep completed successfully")
+
+	return nil
+}
+
+type sweepTargetStream struct {
+	ctx         context.Context
+	targets     chan models.Target
+	scanErrs    <-chan error
+	processDone <-chan error
+	closeOnce   sync.Once
+}
+
+func (h *sweepTargetStream) add(target models.Target) error {
+	select {
+	case h.targets <- target:
+		return nil
+	case <-h.ctx.Done():
+		return h.ctx.Err()
+	}
+}
+
+func (h *sweepTargetStream) closeAndWait() error {
+	h.closeOnce.Do(func() {
+		close(h.targets)
+	})
+
+	var firstErr error
+
+	if err := <-h.processDone; err != nil {
+		firstErr = err
+	}
+
+	for err := range h.scanErrs {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+func (h *sweepTargetStream) closeOnly() {
+	h.closeOnce.Do(func() {
+		close(h.targets)
+	})
+}
+
+func (s *NetworkSweeper) startStreamingScan(
+	ctx context.Context,
+	scanner scan.Scanner,
+	scanType string,
+	targetEstimate int,
+) (*sweepTargetStream, bool, error) {
+	streamingScanner, ok := scanner.(scan.StreamingScanner)
+	if !ok {
+		return nil, false, nil
+	}
+
+	targetCh := make(chan models.Target, defaultTargetBatch)
+	results, scanErrs, err := streamingScanner.ScanStream(ctx, targetCh, scan.StreamOptions{
+		TargetEstimate: targetEstimate,
+		BatchSize:      defaultTargetBatch,
+	})
+	if err != nil {
+		close(targetCh)
+
+		return nil, false, err
+	}
+
+	processDone := make(chan error, 1)
+	go func() {
+		processDone <- s.processResultsStream(ctx, results, scanType)
+	}()
+
+	return &sweepTargetStream{
+		ctx:         ctx,
+		targets:     targetCh,
+		scanErrs:    scanErrs,
+		processDone: processDone,
+	}, true, nil
+}
+
+type sweepBatchRunner struct {
+	sweeper           *NetworkSweeper
+	ctx               context.Context
+	icmpScanner       scan.Scanner
+	tcpScanner        scan.Scanner
+	tcpConnectScanner scan.Scanner
+	tcpStream         *sweepTargetStream
+	icmpTargets       []models.Target
+	tcpTargets        []models.Target
+	tcpConnectTargets []models.Target
+	icmpCount         int
+	tcpCount          int
+	tcpConnectCount   int
+}
+
+func (r *sweepBatchRunner) addTarget(target models.Target) error {
+	switch target.Mode {
+	case models.ModeICMP:
+		r.icmpTargets = append(r.icmpTargets, target)
+		r.icmpCount++
+		if len(r.icmpTargets) >= defaultTargetBatch {
+			if err := r.flushMode("icmp", r.icmpScanner, &r.icmpTargets); err != nil {
+				return err
+			}
+		}
+	case models.ModeTCP:
+		if r.tcpStream != nil {
+			r.tcpCount++
+
+			return r.tcpStream.add(target)
+		}
+
+		r.tcpTargets = append(r.tcpTargets, target)
+		r.tcpCount++
+		if len(r.tcpTargets) >= defaultTargetBatch {
+			if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+				return err
+			}
+		}
+	case models.ModeTCPConnect:
+		r.tcpConnectTargets = append(r.tcpConnectTargets, target)
+		r.tcpConnectCount++
+		if len(r.tcpConnectTargets) >= defaultTargetBatch {
+			if err := r.flushMode("tcp_connect", r.tcpConnectScanner, &r.tcpConnectTargets); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (r *sweepBatchRunner) flushAll() error {
+	if err := r.flushMode("icmp", r.icmpScanner, &r.icmpTargets); err != nil {
+		return err
+	}
+
+	if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+		return err
+	}
+
+	if err := r.flushMode("tcp_connect", r.tcpConnectScanner, &r.tcpConnectTargets); err != nil {
+		return err
+	}
+
+	if r.tcpStream != nil {
+		return r.tcpStream.closeAndWait()
+	}
+
+	return nil
+}
+
+func (r *sweepBatchRunner) closeStreams() {
+	if r.tcpStream != nil {
+		r.tcpStream.closeOnly()
+	}
+}
+
+func (r *sweepBatchRunner) flushMode(scanType string, scanner scan.Scanner, targets *[]models.Target) error {
+	if len(*targets) == 0 {
+		return nil
+	}
+
+	if scanner == nil {
+		r.sweeper.logger.Warn().
+			Str("scanType", scanType).
+			Int("targets", len(*targets)).
+			Msg("Targets found but scanner is not available, skipping scan batch")
+		*targets = (*targets)[:0]
+
+		return nil
+	}
+
+	batch := *targets
+	*targets = (*targets)[:0]
+
+	return r.sweeper.scanAndProcessBatch(r.ctx, scanner, batch, scanType)
 }
 
 // processResult processes a single scan result.
@@ -1337,21 +1648,168 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 	return targets, hostCount
 }
 
+func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) error) error {
+	totalHostCount := 0
+
+	for _, network := range s.config.Networks {
+		hostCount, err := countCIDRHosts(network)
+		if err != nil {
+			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+
+		metadata := map[string]interface{}{
+			"network":     network,
+			"total_hosts": hostCount,
+			"source":      "legacy_networks",
+		}
+
+		visited, err := forEachCIDRHost(network, func(ip string) error {
+			return s.emitTargetsForIP(ip, s.config.SweepModes, metadata, consume)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to generate targets for CIDR %s: %w", network, err)
+		}
+
+		totalHostCount += visited
+	}
+
+	for _, deviceTarget := range s.config.DeviceTargets {
+		hostCount, err := countCIDRHosts(deviceTarget.Network)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("network", deviceTarget.Network).
+				Str("query_label", deviceTarget.QueryLabel).
+				Msg("Failed to parse device target CIDR, skipping")
+
+			continue
+		}
+
+		metadata := map[string]interface{}{
+			"network":     deviceTarget.Network,
+			"total_hosts": hostCount,
+			"source":      deviceTarget.Source,
+			"query_label": deviceTarget.QueryLabel,
+		}
+
+		for k, v := range deviceTarget.Metadata {
+			metadata[k] = v
+		}
+
+		sweepModes := deviceTarget.SweepModes
+		if len(sweepModes) == 0 {
+			s.logger.Debug().
+				Str("device", deviceTarget.Network).
+				Msg("Device target has no sweep modes, using global config")
+
+			sweepModes = s.config.SweepModes
+		}
+
+		visited, err := forEachCIDRHost(deviceTarget.Network, func(ip string) error {
+			return s.emitTargetsForIP(ip, sweepModes, metadata, consume)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to generate targets for device CIDR %s: %w", deviceTarget.Network, err)
+		}
+
+		totalHostCount += visited
+	}
+
+	s.logger.Info().
+		Int("networkCount", len(s.config.Networks)).
+		Int("deviceTargetCount", len(s.config.DeviceTargets)).
+		Int("totalHosts", totalHostCount).
+		Ints("configuredPorts", s.config.Ports).
+		Strs("globalSweepModes", func() []string {
+			modes := make([]string, 0, len(s.config.SweepModes))
+			for _, m := range s.config.SweepModes {
+				modes = append(modes, string(m))
+			}
+			return modes
+		}()).
+		Msg("Generated batched targets from networks and device targets")
+
+	return nil
+}
+
+func forEachCIDRHost(cidr string, fn func(string) error) (int, error) {
+	baseIP, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	ones, _ := ipNet.Mask.Size()
+	currentIP := append(net.IP(nil), baseIP.Mask(ipNet.Mask)...)
+	count := 0
+
+	for ; ipNet.Contains(currentIP); incCIDRIP(currentIP) {
+		if currentIP.To4() != nil && ones != 32 {
+			if currentIP.Equal(ipNet.IP) || isCIDRBroadcast(currentIP, ipNet) {
+				continue
+			}
+		}
+
+		if err := fn(currentIP.String()); err != nil {
+			return count, err
+		}
+
+		count++
+	}
+
+	return count, nil
+}
+
+func incCIDRIP(ip net.IP) {
+	for i := len(ip) - 1; i >= 0; i-- {
+		ip[i]++
+		if ip[i] != 0 {
+			break
+		}
+	}
+}
+
+func isCIDRBroadcast(ip net.IP, ipNet *net.IPNet) bool {
+	broadcast := make(net.IP, len(ip))
+	for i := range ip {
+		broadcast[i] = ipNet.IP[i] | ^ipNet.Mask[i]
+	}
+
+	return ip.Equal(broadcast)
+}
+
 // createTargetsForIP creates targets for a specific IP using the given sweep modes
 func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.SweepMode, metadata map[string]interface{}) []models.Target {
 	var targets []models.Target
 
+	_ = s.emitTargetsForIP(ip, sweepModes, metadata, func(target models.Target) error {
+		targets = append(targets, target)
+		return nil
+	})
+
+	return targets
+}
+
+func (s *NetworkSweeper) emitTargetsForIP(
+	ip string,
+	sweepModes []models.SweepMode,
+	metadata map[string]interface{},
+	emit func(models.Target) error,
+) error {
 	if containsMode(sweepModes, models.ModeICMP) {
 		target := scan.TargetFromIP(ip, models.ModeICMP)
 		target.Metadata = metadata
-		targets = append(targets, target)
+		if err := emit(target); err != nil {
+			return err
+		}
 	}
 
 	if containsMode(sweepModes, models.ModeTCP) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCP, port)
 			target.Metadata = metadata
-			targets = append(targets, target)
+			if err := emit(target); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1359,11 +1817,13 @@ func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.Sweep
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
 			target.Metadata = metadata
-			targets = append(targets, target)
+			if err := emit(target); err != nil {
+				return err
+			}
 		}
 	}
 
-	return targets
+	return nil
 }
 
 // generateTargets creates scan targets from the configuration.

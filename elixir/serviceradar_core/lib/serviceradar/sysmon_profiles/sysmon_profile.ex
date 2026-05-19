@@ -16,6 +16,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
   - `collect_disk`: Enable disk metrics collection
   - `collect_network`: Enable network interface metrics collection
   - `collect_processes`: Enable process metrics collection (can be resource-intensive)
+  - `process_limit`: Maximum process metrics per sample; 0 collects every process
   - `disk_paths`: Specific paths to monitor (empty means all mounted filesystems)
   - `disk_exclude_paths`: Paths to omit from disk metrics collection
   - `thresholds`: Alert thresholds as key-value pairs
@@ -85,6 +86,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :collect_disk,
         :collect_network,
         :collect_processes,
+        :process_limit,
         :disk_paths,
         :disk_exclude_paths,
         :thresholds,
@@ -106,6 +108,7 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
         :collect_disk,
         :collect_network,
         :collect_processes,
+        :process_limit,
         :disk_paths,
         :disk_exclude_paths,
         :thresholds,
@@ -206,6 +209,14 @@ defmodule ServiceRadar.SysmonProfiles.SysmonProfile do
       public? true
       default false
       description "Enable process metrics collection (can be resource-intensive)"
+    end
+
+    attribute :process_limit, :integer do
+      allow_nil? false
+      public? true
+      default 0
+      constraints min: 0
+      description "Maximum process metrics retained per sample. 0 means unlimited."
     end
 
     attribute :disk_paths, {:array, :string} do

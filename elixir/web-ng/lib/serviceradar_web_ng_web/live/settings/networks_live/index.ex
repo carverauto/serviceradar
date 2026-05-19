@@ -1853,7 +1853,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             Scanner Performance (Recent Scans)
           </span>
         </div>
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
           <div>
             <div class="text-base-content/60 text-xs">Packets Sent</div>
             <div class="font-semibold font-mono">
@@ -1881,9 +1881,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             </div>
           </div>
           <div>
-            <div class="text-base-content/60 text-xs">Rate Deferrals</div>
-            <div class={"font-semibold font-mono #{if @aggregate_metrics.rate_limit_deferrals > 0, do: "text-info", else: ""}"}>
-              {format_number(@aggregate_metrics.rate_limit_deferrals)}
+            <div class="text-base-content/60 text-xs">Throttle Waits</div>
+            <div class={"font-semibold font-mono #{if @aggregate_metrics.throttle_waits > 0, do: "text-info", else: ""}"}>
+              {format_number(@aggregate_metrics.throttle_waits)}
+            </div>
+            <div class="text-[11px] text-base-content/50">
+              rate {format_number(@aggregate_metrics.rate_limit_waits)} / ports {format_number(
+                @aggregate_metrics.source_port_waits
+              )}
+            </div>
+          </div>
+          <div>
+            <div class="text-base-content/60 text-xs">Throttle Time</div>
+            <div class={"font-semibold font-mono #{if @aggregate_metrics.throttle_wait_time_ms > 0, do: "text-info", else: ""}"}>
+              {format_duration(@aggregate_metrics.throttle_wait_time_ms)}
             </div>
           </div>
         </div>
@@ -1942,9 +1953,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         end)
 
       rate_limit_deferrals =
-        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
-          acc + (get_in(e.scanner_metrics, ["rate_limit_deferrals"]) || 0)
-        end)
+        sum_scanner_metric(executions_with_metrics, "rate_limit_deferrals")
+
+      rate_limit_waits = sum_scanner_metric(executions_with_metrics, "rate_limit_waits")
+      source_port_waits = sum_scanner_metric(executions_with_metrics, "source_port_waits")
+      throttle_waits = rate_limit_waits + source_port_waits
+
+      throttle_waits =
+        if throttle_waits > 0 do
+          throttle_waits
+        else
+          rate_limit_deferrals
+        end
+
+      rate_limit_wait_time_ms = sum_scanner_metric(executions_with_metrics, "rate_limit_wait_time_ms")
+      source_port_wait_time_ms = sum_scanner_metric(executions_with_metrics, "source_port_wait_time_ms")
+      throttle_wait_time_ms = rate_limit_wait_time_ms + source_port_wait_time_ms
 
       # Calculate average drop rate
       drop_rates =
@@ -1964,9 +1988,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         retries_attempted: retries_attempted,
         retries_successful: retries_successful,
         rate_limit_deferrals: rate_limit_deferrals,
+        rate_limit_waits: rate_limit_waits,
+        source_port_waits: source_port_waits,
+        throttle_waits: throttle_waits,
+        rate_limit_wait_time_ms: rate_limit_wait_time_ms,
+        source_port_wait_time_ms: source_port_wait_time_ms,
+        throttle_wait_time_ms: throttle_wait_time_ms,
         avg_drop_rate: avg_drop_rate
       }
     end
+  end
+
+  defp sum_scanner_metric(executions, key) do
+    Enum.reduce(executions, 0, fn execution, acc ->
+      acc + (get_in(execution.scanner_metrics, [key]) || 0)
+    end)
+  end
+
+  defp throttle_waits(rate_limit_waits, source_port_waits, legacy_deferrals) do
+    waits = rate_limit_waits + source_port_waits
+
+    if waits > 0, do: waits, else: legacy_deferrals
   end
 
   # Computes progress data for running scan card (extracted to reduce complexity)
@@ -2148,6 +2190,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp scanner_metrics_grid(assigns) do
     metrics = assigns.metrics || %{}
+    rate_limit_waits = Map.get(metrics, "rate_limit_waits") || 0
+    source_port_waits = Map.get(metrics, "source_port_waits") || 0
+    rate_limit_wait_time_ms = Map.get(metrics, "rate_limit_wait_time_ms") || 0
+    source_port_wait_time_ms = Map.get(metrics, "source_port_wait_time_ms") || 0
+    legacy_deferrals = Map.get(metrics, "rate_limit_deferrals") || 0
 
     assigns =
       assigns
@@ -2156,9 +2203,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       |> assign(:packets_dropped, Map.get(metrics, "packets_dropped", 0))
       |> assign(:retries_attempted, Map.get(metrics, "retries_attempted", 0))
       |> assign(:retries_successful, Map.get(metrics, "retries_successful", 0))
-      |> assign(:rate_limit_deferrals, Map.get(metrics, "rate_limit_deferrals", 0))
+      |> assign(:rate_limit_deferrals, legacy_deferrals)
+      |> assign(:rate_limit_waits, rate_limit_waits)
+      |> assign(:source_port_waits, source_port_waits)
+      |> assign(:rate_limit_wait_time_ms, rate_limit_wait_time_ms)
+      |> assign(:source_port_wait_time_ms, source_port_wait_time_ms)
       |> assign(:rx_drop_rate_percent, Map.get(metrics, "rx_drop_rate_percent", 0.0))
       |> assign(:port_exhaustion_count, Map.get(metrics, "port_exhaustion_count", 0))
+      |> assign(:throttle_waits, throttle_waits(rate_limit_waits, source_port_waits, legacy_deferrals))
+      |> assign(:throttle_wait_time_ms, rate_limit_wait_time_ms + source_port_wait_time_ms)
 
     ~H"""
     <div class="grid grid-cols-2 gap-2 text-xs">
@@ -2189,9 +2242,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
       </div>
       <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Rate Limit Deferrals</div>
-        <div class={"font-semibold font-mono #{if @rate_limit_deferrals > 0, do: "text-info", else: ""}"}>
-          {format_number(@rate_limit_deferrals)}
+        <div class="text-base-content/60">Throttle Waits</div>
+        <div class={"font-semibold font-mono #{if @throttle_waits > 0, do: "text-info", else: ""}"}>
+          {format_number(@throttle_waits)}
+        </div>
+        <div class="text-[11px] text-base-content/50">
+          rate {format_number(@rate_limit_waits)} / ports {format_number(@source_port_waits)}
+        </div>
+      </div>
+      <div :if={@throttle_wait_time_ms > 0} class="bg-base-200/50 rounded p-2">
+        <div class="text-base-content/60">Throttle Time</div>
+        <div class="font-semibold font-mono text-info">
+          {format_duration(@throttle_wait_time_ms)}
         </div>
       </div>
       <div :if={@port_exhaustion_count > 0} class="col-span-2 bg-error/10 rounded p-2">

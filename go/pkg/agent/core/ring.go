@@ -81,6 +81,8 @@ func (r *RingBuffer[T]) Drain() []T {
 	for i := 0; i < r.count; i++ {
 		idx := (r.tail + i) % r.size
 		data[i] = r.values[idx]
+		var zero T
+		r.values[idx] = zero
 	}
 
 	r.tail = r.head

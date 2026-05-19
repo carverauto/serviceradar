@@ -19,6 +19,7 @@ package sweeper
 import (
 	"testing"
 
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
@@ -130,6 +131,23 @@ func TestEstimateTargetCount(t *testing.T) {
 			},
 			expected: 0,
 		},
+		{
+			name: "large CIDR counted without expansion",
+			config: &models.Config{
+				Networks:   []string{"10.0.0.0/8"},
+				SweepModes: []models.SweepMode{models.ModeTCP},
+				Ports:      []int{22, 80, 443},
+			},
+			expected: 16_777_214 * 3,
+		},
+		{
+			name: "IPv4 /31 follows current expansion semantics",
+			config: &models.Config{
+				Networks:   []string{"192.168.1.0/31"},
+				SweepModes: []models.SweepMode{models.ModeICMP},
+			},
+			expected: 0,
+		},
 	}
 
 	for _, tt := range tests {
@@ -164,6 +182,38 @@ func TestEstimateTargetCountInvalidCIDR(t *testing.T) {
 	expected := 254 + 1
 	if result != expected {
 		t.Errorf("estimateTargetCount() with invalid CIDRs = %d, expected %d", result, expected)
+	}
+}
+
+func TestGenerateTargetsBatchedStreamsOversizedSweep(t *testing.T) {
+	config := &models.Config{
+		Networks:   []string{"10.0.0.0/16"},
+		SweepModes: []models.SweepMode{models.ModeTCP},
+		Ports:      []int{22, 80, 443, 8080, 8888, 8443, 4000, 8000},
+	}
+	sweeper := &NetworkSweeper{config: config, logger: logger.NewTestLogger()}
+
+	emitted := 0
+	targets := 0
+
+	err := sweeper.generateTargetsBatched(func(target models.Target) error {
+		emitted++
+		targets++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("generateTargetsBatched() returned error: %v", err)
+	}
+
+	expectedHosts := 65_534
+	expectedTargets := expectedHosts * len(config.Ports)
+
+	if targets != expectedTargets {
+		t.Fatalf("generateTargetsBatched() targets = %d, expected %d", targets, expectedTargets)
+	}
+
+	if emitted != expectedTargets {
+		t.Fatalf("generateTargetsBatched() emitted = %d, expected %d", emitted, expectedTargets)
 	}
 }
 

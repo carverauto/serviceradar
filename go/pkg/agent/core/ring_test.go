@@ -72,6 +72,20 @@ func TestRingBuffer_PartialDrainAndRefill(t *testing.T) {
 	assert.Equal(t, []float64{3.3, 4.4}, values)
 }
 
+func TestRingBuffer_DrainClearsRetainedSlots(t *testing.T) {
+	rb := NewRingBuffer[*int](3)
+	first := 1
+	second := 2
+
+	rb.Write(&first)
+	rb.Write(&second)
+
+	values := rb.Drain()
+	assert.Len(t, values, 2)
+	assert.Nil(t, rb.values[0])
+	assert.Nil(t, rb.values[1])
+}
+
 func TestRingBuffer_EmptyDrain(t *testing.T) {
 	rb := NewRingBuffer[float64](5)
 	values := rb.Drain()

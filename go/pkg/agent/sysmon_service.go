@@ -209,6 +209,7 @@ func (s *SysmonService) Start(ctx context.Context) error {
 		Bool("disk", parsed.CollectDisk).
 		Bool("network", parsed.CollectNetwork).
 		Bool("processes", parsed.CollectProcesses).
+		Int("process_limit", parsed.ProcessLimit).
 		Msg("Sysmon service started")
 
 	return nil

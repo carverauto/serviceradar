@@ -167,6 +167,7 @@ defmodule ServiceRadar.Repo.Migrations.RebuildSchema do
       add :collect_disk, :boolean, null: false, default: true
       add :collect_network, :boolean, null: false, default: false
       add :collect_processes, :boolean, null: false, default: false
+      add :process_limit, :integer, null: false, default: 0
       add :disk_paths, {:array, :text}, null: false, default: []
       add :disk_exclude_paths, {:array, :text}, null: false, default: []
       add :thresholds, :map, null: false, default: %{}
