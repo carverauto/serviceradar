@@ -1,5 +1,11 @@
 {{- $np := default (dict) .Values.networkPolicy -}}
 {{- if $np.enabled -}}
+{{- $ingress := default (dict) $np.ingress -}}
+{{- $allowIngressSameNs := default true $ingress.allowSameNamespace -}}
+{{- $ingressAllowedNamespaces := default (list) $ingress.allowedNamespaces -}}
+{{- $ingressAllowedCIDRs := default (list) $ingress.allowedCIDRs -}}
+{{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
+{{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
 {{- $egress := default (dict) $np.egress -}}
 {{- $allowDNS := default false $egress.allowDNS -}}
 {{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
@@ -48,7 +54,30 @@ spec:
   podSelector:
 {{- toYaml $podSelector | nindent 4 }}
   policyTypes:
+    - Ingress
     - Egress
+  ingress:
+{{- if or $allowIngressSameNs $hasIngressNamespaces $hasIngressCIDRs }}
+{{- if $allowIngressSameNs }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+{{- end }}
+{{- range $namespace := $ingressAllowedNamespaces }}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $namespace | quote }}
+{{- end }}
+{{- range $cidr := $ingressAllowedCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+{{- end }}
+{{- else }}
+    []
+{{- end }}
   egress:
 {{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasCIDRs $hasKubeAPICIDRs }}
 {{- if $allowDNS }}

@@ -1017,10 +1017,11 @@ operator DELETE /recording ─► mark `:deleted` + audit; later playback/export
 
 Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no privesc, SPIRE-issued mTLS, secrets-as-files) but several **pod-level** and **NetworkPolicy** gaps. The agent DaemonSet keeps `privileged: true` despite already having `CAP_BPF`+`CAP_PERFMON`.
 
-- [ ] 6.P.1 [H] NetworkPolicy template emits **egress only** — ingress is wide-open across the namespace
+- [x] 6.P.1 [H] NetworkPolicy template emits **egress only** — ingress is wide-open across the namespace
       Where: `helm/serviceradar/templates/network-policy.yaml:40-92` (`policyTypes: [Egress]` only) (working tree)
       Why: For a *bastion*, any pod in the namespace can speak to core / web-ng / agent-gateway / datasvc — that includes compromised sidecars or co-tenant workloads. Combined with 6.P.11 this is in-namespace cluster takeover.
       Fix: Default-deny ingress + explicit allow ingress edges (`agent → agent-gateway`, `web-ng → core`, `ingress-controller → web-ng`, `core/web-ng/gateway → datasvc`); emit a second NetworkPolicy or extend the template.
+      Resolution: The Kubernetes NetworkPolicy now renders both `Ingress` and `Egress`. Ingress defaults to release-namespace-only, with explicit namespace and CIDR allowlists for shared ingress controllers / load balancers; demo allows the shared `serviceradar-system` Gateway namespace.
 
 - [x] 6.P.2 [H] Agent DaemonSet runs `privileged: true` despite already requesting `CAP_BPF`+`CAP_PERFMON`
       Where: `helm/serviceradar/templates/agent.yaml:87` (`privileged: true`) + caps at `:95` (working tree)

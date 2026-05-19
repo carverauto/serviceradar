@@ -161,6 +161,12 @@ gatewayApi:
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
+  ingress:
+    allowSameNamespace: true
+    allowedNamespaces:
+      # The demo HTTPRoute attaches to the shared Gateway in this namespace;
+      # allow its Envoy data-plane pods to reach ServiceRadar backends.
+      - serviceradar-system
   egress:
     allowDNS: true
     allowKubeAPIServer: true

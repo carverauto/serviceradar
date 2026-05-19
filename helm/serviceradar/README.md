@@ -77,6 +77,9 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `ingress.tls.secretName` | TLS secret name | `""` |
 | `networkPolicy.enabled` | Render Kubernetes/Calico network policies | `false` |
 | `networkPolicy.podSelectorMatchAll` | Apply Kubernetes NetworkPolicy to all pods in the namespace | `false` |
+| `networkPolicy.ingress.allowSameNamespace` | Allow ingress from pods in the release namespace when NetworkPolicy is enabled | `true` |
+| `networkPolicy.ingress.allowedNamespaces` | Additional namespace names allowed to initiate ingress | `[]` |
+| `networkPolicy.ingress.allowedCIDRs` | Additional ingress CIDR allow list | `[]` |
 | `networkPolicy.egress.allowDNS` | Allow DNS to kube-system (53/TCP+UDP) | `true` |
 | `networkPolicy.egress.allowKubeAPIServer` | Allow egress to the kube-apiserver endpoints (via Helm lookup) | `true` |
 | `networkPolicy.egress.allowDefaultNamespace` | Allow egress to the `default` namespace (Kubernetes API) | `true` |

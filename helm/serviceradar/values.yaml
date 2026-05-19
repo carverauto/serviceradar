@@ -1209,6 +1209,13 @@ networkPolicy:
   podSelector:
     matchLabels:
       app.kubernetes.io/part-of: serviceradar
+  ingress:
+    # When network policies are enabled, restrict inbound traffic to the
+    # release namespace by default. Add explicit namespaces or CIDRs for
+    # external ingress controllers / load balancers that run elsewhere.
+    allowSameNamespace: true
+    allowedNamespaces: []
+    allowedCIDRs: []
   egress:
     allowDNS: true
     allowKubeAPIServer: true
