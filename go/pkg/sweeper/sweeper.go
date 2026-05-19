@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -39,6 +40,18 @@ const (
 	defaultTargetBatch   = 100000
 	intSizeBits          = 32 << (^uint(0) >> 63)
 	maxInt               = int(^uint(0) >> 1)
+)
+
+const (
+	metadataAddressFamily        = "address_family"
+	metadataIPv6RawSYNFallback   = "ipv6_raw_syn_fallback"
+	addressFamilyIPv4            = "ipv4"
+	addressFamilyIPv6            = "ipv6"
+	addressFamilyDualStack       = "dual_stack"
+	addressFamilyUnknown         = "unknown"
+	scannerProtocolTCP           = "tcp"
+	scannerPathRawSYN            = "raw_syn"
+	scannerPathTCPConnectIPv6SYN = "tcp_connect_ipv6_raw_syn_fallback"
 )
 
 // DeviceRegistryService interface for device registry operations
@@ -84,7 +97,8 @@ type DeviceResultAggregator struct {
 }
 
 var (
-	errNilConfig = fmt.Errorf("config cannot be nil")
+	errNilConfig        = errors.New("config cannot be nil")
+	errIPv6CIDRTooLarge = errors.New("IPv6 CIDR expands above target batch limit")
 )
 
 const (
@@ -611,7 +625,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	// Check if the TCP scanner supports stats (SYN scanner does)
 	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
 		scanStats := statsProvider.GetStats()
-		protocol, addressFamily, scannerPath := scannerStatsLabels(s.tcpScanner)
+		addressFamily := scannerStatsAddressFamily(s.tcpScanner)
 
 		// Calculate drop rate
 		var rxDropRate float64
@@ -620,9 +634,9 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		}
 
 		return &models.ScannerStats{
-			Protocol:             protocol,
+			Protocol:             scannerProtocolTCP,
 			AddressFamily:        addressFamily,
-			ScannerPath:          scannerPath,
+			ScannerPath:          scannerPathRawSYN,
 			PacketsSent:          scanStats.PacketsSent,
 			PacketsRecv:          scanStats.PacketsRecv,
 			PacketsDropped:       scanStats.PacketsDropped,
@@ -1179,7 +1193,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, "tcp"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, scannerProtocolTCP); err != nil {
 				errChan <- err
 			}
 		}()
@@ -1240,7 +1254,7 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		tcpConnectTargets: make([]models.Target, 0, defaultTargetBatch),
 	}
 
-	if tcpStream, ok, err := s.startStreamingScan(ctx, tcpScanner, "tcp", targetEstimate); err != nil {
+	if tcpStream, ok, err := s.startStreamingScan(ctx, tcpScanner, scannerProtocolTCP, targetEstimate); err != nil {
 		return err
 	} else if ok {
 		runner.tcpStream = tcpStream
@@ -1403,7 +1417,7 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 		r.tcpTargets = append(r.tcpTargets, target)
 		r.tcpCount++
 		if len(r.tcpTargets) >= defaultTargetBatch {
-			if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+			if err := r.flushMode(scannerProtocolTCP, r.tcpScanner, &r.tcpTargets); err != nil {
 				return err
 			}
 		}
@@ -1425,14 +1439,14 @@ func (r *sweepBatchRunner) recordRoute(target models.Target) {
 		return
 	}
 
-	switch target.Metadata["address_family"] {
-	case "ipv4":
+	switch target.Metadata[metadataAddressFamily] {
+	case addressFamilyIPv4:
 		r.ipv4Count++
-	case "ipv6":
+	case addressFamilyIPv6:
 		r.ipv6Count++
 	}
 
-	if fallback, ok := target.Metadata["ipv6_raw_syn_fallback"].(bool); ok && fallback {
+	if fallback, ok := target.Metadata[metadataIPv6RawSYNFallback].(bool); ok && fallback {
 		r.ipv6TCPConnectFallbackCount++
 	}
 }
@@ -1442,7 +1456,7 @@ func (r *sweepBatchRunner) flushAll() error {
 		return err
 	}
 
-	if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+	if err := r.flushMode(scannerProtocolTCP, r.tcpScanner, &r.tcpTargets); err != nil {
 		return err
 	}
 
@@ -1980,15 +1994,15 @@ func metadataForTarget(
 		metadata[key] = value
 	}
 
-	addressFamily := "ipv4"
+	addressFamily := addressFamilyIPv4
 	if isIPv6String(ip) {
-		addressFamily = "ipv6"
+		addressFamily = addressFamilyIPv6
 	}
 
 	requestedMode := effectiveMode
 	ipv6TCPFallback := false
 
-	if addressFamily == "ipv6" &&
+	if addressFamily == addressFamilyIPv6 &&
 		effectiveMode == models.ModeTCPConnect &&
 		containsMode(requestedModes, models.ModeTCP) &&
 		(!rawSYNIPv6Available || !containsMode(requestedModes, models.ModeTCPConnect)) {
@@ -1998,15 +2012,15 @@ func metadataForTarget(
 
 	scannerPath := string(effectiveMode)
 	if ipv6TCPFallback {
-		scannerPath = "tcp_connect_ipv6_raw_syn_fallback"
+		scannerPath = scannerPathTCPConnectIPv6SYN
 	}
 
-	metadata["address_family"] = addressFamily
+	metadata[metadataAddressFamily] = addressFamily
 	metadata["requested_sweep_modes"] = sweepModeStrings(requestedModes)
 	metadata["requested_sweep_mode"] = string(requestedMode)
 	metadata["effective_sweep_mode"] = string(effectiveMode)
 	metadata["scanner_path"] = scannerPath
-	metadata["ipv6_raw_syn_fallback"] = ipv6TCPFallback
+	metadata[metadataIPv6RawSYNFallback] = ipv6TCPFallback
 
 	return metadata
 }
@@ -2039,14 +2053,14 @@ func summarizeTargetRoutes(targets []models.Target) targetRouteSummary {
 			continue
 		}
 
-		switch target.Metadata["address_family"] {
-		case "ipv4":
+		switch target.Metadata[metadataAddressFamily] {
+		case addressFamilyIPv4:
 			summary.ipv4Targets++
-		case "ipv6":
+		case addressFamilyIPv6:
 			summary.ipv6Targets++
 		}
 
-		if fallback, ok := target.Metadata["ipv6_raw_syn_fallback"].(bool); ok && fallback {
+		if fallback, ok := target.Metadata[metadataIPv6RawSYNFallback].(bool); ok && fallback {
 			summary.ipv6TCPConnectFallbackTargets++
 		}
 	}
@@ -2062,26 +2076,21 @@ func scannerCapabilities(scanner scan.Scanner) scan.ScannerCapabilities {
 	return scan.ScannerCapabilities{}
 }
 
-func scannerStatsLabels(scanner scan.Scanner) (protocol, addressFamily, scannerPath string) {
+func scannerStatsAddressFamily(scanner scan.Scanner) string {
 	caps := scannerCapabilities(scanner)
 
 	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
-		protocol = "tcp"
-		scannerPath = "raw_syn"
-
 		switch {
 		case caps.RawSYNIPv4 && caps.RawSYNIPv6:
-			addressFamily = "dual_stack"
+			return addressFamilyDualStack
 		case caps.RawSYNIPv6:
-			addressFamily = "ipv6"
+			return addressFamilyIPv6
 		default:
-			addressFamily = "ipv4"
+			return addressFamilyIPv4
 		}
-
-		return protocol, addressFamily, scannerPath
 	}
 
-	return "tcp", "unknown", "raw_syn"
+	return addressFamilyUnknown
 }
 
 func (s *NetworkSweeper) rawSYNIPv6Available() bool {
@@ -2097,25 +2106,6 @@ func (s *NetworkSweeper) effectiveSweepModesForCIDR(cidr string, sweepModes []mo
 	modes := effectiveSweepModes(baseIP.To4() == nil, sweepModes, s.rawSYNIPv6Available())
 
 	return modes, len(modes) > 0, nil
-}
-
-func (s *NetworkSweeper) effectiveSweepModesForIP(ip string, sweepModes []models.SweepMode) []models.SweepMode {
-	return effectiveSweepModesForIPWithRawSYN(ip, sweepModes, s.rawSYNIPv6Available())
-}
-
-func effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {
-	baseIP, _, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return nil, false, err
-	}
-
-	modes := effectiveSweepModes(baseIP.To4() == nil, sweepModes, false)
-
-	return modes, len(modes) > 0, nil
-}
-
-func effectiveSweepModesForIP(ip string, sweepModes []models.SweepMode) []models.SweepMode {
-	return effectiveSweepModesForIPWithRawSYN(ip, sweepModes, false)
 }
 
 func effectiveSweepModesForIPWithRawSYN(ip string, sweepModes []models.SweepMode, rawSYNIPv6Available bool) []models.SweepMode {
@@ -2155,7 +2145,7 @@ func validateCIDRExpansion(cidr string, hostCount int) error {
 	}
 
 	if baseIP.To4() == nil && hostCount > defaultTargetBatch {
-		return fmt.Errorf("IPv6 CIDR %s expands to %d hosts, above limit %d", cidr, hostCount, defaultTargetBatch)
+		return fmt.Errorf("%w: %s expands to %d hosts, above limit %d", errIPv6CIDRTooLarge, cidr, hostCount, defaultTargetBatch)
 	}
 
 	return nil
@@ -2724,7 +2714,7 @@ func buildICMPDetails(result *models.Result, builder *strings.Builder, firstICMP
 
 // buildTCPDetails builds TCP scan details
 func buildTCPDetails(result *models.Result, builder *strings.Builder, firstTCP *bool) {
-	buildScanDetails(result, builder, "tcp", firstTCP)
+	buildScanDetails(result, builder, scannerProtocolTCP, firstTCP)
 }
 
 // setBuiltMetadata assigns built strings to device metadata

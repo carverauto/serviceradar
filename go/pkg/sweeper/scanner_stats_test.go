@@ -60,14 +60,14 @@ func TestGetScannerStatsLabelsRawSYNIPv4(t *testing.T) {
 	if stats == nil {
 		t.Fatal("expected scanner stats")
 	}
-	if stats.Protocol != "tcp" {
-		t.Fatalf("protocol = %q, want tcp", stats.Protocol)
+	if stats.Protocol != scannerProtocolTCP {
+		t.Fatalf("protocol = %q, want %s", stats.Protocol, scannerProtocolTCP)
 	}
-	if stats.AddressFamily != "ipv4" {
-		t.Fatalf("address family = %q, want ipv4", stats.AddressFamily)
+	if stats.AddressFamily != addressFamilyIPv4 {
+		t.Fatalf("address family = %q, want %s", stats.AddressFamily, addressFamilyIPv4)
 	}
-	if stats.ScannerPath != "raw_syn" {
-		t.Fatalf("scanner path = %q, want raw_syn", stats.ScannerPath)
+	if stats.ScannerPath != scannerPathRawSYN {
+		t.Fatalf("scanner path = %q, want %s", stats.ScannerPath, scannerPathRawSYN)
 	}
 	if stats.PacketsSent != 5 {
 		t.Fatalf("packets sent = %d, want 5", stats.PacketsSent)
@@ -77,14 +77,11 @@ func TestGetScannerStatsLabelsRawSYNIPv4(t *testing.T) {
 func TestScannerStatsLabelsRawSYNDualStack(t *testing.T) {
 	t.Parallel()
 
-	_, addressFamily, scannerPath := scannerStatsLabels(statsCapabilityScanner{
+	addressFamily := scannerStatsAddressFamily(statsCapabilityScanner{
 		caps: scan.ScannerCapabilities{RawSYNIPv4: true, RawSYNIPv6: true},
 	})
 
-	if addressFamily != "dual_stack" {
-		t.Fatalf("address family = %q, want dual_stack", addressFamily)
-	}
-	if scannerPath != "raw_syn" {
-		t.Fatalf("scanner path = %q, want raw_syn", scannerPath)
+	if addressFamily != addressFamilyDualStack {
+		t.Fatalf("address family = %q, want %s", addressFamily, addressFamilyDualStack)
 	}
 }

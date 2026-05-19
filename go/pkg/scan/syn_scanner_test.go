@@ -84,12 +84,12 @@ func TestParseIPv6(t *testing.T) {
 	assert.Equal(t, uint8(syscall.IPPROTO_TCP), ip.NextHeader)
 
 	_, _, err = parseIPv6(packet[:ipv6HeaderSize-1])
-	assert.ErrorIs(t, err, ErrShortIPv6Header)
+	require.ErrorIs(t, err, ErrShortIPv6Header)
 
 	notIPv6 := append([]byte(nil), packet...)
 	notIPv6[0] = 0x45
 	_, _, err = parseIPv6(notIPv6)
-	assert.ErrorIs(t, err, ErrNotIPv6)
+	require.ErrorIs(t, err, ErrNotIPv6)
 }
 
 func TestSYNScannerCapabilitiesReportRawIPv6Disabled(t *testing.T) {
@@ -175,9 +175,9 @@ func TestProcessEthernetFrameIPv6TCPReply(t *testing.T) {
 			case result := <-resultCh:
 				assert.Equal(t, tt.available, result.Available)
 				if tt.wantErr != nil {
-					assert.ErrorIs(t, result.Error, tt.wantErr)
+					require.ErrorIs(t, result.Error, tt.wantErr)
 				} else {
-					assert.NoError(t, result.Error)
+					require.NoError(t, result.Error)
 				}
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for IPv6 TCP reply result")
@@ -254,7 +254,7 @@ func TestProcessEthernetFrameICMPv6Errors(t *testing.T) {
 			select {
 			case result := <-resultCh:
 				assert.False(t, result.Available)
-				assert.ErrorIs(t, result.Error, tt.wantErr)
+				require.ErrorIs(t, result.Error, tt.wantErr)
 			case <-time.After(time.Second):
 				t.Fatal("timed out waiting for ICMPv6 error result")
 			}
@@ -363,7 +363,7 @@ func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 
 	stats := scanner.GetStats()
 	assert.Equal(t, uint64(2), stats.RetriesAttempted)
-	assert.Equal(t, 2, len(scanner.retryCh))
+	assert.Len(t, scanner.retryCh, 2)
 	assert.Equal(t, uint64(2), stats.RateLimitDeferrals)
 	assert.Equal(t, uint64(1), stats.RateLimitWaits)
 	assert.Equal(t, uint64(1), stats.SourcePortWaits)

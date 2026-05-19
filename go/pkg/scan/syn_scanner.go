@@ -702,6 +702,16 @@ type batchArrays struct {
 	hdrs   []Mmsghdr
 }
 
+type synBatchEntry struct {
+	dst4      [4]byte
+	dst6      [16]byte
+	ipv6      bool
+	srcPort   uint16
+	packet    []byte
+	pooled    bool
+	targetKey string
+}
+
 // IPv4
 type IPv4Hdr struct {
 	IHL      uint8
@@ -3027,257 +3037,14 @@ func (s *SYNScanner) handleLoopbackTarget(ctx context.Context, target models.Tar
 // sendSynBatch crafts and sends SYNs for a slice of targets using sendmmsg().
 // Only the *first attempt* should use this fast path; retries can go through sendSyn() or another batcher.
 func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) {
-	type entry struct {
-		tgt       models.Target
-		dst4      [4]byte
-		dst6      [16]byte
-		ipv6      bool
-		srcPort   uint16
-		packet    []byte
-		pooled    bool
-		targetKey string
-	}
-
-	// Build up entries we can actually batch (valid IPv4, non-loopback, port in range, port reserved)
-	entries := make([]entry, 0, len(targets))
-
-	// Pre-calc the grace we already use elsewhere
-	grace := s.timeout / 4
-	if grace > 200*time.Millisecond {
-		grace = 200 * time.Millisecond
-	}
-
-	for _, t := range targets {
-		if t.Port <= 0 || t.Port > maxPortNumber {
-			continue
-		}
-
-		dst := net.ParseIP(t.Host)
-		if dst == nil {
-			continue
-		}
-
-		if dst.IsLoopback() {
-			// loopback: use connect path immediately
-			s.handleLoopbackTarget(ctx, t)
-
-			continue
-		}
-
-		dst4 := dst.To4()
-		dst16 := dst.To16()
-		ipv6 := dst4 == nil
-		if ipv6 {
-			if dst16 == nil || s.sendSocket6 == 0 || s.sourceIP6.To16() == nil || s.sourceIP6.To4() != nil {
-				continue
-			}
-		} else if dst4 == nil {
-			continue
-		}
-
-		key := fmt.Sprintf("%s:%d", t.Host, t.Port)
-		if s.hasFinalResult(key) {
-			continue // no need to probe again
-		}
-
-		// Reserve source port
-		srcPort, err := s.portAlloc.Reserve(ctx)
-		if err != nil {
-			// Update port exhaustion counter
-			atomic.AddUint64(&s.stats.PortExhaustion, 1)
-			continue
-		}
-
-		// Update successful port allocation counter
-		atomic.AddUint64(&s.stats.PortsAllocated, 1)
-
-		s.mu.Lock()
-
-		if s.portTargetMap == nil {
-			s.portTargetMap = make(map[uint16]string)
-		}
-
-		if s.targetPorts == nil {
-			s.targetPorts = make(map[string][]uint16)
-		}
-
-		if s.targetIP == nil {
-			s.targetIP = make(map[string]string)
-		}
-
-		if s.results == nil {
-			s.results = make(map[string]models.Result)
-		}
-
-		s.portTargetMap[srcPort] = key
-		s.targetPorts[key] = append(s.targetPorts[key], srcPort)
-		if ipv6 {
-			s.targetIP[key] = net.IP(dst16).String()
-		} else {
-			s.targetIP[key] = net.IP(dst4).String()
-		}
-
-		if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
-			existing.LastSeen = time.Now()
-			s.results[key] = existing
-		} else {
-			s.results[key] = models.Result{
-				Target:    t,
-				FirstSeen: time.Now(),
-				LastSeen:  time.Now(),
-			}
-		}
-
-		s.mu.Unlock()
-
-		// Record deadline for reaper instead of per-port timer
-		deadline := time.Now().Add(s.timeout + grace)
-
-		s.mu.Lock()
-		s.portDeadline[srcPort] = deadline
-		s.mu.Unlock()
-
-		var (
-			addr4  [4]byte
-			addr6  [16]byte
-			pkt    []byte
-			pooled bool
-		)
-
-		if ipv6 {
-			copy(addr6[:], dst16)
-			pkt = buildSYNPacketIPv6(s.sourceIP6, net.IP(dst16), srcPort, uint16(t.Port), s.randUint32())
-		} else {
-			copy(addr4[:], dst4)
-			pkt = s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(t.Port))
-			pooled = true
-		}
-		if len(pkt) == 0 {
-			s.tryReleaseMapping(srcPort, key)
-			continue
-		}
-
-		entries = append(entries, entry{
-			tgt:       t,
-			dst4:      addr4,
-			dst6:      addr6,
-			ipv6:      ipv6,
-			srcPort:   srcPort,
-			packet:    pkt,
-			pooled:    pooled,
-			targetKey: key,
-		})
-	}
+	entries := s.prepareSynBatchEntries(ctx, targets)
 
 	if len(entries) == 0 {
 		return
 	}
 
-	sendFamily := func(socket int, familyEntries []entry, ipv6 bool) {
-		if len(familyEntries) == 0 || socket == 0 {
-			for _, entry := range familyEntries {
-				s.tryReleaseMapping(entry.srcPort, entry.targetKey)
-			}
-
-			return
-		}
-
-		ba := s.batchPool.Get().(*batchArrays)
-		defer func() {
-			ba.addrs = ba.addrs[:0]
-			ba.addrs6 = ba.addrs6[:0]
-			ba.iovecs = ba.iovecs[:0]
-			ba.hdrs = ba.hdrs[:0]
-			s.batchPool.Put(ba)
-		}()
-
-		if cap(ba.iovecs) < len(familyEntries) {
-			ba.iovecs = make([]unix.Iovec, len(familyEntries))
-			ba.hdrs = make([]Mmsghdr, len(familyEntries))
-		} else {
-			ba.iovecs = ba.iovecs[:len(familyEntries)]
-			ba.hdrs = ba.hdrs[:len(familyEntries)]
-		}
-
-		if ipv6 {
-			if cap(ba.addrs6) < len(familyEntries) {
-				ba.addrs6 = make([]unix.RawSockaddrInet6, len(familyEntries))
-			} else {
-				ba.addrs6 = ba.addrs6[:len(familyEntries)]
-			}
-		} else {
-			if cap(ba.addrs) < len(familyEntries) {
-				ba.addrs = make([]unix.RawSockaddrInet4, len(familyEntries))
-			} else {
-				ba.addrs = ba.addrs[:len(familyEntries)]
-			}
-		}
-
-		for i := range familyEntries {
-			if ipv6 {
-				ba.addrs6[i] = unix.RawSockaddrInet6{
-					Family: unix.AF_INET6,
-					Port:   0,
-					Addr:   familyEntries[i].dst6,
-				}
-				ba.hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&ba.addrs6[i]))
-				ba.hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(ba.addrs6[i]))
-			} else {
-				ba.addrs[i] = unix.RawSockaddrInet4{
-					Family: unix.AF_INET,
-					Port:   0, // ignored by kernel for raw sockets with IP_HDRINCL
-					Addr:   familyEntries[i].dst4,
-				}
-				ba.hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&ba.addrs[i]))
-				ba.hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(ba.addrs[i]))
-			}
-
-			ba.iovecs[i].Base = &familyEntries[i].packet[0]
-			ba.iovecs[i].SetLen(len(familyEntries[i].packet))
-			ba.hdrs[i].Hdr.Iov = &ba.iovecs[i]
-			ba.hdrs[i].Hdr.SetIovlen(1)
-		}
-
-		off := 0
-		for off < len(ba.hdrs) {
-			n, err := sendmmsg(socket, ba.hdrs[off:], 0)
-			if n > 0 {
-				off += n
-				atomic.AddUint64(&s.stats.PacketsSent, uint64(n))
-			}
-
-			if err == nil {
-				continue
-			}
-
-			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) {
-				runtime.Gosched()
-				continue
-			}
-
-			s.logger.Debug().Err(err).Bool("ipv6", ipv6).Int("remaining", len(ba.hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
-			break
-		}
-
-		runtime.KeepAlive(ba.hdrs)
-		runtime.KeepAlive(ba.iovecs)
-		runtime.KeepAlive(ba.addrs)
-		runtime.KeepAlive(ba.addrs6)
-		runtime.KeepAlive(familyEntries)
-
-		for i := range familyEntries {
-			if familyEntries[i].pooled {
-				s.packetPool.Put(familyEntries[i].packet) //nolint:staticcheck // slice is reference type, Put accepts interface{}
-			}
-		}
-
-		for i := off; i < len(familyEntries); i++ {
-			s.tryReleaseMapping(familyEntries[i].srcPort, familyEntries[i].targetKey)
-		}
-	}
-
-	entries4 := make([]entry, 0, len(entries))
-	entries6 := make([]entry, 0, len(entries))
+	entries4 := make([]synBatchEntry, 0, len(entries))
+	entries6 := make([]synBatchEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.ipv6 {
 			entries6 = append(entries6, entry)
@@ -3286,8 +3053,247 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		}
 	}
 
-	sendFamily(s.sendSocket, entries4, false)
-	sendFamily(s.sendSocket6, entries6, true)
+	s.sendSynBatchFamily(s.sendSocket, entries4, false)
+	s.sendSynBatchFamily(s.sendSocket6, entries6, true)
+}
+
+func (s *SYNScanner) prepareSynBatchEntries(ctx context.Context, targets []models.Target) []synBatchEntry {
+	entries := make([]synBatchEntry, 0, len(targets))
+	grace := s.timeout / 4
+	if grace > 200*time.Millisecond {
+		grace = 200 * time.Millisecond
+	}
+
+	for _, target := range targets {
+		entry, ok := s.prepareSynBatchEntry(ctx, target, grace)
+		if ok {
+			entries = append(entries, entry)
+		}
+	}
+
+	return entries
+}
+
+func (s *SYNScanner) prepareSynBatchEntry(ctx context.Context, target models.Target, grace time.Duration) (synBatchEntry, bool) {
+	if target.Port <= 0 || target.Port > maxPortNumber {
+		return synBatchEntry{}, false
+	}
+
+	dst := net.ParseIP(target.Host)
+	if dst == nil {
+		return synBatchEntry{}, false
+	}
+
+	if dst.IsLoopback() {
+		s.handleLoopbackTarget(ctx, target)
+
+		return synBatchEntry{}, false
+	}
+
+	dst4 := dst.To4()
+	dst16 := dst.To16()
+	ipv6 := dst4 == nil
+
+	if ipv6 {
+		if dst16 == nil || s.sendSocket6 == 0 || s.sourceIP6.To16() == nil || s.sourceIP6.To4() != nil {
+			return synBatchEntry{}, false
+		}
+	} else if dst4 == nil {
+		return synBatchEntry{}, false
+	}
+
+	key := fmt.Sprintf("%s:%d", target.Host, target.Port)
+	if s.hasFinalResult(key) {
+		return synBatchEntry{}, false
+	}
+
+	srcPort, err := s.portAlloc.Reserve(ctx)
+	if err != nil {
+		atomic.AddUint64(&s.stats.PortExhaustion, 1)
+
+		return synBatchEntry{}, false
+	}
+	atomic.AddUint64(&s.stats.PortsAllocated, 1)
+
+	s.recordSynBatchTarget(target, key, srcPort, dst4, dst16, ipv6, grace)
+
+	entry := s.buildSynBatchEntry(target, key, srcPort, dst4, dst16, ipv6)
+	if len(entry.packet) == 0 {
+		s.tryReleaseMapping(srcPort, key)
+
+		return synBatchEntry{}, false
+	}
+
+	return entry, true
+}
+
+func (s *SYNScanner) recordSynBatchTarget(target models.Target, key string, srcPort uint16, dst4, dst16 net.IP, ipv6 bool, grace time.Duration) {
+	s.mu.Lock()
+	if s.portTargetMap == nil {
+		s.portTargetMap = make(map[uint16]string)
+	}
+	if s.targetPorts == nil {
+		s.targetPorts = make(map[string][]uint16)
+	}
+	if s.targetIP == nil {
+		s.targetIP = make(map[string]string)
+	}
+	if s.results == nil {
+		s.results = make(map[string]models.Result)
+	}
+
+	s.portTargetMap[srcPort] = key
+	s.targetPorts[key] = append(s.targetPorts[key], srcPort)
+	if ipv6 {
+		s.targetIP[key] = dst16.String()
+	} else {
+		s.targetIP[key] = dst4.String()
+	}
+
+	if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
+		existing.LastSeen = time.Now()
+		s.results[key] = existing
+	} else {
+		s.results[key] = models.Result{
+			Target:    target,
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+		}
+	}
+
+	s.portDeadline[srcPort] = time.Now().Add(s.timeout + grace)
+	s.mu.Unlock()
+}
+
+func (s *SYNScanner) buildSynBatchEntry(target models.Target, key string, srcPort uint16, dst4, dst16 net.IP, ipv6 bool) synBatchEntry {
+	entry := synBatchEntry{
+		ipv6:      ipv6,
+		srcPort:   srcPort,
+		targetKey: key,
+	}
+
+	if ipv6 {
+		copy(entry.dst6[:], dst16)
+		entry.packet = buildSYNPacketIPv6(s.sourceIP6, dst16, srcPort, uint16(target.Port), s.randUint32())
+	} else {
+		copy(entry.dst4[:], dst4)
+		entry.packet = s.buildSynPacketFromTemplate(s.sourceIP, dst4, srcPort, uint16(target.Port))
+		entry.pooled = true
+	}
+
+	return entry
+}
+
+func (s *SYNScanner) sendSynBatchFamily(socket int, familyEntries []synBatchEntry, ipv6 bool) {
+	if len(familyEntries) == 0 || socket == 0 {
+		for _, entry := range familyEntries {
+			s.tryReleaseMapping(entry.srcPort, entry.targetKey)
+		}
+
+		return
+	}
+
+	ba := s.batchPool.Get().(*batchArrays)
+	defer func() {
+		ba.addrs = ba.addrs[:0]
+		ba.addrs6 = ba.addrs6[:0]
+		ba.iovecs = ba.iovecs[:0]
+		ba.hdrs = ba.hdrs[:0]
+		s.batchPool.Put(ba)
+	}()
+
+	s.prepareBatchMessageArrays(ba, familyEntries, ipv6)
+	off := s.sendBatchMessages(socket, ba.hdrs, ipv6)
+
+	runtime.KeepAlive(ba.hdrs)
+	runtime.KeepAlive(ba.iovecs)
+	runtime.KeepAlive(ba.addrs)
+	runtime.KeepAlive(ba.addrs6)
+	runtime.KeepAlive(familyEntries)
+
+	for i := range familyEntries {
+		if familyEntries[i].pooled {
+			s.packetPool.Put(familyEntries[i].packet) //nolint:staticcheck // slice is reference type, Put accepts interface{}
+		}
+	}
+
+	for i := off; i < len(familyEntries); i++ {
+		s.tryReleaseMapping(familyEntries[i].srcPort, familyEntries[i].targetKey)
+	}
+}
+
+func (s *SYNScanner) prepareBatchMessageArrays(ba *batchArrays, familyEntries []synBatchEntry, ipv6 bool) {
+	if cap(ba.iovecs) < len(familyEntries) {
+		ba.iovecs = make([]unix.Iovec, len(familyEntries))
+		ba.hdrs = make([]Mmsghdr, len(familyEntries))
+	} else {
+		ba.iovecs = ba.iovecs[:len(familyEntries)]
+		ba.hdrs = ba.hdrs[:len(familyEntries)]
+	}
+
+	if ipv6 {
+		if cap(ba.addrs6) < len(familyEntries) {
+			ba.addrs6 = make([]unix.RawSockaddrInet6, len(familyEntries))
+		} else {
+			ba.addrs6 = ba.addrs6[:len(familyEntries)]
+		}
+	} else {
+		if cap(ba.addrs) < len(familyEntries) {
+			ba.addrs = make([]unix.RawSockaddrInet4, len(familyEntries))
+		} else {
+			ba.addrs = ba.addrs[:len(familyEntries)]
+		}
+	}
+
+	for i := range familyEntries {
+		if ipv6 {
+			ba.addrs6[i] = unix.RawSockaddrInet6{
+				Family: unix.AF_INET6,
+				Port:   0,
+				Addr:   familyEntries[i].dst6,
+			}
+			ba.hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&ba.addrs6[i]))
+			ba.hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(ba.addrs6[i]))
+		} else {
+			ba.addrs[i] = unix.RawSockaddrInet4{
+				Family: unix.AF_INET,
+				Port:   0, // ignored by kernel for raw sockets with IP_HDRINCL
+				Addr:   familyEntries[i].dst4,
+			}
+			ba.hdrs[i].Hdr.Name = (*byte)(unsafe.Pointer(&ba.addrs[i]))
+			ba.hdrs[i].Hdr.Namelen = uint32(unsafe.Sizeof(ba.addrs[i]))
+		}
+
+		ba.iovecs[i].Base = &familyEntries[i].packet[0]
+		ba.iovecs[i].SetLen(len(familyEntries[i].packet))
+		ba.hdrs[i].Hdr.Iov = &ba.iovecs[i]
+		ba.hdrs[i].Hdr.SetIovlen(1)
+	}
+}
+
+func (s *SYNScanner) sendBatchMessages(socket int, hdrs []Mmsghdr, ipv6 bool) int {
+	off := 0
+	for off < len(hdrs) {
+		n, err := sendmmsg(socket, hdrs[off:], 0)
+		if n > 0 {
+			off += n
+			atomic.AddUint64(&s.stats.PacketsSent, uint64(n))
+		}
+
+		if err == nil {
+			continue
+		}
+
+		if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) {
+			runtime.Gosched()
+			continue
+		}
+
+		s.logger.Debug().Err(err).Bool("ipv6", ipv6).Int("remaining", len(hdrs)-off).Msg("sendmmsg failed; releasing unsent ports")
+		break
+	}
+
+	return off
 }
 
 // SetResultCallback sets a callback function that will be called immediately when a result becomes available
