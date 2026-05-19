@@ -1123,6 +1123,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 // uses atomic.Value and is safe to call anytime, including during active scans.
 //
 // Example: scanner.SetRateLimit(20000, 5000) // 20k pps, 5k burst
+//
 //nolint:gocyclo // Complex initialization with many configuration options and platform-specific setup
 func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, opts *SYNScannerOptions) (*SYNScanner, error) {
 	log.Debug().Msg("Starting SYN scanner initialization")
@@ -1514,18 +1515,18 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	log.Debug().Int("sendBatchSize", batchSize).Msg("Using configurable sendmmsg batch size")
 
 	scanner := &SYNScanner{
-		timeout:        timeout,
-		concurrency:    concurrency,
-		logger:         log,
-		sendSocket:     sendSocket,
-		rings:          rings,
-		sourceIP:       sourceIP,
-		iface:          iface,
-		fanoutGroup:    fanoutGroup,
-		retireTovMs:    retireTov,
-		portAlloc:      NewPortAllocator(scanPortStart, scanPortEnd),
-		scanPortStart:  scanPortStart,
-		scanPortEnd:    scanPortEnd,
+		timeout:       timeout,
+		concurrency:   concurrency,
+		logger:        log,
+		sendSocket:    sendSocket,
+		rings:         rings,
+		sourceIP:      sourceIP,
+		iface:         iface,
+		fanoutGroup:   fanoutGroup,
+		retireTovMs:   retireTov,
+		portAlloc:     NewPortAllocator(scanPortStart, scanPortEnd),
+		scanPortStart: scanPortStart,
+		scanPortEnd:   scanPortEnd,
 		// Use a single retry by default to reduce false negatives from packet loss
 		// without significantly increasing scan duration.
 		retryAttempts:  2,
@@ -2043,6 +2044,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 }
 
 // Scan performs SYN scanning on the given targets
+//
 //nolint:gocyclo // Complex scanning logic with multiple execution paths and error handling
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	tcpTargets := filterTCPTargets(targets)
@@ -2328,6 +2330,91 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}()
 
 	return resultCh, nil
+}
+
+// ScanStream consumes targets incrementally and runs the existing SYN packet
+// engine in bounded batches. This keeps large sweeps from forcing callers to
+// materialize every host/port pair before scanning.
+func (s *SYNScanner) ScanStream(
+	ctx context.Context,
+	targets <-chan models.Target,
+	opts StreamOptions,
+) (<-chan models.Result, <-chan error, error) {
+	batchSize := opts.BatchSize
+	if batchSize <= 0 {
+		batchSize = 100000
+	}
+
+	resultBuffer := batchSize
+	if resultBuffer > 10000 {
+		resultBuffer = 10000
+	}
+
+	resultCh := make(chan models.Result, resultBuffer)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(resultCh)
+		defer close(errCh)
+
+		batch := make([]models.Target, 0, batchSize)
+
+		flush := func() error {
+			if len(batch) == 0 {
+				return nil
+			}
+
+			results, err := s.Scan(ctx, batch)
+			if err != nil {
+				return err
+			}
+
+			for result := range results {
+				select {
+				case resultCh <- result:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+
+			batch = batch[:0]
+
+			return nil
+		}
+
+		for {
+			select {
+			case target, ok := <-targets:
+				if !ok {
+					if err := flush(); err != nil {
+						errCh <- err
+					}
+
+					return
+				}
+
+				if target.Mode != models.ModeTCP {
+					continue
+				}
+
+				batch = append(batch, target)
+				if len(batch) >= batchSize {
+					if err := flush(); err != nil {
+						errCh <- err
+
+						return
+					}
+				}
+
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+
+				return
+			}
+		}
+	}()
+
+	return resultCh, errCh, nil
 }
 
 // worker sends SYN packets to targets from the work channel

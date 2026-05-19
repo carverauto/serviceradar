@@ -1201,15 +1201,23 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		tcpConnectTargets: make([]models.Target, 0, defaultTargetBatch),
 	}
 
+	if tcpStream, ok, err := s.startStreamingScan(ctx, tcpScanner, "tcp", targetEstimate); err != nil {
+		return err
+	} else if ok {
+		runner.tcpStream = tcpStream
+	}
+
 	s.logger.Info().
 		Int("estimatedTargets", targetEstimate).
 		Int("batchSize", defaultTargetBatch).
+		Bool("tcpStreaming", runner.tcpStream != nil).
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
 		Msg("Starting batched sweep")
 
 	if err := s.generateTargetsBatched(runner.addTarget); err != nil {
+		runner.closeStreams()
 		return fmt.Errorf("failed to generate batched targets: %w", err)
 	}
 
@@ -1229,12 +1237,91 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	return nil
 }
 
+type sweepTargetStream struct {
+	ctx         context.Context
+	targets     chan models.Target
+	scanErrs    <-chan error
+	processDone <-chan error
+	closeOnce   sync.Once
+}
+
+func (h *sweepTargetStream) add(target models.Target) error {
+	select {
+	case h.targets <- target:
+		return nil
+	case <-h.ctx.Done():
+		return h.ctx.Err()
+	}
+}
+
+func (h *sweepTargetStream) closeAndWait() error {
+	h.closeOnce.Do(func() {
+		close(h.targets)
+	})
+
+	var firstErr error
+
+	if err := <-h.processDone; err != nil {
+		firstErr = err
+	}
+
+	for err := range h.scanErrs {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+func (h *sweepTargetStream) closeOnly() {
+	h.closeOnce.Do(func() {
+		close(h.targets)
+	})
+}
+
+func (s *NetworkSweeper) startStreamingScan(
+	ctx context.Context,
+	scanner scan.Scanner,
+	scanType string,
+	targetEstimate int,
+) (*sweepTargetStream, bool, error) {
+	streamingScanner, ok := scanner.(scan.StreamingScanner)
+	if !ok {
+		return nil, false, nil
+	}
+
+	targetCh := make(chan models.Target, defaultTargetBatch)
+	results, scanErrs, err := streamingScanner.ScanStream(ctx, targetCh, scan.StreamOptions{
+		TargetEstimate: targetEstimate,
+		BatchSize:      defaultTargetBatch,
+	})
+	if err != nil {
+		close(targetCh)
+
+		return nil, false, err
+	}
+
+	processDone := make(chan error, 1)
+	go func() {
+		processDone <- s.processResultsStream(ctx, results, scanType)
+	}()
+
+	return &sweepTargetStream{
+		ctx:         ctx,
+		targets:     targetCh,
+		scanErrs:    scanErrs,
+		processDone: processDone,
+	}, true, nil
+}
+
 type sweepBatchRunner struct {
 	sweeper           *NetworkSweeper
 	ctx               context.Context
 	icmpScanner       scan.Scanner
 	tcpScanner        scan.Scanner
 	tcpConnectScanner scan.Scanner
+	tcpStream         *sweepTargetStream
 	icmpTargets       []models.Target
 	tcpTargets        []models.Target
 	tcpConnectTargets []models.Target
@@ -1254,6 +1341,12 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 			}
 		}
 	case models.ModeTCP:
+		if r.tcpStream != nil {
+			r.tcpCount++
+
+			return r.tcpStream.add(target)
+		}
+
 		r.tcpTargets = append(r.tcpTargets, target)
 		r.tcpCount++
 		if len(r.tcpTargets) >= defaultTargetBatch {
@@ -1283,7 +1376,21 @@ func (r *sweepBatchRunner) flushAll() error {
 		return err
 	}
 
-	return r.flushMode("tcp_connect", r.tcpConnectScanner, &r.tcpConnectTargets)
+	if err := r.flushMode("tcp_connect", r.tcpConnectScanner, &r.tcpConnectTargets); err != nil {
+		return err
+	}
+
+	if r.tcpStream != nil {
+		return r.tcpStream.closeAndWait()
+	}
+
+	return nil
+}
+
+func (r *sweepBatchRunner) closeStreams() {
+	if r.tcpStream != nil {
+		r.tcpStream.closeOnly()
+	}
 }
 
 func (r *sweepBatchRunner) flushMode(scanType string, scanner scan.Scanner, targets *[]models.Target) error {
