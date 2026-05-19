@@ -56,11 +56,43 @@ var Version = "dev"
 var (
 	errSweepMissingHosts    = errors.New("sweep data missing hosts field")
 	errSweepHostsNotArray   = errors.New("hosts field is not an array")
+	errJSONPayloadTooLarge  = errors.New("json payload exceeds limit")
 	errPluginEmptyPayload   = errors.New("plugin payload empty")
 	errPluginMissingStatus  = errors.New("plugin status missing")
 	errPluginInvalidStatus  = errors.New("plugin status invalid")
 	errPluginMissingSummary = errors.New("plugin summary missing")
 )
+
+const maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
+
+type limitedJSONBuffer struct {
+	bytes.Buffer
+	limit int
+}
+
+func (b *limitedJSONBuffer) Write(p []byte) (int, error) {
+	if b.limit > 0 && b.Len()+len(p) > b.limit {
+		remaining := b.limit - b.Len()
+		if remaining > 0 {
+			_, _ = b.Buffer.Write(p[:remaining])
+		}
+
+		return 0, fmt.Errorf("%w: limit=%d", errJSONPayloadTooLarge, b.limit)
+	}
+
+	return b.Buffer.Write(p)
+}
+
+func marshalJSONLimited(v any, limit int) ([]byte, error) {
+	buf := &limitedJSONBuffer{limit: limit}
+	enc := json.NewEncoder(buf)
+
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
 
 type icmpCheckConfig struct {
 	ID       string
@@ -980,9 +1012,15 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 		Status:       sample,
 	}
 
-	messageBytes, err := json.Marshal(payload)
+	messageBytes, err := marshalJSONLimited(payload, maxSysmonStatusPayloadBytes)
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal sysmon sample payload")
+		logEvent := p.logger.Error()
+		if errors.Is(err, errJSONPayloadTooLarge) {
+			logEvent = p.logger.Warn().Int("payload_limit_bytes", maxSysmonStatusPayloadBytes)
+		}
+
+		logEvent.Err(err).Msg("Failed to marshal sysmon sample payload")
+
 		return nil
 	}
 
