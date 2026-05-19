@@ -1867,34 +1867,6 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	}
 }
 
-// convertToSysmonGatewayStatus converts a sysmon StatusResponse to a GatewayServiceStatus.
-// Uses Source: "sysmon-metrics" to distinguish from other metrics sources (e.g., SNMP).
-func (p *PushLoop) convertToSysmonGatewayStatus(resp *proto.StatusResponse) *proto.GatewayServiceStatus {
-	if resp == nil {
-		return nil
-	}
-
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  SysmonServiceName,
-		Available:    resp.Available,
-		Message:      resp.Message,
-		ServiceType:  SysmonServiceType,
-		ResponseTime: resp.ResponseTime,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "sysmon-metrics",
-		KvStoreId:    kvStoreID,
-	}
-}
-
 func (p *PushLoop) buildPluginGatewayStatus(
 	result PluginResult,
 	agentID string,
