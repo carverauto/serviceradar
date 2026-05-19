@@ -255,6 +255,10 @@ Usage: {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
 {{- define "serviceradar.podSecurityContext" -}}
 securityContext:
   runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+  fsGroupChangePolicy: OnRootMismatch
   seccompProfile:
     type: RuntimeDefault
 {{- end -}}

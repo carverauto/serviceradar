@@ -1045,10 +1045,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: An RCE foothold writes its own binary into root-fs and persists; with `readOnlyRootFS` + named `emptyDir` mounts the same compromise has no persistence on disk.
       Fix: Flip default to `readOnlyRootFilesystem: true`; declare per-container `emptyDir` (or `emptyDir: { medium: Memory }` for secret scratch like cert generation). eBPF DaemonSet documented exception.
 
-- [ ] 6.P.6 [M] Pod-level `securityContext` missing `runAsUser` and `fsGroup`
+- [x] 6.P.6 [M] Pod-level `securityContext` missing `runAsUser` and `fsGroup`
       Where: `helm/serviceradar/templates/_helpers.tpl:256-260` (pod helper only sets `runAsNonRoot`+`seccompProfile`); call sites: `core.yaml:68`, `agent-gateway.yaml:52`, `datasvc.yaml:34`, `core-migrations-job.yaml:32`, `nats-creds-generator.yaml:78`, `secret-generator-job.yaml:79`, `cert-generator-job.yaml:78` (working tree)
       Why: Reliance on container-level UID override; one forgotten override silently runs root. `fsGroup` absence also breaks volume-write ownership in `restricted` PSA.
       Fix: Add `runAsUser: 65534` (or 1001 to match) and `fsGroup: 1001` (+ `fsGroupChangePolicy: OnRootMismatch`) to the pod helper; containers override only when they need a specific UID.
+      Resolution: Closed by updating the shared Helm pod securityContext helper to set `runAsUser: 1001`, `runAsGroup: 1001`, `fsGroup: 1001`, and `fsGroupChangePolicy: OnRootMismatch` alongside `runAsNonRoot` and `RuntimeDefault` seccomp. Containers with explicit runtime needs still override at container scope.
 
 - [ ] 6.P.7 [M] Elixir cluster cookie shared via env-Secret; no NetworkPolicy gate on epmd / dist port
       Where: `core.yaml:131-134`, `web.yaml:273-277`, `agent-gateway.yaml:107-111` (`RELEASE_COOKIE` from Secret); no `:4369` allow rule (working tree)
