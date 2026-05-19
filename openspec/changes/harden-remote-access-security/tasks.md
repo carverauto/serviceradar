@@ -857,10 +857,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Fix: Optimistic lock on `recording.export_in_progress?`; mint a unique `export_id` per call.
       Resolution: Export now serializes on the recording row with the same `FOR UPDATE` lock used by event/seal writes, reloads the authoritative recording before building the artifact, mints a UUID `export_id`, and stamps that ID into both the export manifest and audit details. Regression coverage asserts manifest/audit export-id correlation and verifies persisted manifest tampering is rejected after the locked reload.
 
-- [ ] 3.O.5 [M] Partial-write ghost — manifest row created but first event write swallowed → orphan `:active`/`:pending`
+- [x] 3.O.5 [M] Partial-write ghost — manifest row created but first event write swallowed → orphan `:active`/`:pending`
       Where: `remote_access_recordings.ex:25-32` + `remote_access_broker.ex:95, 213-221` (commit: staging)
       Why: No reaper for stuck `:pending` / `:active` recordings; they consume slots and skew retention/quota math.
       Fix: Oban cron — recordings stuck > N hours without event activity flip to `:expired` + audit.
+      Resolution: Added `RemoteAccessRecordingReaperWorker` on the maintenance cron plus `RemoteAccessRecordings.expire_stale/1`. The reaper selects pending/active recordings whose row and latest event activity are older than the configured threshold, recomputes actual persisted event counters, expires and signs the manifest under the recording row lock, and emits a `remote_access_recording_expired` audit event. Regression coverage ages recording/event rows and verifies stale active recordings expire with persisted counters.
 
 - [x] 3.O.6 [H] Export reads `recording.policy` live from the row, not from a sealed snapshot
       Where: `remote_access_recordings.ex:533-542` (commit: staging)
@@ -1448,7 +1449,6 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 - **6.G.6 [L]** maxminddb-golang removal rationale. *Sign-off rationale:* housekeeping, non-security.
 - **3.O.13 [L]** Redaction snapshot consistency. *Sign-off rationale:* documented intent; not a security gap — operators can re-export if policy changes.
 - **3.O.4 [M]** Concurrent export idempotency. *Sign-off rationale:* small window, no security impact; if it becomes a UX issue add the export_id later (C-B doesn't depend on it).
-- **3.O.5 [M]** Orphan `:pending`/`:active` reaper. *Sign-off rationale:* operational hygiene, not a security gap; bundle with retention work when it lands.
 - **3.O.9 [M]** Late-event fence at seal. *Sign-off rationale:* approximate byte counts already documented; bundle with C-B if signing the manifest+events together makes this trivial.
 - **3.O.12 [M]** Authoritative `session_id` from `recording.session_id`. *Sign-off rationale:* defensive only — no known caller passes a foreign session_id; small refactor in C-B's transactional rewrite.
 - **1.4 [M]** Frame trailing-byte detection. *Sign-off rationale:* current helper IPC is a length-prefixed stream, so extra bytes after one payload are indistinguishable from the next frame without adding a frame magic/version field. Invalid next headers already fail closed before payload allocation; stronger desync detection belongs in a future wire-format revision.
@@ -1510,7 +1510,7 @@ Recorded for traceability; no code work scheduled. Reopen if conditions change.
 | 3.O.2 | H | Fjo | C-C |
 | 3.O.3 | H | Fjo | C-B |
 | 3.O.4 | M | Acc | concurrent-export consistency |
-| 3.O.5 | M | Acc | orphan reaper — schedule with retention work |
+| 3.O.5 | M | B | orphan reaper |
 | 3.O.6 | H | Fjo | C-B |
 | 3.O.7 | H | Fjo | C-B |
 | 3.O.8 | M | Fjo | C-B |

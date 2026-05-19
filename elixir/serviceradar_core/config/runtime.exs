@@ -875,6 +875,8 @@ if config_env() == :prod do
          {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
          {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
          {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+         {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
+          queue: :maintenance},
          {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance}
        ]}
     ],

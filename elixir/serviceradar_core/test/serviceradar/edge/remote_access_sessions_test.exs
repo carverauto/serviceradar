@@ -1324,6 +1324,88 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
              )
   end
 
+  test "stale active recordings are expired with actual persisted event counters" do
+    uid = unique_uid("recording-stale-expire")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-stale-expire",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecording{} = active} =
+             RemoteAccessRecordings.activate(recording,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert_receive {:remote_access_audit, _recording_create_audit}
+    assert_receive {:remote_access_audit, _recording_active_audit}
+
+    assert {:ok, %RemoteAccessRecordingEvent{} = event} =
+             RemoteAccessRecordings.record_event(
+               active,
+               %{stream: :output, event_type: "terminal_output", data: "stale\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    stale_at = DateTime.add(DateTime.utc_now(), -7_200, :second)
+
+    assert {:ok, _result} =
+             Repo.query(
+               "UPDATE platform.remote_access_recordings SET inserted_at = $2, updated_at = $2 WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(active.id), stale_at]
+             )
+
+    assert {:ok, _result} =
+             Repo.query(
+               "UPDATE platform.remote_access_recording_events SET inserted_at = $2, updated_at = $2 WHERE id = $1::uuid",
+               [Ecto.UUID.dump!(event.id), stale_at]
+             )
+
+    assert {:ok, 1} =
+             RemoteAccessRecordings.expire_stale(
+               stale_after_seconds: 3_600,
+               batch_size: 10,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, expired_audit}
+    assert expired_audit[:action] == :remote_access_recording_expired
+
+    assert {:ok, %RemoteAccessRecording{status: :expired} = expired} =
+             RemoteAccessRecording.get_by_id(active.id, actor: @system_actor)
+
+    assert expired.event_count == 1
+    assert expired.output_bytes == byte_size("stale\n")
+    assert expired.manifest["event_count"] == 1
+    assert expired.manifest["manifest_integrity_status"] == nil
+    assert expired.manifest["integrity"]["algorithm"] == "hmac-sha256-v1"
+  end
+
   test "recording events keep terminal payloads metadata-only unless content policy opts in" do
     uid = unique_uid("recording-events")
     insert_device!(uid, agent_id: "agent-recording-events", gateway_id: "gateway-recording")

@@ -20,6 +20,8 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   @default_storage_bucket "remote-access-recordings"
   @default_storage_prefix "remote-access"
   @default_retention_days 30
+  @default_stale_after_seconds 4 * 60 * 60
+  @default_stale_batch_size 100
   @export_permission "devices.remote_access.recordings.export"
   @delete_permission "devices.remote_access.recordings.delete"
   @view_all_permission "devices.remote_access.recordings.view_all"
@@ -76,6 +78,34 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     with {:ok, updated} <- finish_recording(recording, attrs, :fail, reason) do
       write_audit(:remote_access_recording_failed, updated, opts)
       {:ok, updated}
+    end
+  end
+
+  @spec expire(RemoteAccessRecording.t() | nil, map(), keyword()) ::
+          {:ok, RemoteAccessRecording.t() | nil} | {:error, term()}
+  def expire(recording, attrs, opts \\ [])
+  def expire(nil, _attrs, _opts), do: {:ok, nil}
+
+  def expire(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
+    with {:ok, updated} <- finish_recording(recording, attrs, :expire) do
+      write_audit(:remote_access_recording_expired, updated, opts)
+      {:ok, updated}
+    end
+  end
+
+  @spec expire_stale(keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def expire_stale(opts \\ []) do
+    stale_after_seconds = Keyword.get(opts, :stale_after_seconds, @default_stale_after_seconds)
+    batch_size = Keyword.get(opts, :batch_size, @default_stale_batch_size)
+
+    with {:ok, stale_recordings} <- stale_recording_stats(stale_after_seconds, batch_size) do
+      Enum.reduce_while(stale_recordings, {:ok, 0}, fn stats, {:ok, count} ->
+        case expire_stale_recording(stats, opts) do
+          {:ok, %RemoteAccessRecording{}} -> {:cont, {:ok, count + 1}}
+          {:ok, nil} -> {:cont, {:ok, count}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   end
 
@@ -212,7 +242,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp ensure_recordable_status(_recording), do: {:error, :recording_sealed}
 
   defp finish_recording(recording, attrs, action, reason \\ nil)
-       when action in [:complete, :fail] and is_map(attrs) do
+       when action in [:complete, :fail, :expire] and is_map(attrs) do
     fn ->
       with :ok <- lock_recording(recording.id),
            {:ok, %RemoteAccessRecording{} = current_recording} <- current_recording(recording),
@@ -252,6 +282,13 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     )
   end
 
+  defp finish_recording_action(recording, attrs, :expire) do
+    RemoteAccessRecording.expire(recording, attrs,
+      actor: system_actor(:expire),
+      return_notifications?: true
+    )
+  end
+
   defp maybe_put_failure_reason(attrs, :fail, reason) do
     Map.put(attrs, :failure_reason, format_reason(reason))
   end
@@ -279,6 +316,62 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
     WHERE id = $1::uuid
     FOR UPDATE
     """
+  end
+
+  defp stale_recording_stats(stale_after_seconds, batch_size)
+       when is_integer(stale_after_seconds) and stale_after_seconds > 0 and is_integer(batch_size) and
+              batch_size > 0 do
+    case Repo.query(stale_recording_stats_sql(), [stale_after_seconds, batch_size]) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Enum.map(rows, fn [id, event_count, input_bytes, output_bytes] ->
+           %{
+             id: id,
+             event_count: nonnegative_int(event_count),
+             input_bytes: nonnegative_int(input_bytes),
+             output_bytes: nonnegative_int(output_bytes)
+           }
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp stale_recording_stats(_stale_after_seconds, _batch_size),
+    do: {:error, :invalid_stale_reaper_options}
+
+  defp stale_recording_stats_sql do
+    """
+    SELECT
+      r.id::text,
+      count(e.id)::bigint,
+      coalesce(sum(CASE WHEN e.stream = 'input' THEN e.byte_count ELSE 0 END), 0)::bigint,
+      coalesce(sum(CASE WHEN e.stream = 'output' THEN e.byte_count ELSE 0 END), 0)::bigint
+    FROM platform.remote_access_recordings r
+    LEFT JOIN platform.remote_access_recording_events e ON e.recording_id = r.id
+    WHERE r.status IN ('pending', 'active')
+    GROUP BY r.id, r.updated_at
+    HAVING greatest(r.updated_at, coalesce(max(e.inserted_at), r.updated_at)) <
+      (now() AT TIME ZONE 'utc') - ($1::int * INTERVAL '1 second')
+    ORDER BY r.updated_at ASC
+    LIMIT $2
+    """
+  end
+
+  defp expire_stale_recording(%{} = stats, opts) do
+    with {:ok, %RemoteAccessRecording{} = recording} <-
+           RemoteAccessRecording.get_by_id(stats.id, actor: system_actor(:stale_expire_lookup)) do
+      expire(
+        recording,
+        %{
+          input_bytes: stats.input_bytes,
+          output_bytes: stats.output_bytes,
+          event_count: stats.event_count
+        },
+        Keyword.put_new(opts, :audit_actor, system_actor(:stale_expire))
+      )
+    end
   end
 
   @spec delete(RemoteAccessRecording.t() | binary(), keyword()) ::
@@ -1118,6 +1211,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   defp action_suffix(:remote_access_recording_created), do: "created"
   defp action_suffix(:remote_access_recording_active), do: "active"
   defp action_suffix(:remote_access_recording_completed), do: "completed"
+  defp action_suffix(:remote_access_recording_expired), do: "expired"
   defp action_suffix(:remote_access_recording_failed), do: "failed"
   defp action_suffix(:remote_access_recording_deleted), do: "deleted"
   defp action_suffix(action), do: Atom.to_string(action)
