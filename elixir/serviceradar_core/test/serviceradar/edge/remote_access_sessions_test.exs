@@ -1186,6 +1186,64 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert completed.manifest["raw_terminal_payloads_stored"] == false
   end
 
+  test "recording events cannot be appended after seal even with a stale recording struct" do
+    uid = unique_uid("recording-event-seal")
+
+    insert_device!(uid,
+      agent_id: "agent-recording-event-seal",
+      gateway_id: "gateway-recording"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 recording_policy: %{
+                   "enabled" => true,
+                   "mode" => "metadata",
+                   "retention_days" => 7
+                 }
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert {:ok, %RemoteAccessRecording{} = recording} =
+             RemoteAccessRecordings.ensure_for_session(session,
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecordingEvent{}} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :output, event_type: "terminal_output", data: "first\n", sequence: 1},
+               actor: @system_actor
+             )
+
+    assert {:ok, %RemoteAccessRecording{status: :completed}} =
+             RemoteAccessRecordings.complete(
+               recording,
+               %{input_bytes: 0, output_bytes: 6, event_count: 1},
+               audit_writer: AuditSink,
+               audit_actor: @system_actor
+             )
+
+    assert {:error, :recording_sealed} =
+             RemoteAccessRecordings.record_event(
+               recording,
+               %{stream: :output, event_type: "terminal_output", data: "late\n", sequence: 2},
+               actor: @system_actor
+             )
+
+    assert {:ok, events} = RemoteAccessRecordings.list_events(recording, actor: @system_actor)
+    assert Enum.map(events, & &1.sequence) == [1]
+  end
+
   test "recording events keep terminal payloads metadata-only unless content policy opts in" do
     uid = unique_uid("recording-events")
     insert_device!(uid, agent_id: "agent-recording-events", gateway_id: "gateway-recording")

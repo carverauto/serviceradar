@@ -91,8 +91,12 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
   def record_event(nil, _attrs, _opts), do: {:ok, nil}
 
   def record_event(%RemoteAccessRecording{} = recording, attrs, opts) when is_map(attrs) do
-    attrs = event_attrs(recording, attrs, opts)
-    RemoteAccessRecordingEvent.record(attrs, actor: system_actor(:event))
+    with {:ok, %RemoteAccessRecording{} = current_recording} <-
+           current_recording(recording),
+         :ok <- ensure_recordable_status(current_recording) do
+      attrs = event_attrs(current_recording, attrs, opts)
+      RemoteAccessRecordingEvent.record(attrs, actor: system_actor(:event))
+    end
   end
 
   @spec event_integrity_hash(RemoteAccessRecordingEvent.t()) :: String.t()
@@ -152,6 +156,15 @@ defmodule ServiceRadar.Edge.RemoteAccessRecordings do
        do: :ok
 
   defp ensure_exportable_status(_recording), do: {:error, :recording_not_exportable}
+
+  defp current_recording(%RemoteAccessRecording{id: recording_id}) do
+    RemoteAccessRecording.get_by_id(recording_id, actor: system_actor(:event_recording_lookup))
+  end
+
+  defp ensure_recordable_status(%RemoteAccessRecording{status: status})
+       when status in [:pending, :active], do: :ok
+
+  defp ensure_recordable_status(_recording), do: {:error, :recording_sealed}
 
   @spec delete(RemoteAccessRecording.t() | binary(), keyword()) ::
           {:ok, RemoteAccessRecording.t()} | {:error, term()}

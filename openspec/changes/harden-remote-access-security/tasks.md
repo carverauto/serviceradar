@@ -876,10 +876,11 @@ For the current single-tenant deployment, "partition" maps to sites/locations wi
       Why: Partial failure leaves a manifest claiming `event_count = N` with fewer than N events persisted; export will be silently incomplete.
       Fix: `Ecto.Multi` wrapping the final-batch insert + manifest update; assert event count matches before commit.
 
-- [ ] 3.O.9 [M] Late-arrival events accepted after manifest seal — no fence
+- [x] 3.O.9 [M] Late-arrival events accepted after manifest seal — no fence
       Where: `remote_access_broker.ex:222-229`; event insert path (commit: staging)
       Why: Network reordering between final `data` and `close` frames lets late events land in DB after manifest is sealed; they're then invisible to the export but visible to the operator-facing UI.
       Fix: Either drain in-flight before seal (with bounded wait), or reject inserts where `recording.status` is terminal.
+      Resolution: `record_event/3` now reloads the authoritative recording row before writing and refuses any sealed status with `{:error, :recording_sealed}`. Regression coverage completes a recording, then attempts to append through a stale pre-completion struct and verifies no late event is stored.
 
 - [ ] 3.O.10 [M] Playback events stream doesn't re-check RBAC per chunk (TOCTOU on permission revoke)
       Where: `remote_access_recording_controller.ex:35-48` (commit: staging)
