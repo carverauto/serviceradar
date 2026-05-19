@@ -1,3 +1,19 @@
+# ServiceRadar v1.2.69
+
+Experimental RDP remote desktop access, hardened desktop media controls, and large sweep stability fixes.
+
+## Whats New
+
+**1.2.69**
+- Added experimental, feature-gated RDP remote desktop access with optional agent/helper runtime packaging, browser media transport, RDP target management, session launch plumbing, recording lifecycle visibility, and readiness/capability checks.
+- Hardened the experimental RDP path with bounded helper IPC frames, policy-bound desktop media sessions, route/principal enforcement, clipboard and recording controls, credential grant cleanup, TLS/CA policy propagation, session timeout handling, and expanded audit metadata.
+- Improved RDP setup UX so operators can enable RDP from device context, select devices/agents/gateways/credential rules from existing inventory data, keep credentials optional for prompt-at-connect flows, and manage credential rules from the existing network credentials area.
+- Added verified RDP TLS policy fields for server name and CA bundle material, while keeping CA bundle identifiers generated from target identity instead of requiring users to type internal IDs.
+- Packaged the optional `serviceradar-rdp-adapter` runtime bundle and enabled ready helper capability reporting for demo builds when the experimental feature flag and agent-local gate are enabled.
+- Added and tightened live/boundary tests for RDP TLS trust, CredSSP handoff, connector readiness, media frame parsing, browser rendering, and helper cleanup behavior.
+- Fixed large sweep target handling by streaming target batches instead of expanding everything in memory, preserving SRQL device targets, avoiding IPv6 CIDR over-expansion during sizing, and correcting misleading rate-limit deferral metrics.
+- Added an opt-in agent pprof endpoint and bounded sysmon process telemetry encoding, with a configurable process sample limit to avoid unbounded agent status payload growth.
+
 # ServiceRadar v1.2.68
 
 Armis northbound recovery, inventory metadata cleanup, plugin status durability, and CI audit fixes.
