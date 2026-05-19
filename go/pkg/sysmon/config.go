@@ -36,6 +36,9 @@ const (
 
 	// DefaultConfigRefreshInterval is how often agents check for config updates.
 	DefaultConfigRefreshInterval = 5 * time.Minute
+
+	// DefaultProcessLimit bounds per-sample process telemetry payloads.
+	DefaultProcessLimit = 200
 )
 
 // Config controls the sysmon collector runtime behavior.
@@ -62,6 +65,10 @@ type Config struct {
 	// CollectProcesses enables process metrics collection.
 	CollectProcesses bool `json:"collect_processes"`
 
+	// ProcessLimit bounds the number of process metrics retained per sample.
+	// Values <= 0 use DefaultProcessLimit.
+	ProcessLimit int `json:"process_limit,omitempty"`
+
 	// DiskPaths specifies which mount points to monitor.
 	// If empty, all mounted filesystems are monitored.
 	DiskPaths []string `json:"disk_paths,omitempty"`
@@ -83,6 +90,7 @@ func DefaultConfig() Config {
 		CollectDisk:      true,
 		CollectNetwork:   false, // Opt-in due to verbosity
 		CollectProcesses: false, // Opt-in due to resource usage
+		ProcessLimit:     DefaultProcessLimit,
 		DiskPaths:        []string{},
 		DiskExcludePaths: []string{},
 		Thresholds:       make(map[string]string),
@@ -98,6 +106,7 @@ type ParsedConfig struct {
 	CollectDisk      bool
 	CollectNetwork   bool
 	CollectProcesses bool
+	ProcessLimit     int
 	DiskPaths        []string
 	DiskExcludePaths []string
 	Thresholds       map[string]string
@@ -112,6 +121,7 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 		CollectDisk:      c.CollectDisk,
 		CollectNetwork:   c.CollectNetwork,
 		CollectProcesses: c.CollectProcesses,
+		ProcessLimit:     c.ProcessLimit,
 		DiskPaths:        c.DiskPaths,
 		DiskExcludePaths: c.DiskExcludePaths,
 		Thresholds:       c.Thresholds,
@@ -133,6 +143,10 @@ func (c *Config) Parse() (*ParsedConfig, error) {
 		}
 
 		parsed.SampleInterval = d
+	}
+
+	if parsed.ProcessLimit <= 0 {
+		parsed.ProcessLimit = DefaultProcessLimit
 	}
 
 	// Initialize thresholds map if nil
@@ -178,6 +192,9 @@ func (c *Config) MergeWithDefaults() Config {
 	merged.CollectDisk = c.CollectDisk
 	merged.CollectNetwork = c.CollectNetwork
 	merged.CollectProcesses = c.CollectProcesses
+	if c.ProcessLimit > 0 {
+		merged.ProcessLimit = c.ProcessLimit
+	}
 
 	if len(c.DiskPaths) > 0 {
 		merged.DiskPaths = c.DiskPaths
