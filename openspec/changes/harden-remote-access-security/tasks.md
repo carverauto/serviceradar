@@ -1071,10 +1071,11 @@ Result: solid container-level baseline (drop ALL caps, `runAsNonRoot`, no prives
       Why: Mutable tag means a compromised registry / re-tag silently ships malicious code on the next pull.
       Fix: Default to a versioned tag; expose `image.digests.*` per service; helm-lint or CI gate that refuses `:latest` in production install.
 
-- [ ] 6.P.11 [L] eBPF agent's `hostPath` mounts lack inline justification
+- [x] 6.P.11 [L] eBPF agent's `hostPath` mounts lack inline justification
       Where: `helm/serviceradar/templates/agent.yaml:112-120` (`/sys/fs/bpf`, `/sys/kernel/btf`, `/sys/fs/cgroup`) (working tree)
       Why: Reviewers can't tell which mounts are load-bearing vs leftover; pairs with 6.P.2 — once `privileged: true` is dropped, the minimum mount set should be reflected here.
       Fix: Inline comment block per mount with the specific BPF feature that needs it; CI test that asserts the manifest matches the documented set.
+      Resolution: Closed with inline chart comments documenting why each eBPF hostPath exists: bpffs for pinned BPF objects, kernel BTF for CO-RE loading, and cgroupfs for cgroup-attached probes. Helm render validation now covers the documented mount names and paths.
 
 **Per-pod summary:**
 
