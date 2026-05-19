@@ -2460,6 +2460,17 @@ func (s *SYNScanner) ScanStream(
 	targets <-chan models.Target,
 	opts StreamOptions,
 ) (<-chan models.Result, <-chan error, error) {
+	return scanStreamBatched(ctx, targets, opts, s.Scan)
+}
+
+type scanBatchFunc func(context.Context, []models.Target) (<-chan models.Result, error)
+
+func scanStreamBatched(
+	ctx context.Context,
+	targets <-chan models.Target,
+	opts StreamOptions,
+	scanBatch scanBatchFunc,
+) (<-chan models.Result, <-chan error, error) {
 	batchSize := opts.BatchSize
 	if batchSize <= 0 {
 		batchSize = 100000
@@ -2484,7 +2495,7 @@ func (s *SYNScanner) ScanStream(
 				return nil
 			}
 
-			results, err := s.Scan(ctx, batch)
+			results, err := scanBatch(ctx, batch)
 			if err != nil {
 				return err
 			}

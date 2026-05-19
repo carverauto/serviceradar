@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -268,6 +269,92 @@ func TestProcessEthernetFrameICMPv6IgnoresWrongEmbeddedTarget(t *testing.T) {
 		t.Fatalf("unexpected result from wrong embedded IPv6 target: %#v", result)
 	case <-time.After(50 * time.Millisecond):
 	}
+}
+
+func TestScanStreamBatchedKeepsTargetBatchesBounded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	targets := make(chan models.Target)
+
+	var batches [][]models.Target
+	scanBatch := func(_ context.Context, batch []models.Target) (<-chan models.Result, error) {
+		copied := append([]models.Target(nil), batch...)
+		batches = append(batches, copied)
+
+		results := make(chan models.Result, len(batch))
+		for _, target := range batch {
+			results <- models.Result{Target: target}
+		}
+		close(results)
+
+		return results, nil
+	}
+
+	resultCh, errCh, err := scanStreamBatched(ctx, targets, StreamOptions{BatchSize: 2}, scanBatch)
+	require.NoError(t, err)
+
+	go func() {
+		defer close(targets)
+
+		targets <- models.Target{Host: "2001:db8::1", Port: 22, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::2", Port: 22, Mode: models.ModeICMP}
+		targets <- models.Target{Host: "2001:db8::3", Port: 443, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::4", Port: 8443, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::5", Port: 3389, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::6", Port: 8080, Mode: models.ModeTCP}
+	}()
+
+	var got []models.Result
+	for result := range resultCh {
+		got = append(got, result)
+	}
+
+	require.Len(t, batches, 3)
+	assert.Len(t, batches[0], 2)
+	assert.Len(t, batches[1], 2)
+	assert.Len(t, batches[2], 1)
+	assert.Len(t, got, 5)
+
+	for _, batch := range batches {
+		assert.LessOrEqual(t, len(batch), 2)
+		for _, target := range batch {
+			assert.Equal(t, models.ModeTCP, target.Mode)
+		}
+	}
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	default:
+	}
+}
+
+func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		retryAttempts:  3,
+		retryMinJitter: time.Millisecond,
+		retryMaxJitter: time.Millisecond,
+		retryCh:        make(chan retryItem, 8),
+		rand:           rand.New(rand.NewSource(1)),
+	}
+
+	scanner.enqueueRetriesForBatch([]models.Target{
+		{Host: "2001:db8::20", Port: 443, Mode: models.ModeTCP},
+	})
+	scanner.recordRateLimitWait(25 * time.Millisecond)
+	scanner.recordSourcePortWait(10 * time.Millisecond)
+
+	stats := scanner.GetStats()
+	assert.Equal(t, uint64(2), stats.RetriesAttempted)
+	assert.Equal(t, 2, len(scanner.retryCh))
+	assert.Equal(t, uint64(2), stats.RateLimitDeferrals)
+	assert.Equal(t, uint64(1), stats.RateLimitWaits)
+	assert.Equal(t, uint64(1), stats.SourcePortWaits)
+	assert.Equal(t, uint64(25*time.Millisecond), stats.RateLimitWaitNanos)
+	assert.Equal(t, uint64(10*time.Millisecond), stats.SourcePortWaitNanos)
 }
 
 func newTestSYNScannerForIPv6Reply(
