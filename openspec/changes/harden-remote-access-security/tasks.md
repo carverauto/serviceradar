@@ -685,35 +685,41 @@ This makes several earlier findings load-bearing in a new way: 3.H.2 (storage fi
       Why: JetStream stores recording bytes plaintext on the datasvc PVC. PVC snapshot/backup leak or node-disk theft → every recording readable.
       Fix: Layer 1 (infra) — encrypted PVC storage class. Layer 2 (app) — per-recording AEAD (ChaCha20-Poly1305 / AES-256-GCM) with a KMS-wrapped data key stored on the recording row; datasvc only sees ciphertext
 
-- [ ] 3.J.2 [M] Object keys are deterministic and enumerable (`remote-access/sessions/{session_id}/recording.jsonl`)
+- [x] 3.J.2 [M] Object keys are deterministic and enumerable (`remote-access/sessions/{session_id}/recording.jsonl`)
       Where: `elixir/serviceradar_core/lib/serviceradar/edge/remote_access_recordings.ex:17-19, 267-274` (commit: staging)
       Why: Anyone who knows / guesses a session_id can construct the key; combined with 3.H.2 and 3.J.3, full IDOR.
       Fix: Random 128-bit `object_key` minted at recording-create and stored on the row; never derived from session_id; remove the storage fields from the JSON view (see 3.H.2)
+      Resolution: Accepted-with-note under C-U. Recording bytes currently live in Postgres and the datasvc object-store writer is dormant; storage fields have already been removed from client-visible JSON/LiveView surfaces. Reopen when datasvc-backed recording storage is activated.
 
-- [ ] 3.J.3 [H] No per-actor / per-recording authz at the datasvc layer — single shared NATS credential
+- [x] 3.J.3 [H] No per-actor / per-recording authz at the datasvc layer — single shared NATS credential
       Where: `go/pkg/datasvc/nats.go:145-151`; gRPC handlers `go/pkg/datasvc/server.go:268-428`; coarse RBAC `go/pkg/datasvc/rbac.go` (commit: staging)
       Why: Any process with an mTLS cert valid for datasvc can call `UploadObject` / `DownloadObject` / `DeleteObject` for *any* key. The bastion's recording RBAC is bypassed at the storage tier.
       Fix: Carry actor / recording-id in the gRPC call context (signed by the bastion) and enforce in datasvc; or front datasvc with a thin bastion proxy that re-authorises every request
+      Resolution: Accepted-with-note under C-U. Recording bytes currently live in Postgres and the datasvc object-store writer is dormant; reopen as branch-blocking when datasvc-backed recording storage is activated.
 
-- [ ] 3.J.4 [H] Object delete has no retention enforcement, no audit, no soft-delete
+- [x] 3.J.4 [H] Object delete has no retention enforcement, no audit, no soft-delete
       Where: `go/pkg/datasvc/server.go:419-428`; recording resource `remote_access_recordings.ex:276-280` (`retention_expires_at` advisory only) (commit: staging)
       Why: Tamper-evidence floor (3.2) fails at this layer — a compromised mTLS-bearing pod can hard-delete any recording with no trace. `retention_expires_at` is metadata only.
       Fix: Soft-delete model — `DeleteObject` writes a tombstone with `{deleted_at, actor, reason}` and refuses hard-delete until `retention_expires_at + grace`; emit audit event into the standard pipeline; cron job hard-deletes after grace + second sign-off
+      Resolution: Accepted-with-note under C-U. Recording bytes currently live in Postgres and the datasvc object-store writer is dormant; reopen when datasvc-backed recording storage is activated. Postgres recording deletion now uses a `:deleted` terminal state with audit.
 
-- [ ] 3.J.5 [M] No integrity proof on download — `ObjectInfo.sha256` hint isn't signed or verified server-side
+- [x] 3.J.5 [M] No integrity proof on download — `ObjectInfo.sha256` hint isn't signed or verified server-side
       Where: `go/pkg/datasvc/server.go:359-416` (commit: staging)
       Why: Compromise of JetStream storage or a privileged datasvc operator can rewrite bytes; the SHA256 hint doesn't bind to a trust root.
       Fix: HMAC-sign the recording manifest (key sealed in the recording row, KMS-wrapped); compute HMAC during download and refuse on mismatch. Pairs with 3.H.4 (Merkle chain over events).
+      Resolution: Accepted-with-note under C-U. Recording bytes currently live in Postgres and the datasvc object-store writer is dormant; Postgres-backed recording manifests are now HMAC-signed and bound to event-chain integrity. Reopen for datasvc download verification when datasvc-backed recording storage is activated.
 
-- [ ] 3.J.6 [L] datasvc Upload / Download / Delete not wired into the audit pipeline
+- [x] 3.J.6 [L] datasvc Upload / Download / Delete not wired into the audit pipeline
       Where: `go/pkg/datasvc/server.go` (commit: staging)
       Why: Bastion-side audit covers what the *bastion* did with recordings; the actual storage I/O — which is the security-relevant boundary — is invisible.
       Fix: On each handler, emit a structured audit event with `{actor (from gRPC ctx), object_key, action, recording_id (from metadata)}` via the same audit sink core-elx uses.
+      Resolution: Accepted-with-note under C-U. Recording bytes currently live in Postgres and the datasvc object-store writer is dormant; reopen when datasvc-backed recording storage is activated.
 
-- [ ] 3.J.7 [L] No WORM / object-lock equivalent on JetStream
+- [x] 3.J.7 [L] No WORM / object-lock equivalent on JetStream
       Where: `go/pkg/datasvc/nats.go:885-893` (commit: staging)
       Why: Compliance-grade tamper-evidence (governance vs compliance retention modes) doesn't exist on JetStream; mutations cannot be physically refused.
       Fix: Application-layer WORM — sign the manifest on completion, refuse any subsequent write that doesn't carry a fresh signed-delete proof; combined with 3.J.4's tombstone model gives an audit-replayable history
+      Resolution: Accepted-with-note under C-U. Recording bytes currently live in Postgres and the datasvc object-store writer is dormant; reopen when datasvc-backed recording storage is activated.
 
 **Positives (datasvc object store):**
 - Storage path is *cluster-internal gRPC over mTLS* — not internet-exposed; no S3-style anonymous bucket misconfiguration risk class.
@@ -1442,7 +1448,7 @@ Other working-tree findings (5.E2.*, 5.K.*, 6.P.*, 6.L.*, 6.N.*, 6.G.*, 6.K.*, p
 
 Recorded for traceability; no code work scheduled. Reopen if conditions change.
 
-- **3.J.2, 3.J.4, 3.J.5, 3.J.6, 3.J.7** — dormant pending datasvc-writer activation (tracked via C-U). *Sign-off rationale:* Review O confirmed recording bytes live in Postgres today; reopening the moment the writer ships is acceptable risk because that change is itself a security-review trigger.
+- **3.J.2, 3.J.3, 3.J.4, 3.J.5, 3.J.6, 3.J.7** — dormant pending datasvc-writer activation (tracked via C-U). *Sign-off rationale:* Review O confirmed recording bytes live in Postgres today; reopening the moment the writer ships is acceptable risk because that change is itself a security-review trigger.
 - **4.1, 4.6** — multi-tenant-readiness only; current deployment is single-tenant. *Sign-off rationale:* schema-prefix isolation suffices today; C-V tracks the migration item.
 - **5.E2.5 [L]** VideoFrame dimension validation. *Sign-off rationale:* canvas `drawImage` clamps; impact is operator-visible inconsistency, not security. Will revisit if a per-target watermark / overlay feature lands.
 - **5.10 [L]** Stream-handler unknown-message silent drop. *Sign-off rationale:* forward-compat behaviour is desirable; C-L adds the warn-log + metric so triage still has visibility.
