@@ -91,6 +91,108 @@ func TestParseIPv6(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotIPv6)
 }
 
+func TestProcessEthernetFrameIPv6TCPReply(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		flags     uint8
+		available bool
+		wantErr   error
+	}{
+		{
+			name:      "syn ack",
+			flags:     synFlag | ackFlag,
+			available: true,
+		},
+		{
+			name:      "rst",
+			flags:     rstFlag,
+			available: false,
+			wantErr:   ErrPortClosed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			local := net.ParseIP("2001:db8::10")
+			remote := net.ParseIP("2001:db8::20")
+			ourSrc := uint16(40000)
+			targetPort := uint16(443)
+			key := net.JoinHostPort(remote.String(), "443")
+
+			resultCh := make(chan models.Result, 1)
+			scanner := &SYNScanner{
+				portTargetMap: map[uint16]string{ourSrc: key},
+				targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},
+				targetIP:      map[string]string{key: remote.String()},
+				results: map[string]models.Result{key: {
+					Target:    models.Target{Host: remote.String(), Port: int(targetPort), Mode: models.ModeTCP},
+					FirstSeen: time.Now(),
+					LastSeen:  time.Now(),
+				}},
+				portAlloc: NewPortAllocator(ourSrc, ourSrc),
+				logger:    logger.NewTestLogger(),
+			}
+			scanner.resultCallback = func(result models.Result) {
+				resultCh <- result
+			}
+
+			scanner.processEthernetFrame(buildTCPReplyFrameIPv6(local, remote, ourSrc, targetPort, tt.flags))
+
+			select {
+			case result := <-resultCh:
+				assert.Equal(t, tt.available, result.Available)
+				if tt.wantErr != nil {
+					assert.ErrorIs(t, result.Error, tt.wantErr)
+				} else {
+					assert.NoError(t, result.Error)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for IPv6 TCP reply result")
+			}
+		})
+	}
+}
+
+func TestProcessEthernetFrameIPv6IgnoresWrongSource(t *testing.T) {
+	t.Parallel()
+
+	local := net.ParseIP("2001:db8::10")
+	remote := net.ParseIP("2001:db8::20")
+	wrongRemote := net.ParseIP("2001:db8::21")
+	ourSrc := uint16(40000)
+	targetPort := uint16(443)
+	key := net.JoinHostPort(remote.String(), "443")
+
+	resultCh := make(chan models.Result, 1)
+	scanner := &SYNScanner{
+		portTargetMap: map[uint16]string{ourSrc: key},
+		targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},
+		targetIP:      map[string]string{key: remote.String()},
+		results: map[string]models.Result{key: {
+			Target:    models.Target{Host: remote.String(), Port: int(targetPort), Mode: models.ModeTCP},
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+		}},
+		portAlloc: NewPortAllocator(ourSrc, ourSrc),
+		logger:    logger.NewTestLogger(),
+	}
+	scanner.resultCallback = func(result models.Result) {
+		resultCh <- result
+	}
+
+	scanner.processEthernetFrame(buildTCPReplyFrameIPv6(local, wrongRemote, ourSrc, targetPort, synFlag|ackFlag))
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("unexpected result from wrong IPv6 source: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 func permissionError(err error) bool {
 	if err == nil {
 		return false
@@ -99,6 +201,32 @@ func permissionError(err error) bool {
 	return errors.Is(err, syscall.EPERM) ||
 		errors.Is(err, syscall.EACCES) ||
 		strings.Contains(err.Error(), "requires root")
+}
+
+func buildTCPReplyFrameIPv6(localIP, remoteIP net.IP, dstPort, srcPort uint16, flags uint8) []byte {
+	frame := make([]byte, ethernetHeaderSize+ipv6HeaderSize+tcpHeaderMinSize)
+	eth := frame[:ethernetHeaderSize]
+	binary.BigEndian.PutUint16(eth[12:], etherTypeIPv6)
+
+	ip := frame[ethernetHeaderSize : ethernetHeaderSize+ipv6HeaderSize]
+	ip[0] = 0x60
+	binary.BigEndian.PutUint16(ip[4:], tcpHeaderMinSize)
+	ip[6] = syscall.IPPROTO_TCP
+	ip[7] = defaultTTL
+	copy(ip[8:24], remoteIP.To16())
+	copy(ip[24:40], localIP.To16())
+
+	tcp := frame[ethernetHeaderSize+ipv6HeaderSize:]
+	binary.BigEndian.PutUint16(tcp[0:], srcPort)
+	binary.BigEndian.PutUint16(tcp[2:], dstPort)
+	binary.BigEndian.PutUint32(tcp[4:], 0xABCDEF01)
+	binary.BigEndian.PutUint32(tcp[8:], 0)
+	tcp[12] = 5 << 4
+	tcp[13] = flags
+	binary.BigEndian.PutUint16(tcp[14:], defaultTCPWindow)
+	binary.BigEndian.PutUint16(tcp[16:], TCPChecksumIPv6New(remoteIP, localIP, tcp, nil))
+
+	return frame
 }
 
 func TestNewSYNScanner(t *testing.T) {

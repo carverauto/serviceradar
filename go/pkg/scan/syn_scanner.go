@@ -566,7 +566,7 @@ type SYNScanner struct {
 	mu            sync.Mutex
 	portTargetMap map[uint16]string   // Maps source port -> target key ("ip:port")
 	targetPorts   map[string][]uint16 // Maps target key -> source ports (reverse index)
-	targetIP      map[string][4]byte  // target key -> dest IPv4 bytes
+	targetIP      map[string]string   // target key -> canonical destination IP
 	results       map[string]models.Result
 
 	portAlloc *PortAllocator
@@ -1589,7 +1589,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		// Initialize maps to prevent nil pointer dereference
 		portTargetMap: make(map[uint16]string),
 		targetPorts:   make(map[string][]uint16),
-		targetIP:      make(map[string][4]byte),
+		targetIP:      make(map[string]string),
 		results:       make(map[string]models.Result),
 		portDeadline:  make(map[uint16]time.Time),
 		// Initialize thread-safe random source for IP ID generation
@@ -2191,7 +2191,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	s.results = make(map[string]models.Result, len(tcpTargets))
 	s.portTargetMap = make(map[uint16]string, len(tcpTargets))
 	s.targetPorts = make(map[string][]uint16, len(tcpTargets))
-	s.targetIP = make(map[string][4]byte, len(tcpTargets))
+	s.targetIP = make(map[string]string, len(tcpTargets))
 
 	s.mu.Unlock()
 
@@ -2400,7 +2400,7 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		// Reset maps to allow GC of large per-scan state
 		s.portTargetMap = make(map[uint16]string)
 		s.targetPorts = make(map[string][]uint16)
-		s.targetIP = make(map[string][4]byte)
+		s.targetIP = make(map[string]string)
 		s.results = make(map[string]models.Result)
 		s.portDeadline = make(map[uint16]time.Time)
 		s.retryCh = nil
@@ -2595,37 +2595,92 @@ func (s *SYNScanner) listenForReplies(ctx context.Context) {
 
 // processEthernetFrame parses an Ethernet frame and extracts TCP response information.
 func (s *SYNScanner) processEthernetFrame(frame []byte) {
+	reply, ok := parseTCPReplyFromEthernet(frame)
+	if !ok {
+		return
+	}
+
+	s.processTCPReply(reply.srcIP, reply.tcp)
+}
+
+type tcpReplyFrame struct {
+	srcIP net.IP
+	tcp   *TCPHdr
+}
+
+func parseTCPReplyFromEthernet(frame []byte) (tcpReplyFrame, bool) {
 	ethType, l3off, err := ethernetL3(frame)
-	if err != nil || ethType != etherTypeIPv4 {
-		return
+	if err != nil {
+		return tcpReplyFrame{}, false
 	}
 
-	if len(frame) < l3off+20 {
-		return
+	switch ethType {
+	case etherTypeIPv4:
+		return parseIPv4TCPReply(frame, l3off)
+	case etherTypeIPv6:
+		return parseIPv6TCPReply(frame, l3off)
+	default:
+		return tcpReplyFrame{}, false
 	}
+}
 
+func parseIPv4TCPReply(frame []byte, l3off int) (tcpReplyFrame, bool) {
+	if len(frame) < l3off+ipv4HeaderMinSize {
+		return tcpReplyFrame{}, false
+	}
 	ip, ipLen, err := parseIPv4(frame[l3off:])
 	if err != nil || ip.Protocol != syscall.IPPROTO_TCP {
-		return
+		return tcpReplyFrame{}, false
 	}
-
-	if len(frame) < l3off+ipLen+20 {
-		return
+	if len(frame) < l3off+ipLen+tcpHeaderMinSize {
+		return tcpReplyFrame{}, false
 	}
 
 	tcp, _, err := parseTCP(frame[l3off+ipLen:])
 	if err != nil {
-		return
+		return tcpReplyFrame{}, false
 	}
 
+	return tcpReplyFrame{srcIP: ip.SrcIP, tcp: tcp}, true
+}
+
+func parseIPv6TCPReply(frame []byte, l3off int) (tcpReplyFrame, bool) {
+	if len(frame) < l3off+ipv6HeaderSize {
+		return tcpReplyFrame{}, false
+	}
+	ip, ipLen, err := parseIPv6(frame[l3off:])
+	if err != nil || ip.NextHeader != syscall.IPPROTO_TCP {
+		return tcpReplyFrame{}, false
+	}
+	if len(frame) < l3off+ipLen+tcpHeaderMinSize {
+		return tcpReplyFrame{}, false
+	}
+
+	tcp, _, err := parseTCP(frame[l3off+ipLen:])
+	if err != nil {
+		return tcpReplyFrame{}, false
+	}
+
+	return tcpReplyFrame{srcIP: ip.SrcIP, tcp: tcp}, true
+}
+
+func sameCanonicalIPString(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+
+	return canonicalIPString(a) == canonicalIPString(b)
+}
+
+func (s *SYNScanner) processTCPReply(srcIP net.IP, tcp *TCPHdr) {
 	// Update stats counter for each parsed packet
 	atomic.AddUint64(&s.stats.PacketsRecv, 1)
 
 	// Precompute inexpensive bits *outside* the lock.
 	now := time.Now()
 
-	src4 := ip.SrcIP.To4()
-	if src4 == nil {
+	src := canonicalIPString(srcIP.String())
+	if src == "" {
 		return
 	}
 
@@ -2649,9 +2704,7 @@ func (s *SYNScanner) processEthernetFrame(frame []byte) {
 		return
 	}
 
-	want := s.targetIP[targetKey]
-
-	if src4[0] != want[0] || src4[1] != want[1] || src4[2] != want[2] || src4[3] != want[3] {
+	if !sameCanonicalIPString(src, s.targetIP[targetKey]) {
 		s.mu.Unlock()
 		return
 	}
@@ -2820,11 +2873,6 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		// Update successful port allocation counter
 		atomic.AddUint64(&s.stats.PortsAllocated, 1)
 
-		// Update maps under lock (same as sendSyn)
-		var want [4]byte
-
-		copy(want[:], dst4)
-
 		s.mu.Lock()
 
 		if s.portTargetMap == nil {
@@ -2836,7 +2884,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 		}
 
 		if s.targetIP == nil {
-			s.targetIP = make(map[string][4]byte)
+			s.targetIP = make(map[string]string)
 		}
 
 		if s.results == nil {
@@ -2845,7 +2893,7 @@ func (s *SYNScanner) sendSynBatch(ctx context.Context, targets []models.Target) 
 
 		s.portTargetMap[srcPort] = key
 		s.targetPorts[key] = append(s.targetPorts[key], srcPort)
-		s.targetIP[key] = want
+		s.targetIP[key] = net.IP(dst4).String()
 
 		if existing, ok := s.results[key]; ok && !existing.FirstSeen.IsZero() {
 			existing.LastSeen = time.Now()
