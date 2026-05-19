@@ -269,6 +269,9 @@ core:
       existingClaim: ""
   migrations:
     enabled: true
+    # Defaults to global.imagePullPolicy when unset.
+    imagePullPolicy: ""
+    podAnnotations: {}
     markerPath: /var/lib/serviceradar/migrations/complete
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
