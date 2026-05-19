@@ -826,50 +826,65 @@ func estimateTargetCount(config *models.Config) int {
 
 	// Count targets from global networks and sweep modes
 	for _, network := range config.Networks {
-		hostCount, err := countCIDRHosts(network)
+		targetCount, err := countCIDRTargets(network, config.SweepModes, len(config.Ports))
 		if err != nil {
 			continue
 		}
 
-		if containsMode(config.SweepModes, models.ModeICMP) {
-			total = saturatingAdd(total, hostCount)
-		}
-
-		if containsMode(config.SweepModes, models.ModeTCP) {
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
-
-		if containsMode(config.SweepModes, models.ModeTCPConnect) {
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
+		total = saturatingAdd(total, targetCount)
 	}
 
 	// Count targets from device-specific configurations
 	for _, deviceTarget := range config.DeviceTargets {
-		hostCount, err := countCIDRHosts(deviceTarget.Network)
-		if err != nil {
-			continue
-		}
-
 		// Use device-specific sweep modes if available, otherwise fall back to global
 		sweepModes := deviceTarget.SweepModes
 		if len(sweepModes) == 0 {
 			sweepModes = config.SweepModes
 		}
 
-		if containsMode(sweepModes, models.ModeICMP) {
-			total = saturatingAdd(total, hostCount)
+		targetCount, err := countCIDRTargets(deviceTarget.Network, sweepModes, len(config.Ports))
+		if err != nil {
+			continue
 		}
 
-		if containsMode(sweepModes, models.ModeTCP) {
-			// DeviceTarget doesn't have its own ports, use global ports
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
+		total = saturatingAdd(total, targetCount)
+	}
 
-		if containsMode(sweepModes, models.ModeTCPConnect) {
-			// DeviceTarget doesn't have its own ports, use global ports
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
+	return total
+}
+
+func countCIDRTargets(cidr string, sweepModes []models.SweepMode, portCount int) (int, error) {
+	hostCount, err := countCIDRHosts(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	baseIP, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	return countTargetsForHostCount(hostCount, baseIP.To4() == nil, sweepModes, portCount), nil
+}
+
+func countTargetsForHostCount(hostCount int, ipv6 bool, sweepModes []models.SweepMode, portCount int) int {
+	if hostCount <= 0 {
+		return 0
+	}
+
+	effectiveModes := effectiveSweepModes(ipv6, sweepModes)
+	total := 0
+
+	if containsMode(effectiveModes, models.ModeICMP) {
+		total = saturatingAdd(total, hostCount)
+	}
+
+	if containsMode(effectiveModes, models.ModeTCP) {
+		total = saturatingAdd(total, saturatingMul(hostCount, portCount))
+	}
+
+	if containsMode(effectiveModes, models.ModeTCPConnect) {
+		total = saturatingAdd(total, saturatingMul(hostCount, portCount))
 	}
 
 	return total
@@ -1567,6 +1582,22 @@ func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
 
 // generateTargetsForNetwork creates targets for a legacy network configuration
 func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Target, int, error) {
+	sweepModes, supported, err := effectiveSweepModesForCIDR(network, s.config.SweepModes)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !supported {
+		return nil, 0, nil
+	}
+
+	hostCount, err := countCIDRHosts(network)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := validateCIDRExpansion(network, hostCount); err != nil {
+		return nil, 0, err
+	}
+
 	ips, err := scan.ExpandCIDR(network)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to expand CIDR %s: %w", network, err)
@@ -1581,7 +1612,7 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 	}
 
 	for _, ip := range ips {
-		targets = append(targets, s.createTargetsForIP(ip, s.config.SweepModes, metadata)...)
+		targets = append(targets, s.createTargetsForIP(ip, sweepModes, metadata)...)
 	}
 
 	return targets, len(ips), nil
@@ -1589,6 +1620,50 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 
 // generateTargetsForDeviceTarget creates targets for a device target configuration
 func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
+	// Use device-specific sweep modes if available, otherwise fall back to global
+	sweepModes := deviceTarget.SweepModes
+	if len(sweepModes) == 0 {
+		s.logger.Debug().
+			Str("device", deviceTarget.Network).
+			Msg("Device target has no sweep modes, using global config")
+
+		sweepModes = s.config.SweepModes
+	}
+
+	effectiveModes, supported, err := effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to classify device target IP family, skipping")
+
+		return targets, hostCount
+	}
+	if !supported {
+		return targets, hostCount
+	}
+
+	estimatedHostCount, err := countCIDRHosts(deviceTarget.Network)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to count device target CIDR, skipping")
+
+		return targets, hostCount
+	}
+	if err := validateCIDRExpansion(deviceTarget.Network, estimatedHostCount); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Device target CIDR is too broad for sweep expansion, skipping")
+
+		return targets, hostCount
+	}
+
 	// Always expand and use the primary network (e.g., a single /32).
 	// We intentionally ignore any additional IP lists in metadata (e.g., "all_ips").
 	ips, err := scan.ExpandCIDR(deviceTarget.Network)
@@ -1616,21 +1691,11 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		metadata[k] = v
 	}
 
-	// Use device-specific sweep modes if available, otherwise fall back to global
-	sweepModes := deviceTarget.SweepModes
-	if len(sweepModes) == 0 {
-		s.logger.Debug().
-			Str("device", deviceTarget.Network).
-			Msg("Device target has no sweep modes, using global config")
-
-		sweepModes = s.config.SweepModes
-	}
-
 	s.logger.Debug().
 		Str("device", deviceTarget.Network).
 		Strs("sweep_modes", func() []string {
-			modes := make([]string, 0, len(sweepModes))
-			for _, m := range sweepModes {
+			modes := make([]string, 0, len(effectiveModes))
+			for _, m := range effectiveModes {
 				modes = append(modes, string(m))
 			}
 			return modes
@@ -1640,7 +1705,7 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		Msg("Generating targets for device")
 
 	for _, ip := range targetIPs {
-		targets = append(targets, s.createTargetsForIP(ip, sweepModes, metadata)...)
+		targets = append(targets, s.createTargetsForIP(ip, effectiveModes, metadata)...)
 	}
 
 	hostCount = len(targetIPs)
@@ -1652,9 +1717,20 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 	totalHostCount := 0
 
 	for _, network := range s.config.Networks {
+		sweepModes, supported, err := effectiveSweepModesForCIDR(network, s.config.SweepModes)
+		if err != nil {
+			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+		if !supported {
+			continue
+		}
+
 		hostCount, err := countCIDRHosts(network)
 		if err != nil {
 			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+		if err := validateCIDRExpansion(network, hostCount); err != nil {
+			return err
 		}
 
 		metadata := map[string]interface{}{
@@ -1664,7 +1740,7 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 		}
 
 		visited, err := forEachCIDRHost(network, func(ip string) error {
-			return s.emitTargetsForIP(ip, s.config.SweepModes, metadata, consume)
+			return s.emitTargetsForIP(ip, sweepModes, metadata, consume)
 		})
 		if err != nil {
 			return fmt.Errorf("failed to generate targets for CIDR %s: %w", network, err)
@@ -1705,8 +1781,19 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 			sweepModes = s.config.SweepModes
 		}
 
+		effectiveModes, supported, err := effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes)
+		if err != nil {
+			return fmt.Errorf("failed to parse device CIDR %s: %w", deviceTarget.Network, err)
+		}
+		if !supported {
+			continue
+		}
+		if err := validateCIDRExpansion(deviceTarget.Network, hostCount); err != nil {
+			return err
+		}
+
 		visited, err := forEachCIDRHost(deviceTarget.Network, func(ip string) error {
-			return s.emitTargetsForIP(ip, sweepModes, metadata, consume)
+			return s.emitTargetsForIP(ip, effectiveModes, metadata, consume)
 		})
 		if err != nil {
 			return fmt.Errorf("failed to generate targets for device CIDR %s: %w", deviceTarget.Network, err)
@@ -1795,6 +1882,8 @@ func (s *NetworkSweeper) emitTargetsForIP(
 	metadata map[string]interface{},
 	emit func(models.Target) error,
 ) error {
+	sweepModes = effectiveSweepModesForIP(ip, sweepModes)
+
 	if containsMode(sweepModes, models.ModeICMP) {
 		target := scan.TargetFromIP(ip, models.ModeICMP)
 		target.Metadata = metadata
@@ -1821,6 +1910,58 @@ func (s *NetworkSweeper) emitTargetsForIP(
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+func effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {
+	baseIP, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, false, err
+	}
+
+	modes := effectiveSweepModes(baseIP.To4() == nil, sweepModes)
+
+	return modes, len(modes) > 0, nil
+}
+
+func effectiveSweepModesForIP(ip string, sweepModes []models.SweepMode) []models.SweepMode {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return sweepModes
+	}
+
+	return effectiveSweepModes(parsed.To4() == nil, sweepModes)
+}
+
+func effectiveSweepModes(ipv6 bool, sweepModes []models.SweepMode) []models.SweepMode {
+	if !ipv6 {
+		return sweepModes
+	}
+
+	modes := make([]models.SweepMode, 0, len(sweepModes))
+	if containsMode(sweepModes, models.ModeICMP) {
+		modes = append(modes, models.ModeICMP)
+	}
+
+	// Native IPv6 raw SYN scanning is not wired yet. Preserve IPv6 TCP
+	// reachability by routing requested TCP port checks through connect().
+	if containsMode(sweepModes, models.ModeTCP) || containsMode(sweepModes, models.ModeTCPConnect) {
+		modes = append(modes, models.ModeTCPConnect)
+	}
+
+	return modes
+}
+
+func validateCIDRExpansion(cidr string, hostCount int) error {
+	baseIP, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return err
+	}
+
+	if baseIP.To4() == nil && hostCount > defaultTargetBatch {
+		return fmt.Errorf("IPv6 CIDR %s expands to %d hosts, above limit %d", cidr, hostCount, defaultTargetBatch)
 	}
 
 	return nil

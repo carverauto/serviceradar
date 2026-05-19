@@ -36,6 +36,8 @@ var (
 	ErrScanAlreadyRunning = errors.New("scan already running")
 	ErrScanTimedOut       = errors.New("scan timed out")
 	ErrPortClosed         = errors.New("port closed (RST)")
+	ErrICMPv4Unavailable  = errors.New("ICMPv4 scanner unavailable")
+	ErrICMPv6Unavailable  = errors.New("ICMPv6 scanner unavailable")
 
 	// Interface errors
 	ErrNoSuitableInterface = errors.New("no suitable local IP address and interface found")

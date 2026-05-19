@@ -97,6 +97,7 @@ const (
 
 	// Ethernet type
 	etherTypeIPv4 = 0x0800
+	etherTypeIPv6 = 0x86DD
 	etherTypeVLAN = 0x8100
 	etherTypeQinQ = 0x88A8
 	etherType9100 = 0x9100 // common vendor tag
@@ -2073,7 +2074,7 @@ func (s *SYNScanner) enqueueRetriesForBatch(batch []models.Target) {
 //
 //nolint:gocyclo // Complex scanning logic with multiple execution paths and error handling
 func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	tcpTargets := filterTCPTargets(targets)
+	tcpTargets := filterSYNTargets(targets)
 	resultCh := make(chan models.Result, len(tcpTargets))
 
 	if len(tcpTargets) == 0 {
@@ -2358,6 +2359,18 @@ func (s *SYNScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	}()
 
 	return resultCh, nil
+}
+
+func filterSYNTargets(targets []models.Target) []models.Target {
+	var filtered []models.Target
+
+	for _, t := range targets {
+		if t.Mode == models.ModeTCP {
+			filtered = append(filtered, t)
+		}
+	}
+
+	return filtered
 }
 
 // ScanStream consumes targets incrementally and runs the existing SYN packet

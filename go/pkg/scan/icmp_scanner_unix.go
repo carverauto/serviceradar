@@ -29,6 +29,7 @@ import (
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -48,6 +49,7 @@ type ICMPSweeper struct {
 	icmpCount   int // number of ICMP packets to send per target
 	rawSocketFD int
 	conn        *icmp.PacketConn
+	conn6       *icmp.PacketConn
 	mu          sync.Mutex
 	results     map[string]models.Result
 	cancel      context.CancelFunc
@@ -62,13 +64,13 @@ type ICMPSweeper struct {
 
 // hostICMPStats tracks ICMP statistics per host for multi-packet scanning
 type hostICMPStats struct {
-	sent          int
-	received      int
-	totalRTT      time.Duration // sum of all response times for averaging
-	firstSeen     time.Time
-	lastSeen      time.Time
-	sendTimes     map[int]time.Time // send time per sequence number for accurate RTT
-	mu            sync.Mutex
+	sent      int
+	received  int
+	totalRTT  time.Duration // sum of all response times for averaging
+	firstSeen time.Time
+	lastSeen  time.Time
+	sendTimes map[int]time.Time // send time per sequence number for accurate RTT
+	mu        sync.Mutex
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
@@ -90,22 +92,41 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 	// Create identifier for this scanner instance
 	identifier := int(time.Now().UnixNano() % defaultIdentifierMod)
 
-	// Create raw socket for sending
+	// Create raw socket for IPv4 sending.
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create raw socket: %w", err)
+		log.Warn().Err(err).Msg("Failed to create ICMPv4 raw socket")
+		fd = 0
 	}
 
-	// Create listener for receiving
-	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-	if err != nil {
-		err := syscall.Close(fd)
+	var conn *icmp.PacketConn
+	if fd > 0 {
+		var listenErr error
+
+		// Create IPv4 listener for receiving.
+		conn, listenErr = icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+		if listenErr != nil {
+			if closeErr := syscall.Close(fd); closeErr != nil {
+				log.Error().Err(closeErr).Msg("Failed to close ICMPv4 raw socket")
+				return nil, closeErr
+			}
+
+			fd = 0
+			log.Warn().Err(listenErr).Msg("Failed to create ICMPv4 listener")
+		}
+	}
+
+	conn6, err6 := icmp.ListenPacket("ip6:ipv6-icmp", "::")
+	if err6 != nil {
+		log.Warn().Err(err6).Msg("Failed to create ICMPv6 listener")
+	}
+
+	if conn == nil && conn6 == nil {
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to close ICMP listener")
-			return nil, err
+			return nil, fmt.Errorf("failed to create ICMP sockets: %w", err)
 		}
 
-		return nil, fmt.Errorf("failed to create ICMP listener: %w", err)
+		return nil, fmt.Errorf("failed to create ICMP sockets: %w", err6)
 	}
 
 	s := &ICMPSweeper{
@@ -115,6 +136,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 		icmpCount:   defaultICMPCount,
 		rawSocketFD: fd,
 		conn:        conn,
+		conn6:       conn6,
 		results:     make(map[string]models.Result),
 		hostStats:   make(map[string]*hostICMPStats),
 		logger:      log,
@@ -129,6 +151,8 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 		Int("icmpCount", s.icmpCount).
 		Int("rateLimit", s.rateLimit).
 		Dur("timeout", s.timeout).
+		Bool("ipv4", s.conn != nil).
+		Bool("ipv6", s.conn6 != nil).
 		Msg("Created ICMP sweeper with multi-packet support")
 
 	return s, nil
@@ -269,8 +293,17 @@ func (s *ICMPSweeper) calculatePacketsPerInterval() int {
 
 // prepareEchoRequest builds the ICMP echo request with the given sequence number.
 func (s *ICMPSweeper) prepareEchoRequest(seq int) ([]byte, error) {
+	return s.prepareEchoRequestForFamily(seq, false)
+}
+
+func (s *ICMPSweeper) prepareEchoRequestForFamily(seq int, isIPv6 bool) ([]byte, error) {
+	var msgType icmp.Type = ipv4.ICMPTypeEcho
+	if isIPv6 {
+		msgType = ipv6.ICMPTypeEchoRequest
+	}
+
 	msg := icmp.Message{
-		Type: ipv4.ICMPTypeEcho,
+		Type: msgType,
 		Code: 0,
 		Body: &icmp.Echo{
 			ID:   s.identifier,
@@ -347,22 +380,33 @@ func (*ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {
 // processBatch sends pings to a batch of targets.
 func (s *ICMPSweeper) processBatch(targets []models.Target, data []byte, seq int) {
 	for _, target := range targets {
-		s.sendPingToTarget(target, data, seq)
+		ipAddr := net.ParseIP(target.Host)
+		if ipAddr == nil {
+			continue
+		}
+
+		sendData := data
+		if ipAddr.To4() == nil {
+			var err error
+			sendData, err = s.prepareEchoRequestForFamily(seq, true)
+			if err != nil {
+				s.logger.Error().Err(err).Int("seq", seq).Msg("Error marshaling ICMPv6 message")
+				continue
+			}
+		}
+
+		s.sendPingToTarget(target, sendData, seq)
 	}
 }
 
 // sendPingToTarget sends a single ICMP ping and tracks it in hostStats.
 func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq int) {
 	ipAddr := net.ParseIP(target.Host)
-	if ipAddr == nil || ipAddr.To4() == nil {
-		s.logger.Warn().Str("host", target.Host).Msg("Invalid IPv4 address")
+	if ipAddr == nil {
+		s.logger.Debug().Str("host", target.Host).Msg("Invalid IP address")
 
 		return
 	}
-
-	addr := [4]byte{}
-	copy(addr[:], ipAddr.To4())
-	sockaddr := &syscall.SockaddrInet4{Addr: addr}
 
 	// Record initial result BEFORE sending the first packet to avoid race condition
 	// where handleReply could run before the result exists in the map
@@ -389,10 +433,49 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	stats.sendTimes[seq] = now // Record send time for this sequence number
 	stats.mu.Unlock()
 
-	if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
+	if ip4 := ipAddr.To4(); ip4 != nil {
+		if s.conn == nil || s.rawSocketFD == 0 {
+			s.recordUnavailableResult(target, ErrICMPv4Unavailable)
+			return
+		}
+
+		addr := [4]byte{}
+		copy(addr[:], ip4)
+		sockaddr := &syscall.SockaddrInet4{Addr: addr}
+
+		if err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr); err != nil {
+			s.logger.Error().Err(err).Str("host", target.Host).Int("seq", seq).Msg("Error sending ICMP")
+			return
+		}
+
+		return
+	}
+
+	if s.conn6 == nil {
+		s.recordUnavailableResult(target, ErrICMPv6Unavailable)
+		return
+	}
+
+	if _, err := s.conn6.WriteTo(data, &net.IPAddr{IP: ipAddr}); err != nil {
 		s.logger.Error().Err(err).Str("host", target.Host).Int("seq", seq).Msg("Error sending ICMP")
 		return
 	}
+}
+
+func (s *ICMPSweeper) recordUnavailableResult(target models.Target, resultErr error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	result := models.Result{
+		Target:     target,
+		Available:  false,
+		Error:      resultErr,
+		FirstSeen:  now,
+		LastSeen:   now,
+		PacketLoss: 100,
+	}
+	s.emitResult(target.Host, &result)
 }
 
 // recordInitialResult stores the initial ping result.
@@ -418,11 +501,39 @@ const (
 
 // listenForReplies listens for and processes ICMP echo replies.
 func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Target) {
-	targetMap := make(map[string]struct{})
+	targetMap := make(map[string]string)
 	for _, t := range targets {
-		targetMap[t.Host] = struct{}{}
+		if canonical := canonicalIPString(t.Host); canonical != "" {
+			targetMap[canonical] = t.Host
+		}
 	}
 
+	var wg sync.WaitGroup
+	if s.conn != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.listenForRepliesOnConn(ctx, s.conn, targetMap, 1, ipv4.ICMPTypeEchoReply)
+		}()
+	}
+	if s.conn6 != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.listenForRepliesOnConn(ctx, s.conn6, targetMap, 58, ipv6.ICMPTypeEchoReply)
+		}()
+	}
+
+	wg.Wait()
+}
+
+func (s *ICMPSweeper) listenForRepliesOnConn(
+	ctx context.Context,
+	conn *icmp.PacketConn,
+	targetMap map[string]string,
+	protocol int,
+	echoReplyType icmp.Type,
+) {
 	buf := make([]byte, defaultBytesRead)
 
 	for {
@@ -430,7 +541,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 		case <-ctx.Done():
 			return
 		default:
-			if err := s.conn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					s.logger.Debug().Msg("ICMP connection closed, stopping listener")
 					return
@@ -440,7 +551,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 				continue
 			}
 
-			reply, err := s.readReply(buf)
+			reply, err := s.readReply(conn, buf)
 			if err != nil {
 				if errors.Is(err, net.ErrClosed) {
 					s.logger.Debug().Msg("ICMP reply reader stopping: connection closed")
@@ -450,7 +561,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 				continue
 			}
 
-			if err := s.processReply(reply, targetMap); err != nil {
+			if err := s.processReply(reply, targetMap, protocol, echoReplyType); err != nil {
 				continue
 			}
 		}
@@ -458,12 +569,12 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 }
 
 // readReply reads an ICMP reply from the connection.
-func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
+func (s *ICMPSweeper) readReply(conn *icmp.PacketConn, buf []byte) (reply struct {
 	n    int
 	addr net.Addr
 	data []byte
 }, err error) {
-	n, addr, err := s.conn.ReadFrom(buf)
+	n, addr, err := conn.ReadFrom(buf)
 	if err != nil {
 		var netErr net.Error
 
@@ -493,21 +604,25 @@ func (s *ICMPSweeper) processReply(reply struct {
 	n    int
 	addr net.Addr
 	data []byte
-}, targetMap map[string]struct{}) error {
+}, targetMap map[string]string, protocol int, echoReplyType icmp.Type) error {
 	if reply.addr == nil {
 		// Timeout or invalid reply, skip processing
 		return nil
 	}
 
-	ip := reply.addr.String()
+	ip := addrIPString(reply.addr)
+	if ip == "" {
+		return nil
+	}
 
 	// Verify this is one of our targets
-	if _, ok := targetMap[ip]; !ok {
+	resultKey, ok := targetMap[ip]
+	if !ok {
 		return nil // Not an error, just not our target
 	}
 
 	// Parse the ICMP message
-	msg, err := icmp.ParseMessage(1, reply.data)
+	msg, err := icmp.ParseMessage(protocol, reply.data)
 	if err != nil {
 		s.logger.Error().Err(err).Str("ip", ip).Msg("Error parsing ICMP message")
 		return err
@@ -515,7 +630,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 
 	// Verify it's an echo reply with our identifier
 	echo, ok := msg.Body.(*icmp.Echo)
-	if !ok || msg.Type != ipv4.ICMPTypeEchoReply || echo.ID != s.identifier {
+	if !ok || msg.Type != echoReplyType || echo.ID != s.identifier {
 		return nil // Not an error, just not our reply
 	}
 
@@ -524,7 +639,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 
 	// Update hostStats with received packet
 	s.mu.Lock()
-	stats, statsExist := s.hostStats[ip]
+	stats, statsExist := s.hostStats[resultKey]
 	s.mu.Unlock()
 
 	if statsExist {
@@ -544,7 +659,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if result, ok := s.results[ip]; ok {
+	if result, ok := s.results[resultKey]; ok {
 		result.Available = true
 		result.LastSeen = now
 
@@ -568,9 +683,9 @@ func (s *ICMPSweeper) processReply(reply struct {
 
 		// Write the updated result back to the map
 		// (result is a value copy, so we must store it back)
-		s.results[ip] = result
+		s.results[resultKey] = result
 
-		s.emitResult(ip, &result)
+		s.emitResult(resultKey, &result)
 	}
 
 	return nil
@@ -662,6 +777,15 @@ func (s *ICMPSweeper) Stop() error {
 		}
 	}
 
+	if s.conn6 != nil {
+		err := s.conn6.Close()
+		if err != nil {
+			s.logger.Error().Err(err).Msg("Error closing ICMPv6 connection")
+
+			return err
+		}
+	}
+
 	if s.rawSocketFD != 0 {
 		err := syscall.Close(s.rawSocketFD)
 		if err != nil {
@@ -674,6 +798,31 @@ func (s *ICMPSweeper) Stop() error {
 	}
 
 	return nil
+}
+
+func canonicalIPString(host string) string {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return ""
+	}
+
+	return ip.String()
+}
+
+func addrIPString(addr net.Addr) string {
+	switch a := addr.(type) {
+	case *net.IPAddr:
+		return a.IP.String()
+	default:
+		host, _, err := net.SplitHostPort(addr.String())
+		if err == nil {
+			if canonical := canonicalIPString(host); canonical != "" {
+				return canonical
+			}
+		}
+
+		return canonicalIPString(addr.String())
+	}
 }
 
 // filterICMPTargets filters only ICMP targets from the given slice.

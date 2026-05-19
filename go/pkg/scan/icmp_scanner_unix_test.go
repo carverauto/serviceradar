@@ -1,9 +1,13 @@
 package scan
 
 import (
+	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv6"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -38,6 +42,43 @@ func TestWithICMPCount(t *testing.T) {
 					tt.count, sweeper.icmpCount, tt.expected)
 			}
 		})
+	}
+}
+
+func TestPrepareEchoRequestForFamilyIPv6(t *testing.T) {
+	sweeper := &ICMPSweeper{identifier: 1234}
+
+	data, err := sweeper.prepareEchoRequestForFamily(7, true)
+	if err != nil {
+		t.Fatalf("prepareEchoRequestForFamily() error = %v", err)
+	}
+
+	msg, err := icmp.ParseMessage(58, data)
+	if err != nil {
+		t.Fatalf("ParseMessage() error = %v", err)
+	}
+
+	if msg.Type != ipv6.ICMPTypeEchoRequest {
+		t.Fatalf("ICMP type = %v, want %v", msg.Type, ipv6.ICMPTypeEchoRequest)
+	}
+
+	echo, ok := msg.Body.(*icmp.Echo)
+	if !ok {
+		t.Fatalf("ICMP body = %T, want *icmp.Echo", msg.Body)
+	}
+
+	if echo.ID != 1234 || echo.Seq != 7 {
+		t.Fatalf("echo ID/Seq = %d/%d, want 1234/7", echo.ID, echo.Seq)
+	}
+}
+
+func TestICMPAddressCanonicalization(t *testing.T) {
+	if got := canonicalIPString("2001:0db8:0000::1"); got != "2001:db8::1" {
+		t.Fatalf("canonicalIPString IPv6 = %q, want 2001:db8::1", got)
+	}
+
+	if got := addrIPString(&net.IPAddr{IP: net.ParseIP("2001:db8::2")}); got != "2001:db8::2" {
+		t.Fatalf("addrIPString IPv6 = %q, want 2001:db8::2", got)
 	}
 }
 
