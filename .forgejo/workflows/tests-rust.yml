@@ -11,6 +11,7 @@ on:
       - 'rust/rdp-connector-probe/**'
       - 'rust/srql/**'
       - '.forgejo/workflows/tests-rust.yml'
+      - 'scripts/ci/install-sfw.sh'
 
 permissions:
   contents: write
@@ -47,6 +48,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
 
       - name: Cache Bazel artifacts
         uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
@@ -202,13 +206,13 @@ jobs:
 
       - name: Install Cargo Audit
         if: ${{ matrix.project == 'rust/rdp-connector-probe' }}
-        run: cargo install cargo-audit --locked --version 0.22.1
+        run: sfw cargo install cargo-audit --locked --version 0.22.1
 
       - name: Audit RDP connector probe dependencies
         if: ${{ matrix.project == 'rust/rdp-connector-probe' }}
         run: |
           cd rust/rdp-connector-probe
-          cargo audit --deny warnings \
+          sfw cargo audit --deny warnings \
             --ignore RUSTSEC-2023-0071 \
             --ignore RUSTSEC-2023-0089 \
             --ignore RUSTSEC-2024-0436
@@ -227,14 +231,16 @@ jobs:
       - name: Run Clippy
         if: ${{ matrix.runner == 'cargo' }}
         run: |
-          cd ${{ matrix.project }} && cargo clippy -- -D warnings
+          cd ${{ matrix.project }}
+          sfw cargo clippy -- -D warnings
 
       - name: Run Tests
         if: ${{ matrix.runner == 'cargo' }}
         env:
           DOCKER_BUILDKIT: 1
         run: |
-          cd ${{ matrix.project }} && cargo test
+          cd ${{ matrix.project }}
+          sfw cargo test
 
       - name: Build Bazel target
         if: ${{ matrix.runner == 'bazel' }}

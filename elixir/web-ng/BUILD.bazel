@@ -105,5 +105,6 @@ mix_release(
         "//elixir/datasvc:srcs",
     ],
     bun = "@bun_linux_amd64//:bun",
+    sfw = "@sfw_free_linux_amd64//file",
     workdir_name = "serviceradar_web_ng",
 )

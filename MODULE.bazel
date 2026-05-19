@@ -1322,6 +1322,16 @@ http_file(
     ],
 )
 
+http_file(
+    name = "sfw_free_linux_amd64",
+    downloaded_file_path = "sfw",
+    executable = True,
+    sha256 = "1ea16f15f1217bde66ac9c7d0262c7126b7bb1b2d60e14e8fa0982456139ae6e",
+    urls = [
+        "https://github.com/SocketDev/sfw-free/releases/download/v1.10.0/sfw-free-linux-x86_64",
+    ],
+)
+
 http_archive(
     name = "perl_src",
     build_file_content = """
