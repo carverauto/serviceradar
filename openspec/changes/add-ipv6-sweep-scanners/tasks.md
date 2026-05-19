@@ -7,7 +7,7 @@
 - [x] 2.1 Implement ICMPv6 echo request packet construction and response parsing.
 - [x] 2.2 Add concurrent probe matching by source address, identifier, sequence, and execution context.
 - [x] 2.3 Add ICMPv6 scanner diagnostics for unavailable runtime capability.
-- [ ] 2.4 Add unit and loopback tests for successful reply, timeout, and decode/error cases.
+- [x] 2.4 Add unit and loopback tests for successful reply, timeout, and decode/error cases.
 
 ## 3. IPv6 Raw SYN Scanner
 - [x] 3.1 Implement IPv6 + TCP SYN packet construction with IPv6 pseudo-header checksum support.

@@ -121,6 +121,48 @@ func TestICMPSweeper_Scan(t *testing.T) {
 	}
 }
 
+func TestICMPSweeper_IPv6LoopbackScan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping ICMPv6 loopback scan test in short mode")
+	}
+
+	sweeper, err := NewICMPSweeper(500*time.Millisecond, 100, logger.NewTestLogger(), WithICMPCount(1))
+	if err != nil {
+		t.Skipf("ICMP scanner requires runtime socket privileges: %v", err)
+		return
+	}
+
+	defer func() {
+		if stopErr := sweeper.Stop(); stopErr != nil {
+			t.Errorf("Failed to stop ICMPSweeper: %v", stopErr)
+		}
+	}()
+
+	if !sweeper.Capabilities().ICMPv6 {
+		t.Skip("ICMPv6 socket is unavailable on this runtime")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	resultCh, err := sweeper.Scan(ctx, []models.Target{{Host: "::1", Mode: models.ModeICMP}})
+	if err != nil {
+		t.Fatalf("Scan() error = %v", err)
+	}
+
+	var results []models.Result
+	for result := range resultCh {
+		results = append(results, result)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(results))
+	}
+	if !results[0].Available {
+		t.Fatalf("IPv6 loopback was not available: error=%v packet_loss=%v", results[0].Error, results[0].PacketLoss)
+	}
+}
+
 func TestICMPSweeper_Stop(t *testing.T) {
 	sweeper, err := NewICMPSweeper(1*time.Second, 100, logger.NewTestLogger())
 	if err != nil {
