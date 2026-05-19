@@ -698,8 +698,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
               </div>
               <div class="sr-ops-empty-feed-message">
                 <.icon name="hero-bell-alert" class="size-7 text-rose-400" />
-                <p>No recent alerts</p>
-                <span>Live alerts from the existing alert stream will appear here.</span>
+                <p>No alerts in the last 24 hours</p>
+                <span>Older retained alerts are still available in the alert stream.</span>
               </div>
             </.link>
             <div :if={@alert_feed != []} class="sr-ops-alert-feed" data-testid="alerts-feed">
