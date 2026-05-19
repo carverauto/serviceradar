@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.72
+
+Native IPv6 sweep scanner support, streamed agent configs, and Armis northbound recovery.
+
+## Whats New
+
+**1.2.72**
+- Added native IPv6 sweep support with ICMPv6 probing, IPv6 raw SYN packet construction, TCP/ICMPv6 response classification, capability diagnostics, and TCP-connect fallback when raw SYNv6 is unavailable.
+- Enabled raw SYN IPv6 scanning on agents that have a raw IPv6 send socket and a usable local IPv6 source address, while preserving bounded streaming/batch execution for large target sets.
+- Added scanner metrics and metadata labels for protocol, address family, scanner path, and IPv6 raw SYN fallback so sweep results explain how each target was scanned.
+- Streamed large agent config responses so large sweep profiles and target sets no longer need to be materialized into one oversized config payload.
+- Restored Armis northbound availability updates by preserving integration identifiers, exercising the bulk update HTTP path, and validating fake Armis northbound update handling.
+- Restored gateway and demo namespace network access needed by agents and Elixir clustering after recent hardening changes.
+- Added writable web-ng temp storage so release artifact import and other temp-file workflows work with read-only root filesystems.
+
 # ServiceRadar v1.2.71
 
 Restricted filesystem compatibility for datasvc and db-event-writer startup.
