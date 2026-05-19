@@ -58,7 +58,7 @@ func BenchmarkProcessEthernetFrame(b *testing.B) {
 
 	s.mu.Lock()
 	s.portTargetMap = map[uint16]string{ourSrc: key}
-	s.targetIP = map[string][4]byte{key: {remote[0], remote[1], remote[2], remote[3]}}
+	s.targetIP = map[string]string{key: remote.String()}
 	s.results = map[string]models.Result{key: {
 		Target:    models.Target{Host: remote.String(), Port: targetPort, Mode: models.ModeTCP},
 		FirstSeen: time.Now(),

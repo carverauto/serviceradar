@@ -408,6 +408,9 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	// Populate scanner stats if available
 	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
 		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
+			Protocol:             scannerStats.Protocol,
+			AddressFamily:        scannerStats.AddressFamily,
+			ScannerPath:          scannerStats.ScannerPath,
 			PacketsSent:          scannerStats.PacketsSent,
 			PacketsRecv:          scannerStats.PacketsRecv,
 			PacketsDropped:       scannerStats.PacketsDropped,

@@ -311,6 +311,11 @@ type SweepHostState struct {
 // ScannerStats contains performance metrics from network scanners.
 // These metrics help diagnose scan performance and network conditions.
 type ScannerStats struct {
+	// Labels identify which scanner path produced these counters.
+	Protocol      string `json:"protocol,omitempty"`
+	AddressFamily string `json:"address_family,omitempty"`
+	ScannerPath   string `json:"scanner_path,omitempty"`
+
 	// Packet statistics
 	PacketsSent    uint64 `json:"packets_sent"`
 	PacketsRecv    uint64 `json:"packets_recv"`

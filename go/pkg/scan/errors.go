@@ -25,6 +25,8 @@ var (
 	ErrShortIPv4Header     = errors.New("short IPv4 header")
 	ErrNotIPv4             = errors.New("not IPv4")
 	ErrBadIPv4HeaderLength = errors.New("bad IPv4 header length")
+	ErrShortIPv6Header     = errors.New("short IPv6 header")
+	ErrNotIPv6             = errors.New("not IPv6")
 	ErrShortTCPHeader      = errors.New("short TCP header")
 	ErrBadTCPHeaderLength  = errors.New("bad TCP header length")
 
@@ -36,6 +38,11 @@ var (
 	ErrScanAlreadyRunning = errors.New("scan already running")
 	ErrScanTimedOut       = errors.New("scan timed out")
 	ErrPortClosed         = errors.New("port closed (RST)")
+	ErrICMPv4Unavailable  = errors.New("ICMPv4 scanner unavailable")
+	ErrICMPv6Unavailable  = errors.New("ICMPv6 scanner unavailable")
+	ErrICMPv6Unreachable  = errors.New("ICMPv6 destination unreachable")
+	ErrICMPv6PacketTooBig = errors.New("ICMPv6 packet too big")
+	ErrICMPv6TimeExceeded = errors.New("ICMPv6 time exceeded")
 
 	// Interface errors
 	ErrNoSuitableInterface = errors.New("no suitable local IP address and interface found")

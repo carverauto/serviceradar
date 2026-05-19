@@ -18,8 +18,8 @@ package scan
 
 import (
 	"context"
-	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -35,6 +35,7 @@ type TCPSweeper struct {
 }
 
 var _ Scanner = (*TCPSweeper)(nil)
+var _ CapabilityProvider = (*TCPSweeper)(nil)
 
 func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *TCPSweeper {
 	if timeout == 0 {
@@ -50,6 +51,13 @@ func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *T
 		timeout:     timeout,
 		concurrency: concurrency,
 		logger:      log,
+	}
+}
+
+func (*TCPSweeper) Capabilities() ScannerCapabilities {
+	return ScannerCapabilities{
+		TCPConnectIPv4: true,
+		TCPConnectIPv6: true,
 	}
 }
 
@@ -139,7 +147,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 	// Use context-aware Dial instead of DialTimeout
 	var dialer net.Dialer
 
-	conn, err := dialer.DialContext(probeCtx, "tcp", fmt.Sprintf("%s:%d", host, port))
+	conn, err := dialer.DialContext(probeCtx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		// Enhanced error handling with context awareness
 		if probeCtx.Err() != nil {
@@ -172,7 +180,7 @@ func filterTCPTargets(targets []models.Target) []models.Target {
 	var filtered []models.Target
 
 	for _, t := range targets {
-		if t.Mode == models.ModeTCP {
+		if t.Mode == models.ModeTCP || t.Mode == models.ModeTCPConnect {
 			filtered = append(filtered, t)
 		}
 	}

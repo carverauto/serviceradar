@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -39,6 +40,18 @@ const (
 	defaultTargetBatch   = 100000
 	intSizeBits          = 32 << (^uint(0) >> 63)
 	maxInt               = int(^uint(0) >> 1)
+)
+
+const (
+	metadataAddressFamily        = "address_family"
+	metadataIPv6RawSYNFallback   = "ipv6_raw_syn_fallback"
+	addressFamilyIPv4            = "ipv4"
+	addressFamilyIPv6            = "ipv6"
+	addressFamilyDualStack       = "dual_stack"
+	addressFamilyUnknown         = "unknown"
+	scannerProtocolTCP           = "tcp"
+	scannerPathRawSYN            = "raw_syn"
+	scannerPathTCPConnectIPv6SYN = "tcp_connect_ipv6_raw_syn_fallback"
 )
 
 // DeviceRegistryService interface for device registry operations
@@ -84,7 +97,8 @@ type DeviceResultAggregator struct {
 }
 
 var (
-	errNilConfig = fmt.Errorf("config cannot be nil")
+	errNilConfig        = errors.New("config cannot be nil")
+	errIPv6CIDRTooLarge = errors.New("IPv6 CIDR expands above target batch limit")
 )
 
 const (
@@ -611,6 +625,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	// Check if the TCP scanner supports stats (SYN scanner does)
 	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
 		scanStats := statsProvider.GetStats()
+		addressFamily := scannerStatsAddressFamily(s.tcpScanner)
 
 		// Calculate drop rate
 		var rxDropRate float64
@@ -619,6 +634,9 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		}
 
 		return &models.ScannerStats{
+			Protocol:             scannerProtocolTCP,
+			AddressFamily:        addressFamily,
+			ScannerPath:          scannerPathRawSYN,
 			PacketsSent:          scanStats.PacketsSent,
 			PacketsRecv:          scanStats.PacketsRecv,
 			PacketsDropped:       scanStats.PacketsDropped,
@@ -826,50 +844,65 @@ func estimateTargetCount(config *models.Config) int {
 
 	// Count targets from global networks and sweep modes
 	for _, network := range config.Networks {
-		hostCount, err := countCIDRHosts(network)
+		targetCount, err := countCIDRTargets(network, config.SweepModes, len(config.Ports))
 		if err != nil {
 			continue
 		}
 
-		if containsMode(config.SweepModes, models.ModeICMP) {
-			total = saturatingAdd(total, hostCount)
-		}
-
-		if containsMode(config.SweepModes, models.ModeTCP) {
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
-
-		if containsMode(config.SweepModes, models.ModeTCPConnect) {
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
+		total = saturatingAdd(total, targetCount)
 	}
 
 	// Count targets from device-specific configurations
 	for _, deviceTarget := range config.DeviceTargets {
-		hostCount, err := countCIDRHosts(deviceTarget.Network)
-		if err != nil {
-			continue
-		}
-
 		// Use device-specific sweep modes if available, otherwise fall back to global
 		sweepModes := deviceTarget.SweepModes
 		if len(sweepModes) == 0 {
 			sweepModes = config.SweepModes
 		}
 
-		if containsMode(sweepModes, models.ModeICMP) {
-			total = saturatingAdd(total, hostCount)
+		targetCount, err := countCIDRTargets(deviceTarget.Network, sweepModes, len(config.Ports))
+		if err != nil {
+			continue
 		}
 
-		if containsMode(sweepModes, models.ModeTCP) {
-			// DeviceTarget doesn't have its own ports, use global ports
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
+		total = saturatingAdd(total, targetCount)
+	}
 
-		if containsMode(sweepModes, models.ModeTCPConnect) {
-			// DeviceTarget doesn't have its own ports, use global ports
-			total = saturatingAdd(total, saturatingMul(hostCount, len(config.Ports)))
-		}
+	return total
+}
+
+func countCIDRTargets(cidr string, sweepModes []models.SweepMode, portCount int) (int, error) {
+	hostCount, err := countCIDRHosts(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	baseIP, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	return countTargetsForHostCount(hostCount, baseIP.To4() == nil, sweepModes, portCount), nil
+}
+
+func countTargetsForHostCount(hostCount int, ipv6 bool, sweepModes []models.SweepMode, portCount int) int {
+	if hostCount <= 0 {
+		return 0
+	}
+
+	effectiveModes := effectiveSweepModes(ipv6, sweepModes, false)
+	total := 0
+
+	if containsMode(effectiveModes, models.ModeICMP) {
+		total = saturatingAdd(total, hostCount)
+	}
+
+	if containsMode(effectiveModes, models.ModeTCP) {
+		total = saturatingAdd(total, saturatingMul(hostCount, portCount))
+	}
+
+	if containsMode(effectiveModes, models.ModeTCPConnect) {
+		total = saturatingAdd(total, saturatingMul(hostCount, portCount))
 	}
 
 	return total
@@ -1095,6 +1128,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
+	routeSummary := summarizeTargetRoutes(targets)
 
 	// Prepare device result aggregators for multi-IP devices
 	s.prepareDeviceAggregators(targets)
@@ -1117,14 +1151,26 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	tcpScanner := s.tcpScanner
 	tcpConnectScanner := s.tcpConnectScanner
 	s.mu.RUnlock()
+	icmpCaps := scannerCapabilities(icmpScanner)
+	tcpCaps := scannerCapabilities(tcpScanner)
+	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
 
 	s.logger.Info().
 		Int("icmpTargets", len(icmpTargets)).
 		Int("tcpTargets", len(tcpTargets)).
 		Int("tcpConnectTargets", len(tcpConnectTargets)).
+		Int("ipv4Targets", routeSummary.ipv4Targets).
+		Int("ipv6Targets", routeSummary.ipv6Targets).
+		Int("ipv6TCPConnectFallbackTargets", routeSummary.ipv6TCPConnectFallbackTargets).
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Bool("icmpIPv4Available", icmpCaps.ICMPv4).
+		Bool("icmpIPv6Available", icmpCaps.ICMPv6).
+		Bool("tcpRawSYNIPv4Available", tcpCaps.RawSYNIPv4).
+		Bool("tcpRawSYNIPv6Available", tcpCaps.RawSYNIPv6).
+		Bool("tcpConnectIPv4Available", tcpConnectCaps.TCPConnectIPv4).
+		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting sweep")
 
 	var wg sync.WaitGroup
@@ -1147,7 +1193,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		wg.Add(1)
 
 		go func() {
-			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, "tcp"); err != nil {
+			if err := s.scanAndProcess(ctx, &wg, tcpScanner, tcpTargets, scannerProtocolTCP); err != nil {
 				errChan <- err
 			}
 		}()
@@ -1189,6 +1235,9 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	tcpScanner := s.tcpScanner
 	tcpConnectScanner := s.tcpConnectScanner
 	s.mu.RUnlock()
+	icmpCaps := scannerCapabilities(icmpScanner)
+	tcpCaps := scannerCapabilities(tcpScanner)
+	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
 
 	s.resultsMu.Lock()
 	s.deviceResults = make(map[string]*DeviceResultAggregator)
@@ -1205,7 +1254,7 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		tcpConnectTargets: make([]models.Target, 0, defaultTargetBatch),
 	}
 
-	if tcpStream, ok, err := s.startStreamingScan(ctx, tcpScanner, "tcp", targetEstimate); err != nil {
+	if tcpStream, ok, err := s.startStreamingScan(ctx, tcpScanner, scannerProtocolTCP, targetEstimate); err != nil {
 		return err
 	} else if ok {
 		runner.tcpStream = tcpStream
@@ -1218,6 +1267,12 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Bool("icmpIPv4Available", icmpCaps.ICMPv4).
+		Bool("icmpIPv6Available", icmpCaps.ICMPv6).
+		Bool("tcpRawSYNIPv4Available", tcpCaps.RawSYNIPv4).
+		Bool("tcpRawSYNIPv6Available", tcpCaps.RawSYNIPv6).
+		Bool("tcpConnectIPv4Available", tcpConnectCaps.TCPConnectIPv4).
+		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting batched sweep")
 
 	if err := s.generateTargetsBatched(runner.addTarget); err != nil {
@@ -1236,6 +1291,9 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		Int("icmpTargets", runner.icmpCount).
 		Int("tcpTargets", runner.tcpCount).
 		Int("tcpConnectTargets", runner.tcpConnectCount).
+		Int("ipv4Targets", runner.ipv4Count).
+		Int("ipv6Targets", runner.ipv6Count).
+		Int("ipv6TCPConnectFallbackTargets", runner.ipv6TCPConnectFallbackCount).
 		Msg("Batched sweep completed successfully")
 
 	return nil
@@ -1320,21 +1378,26 @@ func (s *NetworkSweeper) startStreamingScan(
 }
 
 type sweepBatchRunner struct {
-	sweeper           *NetworkSweeper
-	ctx               context.Context
-	icmpScanner       scan.Scanner
-	tcpScanner        scan.Scanner
-	tcpConnectScanner scan.Scanner
-	tcpStream         *sweepTargetStream
-	icmpTargets       []models.Target
-	tcpTargets        []models.Target
-	tcpConnectTargets []models.Target
-	icmpCount         int
-	tcpCount          int
-	tcpConnectCount   int
+	sweeper                     *NetworkSweeper
+	ctx                         context.Context
+	icmpScanner                 scan.Scanner
+	tcpScanner                  scan.Scanner
+	tcpConnectScanner           scan.Scanner
+	tcpStream                   *sweepTargetStream
+	icmpTargets                 []models.Target
+	tcpTargets                  []models.Target
+	tcpConnectTargets           []models.Target
+	icmpCount                   int
+	tcpCount                    int
+	tcpConnectCount             int
+	ipv4Count                   int
+	ipv6Count                   int
+	ipv6TCPConnectFallbackCount int
 }
 
 func (r *sweepBatchRunner) addTarget(target models.Target) error {
+	r.recordRoute(target)
+
 	switch target.Mode {
 	case models.ModeICMP:
 		r.icmpTargets = append(r.icmpTargets, target)
@@ -1354,7 +1417,7 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 		r.tcpTargets = append(r.tcpTargets, target)
 		r.tcpCount++
 		if len(r.tcpTargets) >= defaultTargetBatch {
-			if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+			if err := r.flushMode(scannerProtocolTCP, r.tcpScanner, &r.tcpTargets); err != nil {
 				return err
 			}
 		}
@@ -1371,12 +1434,29 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 	return nil
 }
 
+func (r *sweepBatchRunner) recordRoute(target models.Target) {
+	if target.Metadata == nil {
+		return
+	}
+
+	switch target.Metadata[metadataAddressFamily] {
+	case addressFamilyIPv4:
+		r.ipv4Count++
+	case addressFamilyIPv6:
+		r.ipv6Count++
+	}
+
+	if fallback, ok := target.Metadata[metadataIPv6RawSYNFallback].(bool); ok && fallback {
+		r.ipv6TCPConnectFallbackCount++
+	}
+}
+
 func (r *sweepBatchRunner) flushAll() error {
 	if err := r.flushMode("icmp", r.icmpScanner, &r.icmpTargets); err != nil {
 		return err
 	}
 
-	if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+	if err := r.flushMode(scannerProtocolTCP, r.tcpScanner, &r.tcpTargets); err != nil {
 		return err
 	}
 
@@ -1567,6 +1647,22 @@ func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
 
 // generateTargetsForNetwork creates targets for a legacy network configuration
 func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Target, int, error) {
+	_, supported, err := s.effectiveSweepModesForCIDR(network, s.config.SweepModes)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !supported {
+		return nil, 0, nil
+	}
+
+	hostCount, err := countCIDRHosts(network)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := validateCIDRExpansion(network, hostCount); err != nil {
+		return nil, 0, err
+	}
+
 	ips, err := scan.ExpandCIDR(network)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to expand CIDR %s: %w", network, err)
@@ -1589,6 +1685,50 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 
 // generateTargetsForDeviceTarget creates targets for a device target configuration
 func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.DeviceTarget) (targets []models.Target, hostCount int) {
+	// Use device-specific sweep modes if available, otherwise fall back to global
+	sweepModes := deviceTarget.SweepModes
+	if len(sweepModes) == 0 {
+		s.logger.Debug().
+			Str("device", deviceTarget.Network).
+			Msg("Device target has no sweep modes, using global config")
+
+		sweepModes = s.config.SweepModes
+	}
+
+	effectiveModes, supported, err := s.effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to classify device target IP family, skipping")
+
+		return targets, hostCount
+	}
+	if !supported {
+		return targets, hostCount
+	}
+
+	estimatedHostCount, err := countCIDRHosts(deviceTarget.Network)
+	if err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Failed to count device target CIDR, skipping")
+
+		return targets, hostCount
+	}
+	if err := validateCIDRExpansion(deviceTarget.Network, estimatedHostCount); err != nil {
+		s.logger.Warn().
+			Err(err).
+			Str("network", deviceTarget.Network).
+			Str("query_label", deviceTarget.QueryLabel).
+			Msg("Device target CIDR is too broad for sweep expansion, skipping")
+
+		return targets, hostCount
+	}
+
 	// Always expand and use the primary network (e.g., a single /32).
 	// We intentionally ignore any additional IP lists in metadata (e.g., "all_ips").
 	ips, err := scan.ExpandCIDR(deviceTarget.Network)
@@ -1616,21 +1756,11 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 		metadata[k] = v
 	}
 
-	// Use device-specific sweep modes if available, otherwise fall back to global
-	sweepModes := deviceTarget.SweepModes
-	if len(sweepModes) == 0 {
-		s.logger.Debug().
-			Str("device", deviceTarget.Network).
-			Msg("Device target has no sweep modes, using global config")
-
-		sweepModes = s.config.SweepModes
-	}
-
 	s.logger.Debug().
 		Str("device", deviceTarget.Network).
 		Strs("sweep_modes", func() []string {
-			modes := make([]string, 0, len(sweepModes))
-			for _, m := range sweepModes {
+			modes := make([]string, 0, len(effectiveModes))
+			for _, m := range effectiveModes {
 				modes = append(modes, string(m))
 			}
 			return modes
@@ -1652,9 +1782,20 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 	totalHostCount := 0
 
 	for _, network := range s.config.Networks {
+		_, supported, err := s.effectiveSweepModesForCIDR(network, s.config.SweepModes)
+		if err != nil {
+			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+		if !supported {
+			continue
+		}
+
 		hostCount, err := countCIDRHosts(network)
 		if err != nil {
 			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+		if err := validateCIDRExpansion(network, hostCount); err != nil {
+			return err
 		}
 
 		metadata := map[string]interface{}{
@@ -1703,6 +1844,17 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 				Msg("Device target has no sweep modes, using global config")
 
 			sweepModes = s.config.SweepModes
+		}
+
+		_, supported, err := s.effectiveSweepModesForCIDR(deviceTarget.Network, sweepModes)
+		if err != nil {
+			return fmt.Errorf("failed to parse device CIDR %s: %w", deviceTarget.Network, err)
+		}
+		if !supported {
+			continue
+		}
+		if err := validateCIDRExpansion(deviceTarget.Network, hostCount); err != nil {
+			return err
 		}
 
 		visited, err := forEachCIDRHost(deviceTarget.Network, func(ip string) error {
@@ -1795,32 +1947,205 @@ func (s *NetworkSweeper) emitTargetsForIP(
 	metadata map[string]interface{},
 	emit func(models.Target) error,
 ) error {
-	if containsMode(sweepModes, models.ModeICMP) {
+	requestedModes := sweepModes
+	rawSYNIPv6Available := s.rawSYNIPv6Available()
+	effectiveModes := effectiveSweepModesForIPWithRawSYN(ip, requestedModes, rawSYNIPv6Available)
+
+	if containsMode(effectiveModes, models.ModeICMP) {
 		target := scan.TargetFromIP(ip, models.ModeICMP)
-		target.Metadata = metadata
+		target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeICMP, rawSYNIPv6Available)
 		if err := emit(target); err != nil {
 			return err
 		}
 	}
 
-	if containsMode(sweepModes, models.ModeTCP) {
+	if containsMode(effectiveModes, models.ModeTCP) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCP, port)
-			target.Metadata = metadata
+			target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeTCP, rawSYNIPv6Available)
 			if err := emit(target); err != nil {
 				return err
 			}
 		}
 	}
 
-	if containsMode(sweepModes, models.ModeTCPConnect) {
+	if containsMode(effectiveModes, models.ModeTCPConnect) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
-			target.Metadata = metadata
+			target.Metadata = metadataForTarget(metadata, ip, requestedModes, models.ModeTCPConnect, rawSYNIPv6Available)
 			if err := emit(target); err != nil {
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+func metadataForTarget(
+	base map[string]interface{},
+	ip string,
+	requestedModes []models.SweepMode,
+	effectiveMode models.SweepMode,
+	rawSYNIPv6Available bool,
+) map[string]interface{} {
+	metadata := make(map[string]interface{}, len(base)+6)
+	for key, value := range base {
+		metadata[key] = value
+	}
+
+	addressFamily := addressFamilyIPv4
+	if isIPv6String(ip) {
+		addressFamily = addressFamilyIPv6
+	}
+
+	requestedMode := effectiveMode
+	ipv6TCPFallback := false
+
+	if addressFamily == addressFamilyIPv6 &&
+		effectiveMode == models.ModeTCPConnect &&
+		containsMode(requestedModes, models.ModeTCP) &&
+		(!rawSYNIPv6Available || !containsMode(requestedModes, models.ModeTCPConnect)) {
+		requestedMode = models.ModeTCP
+		ipv6TCPFallback = true
+	}
+
+	scannerPath := string(effectiveMode)
+	if ipv6TCPFallback {
+		scannerPath = scannerPathTCPConnectIPv6SYN
+	}
+
+	metadata[metadataAddressFamily] = addressFamily
+	metadata["requested_sweep_modes"] = sweepModeStrings(requestedModes)
+	metadata["requested_sweep_mode"] = string(requestedMode)
+	metadata["effective_sweep_mode"] = string(effectiveMode)
+	metadata["scanner_path"] = scannerPath
+	metadata[metadataIPv6RawSYNFallback] = ipv6TCPFallback
+
+	return metadata
+}
+
+func sweepModeStrings(modes []models.SweepMode) []string {
+	strings := make([]string, 0, len(modes))
+	for _, mode := range modes {
+		strings = append(strings, string(mode))
+	}
+
+	return strings
+}
+
+func isIPv6String(ip string) bool {
+	parsed := net.ParseIP(ip)
+	return parsed != nil && parsed.To4() == nil
+}
+
+type targetRouteSummary struct {
+	ipv4Targets                   int
+	ipv6Targets                   int
+	ipv6TCPConnectFallbackTargets int
+}
+
+func summarizeTargetRoutes(targets []models.Target) targetRouteSummary {
+	var summary targetRouteSummary
+
+	for _, target := range targets {
+		if target.Metadata == nil {
+			continue
+		}
+
+		switch target.Metadata[metadataAddressFamily] {
+		case addressFamilyIPv4:
+			summary.ipv4Targets++
+		case addressFamilyIPv6:
+			summary.ipv6Targets++
+		}
+
+		if fallback, ok := target.Metadata[metadataIPv6RawSYNFallback].(bool); ok && fallback {
+			summary.ipv6TCPConnectFallbackTargets++
+		}
+	}
+
+	return summary
+}
+
+func scannerCapabilities(scanner scan.Scanner) scan.ScannerCapabilities {
+	if provider, ok := scanner.(scan.CapabilityProvider); ok {
+		return provider.Capabilities()
+	}
+
+	return scan.ScannerCapabilities{}
+}
+
+func scannerStatsAddressFamily(scanner scan.Scanner) string {
+	caps := scannerCapabilities(scanner)
+
+	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
+		switch {
+		case caps.RawSYNIPv4 && caps.RawSYNIPv6:
+			return addressFamilyDualStack
+		case caps.RawSYNIPv6:
+			return addressFamilyIPv6
+		default:
+			return addressFamilyIPv4
+		}
+	}
+
+	return addressFamilyUnknown
+}
+
+func (s *NetworkSweeper) rawSYNIPv6Available() bool {
+	return scannerCapabilities(s.tcpScanner).RawSYNIPv6
+}
+
+func (s *NetworkSweeper) effectiveSweepModesForCIDR(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, bool, error) {
+	baseIP, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, false, err
+	}
+
+	modes := effectiveSweepModes(baseIP.To4() == nil, sweepModes, s.rawSYNIPv6Available())
+
+	return modes, len(modes) > 0, nil
+}
+
+func effectiveSweepModesForIPWithRawSYN(ip string, sweepModes []models.SweepMode, rawSYNIPv6Available bool) []models.SweepMode {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return sweepModes
+	}
+
+	return effectiveSweepModes(parsed.To4() == nil, sweepModes, rawSYNIPv6Available)
+}
+
+func effectiveSweepModes(ipv6 bool, sweepModes []models.SweepMode, rawSYNIPv6Available bool) []models.SweepMode {
+	if !ipv6 {
+		return sweepModes
+	}
+
+	modes := make([]models.SweepMode, 0, len(sweepModes))
+	if containsMode(sweepModes, models.ModeICMP) {
+		modes = append(modes, models.ModeICMP)
+	}
+
+	if rawSYNIPv6Available && containsMode(sweepModes, models.ModeTCP) {
+		modes = append(modes, models.ModeTCP)
+	}
+
+	if containsMode(sweepModes, models.ModeTCPConnect) || (!rawSYNIPv6Available && containsMode(sweepModes, models.ModeTCP)) {
+		modes = append(modes, models.ModeTCPConnect)
+	}
+
+	return modes
+}
+
+func validateCIDRExpansion(cidr string, hostCount int) error {
+	baseIP, _, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return err
+	}
+
+	if baseIP.To4() == nil && hostCount > defaultTargetBatch {
+		return fmt.Errorf("%w: %s expands to %d hosts, above limit %d", errIPv6CIDRTooLarge, cidr, hostCount, defaultTargetBatch)
 	}
 
 	return nil
@@ -2389,7 +2714,7 @@ func buildICMPDetails(result *models.Result, builder *strings.Builder, firstICMP
 
 // buildTCPDetails builds TCP scan details
 func buildTCPDetails(result *models.Result, builder *strings.Builder, firstTCP *bool) {
-	buildScanDetails(result, builder, "tcp", firstTCP)
+	buildScanDetails(result, builder, scannerProtocolTCP, firstTCP)
 }
 
 // setBuiltMetadata assigns built strings to device metadata

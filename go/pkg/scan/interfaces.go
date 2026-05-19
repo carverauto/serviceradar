@@ -50,6 +50,24 @@ type StatsProvider interface {
 	GetStats() ScannerStats
 }
 
+// ScannerCapabilities describes protocol and address-family support that is
+// available at runtime for a scanner instance.
+type ScannerCapabilities struct {
+	ICMPv4         bool
+	ICMPv6         bool
+	TCPConnectIPv4 bool
+	TCPConnectIPv6 bool
+	RawSYNIPv4     bool
+	RawSYNIPv6     bool
+	Diagnostics    map[string]string
+}
+
+// CapabilityProvider is an optional interface for scanners that can report
+// runtime protocol/address-family support.
+type CapabilityProvider interface {
+	Capabilities() ScannerCapabilities
+}
+
 // ResultProcessor defines how to process and aggregate sweep results.
 type ResultProcessor interface {
 	// Process takes a Result and updates internal state

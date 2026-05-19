@@ -1,9 +1,13 @@
 package scan
 
 import (
+	"net"
 	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv6"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -39,6 +43,186 @@ func TestWithICMPCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPrepareEchoRequestForFamilyIPv6(t *testing.T) {
+	sweeper := &ICMPSweeper{identifier: 1234}
+
+	data, err := sweeper.prepareEchoRequestForFamily(7, true)
+	if err != nil {
+		t.Fatalf("prepareEchoRequestForFamily() error = %v", err)
+	}
+
+	msg, err := icmp.ParseMessage(58, data)
+	if err != nil {
+		t.Fatalf("ParseMessage() error = %v", err)
+	}
+
+	if msg.Type != ipv6.ICMPTypeEchoRequest {
+		t.Fatalf("ICMP type = %v, want %v", msg.Type, ipv6.ICMPTypeEchoRequest)
+	}
+
+	echo, ok := msg.Body.(*icmp.Echo)
+	if !ok {
+		t.Fatalf("ICMP body = %T, want *icmp.Echo", msg.Body)
+	}
+
+	if echo.ID != 1234 || echo.Seq != 7 {
+		t.Fatalf("echo ID/Seq = %d/%d, want 1234/7", echo.ID, echo.Seq)
+	}
+}
+
+func TestProcessReplyIPv6EchoReply(t *testing.T) {
+	t.Parallel()
+
+	target := models.Target{Host: "2001:0db8:0000::10", Mode: models.ModeICMP}
+	now := time.Now()
+	sweeper := &ICMPSweeper{
+		identifier: 77,
+		results: map[string]models.Result{
+			target.Host: {
+				Target:     target,
+				Available:  false,
+				FirstSeen:  now,
+				LastSeen:   now,
+				PacketLoss: 100,
+			},
+		},
+		hostStats: map[string]*hostICMPStats{
+			target.Host: {
+				sent:      2,
+				sendTimes: map[int]time.Time{2: now.Add(-3 * time.Millisecond)},
+			},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	data := mustICMPEchoMessage(t, ipv6.ICMPTypeEchoReply, 77, 2)
+	reply := icmpTestReply(&net.IPAddr{IP: net.ParseIP("2001:db8::10")}, data)
+
+	err := sweeper.processReply(
+		reply,
+		map[string]string{"2001:db8::10": target.Host},
+		58,
+		ipv6.ICMPTypeEchoReply,
+	)
+	if err != nil {
+		t.Fatalf("processReply() error = %v", err)
+	}
+
+	result := sweeper.results[target.Host]
+	if !result.Available {
+		t.Fatalf("expected IPv6 target to be marked available")
+	}
+	if result.PacketLoss != 50 {
+		t.Fatalf("packet loss = %v, want 50", result.PacketLoss)
+	}
+	if result.RespTime <= 0 {
+		t.Fatalf("expected positive response time, got %v", result.RespTime)
+	}
+
+	stats := sweeper.hostStats[target.Host]
+	if stats.received != 1 {
+		t.Fatalf("received count = %d, want 1", stats.received)
+	}
+	if _, ok := stats.sendTimes[2]; ok {
+		t.Fatalf("expected sequence send time to be removed after reply processing")
+	}
+}
+
+func TestProcessReplyIPv6IgnoresWrongIdentifier(t *testing.T) {
+	t.Parallel()
+
+	target := models.Target{Host: "2001:db8::20", Mode: models.ModeICMP}
+	sweeper := &ICMPSweeper{
+		identifier: 77,
+		results: map[string]models.Result{
+			target.Host: {Target: target, Available: false, PacketLoss: 100},
+		},
+		hostStats: map[string]*hostICMPStats{
+			target.Host: {sent: 1, sendTimes: map[int]time.Time{1: time.Now()}},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	data := mustICMPEchoMessage(t, ipv6.ICMPTypeEchoReply, 78, 1)
+	err := sweeper.processReply(
+		icmpTestReply(&net.IPAddr{IP: net.ParseIP("2001:db8::20")}, data),
+		map[string]string{"2001:db8::20": target.Host},
+		58,
+		ipv6.ICMPTypeEchoReply,
+	)
+	if err != nil {
+		t.Fatalf("processReply() error = %v", err)
+	}
+
+	if sweeper.results[target.Host].Available {
+		t.Fatalf("wrong identifier should not mark target available")
+	}
+	if sweeper.hostStats[target.Host].received != 0 {
+		t.Fatalf("wrong identifier should not increment received count")
+	}
+}
+
+func TestProcessReplyIPv6TimeoutAndMalformedDecode(t *testing.T) {
+	t.Parallel()
+
+	sweeper := &ICMPSweeper{identifier: 77, logger: logger.NewTestLogger()}
+
+	if err := sweeper.processReply(icmpTestReply(nil, nil), nil, 58, ipv6.ICMPTypeEchoReply); err != nil {
+		t.Fatalf("timeout/no-address reply error = %v", err)
+	}
+
+	err := sweeper.processReply(
+		icmpTestReply(&net.IPAddr{IP: net.ParseIP("2001:db8::30")}, []byte{0x80}),
+		map[string]string{"2001:db8::30": "2001:db8::30"},
+		58,
+		ipv6.ICMPTypeEchoReply,
+	)
+	if err == nil {
+		t.Fatalf("expected malformed ICMPv6 payload to return an error")
+	}
+}
+
+func TestICMPAddressCanonicalization(t *testing.T) {
+	if got := canonicalIPString("2001:0db8:0000::1"); got != "2001:db8::1" {
+		t.Fatalf("canonicalIPString IPv6 = %q, want 2001:db8::1", got)
+	}
+
+	if got := addrIPString(&net.IPAddr{IP: net.ParseIP("2001:db8::2")}); got != "2001:db8::2" {
+		t.Fatalf("addrIPString IPv6 = %q, want 2001:db8::2", got)
+	}
+}
+
+func icmpTestReply(addr net.Addr, data []byte) struct {
+	n    int
+	addr net.Addr
+	data []byte
+} {
+	return struct {
+		n    int
+		addr net.Addr
+		data []byte
+	}{n: len(data), addr: addr, data: data}
+}
+
+func mustICMPEchoMessage(t *testing.T, typ icmp.Type, identifier, sequence int) []byte {
+	t.Helper()
+
+	data, err := (&icmp.Message{
+		Type: typ,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:   identifier,
+			Seq:  sequence,
+			Data: []byte("pong"),
+		},
+	}).Marshal(nil)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	return data
 }
 
 func TestHostICMPStats(t *testing.T) {

@@ -21,7 +21,10 @@ package scan
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"math/rand"
+	"net"
 	"os"
 	"strings"
 	"syscall"
@@ -35,6 +38,365 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
+func TestBuildSYNPacketIPv6(t *testing.T) {
+	t.Parallel()
+
+	src := net.ParseIP("2001:db8::10")
+	dst := net.ParseIP("2001:db8::20")
+	packet := buildSYNPacketIPv6(src, dst, 40000, 443, 0x10203040)
+	require.Len(t, packet, ipv6TcpPacketSize)
+
+	ip, ipLen, err := parseIPv6(packet)
+	require.NoError(t, err)
+	assert.Equal(t, ipv6HeaderSize, ipLen)
+	assert.Equal(t, uint8(syscall.IPPROTO_TCP), ip.NextHeader)
+	assert.Equal(t, src.String(), ip.SrcIP.String())
+	assert.Equal(t, dst.String(), ip.DstIP.String())
+	assert.Equal(t, uint16(tcpHeaderMinSize), binary.BigEndian.Uint16(packet[4:6]))
+
+	tcp, tcpLen, err := parseTCP(packet[ipLen:])
+	require.NoError(t, err)
+	assert.Equal(t, tcpHeaderMinSize, tcpLen)
+	assert.Equal(t, uint16(40000), tcp.SrcPort)
+	assert.Equal(t, uint16(443), tcp.DstPort)
+	assert.Equal(t, uint32(0x10203040), tcp.Seq)
+	assert.Equal(t, uint8(synFlag), tcp.Flags)
+
+	checksum := binary.BigEndian.Uint16(packet[ipLen+16 : ipLen+18])
+	assert.NotZero(t, checksum)
+	assert.Equal(t, uint16(0), TCPChecksumIPv6New(src, dst, packet[ipLen:], nil))
+}
+
+func TestBuildSYNPacketIPv6RejectsIPv4(t *testing.T) {
+	t.Parallel()
+
+	packet := buildSYNPacketIPv6(net.ParseIP("192.0.2.10"), net.ParseIP("2001:db8::20"), 40000, 443, 1)
+	assert.Nil(t, packet)
+}
+
+func TestParseIPv6(t *testing.T) {
+	t.Parallel()
+
+	packet := buildSYNPacketIPv6(net.ParseIP("2001:db8::10"), net.ParseIP("2001:db8::20"), 40000, 443, 1)
+	ip, ipLen, err := parseIPv6(packet)
+	require.NoError(t, err)
+	assert.Equal(t, ipv6HeaderSize, ipLen)
+	assert.Equal(t, uint8(syscall.IPPROTO_TCP), ip.NextHeader)
+
+	_, _, err = parseIPv6(packet[:ipv6HeaderSize-1])
+	require.ErrorIs(t, err, ErrShortIPv6Header)
+
+	notIPv6 := append([]byte(nil), packet...)
+	notIPv6[0] = 0x45
+	_, _, err = parseIPv6(notIPv6)
+	require.ErrorIs(t, err, ErrNotIPv6)
+}
+
+func TestSYNScannerCapabilitiesReportRawIPv6Disabled(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		sendSocket: 42,
+		sourceIP:   net.IPv4(192, 0, 2, 10),
+	}
+
+	caps := scanner.Capabilities()
+	assert.True(t, caps.RawSYNIPv4)
+	assert.False(t, caps.RawSYNIPv6)
+	assert.Contains(t, caps.Diagnostics["raw_syn_ipv6"], "unavailable")
+}
+
+func TestSYNScannerCapabilitiesReportRawIPv6Enabled(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		sendSocket6: 43,
+		sourceIP6:   net.ParseIP("2001:db8::10"),
+	}
+
+	caps := scanner.Capabilities()
+	assert.False(t, caps.RawSYNIPv4)
+	assert.True(t, caps.RawSYNIPv6)
+	assert.Equal(t, "enabled", caps.Diagnostics["raw_syn_ipv6"])
+}
+
+func TestProcessEthernetFrameIPv6TCPReply(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		flags     uint8
+		available bool
+		wantErr   error
+	}{
+		{
+			name:      "syn ack",
+			flags:     synFlag | ackFlag,
+			available: true,
+		},
+		{
+			name:      "rst",
+			flags:     rstFlag,
+			available: false,
+			wantErr:   ErrPortClosed,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			local := net.ParseIP("2001:db8::10")
+			remote := net.ParseIP("2001:db8::20")
+			ourSrc := uint16(40000)
+			targetPort := uint16(443)
+			key := net.JoinHostPort(remote.String(), "443")
+
+			resultCh := make(chan models.Result, 1)
+			scanner := &SYNScanner{
+				portTargetMap: map[uint16]string{ourSrc: key},
+				targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},
+				targetIP:      map[string]string{key: remote.String()},
+				results: map[string]models.Result{key: {
+					Target:    models.Target{Host: remote.String(), Port: int(targetPort), Mode: models.ModeTCP},
+					FirstSeen: time.Now(),
+					LastSeen:  time.Now(),
+				}},
+				portAlloc: NewPortAllocator(ourSrc, ourSrc),
+				logger:    logger.NewTestLogger(),
+			}
+			scanner.resultCallback = func(result models.Result) {
+				resultCh <- result
+			}
+
+			scanner.processEthernetFrame(buildTCPReplyFrameIPv6(local, remote, ourSrc, targetPort, tt.flags))
+
+			select {
+			case result := <-resultCh:
+				assert.Equal(t, tt.available, result.Available)
+				if tt.wantErr != nil {
+					require.ErrorIs(t, result.Error, tt.wantErr)
+				} else {
+					require.NoError(t, result.Error)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for IPv6 TCP reply result")
+			}
+		})
+	}
+}
+
+func TestProcessEthernetFrameIPv6IgnoresWrongSource(t *testing.T) {
+	t.Parallel()
+
+	local := net.ParseIP("2001:db8::10")
+	remote := net.ParseIP("2001:db8::20")
+	wrongRemote := net.ParseIP("2001:db8::21")
+	ourSrc := uint16(40000)
+	targetPort := uint16(443)
+	key := net.JoinHostPort(remote.String(), "443")
+
+	resultCh := make(chan models.Result, 1)
+	scanner := &SYNScanner{
+		portTargetMap: map[uint16]string{ourSrc: key},
+		targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},
+		targetIP:      map[string]string{key: remote.String()},
+		results: map[string]models.Result{key: {
+			Target:    models.Target{Host: remote.String(), Port: int(targetPort), Mode: models.ModeTCP},
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+		}},
+		portAlloc: NewPortAllocator(ourSrc, ourSrc),
+		logger:    logger.NewTestLogger(),
+	}
+	scanner.resultCallback = func(result models.Result) {
+		resultCh <- result
+	}
+
+	scanner.processEthernetFrame(buildTCPReplyFrameIPv6(local, wrongRemote, ourSrc, targetPort, synFlag|ackFlag))
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("unexpected result from wrong IPv6 source: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestProcessEthernetFrameICMPv6Errors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		icmpTyp uint8
+		wantErr error
+	}{
+		{name: "destination unreachable", icmpTyp: icmpv6DstUnreach, wantErr: ErrICMPv6Unreachable},
+		{name: "packet too big", icmpTyp: icmpv6PacketTooBig, wantErr: ErrICMPv6PacketTooBig},
+		{name: "time exceeded", icmpTyp: icmpv6TimeExceeded, wantErr: ErrICMPv6TimeExceeded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			local := net.ParseIP("2001:db8::10")
+			remote := net.ParseIP("2001:db8::20")
+			router := net.ParseIP("2001:db8::1")
+			ourSrc := uint16(40000)
+			targetPort := uint16(443)
+			key := net.JoinHostPort(remote.String(), "443")
+
+			resultCh := make(chan models.Result, 1)
+			scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, targetPort, resultCh)
+
+			scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, remote, router, ourSrc, targetPort, tt.icmpTyp))
+
+			select {
+			case result := <-resultCh:
+				assert.False(t, result.Available)
+				require.ErrorIs(t, result.Error, tt.wantErr)
+			case <-time.After(time.Second):
+				t.Fatal("timed out waiting for ICMPv6 error result")
+			}
+		})
+	}
+}
+
+func TestProcessEthernetFrameICMPv6IgnoresWrongEmbeddedTarget(t *testing.T) {
+	t.Parallel()
+
+	local := net.ParseIP("2001:db8::10")
+	remote := net.ParseIP("2001:db8::20")
+	wrongRemote := net.ParseIP("2001:db8::21")
+	router := net.ParseIP("2001:db8::1")
+	ourSrc := uint16(40000)
+	targetPort := uint16(443)
+	key := net.JoinHostPort(remote.String(), "443")
+
+	resultCh := make(chan models.Result, 1)
+	scanner := newTestSYNScannerForIPv6Reply(key, remote.String(), ourSrc, targetPort, resultCh)
+
+	scanner.processEthernetFrame(buildICMPv6ErrorFrame(local, wrongRemote, router, ourSrc, targetPort, icmpv6DstUnreach))
+
+	select {
+	case result := <-resultCh:
+		t.Fatalf("unexpected result from wrong embedded IPv6 target: %#v", result)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestScanStreamBatchedKeepsTargetBatchesBounded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	targets := make(chan models.Target)
+
+	var batches [][]models.Target
+	scanBatch := func(_ context.Context, batch []models.Target) (<-chan models.Result, error) {
+		copied := append([]models.Target(nil), batch...)
+		batches = append(batches, copied)
+
+		results := make(chan models.Result, len(batch))
+		for _, target := range batch {
+			results <- models.Result{Target: target}
+		}
+		close(results)
+
+		return results, nil
+	}
+
+	resultCh, errCh, err := scanStreamBatched(ctx, targets, StreamOptions{BatchSize: 2}, scanBatch)
+	require.NoError(t, err)
+
+	go func() {
+		defer close(targets)
+
+		targets <- models.Target{Host: "2001:db8::1", Port: 22, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::2", Port: 22, Mode: models.ModeICMP}
+		targets <- models.Target{Host: "2001:db8::3", Port: 443, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::4", Port: 8443, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::5", Port: 3389, Mode: models.ModeTCP}
+		targets <- models.Target{Host: "2001:db8::6", Port: 8080, Mode: models.ModeTCP}
+	}()
+
+	var got []models.Result
+	for result := range resultCh {
+		got = append(got, result)
+	}
+
+	require.Len(t, batches, 3)
+	assert.Len(t, batches[0], 2)
+	assert.Len(t, batches[1], 2)
+	assert.Len(t, batches[2], 1)
+	assert.Len(t, got, 5)
+
+	for _, batch := range batches {
+		assert.LessOrEqual(t, len(batch), 2)
+		for _, target := range batch {
+			assert.Equal(t, models.ModeTCP, target.Mode)
+		}
+	}
+
+	select {
+	case err := <-errCh:
+		require.NoError(t, err)
+	default:
+	}
+}
+
+func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
+	t.Parallel()
+
+	scanner := &SYNScanner{
+		retryAttempts:  3,
+		retryMinJitter: time.Millisecond,
+		retryMaxJitter: time.Millisecond,
+		retryCh:        make(chan retryItem, 8),
+		rand:           rand.New(rand.NewSource(1)),
+	}
+
+	scanner.enqueueRetriesForBatch([]models.Target{
+		{Host: "2001:db8::20", Port: 443, Mode: models.ModeTCP},
+	})
+	scanner.recordRateLimitWait(25 * time.Millisecond)
+	scanner.recordSourcePortWait(10 * time.Millisecond)
+
+	stats := scanner.GetStats()
+	assert.Equal(t, uint64(2), stats.RetriesAttempted)
+	assert.Len(t, scanner.retryCh, 2)
+	assert.Equal(t, uint64(2), stats.RateLimitDeferrals)
+	assert.Equal(t, uint64(1), stats.RateLimitWaits)
+	assert.Equal(t, uint64(1), stats.SourcePortWaits)
+	assert.Equal(t, uint64(25*time.Millisecond), stats.RateLimitWaitNanos)
+	assert.Equal(t, uint64(10*time.Millisecond), stats.SourcePortWaitNanos)
+}
+
+func newTestSYNScannerForIPv6Reply(
+	key string,
+	targetIP string,
+	ourSrc uint16,
+	targetPort uint16,
+	resultCh chan<- models.Result,
+) *SYNScanner {
+	scanner := &SYNScanner{
+		portTargetMap: map[uint16]string{ourSrc: key},
+		targetPorts:   map[string][]uint16{key: []uint16{ourSrc}},
+		targetIP:      map[string]string{key: targetIP},
+		results: map[string]models.Result{key: {
+			Target:    models.Target{Host: targetIP, Port: int(targetPort), Mode: models.ModeTCP},
+			FirstSeen: time.Now(),
+			LastSeen:  time.Now(),
+		}},
+		portAlloc: NewPortAllocator(ourSrc, ourSrc),
+		logger:    logger.NewTestLogger(),
+	}
+	scanner.resultCallback = func(result models.Result) {
+		resultCh <- result
+	}
+
+	return scanner
+}
+
 func permissionError(err error) bool {
 	if err == nil {
 		return false
@@ -43,6 +405,54 @@ func permissionError(err error) bool {
 	return errors.Is(err, syscall.EPERM) ||
 		errors.Is(err, syscall.EACCES) ||
 		strings.Contains(err.Error(), "requires root")
+}
+
+func buildICMPv6ErrorFrame(localIP, remoteIP, routerIP net.IP, srcPort, dstPort uint16, icmpType uint8) []byte {
+	embedded := buildSYNPacketIPv6(localIP, remoteIP, srcPort, dstPort, 0x10203040)
+	frame := make([]byte, ethernetHeaderSize+ipv6HeaderSize+icmpv6HeaderSize+len(embedded))
+
+	eth := frame[:ethernetHeaderSize]
+	binary.BigEndian.PutUint16(eth[12:], etherTypeIPv6)
+
+	ip := frame[ethernetHeaderSize : ethernetHeaderSize+ipv6HeaderSize]
+	ip[0] = 0x60
+	binary.BigEndian.PutUint16(ip[4:], uint16(icmpv6HeaderSize+len(embedded)))
+	ip[6] = ipProtoICMPv6
+	ip[7] = defaultTTL
+	copy(ip[8:24], routerIP.To16())
+	copy(ip[24:40], localIP.To16())
+
+	icmp := frame[ethernetHeaderSize+ipv6HeaderSize:]
+	icmp[0] = icmpType
+	copy(icmp[icmpv6HeaderSize:], embedded)
+
+	return frame
+}
+
+func buildTCPReplyFrameIPv6(localIP, remoteIP net.IP, dstPort, srcPort uint16, flags uint8) []byte {
+	frame := make([]byte, ethernetHeaderSize+ipv6HeaderSize+tcpHeaderMinSize)
+	eth := frame[:ethernetHeaderSize]
+	binary.BigEndian.PutUint16(eth[12:], etherTypeIPv6)
+
+	ip := frame[ethernetHeaderSize : ethernetHeaderSize+ipv6HeaderSize]
+	ip[0] = 0x60
+	binary.BigEndian.PutUint16(ip[4:], tcpHeaderMinSize)
+	ip[6] = syscall.IPPROTO_TCP
+	ip[7] = defaultTTL
+	copy(ip[8:24], remoteIP.To16())
+	copy(ip[24:40], localIP.To16())
+
+	tcp := frame[ethernetHeaderSize+ipv6HeaderSize:]
+	binary.BigEndian.PutUint16(tcp[0:], srcPort)
+	binary.BigEndian.PutUint16(tcp[2:], dstPort)
+	binary.BigEndian.PutUint32(tcp[4:], 0xABCDEF01)
+	binary.BigEndian.PutUint32(tcp[8:], 0)
+	tcp[12] = 5 << 4
+	tcp[13] = flags
+	binary.BigEndian.PutUint16(tcp[14:], defaultTCPWindow)
+	binary.BigEndian.PutUint16(tcp[16:], TCPChecksumIPv6New(remoteIP, localIP, tcp, nil))
+
+	return frame
 }
 
 func TestNewSYNScanner(t *testing.T) {

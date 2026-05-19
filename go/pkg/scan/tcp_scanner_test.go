@@ -139,6 +139,18 @@ func TestTCPSweeper_checkPort(t *testing.T) {
 	}
 }
 
+func TestTCPSweeperCapabilities(t *testing.T) {
+	t.Parallel()
+
+	caps := (&TCPSweeper{}).Capabilities()
+	if !caps.TCPConnectIPv4 || !caps.TCPConnectIPv6 {
+		t.Fatalf("expected TCP connect IPv4 and IPv6 capabilities, got %#v", caps)
+	}
+	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
+		t.Fatalf("TCP connect scanner should not advertise raw SYN capabilities: %#v", caps)
+	}
+}
+
 func TestTCPSweeper_worker(t *testing.T) {
 	s := NewTCPSweeper(1*time.Second, 2, logger.NewTestLogger())
 
@@ -204,17 +216,18 @@ func TestFilterTCPTargets(t *testing.T) {
 	targets := []models.Target{
 		{Host: "1.1.1.1", Port: 80, Mode: models.ModeTCP},
 		{Host: "2.2.2.2", Port: 22, Mode: models.ModeTCP},
+		{Host: "2001:db8::1", Port: 443, Mode: models.ModeTCPConnect},
 		{Host: "3.3.3.3", Mode: models.ModeICMP},
 	}
 
 	filtered := filterTCPTargets(targets)
-	if len(filtered) != 2 {
-		t.Errorf("filterTCPTargets() len = %d, want 2", len(filtered))
+	if len(filtered) != 3 {
+		t.Errorf("filterTCPTargets() len = %d, want 3", len(filtered))
 	}
 
 	for _, target := range filtered { // Renamed loop variable to avoid shadowing 't'
-		if target.Mode != models.ModeTCP {
-			t.Errorf("Expected only TCP targets, got %v", target.Mode)
+		if target.Mode != models.ModeTCP && target.Mode != models.ModeTCPConnect {
+			t.Errorf("Expected only TCP/TCP connect targets, got %v", target.Mode)
 		}
 	}
 }

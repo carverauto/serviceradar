@@ -41,6 +41,7 @@ type ICMPSweeper struct {
 }
 
 var _ Scanner = (*ICMPSweeper)(nil)
+var _ CapabilityProvider = (*ICMPSweeper)(nil)
 
 const (
 	defaultIdentifierMod = 65536
@@ -86,6 +87,16 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger) (*I
 	}
 
 	return s, nil
+}
+
+func (s *ICMPSweeper) Capabilities() ScannerCapabilities {
+	if s == nil {
+		return ScannerCapabilities{}
+	}
+
+	return ScannerCapabilities{
+		ICMPv4: s.conn != nil,
+	}
 }
 
 // Scan performs the ICMP sweep and returns results.

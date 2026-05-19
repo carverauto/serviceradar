@@ -25,6 +25,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
 // TestTargetGeneration_AllPortsForEveryIP verifies that createTargetsForIP
@@ -149,6 +150,167 @@ func TestTargetGeneration_AllModesIncludingTCPConnect(t *testing.T) {
 	assert.Len(t, icmpTargets, 1, "1 ICMP target")
 	assert.Len(t, tcpTargets, 2, "2 TCP targets (one per port)")
 	assert.Len(t, tcpConnectTargets, 2, "2 TCP Connect targets (one per port)")
+	assert.Equal(t, "ipv4", icmpTargets[0].Metadata["address_family"])
+	assert.Equal(t, "icmp", icmpTargets[0].Metadata["effective_sweep_mode"])
+	assert.Equal(t, false, icmpTargets[0].Metadata["ipv6_raw_syn_fallback"])
+}
+
+func TestTargetGeneration_IPv6KeepsICMPAndUsesTCPConnect(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22, 443},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, nil)
+
+	assert.Len(t, targets, 3)
+	icmpTargets := filterByMode(targets, models.ModeICMP)
+	require.Len(t, icmpTargets, 1)
+	assert.Equal(t, "ipv6", icmpTargets[0].Metadata["address_family"])
+	assert.Equal(t, "icmp", icmpTargets[0].Metadata["requested_sweep_mode"])
+	assert.Equal(t, "icmp", icmpTargets[0].Metadata["effective_sweep_mode"])
+	assert.Equal(t, "icmp", icmpTargets[0].Metadata["scanner_path"])
+	assert.Equal(t, false, icmpTargets[0].Metadata["ipv6_raw_syn_fallback"])
+
+	assert.Empty(t, filterByMode(targets, models.ModeTCP))
+
+	tcpConnectTargets := filterByMode(targets, models.ModeTCPConnect)
+	require.Len(t, tcpConnectTargets, 2)
+
+	for _, target := range tcpConnectTargets {
+		assert.Equal(t, "2001:470:c0b5:2::100", target.Host)
+		assert.Equal(t, "ipv6", target.Metadata["address_family"])
+		assert.Equal(t, []string{"icmp", "tcp"}, target.Metadata["requested_sweep_modes"])
+		assert.Equal(t, "tcp", target.Metadata["requested_sweep_mode"])
+		assert.Equal(t, "tcp_connect", target.Metadata["effective_sweep_mode"])
+		assert.Equal(t, "tcp_connect_ipv6_raw_syn_fallback", target.Metadata["scanner_path"])
+		assert.Equal(t, true, target.Metadata["ipv6_raw_syn_fallback"])
+	}
+}
+
+func TestTargetGeneration_IPv6UsesRawSYNWhenCapabilityAvailable(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22, 443},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+		tcpScanner: statsCapabilityScanner{
+			caps: scan.ScannerCapabilities{RawSYNIPv6: true},
+		},
+	}
+
+	targets := sweeper.createTargetsForIP("2001:470:c0b5:2::100", config.SweepModes, nil)
+
+	assert.Len(t, targets, 3)
+	tcpTargets := filterByMode(targets, models.ModeTCP)
+	require.Len(t, tcpTargets, 2)
+	assert.Empty(t, filterByMode(targets, models.ModeTCPConnect))
+
+	for _, target := range tcpTargets {
+		assert.Equal(t, "ipv6", target.Metadata["address_family"])
+		assert.Equal(t, "tcp", target.Metadata["requested_sweep_mode"])
+		assert.Equal(t, "tcp", target.Metadata["effective_sweep_mode"])
+		assert.Equal(t, "tcp", target.Metadata["scanner_path"])
+		assert.Equal(t, false, target.Metadata["ipv6_raw_syn_fallback"])
+	}
+}
+
+func TestTargetGeneration_IPv6DoesNotDuplicateTCPConnect(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22, 443},
+		SweepModes: []models.SweepMode{models.ModeTCP, models.ModeTCPConnect},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, nil)
+
+	assert.Len(t, targets, 2)
+	assert.Empty(t, filterByMode(targets, models.ModeTCP))
+	assert.Len(t, filterByMode(targets, models.ModeTCPConnect), 2)
+}
+
+func TestTargetGeneration_TargetMetadataIsPerTarget(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	baseMetadata := map[string]interface{}{"source": "test"}
+	targets := sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, baseMetadata)
+
+	require.Len(t, targets, 2)
+
+	targets[0].Metadata["source"] = "mutated"
+	assert.Equal(t, "test", targets[1].Metadata["source"])
+	assert.Equal(t, "test", baseMetadata["source"])
+}
+
+func TestTargetGeneration_RouteSummaryCountsIPv6Fallbacks(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Ports:      []int{22},
+		SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets := append(
+		sweeper.createTargetsForIP("192.0.2.10", config.SweepModes, nil),
+		sweeper.createTargetsForIP("2001:db8::42", config.SweepModes, nil)...,
+	)
+
+	summary := summarizeTargetRoutes(targets)
+	assert.Equal(t, 2, summary.ipv4Targets)
+	assert.Equal(t, 2, summary.ipv6Targets)
+	assert.Equal(t, 1, summary.ipv6TCPConnectFallbackTargets)
+}
+
+func TestTargetGeneration_BroadIPv6CIDRRejected(t *testing.T) {
+	t.Parallel()
+
+	config := &models.Config{
+		Networks:   []string{"2001:db8::/64"},
+		SweepModes: []models.SweepMode{models.ModeICMP},
+	}
+
+	sweeper := &NetworkSweeper{
+		config: config,
+		logger: logger.NewTestLogger(),
+	}
+
+	targets, err := sweeper.generateTargets()
+	require.Error(t, err)
+	assert.Nil(t, targets)
+	assert.Contains(t, err.Error(), "IPv6 CIDR")
 }
 
 // TestTargetGeneration_DeviceTargetsGetAllPorts verifies that device targets
