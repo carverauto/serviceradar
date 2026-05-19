@@ -76,7 +76,7 @@ func TestGetConfigUsesStreamedConfig(t *testing.T) {
 
 	mockClient.EXPECT().
 		StreamConfig(gomock.Any(), req).
-		Return(&configChunkStream{chunks: configResponseChunksForTest(t, "agent-1", resp, 32)}, nil)
+		Return(&configChunkStream{chunks: configResponseChunksForTest(t, resp, 32)}, nil)
 
 	got, err := client.GetConfig(context.Background(), req)
 	if err != nil {
@@ -102,7 +102,7 @@ func TestReassembleConfigChunksAcceptsLargeDeviceTargetConfig(t *testing.T) {
 		ConfigJson:            []byte(configJSON),
 	}
 
-	chunks := configResponseChunksForTest(t, "agent-1", resp, 1024*1024)
+	chunks := configResponseChunksForTest(t, resp, 1024*1024)
 
 	got, err := reassembleConfigChunks(chunks)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestReassembleConfigChunksRejectsChecksumMismatch(t *testing.T) {
 		ConfigTimestamp: 1,
 		ConfigJson:      []byte(`{"checks":[]}`),
 	}
-	chunks := configResponseChunksForTest(t, "agent-1", resp, 1024)
+	chunks := configResponseChunksForTest(t, resp, 1024)
 	chunks[0].PayloadSha256 = strings.Repeat("0", 64)
 
 	_, err := reassembleConfigChunks(chunks)
@@ -141,7 +141,7 @@ func TestReassembleConfigChunksRejectsMetadataMismatch(t *testing.T) {
 		ConfigTimestamp: 1,
 		ConfigJson:      []byte(`{"checks":[]}`),
 	}
-	chunks := configResponseChunksForTest(t, "agent-1", resp, 1024)
+	chunks := configResponseChunksForTest(t, resp, 1024)
 	chunks[0].ConfigVersion = "v2"
 
 	_, err := reassembleConfigChunks(chunks)
@@ -158,7 +158,7 @@ func TestReassembleConfigChunksRejectsOutOfOrderChunks(t *testing.T) {
 		ConfigTimestamp: 1,
 		ConfigJson:      []byte(strings.Repeat("x", 4096)),
 	}
-	chunks := configResponseChunksForTest(t, "agent-1", resp, 1024)
+	chunks := configResponseChunksForTest(t, resp, 1024)
 	chunks[0], chunks[1] = chunks[1], chunks[0]
 
 	_, err := reassembleConfigChunks(chunks)
@@ -246,7 +246,7 @@ func statusChunkWithMessage(message string) *proto.GatewayStatusChunk {
 	}
 }
 
-func configResponseChunksForTest(t *testing.T, agentID string, resp *proto.AgentConfigResponse, chunkSize int) []*proto.AgentConfigChunk {
+func configResponseChunksForTest(t *testing.T, resp *proto.AgentConfigResponse, chunkSize int) []*proto.AgentConfigChunk {
 	t.Helper()
 
 	payload, err := goproto.Marshal(resp)
@@ -270,7 +270,7 @@ func configResponseChunksForTest(t *testing.T, agentID string, resp *proto.Agent
 		}
 
 		chunks = append(chunks, &proto.AgentConfigChunk{
-			AgentId:         agentID,
+			AgentId:         "agent-1",
 			ConfigVersion:   resp.ConfigVersion,
 			ConfigTimestamp: resp.ConfigTimestamp,
 			NotModified:     resp.NotModified,

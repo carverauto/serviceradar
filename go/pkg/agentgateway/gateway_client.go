@@ -705,7 +705,7 @@ func reassembleConfigChunks(chunks []*proto.AgentConfigChunk) (*proto.AgentConfi
 
 	resp := &proto.AgentConfigResponse{}
 	if err := goproto.Unmarshal(payload, resp); err != nil {
-		return nil, fmt.Errorf("%w: decode config response: %v", ErrInvalidConfigStream, err)
+		return nil, fmt.Errorf("%w: decode config response: %w", ErrInvalidConfigStream, err)
 	}
 	if resp.ConfigVersion != configVersion || resp.ConfigTimestamp != configTs || resp.NotModified != notModified {
 		return nil, fmt.Errorf("%w: decoded response metadata does not match stream metadata", ErrInvalidConfigStream)
