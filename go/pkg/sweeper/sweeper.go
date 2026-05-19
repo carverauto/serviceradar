@@ -36,6 +36,7 @@ const (
 	defaultInterval      = 5 * time.Minute
 	scanTimeout          = 20 * time.Minute // Timeout for individual scan operations - increased for large-scale TCP scanning
 	defaultResultTimeout = 500 * time.Millisecond
+	defaultTargetBatch   = 100000
 	intSizeBits          = 32 << (^uint(0) >> 63)
 	maxInt               = int(^uint(0) >> 1)
 )
@@ -953,6 +954,10 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	scanner scan.Scanner, targets []models.Target, scanType string) error {
 	defer wg.Done()
 
+	return s.scanAndProcessBatch(ctx, scanner, targets, scanType)
+}
+
+func (s *NetworkSweeper) scanAndProcessBatch(ctx context.Context, scanner scan.Scanner, targets []models.Target, scanType string) error {
 	s.logger.Debug().Str("scanType", scanType).Msg("Running scan")
 
 	results, err := scanner.Scan(ctx, targets)
@@ -1077,6 +1082,11 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		_ = s.store.PruneResults(context.Background(), 0)
 	}
 
+	targetEstimate := estimateTargetCount(s.config)
+	if targetEstimate > defaultTargetBatch {
+		return s.runBatchedSweep(ctx, targetEstimate)
+	}
+
 	targets, err := s.generateTargets()
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
@@ -1167,6 +1177,134 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	s.logger.Info().Msg("Sweep completed successfully")
 
 	return nil
+}
+
+func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int) error {
+	s.mu.RLock()
+	icmpScanner := s.icmpScanner
+	tcpScanner := s.tcpScanner
+	tcpConnectScanner := s.tcpConnectScanner
+	s.mu.RUnlock()
+
+	s.resultsMu.Lock()
+	s.deviceResults = make(map[string]*DeviceResultAggregator)
+	s.resultsMu.Unlock()
+
+	runner := &sweepBatchRunner{
+		sweeper:           s,
+		ctx:               ctx,
+		icmpScanner:       icmpScanner,
+		tcpScanner:        tcpScanner,
+		tcpConnectScanner: tcpConnectScanner,
+		icmpTargets:       make([]models.Target, 0, defaultTargetBatch),
+		tcpTargets:        make([]models.Target, 0, defaultTargetBatch),
+		tcpConnectTargets: make([]models.Target, 0, defaultTargetBatch),
+	}
+
+	s.logger.Info().
+		Int("estimatedTargets", targetEstimate).
+		Int("batchSize", defaultTargetBatch).
+		Bool("icmpScannerAvailable", icmpScanner != nil).
+		Bool("tcpScannerAvailable", tcpScanner != nil).
+		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+		Msg("Starting batched sweep")
+
+	if err := s.generateTargetsBatched(runner.addTarget); err != nil {
+		return fmt.Errorf("failed to generate batched targets: %w", err)
+	}
+
+	if err := runner.flushAll(); err != nil {
+		return err
+	}
+
+	s.finalizeDeviceAggregators(ctx)
+
+	s.logger.Info().
+		Int("estimatedTargets", targetEstimate).
+		Int("icmpTargets", runner.icmpCount).
+		Int("tcpTargets", runner.tcpCount).
+		Int("tcpConnectTargets", runner.tcpConnectCount).
+		Msg("Batched sweep completed successfully")
+
+	return nil
+}
+
+type sweepBatchRunner struct {
+	sweeper           *NetworkSweeper
+	ctx               context.Context
+	icmpScanner       scan.Scanner
+	tcpScanner        scan.Scanner
+	tcpConnectScanner scan.Scanner
+	icmpTargets       []models.Target
+	tcpTargets        []models.Target
+	tcpConnectTargets []models.Target
+	icmpCount         int
+	tcpCount          int
+	tcpConnectCount   int
+}
+
+func (r *sweepBatchRunner) addTarget(target models.Target) error {
+	switch target.Mode {
+	case models.ModeICMP:
+		r.icmpTargets = append(r.icmpTargets, target)
+		r.icmpCount++
+		if len(r.icmpTargets) >= defaultTargetBatch {
+			if err := r.flushMode("icmp", r.icmpScanner, &r.icmpTargets); err != nil {
+				return err
+			}
+		}
+	case models.ModeTCP:
+		r.tcpTargets = append(r.tcpTargets, target)
+		r.tcpCount++
+		if len(r.tcpTargets) >= defaultTargetBatch {
+			if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+				return err
+			}
+		}
+	case models.ModeTCPConnect:
+		r.tcpConnectTargets = append(r.tcpConnectTargets, target)
+		r.tcpConnectCount++
+		if len(r.tcpConnectTargets) >= defaultTargetBatch {
+			if err := r.flushMode("tcp_connect", r.tcpConnectScanner, &r.tcpConnectTargets); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (r *sweepBatchRunner) flushAll() error {
+	if err := r.flushMode("icmp", r.icmpScanner, &r.icmpTargets); err != nil {
+		return err
+	}
+
+	if err := r.flushMode("tcp", r.tcpScanner, &r.tcpTargets); err != nil {
+		return err
+	}
+
+	return r.flushMode("tcp_connect", r.tcpConnectScanner, &r.tcpConnectTargets)
+}
+
+func (r *sweepBatchRunner) flushMode(scanType string, scanner scan.Scanner, targets *[]models.Target) error {
+	if len(*targets) == 0 {
+		return nil
+	}
+
+	if scanner == nil {
+		r.sweeper.logger.Warn().
+			Str("scanType", scanType).
+			Int("targets", len(*targets)).
+			Msg("Targets found but scanner is not available, skipping scan batch")
+		*targets = (*targets)[:0]
+
+		return nil
+	}
+
+	batch := *targets
+	*targets = (*targets)[:0]
+
+	return r.sweeper.scanAndProcessBatch(r.ctx, scanner, batch, scanType)
 }
 
 // processResult processes a single scan result.
@@ -1399,21 +1537,168 @@ func (s *NetworkSweeper) generateTargetsForDeviceTarget(deviceTarget *models.Dev
 	return targets, hostCount
 }
 
+func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) error) error {
+	totalHostCount := 0
+
+	for _, network := range s.config.Networks {
+		hostCount, err := countCIDRHosts(network)
+		if err != nil {
+			return fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+
+		metadata := map[string]interface{}{
+			"network":     network,
+			"total_hosts": hostCount,
+			"source":      "legacy_networks",
+		}
+
+		visited, err := forEachCIDRHost(network, func(ip string) error {
+			return s.emitTargetsForIP(ip, s.config.SweepModes, metadata, consume)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to generate targets for CIDR %s: %w", network, err)
+		}
+
+		totalHostCount += visited
+	}
+
+	for _, deviceTarget := range s.config.DeviceTargets {
+		hostCount, err := countCIDRHosts(deviceTarget.Network)
+		if err != nil {
+			s.logger.Warn().
+				Err(err).
+				Str("network", deviceTarget.Network).
+				Str("query_label", deviceTarget.QueryLabel).
+				Msg("Failed to parse device target CIDR, skipping")
+
+			continue
+		}
+
+		metadata := map[string]interface{}{
+			"network":     deviceTarget.Network,
+			"total_hosts": hostCount,
+			"source":      deviceTarget.Source,
+			"query_label": deviceTarget.QueryLabel,
+		}
+
+		for k, v := range deviceTarget.Metadata {
+			metadata[k] = v
+		}
+
+		sweepModes := deviceTarget.SweepModes
+		if len(sweepModes) == 0 {
+			s.logger.Debug().
+				Str("device", deviceTarget.Network).
+				Msg("Device target has no sweep modes, using global config")
+
+			sweepModes = s.config.SweepModes
+		}
+
+		visited, err := forEachCIDRHost(deviceTarget.Network, func(ip string) error {
+			return s.emitTargetsForIP(ip, sweepModes, metadata, consume)
+		})
+		if err != nil {
+			return fmt.Errorf("failed to generate targets for device CIDR %s: %w", deviceTarget.Network, err)
+		}
+
+		totalHostCount += visited
+	}
+
+	s.logger.Info().
+		Int("networkCount", len(s.config.Networks)).
+		Int("deviceTargetCount", len(s.config.DeviceTargets)).
+		Int("totalHosts", totalHostCount).
+		Ints("configuredPorts", s.config.Ports).
+		Strs("globalSweepModes", func() []string {
+			modes := make([]string, 0, len(s.config.SweepModes))
+			for _, m := range s.config.SweepModes {
+				modes = append(modes, string(m))
+			}
+			return modes
+		}()).
+		Msg("Generated batched targets from networks and device targets")
+
+	return nil
+}
+
+func forEachCIDRHost(cidr string, fn func(string) error) (int, error) {
+	baseIP, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+
+	ones, _ := ipNet.Mask.Size()
+	currentIP := append(net.IP(nil), baseIP.Mask(ipNet.Mask)...)
+	count := 0
+
+	for ; ipNet.Contains(currentIP); incCIDRIP(currentIP) {
+		if currentIP.To4() != nil && ones != 32 {
+			if currentIP.Equal(ipNet.IP) || isCIDRBroadcast(currentIP, ipNet) {
+				continue
+			}
+		}
+
+		if err := fn(currentIP.String()); err != nil {
+			return count, err
+		}
+
+		count++
+	}
+
+	return count, nil
+}
+
+func incCIDRIP(ip net.IP) {
+	for i := len(ip) - 1; i >= 0; i-- {
+		ip[i]++
+		if ip[i] != 0 {
+			break
+		}
+	}
+}
+
+func isCIDRBroadcast(ip net.IP, ipNet *net.IPNet) bool {
+	broadcast := make(net.IP, len(ip))
+	for i := range ip {
+		broadcast[i] = ipNet.IP[i] | ^ipNet.Mask[i]
+	}
+
+	return ip.Equal(broadcast)
+}
+
 // createTargetsForIP creates targets for a specific IP using the given sweep modes
 func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.SweepMode, metadata map[string]interface{}) []models.Target {
 	var targets []models.Target
 
+	_ = s.emitTargetsForIP(ip, sweepModes, metadata, func(target models.Target) error {
+		targets = append(targets, target)
+		return nil
+	})
+
+	return targets
+}
+
+func (s *NetworkSweeper) emitTargetsForIP(
+	ip string,
+	sweepModes []models.SweepMode,
+	metadata map[string]interface{},
+	emit func(models.Target) error,
+) error {
 	if containsMode(sweepModes, models.ModeICMP) {
 		target := scan.TargetFromIP(ip, models.ModeICMP)
 		target.Metadata = metadata
-		targets = append(targets, target)
+		if err := emit(target); err != nil {
+			return err
+		}
 	}
 
 	if containsMode(sweepModes, models.ModeTCP) {
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCP, port)
 			target.Metadata = metadata
-			targets = append(targets, target)
+			if err := emit(target); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1421,24 +1706,17 @@ func (s *NetworkSweeper) createTargetsForIP(ip string, sweepModes []models.Sweep
 		for _, port := range s.config.Ports {
 			target := scan.TargetFromIP(ip, models.ModeTCPConnect, port)
 			target.Metadata = metadata
-			targets = append(targets, target)
+			if err := emit(target); err != nil {
+				return err
+			}
 		}
 	}
 
-	return targets
+	return nil
 }
 
 // generateTargets creates scan targets from the configuration.
 func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
-	targetEstimate := estimateTargetCount(s.config)
-	if targetEstimate > defaultMaxResults {
-		return nil, fmt.Errorf(
-			"sweep target count %d exceeds safety limit %d; narrow the sweep CIDR or reduce ports/modes",
-			targetEstimate,
-			defaultMaxResults,
-		)
-	}
-
 	var targets []models.Target
 
 	totalHostCount := 0

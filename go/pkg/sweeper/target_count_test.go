@@ -17,9 +17,9 @@
 package sweeper
 
 import (
-	"strings"
 	"testing"
 
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
@@ -185,21 +185,35 @@ func TestEstimateTargetCountInvalidCIDR(t *testing.T) {
 	}
 }
 
-func TestGenerateTargetsRejectsOversizedSweep(t *testing.T) {
+func TestGenerateTargetsBatchedStreamsOversizedSweep(t *testing.T) {
 	config := &models.Config{
-		Networks:   []string{"10.0.0.0/8"},
+		Networks:   []string{"10.0.0.0/16"},
 		SweepModes: []models.SweepMode{models.ModeTCP},
-		Ports:      []int{22, 80, 443},
+		Ports:      []int{22, 80, 443, 8080, 8888, 8443, 4000, 8000},
 	}
-	sweeper := &NetworkSweeper{config: config}
+	sweeper := &NetworkSweeper{config: config, logger: logger.NewTestLogger()}
 
-	_, err := sweeper.generateTargets()
-	if err == nil {
-		t.Fatal("expected oversized sweep to fail")
+	emitted := 0
+	targets := 0
+
+	err := sweeper.generateTargetsBatched(func(target models.Target) error {
+		emitted++
+		targets++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("generateTargetsBatched() returned error: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "exceeds safety limit") {
-		t.Fatalf("expected safety limit error, got %v", err)
+	expectedHosts := 65_534
+	expectedTargets := expectedHosts * len(config.Ports)
+
+	if targets != expectedTargets {
+		t.Fatalf("generateTargetsBatched() targets = %d, expected %d", targets, expectedTargets)
+	}
+
+	if emitted != expectedTargets {
+		t.Fatalf("generateTargetsBatched() emitted = %d, expected %d", emitted, expectedTargets)
 	}
 }
 
