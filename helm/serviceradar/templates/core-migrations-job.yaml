@@ -7,7 +7,6 @@
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
-{{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
 {{- if $migrationsEnabled }}
 apiVersion: batch/v1
@@ -132,10 +131,6 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
-        {{- if $geoipMmdb.enabled }}
-        - name: GEOLITE_MMDB_DIR
-          value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
-        {{- end }}
         {{- if .Values.spire.enabled }}
         - name: SPIFFE_TRUST_DOMAIN
           value: {{ $trustDomain | quote }}
@@ -167,10 +162,6 @@ spec:
           mountPath: /run/spire/bundle
           readOnly: true
         {{- end }}
-        {{- if $geoipMmdb.enabled }}
-        - name: geoip-mmdb
-          mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
-        {{- end }}
       volumes:
       - name: cert-data
         secret:
@@ -186,10 +177,5 @@ spec:
       - name: spire-bundle
         configMap:
           name: {{ $spireBundle | quote }}
-      {{- end }}
-      {{- if $geoipMmdb.enabled }}
-      - name: geoip-mmdb
-        persistentVolumeClaim:
-          claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
       {{- end }}
 {{- end }}
