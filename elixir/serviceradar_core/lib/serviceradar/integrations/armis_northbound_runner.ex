@@ -96,7 +96,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   @spec load_candidates(IntegrationSource.t() | map(), keyword()) ::
           {:ok, [candidate()]} | {:error, atom()}
   def load_candidates(source, opts \\ []) do
-    with :ok <- northbound_ready?(source, opts) do
+    with :ok <- northbound_ready?(source, opts),
+         :ok <- availability_source_ready?(source) do
       {:ok, Repo.all(candidates_query(source))}
     end
   end
@@ -609,6 +610,28 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   defp availability_source_agent_id(source) do
     Map.get(source, :northbound_availability_source_agent_id) ||
       Map.get(source, "northbound_availability_source_agent_id")
+  end
+
+  defp availability_source_ready?(source) do
+    case availability_source_agent_id(source) do
+      agent_id when is_binary(agent_id) and agent_id != "" ->
+        if agent_availability_rows_exist?(agent_id) do
+          :ok
+        else
+          {:error, {:missing_agent_availability, agent_id}}
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp agent_availability_rows_exist?(agent_id) do
+    DeviceAgentAvailability
+    |> where([daa], daa.agent_id == ^agent_id)
+    |> select([daa], 1)
+    |> limit(1)
+    |> Repo.exists?()
   end
 
   @spec collapse_candidates([candidate()]) :: [collapsed_candidate()]
