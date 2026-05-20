@@ -167,8 +167,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   GetConfig would return, preserving existing config semantics while avoiding a
   single oversized gRPC response message.
   """
-  @spec stream_config(Monitoring.AgentConfigRequest.t(), GRPC.Server.Stream.t()) ::
-          Enumerable.t()
+  @spec stream_config(Monitoring.AgentConfigRequest.t(), GRPC.Server.Stream.t()) :: :ok
   def stream_config(request, stream) do
     agent_id = required_agent_id(request.agent_id)
     config_version = request.config_version || ""
@@ -192,7 +191,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       "Streaming config to agent: agent_id=#{agent_id}, version=#{response.config_version}, chunks=#{length(chunks)}, bytes=#{config_response_size(response)}"
     )
 
-    chunks
+    send_config_chunks(chunks, stream)
   end
 
   @doc """
@@ -1165,6 +1164,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
       validate_stream_config_chunk!(chunk)
     end)
+  end
+
+  @doc false
+  def send_config_chunks(chunks, stream) when is_list(chunks) do
+    Enum.reduce(chunks, stream, fn %Monitoring.AgentConfigChunk{} = chunk, stream ->
+      GRPC.Server.send_reply(stream, chunk)
+    end)
+
+    :ok
   end
 
   @doc false
