@@ -64,10 +64,27 @@ services:
     networks:
       - serviceradar-net
 
+  cnpg-data-permissions-fixer:
+    image: alpine:3.20
+    container_name: serviceradar-cnpg-data-permissions-fixer
+    volumes:
+      - cnpg-data:/var/lib/postgresql/18/docker
+    command: >
+      sh -c 'set -e;
+      mkdir -p /var/lib/postgresql/18/docker;
+      chown -R 26:102 /var/lib/postgresql/18/docker;
+      chmod 700 /var/lib/postgresql/18/docker'
+    depends_on:
+      cnpg-migrator:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - serviceradar-net
+
   cnpg:
-    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5}
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}
     container_name: serviceradar-cnpg-mtls
-    user: "0:0"
+    user: "26:102"
     entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
     command:
       - "postgres"
@@ -125,6 +142,8 @@ services:
           - cnpg
           - cnpg-rw
     depends_on:
+      cnpg-data-permissions-fixer:
+        condition: service_completed_successfully
       cert-permissions-fixer:
         condition: service_completed_successfully
       db-credentials:
@@ -178,7 +197,7 @@ services:
       - serviceradar-net
 
   cnpg-app-bootstrap:
-    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5}
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9}
     container_name: serviceradar-cnpg-app-bootstrap
     user: "0:0"
     environment:

@@ -26,6 +26,7 @@ on:
       - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
+      - 'scripts/db/**'
   pull_request:
     branches: [staging]
     paths:
@@ -33,6 +34,7 @@ on:
       - '.forgejo/workflows/elixir-quality.yml'
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
+      - 'scripts/db/**'
 
 env:
   ImageOS: ubuntu24
@@ -102,3 +104,16 @@ jobs:
           run_quality serviceradar_core_elx elixir/serviceradar_core_elx
           run_quality serviceradar_srql elixir/serviceradar_srql
           run_quality web-ng elixir/web-ng --phoenix
+
+      - name: Check database bootstrap baseline
+        env:
+          BASELINE_DATABASE_URL: ${{ secrets.SERVICERADAR_BASELINE_DATABASE_URL }}
+          REPLAY_DATABASE_URL: ${{ secrets.SERVICERADAR_REPLAY_DATABASE_URL }}
+        run: |
+          scripts/db/check-baseline-metadata.sh
+          scripts/db/check-migration-startup-safety.sh
+          if [ -n "${BASELINE_DATABASE_URL:-}" ] && [ -n "${REPLAY_DATABASE_URL:-}" ]; then
+            scripts/db/compare-platform-baseline.sh
+          else
+            echo "Skipping baseline schema diff; SERVICERADAR_BASELINE_DATABASE_URL and SERVICERADAR_REPLAY_DATABASE_URL are not configured"
+          fi

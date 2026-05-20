@@ -14,6 +14,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   @default_marker_path "/tmp/serviceradar_migrations_complete"
   @default_search_path "platform, public, ag_catalog"
   @default_app_user "serviceradar"
+  @baseline_dir "priv/repo/baseline"
+  @baseline_metadata_file "metadata.json"
   @max_migration_repair_attempts 500
 
   def child_spec(_opts) do
@@ -28,6 +30,24 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   def start_link(_opts) do
     run!()
     :ignore
+  end
+
+  @doc false
+  def classify_bootstrap_state(migration_versions, platform_object_count)
+      when is_list(migration_versions) and is_integer(platform_object_count) do
+    versions = migration_versions |> Enum.uniq() |> Enum.sort()
+
+    cond do
+      versions != [] ->
+        :migrated
+
+      platform_object_count == 0 ->
+        :empty
+
+      true ->
+        {:ambiguous,
+         %{platform_object_count: platform_object_count, migration_versions: versions}}
+    end
   end
 
   @spec run!(keyword()) :: :ok
@@ -68,12 +88,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     app_password = app_password!()
 
     bootstrap_app_role!(app_user, app_password)
-    ensure_platform_schema!(app_user)
-    sync_platform_schema_migrations!()
     ensure_database_search_path!(app_user, app_database(), search_path())
     set_session_search_path!(search_path())
 
-    run_migrations_with_repair!()
+    run_bootstrap_or_migrations!(app_user)
 
     # Sync to ash_schema_migrations after migrations complete.
     # Ash Framework uses this table to track migrations via Repo config.
@@ -625,7 +643,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     "'#{String.replace(value, "'", "''")}'"
   end
 
-  defp sync_platform_schema_migrations! do
+  defp sync_legacy_public_schema_migrations! do
     if repo_enabled?() do
       if table_exists?("public.schema_migrations") do
         ServiceRadar.Repo.query!(
@@ -638,10 +656,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
             "ON CONFLICT (version) DO NOTHING"
         )
       end
-
-      # Ash Framework uses ash_schema_migrations as the migration source.
-      # Sync from schema_migrations to ensure both tables stay in sync.
-      sync_ash_schema_migrations!()
     end
   end
 
@@ -668,6 +682,205 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp run_migrations_with_repair! do
     migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
     do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
+  end
+
+  defp run_bootstrap_or_migrations!(app_user) do
+    migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+
+    case database_bootstrap_state() do
+      :empty ->
+        Logger.info(
+          "[StartupMigrations] Empty platform database detected; applying schema baseline"
+        )
+
+        apply_schema_baseline!(migrations_path)
+        run_migrations_with_repair!()
+
+      :migrated ->
+        Logger.info(
+          "[StartupMigrations] Existing migration history detected; running pending migrations"
+        )
+
+        ensure_platform_schema!(app_user)
+        sync_legacy_public_schema_migrations!()
+        do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
+
+      {:ambiguous, details} ->
+        raise RuntimeError,
+              "ambiguous ServiceRadar database state; refusing automatic schema bootstrap. " <>
+                "Platform objects exist without coherent migration history. " <>
+                "Restore from backup or repair platform.schema_migrations before retrying. " <>
+                "Details: #{inspect(details)}"
+    end
+  end
+
+  defp database_bootstrap_state do
+    classify_bootstrap_state(migration_ledger_versions(), platform_owned_object_count())
+  end
+
+  defp migration_ledger_versions do
+    ["platform.schema_migrations", "platform.ash_schema_migrations", "public.schema_migrations"]
+    |> Enum.flat_map(&migration_versions_from_table/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp migration_versions_from_table(table) do
+    if table_exists?(table) do
+      %{rows: rows} = ServiceRadar.Repo.query!("SELECT version FROM #{table}")
+      Enum.map(rows, fn [version] -> version end)
+    else
+      []
+    end
+  end
+
+  defp platform_owned_object_count do
+    if schema_exists?("platform") do
+      %{rows: [[count]]} =
+        ServiceRadar.Repo.query!("""
+        SELECT count(*)
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        LEFT JOIN pg_depend d
+          ON d.classid = 'pg_class'::regclass
+         AND d.objid = c.oid
+         AND d.deptype = 'e'
+        WHERE n.nspname = 'platform'
+        AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
+        AND c.relname NOT IN (
+          'schema_migrations',
+          'ash_schema_migrations',
+          'serviceradar_schema_baselines'
+        )
+        AND d.objid IS NULL
+        """)
+
+      count
+    else
+      0
+    end
+  end
+
+  defp apply_schema_baseline!(migrations_path) do
+    metadata = baseline_metadata!()
+    schema_file = baseline_schema_file!(metadata)
+    verify_baseline_checksum!(schema_file, metadata)
+
+    run_schema_file!(schema_file)
+    mark_baseline_migrations_applied!(migrations_path, metadata)
+    record_schema_baseline!(metadata)
+  end
+
+  defp baseline_metadata! do
+    path = baseline_path(@baseline_metadata_file)
+
+    with {:ok, body} <- File.read(path),
+         {:ok, metadata} <- Jason.decode(body) do
+      metadata
+    else
+      {:error, reason} ->
+        raise RuntimeError, "failed to read schema baseline metadata #{path}: #{inspect(reason)}"
+    end
+  end
+
+  defp baseline_schema_file!(%{"schema_file" => schema_file}) do
+    path = baseline_path(schema_file)
+
+    if File.regular?(path) do
+      path
+    else
+      raise RuntimeError, "schema baseline file not found: #{path}"
+    end
+  end
+
+  defp baseline_schema_file!(_metadata) do
+    raise RuntimeError, "schema baseline metadata missing schema_file"
+  end
+
+  defp verify_baseline_checksum!(schema_file, %{"schema_sha256" => expected}) do
+    actual =
+      schema_file
+      |> File.stream!(2048, [])
+      |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
+      |> :crypto.hash_final()
+      |> Base.encode16(case: :lower)
+
+    if actual != expected do
+      raise RuntimeError,
+            "schema baseline checksum mismatch for #{schema_file}: expected #{expected}, got #{actual}"
+    end
+  end
+
+  defp verify_baseline_checksum!(_schema_file, _metadata) do
+    raise RuntimeError, "schema baseline metadata missing schema_sha256"
+  end
+
+  defp baseline_path(file) do
+    Application.app_dir(:serviceradar_core, Path.join(@baseline_dir, file))
+  end
+
+  defp run_schema_file!(schema_file) do
+    statements = ServiceRadar.Postgres.SchemaSql.load_statements(schema_file)
+
+    Logger.info(
+      "[StartupMigrations] Applying schema baseline from #{schema_file} (#{length(statements)} statements)"
+    )
+
+    ServiceRadar.Repo.transaction(
+      fn ->
+        Enum.each(statements, fn statement ->
+          ServiceRadar.Repo.query!(statement, [], timeout: :infinity)
+        end)
+      end,
+      timeout: :infinity
+    )
+  end
+
+  defp mark_baseline_migrations_applied!(migrations_path, %{
+         "included_through" => included_through
+       }) do
+    ServiceRadar.Repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.schema_migrations (
+      version bigint NOT NULL PRIMARY KEY,
+      inserted_at timestamp(0) without time zone
+    )
+    """)
+
+    versions =
+      migrations_path
+      |> Path.join("*.exs")
+      |> Path.wildcard()
+      |> Enum.map(&migration_version_from_file/1)
+      |> Enum.filter(&(&1 <= included_through))
+      |> Enum.sort()
+
+    Enum.each(versions, &mark_platform_migration_applied!/1)
+  end
+
+  defp mark_baseline_migrations_applied!(_migrations_path, _metadata) do
+    raise RuntimeError, "schema baseline metadata missing included_through"
+  end
+
+  defp record_schema_baseline!(metadata) do
+    ServiceRadar.Repo.query!("""
+      CREATE TABLE IF NOT EXISTS platform.serviceradar_schema_baselines (
+      version integer NOT NULL PRIMARY KEY,
+      included_through bigint NOT NULL,
+      schema_sha256 text NOT NULL,
+      applied_at timestamp(0) without time zone NOT NULL DEFAULT NOW()
+    )
+    """)
+
+    ServiceRadar.Repo.query!(
+      """
+      INSERT INTO platform.serviceradar_schema_baselines (version, included_through, schema_sha256)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (version) DO UPDATE
+      SET included_through = EXCLUDED.included_through,
+          schema_sha256 = EXCLUDED.schema_sha256
+      """,
+      [metadata["version"], metadata["included_through"], metadata["schema_sha256"]]
+    )
   end
 
   defp do_run_migrations_with_repair!(_migrations_path, 0) do
