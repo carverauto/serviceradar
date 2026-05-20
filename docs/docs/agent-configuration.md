@@ -6,87 +6,50 @@ title: Agent Configuration
 
 The ServiceRadar **agent** runs at the edge of a monitored network. It executes
 checks (ping, port, HTTP, traceroute, and more), collects results, and pushes
-them to an **agent-gateway** over a secure connection. This page describes the
-agent's configuration file and the checks it can run.
+them to an **agent-gateway** over a secure connection.
 
-For getting an agent installed and enrolled, see
-[Edge Agent Onboarding](./edge-agent-onboarding.md).
+## Configuration is managed centrally
 
-## The configuration file
+You do not hand-edit agent configuration on the agent host. Agent configuration
+is managed by the ServiceRadar backend and **pushed down from the agent-gateway
+to the agent**. Operators configure agents — and the checks they run — through
+the **Web UI**; the agent receives its configuration over its connection to the
+gateway and applies it automatically.
 
-The agent reads a JSON configuration file. By default it loads
-`/etc/serviceradar/agent.json`; a different path can be passed with the
-`--config` flag.
+Editing configuration on the agent host directly is not the supported workflow:
+the next configuration push from the gateway overwrites local changes.
 
-A config file is **required**. If the file is missing, the agent exits with an
-error — unless the environment variable `SR_ALLOW_EMBEDDED_DEFAULT_CONFIG=true`
-is set, in which case it falls back to a built-in default config (intended for
-quick local testing only). The file must be valid JSON with no trailing data.
+- To onboard an agent, see [Edge Agent Onboarding](./edge-agent-onboarding.md).
+- To configure what an agent does, use the Web UI — see the check types below
+  and [Network Sweeps](./network-sweeps.md), [SNMP](./snmp.md),
+  [Sysmon Profiles](./sysmon-profiles.md), and [Discovery](./discovery.md).
 
-### Key fields
+## The bootstrap file
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `gateway_addr` | **Yes** | Address (`host:port`) of the agent-gateway the agent pushes status to. The agent will not start without it. |
-| `agent_id` | Recommended | Unique identifier for this agent. |
-| `agent_name` | Optional | Explicit name used for KV namespacing. |
-| `component_type` | Optional | Component type — `agent`, `gateway`, or `checker`. |
-| `host_ip` | Optional | Host IP address, used for device correlation. |
-| `partition` | Optional | Partition name, used for device correlation. |
-| `gateway_security` | Recommended | Security config for the gateway connection (TLS/mTLS — mode, cert directory, server name, role, cert/key/CA files). |
-| `push_interval` | Optional | How often the push loop runs (default `30s`; bounded between `1s` and `1h`). |
-| `status_debounce_interval` | Optional | Minimum interval between pushes when status has not changed. |
-| `status_heartbeat_interval` | Optional | Maximum interval between status pushes — a heartbeat even when nothing changed. |
-| `sync_runtime_enabled` | Optional | Enables the embedded integration sync runtime. |
-| `remote_access_rdp_enabled` | Optional | Gates the per-session RDP helper. The agent advertises RDP remote access only when this is enabled **and** the RDP helper binary is locally executable. |
-| `remote_access_rdp_adapter_path` | Optional | Path to the RDP adapter/helper binary. |
-| `checkers_dir` | Optional | Directory containing checker plugin definitions (default `/etc/serviceradar/checkers`). |
-| `kv_address` | Optional | Address of a KV store, if the agent reads config from KV. |
-| `kv_security` | Optional | Separate security config for the KV connection. |
-| `logging` | Optional | Logging configuration — `level`, `output`, and a nested `otel` block for OpenTelemetry export. |
+The agent has one small local file — its **bootstrap configuration**,
+`/etc/serviceradar/agent.json` by default. It is generated for you during
+enrollment (`serviceradar-cli enroll`) and only tells the agent how to start up
+and reach the gateway. Once the agent connects, everything else is delivered by
+the gateway.
 
-The `logging.otel` block enables OpenTelemetry export of agent logs/telemetry
-(endpoint, service name, batch timeout, TLS). See [OpenTelemetry](./otel.md) for
-the wider observability pipeline.
+| Field | Purpose |
+| --- | --- |
+| `gateway_addr` | Address (`host:port`) of the agent-gateway. The agent will not start without it. |
+| `agent_id` / `agent_name` | This agent's identity. |
+| `gateway_security` | TLS/mTLS settings for the gateway connection — mode, cert directory, server name, and cert/key/CA files. |
+| `host_ip` / `partition` | Used for device correlation. |
+| `logging` | Log level and output, plus an optional `otel` block for OpenTelemetry export. See [OpenTelemetry](./otel.md). |
+
+The enrollment flow writes this file for you. You should not need to edit it by
+hand; operational configuration (which checks to run, sweep/SNMP/sysmon
+profiles, discovery jobs, plugins) is delivered by the gateway, not stored here.
 
 :::note Deprecated field
 `remote_access_known_hosts_file` is **deprecated**. It is still accepted for
 compatibility with older rendered ConfigMaps but no longer has any effect.
-Remote-access host keys are now managed in the Web UI under
+Remote-access host keys are managed in the Web UI under
 **Settings → Networks → Host Keys**.
 :::
-
-### Example
-
-```json
-{
-  "agent_id": "edge-agent-01",
-  "agent_name": "branch-office",
-  "host_ip": "10.20.0.5",
-  "partition": "branch-office",
-  "gateway_addr": "agent-gateway:50052",
-  "push_interval": "30s",
-  "status_debounce_interval": "30s",
-  "status_heartbeat_interval": "5m",
-  "sync_runtime_enabled": true,
-  "checkers_dir": "/etc/serviceradar/checkers",
-  "gateway_security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "agent-gateway",
-    "role": "client",
-    "tls": {
-      "cert_file": "agent.pem",
-      "key_file": "agent-key.pem",
-      "ca_file": "root.pem"
-    }
-  },
-  "logging": {
-    "level": "info",
-    "output": "stdout"
-  }
-}
-```
 
 ## Agent check types
 
@@ -103,8 +66,8 @@ check has a type that tells the agent what to do:
 | `sweep` | Runs a network sweep across one or more networks/ports to discover and check hosts. See [Network Sweeps](./network-sweeps.md). |
 | `mtr` | Runs a scheduled traceroute (My Traceroute) to a target — see below. |
 
-Most checks are created and configured from the **Web UI**, not in the agent
-config file. The agent simply executes whatever check set the gateway sends it.
+All checks are created and configured from the **Web UI**. The agent simply
+executes whatever check set the gateway sends it.
 
 ### MTR (My Traceroute) checks
 

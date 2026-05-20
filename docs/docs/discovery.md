@@ -25,6 +25,26 @@ Discovery keeps the registry aligned with real-world infrastructure. Use Mapper 
 2. Onboard a sync-capable agent.
 3. Verify updates flow through DIRE into inventory.
 
+## Supported Devices for Enriched Discovery
+
+Mapper discovers and enriches any SNMP-capable device. For selected platforms it
+also queries the vendor's native API to add identity, interface, and topology
+detail beyond what SNMP alone provides.
+
+| Source | Devices | What it adds |
+| --- | --- | --- |
+| SNMP / LLDP / CDP | Any SNMP-capable device — Cisco, Juniper, Arista, Aruba, and others | Baseline inventory, interfaces, and L2/L3 topology |
+| MikroTik RouterOS API | MikroTik routers and switches | Device identity, full interface inventory, bridge/VLAN context, neighbor evidence — see below |
+| Ubiquiti UniFi API | UniFi controllers and managed devices | Site and device inventory with port-level topology |
+| Proxmox VE API | Proxmox VE hypervisors | Guest and host inventory — see [Proxmox VE](./proxmox.md) |
+
+SNMP, LLDP, and CDP remain the universal baseline and are authoritative wherever
+they provide stronger interface attribution than vendor-API data.
+
+Need enriched API discovery for a platform that is not listed? Open a request on
+the [ServiceRadar repository](https://github.com/carverauto/serviceradar/issues)
+so it can be prioritized.
+
 ## MikroTik RouterOS API Discovery
 
 ServiceRadar can query MikroTik RouterOS directly from the edge agent by using the RouterOS REST API over HTTP(S). The current implementation is read-only and is intended to improve device identity, interface coverage, and topology evidence without replacing SNMP where SNMP remains stronger.

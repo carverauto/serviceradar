@@ -27,10 +27,8 @@ Network Devices     NetFlow Collector      NATS JetStream       EventWriter     
 The BGP data model is **protocol-agnostic**. BGP data is collected from:
 - NetFlow v9 (Cisco, Juniper)
 - IPFIX (RFC 7012)
-- BMP (BGP Monitoring Protocol) — see [BMP Ingest](#bmp-ingest) below
-
-The following collection source is planned but **not yet available**:
 - sFlow
+- BMP (BGP Monitoring Protocol) — see [BMP Ingest](#bmp-ingest) below
 
 ## BMP Ingest
 
@@ -136,10 +134,11 @@ Or directly: `http://your-serviceradar-instance/bgp-routing`
 - Last 7 Days
 
 **Source Protocol Filter**:
-- NetFlow / IPFIX (the source for the dashboard's AS path and community analytics)
+- NetFlow / IPFIX
+- sFlow
+- BMP (BGP peering telemetry)
 
-sFlow as a BGP data source is planned but not yet available. BMP routing
-telemetry is ingested separately into the `ARANCINI_CAUSAL` JetStream stream
+BMP routing telemetry is ingested into the `ARANCINI_CAUSAL` JetStream stream
 (see [BMP Ingest](#bmp-ingest)).
 
 **AS and Community Filters**:

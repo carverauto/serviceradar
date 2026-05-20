@@ -7,9 +7,9 @@ sidebar_label: Trivy Integration
 # Trivy Integration
 
 ServiceRadar supports a [Trivy](https://trivy.dev/) integration for container image
-vulnerability scanning. It is a supported integration — it is simply switched **off**
-in the public demo environment for security reasons. You can enable it in your own
-deployment.
+vulnerability scanning. Trivy scans your container images for known CVEs and
+misconfigurations, and the findings flow into ServiceRadar alongside the rest of
+your telemetry.
 
 ## What It Does
 
@@ -26,13 +26,6 @@ structured vulnerability reports.
   rest of ServiceRadar's telemetry.
 - **Querying**: Once ingested, vulnerability data is available for review through the
   ServiceRadar UI and SRQL like any other dataset.
-
-## Status
-
-- The integration is **supported** and actively maintained.
-- It is **disabled in the demo environment** so the public demo does not run an
-  image scanner or carry vulnerability data. This is an environment-specific choice,
-  not a removal of the feature.
 
 ## Enabling Trivy
 

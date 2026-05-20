@@ -31,9 +31,10 @@ environment variable, never in source control.
 ## Run an SRQL query — `POST /api/query`
 
 The `/api/query` endpoint executes a [ServiceRadar Query Language
-(SRQL)](./srql-language-reference.md) query and returns the result set. SRQL
-is read-only — only `SELECT`/`WITH` statements are generated and executed —
-and results are scoped to the caller's authorization.
+(SRQL)](./srql-language-reference.md) query and returns the result set. SRQL is
+ServiceRadar's read-only query language — the only query language you need; it is
+the same language used throughout the UI. Results are scoped to the caller's
+authorization.
 
 Send a JSON body with a `query` field. An optional `limit` caps the number of
 rows returned.
@@ -42,7 +43,7 @@ rows returned.
 curl -X POST https://your-serviceradar-host/api/query \
   -H "Authorization: Bearer $SERVICERADAR_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"query": "show devices order by last_seen desc", "limit": 50}'
+  -d '{"query": "in:devices", "limit": 50}'
 ```
 
 A successful response looks like:

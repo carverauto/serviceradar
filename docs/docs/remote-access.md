@@ -211,7 +211,7 @@ You can automate SSH CA enrollment with a small Ansible playbook that installs t
 
 ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use that integration as the normal enrollment path:
 
-1. Place an SSH CA enrollment playbook in a git repository that AWX uses as a Project.
+1. Copy the example playbook from the ServiceRadar repository ([`docs/ansible/remote-access-ssh-ca/`](https://github.com/carverauto/serviceradar/tree/main/docs/ansible/remote-access-ssh-ca)) into a git repository that AWX uses as a Project.
 2. Create an AWX Job Template for that playbook.
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want to enroll.
 4. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
