@@ -51,6 +51,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "navigates to the device details page after adding a device", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    ip = "203.0.113.#{rem(unique, 250) + 1}"
+    expected_uid = manual_device_uid(ip)
+
+    {:ok, view, _html} = live(conn, ~p"/devices?limit=10")
+
+    view
+    |> element("button[phx-click='open_add_device_modal']", "Add Device")
+    |> render_click()
+
+    view
+    |> form("#add-device-form", %{
+      "device" => %{
+        "hostname" => "manual-device-#{unique}.example",
+        "ip" => ip,
+        "type" => "server",
+        "tags" => "source=test"
+      }
+    })
+    |> render_submit()
+
+    assert_redirect(view, ~p"/devices/#{expected_uid}")
+  end
+
   test "renders out of service state in device list and details", %{conn: conn} do
     uid = "test-device-inactive-#{System.unique_integer([:positive])}"
 
@@ -2413,6 +2438,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp uuid_binary do
     Ecto.UUID.dump!(Ecto.UUID.generate())
+  end
+
+  defp manual_device_uid(ip) do
+    :sha256
+    |> :crypto.hash("manual:#{ip}")
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 32)
   end
 
   defp render_until(view, expected, timeout_ms \\ 2_000) do

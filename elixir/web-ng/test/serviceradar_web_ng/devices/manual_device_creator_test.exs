@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
@@ -93,6 +94,120 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert device.ip == "203.0.113.10"
   end
 
+  test "updates an existing hostname-only manual device after resolving its IP", %{scope: scope} do
+    hostname = "manual-existing-host-#{System.unique_integer([:positive])}.example"
+
+    assert {:ok, legacy} =
+             create_device(scope, %{
+               uid: "legacy-hostname-only-#{System.unique_integer([:positive])}",
+               hostname: hostname,
+               ip: nil,
+               type_id: 0,
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, device} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: hostname,
+               ip: "",
+               type: "server",
+               tags: ["source=test"]
+             })
+
+    assert device.uid == legacy.uid
+    assert device.hostname == hostname
+    assert device.ip =~ "198.18."
+    assert device.type == "server"
+    assert device.type_id == 1
+    assert device.tags == %{"source" => "test"}
+    assert device.discovery_sources == ["manual"]
+    assert device.is_active == true
+  end
+
+  test "restores a soft-deleted deterministic manual device instead of failing", %{scope: scope} do
+    hostname = "manual-restore-#{System.unique_integer([:positive])}.example"
+
+    assert {:ok, original} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: hostname,
+               ip: "",
+               type: "server",
+               tags: []
+             })
+
+    assert {:ok, deleted} =
+             original
+             |> Ash.Changeset.for_update(:soft_delete, %{
+               deleted_by: "test",
+               deleted_reason: "manual re-add test"
+             })
+             |> Ash.update(scope: scope)
+
+    assert deleted.deleted_at
+
+    assert {:ok, restored} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: hostname,
+               ip: "",
+               type: "server",
+               tags: ["owner=ops"]
+             })
+
+    assert restored.uid == original.uid
+    assert restored.hostname == hostname
+    assert restored.ip == original.ip
+    assert is_nil(restored.deleted_at)
+    assert restored.deleted_by == nil
+    assert restored.deleted_reason == nil
+    assert restored.tags == %{"owner" => "ops"}
+  end
+
+  test "merges active hostname-only duplicate into resolved-IP canonical device", %{scope: scope} do
+    hostname = "manual-merge-#{System.unique_integer([:positive])}.example"
+    assert {:ok, resolved_ip} = HostnameResolverStub.resolve(hostname)
+
+    assert {:ok, canonical} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: "",
+               ip: resolved_ip,
+               type: "server",
+               tags: []
+             })
+
+    assert {:ok, legacy} =
+             create_device(scope, %{
+               uid: "legacy-duplicate-#{System.unique_integer([:positive])}",
+               hostname: hostname,
+               ip: nil,
+               type_id: 0,
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, device} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: hostname,
+               ip: "",
+               type: "router",
+               tags: ["location=lab"]
+             })
+
+    assert device.uid == canonical.uid
+    assert device.hostname == hostname
+    assert device.ip == resolved_ip
+    assert device.type == "router"
+    assert device.type_id == 12
+    assert device.tags == %{"location" => "lab"}
+    assert {:error, _} = Device.get_by_uid(legacy.uid, false, scope: scope)
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_app_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp create_device(scope, attrs) do
+    Device
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.create(scope: scope)
+  end
 end
