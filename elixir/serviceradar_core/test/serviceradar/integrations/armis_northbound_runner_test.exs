@@ -23,6 +23,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                custom_fields: ["availability"]
              })
 
+    assert {:error, :missing_credentials} =
+             ArmisNorthboundRunner.northbound_ready?(%{
+               northbound_enabled: true,
+               endpoint: "https://armis.example",
+               custom_fields: ["availability"],
+               credentials: %Ash.NotLoaded{field: :credentials, type: :calculation}
+             })
+
     assert :ok =
              ArmisNorthboundRunner.northbound_ready?(%{
                northbound_enabled: true,
@@ -299,6 +307,29 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert headers1["content-type"] == "application/json"
     assert length(body1) == 2
     assert length(body2) == 1
+  end
+
+  test "execute_batches fails before token request when secret key is unavailable" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_key" => "key-only"}
+    }
+
+    candidates = [
+      %{
+        armis_device_id: "armis-1",
+        is_available: true,
+        device_ids: ["d1"],
+        sync_service_ids: ["source-1"],
+        metadata: %{}
+      }
+    ]
+
+    assert {:error, result} = ArmisNorthboundRunner.execute_batches(source, candidates)
+    assert result.errors == [%{reason: :missing_secret_key}]
   end
 
   test "execute_batches posts inverted sample availability data to a fake Armis bulk endpoint" do
@@ -892,8 +923,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     stale_active = %{stale_orphan | id: "run-active", oban_job_id: 103}
     already_success = %{stale_orphan | id: "run-success", status: :success, oban_job_id: 104}
+    stale_abandoned = %{stale_orphan | id: "run-abandoned", oban_job_id: 105}
 
-    list_runs = fn _src, _actor -> [stale_orphan, fresh_orphan, stale_active, already_success] end
+    list_runs = fn _src, _actor ->
+      [stale_orphan, fresh_orphan, stale_active, already_success, stale_abandoned]
+    end
 
     finish_run = fn run, action, attrs, _actor, opts ->
       send(parent, {:finish_run, run.id, action, attrs, opts})
@@ -910,6 +944,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       102 -> nil
       103 -> "executing"
       104 -> "completed"
+      105 -> %{state: "executing", attempted_at: ~U[2026-04-14 03:20:00Z]}
     end
 
     assert :ok =
@@ -926,6 +961,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert attrs.error_message == "Marked timed out after orphaned Oban job"
     assert attrs.metadata["reconciled"] == true
     assert attrs.metadata["reason"] == "orphaned_oban_job"
+
+    assert_received {:finish_run, "run-abandoned", :finish_timeout, _attrs, %{status: :timeout}}
 
     assert_received {:update_source, :northbound_failed,
                      %{
