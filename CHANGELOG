@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.74
+
+Fresh install, demo ingestion, Armis, and observability dashboard recovery.
+
+## Whats New
+
+**1.2.74**
+- Fixed CNPG image tag resolution so Docker Compose and Kubernetes installs no longer reference a missing release artifact.
+- Refactored fresh database bootstrap to avoid long raw migration paths on new installs with no existing schema.
+- Restored Armis availability updates and streamed agent configuration handling.
+- Routed demo syslog ingestion through the shared gateway and aligned Kubernetes network policies for external telemetry intake.
+- Documented Kubernetes external ingestion patterns without publishing environment-specific addresses.
+- Fixed observability log severity drilldowns so card links match title-case severity values such as `Critical` and `Debug`.
+- Kept observability stats cards on continuous aggregate rollups for fast page loads instead of raw log, metric, or trace table scans.
+
 # ServiceRadar v1.2.73
 
 Release build recovery for agent-gateway strict dependency checks.
