@@ -526,13 +526,14 @@ func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
 			}
 		}
 		lastChunk := stream[len(stream)-1]
+		if !lastChunk.IsFinal {
+			t.Fatalf("stream %d last chunk is not final", streamIdx)
+		}
 		if streamIdx == len(streams)-1 {
-			if !lastChunk.IsFinal {
-				t.Fatalf("final stream last chunk is not final")
-			}
+			assertSyncChunkRunFinal(t, lastChunk, true)
 			assertSyncChunkRunTotal(t, lastChunk, totalDevices)
-		} else if lastChunk.IsFinal {
-			t.Fatalf("stream %d was marked final before the run completed", streamIdx)
+		} else {
+			assertSyncChunkRunFinal(t, lastChunk, false)
 		}
 	}
 
@@ -805,6 +806,10 @@ func (f *fakeSyncGateway) StreamStatus(
 	_ context.Context,
 	chunks []*proto.GatewayStatusChunk,
 ) (*proto.GatewayStatusResponse, error) {
+	if len(chunks) > 0 && !chunks[len(chunks)-1].IsFinal {
+		return nil, fmt.Errorf("stream ended without final chunk")
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	copied := append([]*proto.GatewayStatusChunk(nil), chunks...)
@@ -921,6 +926,32 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 
 func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want int) {
 	t.Helper()
+	meta := syncMetaFromFinalUpdate(t, chunk)
+
+	got, ok := meta["total_devices"].(float64)
+	if !ok {
+		t.Fatalf("sync_meta total_devices = %#v", meta["total_devices"])
+	}
+	if int(got) != want {
+		t.Fatalf("sync_meta total_devices = %d, want %d", int(got), want)
+	}
+}
+
+func assertSyncChunkRunFinal(t *testing.T, chunk *proto.GatewayStatusChunk, want bool) {
+	t.Helper()
+	meta := syncMetaFromFinalUpdate(t, chunk)
+
+	got, ok := meta["is_final"].(bool)
+	if !ok {
+		t.Fatalf("sync_meta is_final = %#v", meta["is_final"])
+	}
+	if got != want {
+		t.Fatalf("sync_meta is_final = %t, want %t", got, want)
+	}
+}
+
+func syncMetaFromFinalUpdate(t *testing.T, chunk *proto.GatewayStatusChunk) map[string]interface{} {
+	t.Helper()
 	if len(chunk.Services) == 0 {
 		t.Fatal("final chunk has no services")
 	}
@@ -938,13 +969,7 @@ func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want
 		t.Fatalf("final update missing sync_meta: %#v", updates[len(updates)-1])
 	}
 
-	got, ok := meta["total_devices"].(float64)
-	if !ok {
-		t.Fatalf("sync_meta total_devices = %#v", meta["total_devices"])
-	}
-	if int(got) != want {
-		t.Fatalf("sync_meta total_devices = %d, want %d", int(got), want)
-	}
+	return meta
 }
 
 func releaseGateArmisIP(deviceNumber int) string {

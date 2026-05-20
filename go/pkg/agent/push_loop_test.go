@@ -143,3 +143,45 @@ func TestBuildResultsStatusChunksForAgentIncludesRuntimeMetadata(t *testing.T) {
 		t.Fatalf("expected arch %q, got %q", metadata.Arch, chunk.Arch)
 	}
 }
+
+func TestBuildResultsStatusChunksForAgentFramesEachStatusStream(t *testing.T) {
+	chunks := buildResultsStatusChunksForAgent(
+		[]*proto.ResultsChunk{
+			{
+				Data:        []byte(`{"page":1}`),
+				IsFinal:     false,
+				ChunkIndex:  42,
+				TotalChunks: 0,
+				Timestamp:   time.Now().UnixNano(),
+			},
+			{
+				Data:        []byte(`{"page":1,"part":2}`),
+				IsFinal:     false,
+				ChunkIndex:  43,
+				TotalChunks: 0,
+				Timestamp:   time.Now().UnixNano(),
+			},
+		},
+		"sync",
+		"sync",
+		"agent-1",
+		"default",
+		"gateway-1",
+	)
+
+	if len(chunks) != 2 {
+		t.Fatalf("expected 2 chunks, got %d", len(chunks))
+	}
+
+	for idx, chunk := range chunks {
+		if chunk.ChunkIndex != int32(idx) {
+			t.Fatalf("chunk %d index = %d", idx, chunk.ChunkIndex)
+		}
+		if chunk.TotalChunks != int32(len(chunks)) {
+			t.Fatalf("chunk %d total_chunks = %d", idx, chunk.TotalChunks)
+		}
+		if chunk.IsFinal != (idx == len(chunks)-1) {
+			t.Fatalf("chunk %d is_final = %t", idx, chunk.IsFinal)
+		}
+	}
+}
