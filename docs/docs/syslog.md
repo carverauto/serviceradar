@@ -4,13 +4,31 @@ title: Syslog Ingest Guide
 
 # Syslog Ingest Guide
 
-ServiceRadar collects log events through a stateless gateway that forwards messages to CNPG/Timescale for storage and alerting. Pair this quick guide with the [Device Configuration Reference](./device-configuration.md#syslog-configuration) when onboarding new platforms.
+ServiceRadar collects log events through `serviceradar-log-collector`, publishes them to NATS JetStream, normalizes them with Zen rules, and stores processed events in CNPG/Timescale. Pair this quick guide with the [Device Configuration Reference](./device-configuration.md#syslog-configuration) and the [Kubernetes External Ingestion](./kubernetes-ingestion.md) guide when onboarding new platforms.
 
 ## Provision the Gateway
 
-1. Expose the syslog listener (`serviceradar-flowgger`) on UDP 514. In Kubernetes (Helm), enable `flowgger.externalService.enabled` to publish syslog outside the cluster; in Docker Compose, publish `514/udp` to the `flowgger` container.
+1. Expose `serviceradar-log-collector` on UDP 514. In Kubernetes, prefer a shared Gateway API UDP listener plus `gatewayApi.syslog.enabled` when the cluster already has a shared Envoy Gateway. Use `logCollector.externalService.enabled` only when you need a dedicated LoadBalancer or NodePort.
 2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
 3. Attach `site`, `account`, or other metadata using Zen rules or **Settings → Integrations** so logs stay filterable in SRQL and dashboards.
+
+Example Kubernetes Gateway API values:
+
+```yaml
+gatewayApi:
+  enabled: true
+  mode: attach
+  syslog:
+    enabled: true
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: serviceradar-shared-gateway
+        namespace: serviceradar-system
+        sectionName: syslog-udp
+```
+
+In the ServiceRadar demo environment, network devices should send syslog to `23.138.124.5:514/UDP`. NetFlow and sFlow stay on the flow collector address; see [Kubernetes External Ingestion](./kubernetes-ingestion.md#address-model).
 
 ## Configure Devices
 
@@ -20,7 +38,7 @@ ServiceRadar collects log events through a stateless gateway that forwards messa
 
 ## Event Pipeline
 
-1. The `serviceradar-flowgger` gateway accepts syslog over UDP 514 and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
+1. `serviceradar-log-collector` accepts syslog over UDP 514 and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
 2. JetStream retains the raw envelope while `serviceradar-zen` (the zen engine) consumes the same stream using the `zen-consumer` durable. The consumer appends a `.processed` suffix (for example `logs.syslog.processed`) after rules execute so downstream writers can subscribe without reprocessing the original payload.
 3. The `serviceradar-db-event-writer` deployment reads the `.processed` subjects and batches inserts into the CNPG/Timescale tables. Because both the raw and processed subjects live in the `events` stream you can replay either layer during troubleshooting.
 
@@ -56,7 +74,8 @@ You can inspect the JSON definitions in `build/packaging/zen/rules/` (and the re
 
 ## Verification Checklist
 
-- If running in Kubernetes, confirm throughput via `kubectl logs deploy/serviceradar-flowgger -n <namespace>`.
+- If running in Kubernetes, confirm throughput via `kubectl logs deploy/serviceradar-log-collector -n <namespace> --since=10m`.
+- If using Gateway API, confirm the route is accepted with `kubectl describe udproute -n <namespace> serviceradar-syslog`.
 - Syslog logs land in the `logs` hypertable (CNPG/Timescale). Filter on `source = 'syslog'`, for example:
 
   ```sql

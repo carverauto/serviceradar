@@ -278,7 +278,7 @@ tcpdump -i any -n 'udp port 2055' -w /tmp/netflow.pcap
 **Verify collector is processing BGP fields**:
 ```bash
 # Check collector logs
-docker logs serviceradar-netflow-collector 2>&1 | grep -i bgp
+docker logs serviceradar-flow-collector-mtls 2>&1 | grep -i bgp
 
 # Should see: "Parsed BGP fields: as_path=[...], communities=[...]"
 ```

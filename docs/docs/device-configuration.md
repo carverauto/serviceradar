@@ -556,7 +556,7 @@ netstat -tulnp | grep :514
 docker-compose logs agent-gateway | grep -i snmp
 
 # View syslog collection logs
-docker-compose logs flowgger
+docker compose logs log-collector
 
 # View trap collection logs
 docker-compose logs trapd
@@ -586,7 +586,7 @@ For custom monitoring, define additional OIDs in ServiceRadar:
 
 ### Syslog Message Parsing
 
-Configure custom syslog parsing rules:
+Configure custom syslog parsing rules. The unified log collector still reads a `flowgger.toml` compatibility file for syslog parser settings:
 
 ```toml
 # flowgger.toml

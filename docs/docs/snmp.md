@@ -28,8 +28,8 @@ Simple Network Management Protocol (SNMP) polling remains the fastest way to pop
 
 Traps complement polling by pushing urgent events:
 
-1. Configure devices to send traps to the ServiceRadar gateway address on UDP 162.
-2. Expose the trap listener service in Kubernetes with a `LoadBalancer` or NodePort, or map it locally in Docker Compose.
+1. Configure devices to send traps to the ServiceRadar trap collector address on UDP 162.
+2. Expose the trap listener service in Kubernetes with a `LoadBalancer` or NodePort, or map it locally in Docker Compose. In the ServiceRadar demo environment this is `23.138.124.26:162/UDP`; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
 `serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `build/packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.

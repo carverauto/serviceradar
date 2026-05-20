@@ -4,7 +4,7 @@ title: NetFlow Ingest Guide
 
 # NetFlow Ingest Guide
 
-ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and application reachability trends. The NetFlow collector is a high-performance Rust daemon that receives NetFlow v5/v9/IPFIX exports from network devices and processes them through the ServiceRadar pipeline.
+ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and application reachability trends. The flow collector is a high-performance Rust daemon that receives NetFlow v5/v9/IPFIX and sFlow exports from network devices and processes them through the ServiceRadar pipeline.
 
 ## Architecture Overview
 
@@ -18,7 +18,7 @@ Network Devices → NetFlow Collector → NATS → EventWriter → ocsf_network_
 ```
 
 **Key Components:**
-- **NetFlow Collector**: Rust daemon listening on UDP port 2055 (configurable)
+- **Flow Collector**: Rust daemon listening on UDP port 2055 for NetFlow (configurable) and UDP port 6343 for sFlow when enabled
 - **AutoScopedParser**: RFC-compliant per-source template isolation (0.8.0+)
 - **NATS JetStream**: Reliable message transport carrying protobuf `FlowMessage` bytes on `flows.raw.netflow`
 - **EventWriter**: Elixir/Broadway processor that decodes protobuf, persists OCSF flow rows, and derives BGP observations
@@ -298,23 +298,30 @@ IPFIX defines BGP fields as `unsigned32` (uint32), but PostgreSQL `INTEGER` type
 apiVersion: v1
 kind: Service
 metadata:
-  name: serviceradar-netflow-collector
+  name: serviceradar-flow-collector
 spec:
   type: LoadBalancer
+  externalTrafficPolicy: Local
+  sessionAffinity: ClientIP
   ports:
     - port: 2055
       protocol: UDP
       name: netflow
+    - port: 6343
+      protocol: UDP
+      name: sflow
 ```
+
+The demo environment sends NetFlow to `23.138.124.25:2055/UDP` and sFlow to `23.138.124.25:6343/UDP`. Syslog uses the shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 
 **Docker Compose:**
 ```yaml
 services:
-  netflow-collector:
-    image: ghcr.io/carverauto/serviceradar-netflow-collector:latest
+  flow-collector:
+    image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:latest
     ports:
       - "2055:2055/udp"
-      - "4739:4739/udp"  # IPFIX alternative port
+      - "6343:6343/udp"
     environment:
       - NATS_URL=nats://nats:4222
     networks:
@@ -323,9 +330,9 @@ services:
 
 **Standalone:**
 ```bash
-cd rust/netflow-collector
+cd rust/flow-collector
 cargo build --release
-./target/release/serviceradar-netflow-collector --config netflow-collector.json
+./target/release/serviceradar-flow-collector --config flow-collector.json
 ```
 
 ## Device Configuration
@@ -586,17 +593,23 @@ Monitor these in logs and system metrics:
 
 ### Collector Configuration
 
-`/etc/serviceradar/netflow-collector.json`:
+`/etc/serviceradar/flow-collector.json`:
 
 ```json
 {
-  "listen_addr": "0.0.0.0:2055",
-  "buffer_size": 65536,
   "nats_url": "nats://nats:4222",
   "stream_name": "events",
-  "subject": "flows.raw.netflow",
-  "stream_subjects": [
-    "flows.raw.netflow"
+  "listeners": [
+    {
+      "protocol": "netflow",
+      "listen_addr": "0.0.0.0:2055",
+      "subject": "flows.raw.netflow"
+    },
+    {
+      "protocol": "sflow",
+      "listen_addr": "0.0.0.0:6343",
+      "subject": "flows.raw.sflow"
+    }
   ],
   "partition": "default",
   "max_templates": 2000,
@@ -609,9 +622,9 @@ Monitor these in logs and system metrics:
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "tls": {
-      "cert_file": "netflow-client.crt",
-      "key_file": "netflow-client.key",
-      "ca_file": "ca.crt"
+      "cert_file": "flow-collector.pem",
+      "key_file": "flow-collector-key.pem",
+      "ca_file": "root.pem"
     }
   },
   "metrics_addr": "0.0.0.0:50046"
@@ -619,7 +632,7 @@ Monitor these in logs and system metrics:
 ```
 
 **Key Parameters:**
-- `listen_addr`: UDP socket binding (default: 0.0.0.0:2055)
+- `listeners`: UDP sockets and subjects for NetFlow and sFlow
 - `stream_name`: JetStream stream for NetFlow subjects (default: events)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest
 - `max_templates`: Template cache size per source (default: 2000)
@@ -662,12 +675,12 @@ Monitor these in logs and system metrics:
 
 ```bash
 # Docker
-docker ps | grep netflow-collector
-docker logs netflow-collector
+docker ps | grep flow-collector
+docker logs serviceradar-flow-collector-mtls
 
 # Kubernetes
-kubectl get pods -l app=netflow-collector
-kubectl logs -l app=netflow-collector --tail=100
+kubectl get pods -l app=serviceradar-flow-collector
+kubectl logs -l app=serviceradar-flow-collector --tail=100
 
 # Standalone
 ps aux | grep netflow-collector
