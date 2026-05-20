@@ -1219,13 +1219,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp authorization_header(token) when is_binary(token) do
-    token = String.trim(token)
-
-    if String.starts_with?(String.downcase(token), "bearer ") do
-      token
-    else
-      "Bearer #{token}"
-    end
+    String.trim(token)
   end
 
   defp request_options(source) do

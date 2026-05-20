@@ -239,7 +239,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert sql =~ "'availability_source_agent_id', $1::text"
   end
 
-  test "execute_batches authenticates, batches requests, and aggregates counts" do
+  test "execute_batches authenticates with raw Armis token, batches requests, and aggregates counts" do
     source = %{
       id: "source-1",
       northbound_enabled: true,
@@ -303,7 +303,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
                      body2}
 
-    assert headers1["authorization"] == "Bearer token-abc"
+    assert headers1["authorization"] == "token-abc"
     assert headers1["content-type"] == "application/json"
     assert length(body1) == 2
     assert length(body2) == 1
@@ -374,7 +374,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     assert_receive {:fake_armis_bulk_request, request}, 1_000
     assert request.path == "/api/v1/devices/custom-properties/_bulk/"
-    assert request.headers["authorization"] == "Bearer fake-token-test"
+    assert request.headers["authorization"] == "fake-token-test"
     assert request.headers["content-type"] =~ "application/json"
 
     assert request.body == [
