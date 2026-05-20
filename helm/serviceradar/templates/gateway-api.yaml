@@ -22,6 +22,13 @@
 {{- $pathPrefixes := default (list "/api/query" "/api" "/") $route.pathPrefixes -}}
 {{- $streamingPathPrefixes := default (list "/v1/camera-relay-sessions") $route.streamingPathPrefixes -}}
 {{- $streamingTimeouts := default (dict) $route.streamingTimeouts -}}
+{{- $syslog := default (dict) $gatewayApi.syslog -}}
+{{- $syslogEnabled := default false $syslog.enabled -}}
+{{- $syslogPort := default 514 $syslog.port -}}
+{{- $syslogService := default (dict) $syslog.service -}}
+{{- $syslogServiceName := default "serviceradar-log-collector" $syslogService.name -}}
+{{- $syslogServicePort := default 514 $syslogService.port -}}
+{{- $syslogParentRefs := default (list) $syslog.parentRefs -}}
 {{- $parentRefs := default (list) $gatewayApi.parentRefs -}}
 {{- $redirectParentRefs := default (list) $gatewayApi.redirectParentRefs -}}
 {{- $btp := default (dict) $gatewayApi.backendTrafficPolicy -}}
@@ -43,6 +50,9 @@
 {{- end }}
 {{- if and $attachMode $httpRedirectToHttps (eq (len $redirectParentRefs) 0) }}
 {{- fail "gatewayApi.redirectParentRefs is required when gatewayApi.http.redirectToHttps=true and gatewayApi.mode=attach" }}
+{{- end }}
+{{- if and $attachMode $syslogEnabled (eq (len $syslogParentRefs) 0) }}
+{{- fail "gatewayApi.syslog.parentRefs is required when gatewayApi.syslog.enabled=true and gatewayApi.mode=attach" }}
 {{- end }}
 {{- if and $managedMode $tlsEnabled $tls.clusterIssuer }}
 ---
@@ -141,6 +151,14 @@ spec:
           - kind: Secret
             name: {{ $tlsSecretName | quote }}
         mode: Terminate
+      allowedRoutes:
+        namespaces:
+          from: Same
+    {{- end }}
+    {{- if $syslogEnabled }}
+    - name: syslog-udp
+      port: {{ $syslogPort }}
+      protocol: UDP
       allowedRoutes:
         namespaces:
           from: Same
@@ -261,6 +279,32 @@ spec:
     http:
       requestTimeout: {{ default "0s" $streamingBtp.requestTimeout }}
       maxStreamDuration: {{ default "0s" $streamingBtp.maxStreamDuration }}
+{{- end }}
+{{- if $syslogEnabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: UDPRoute
+metadata:
+  name: {{ default (printf "%s-syslog" (include "serviceradar.fullname" .)) $syslog.routeName }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: edge-gateway
+spec:
+  parentRefs:
+    {{- if $managedMode }}
+    - name: {{ include "serviceradar.gatewayApiGatewayName" . }}
+      namespace: {{ .Release.Namespace }}
+      sectionName: syslog-udp
+    {{- else }}
+{{ toYaml $syslogParentRefs | nindent 4 }}
+    {{- end }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $syslogServiceName | quote }}
+          port: {{ $syslogServicePort }}
+          weight: 1
 {{- end }}
 {{- if and $httpEnabled $httpRedirectToHttps }}
 ---

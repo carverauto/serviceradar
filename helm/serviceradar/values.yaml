@@ -1226,6 +1226,14 @@ gatewayApi:
     streamingTimeouts:
       request: 0s
       backendRequest: 0s
+  syslog:
+    enabled: false
+    port: 514
+    routeName: ""
+    parentRefs: []
+    service:
+      name: serviceradar-log-collector
+      port: 514
   backendTrafficPolicy:
     enabled: false
     requestTimeout: ""

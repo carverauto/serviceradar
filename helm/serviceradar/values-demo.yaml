@@ -154,6 +154,14 @@ gatewayApi:
     # serviceradar-system; demo only attaches routes.
     secretName: ""
     clusterIssuer: ""
+  syslog:
+    enabled: true
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: serviceradar-shared-gateway
+        namespace: serviceradar-system
+        sectionName: syslog-udp
   backendTrafficPolicy:
     enabled: true
     requestTimeout: 86400s
