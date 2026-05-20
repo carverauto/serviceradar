@@ -70,7 +70,7 @@ the full ref when a deployment needs a bespoke database image.
 {{- if $cnpg.imageName -}}
 {{- $cnpg.imageName -}}
 {{- else -}}
-{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) (default "18.3.0-sr2-a78b3afd" $cnpg.imageTag) -}}
+{{- printf "%s:%s" (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) (default "18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5" $cnpg.imageTag) -}}
 {{- end -}}
 {{- end -}}
 
