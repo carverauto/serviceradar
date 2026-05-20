@@ -354,8 +354,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
            socket
            |> assign(:show_add_device_modal, false)
            |> assign(:add_device_form, to_form(%{}, as: :device))
-           |> put_flash(:info, "Device '#{device.hostname || device.ip}' created successfully.")
-           |> push_patch(to: ~p"/devices")}
+           |> put_flash(:info, "Device '#{device.hostname || device.ip}' saved successfully.")
+           |> push_navigate(to: ~p"/devices/#{device.uid}")}
 
         {:error, %Invalid{} = error} ->
           Logger.warning("Device create failed with validation error: #{inspect(error)}")
