@@ -90,6 +90,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(candidates, & &1.is_available) == [true]
   end
 
+  test "load_candidates fails when selected per-agent availability source has no rows", %{
+    actor: actor
+  } do
+    source =
+      create_source!(actor, "armis-per-agent-empty",
+        northbound_availability_source_agent_id: "agent-empty"
+      )
+
+    ingest_armis_update(actor, source.id, "192.0.2.22", "armis-agent-empty-1", true)
+
+    assert {:error, {:missing_agent_availability, "agent-empty"}} =
+             ArmisNorthboundRunner.load_candidates(source)
+  end
+
   test "run_for_source does not start another run while one is already running", %{actor: actor} do
     source = create_source!(actor, "armis-single-active-run")
 

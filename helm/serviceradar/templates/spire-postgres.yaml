@@ -45,7 +45,7 @@
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
   {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) $pg.image }}
-  {{- $imageTag := default "18.3.0-sr2-a78b3afd" $pg.imageTag }}
+  {{- $imageTag := default "18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5" $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}

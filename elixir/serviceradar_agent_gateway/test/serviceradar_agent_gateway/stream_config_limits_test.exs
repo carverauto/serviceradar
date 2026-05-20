@@ -54,6 +54,37 @@ defmodule ServiceRadarAgentGateway.StreamConfigLimitsTest do
     assert Monitoring.AgentConfigResponse.decode(chunk.payload) == response
   end
 
+  test "sends config chunks on the grpc stream" do
+    test_pid = self()
+
+    response = %Monitoring.AgentConfigResponse{
+      config_version: "vstream",
+      config_timestamp: 1_779_225_600,
+      heartbeat_interval_sec: 30,
+      config_poll_interval_sec: 60,
+      config_json: large_device_target_config()
+    }
+
+    chunks = AgentGatewayServer.config_response_chunks("agent-1", response)
+
+    stream = %GRPC.Server.Stream{
+      __interface__: %{
+        send_reply: fn stream, chunk, _opts ->
+          send(test_pid, {:config_chunk, chunk})
+          stream
+        end
+      }
+    }
+
+    assert :ok = AgentGatewayServer.send_config_chunks(chunks, stream)
+
+    for chunk <- chunks do
+      assert_receive {:config_chunk, ^chunk}
+    end
+
+    refute_receive {:config_chunk, _}
+  end
+
   defp large_device_target_config do
     device_target =
       ~s({"network":"10.46.0.10/32","query_label":"prod","source":"srql","metadata":{"sweep_group_id":"group-1","target_query":"devices where site = 'ual'","device_uid":"dev-1","hostname":"edge-1","discovery_sources":"srql"}})

@@ -126,7 +126,7 @@ ENV XDG_RUNTIME_DIR=/run/user/0 \
 
 RUN mkdir -p /run/user/0 && chmod 700 /run/user/0
 
-ARG GHCR_CNPG_IMAGE="registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd"
+ARG GHCR_CNPG_IMAGE="registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5"
 ARG GHCR_USERNAME=""
 
 # Fetch the CNPG test fixture image into a local docker-archive.
