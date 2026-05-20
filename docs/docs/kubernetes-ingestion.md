@@ -15,24 +15,24 @@ There are two supported Kubernetes exposure patterns:
 
 | Pattern | Use For | Notes |
 |---|---|---|
-| Shared Gateway API listener | Syslog UDP 514 when a shared Envoy Gateway already owns the public address | Saves public IPs. The chart renders a `UDPRoute` to `serviceradar-log-collector`. |
-| Dedicated collector service | NetFlow, sFlow, SNMP traps, BMP, and environments without a shared UDP Gateway | Uses `LoadBalancer` or `NodePort` on the collector service. Keep firewall and NetworkPolicy allow lists tight. |
+| Shared Gateway API listener | Syslog UDP 514 when a shared Envoy Gateway already owns the trusted ingress address | Avoids allocating a separate collector address. The chart renders a `UDPRoute` to `serviceradar-log-collector`. |
+| Dedicated collector service | NetFlow, sFlow, SNMP traps, BMP, and environments without a shared UDP Gateway | Uses an internal `LoadBalancer`, private `NodePort`, or equivalent routed service on the collector. Keep firewall and NetworkPolicy allow lists tight. |
 
-The demo environment currently uses this public address map:
+Use a private deployment address map like this in your site runbook:
 
 | Telemetry | Destination | Kubernetes Backend |
 |---|---|---|
-| Syslog | `23.138.124.5:514/UDP` | Shared Gateway listener `syslog-udp` to `serviceradar-log-collector:514` |
-| NetFlow | `23.138.124.25:2055/UDP` | `serviceradar-flow-collector` LoadBalancer |
-| sFlow | `23.138.124.25:6343/UDP` | `serviceradar-flow-collector` LoadBalancer |
-| SNMP traps | `23.138.124.26:162/UDP` | `serviceradar-trapd` LoadBalancer |
-| BMP | `23.138.124.27:11019/TCP` | `serviceradar-bmp-collector` LoadBalancer |
+| Syslog | `<SYSLOG_GATEWAY_ADDRESS>:514/UDP` | Shared Gateway listener `syslog-udp` to `serviceradar-log-collector:514` |
+| NetFlow | `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` | `serviceradar-flow-collector` |
+| sFlow | `<FLOW_COLLECTOR_ADDRESS>:6343/UDP` | `serviceradar-flow-collector` |
+| SNMP traps | `<TRAP_COLLECTOR_ADDRESS>:162/UDP` | `serviceradar-trapd` |
+| BMP | `<BMP_COLLECTOR_ADDRESS>:11019/TCP` | `serviceradar-bmp-collector` |
 
-These addresses are demo-specific. Production installs should use addresses assigned by the local load balancer, cloud provider, or Gateway owner. "External" means traffic originates outside the Kubernetes pod network; it does not mean the port should be reachable from the internet.
+Keep the actual addresses in private operations material. "External" means traffic originates outside the Kubernetes pod network; it does not mean the port should be reachable from the internet.
 
 ## Syslog Through Shared Gateway
 
-Syslog no longer needs a dedicated public LoadBalancer IP when a shared Envoy Gateway can expose UDP 514. The shared Gateway must have a UDP listener, and the ServiceRadar chart attaches a `UDPRoute` to that listener.
+Syslog no longer needs a dedicated collector address when a shared Envoy Gateway can expose UDP 514 on the trusted network. The shared Gateway must have a UDP listener, and the ServiceRadar chart attaches a `UDPRoute` to that listener.
 
 Example values:
 
@@ -80,7 +80,7 @@ If the `UDPRoute` is not accepted, check the parent reference, listener `section
 
 ## NetFlow And sFlow
 
-NetFlow and sFlow use the flow collector service. In demo this stays on `23.138.124.25` because IPFIX and NetFlow v9 templates are scoped per exporter and collector process. The service uses a single collector replica plus `ClientIP` session affinity so one exporter keeps landing on the same parser instance.
+NetFlow and sFlow use the flow collector service. Keep flow exports on a stable collector address because IPFIX and NetFlow v9 templates are scoped per exporter and collector process. The service should use a single collector replica plus `ClientIP` session affinity so one exporter keeps landing on the same parser instance.
 
 Example values:
 
@@ -90,7 +90,7 @@ flowCollector:
   replicaCount: 1
   service:
     type: LoadBalancer
-    loadBalancerIP: "23.138.124.25"
+    loadBalancerIP: "<FLOW_COLLECTOR_ADDRESS>"
     externalTrafficPolicy: Local
     sessionAffinity: ClientIP
     ports:
@@ -114,13 +114,13 @@ SNMP traps and BMP are optional external collectors. Enable only when devices ar
 trapd:
   externalService:
     enabled: true
-    loadBalancerIP: "23.138.124.26"
+    loadBalancerIP: "<TRAP_COLLECTOR_ADDRESS>"
 
 bmpCollector:
   enabled: true
   service:
     type: LoadBalancer
-    loadBalancerIP: "23.138.124.27"
+    loadBalancerIP: "<BMP_COLLECTOR_ADDRESS>"
 ```
 
 SNMP polling is different: agents and gateways initiate outbound UDP 161 requests to devices, so it usually does not require an inbound public service. SNMP traps are inbound UDP 162 and do require a reachable collector address.

@@ -32,20 +32,20 @@ Expose these only if you are ingesting telemetry from network devices or externa
 | OTLP (otel) | 4317 | OTLP | OTEL ingestion (optional) |
 | OTLP (otel) | 4318 | OTLP/HTTP | OTEL ingestion (optional) |
 
-## Demo Kubernetes External Addresses
+## Kubernetes External Address Map
 
-The demo namespace uses a mix of shared Gateway API routing and dedicated collector LoadBalancers:
+Keep real deployment addresses in private operations material. Public docs should describe the routing pattern without publishing environment-specific IPs or hostnames:
 
 | Traffic | Address | Backend |
 |---|---|---|
-| Web UI/API | `demo.serviceradar.cloud` / `23.138.124.5:443/TCP` | Shared Gateway HTTPS listener |
-| Syslog | `23.138.124.5:514/UDP` | Shared Gateway `UDPRoute` to `serviceradar-log-collector` |
-| NetFlow | `23.138.124.25:2055/UDP` | `serviceradar-flow-collector` LoadBalancer |
-| sFlow | `23.138.124.25:6343/UDP` | `serviceradar-flow-collector` LoadBalancer |
-| SNMP traps | `23.138.124.26:162/UDP` | `serviceradar-trapd` LoadBalancer |
-| BMP | `23.138.124.27:11019/TCP` | `serviceradar-bmp-collector` LoadBalancer |
+| Web UI/API | `<WEB_GATEWAY_ADDRESS>:443/TCP` | Shared Gateway HTTPS listener |
+| Syslog | `<SYSLOG_GATEWAY_ADDRESS>:514/UDP` | Shared Gateway `UDPRoute` to `serviceradar-log-collector` |
+| NetFlow | `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` | `serviceradar-flow-collector` |
+| sFlow | `<FLOW_COLLECTOR_ADDRESS>:6343/UDP` | `serviceradar-flow-collector` |
+| SNMP traps | `<TRAP_COLLECTOR_ADDRESS>:162/UDP` | `serviceradar-trapd` |
+| BMP | `<BMP_COLLECTOR_ADDRESS>:11019/TCP` | `serviceradar-bmp-collector` |
 
-These are environment-specific demo addresses. For other clusters, use the address assigned to your Gateway or collector service.
+Prefer private routing, VPN, firewall allow lists, and source CIDR restrictions for these paths. Do not publish real deployment addresses in public documentation.
 
 ## Internal-Only (Do Not Expose To Edge Networks)
 

@@ -224,7 +224,7 @@ networkPolicy:
 
 ## Gateway API Syslog
 
-When `gatewayApi.enabled=true`, the chart can attach syslog to a shared Gateway API UDP listener. This is the preferred way to receive syslog in clusters that already have a shared Envoy Gateway because it avoids allocating another public LoadBalancer IP.
+When `gatewayApi.enabled=true`, the chart can attach syslog to a shared Gateway API UDP listener. This is the preferred way to receive syslog in clusters that already have a shared Envoy Gateway because it avoids allocating another collector address.
 
 Example:
 

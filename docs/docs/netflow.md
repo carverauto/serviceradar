@@ -312,7 +312,7 @@ spec:
       name: sflow
 ```
 
-The demo environment sends NetFlow to `23.138.124.25:2055/UDP` and sFlow to `23.138.124.25:6343/UDP`. Syslog uses the shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
+Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTOR_ADDRESS>:6343/UDP`. Keep the actual collector address in private operations material. Syslog can use a shared Gateway address instead; see [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 
 **Docker Compose:**
 ```yaml

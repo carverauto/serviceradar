@@ -28,7 +28,7 @@ gatewayApi:
         sectionName: syslog-udp
 ```
 
-In the ServiceRadar demo environment, network devices should send syslog to `23.138.124.5:514/UDP`. NetFlow and sFlow stay on the flow collector address; see [Kubernetes External Ingestion](./kubernetes-ingestion.md#address-model).
+Network devices should send syslog to `<SYSLOG_GATEWAY_ADDRESS>:514/UDP`. Keep the actual address in private operations material. NetFlow and sFlow stay on the flow collector address; see [Kubernetes External Ingestion](./kubernetes-ingestion.md#address-model).
 
 ## Configure Devices
 
