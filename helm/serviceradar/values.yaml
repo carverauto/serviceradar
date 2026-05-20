@@ -1325,6 +1325,34 @@ networkPolicy:
       enabled: true
       allowedCIDRs:
         - "0.0.0.0/0"
+    flowCollectorExternal:
+      # The flow collector receives NetFlow/IPFIX/sFlow from external network
+      # devices. Keep this separate from the namespace-wide ingress policy so
+      # opening UDP collection ports does not also expose unrelated workloads.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    logCollectorExternal:
+      # External syslog collectors receive log traffic from network devices.
+      # This only renders policies for enabled non-ClusterIP log collector
+      # external services.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    trapdExternal:
+      # The SNMP trap collector receives traps from external network devices.
+      # Keep this separate from the namespace-wide ingress policy so opening
+      # UDP/162 does not also expose unrelated workloads.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    bmpCollectorExternal:
+      # BMP collectors receive external router sessions. Keep this separate
+      # from namespace-wide ingress so TCP/11019 exposure is scoped only to
+      # the BMP collector pods.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
   egress:
     allowDNS: true
     allowKubeAPIServer: true

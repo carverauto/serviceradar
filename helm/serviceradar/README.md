@@ -83,6 +83,11 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.ingress.allowedCIDRs` | Additional ingress CIDR allow list | `[]` |
 | `networkPolicy.ingress.allowedPorts` | Application ingress ports allowed from same-namespace / allowed namespace / allowed CIDR peers | ServiceRadar defaults excluding ERTS |
 | `networkPolicy.ingress.erts.enabled` | Render a separate EPMD / Erlang distribution ingress rule scoped to cluster-member pods | `true` |
+| `networkPolicy.ingress.agentGatewayExternal.allowedCIDRs` | External CIDR allow list for the agent-gateway LoadBalancer ports | `["0.0.0.0/0"]` |
+| `networkPolicy.ingress.flowCollectorExternal.allowedCIDRs` | External CIDR allow list for enabled non-ClusterIP NetFlow/IPFIX/sFlow collector ports | `["0.0.0.0/0"]` |
+| `networkPolicy.ingress.logCollectorExternal.allowedCIDRs` | External CIDR allow list for enabled non-ClusterIP syslog collector ports | `["0.0.0.0/0"]` |
+| `networkPolicy.ingress.trapdExternal.allowedCIDRs` | External CIDR allow list for enabled non-ClusterIP SNMP trap collector ports | `["0.0.0.0/0"]` |
+| `networkPolicy.ingress.bmpCollectorExternal.allowedCIDRs` | External CIDR allow list for enabled non-ClusterIP BMP collector ports | `["0.0.0.0/0"]` |
 | `networkPolicy.egress.allowDNS` | Allow DNS to kube-system (53/TCP+UDP) | `true` |
 | `networkPolicy.egress.allowKubeAPIServer` | Allow egress to the kube-apiserver endpoints (via Helm lookup) | `true` |
 | `networkPolicy.egress.allowDefaultNamespace` | Allow egress to the `default` namespace (Kubernetes API) | `true` |

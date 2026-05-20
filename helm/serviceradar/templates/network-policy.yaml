@@ -12,16 +12,95 @@
 {{- $agentGatewayExternal := default (dict) $ingress.agentGatewayExternal -}}
 {{- $agentGatewayExternalEnabled := default true $agentGatewayExternal.enabled -}}
 {{- $agentGatewayExternalCIDRs := default (list "0.0.0.0/0") $agentGatewayExternal.allowedCIDRs -}}
+{{- $flowCollectorExternal := default (dict) $ingress.flowCollectorExternal -}}
+{{- $flowCollectorExternalEnabled := default true $flowCollectorExternal.enabled -}}
+{{- $flowCollectorExternalCIDRs := default (list "0.0.0.0/0") $flowCollectorExternal.allowedCIDRs -}}
+{{- $logCollectorExternal := default (dict) $ingress.logCollectorExternal -}}
+{{- $logCollectorExternalEnabled := default true $logCollectorExternal.enabled -}}
+{{- $logCollectorExternalCIDRs := default (list "0.0.0.0/0") $logCollectorExternal.allowedCIDRs -}}
+{{- $trapdExternal := default (dict) $ingress.trapdExternal -}}
+{{- $trapdExternalEnabled := default true $trapdExternal.enabled -}}
+{{- $trapdExternalCIDRs := default (list "0.0.0.0/0") $trapdExternal.allowedCIDRs -}}
+{{- $bmpCollectorExternal := default (dict) $ingress.bmpCollectorExternal -}}
+{{- $bmpCollectorExternalEnabled := default true $bmpCollectorExternal.enabled -}}
+{{- $bmpCollectorExternalCIDRs := default (list "0.0.0.0/0") $bmpCollectorExternal.allowedCIDRs -}}
 {{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
 {{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
 {{- $hasIngressPorts := gt (len $ingressAllowedPorts) 0 -}}
 {{- $hasIngressErlangDistPorts := gt (len $ingressErlangDistPorts) 0 -}}
 {{- $hasAgentGatewayExternalCIDRs := gt (len $agentGatewayExternalCIDRs) 0 -}}
+{{- $hasFlowCollectorExternalCIDRs := gt (len $flowCollectorExternalCIDRs) 0 -}}
+{{- $hasLogCollectorExternalCIDRs := gt (len $logCollectorExternalCIDRs) 0 -}}
+{{- $hasTrapdExternalCIDRs := gt (len $trapdExternalCIDRs) 0 -}}
+{{- $hasBmpCollectorExternalCIDRs := gt (len $bmpCollectorExternalCIDRs) 0 -}}
 {{- $agentGateway := default (dict) .Values.agentGateway -}}
 {{- $agentGatewayEnabled := default true $agentGateway.enabled -}}
 {{- $agentGatewayService := default (dict) $agentGateway.service -}}
 {{- $agentGatewayGrpcPort := default 50052 $agentGatewayService.port -}}
 {{- $agentGatewayArtifactPort := default 50053 $agentGatewayService.artifactPort -}}
+{{- $flowCollector := default (dict) .Values.flowCollector -}}
+{{- $flowCollectorEnabled := default false $flowCollector.enabled -}}
+{{- $flowCollectorService := default (dict) $flowCollector.service -}}
+{{- $flowCollectorServiceType := default "ClusterIP" $flowCollectorService.type -}}
+{{- $flowCollectorServicePorts := default (dict) $flowCollectorService.ports -}}
+{{- $flowCollectorNetflowPort := default (dict) $flowCollectorServicePorts.netflow -}}
+{{- $flowCollectorSflowPort := default (dict) $flowCollectorServicePorts.sflow -}}
+{{- $flowCollectorIpfixPort := default (dict) $flowCollectorServicePorts.ipfix -}}
+{{- $flowCollectorExternalPorts := list -}}
+{{- if default true $flowCollectorNetflowPort.enabled -}}
+  {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorNetflowPort.protocol) "port" (default 2055 $flowCollectorNetflowPort.port)) -}}
+{{- end -}}
+{{- if default true $flowCollectorSflowPort.enabled -}}
+  {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorSflowPort.protocol) "port" (default 6343 $flowCollectorSflowPort.port)) -}}
+{{- end -}}
+{{- if default false $flowCollectorIpfixPort.enabled -}}
+  {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorIpfixPort.protocol) "port" (default 4739 $flowCollectorIpfixPort.port)) -}}
+{{- end -}}
+{{- $hasFlowCollectorExternalPorts := gt (len $flowCollectorExternalPorts) 0 -}}
+{{- $logCollector := default (dict) .Values.logCollector -}}
+{{- $logCollectorExternalService := default (dict) $logCollector.externalService -}}
+{{- $logCollectorExternalServiceEnabled := default false $logCollectorExternalService.enabled -}}
+{{- $logCollectorExternalServiceType := default "LoadBalancer" $logCollectorExternalService.type -}}
+{{- $logCollectorExternalServicePorts := default (dict) $logCollectorExternalService.ports -}}
+{{- $logCollectorExternalSyslogPort := default (dict) $logCollectorExternalServicePorts.syslog -}}
+{{- $logCollectorExternalPorts := list -}}
+{{- if default true $logCollectorExternalSyslogPort.enabled -}}
+  {{- $logCollectorExternalPorts = append $logCollectorExternalPorts (dict "protocol" (default "UDP" $logCollectorExternalSyslogPort.protocol) "port" (default 514 $logCollectorExternalSyslogPort.port)) -}}
+{{- end -}}
+{{- $logCollectorTcp := default (dict) $logCollector.tcpCollector -}}
+{{- $logCollectorTcpExternalService := default (dict) $logCollectorTcp.externalService -}}
+{{- $logCollectorTcpExternalServiceEnabled := default false $logCollectorTcpExternalService.enabled -}}
+{{- $logCollectorTcpExternalServiceType := default "LoadBalancer" $logCollectorTcpExternalService.type -}}
+{{- $logCollectorTcpExternalServicePorts := default (dict) $logCollectorTcpExternalService.ports -}}
+{{- $logCollectorTcpExternalSyslogPort := default (dict) $logCollectorTcpExternalServicePorts.syslog -}}
+{{- $logCollectorTcpExternalPorts := list -}}
+{{- if default true $logCollectorTcpExternalSyslogPort.enabled -}}
+  {{- $logCollectorTcpExternalPorts = append $logCollectorTcpExternalPorts (dict "protocol" (default "TCP" $logCollectorTcpExternalSyslogPort.protocol) "port" (default 514 $logCollectorTcpExternalSyslogPort.port)) -}}
+{{- end -}}
+{{- $hasLogCollectorExternalPorts := gt (len $logCollectorExternalPorts) 0 -}}
+{{- $hasLogCollectorTcpExternalPorts := gt (len $logCollectorTcpExternalPorts) 0 -}}
+{{- $trapd := default (dict) .Values.trapd -}}
+{{- $trapdExternalService := default (dict) $trapd.externalService -}}
+{{- $trapdExternalServiceEnabled := default false $trapdExternalService.enabled -}}
+{{- $trapdExternalServiceType := default "LoadBalancer" $trapdExternalService.type -}}
+{{- $trapdExternalServicePorts := default (dict) $trapdExternalService.ports -}}
+{{- $trapdExternalSnmpPort := default (dict) $trapdExternalServicePorts.snmp -}}
+{{- $trapdExternalPorts := list -}}
+{{- if default true $trapdExternalSnmpPort.enabled -}}
+  {{- $trapdExternalPorts = append $trapdExternalPorts (dict "protocol" (default "UDP" $trapdExternalSnmpPort.protocol) "port" (default 162 $trapdExternalSnmpPort.port)) -}}
+{{- end -}}
+{{- $hasTrapdExternalPorts := gt (len $trapdExternalPorts) 0 -}}
+{{- $bmpCollector := default (dict) .Values.bmpCollector -}}
+{{- $bmpCollectorEnabled := default false $bmpCollector.enabled -}}
+{{- $bmpCollectorService := default (dict) $bmpCollector.service -}}
+{{- $bmpCollectorServiceType := default "ClusterIP" $bmpCollectorService.type -}}
+{{- $bmpCollectorServicePorts := default (dict) $bmpCollectorService.ports -}}
+{{- $bmpCollectorBmpPort := default (dict) $bmpCollectorServicePorts.bmp -}}
+{{- $bmpCollectorExternalPorts := list -}}
+{{- if default true $bmpCollectorBmpPort.enabled -}}
+  {{- $bmpCollectorExternalPorts = append $bmpCollectorExternalPorts (dict "protocol" (default "TCP" $bmpCollectorBmpPort.protocol) "port" (default 11019 $bmpCollectorBmpPort.port)) -}}
+{{- end -}}
+{{- $hasBmpCollectorExternalPorts := gt (len $bmpCollectorExternalPorts) 0 -}}
 {{- $egress := default (dict) $np.egress -}}
 {{- $allowDNS := default false $egress.allowDNS -}}
 {{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
@@ -180,6 +259,121 @@ spec:
           port: {{ $agentGatewayGrpcPort }}
         - protocol: TCP
           port: {{ $agentGatewayArtifactPort }}
+{{- end }}
+{{- end }}
+{{- if and $flowCollectorEnabled $flowCollectorExternalEnabled $hasFlowCollectorExternalCIDRs $hasFlowCollectorExternalPorts (ne $flowCollectorServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-flow-collector-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-flow-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $flowCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $flowCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $logCollectorExternalServiceEnabled $logCollectorExternalEnabled $hasLogCollectorExternalCIDRs $hasLogCollectorExternalPorts (ne $logCollectorExternalServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-log-collector-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $logCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $logCollectorTcpExternalServiceEnabled $logCollectorExternalEnabled $hasLogCollectorExternalCIDRs $hasLogCollectorTcpExternalPorts (ne $logCollectorTcpExternalServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-log-collector-tcp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector-tcp
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $logCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorTcpExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $trapdExternalServiceEnabled $trapdExternalEnabled $hasTrapdExternalCIDRs $hasTrapdExternalPorts (ne $trapdExternalServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-trapd-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-trapd
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $trapdExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $trapdExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $bmpCollectorEnabled $bmpCollectorExternalEnabled $hasBmpCollectorExternalCIDRs $hasBmpCollectorExternalPorts (ne $bmpCollectorServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-bmp-collector-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-bmp-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $bmpCollectorExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $bmpCollectorExternalPorts | trim | nindent 8 }}
 {{- end }}
 {{- end }}
 {{- end }}
