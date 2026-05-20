@@ -183,6 +183,7 @@ Important notes:
 - NetworkPolicy enforcement depends on your CNI (Calico, Cilium, etc). If your cluster does not enforce NetworkPolicy, enabling these values will not change runtime behavior.
 - This policy applies to pods selected by `networkPolicy.podSelector` (or all pods in the namespace when `podSelectorMatchAll: true`).
 - Edge hosts running `serviceradar-agent` outside Kubernetes need their own egress controls (host firewall/VPC/NACL). This policy only governs Kubernetes workloads.
+- External telemetry collectors have dedicated pod-scoped ingress policies. Use them for syslog, NetFlow, sFlow, SNMP traps, and BMP so opening a collector port does not also expose unrelated workloads. See [Kubernetes External Ingestion](./kubernetes-ingestion.md).
 
 Example:
 
@@ -190,6 +191,27 @@ Example:
 networkPolicy:
   enabled: true
   podSelectorMatchAll: true
+  ingress:
+    allowSameNamespace: true
+    allowedCIDRs:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+    flowCollectorExternal:
+      enabled: true
+      allowedCIDRs:
+        - "10.0.0.0/8"
+    logCollectorExternal:
+      enabled: true
+      allowedCIDRs:
+        - "10.0.0.0/8"
+    trapdExternal:
+      enabled: true
+      allowedCIDRs:
+        - "10.0.0.0/8"
+    bmpCollectorExternal:
+      enabled: true
+      allowedCIDRs:
+        - "10.0.0.0/8"
   egress:
     allowDNS: true
     allowKubeAPIServer: true
@@ -199,6 +221,28 @@ networkPolicy:
       - "10.0.0.0/8"
       - "192.168.0.0/16"
 ```
+
+## Gateway API Syslog
+
+When `gatewayApi.enabled=true`, the chart can attach syslog to a shared Gateway API UDP listener. This is the preferred way to receive syslog in clusters that already have a shared Envoy Gateway because it avoids allocating another collector address.
+
+Example:
+
+```yaml
+gatewayApi:
+  enabled: true
+  mode: attach
+  syslog:
+    enabled: true
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: serviceradar-shared-gateway
+        namespace: serviceradar-system
+        sectionName: syslog-udp
+```
+
+The parent Gateway must expose a UDP listener named by `sectionName`, and the ServiceRadar namespace must be allowed by that listener. If NetworkPolicy is enabled, allow ingress from the Gateway data-plane namespace because traffic reaches the log collector from Envoy pods.
 
 Optional (Calico): log and deny unmatched egress
 

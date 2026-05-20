@@ -75,7 +75,7 @@ For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 
 ## Syslog
 
-- **No events**: Ensure devices forward to the correct address and protocol (`UDP/TCP 514`). Validate listener status via `kubectl logs deploy/serviceradar-syslog -n <namespace>`.
+- **No events**: Ensure devices forward to the correct address and protocol (`UDP/TCP 514`). In Kubernetes, validate the listener with `kubectl logs deploy/serviceradar-log-collector -n <namespace> --since=10m`. If syslog enters through Gateway API, also check `kubectl describe udproute -n <namespace> serviceradar-syslog`.
 - **Parsing issues**: Update CNPG grok rules when new vendors join; refer to the [Syslog ingest guide](./syslog.md).
 - **Clock drift**: Systems with unsynchronized NTP create out-of-order events; align to UTC.
 
@@ -92,16 +92,16 @@ For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 
 ```bash
 # 1. Check collector is running
-docker ps | grep netflow-collector
-kubectl get pods -l app=netflow-collector
+docker ps | grep flow-collector
+kubectl get pods -l app=serviceradar-flow-collector
 
 # 2. Check if packets are arriving
 sudo tcpdump -i any -n port 2055
 # Should see: IP <router-ip>.12345 > <collector-ip>.2055: UDP, length 1480
 
 # 3. Check collector logs
-docker logs netflow-collector | grep "Received.*bytes from"
-kubectl logs -l app=netflow-collector | grep "Received.*bytes from"
+docker logs serviceradar-flow-collector-mtls | grep "Received.*bytes from"
+kubectl logs -l app=serviceradar-flow-collector | grep "Received.*bytes from"
 
 # 4. Check NATS stream
 nats stream info events
@@ -156,13 +156,13 @@ Templates can be:
 
 ```bash
 # Check for missing template warnings
-docker logs netflow-collector | grep "Missing template"
+docker logs serviceradar-flow-collector-mtls | grep "Missing template"
 
 # Check for template learned events
-docker logs netflow-collector | grep "Template learned"
+docker logs serviceradar-flow-collector-mtls | grep "Template learned"
 
 # Check template cache stats
-docker logs netflow-collector | grep "Template Cache"
+docker logs serviceradar-flow-collector-mtls | grep "Template Cache"
 ```
 
 **Solutions:**
@@ -173,9 +173,9 @@ docker logs netflow-collector | grep "Template Cache"
 
 2. **Restart collector if persistent**: Clears corrupted template cache
    ```bash
-   docker restart netflow-collector
+   docker restart serviceradar-flow-collector-mtls
    # or
-   kubectl rollout restart deployment/netflow-collector
+   kubectl rollout restart deployment/serviceradar-flow-collector
    ```
 
 3. **Reboot router** (last resort): Clears router's template state

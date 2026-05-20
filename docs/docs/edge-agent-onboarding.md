@@ -46,7 +46,7 @@ In the web UI:
 The UI will show a one-liner enroll command that looks like:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://demo.serviceradar.cloud --token edgepkg-v2:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
 ```
 
 ## 3. Enroll The Host
@@ -54,7 +54,7 @@ sudo /usr/local/bin/serviceradar-cli enroll --core-url https://demo.serviceradar
 On the host where you installed the agent, paste the enroll command from the UI:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://demo.serviceradar.cloud --token edgepkg-v2:<token>
+sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v2:<token>
 ```
 
 Notes:

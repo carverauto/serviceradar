@@ -24,12 +24,28 @@ Expose these only if you are ingesting telemetry from network devices or externa
 
 | Collector | Port | Protocol | Purpose |
 |---|---|---|---|
-| Syslog (flowgger) | 514 | UDP | Syslog ingestion |
+| Syslog (`serviceradar-log-collector`) | 514 | UDP | Syslog ingestion |
 | SNMP traps (trapd) | 162 | UDP | SNMP trap ingestion |
 | NetFlow | 2055 | UDP | NetFlow v5/v9 |
+| sFlow | 6343 | UDP | sFlow |
 | IPFIX | 4739 | UDP | IPFIX |
 | OTLP (otel) | 4317 | OTLP | OTEL ingestion (optional) |
 | OTLP (otel) | 4318 | OTLP/HTTP | OTEL ingestion (optional) |
+
+## Kubernetes External Address Map
+
+Keep real deployment addresses in private operations material. Public docs should describe the routing pattern without publishing environment-specific IPs or hostnames:
+
+| Traffic | Address | Backend |
+|---|---|---|
+| Web UI/API | `<WEB_GATEWAY_ADDRESS>:443/TCP` | Shared Gateway HTTPS listener |
+| Syslog | `<SYSLOG_GATEWAY_ADDRESS>:514/UDP` | Shared Gateway `UDPRoute` to `serviceradar-log-collector` |
+| NetFlow | `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` | `serviceradar-flow-collector` |
+| sFlow | `<FLOW_COLLECTOR_ADDRESS>:6343/UDP` | `serviceradar-flow-collector` |
+| SNMP traps | `<TRAP_COLLECTOR_ADDRESS>:162/UDP` | `serviceradar-trapd` |
+| BMP | `<BMP_COLLECTOR_ADDRESS>:11019/TCP` | `serviceradar-bmp-collector` |
+
+Prefer private routing, VPN, firewall allow lists, and source CIDR restrictions for these paths. Do not publish real deployment addresses in public documentation.
 
 ## Internal-Only (Do Not Expose To Edge Networks)
 
@@ -49,7 +65,7 @@ These ports are for internal service-to-service traffic and should not be reacha
 
 - Keep NATS internal unless you explicitly need external access.
 - `web-ng` and `core-elx` should not be exposed directly; use Caddy or an ingress controller.
-- Kubernetes: services are `ClusterIP` by default; only `agent-gateway` (and optional collectors) should be `LoadBalancer`/`NodePort`.
+- Kubernetes: services are `ClusterIP` by default; only `agent-gateway` and optional external collectors should be `LoadBalancer`/`NodePort`. Syslog can use a shared Gateway API UDP listener instead of a dedicated collector LoadBalancer.
 - Docker Compose defaults:
   - `agent-gateway` binds to `127.0.0.1:50052` unless you set `GATEWAY_PUBLIC_BIND=0.0.0.0`.
   - CNPG binds to `127.0.0.1:${CNPG_PUBLIC_PORT:-5455}` unless you set `CNPG_PUBLIC_BIND=0.0.0.0`.
