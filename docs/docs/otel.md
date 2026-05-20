@@ -14,7 +14,7 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 
 ## Authentication
 
-- Require client certificates by enabling mTLS in the gateway deployment. Reuse the certificates generated in the [Self-Signed Certificates guide](./self-signed.md) or your enterprise PKI.
+- Require client certificates by enabling mTLS in the gateway deployment. Reuse the certificates generated in the [Self-Signed Certificates guide](./tls-security.md#self-signed-certificates) or your enterprise PKI.
 - If you must expose OTLP to untrusted networks, front the OTLP service with an ingress/load balancer that terminates TLS and enforce network policy or source IP allow-lists.
 
 ## Pipeline Configuration
@@ -29,7 +29,7 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 - Traces use the `otel_traces` hypertable. SRQL simply proxies the query to CNPG, so joins such as `SELECT * FROM otel_traces JOIN logs USING (trace_id)` stay performant.
 - Logs from OTEL exporters flow into the shared `logs` hypertable through the `serviceradar-db-event-writer`. The syslog pipeline can still mirror events if you need unified retention or GoRules enrichment.
 
-Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion volume and Timescale retention jobs, or run ad-hoc SQL directly from the `serviceradar-tools` pod (`cnpg-sql "SELECT COUNT(*) FROM otel_traces WHERE created_at > now() - INTERVAL '5 minutes';"`).
+Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion volume and Timescale retention jobs, or run ad-hoc SQL directly from the `serviceradar-tools` pod (`cnpg-sql "SELECT COUNT(*) FROM otel_traces WHERE timestamp > now() - INTERVAL '5 minutes';"`).
 
 ## Troubleshooting
 

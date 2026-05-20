@@ -1,212 +1,349 @@
-# ServiceRadar Query Language (SRQL) - Language Reference
+---
+title: SRQL Reference
+---
+
+# SRQL Reference
+
+**SRQL** (ServiceRadar Query Language) is a compact `key:value` language for
+querying devices, events, logs, flows, and telemetry. This page is the complete
+reference: grammar, queryable entities, filterable fields, operators, time syntax,
+and aggregation.
+
+New to SRQL? Start with the [SRQL Tutorial](./srql-tutorial.md) for a guided
+walkthrough, or jump to the [SRQL Cookbook](./srql-cookbook.md) for ready-made
+recipes.
 
 ## Overview
 
-ServiceRadar Query Language (SRQL) now uses a key:value syntax that is parsed and executed by the Rust-based SRQL service (`rust/srql`). The engine plans queries against our OCSF-aligned streaming schema defined in `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs`, translates them to CNPG SQL via Diesel, and returns consistently shaped results. SRQL keeps its readable style while gaining better alignment with the Open Cybersecurity Schema Framework (OCSF) entities that underpin ServiceRadar.
+SRQL is parsed and executed by the Rust-based SRQL engine (`rust/srql`). The engine
+parses the `key:value` syntax into a query AST, plans it against ServiceRadar's
+streaming schema, translates it to PostgreSQL via Diesel, and returns consistently
+shaped JSON results.
 
 Use SRQL to:
-- Select one or more OCSF data domains with `in:<entity>`
-- Filter using key:value pairs and nested attribute groups
-- Control result shape with sorting, limiting, aggregation statistics, and windowing
-- Switch between point-in-time results and streaming updates
 
-## Runtime
+- Select a data domain with `in:<entity>`.
+- Filter with `key:value` pairs, wildcards, lists, ranges, and negation.
+- Scope to a time window with `time:`.
+- Shape results with `sort:`, `limit:`, and pagination cursors.
+- Summarize with `stats:` aggregations or `bucket:` downsampling.
 
-SRQL is embedded in `web-ng` and runs in-process via Rust (Rustler/NIF). There is no separate SRQL microservice to deploy.
+## Query structure
 
-- SRQL queries execute within the web runtime and read from CNPG.
-- SRQL endpoints are served by `web-ng` (make sure your ingress/proxy supports WebSockets and large responses).
+A query is a whitespace-separated list of tokens. Every token is either the `in:`
+selector, a reserved keyword (`time`, `sort`, `limit`, `stats`, etc.), or a
+`key:value` filter. Tokens may appear in any order, but every query **must** include
+exactly one `in:` selector.
 
-## Target Entities and OCSF Alignment
-
-Target data with the `in:` selector. Each logical entity routes to one or more OCSF tables or streams introduced in the Ash rebuild migration (`20260117090000_rebuild_schema.exs`).
-
-| SRQL Entity | Description | Primary OCSF Source |
-|-------------|-------------|---------------------|
-| `in:devices` | Device inventory and current state (includes discovery metadata and observables) | `ocsf_device_inventory`, `ocsf_devices_current` |
-| `in:activity` | Normalized activity & network telemetry. Alias for `events` and maps to connection/flow classes. | `ocsf_network_activity`, `ocsf_system_activity` |
-| `in:flows` | Flow-level telemetry aligned to OCSF network activity class 4001 | `ocsf_network_activity` |
-| `in:connections` | Connection state and summaries with endpoint metadata | `connections`, `ocsf_network_activity` |
-| `in:services` | Observed network/application services and their availability | `services` materialized view |
-| `in:interfaces` | Discovered interfaces (timeseries) | `discovered_interfaces` |
-| `in:logs` | Application and system logs normalized to OCSF logging classes | `logs`, `ocsf_system_activity` |
-| `in:gateways` | Gateway/agent operational telemetry | `gateways` |
-| `in:cpu_metrics` / `in:disk_metrics` / `in:memory_metrics` / `in:process_metrics` / `in:snmp_metrics` | Time-series metrics aligned with OCSF telemetry categories | `cpu_metrics`, `disk_metrics`, `memory_metrics`, `process_metrics`, `timeseries_metrics` |
-| `in:otel_traces` | OpenTelemetry spans & summaries | `otel_trace_summaries_final`, `otel_spans_enriched` |
-
-`in:` accepts comma-separated targets (e.g. `in:devices,services`). SRQL resolves friendly field names to the correct OCSF column names via the Diesel query builders in `rust/srql/src/query`; for example `device.os.name` maps to `device_os_name` and `boundary` is normalized to `partition`.
-
-> Note: `in:interfaces` is backed by the `discovered_interfaces` time-series table and uses a
-> ServiceRadar-native schema (not OCSF-aligned).
-
-The consolidated CNPG schema migration also provisions current-state streams for users, vulnerabilities, and other OCSF classes. As those entities are surfaced through SRQL aliases they inherit the same key:value syntax described below—no query changes are required beyond swapping the `in:` target.
-
-## Filters and Field References
-
-### Key:Value Filters
-- Basic comparisons use `field:value`, e.g. `hostname:%cam%` or `severity_id:2`.
-- Values are case-sensitive unless the underlying column is normalized. Use quotes for values with spaces: `device.location:"Building A"`.
-- SRQL maps lists with commas to SQL `IN`/`NOT IN`: `device_type_id:(1,7)`.
-
-### Range Queries
-- Use standard comparison operators for numeric fields: `usage_percent:>80`, `latency_ms:>=500`.
-- Supported operators: `>`, `>=`, `<`, `<=`.
-- Combine multiple filters for ranges: `usage_percent:>80 usage_percent:<90`.
-
-### Nested Attributes
-Wrap a nested group in parentheses to drill into OCSF objects:
 ```
-in:activity connection:(src_endpoint_ip:10.0.0.% dst_endpoint_port:(22,2222))
+in:<entity> [key:value ...] [time:<window>] [sort:<field>[:dir]] [limit:<n>] [stats:<expr>]
 ```
-Nested keys concatenate with dots internally (`connection.src_endpoint_ip`).
 
-### Arrays and Observables
-- Repeating the same key expresses “contains all” semantics for arrays:
-  `discovery_sources:(sweep) discovery_sources:(armis)`.
-- Use observable shortcuts created in the migrations: `observable:ip` scans across `observables_ip` collections. Combine with `value:` to match against a specific observable value.
+Example:
 
-### Negation and Wildcards
-- Prefix a key with `!` to invert it: `!device.status:deleted`, `!hostname:%test%`.
-- `%` acts as a wildcard for string comparisons and emits `LIKE`/`NOT LIKE` SQL as appropriate.
-
-## Time Scoping
-
-Control temporal filters with `time:` or `timeFrame:` keys.
-- Relative windows: `time:last_24h`, `time:last_7d`, `time:last_30m`.
-- Human phrases convert automatically: `timeFrame:"7 Days"` → `time:last_7d`.
-- Absolute ranges: `time:[2024-06-01T00:00:00Z,2024-06-02T00:00:00Z]`. Leave one side blank to create open-ended ranges.
-- Shortcuts `time:today` and `time:yesterday` apply date equality on the entity’s timestamp field (see `entity_mapping.ml`).
-
-If no time filter is supplied, the engine injects the default window configured by the API (commonly the last 24 hours).
-
-## Sorting, Limiting, and Result Shape
-
-- `limit:<n>` caps the number of rows returned.
-- `sort:field[:direction]` applies ordering. Specify multiple sort keys separated by commas: `sort:time:desc,traffic_bytes_out`.
-- `stream:true` or `mode:stream` returns a streaming cursor when the backend supports it.
-
-## Aggregations, Windows, and Having
-
-SRQL supports lightweight analytics without writing raw SQL:
-- `stats:"count() by device.type_id"` emits `SELECT count() ... GROUP BY device_type_id`.
-- `window:5m` buckets results when paired with `stats` to create tumbling window aggregations.
-- `having:"count()>10"` filters aggregated results after grouping.
-
-Use these constructs together:
+```srql
+in:devices vendor_name:Cisco hostname:%core% time:last_7d sort:last_seen:desc limit:20
 ```
-in:activity time:last_24h stats:"count() as total_flows by connection.src_endpoint_ip" sort:total_flows:desc having:"total_flows>100" limit:20
+
+### Tokenization rules
+
+- Tokens are separated by whitespace.
+- Wrap values containing spaces in quotes: `vendor_name:"Axis Communications"`.
+  Single quotes, double quotes, and backticks are all accepted.
+- Parentheses `( )` and brackets `[ ]` group list and range values; whitespace
+  inside them does not split the token.
+- Keys are case-insensitive and lowercased before matching.
+
+## The `in:` selector
+
+`in:<entity>` chooses which data domain to query. The entity name is
+case-insensitive, and most entities accept several aliases (for example
+`in:devices` and `in:device` are equivalent).
+
+See [Queryable entities](#queryable-entities) for the full list of entities,
+aliases, and fields.
+
+## Operators
+
+SRQL infers the operator from the value you write.
+
+| Form | Operator | SQL behavior |
+|------|----------|--------------|
+| `field:value` | equals | `=` |
+| `!field:value` | not equals | `<>` |
+| `field:%text%` | contains | `ILIKE` (case-insensitive) |
+| `!field:%text%` | does not contain | `NOT ILIKE` |
+| `field:(a,b,c)` | one of | `IN (...)` |
+| `!field:(a,b,c)` | none of | `NOT IN (...)` |
+| `field:>n` | greater than | `>` |
+| `field:>=n` | greater than or equal | `>=` |
+| `field:<n` | less than | `<` |
+| `field:<=n` | less than or equal | `<=` |
+
+Notes:
+
+- **Negation** applies to the *key*, written as `!key:value`. Writing `key:!value`
+  is not supported.
+- **AND** is implicit: listing multiple filters means all of them must match.
+- **OR** for a single field is the list form `field:(a,b)`. There is no general
+  `OR` keyword across different fields.
+- **Ranges** are expressed by repeating a numeric field with two comparison bounds:
+  `usage_percent:>80 usage_percent:<95`.
+- List filters accept at most 200 values.
+
+## Wildcards
+
+`%` is the wildcard character for string matching. It matches any run of characters
+and emits a case-insensitive `ILIKE` (or `NOT ILIKE` when negated).
+
+```srql
+in:devices hostname:router-%      # starts with "router-"
+in:devices hostname:%.lab          # ends with ".lab"
+in:devices hostname:%core%         # contains "core"
 ```
-The planner converts aggregations into valid CNPG SQL, handling `count_distinct`, percentile helpers (`p95(bytes)`), and alias propagation.
 
-## Streaming Queries
+A value with no `%` is matched for exact equality.
 
-Set `stream:true` to subscribe to entity streams such as `ocsf_network_activity`. Combine with `window` for sliding analytics or leave `window` unset for raw event feed semantics. `stats` + `stream:true` produces continuously updating grouped results with the backend’s incremental materialized view engine.
+## Time scoping
 
-## Example Queries
+Use `time:` (alias `timeFrame:`) to constrain time-series queries. If you omit a
+time window, the engine applies a default window.
 
-- Devices discovered by multiple sources in the past week:
-  `in:devices discovery_sources:(sweep) discovery_sources:(armis) time:last_7d sort:last_seen:desc`
+### Relative windows
 
-- High-volume web activity from a private network block:
-  `in:activity time:last_24h src_endpoint_ip:10.0.% dst_endpoint_port:(80,443) stats:"sum(traffic_bytes_out) as bytes_out by src_endpoint_ip" window:1h sort:bytes_out:desc having:"bytes_out>100000000"`
+`time:last_<number><unit>` — units are `m` (minutes), `h` (hours), `d` (days), and
+`y` (years).
 
-- Detect devices with elevated CPU usage during the last hour:
-  `in:cpu_metrics time:last_1h stats:"avg(usage_percent) as avg_cpu by device_id" having:"avg_cpu>85" sort:avg_cpu:desc`
+```srql
+in:events time:last_30m
+in:logs time:last_24h
+in:flows time:last_7d
+```
 
-- Track SSH or SFTP services discovered in the last two weeks:
-  `in:services service_type:(ssh,sftp) timeFrame:"14 Days" sort:timestamp:desc`
+### Shortcuts
 
-- OpenTelemetry traces exceeding latency SLO:
-  `in:otel_traces service.name:"serviceradar-agent-gateway" stats:"p95(duration_ms) as p95_latency by service.name" window:5m having:"p95_latency>1000"`
+```srql
+in:events time:today
+in:events time:yesterday
+```
 
-## Best Practices
+### Absolute ranges
 
-- Anchor every query with `in:` and an explicit `time` window to constrain scans.
-- Prefer SRQL field aliases (e.g. `device.os.name`, `connection.dst_endpoint_ip`) over raw column names; the engine keeps them aligned with the OCSF migrations.
-- Use repeated keys for array containment checks and comma lists for scalar `IN` comparisons.
-- Inspect new OCSF columns in `elixir/serviceradar_core/priv/repo/migrations/20260117090000_rebuild_schema.exs` before adding filters so names stay consistent with upstream schema revisions.
-- Validate complex queries with the SRQL CLI under `rust/srql`.
+Bracket syntax `[start,end]` accepts RFC 3339 timestamps. Leave a side blank for an
+open-ended range.
 
-## Supported Filter Fields by Entity
+```srql
+in:events time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z]
+in:events time:[2026-01-01T00:00:00Z,]      # open end
+in:events time:[,2026-01-02T00:00:00Z]      # open start
+```
 
-Each entity supports a specific set of filter fields. Using an unsupported field will return an error indicating the invalid field name.
+### Limits
+
+Most queries are capped at a 90-day time range. Aggregated metric queries (a metric
+entity combined with `stats:` or `bucket:`) may span a longer window because they
+are served from pre-computed hourly rollups.
+
+## Sorting and pagination
+
+- `sort:<field>[:asc|:desc]` — orders results. Direction defaults to `desc`.
+  Multiple sort keys are comma-separated: `sort:time:desc,bytes_total`.
+  `order:` is an accepted alias for `sort:`.
+- `limit:<n>` — caps the number of rows. Must be a positive integer; the engine
+  enforces a configured maximum.
+- Pagination is cursor-based. Each response includes `next_cursor` / `prev_cursor`
+  values that callers pass back to page through results.
+
+## Aggregation with `stats`
+
+`stats:` collapses rows into summary values.
+
+```
+stats:<function>(<field>) as <alias> [by <field>]
+```
+
+- Functions: `count`, `sum`, `avg`, `min`, `max`.
+- `count()` takes no field; the others require one.
+- `as <alias>` names the result column.
+- `by <field>` groups results (the SQL `GROUP BY`).
+- Combine multiple aggregations with commas:
+  `stats:"count() as total, avg(value) as average"`.
+
+```srql
+in:devices stats:count() as total by type
+in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
+in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
+```
+
+## Downsampling with `bucket`
+
+For time-series charts, `bucket:` groups rows into fixed time buckets.
+
+- `bucket:<duration>` — bucket width using `s|m|h|d` suffixes (e.g. `bucket:5m`).
+- `agg:<function>` — bucket aggregation: `avg` (default), `min`, `max`, `sum`,
+  `count`, or `rate` (per-second rate of change for counters).
+- `series:<field>` — splits buckets into one series per distinct value.
+- `value_field:<field>` — which numeric field to aggregate.
+
+```srql
+in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name
+in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total
+```
+
+## Queryable entities
+
+Target data with `in:<entity>`. Each entity exposes its own set of filterable
+fields; using a field that the entity does not support returns an
+`unsupported filter field` error naming the offending field.
+
+| Entity (`in:`) | Aliases | Description |
+|----------------|---------|-------------|
+| `devices` | `device`, `device_inventory` | Device inventory and current state |
+| `events` | `activity` | Normalized OCSF events and activity |
+| `logs` | — | Application and system logs (OpenTelemetry) |
+| `flows` | `flow`, `network_activity` | NetFlow / network activity records |
+| `services` | `service` | Observed services and their availability |
+| `gateways` | `gateway` | Gateway/agent operational state |
+| `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
+| `bmp_events` | `bmp_event`, `bmp_routing_events` | BGP Monitoring Protocol (BMP) routing events |
+| `alerts` | `alert` | Generated alerts |
+| `cpu_metrics` | `cpu` | CPU utilization time-series |
+| `memory_metrics` | `memory` | Memory utilization time-series |
+| `disk_metrics` | `disk` | Disk utilization time-series |
+| `process_metrics` | `processes` | Per-process CPU/memory time-series |
+| `timeseries_metrics` | `timeseries` | Generic time-series metrics (incl. SNMP) |
+| `snmp_metrics` | `snmp` | SNMP-collected metrics |
+| `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
+| `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
+
+> The engine also exposes specialized entities — device graph (`device_graph`),
+> device updates (`device_updates`), Wi-Fi site mapping (`wifi_sites`,
+> `wifi_access_points`, …), virtualization (`virtualization_hosts`,
+> `virtualization_guests`, …), and field-survey datasets. They use the same
+> `key:value` grammar described above.
+
+## Filterable fields by entity
+
+Each subsection lists the fields you can filter and sort on for that entity. The
+subsection heading matches the `in:` name used to select the entity.
 
 ### devices
 
-| Field | Description |
-|-------|-------------|
-| `device_id` | Unique device identifier |
-| `hostname` | Device hostname (supports wildcards) |
-| `ip` | IP address (supports wildcards) |
-| `mac` | MAC address (supports wildcards) |
-| `gateway_id` | Associated gateway ID |
-| `agent_id` | Associated agent ID |
-| `is_available` | Availability status (`true`/`false`) |
-| `device_type` | Type of device |
-| `service_type` | Type of service |
-| `service_status` | Service status |
-| `discovery_sources` | Sources that discovered this device (array containment) |
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `device_id` | `uid` | Unique device identifier |
+| `hostname` | | Device hostname (supports wildcards) |
+| `ip` | | IP address — supports wildcards, CIDR (`10.0.0.0/8`), and ranges (`10.0.0.10-10.0.0.50`) |
+| `mac` | | MAC address (normalized; supports wildcards) |
+| `gateway_id` | `gateway` | Associated gateway ID |
+| `agent_id` | | Associated agent ID |
+| `type` | `device_type` | Device type |
+| `type_id` | | Numeric device type ID |
+| `vendor_name` | `vendor` | Device vendor |
+| `model` | | Device model |
+| `risk_level` | `risk` | Risk classification |
+| `is_available` | `available` | Currently reachable (`true`/`false`) |
+| `is_active` | `active` | Lifecycle state (`true`/`false`) |
+| `discovery_sources` | | Sources that discovered the device (array; list form) |
+| `tags` | | Device tags (array; list form). Sub-key form: `tags.<key>:<value>` |
+| `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
 
-### ocsf_events
+Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,
+`last_seen` / `last_seen_time`, and `type_id`.
 
-| Field | Description |
-|-------|-------------|
-| `id` | Event identifier |
-| `time` | Event timestamp |
-| `class_uid` | OCSF class UID |
-| `category_uid` | OCSF category UID |
-| `type_uid` | OCSF type UID |
-| `activity_id` | Activity ID |
-| `activity_name` | Activity name |
-| `severity_id` | Severity ID |
-| `severity` | Severity label |
-| `message` | Event message |
-| `log_name` | Log name or subject |
-| `log_provider` | Log provider |
+Control tokens: `include_inactive:true` returns devices regardless of lifecycle
+state; `include_deleted:true` includes soft-deleted records.
+
+### events
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `id` | | Event identifier |
+| `device_id` | `uid`, `source_device_uid` | Associated device |
+| `class_uid` | | OCSF class UID |
+| `category_uid` | | OCSF category UID |
+| `type_uid` | | OCSF type UID |
+| `activity_id` | | Activity ID |
+| `activity_name` | | Activity name |
+| `severity_id` | | Numeric severity ID |
+| `severity` | | Severity label |
+| `message` | `short_message` | Event message |
+| `log_name` | | Log name or subject |
+| `log_provider` | | Log provider |
+| `log_level` | | Log level |
+| `status` | | Status label |
+| `status_id` | | Numeric status ID |
+| `status_code` | | Status code |
+| `status_detail` | | Status detail |
+| `trace_id` | | OpenTelemetry trace ID |
+| `span_id` | | OpenTelemetry span ID |
+
+Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 
 ### logs
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
+| `id` | | Log record identifier |
+| `device_id` | `uid`, `source_device_uid` | Associated device |
+| `gateway_id` | | Associated gateway ID |
+| `agent_id` | | Associated agent ID |
 | `trace_id` | | OpenTelemetry trace ID |
 | `span_id` | | OpenTelemetry span ID |
-| `service_name` | | Name of the service |
+| `service_name` | `service` | Emitting service |
 | `service_version` | | Service version |
 | `service_instance` | | Service instance identifier |
+| `source` | | Log source |
 | `scope_name` | | Instrumentation scope name |
 | `scope_version` | | Instrumentation scope version |
-| `severity_text` | `severity`, `level` | Text representation of severity |
-| `body` | | Log message body |
-| `severity_number` | | Numeric severity level |
+| `severity_text` | `severity`, `level` | Severity text (e.g. `error`, `warn`) |
+| `severity_number` | | Numeric severity |
+| `body` | `message` | Log message body |
 
-### traces (otel_traces)
+Sortable fields: `timestamp`, `severity_number`.
+
+### flows
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
-| `trace_id` | | OpenTelemetry trace ID |
-| `span_id` | | Span identifier |
-| `parent_span_id` | | Parent span identifier |
-| `service_name` | | Name of the service |
-| `service_version` | | Service version |
-| `service_instance` | | Service instance identifier |
-| `scope_name` | | Instrumentation scope name |
-| `scope_version` | | Instrumentation scope version |
-| `name` | `span_name` | Span name |
-| `status_message` | | Status message |
-| `status_code` | | Numeric status code |
-| `kind` | `span_kind` | Span kind (integer) |
+| `device_id` | | Associated device |
+| `src_endpoint_ip` | `src_ip` | Source IP (supports wildcards) |
+| `dst_endpoint_ip` | `dst_ip` | Destination IP (supports wildcards) |
+| `src_cidr` | | Source CIDR containment match |
+| `dst_cidr` | | Destination CIDR containment match |
+| `src_endpoint_port` | `src_port` | Source port |
+| `dst_endpoint_port` | `dst_port` | Destination port |
+| `protocol_name` | | Protocol name |
+| `protocol_num` | `proto` | Protocol number |
+| `protocol_group` | `proto_group` | Protocol group |
+| `direction` | | Flow direction |
+| `flow_source` | `collector` | Originating collector |
+| `app` | | Derived application classification label |
+| `sampler_address` | | Flow exporter / sampler address |
+| `exporter_name` | | Resolved exporter name |
+| `in_if_name` | | Ingress interface name |
+| `out_if_name` | | Egress interface name |
+| `in_if_speed_bps` | | Ingress interface speed (bps) |
+| `out_if_speed_bps` | | Egress interface speed (bps) |
+
+Sortable fields: `time`, `bytes_total`, `packets_total`, `bytes_in`, `bytes_out`,
+`packets_in`, `packets_out`.
 
 ### services
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
-| `service_name` | `name` | Name of the service |
-| `service_type` | `type` | Type of service |
+| `service_name` | `name` | Service name |
+| `service_id` | `uid` | Service identifier |
+| `service_type` | `type` | Service type |
 | `gateway_id` | | Associated gateway ID |
 | `agent_id` | | Associated agent ID |
 | `partition` | | Partition identifier |
 | `message` | | Status message |
-| `available` | | Availability status (`true`/`false`) |
+| `available` | | Availability (`true`/`false`) |
+
+Sortable fields: `timestamp` / `last_seen`, `service_name` / `name`,
+`service_type` / `type`.
 
 ### gateways
 
@@ -220,25 +357,82 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `created_by` | Creator identifier |
 | `is_healthy` | Health status (`true`/`false`) |
 
-### otel_metrics
+Sortable fields: `last_seen`, `first_seen`, `first_registered`, `gateway_id`,
+`status`, `agent_count`, `checker_count`, `updated_at`.
+
+### interfaces
+
+Interface observations are stored as time-series data. Use `latest:true` to return
+the most recent record per interface.
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
-| `trace_id` | | OpenTelemetry trace ID |
-| `span_id` | | Span identifier |
-| `service_name` | `service` | Name of the service |
-| `span_name` | | Span name |
-| `span_kind` | | Span kind |
-| `metric_type` | `type` | Type of metric |
-| `component` | | Component name |
-| `level` | | Level |
-| `http_method` | | HTTP method |
-| `http_route` | | HTTP route |
-| `http_status_code` | | HTTP status code |
-| `grpc_service` | | gRPC service name |
-| `grpc_method` | | gRPC method name |
-| `grpc_status_code` | | gRPC status code |
-| `is_slow` | | Slow request flag (`true`/`false`) |
+| `device_id` | | Device identifier |
+| `device_ip` | `ip` | Device IP address |
+| `interface_uid` | | Stable interface identifier (per device) |
+| `gateway_id` | | Associated gateway ID |
+| `agent_id` | | Associated agent ID |
+| `if_name` | | Interface name |
+| `if_descr` | `description` | Interface description |
+| `if_alias` | | Interface alias |
+| `if_index` | | Interface index (ifIndex) |
+| `if_type` | | Interface type identifier (ifType) |
+| `if_type_name` | | Interface type (human-readable) |
+| `interface_kind` | | Classification (physical, virtual, loopback, tunnel, …) |
+| `if_phys_address` | `mac` | Physical (MAC) address |
+| `if_admin_status` | `admin_status` | Administrative status |
+| `if_oper_status` | `oper_status`, `status` | Operational status |
+| `if_speed` | `speed`, `speed_bps` | Interface speed |
+| `mtu` | | Interface MTU |
+| `duplex` | | Interface duplex |
+| `ip_addresses` | `ip_address` | IP addresses assigned to the interface (list form) |
+
+Sortable fields: `timestamp`, `device_ip`, `device_id`, `interface_uid`, `if_name`,
+`if_descr`, `if_index`, `if_type`, `if_type_name`, `interface_kind`, `speed_bps`,
+`mtu`.
+
+### bmp_events
+
+`in:bmp_events` is how you query BGP routing data — peer events and prefix
+advertisements collected via the BGP Monitoring Protocol (BMP).
+
+| Field | Description |
+|-------|-------------|
+| `id` | Event identifier |
+| `event_type` | BMP event type |
+| `router_id` | Reporting router ID |
+| `router_ip` | Reporting router IP |
+| `peer_ip` | BGP peer IP |
+| `peer_asn` | BGP peer ASN (numeric) |
+| `local_asn` | Local ASN (numeric) |
+| `prefix` | Advertised/withdrawn prefix |
+| `message` | Event message |
+| `raw_data` | Raw event payload |
+| `severity_id` | Numeric severity ID |
+
+Sortable fields: `time` (aliases `event_timestamp`, `timestamp`), `created_at`,
+`severity_id`.
+
+### alerts
+
+| Field | Description |
+|-------|-------------|
+| `id` | Alert identifier |
+| `title` | Alert title |
+| `description` | Alert description |
+| `severity` | Alert severity |
+| `status` | Alert status |
+| `source_type` | Source type |
+| `source_id` | Source identifier |
+| `device_uid` | Associated device |
+| `agent_uid` | Associated agent |
+| `metric_name` | Metric that triggered the alert |
+| `comparison` | Comparison operator used |
+| `acknowledged_by` | Who acknowledged the alert |
+| `resolved_by` | Who resolved the alert |
+| `escalation_reason` | Escalation reason |
+
+Sortable fields: `triggered_at` / `timestamp`, `severity`, `status`, `title`.
 
 ### cpu_metrics
 
@@ -255,6 +449,9 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `usage_percent` | CPU usage percentage |
 | `frequency_hz` | CPU frequency in Hz |
 
+Sortable fields: `timestamp`, `usage_percent`, `gateway_id`, `device_id`,
+`host_id`, `partition`, `core_id`.
+
 ### memory_metrics
 
 | Field | Description |
@@ -268,6 +465,9 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `total_bytes` | Total memory in bytes |
 | `used_bytes` | Used memory in bytes |
 | `available_bytes` | Available memory in bytes |
+
+Sortable fields: `timestamp`, `usage_percent`, `gateway_id`, `device_id`,
+`host_id`.
 
 ### disk_metrics
 
@@ -285,7 +485,31 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `used_bytes` | Used disk space in bytes |
 | `available_bytes` | Available disk space in bytes |
 
+Sortable fields: `timestamp`, `usage_percent`, `gateway_id`, `device_id`,
+`host_id`, `mount_point`.
+
+### process_metrics
+
+| Field | Description |
+|-------|-------------|
+| `gateway_id` | Associated gateway ID |
+| `agent_id` | Associated agent ID |
+| `host_id` | Host identifier |
+| `device_id` | Device identifier |
+| `partition` | Partition identifier |
+| `pid` | Process ID |
+| `name` | Process name |
+| `status` | Process status |
+| `start_time` | Process start time |
+| `cpu_usage` | Process CPU usage |
+| `memory_usage` | Process memory usage |
+
+Sortable fields: `timestamp`, `cpu_usage`, `memory_usage`, `pid`, `name`.
+
 ### timeseries_metrics
+
+`in:timeseries_metrics` (and the `snmp_metrics` / `rperf` aliases that share this
+schema) cover generic time-series data, including SNMP counters.
 
 | Field | Description |
 |-------|-------------|
@@ -299,42 +523,74 @@ Each entity supports a specific set of filter fields. Using an unsupported field
 | `if_index` | Interface index |
 | `value` | Metric value |
 
-### interfaces
+Sortable fields: `timestamp`, `gateway_id`, `metric_name`, `metric_type`,
+`device_id`, `value`.
 
-Interface observations are stored as time-series data (3-day retention). Use `latest:true`
-to return the most recent record per interface.
+### otel_metrics
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
-| `device_id` | | Device identifier |
-| `interface_uid` | | Stable interface identifier (per device) |
-| `device_ip` | `ip` | Device IP address |
-| `gateway_id` | | Associated gateway ID |
-| `agent_id` | | Associated agent ID |
-| `if_name` | | Interface name |
-| `if_descr` | `description` | Interface description |
-| `if_alias` | | Interface alias |
-| `if_index` | | Interface index (ifIndex) |
-| `if_type` | | Interface type identifier (ifType) |
-| `if_type_name` | | Interface type (human-readable) |
-| `interface_kind` | | Interface classification (physical, virtual, loopback, tunnel, etc.) |
-| `if_phys_address` | `mac` | Physical (MAC) address |
-| `if_admin_status` | | Administrative status |
-| `if_oper_status` | `status` | Operational status |
-| `if_speed` | `speed` | Interface speed |
-| `speed_bps` | | Interface speed (bits per second) |
-| `mtu` | | Interface MTU |
-| `duplex` | | Interface duplex |
-| `ip_addresses` | `ip_address` | IP addresses assigned to interface |
+| `trace_id` | | OpenTelemetry trace ID |
+| `span_id` | | Span identifier |
+| `service_name` | `service` | Emitting service |
+| `span_name` | | Span name |
+| `span_kind` | | Span kind |
+| `metric_type` | `type` | Metric type |
+| `component` | | Component name |
+| `level` | | Level |
+| `http_method` | | HTTP method |
+| `http_route` | | HTTP route |
+| `http_status_code` | | HTTP status code |
+| `grpc_service` | | gRPC service name |
+| `grpc_method` | | gRPC method name |
+| `grpc_status_code` | | gRPC status code |
+| `is_slow` | | Slow-request flag (`true`/`false`) |
 
-## Error Handling
+Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`.
 
-Common issues and suggested fixes:
-- **Unsupported filter field** – The field name is not valid for the specified entity. Check the [Supported Filter Fields](#supported-filter-fields-by-entity) section above for valid fields.
-- **Unknown field** – The key cannot be mapped via `entity_mapping`. Check the OCSF migration files or use the CLI's schema inspection.
-- **Missing target entity** – Add `in:<entity>` to specify which OCSF domain to query.
-- **Invalid time range** – Ensure `time:` ranges are well-formed (`last_<number><unit>` or `[start,end]`).
-- **Aggregation conflicts** – When using `stats`, ensure grouped fields appear inside the `by` clause and reference aliases correctly in `having`.
-- **Unsupported negation form** – Negation applies to the key (`!key:value`) rather than the value (`key:!value`).
+### traces
 
-SRQL is designed to evolve with the OCSF schema. As additional migrations add classes or fields, extend your queries by following the same key:value conventions and the alignment guidance above.
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `trace_id` | | OpenTelemetry trace ID |
+| `span_id` | | Span identifier |
+| `parent_span_id` | | Parent span identifier |
+| `service_name` | | Emitting service |
+| `service_version` | | Service version |
+| `service_instance` | | Service instance identifier |
+| `scope_name` | | Instrumentation scope name |
+| `scope_version` | | Instrumentation scope version |
+| `name` | `span_name` | Span name |
+| `status_message` | | Status message |
+| `status_code` | | Numeric status code |
+| `kind` | `span_kind` | Span kind (integer) |
+
+Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
+`service_name`.
+
+## Error handling
+
+| Message | Cause / fix |
+|---------|-------------|
+| `queries must include an in:<entity> token` | Add an `in:<entity>` selector. |
+| `unsupported entity '<x>'` | The entity name is not recognized. See [Queryable entities](#queryable-entities). |
+| `unsupported filter field` | The field is not valid for the chosen entity. Check [Filterable fields by entity](#filterable-fields-by-entity). |
+| `unsupported time token` / `invalid time literal` | The `time:` value is malformed. Use `last_<n><unit>`, `today`/`yesterday`, or `[start,end]`. |
+| `time range cannot exceed 90 days` | Narrow the window, or use a metric entity with `stats:`/`bucket:` for longer ranges. |
+| `invalid limit` / `limit must be a positive integer` | `limit:` requires a positive integer. |
+| `expected scalar value` / `expected list value` | Operator/value mismatch — e.g. a list value where a scalar is expected. |
+
+## Reference notes
+
+- The SRQL engine source lives in `rust/srql`. The grammar and entity resolution are
+  in `rust/srql/src/parser.rs`; each entity's filterable fields are defined in the
+  corresponding module under `rust/srql/src/query/` (for example
+  `rust/srql/src/query/devices.rs`). The `in:` aliases are resolved by the
+  `parse_entity` function in `rust/srql/src/parser.rs`.
+- Entity-to-table routing happens inside the per-entity query modules and the Diesel
+  schema definitions in `rust/srql/src/schema.rs`.
+
+## See also
+
+- [SRQL Tutorial](./srql-tutorial.md) — step-by-step introduction for new users.
+- [SRQL Cookbook](./srql-cookbook.md) — task-oriented copy-paste recipes.

@@ -23,10 +23,10 @@ OCI chart quick start
   - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
   - If you omit `global.imageTag`, the chart defaults to `latest`.
 
-HA profile and demo overlay
+HA profile overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.
-- `helm/serviceradar/values-demo.yaml` is the validated HA overlay used by the Kubernetes `demo` environment.
-- The current demo profile runs these at `3` replicas:
+- `helm/serviceradar/values-demo.yaml` ships as an example HA overlay you can use as a reference profile when planning a multi-replica deployment.
+- That example profile runs these at `3` replicas:
   - `core`
   - `webNg`
   - `agentGateway`
@@ -38,7 +38,7 @@ HA profile and demo overlay
   - `trapd`
   - `flowCollector`
   - `bmpCollector`
-- Demo also disables PVC-backed local state for the services above where shared NATS/JetStream state is the real source of truth.
+- The profile also disables PVC-backed local state for the services above where shared NATS/JetStream state is the real source of truth.
 
 JetStream sizing values
 - The shared `events` stream is created and reconciled by multiple services. The important knobs are:
@@ -53,8 +53,8 @@ JetStream sizing values
   - `datasvc.bucketMaxBytes`
   - `datasvc.objectMaxBytes`
   - `datasvc.objectStoreBytes`
-- Demo intentionally shrinks those reserved capacities compared to the generic chart defaults so `events` can run at `3` replicas without exhausting the JetStream account's file-store budget.
-- `bmpCollector` is scaled to `3` pods in demo, but its dedicated `ARANCINI_CAUSAL` stream still uses `bmpCollector.config.streamReplicas=1` for now. That is an explicit sizing choice, not a pod-level HA limitation.
+- The example HA profile intentionally shrinks those reserved capacities compared to the generic chart defaults so `events` can run at `3` replicas without exhausting the JetStream account's file-store budget.
+- `bmpCollector` is scaled to `3` pods in the example profile, but its dedicated causal-overlay stream still uses `bmpCollector.config.streamReplicas=1`. That is an explicit sizing choice, not a pod-level HA limitation.
 
 Key values: `sweep`
 - networks: list of CIDRs/IPs to scan.

@@ -19,16 +19,16 @@ Network Devices → NetFlow Collector → NATS → EventWriter → ocsf_network_
 
 **Key Components:**
 - **Flow Collector**: Rust daemon listening on UDP port 2055 for NetFlow (configurable) and UDP port 6343 for sFlow when enabled
-- **AutoScopedParser**: RFC-compliant per-source template isolation (0.8.0+)
+- **AutoScopedParser**: RFC-compliant per-source template isolation
 - **NATS JetStream**: Reliable message transport carrying protobuf `FlowMessage` bytes on `flows.raw.netflow`
 - **EventWriter**: Elixir/Broadway processor that decodes protobuf, persists OCSF flow rows, and derives BGP observations
 - **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
 - **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`
 - **Web UI**: NetFlow dashboard with BGP topology visualization
 
-## BGP Routing Support (NEW)
+## BGP Routing Support
 
-ServiceRadar now captures and visualizes BGP routing information from NetFlow/IPFIX exports, enabling deep insights into AS-level traffic patterns and routing decisions.
+ServiceRadar captures and visualizes BGP routing information from NetFlow/IPFIX exports, enabling deep insights into AS-level traffic patterns and routing decisions.
 
 ### BGP Fields
 
@@ -51,27 +51,11 @@ ServiceRadar now captures and visualizes BGP routing information from NetFlow/IP
 - `NO_EXPORT_SUBCONFED` (0xFFFFFF03): Do not advertise outside sub-confederation
 - `NOPEER` (0xFFFFFF04): Do not advertise to peers
 
-### Querying BGP Data with SRQL
+### Querying BGP Data
 
-**Find flows traversing specific AS:**
-```bash
-srql "in:flows as_path:[64512] time:last_1h"
-```
-
-**Find flows with specific BGP community:**
-```bash
-srql "in:flows bgp_community:[65000:100] time:last_24h"
-```
-
-**Find flows with well-known community NO_EXPORT:**
-```bash
-srql "in:flows bgp_community:[NO_EXPORT] time:last_6h"
-```
-
-**Combine AS and community filters:**
-```bash
-srql "in:flows as_path:[64512] bgp_community:[65000:100] time:last_1h"
-```
+AS path and BGP community enrichment is explored through the **NetFlow → BGP
+Analysis** view in the UI, and through SQL analytics against the
+`bgp_routing_info` table. See [BGP Routing](./bgp-routing.md) for query examples.
 
 ### BGP Visualization in UI
 
@@ -495,9 +479,9 @@ set system flow-accounting netflow timeout expiry-interval 60
 set system flow-accounting netflow timeout flow-generic 15
 ```
 
-## Multi-Source Deployments (0.8.0+)
+## Multi-Source Deployments
 
-ServiceRadar 0.8.0 introduces **AutoScopedParser**, which provides RFC-compliant template scoping for multi-source environments.
+ServiceRadar's flow collector uses **AutoScopedParser**, which provides RFC-compliant template scoping for multi-source environments.
 
 ### Why AutoScopedParser Matters
 
@@ -683,8 +667,8 @@ kubectl get pods -l app=serviceradar-flow-collector
 kubectl logs -l app=serviceradar-flow-collector --tail=100
 
 # Standalone
-ps aux | grep netflow-collector
-journalctl -u netflow-collector -f
+ps aux | grep flow-collector
+journalctl -u flow-collector -f
 ```
 
 ### 2. Verify Packets Arriving
@@ -702,13 +686,13 @@ sudo tcpdump -i any -n port 2055
 
 ```bash
 # Look for template learning
-grep "Template learned" /var/log/netflow-collector.log
+grep "Template learned" /var/log/flow-collector.log
 
 # Check cache stats
-grep "Template Cache" /var/log/netflow-collector.log
+grep "Template Cache" /var/log/flow-collector.log
 
 # Look for errors
-grep -i "error\|warn" /var/log/netflow-collector.log
+grep -i "error\|warn" /var/log/flow-collector.log
 ```
 
 ### 4. Query NATS Stream
@@ -768,7 +752,7 @@ srql "in:flows bytes_total:>10000000 time:last_1h"
 
 ### 7. Check Web UI
 
-Navigate to **http://localhost:3000/netflows** to view:
+Navigate to **http://localhost/netflows** to view:
 - Flow summary statistics
 - Top talkers (source IPs)
 - Top destinations
@@ -793,7 +777,7 @@ Navigate to **http://localhost:3000/netflows** to view:
 - **Wait 60 seconds**: Router will re-send template (per timeout)
 - **Persistent**: Router may have lost template, reboot router or wait for TTL
 
-**"Template collision"** (shouldn't happen with 0.8.0+)
+**"Template collision"** (should not happen)
 - AutoScopedParser prevents this
 - If seen, report as bug
 
@@ -824,27 +808,6 @@ Navigate to **http://localhost:3000/netflows** to view:
 - Increase `batch_size` for better throughput
 - Check network latency to NATS
 
-## Upgrade Notes
-
-### Upgrading to 0.8.0
-
-**Breaking Changes:**
-- AutoScopedParser enabled by default (behavior change for multi-source)
-- Template cache is now per-source (increases memory slightly)
-
-**Benefits:**
-- RFC-compliant template scoping
-- Prevents template collisions
-- Better observability with cache metrics
-- Template event hooks for debugging
-
-**Migration:**
-- No configuration changes required
-- Existing `max_templates` applies per-source
-- Monitor logs for cache metrics to tune if needed
-
-See `rust/netflow-collector/CHANGELOG.md` for full details.
-
 ## Performance Characteristics
 
 **Tested Performance:**
@@ -860,7 +823,7 @@ See `rust/netflow-collector/CHANGELOG.md` for full details.
 - Use VPN or private network for exporter-to-collector communication
 - Monitor for unusual sources in logs
 
-**Template Validation (0.8.0+):**
+**Template Validation:**
 - Max template fields enforced (default: 10,000)
 - Prevents memory exhaustion attacks
 - Malformed templates rejected
@@ -876,5 +839,5 @@ See `rust/netflow-collector/CHANGELOG.md` for full details.
 - [IPFIX RFC 7011](https://datatracker.ietf.org/doc/html/rfc7011)
 - [OCSF 1.7.0 Network Activity](https://schema.ocsf.io/1.7.0/classes/network_activity)
 - [Troubleshooting Guide](./troubleshooting-guide.md#netflow)
-- Device config quick reference: `rust/netflow-collector/DEVICE-CONFIG.md`
-- Testing guide: `rust/netflow-collector/TESTING.md`
+- Device config quick reference: `rust/flow-collector/DEVICE-CONFIG.md`
+- Testing guide: `rust/flow-collector/TESTING.md`

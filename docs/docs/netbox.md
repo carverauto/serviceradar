@@ -28,7 +28,7 @@ The NetBox connector keeps ServiceRadar's registry synchronized with your source
 | Option | Description | Default |
 |--------|-------------|---------|
 | `expand_subnets` | Expand prefixes into host entries rather than treating them as /32 hosts. | `false` |
-| `insecure_skip_verify` | Skip TLS validation when using self-signed certs. Combine with the [Self-Signed Certificates guide](./self-signed.md). | `false` |
+| `insecure_skip_verify` | Skip TLS validation when using self-signed certs. Combine with the [Self-Signed Certificates guide](./tls-security.md#self-signed-certificates). | `false` |
 | `partition` | Override the destination registry partition. | `default` |
 
 ## Validation

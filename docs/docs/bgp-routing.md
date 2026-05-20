@@ -18,17 +18,19 @@ BGP (Border Gateway Protocol) information is collected from network devices expo
 ## Architecture
 
 ```
-Network Devices     NetFlow Collector      NATS JetStream       EventWriter        Database
-    (BGP-enabled    →  (Rust UDP:2055)  →  (flows.raw.netflow) → (Elixir)     →   (TimescaleDB)
+Network Devices     NetFlow Collector      NATS JetStream       EventWriter        CNPG
+    (BGP-enabled    →  (Rust UDP:2055)  →  (flows.raw.netflow) → (Elixir)     →   (Postgres + Timescale + AGE)
      IPFIX exports)                                                                  ├─ ocsf_network_activity
                                                                                      └─ bgp_routing_info
 ```
 
-The BGP data model is **protocol-agnostic**, allowing multiple collection sources:
+The BGP data model is **protocol-agnostic**. Today, BGP data is collected from:
 - NetFlow v9 (Cisco, Juniper)
 - IPFIX (RFC 7012)
-- sFlow (future)
-- Direct BGP peering/BMP (future)
+
+The following collection sources are planned but **not yet available**:
+- sFlow
+- Direct BGP peering / BMP
 
 ## BGP Data Model
 
@@ -120,10 +122,10 @@ Or directly: `http://your-serviceradar-instance/bgp-routing`
 - Last 7 Days
 
 **Source Protocol Filter**:
-- All Sources (NetFlow, sFlow, BGP Peering)
-- NetFlow only
-- sFlow only
-- BGP Peering only
+- NetFlow / IPFIX (the currently supported source)
+
+Additional source protocols (sFlow, direct BGP peering) are planned but not yet
+available, so filtering by them is not possible today.
 
 **AS and Community Filters**:
 - Click any AS number to filter entire dashboard
@@ -139,29 +141,11 @@ Click **"Export CSV"** to download:
 - Prefix analysis
 - Formatted for spreadsheet analysis or reporting
 
-## Querying BGP Data with SRQL
+## Querying BGP Data
 
-### Flow Queries
-
-**Find flows traversing specific AS**:
-```
-in:flows as_path:[64512] time:last_1h
-```
-
-**Find flows with specific community**:
-```
-in:flows bgp_community:[65000:100] time:last_24h
-```
-
-**Combine filters**:
-```
-in:flows as_path:[64512] bgp_community:[NO_EXPORT] time:last_6h
-```
-
-**Array containment**:
-```
-in:flows as_path contains [64512, 64513] time:last_1h
-```
+BGP routing enrichment — AS paths and communities — is explored through the
+**NetFlow → BGP Analysis** view in the UI. For custom analytics, query the
+`bgp_routing_info` table directly with SQL.
 
 ### Analytics Queries
 
@@ -374,27 +358,7 @@ GROUP BY time, as_number
 ORDER BY time;
 ```
 
-## API Reference
-
-### Phoenix LiveView Events
-
-**Filter by AS**:
-```javascript
-// Push event from JavaScript
-this.pushEvent("filter_by_as", {as: 64512})
-```
-
-**Filter by Community**:
-```javascript
-this.pushEvent("filter_by_community", {community: 4259840100})
-```
-
-**Export CSV**:
-```javascript
-this.pushEvent("export_csv", {})
-```
-
-### Database Schema
+## Database Schema
 
 **bgp_routing_info table**:
 ```sql

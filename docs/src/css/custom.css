@@ -1,54 +1,100 @@
 /**
  * ServiceRadar documentation styles
+ *
+ * Palette: https://serviceradar.cloud is the authoritative design reference for
+ * the shared ServiceRadar theme. The token values below mirror the web app
+ * (serviceradar-web/assets/css/app.css) — a sky/teal/orange palette on a navy
+ * dark base — mapped onto Docusaurus Infima variables.
  */
 
+/* ===== Light theme ===== */
 :root {
-  --ifm-color-primary: #4f46e5;
-  --ifm-color-primary-dark: #4338ca;
-  --ifm-color-primary-darker: #3730a3;
-  --ifm-color-primary-darkest: #312e81;
-  --ifm-color-primary-light: #6366f1;
-  --ifm-color-primary-lighter: #818cf8;
-  --ifm-color-primary-lightest: #a5b4fc;
+  /* Primary: sky-700 (#0369a1) */
+  --ifm-color-primary: #0369a1;
+  --ifm-color-primary-dark: #035e91;
+  --ifm-color-primary-darker: #035989;
+  --ifm-color-primary-darkest: #024971;
+  --ifm-color-primary-light: #0374b1;
+  --ifm-color-primary-lighter: #0379b9;
+  --ifm-color-primary-lightest: #0389d1;
+
+  /* Status colors */
+  --ifm-color-info: #0369a1;
+  --ifm-color-success: #059669;
+  --ifm-color-warning: #d97706;
+  --ifm-color-danger: #dc2626;
+
+  /* Surfaces and text (base-100/200/300, base-content) */
+  --ifm-background-color: #ffffff;
+  --ifm-background-surface-color: #f8fafc;
+  --ifm-font-color-base: #0f172a;
+  --ifm-heading-color: #0f172a;
+
   --ifm-code-font-size: 95%;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --ifm-global-radius: 0.5rem;
+  --docusaurus-highlighted-code-line-bg: rgba(3, 105, 161, 0.1);
 
-  /* Additional custom variables */
+  /* Shared monospace font (Space Mono, matching serviceradar-web) */
+  --ifm-font-family-monospace: 'Space Mono', 'SFMono-Regular', 'Menlo',
+    'Consolas', monospace;
+
+  /* Navbar / footer */
   --ifm-navbar-background-color: #ffffff;
-  --ifm-navbar-link-color: #4b5563;
+  --ifm-navbar-link-color: #334155;
   --ifm-navbar-link-hover-color: var(--ifm-color-primary);
-  --ifm-footer-background-color: #f9fafb;
+  --ifm-footer-background-color: #f8fafc;
+
+  /* Accent (orange) and secondary (teal) for callouts/custom use */
+  --sr-color-accent: #f97316;
+  --sr-color-secondary: #0f766e;
 }
 
-/* Dark mode colors */
+/* ===== Dark theme (navy base) ===== */
 [data-theme='dark'] {
-  --ifm-color-primary: #6366f1;
-  --ifm-color-primary-dark: #4f46e5;
-  --ifm-color-primary-darker: #4338ca;
-  --ifm-color-primary-darkest: #3730a3;
-  --ifm-color-primary-light: #818cf8;
-  --ifm-color-primary-lighter: #a5b4fc;
-  --ifm-color-primary-lightest: #c7d2fe;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  /* Primary: sky-400 (#38bdf8) */
+  --ifm-color-primary: #38bdf8;
+  --ifm-color-primary-dark: #1bb3f7;
+  --ifm-color-primary-darker: #0caef6;
+  --ifm-color-primary-darkest: #0890ce;
+  --ifm-color-primary-light: #55c7f9;
+  --ifm-color-primary-lighter: #64ccfa;
+  --ifm-color-primary-lightest: #8edafb;
 
-  --ifm-navbar-background-color: #1f2937;
-  --ifm-navbar-link-color: #9ca3af;
-  --ifm-navbar-link-hover-color: var(--ifm-color-primary-lighter);
-  --ifm-footer-background-color: #111827;
+  /* Status colors */
+  --ifm-color-info: #38bdf8;
+  --ifm-color-success: #34d399;
+  --ifm-color-warning: #f59e0b;
+  --ifm-color-danger: #fb7185;
+
+  /* Surfaces and text (navy base-100/200/300, base-content) */
+  --ifm-background-color: #0b1628;
+  --ifm-background-surface-color: #132033;
+  --ifm-font-color-base: #eff6ff;
+  --ifm-heading-color: #eff6ff;
+
+  --docusaurus-highlighted-code-line-bg: rgba(56, 189, 248, 0.15);
+
+  /* Navbar / footer */
+  --ifm-navbar-background-color: #132033;
+  --ifm-navbar-link-color: #cbd5e1;
+  --ifm-navbar-link-hover-color: var(--ifm-color-primary);
+  --ifm-footer-background-color: #08111f;
+
+  --sr-color-accent: #fb923c;
+  --sr-color-secondary: #2dd4bf;
 }
 
-/* Hero section styles */
+/* ===== Hero ===== */
 .hero--primary {
-  --ifm-hero-background-color: #ffffff;
-  --ifm-hero-text-color: #111827;
-  background: linear-gradient(135deg, #fff 0%, #f3f4f6 100%);
+  --ifm-hero-background-color: var(--ifm-background-color);
+  --ifm-hero-text-color: var(--ifm-heading-color);
+  background:
+    radial-gradient(circle at top left,
+      color-mix(in oklab, var(--ifm-color-primary) 16%, transparent) 0, transparent 30%),
+    radial-gradient(circle at top right,
+      color-mix(in oklab, var(--sr-color-accent) 14%, transparent) 0, transparent 26%),
+    linear-gradient(180deg, var(--ifm-background-surface-color), var(--ifm-background-color));
   padding: 4rem 0;
-}
-
-[data-theme='dark'] .hero--primary {
-  --ifm-hero-background-color: #111827;
-  --ifm-hero-text-color: #ffffff;
-  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
 }
 
 .hero__title {
@@ -57,32 +103,27 @@
 }
 
 .hero__subtitle {
-  font-size: 1.5rem;
+  font-size: 1.4rem;
   color: var(--ifm-color-emphasis-700);
 }
 
-/* Custom button styles */
+/* ===== Buttons ===== */
 .button--secondary {
   background-color: var(--ifm-color-primary);
   border-color: var(--ifm-color-primary);
-  color: white;
+  color: #ffffff;
   transition: all 0.2s ease;
 }
 
 .button--secondary:hover {
   background-color: var(--ifm-color-primary-dark);
   border-color: var(--ifm-color-primary-dark);
-  color: white;
+  color: #ffffff;
   transform: translateY(-1px);
 }
 
-/* Feature section styles */
+/* ===== Feature section ===== */
 .features {
-  padding: 2rem 0;
+  padding: 3rem 0;
   width: 100%;
-}
-
-.featureSvg {
-  height: 200px;
-  width: 200px;
 }

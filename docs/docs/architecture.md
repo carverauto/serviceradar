@@ -5,7 +5,10 @@ title: Architecture
 
 # Architecture
 
-ServiceRadar is a distributed monitoring platform with an Elixir/ERTS control plane and a single Go edge agent. The agent runs collectors and sandboxed Wasm plugins, then streams results to the platform over mTLS gRPC.
+ServiceRadar is an IT operations and network management platform — covering network
+monitoring, observability, and security analytics — built on an Elixir/ERTS control plane
+and a single Go edge agent. The agent runs collectors and sandboxed Wasm plugins, then
+streams results to the platform over mTLS gRPC.
 
 This page stays high-level on purpose. It aims to give you the correct mental model before you dive into specific protocol or deployment docs.
 

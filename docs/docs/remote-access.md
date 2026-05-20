@@ -194,11 +194,11 @@ Use authorized principals only when you need this extra mapping layer. It is sim
 
 ## Ansible Enrollment
 
-Example automation lives in `docs/ansible/remote-access-ssh-ca/`.
+You can automate SSH CA enrollment with a small Ansible playbook that installs the public CA key and SSH server configuration on each target.
 
 ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use that integration as the normal enrollment path:
 
-1. Copy `docs/ansible/remote-access-ssh-ca/playbook.yml` into a git repository that AWX uses as a Project.
+1. Place an SSH CA enrollment playbook in a git repository that AWX uses as a Project.
 2. Create an AWX Job Template for that playbook.
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want to enroll.
 4. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
@@ -219,12 +219,12 @@ Example launch variables:
 
 For Debian or Ubuntu targets, set `serviceradar_sshd_service` to `ssh` if that is the systemd service name.
 
-The local `ansible-playbook` path is useful for testing the playbook outside ServiceRadar:
+Running the playbook directly with `ansible-playbook` is useful for testing it outside ServiceRadar:
 
 ```bash
 ansible-playbook \
-  -i docs/ansible/remote-access-ssh-ca/inventory.example.ini \
-  docs/ansible/remote-access-ssh-ca/playbook.yml \
+  -i <inventory-file> \
+  <playbook.yml> \
   -e serviceradar_ssh_ca_public_key_file=/secure/path/serviceradar_user_ca.pub
 ```
 
@@ -234,8 +234,8 @@ For Debian or Ubuntu targets in local fallback mode, set the service name if nee
 
 ```bash
 ansible-playbook \
-  -i docs/ansible/remote-access-ssh-ca/inventory.example.ini \
-  docs/ansible/remote-access-ssh-ca/playbook.yml \
+  -i <inventory-file> \
+  <playbook.yml> \
   -e serviceradar_sshd_service=ssh \
   -e serviceradar_ssh_ca_public_key_file=/secure/path/serviceradar_user_ca.pub
 ```
@@ -243,6 +243,22 @@ ansible-playbook \
 ## Host Key Trust
 
 The edge agent verifies the target server host key before opening an SSH session. Prefer one of these modes:
+
+- `known_hosts`: the agent uses a managed known-hosts file.
+- `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.
+- `skip_verify`: only for temporary local testing.
+
+Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
+
+The web UI can expose host-key review and override controls only when the deployment enables them:
+
+```bash
+SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED=false
+SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED=false
+SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
+```
+
+Keep overrides disabled unless an operator workflow explicitly needs them.
 
 ## Application And TCP Targets
 
@@ -274,81 +290,7 @@ TCP targets are separate resources. The UI exposes a TCP launcher only when the 
 
 Without that metadata, TCP targets remain registered and policy-enforced but are not exposed as generic browser tunnels. This prevents turning ServiceRadar into an arbitrary forwarding proxy by accident.
 
-### Private HTTP Echo Demo
-
-This demo proves the application access path against a private HTTP service reachable from an edge agent but not published through ingress.
-
-Create a private echo service in the same namespace as the in-cluster agent:
-
-```bash
-kubectl -n demo create deployment sr-remote-access-echo \
-  --image=registry.k8s.io/e2e-test-images/agnhost:2.53 \
-  -- /agnhost netexec --http-port=8080
-
-kubectl -n demo expose deployment sr-remote-access-echo \
-  --name=sr-remote-access-echo \
-  --port=8080 \
-  --target-port=8080 \
-  --type=ClusterIP
-```
-
-Confirm it is private:
-
-```bash
-kubectl -n demo get svc sr-remote-access-echo
-```
-
-The service should have only a cluster IP and no ingress, load balancer, or node port.
-
-Register the target from a trusted ServiceRadar IEx shell. Use the agent ID that can reach the service; in the demo namespace this is usually `k8s-agent`.
-
-```elixir
-alias ServiceRadar.Actors.SystemActor
-alias ServiceRadar.Edge.RemoteAccessApplicationTarget
-
-actor = SystemActor.system(:remote_access_echo_demo)
-
-{:ok, target} =
-  RemoteAccessApplicationTarget.create_target(
-    %{
-      name: "Demo private echo",
-      description: "ClusterIP-only HTTP echo target for remote application access proof",
-      device_uid: "demo-private-http-echo",
-      agent_id: "k8s-agent",
-      upstream_scheme: :http,
-      upstream_host: "sr-remote-access-echo.demo.svc.cluster.local",
-      upstream_port: 8080,
-      allowed_methods: ["GET", "HEAD"],
-      allowed_path_prefixes: ["/"],
-      tls_policy: %{"verify" => "disabled"},
-      metadata: %{"demo" => "private-http-echo"}
-    },
-    actor: actor
-  )
-```
-
-Open `/remote-access/targets`, choose **Demo private echo**, and request `/`. A successful response proves:
-
-- The browser did not reach the service directly.
-- web-ng created a registered application session from target intent only.
-- agent-gateway routed the session to the selected agent.
-- the agent reached the private ClusterIP service and returned the response through the typed app frames.
-
-- `known_hosts`: the agent uses a managed known-hosts file.
-- `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.
-- `skip_verify`: only for temporary local testing.
-
-Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
-
-The web UI can expose host-key review and override controls only when the deployment enables them:
-
-```bash
-SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED=false
-SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED=false
-SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
-```
-
-Keep overrides disabled unless an operator workflow explicitly needs them.
+To register an application or TCP target, use **Remote access targets** at `/remote-access/targets` (or the `/api/remote-access/targets` API) and provide the target name, device UID, the agent ID that can reach the service, the upstream scheme/host/port, and the allowed methods, path prefixes, and TLS policy. Targets are validated and stored centrally; the browser only ever selects an existing target ID.
 
 ## User Workflows
 
@@ -396,13 +338,6 @@ Common failures:
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.
 - Host key rejected: the target host key is absent from known-hosts or changed since the last trusted connection.
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
-
-Smoke tests for lab environments are available in:
-
-```bash
-scripts/remote-access-authentik-oidc-ssh-smoke.sh
-scripts/remote-access-demo-ssh-smoke.sh
-```
 
 ## Rotation
 

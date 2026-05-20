@@ -7,7 +7,9 @@ title: "Remote Access: RDP"
 
 ServiceRadar desktop/RDP access uses the same agent-routed remote-access plane as SSH, but it is a separate graphical workflow. RDP sessions are routed through a selected edge agent, use a dedicated desktop media path for screen updates, and keep target credentials out of browser storage and persisted session metadata.
 
-This feature is still experimental until the reviewed IronRDP connector backend is linked and the helper readiness probe reports `connector_ready: true`. Base agent installs do not include the RDP helper. RDP-capable artifacts are optional and are hidden from EdgeOps unless the deployment explicitly enables desktop RDP.
+:::caution Experimental — not generally available
+RDP remote access is an experimental feature and is not yet generally available. It remains experimental until the reviewed IronRDP connector backend is linked and the helper readiness probe reports `connector_ready: true`. Base agent installs do not include the RDP helper. RDP-capable artifacts are optional and are hidden from EdgeOps unless the deployment explicitly enables desktop RDP.
+:::
 
 ## Connection Path
 
@@ -62,7 +64,7 @@ Example policy shape:
     "allowed_agent_ids": ["agent-edge-01"]
   },
   "upstream": {
-    "host": "10.50.20.44",
+    "host": "10.0.0.10",
     "port": 3389
   },
   "tls": {
@@ -266,104 +268,15 @@ For release artifact details, see [Agent Release Management](./agent-release-man
 7. Start with metadata-only recording and all redirection disabled.
 8. Validate one private target before expanding the target set.
 
-## Demo Proof Path
+## Validating A New Deployment
 
-Use a private target that is reachable from the selected edge agent and not reachable directly from web-ng or the operator browser. The proof target can be either a Windows host with NLA enabled or a controlled lab host running an RDP test server such as xrdp. A Windows host is the production-representative path; xrdp is useful only for transport and renderer smoke tests.
-
-Before testing:
-
-- Confirm the selected agent can reach the target port:
-
-```bash
-nc -vz <rdp-target-host> 3389
-```
-
-- Confirm web-ng and operator workstations cannot reach the target directly. The browser session must only work through the ServiceRadar route.
-- Enable `SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED=true`.
-- Deploy an RDP-capable signed agent artifact only to the selected edge agent.
-- Verify the helper readiness probe on that agent:
-
-```bash
-serviceradar-rdp-adapter --capabilities
-```
-
-The end-to-end proof requires `connector_ready: true`. Until then, the current experimental helper can validate policy, RBAC, target registration, signaling, media envelope handling, and fail-closed behavior, but it must not advertise production readiness. If the probe reports `connector_ready: false`, inspect `connector_ready_reason`; expected experimental values are `ironrdp_backend_not_linked` for a base helper and `live_auth_media_demo_not_validated` for an IronRDP-linked helper that still needs live authentication, active-stage media, cleanup, and demo proof.
-
-Before enabling helper readiness, run the connector boundary probe from the repository
-against the private target reachable from the selected agent network:
-
-```bash
-SERVICERADAR_RDP_LIVE_TARGET=<rdp-target-host-or-ip> \
-  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
-  live_blocking_connect_begin_reaches_tls_upgrade_boundary_when_configured -- --nocapture
-```
-
-This proves the target accepts the NLA/CredSSP negotiation path without sending a
-cleartext password in the initial client bytes. It is not a substitute for the full
-TLS verification, CredSSP, authentication, media, and cleanup proof.
-
-For a controlled lab target with a self-signed or otherwise untrusted certificate,
-run the explicit TLS upgrade smoke probe:
-
-```bash
-SERVICERADAR_RDP_LIVE_TARGET=<rdp-target-host-or-ip> \
-  SERVICERADAR_RDP_LIVE_TLS_INSECURE_ACCEPT_INVALID_CERTS=1 \
-  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
-  live_tls_upgrade_reaches_credssp_boundary_when_lab_insecure_is_enabled -- --nocapture
-```
-
-This proves the TCP stream can upgrade to TLS, the peer certificate public key can
-be extracted for CredSSP binding, and IronRDP reaches the CredSSP state without
-recorded cleartext password exposure. The env var name is intentionally explicit:
-this is not production trust validation and must not make `connector_ready` true.
-
-For a controlled target with a configured CA bundle, run the verified live TLS
-upgrade probe:
-
-```bash
-SERVICERADAR_RDP_LIVE_TARGET=<rdp-target-host-or-ip> \
-  SERVICERADAR_RDP_LIVE_SERVER_NAME=<rdp-certificate-name> \
-  SERVICERADAR_RDP_LIVE_CA_BUNDLE_FILE=/path/to/rdp-ca.pem \
-  cargo test --manifest-path rust/rdp-connector-probe/Cargo.toml --locked \
-  live_verified_tls_upgrade_reaches_credssp_boundary_when_configured -- --nocapture
-```
-
-This proves the RDP TLS upgrade can use configured trust roots and server
-identity before IronRDP reaches CredSSP. It still does not prove CredSSP
-completion, user authentication, media, cleanup ordering, or helper readiness.
-
-After the verified TLS boundary is proven and a disposable lab account is
-available, run the adapter-level helper open probe. This exercises the actual
-`serviceradar-rdp-adapter` open path and expects a finalized network-pump session:
-
-```bash
-set -a
-source ./.env
-set +a
-bazel test --config=macos --features=-fully_static_link \
-  //rust/rdp-adapter:rdp_adapter_live_connector_probe_test \
-  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_TARGET \
-  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME \
-  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE \
-  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME \
-  --test_env=SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD \
-  --test_output=streamed
-```
-
-Do not use a standing administrator password for this probe. Use a temporary
-lab account and keep the CA bundle and password material outside the repository.
-`SERVICERADAR_RDP_ADAPTER_LIVE_TARGET`, `SERVICERADAR_RDP_ADAPTER_LIVE_USERNAME`,
-and `SERVICERADAR_RDP_ADAPTER_LIVE_PASSWORD` are required. For production-style
-verification, also set `SERVICERADAR_RDP_ADAPTER_LIVE_SERVER_NAME` and
-`SERVICERADAR_RDP_ADAPTER_LIVE_CA_BUNDLE_FILE`; otherwise a private or self-signed
-RDP certificate should fail closed at the TLS trust boundary. The live server
-name must be a DNS name from the target certificate, not an IP literal.
+When bringing up RDP in a new environment, validate against a private target that is reachable from the selected edge agent but not reachable directly from web-ng or the operator browser. A Windows host with NLA enabled is the production-representative path.
 
 Register one target in **Settings > Networks > RDP Desktop Targets**:
 
 - Route: select the edge agent that can reach the target.
 - Upstream: set the private target host or IP and port `3389`.
-- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate DNS name plus registered CA bundle ID and PEM material for private Windows/xrdp certificates. Use a lab-only trust mode only for an isolated xrdp smoke target.
+- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate DNS name plus registered CA bundle ID and PEM material for private Windows certificates.
 - Credential custody: start with `memory_user` so the user supplies their own domain or local account for one session.
 - Redirection: keep clipboard, drive, printer, audio, smart-card, and file-copy disabled.
 - Recording: keep metadata enabled and screen/clipboard/file/audio content disabled.

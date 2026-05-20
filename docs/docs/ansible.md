@@ -32,7 +32,7 @@ ServiceRadar agent  (runs inside the customer's network)
         │
         │ invokes WASM plugin
         ▼
-awx WASM plugin  (cmd/wasm-plugins/awx/)
+awx WASM plugin
         │
         │ HTTPS REST + per-call credential broker grant
         ▼
@@ -87,20 +87,21 @@ You should see 14 tables (resources + their AshPaperTrail `_versions` mirrors fo
 
 ### Deploy the `awx` WASM plugin
 
-The plugin lives at `go/cmd/wasm-plugins/awx/` and exposes two manifests:
+The AWX integration runs as a WASM plugin that exposes two manifests:
 
-- `plugin.yaml` — the on-demand `run_check` entrypoint for REST verbs
-- `plugin.inventory_sync.yaml` — the scheduled `inventory_sync` entrypoint that emits `DeviceDiscovery` records
+- An on-demand `run_check` entrypoint for AWX REST verbs.
+- A scheduled `inventory_sync` entrypoint that emits `DeviceDiscovery` records.
 
-Build:
+ServiceRadar ships the `awx` plugin as a signed, ready-to-import package. Import
+it through ServiceRadar's plugin staging flow — the platform requires Rekor /
+cosign verification for plugin imports; see the [WASM Plugins](./wasm-plugins.md)
+guide for the publishing flow. Then assign both plugin manifests to the agent(s)
+that reach your AWX network. The `inventory_sync` assignment is what drives the
+`Device.ansible_managed` flag — without it, no devices flip to ansible-managed.
 
-```bash
-cd go/cmd/wasm-plugins/awx
-tinygo build -o awx.wasm \
-  -target=wasi -gc=conservative -scheduler=none -no-debug ./
-```
-
-Import the signed package through ServiceRadar's plugin staging flow (the platform requires Rekor / cosign verification for plugin imports — see the [WASM Plugins](./wasm-plugins.md) guide for the publishing flow). Then assign both plugin manifests to the agent(s) that reach your AWX network. The `inventory_sync` assignment is what drives the `Device.ansible_managed` flag — without it, no devices flip to ansible-managed.
+If you are authoring or customizing WASM plugins, see the developer portal at
+[developer.serviceradar.cloud](https://developer.serviceradar.cloud) for the
+plugin SDK, build toolchain, and publishing workflow.
 
 ### Configure environment variables
 
@@ -140,27 +141,9 @@ The current effective values are surfaced at runtime in `Settings → Ansible �
 
 The Ansible integration never sees a plaintext token — it always passes a credential broker grant referencing a stored secret. Create the secret first.
 
-From `iex -S mix` against core-elx:
+In the ServiceRadar web UI, go to **Settings → Credentials** (Integrations / credentials) and add a new credential for the AWX OAuth2 token: give it a name (for example `awx-prod`), select the `awx` provider with an API-token credential kind, and paste the AWX OAuth2 personal access token. Save the credential and note its UUID — you will reference it when registering the controller in the next step.
 
-```elixir
-alias ServiceRadar.Actors.SystemActor
-alias ServiceRadar.Credentials.NetworkCredentialSecret
-
-{:ok, secret} =
-  NetworkCredentialSecret.create_secret(
-    %{
-      name: "awx-prod",
-      provider: "awx",
-      credential_kind: :api_token,
-      secret_payload: "PASTE-AWX-OAUTH2-TOKEN-HERE"
-    },
-    actor: SystemActor.system(:setup)
-  )
-
-IO.inspect(secret.id, label: "credential_secret_id")
-```
-
-> The credential broker, not ServiceRadar core, handles plaintext. SSH keys, become passwords, and vault passwords are never stored here — those live in AWX's credential vault. The only secret ServiceRadar holds is the AWX OAuth2 token, encrypted at rest via AshCloak.
+> The credential broker, not ServiceRadar core, handles plaintext. SSH keys, become passwords, and vault passwords are never stored here — those live in AWX's credential vault. The only secret ServiceRadar holds is the AWX OAuth2 token, encrypted at rest.
 
 ### 2. Register an AWX controller
 
@@ -418,7 +401,7 @@ These are documented constraints, not bugs. Each is tracked for a future v2:
 - **Public HTTPS git repos.** The `GitCatalogSyncWorker` supports HTTPS deploy tokens via the credential broker but not SSH keys yet.
 - **Schedules require AWX-sourced playbooks.** Git-sourced playbooks can be launched ad-hoc once bound to an AWX template, but the schedule worker rejects them in v1 with `:git_sourced_not_supported_v1`.
 - **Multi-device UI launches require a single controller.** AWX uses `limit:` to scope to specific hosts; mixed-controller selections are rejected at submit time. Multi-controller fan-out is a v2 design question.
-- **Webhook ingestion is deferred.** The proposal's design notes a sketched agent-side receiver that would augment pulse polling for lower-latency state-transition updates from very large AWX deployments. Pulse polling is the only ingestion path in v1.
+- **Webhook ingestion is deferred.** An agent-side receiver that would augment pulse polling for lower-latency state-transition updates from very large AWX deployments is planned for a future release. Pulse polling is the only ingestion path in v1.
 - **OCSF class selection.** Events project as Application Activity (6003). If operator search habits favor Process Activity (1007) instead, the mapping module can be swapped without touching the data model.
-- **Run retention exclusion window.** The proposal called for "skip runs accessed within the last hour" in retention sweeps, but the worker doesn't yet check `accessed_at` (the column hasn't been added). Set generous `ANSIBLE_RETENTION_RUN_DETAIL_DAYS` if you frequently revisit old runs.
+- **Run retention exclusion window.** Retention sweeps do not yet skip runs accessed within the last hour — the worker does not check `accessed_at` (the column hasn't been added). Set generous `ANSIBLE_RETENTION_RUN_DETAIL_DAYS` if you frequently revisit old runs.
 - **Manual UUID paste for credential secret references.** Both controller and repository forms expect operators to paste a UUID from `Settings → Credentials`. A picker UX is a planned v2 improvement.

@@ -71,9 +71,9 @@ Verify the route:
 
 ```bash
 kubectl get gateway -n serviceradar-system serviceradar-shared-gateway
-kubectl get udproute -n demo
-kubectl describe udproute -n demo serviceradar-syslog
-kubectl logs -n demo deploy/serviceradar-log-collector --since=10m
+kubectl get udproute -n serviceradar
+kubectl describe udproute -n serviceradar serviceradar-syslog
+kubectl logs -n serviceradar deploy/serviceradar-log-collector --since=10m
 ```
 
 If the `UDPRoute` is not accepted, check the parent reference, listener `sectionName`, namespace labels, and whether the cluster has Gateway API UDPRoute CRDs installed.
@@ -170,18 +170,18 @@ Keep perimeter firewall rules in place even when Kubernetes NetworkPolicy is bro
 Check the exposure layer:
 
 ```bash
-kubectl get svc -n demo serviceradar-flow-collector serviceradar-trapd serviceradar-bmp-collector
+kubectl get svc -n serviceradar serviceradar-flow-collector serviceradar-trapd serviceradar-bmp-collector
 kubectl get gateway -n serviceradar-system serviceradar-shared-gateway
-kubectl get udproute -n demo
-kubectl get networkpolicy -n demo
+kubectl get udproute -n serviceradar
+kubectl get networkpolicy -n serviceradar
 ```
 
 Check collector pods:
 
 ```bash
-kubectl logs -n demo deploy/serviceradar-log-collector --since=10m
-kubectl logs -n demo deploy/serviceradar-flow-collector --since=10m
-kubectl logs -n demo deploy/serviceradar-trapd --since=10m
+kubectl logs -n serviceradar deploy/serviceradar-log-collector --since=10m
+kubectl logs -n serviceradar deploy/serviceradar-flow-collector --since=10m
+kubectl logs -n serviceradar deploy/serviceradar-trapd --since=10m
 ```
 
 For packet-level checks, run `tcpdump` on a node, Gateway pod, or collector pod that is expected to see the traffic. Confirm the device is sending to the current address: syslog to the shared Gateway address, and flow/trap/BMP traffic to the collector service address.

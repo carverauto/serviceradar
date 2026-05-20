@@ -15,36 +15,54 @@
   justify-content: center;
   gap: 1rem;
   margin-top: 2rem;
+  flex-wrap: wrap;
 }
 
 .features {
-  display: flex;
-  align-items: center;
   padding: 4rem 0;
   width: 100%;
-  background-color: var(--ifm-color-emphasis-100);
+}
+
+.featureCard {
+  height: 100%;
+  padding: 1.75rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: var(--ifm-global-radius);
+  background-color: var(--ifm-background-surface-color);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.featureCard:hover {
+  transform: translateY(-3px);
+  border-color: var(--ifm-color-primary);
 }
 
 .featureIcon {
-  font-size: 3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--ifm-global-radius);
   margin-bottom: 1rem;
+  color: var(--ifm-color-primary);
+  background-color: color-mix(in oklab, var(--ifm-color-primary) 12%, transparent);
 }
 
-.stats {
-  padding: 4rem 0;
-  background: linear-gradient(135deg, var(--ifm-color-primary) 0%, var(--ifm-color-primary-dark) 100%);
-  color: white;
+.featureIcon svg {
+  width: 1.6rem;
+  height: 1.6rem;
 }
 
-.statValue {
-  font-size: 2.5rem;
-  font-weight: 700;
+.featureTitle {
+  font-size: 1.15rem;
   margin-bottom: 0.5rem;
 }
 
-.statLabel {
-  font-size: 1rem;
-  opacity: 0.9;
+.featureDescription {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.95rem;
+  margin-bottom: 0;
 }
 
 @media screen and (max-width: 996px) {

@@ -32,14 +32,13 @@ against them.
 
 ## Related ServiceRadar Docs
 
-- [WiFi Map (local Compose)](./wifi-map-local-compose.md) — running the
-  reference customer dashboard against a local stack.
 - [SRQL Reference](./srql-language-reference.md) — the query language that
   dashboards use to drive their data frames.
 - [Wasm Plugins](./wasm-plugins.md) — the WASM extension surface used by
   dashboard render-model packages.
 
-## Repositories
+## Where to author dashboards
 
-- SDK source: [serviceradar-sdk-dashboard](https://code.carverauto.dev/carverauto/serviceradar-sdk-dashboard)
-- Developer portal: [developer.serviceradar.cloud](https://developer.serviceradar.cloud)
+The [ServiceRadar developer portal](https://developer.serviceradar.cloud) is the
+source of truth for the Dashboard SDK, including installation, the React hook
+surface, and pattern guidance.

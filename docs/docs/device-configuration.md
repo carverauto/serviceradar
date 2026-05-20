@@ -553,20 +553,18 @@ netstat -tulnp | grep :514
 
 ```bash
 # View SNMP collection logs
-docker-compose logs agent-gateway | grep -i snmp
+docker compose logs agent-gateway | grep -i snmp
 
 # View syslog collection logs
 docker compose logs log-collector
 
 # View trap collection logs
-docker-compose logs trapd
-
-# Query collected data
-curl -X POST http://localhost/api/query \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: <your-api-key>" \
-  -d '{"query": "show devices", "limit": 10}'
+docker compose logs trapd
 ```
+
+To inspect collected device data, query it through SRQL in the web-ng UI — for
+example `in:devices` or a scoped `show devices` query. See the
+[SRQL Language Reference](./srql-language-reference.md) for the full query syntax.
 
 ## Advanced Configuration
 
@@ -586,17 +584,12 @@ For custom monitoring, define additional OIDs in ServiceRadar:
 
 ### Syslog Message Parsing
 
-Configure custom syslog parsing rules. The unified log collector still reads a `flowgger.toml` compatibility file for syslog parser settings:
-
-```toml
-# flowgger.toml
-[input.syslog]
-format = "rfc3164"
-
-[output.rules]
-cisco_ios = { pattern = "%CISCO-.*", transform = "parse_cisco_ios" }
-linux_kernel = { pattern = "kernel:", transform = "parse_linux_kernel" }
-```
+The unified log collector receives raw syslog on UDP/TCP 514 and forwards messages
+to NATS JetStream; its `flowgger.toml` only configures the listener and the NATS
+output, not message parsing. Structured parsing and field extraction are handled
+downstream by the Zen pipeline, which normalizes syslog into OCSF before storage.
+Add or adjust vendor parsing rules in the Zen ruleset rather than in the collector
+config.
 
 ### Integration with External Systems
 
@@ -620,5 +613,3 @@ Forward logs to both ServiceRadar and SIEM:
 *.* @192.168.1.100:514  # ServiceRadar
 *.* @192.168.1.200:514  # SIEM
 ```
-
-This comprehensive device configuration guide should help users successfully configure their network devices to send monitoring data to ServiceRadar through various protocols.

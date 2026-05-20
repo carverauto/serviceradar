@@ -121,8 +121,8 @@ Any sustained growth indicates the pgx pool is undersized or a migration locked 
 ## PgBouncer Pooler Checks
 
 When `cnpg.pooler.enabled=true`, the Helm chart deploys a CNPG `Pooler` resource
-for PgBouncer. Demo also enables `cnpg.pooler.monitoring.podMonitor.enabled=true`
-so Prometheus Operator scrapes every PgBouncer pod. Verify that the pooler exists
+for PgBouncer. Enabling `cnpg.pooler.monitoring.podMonitor.enabled=true` lets
+Prometheus Operator scrape every PgBouncer pod. Verify that the pooler exists
 and has ready replicas:
 
 ```bash
@@ -151,9 +151,9 @@ Migration and bootstrap jobs should still connect to `cnpg-rw.<namespace>.svc.cl
 directly. Do not troubleshoot DDL or extension setup through the transaction
 pooler.
 
-## Demo Slow-Query Triage Runbook
+## Slow-Query Triage Runbook
 
-Use this flow for issue triage in `demo` when web-ng pages degrade.
+Use this flow for issue triage when web-ng pages degrade.
 
 1. Capture the current top query offenders from `pg_stat_statements`:
 
@@ -204,10 +204,10 @@ ORDER BY lock_count DESC
 LIMIT 20;
 ```
 
-4. Correlate with CNPG slow-query logs (`log_min_duration_statement=500ms` in demo):
+4. Correlate with CNPG slow-query logs (with `log_min_duration_statement=500ms`):
 
 ```bash
-kubectl logs -n demo cnpg-1 --since=15m | rg "duration:|statement:"
+kubectl logs -n <namespace> <cnpg-pod> --since=15m | rg "duration:|statement:"
 ```
 
 5. Optional sampling reset to isolate a fresh incident window:
@@ -218,7 +218,7 @@ SELECT pg_stat_statements_reset();
 
 Record the reset timestamp and compare the next 10-15 minutes against web-ng request latency and service logs.
 
-## Slow-Query Metric Schema (Demo)
+## Slow-Query Metric Schema
 
 Use these low-cardinality derived metrics from `pg_stat_statements` for dashboards and alerts:
 
@@ -275,7 +275,7 @@ ORDER BY total_exec_time DESC
 LIMIT 20;
 ```
 
-## Validation Flow (Demo)
+## Validation Flow
 
 1. Run the three SQL queries above and save panel screenshots/results.
 2. Generate a known slow query in a controlled window (for example, a high-cardinality SRQL page load).
@@ -286,12 +286,12 @@ LIMIT 20;
 4. Confirm CNPG logs show matching slow entries:
 
 ```bash
-kubectl logs -n demo cnpg-1 --since=10m | rg "duration:|statement:"
+kubectl logs -n <namespace> <cnpg-pod> --since=10m | rg "duration:|statement:"
 ```
 
 ## Threshold Tuning and Rollback
 
-Default demo threshold is `log_min_duration_statement=500ms`.
+A reasonable starting threshold is `log_min_duration_statement=500ms`.
 
 - Increase to reduce log volume/noise: `750ms` or `1000ms`.
 - Decrease for deeper analysis windows: `200ms` or `100ms` (short-lived only).
@@ -305,15 +305,17 @@ Rollback path:
 3. Verify CNPG restart/reload and confirm expected log volume.
 4. Keep `pg_stat_statements` queries active so baseline visibility remains intact.
 
-### Demo baseline snapshot (March 5, 2026 UTC)
+### Establishing an alert baseline
 
-After rollout in `demo`, we captured a 3-minute baseline sample window (12 samples, 15s interval):
+After enabling slow-query logging, capture a short baseline sample window
+(for example, 12 samples at a 15s interval) while the system is healthy. Reset
+`pg_stat_statements` first, then record:
 
-- Slow query cardinality (`mean_exec_time >= 500ms`): stable at `0` after reset.
-- Latency buckets: all observed statements in `lt_100` during baseline.
-- Slow log verification: a controlled `SELECT pg_sleep(0.7)` test was logged as expected and then cleared with `pg_stat_statements_reset()`.
+- Slow query cardinality (`mean_exec_time >= 500ms`) — expect a low or zero count on a healthy system.
+- Latency bucket distribution — most statements should land in `lt_100`.
+- Slow log verification: run a controlled query such as `SELECT pg_sleep(0.7)`, confirm it is logged, then reset again.
 
-Use this baseline to tune alerts:
+Use the observed baseline to tune alerts. As a starting point:
 - Warning: `cnpg_slow_query_total > 5` for 10 minutes.
 - Critical: `cnpg_slow_query_total > 20` for 10 minutes.
 - Critical: any `latency_bucket = gte_5000` for 5 minutes.
