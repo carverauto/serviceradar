@@ -13,12 +13,20 @@ Navigate to **Settings → Events** in the web UI.
 
 ## Log Normalization (Zen)
 
-Zen rules run first. They normalize incoming syslog, SNMP traps, OTEL logs, and
-internal logs before anything is written to CNPG.
+Zen rules run first. They normalize incoming syslog, SNMP traps, and OTEL logs
+before anything is written to CNPG.
+
+The deployed Zen consumer config has decision groups for partition-prefixed
+subjects:
+
+- `*.logs.syslog` — passthrough, strip full_message, CEF severity
+- `*.logs.snmp` — passthrough, SNMP severity
+- `*.logs.otel` — passthrough
+- `*.otel.metrics.raw` — passthrough (raw OTEL metrics)
 
 In the UI you can:
 
-- Choose a subject (`logs.syslog`, `logs.snmp`, `logs.otel`, or `logs.internal.*`)
+- Choose a subject (`logs.syslog`, `logs.snmp`, or `logs.otel`)
 - Pick a built-in template (passthrough, strip full_message, CEF severity, SNMP severity)
 - Set an order and enable/disable the rule
 

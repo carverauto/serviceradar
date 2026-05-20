@@ -4,14 +4,14 @@ title: CNPG Monitoring
 
 # CNPG Monitoring and Dashboards
 
-ServiceRadar now stores every telemetry signal (events, OTEL logs/metrics/traces, registry tables) inside the CloudNativePG (CNPG) cluster running TimescaleDB. This guide captures the dashboards and SQL checks operators should wire into Grafana or the toolbox so they can confirm ingestion, retention, and pgx pool health without relying on the retired CNPG parity checks.
+ServiceRadar stores every telemetry signal (events, OTEL logs/metrics/traces, registry tables) inside the CloudNativePG (CNPG) cluster running TimescaleDB. This guide captures the dashboards and SQL checks operators should wire into Grafana or the toolbox to confirm ingestion, retention, and pgx pool health.
 
 ## Data Source Setup
 
 Add the CNPG reader as a PostgreSQL data source in Grafana (or any SQL-friendly dashboarding tool):
 
 1. **Host / Port**: `cnpg-rw.<namespace>.svc.cluster.local:5432` (the CNPG RW service in your cluster).
-2. **Database**: `telemetry`.
+2. **Database**: `serviceradar`.
 3. **User**: `postgres` (or a scoped read-only role).
 4. **TLS**: enable `verify-full` with the CA/cert pair that ships in `/etc/serviceradar/certs` or the `cnpg-ca` secret.
 5. **Connection pooling**: set the maximum concurrent connections to something small (≤5) so Grafana dashboards do not starve the application pool.
@@ -26,13 +26,13 @@ Use the following query to chart OTEL log throughput (works for metrics/traces b
 SELECT
   time_bucket('5 minutes', created_at) AS bucket,
   COUNT(*) AS rows_ingested
-FROM logs
+FROM platform.logs
 WHERE created_at >= now() - INTERVAL '24 hours'
 GROUP BY bucket
 ORDER BY bucket;
 ```
 
-Create three panels that hit `logs`, `otel_metrics`, and `otel_traces`. Grafana’s stacked bar visualization makes pipeline gaps obvious—missing buckets mean `serviceradar-db-event-writer` is not keeping up. Keep a single-stat panel that runs `SELECT COUNT(*) FROM events WHERE created_at >= now() - INTERVAL '5 minutes';` to power an alert when ingestion drops to zero.
+Create three panels that hit `platform.logs`, `platform.otel_metrics`, and `platform.otel_traces`. Grafana’s stacked bar visualization makes pipeline gaps obvious—missing buckets mean `serviceradar-db-event-writer` is not keeping up. Keep a single-stat panel that runs `SELECT COUNT(*) FROM platform.events WHERE created_at >= now() - INTERVAL '5 minutes';` to power an alert when ingestion drops to zero.
 
 ### db-event-writer Heatmap
 
@@ -66,6 +66,7 @@ SELECT
   last_successful_finish
 FROM timescaledb_information.job_stats
 WHERE hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces')
+  AND hypertable_schema = 'platform'
 ORDER BY hypertable_name, job_type;
 ```
 
@@ -81,7 +82,8 @@ SELECT
 FROM timescaledb_information.hypertable_detailed_size h
 LEFT JOIN timescaledb_information.hypertable_compression_stats c
   ON h.hypertable_name = c.hypertable_name
-WHERE h.hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces')
+WHERE h.hypertable_schema = 'platform'
+  AND h.hypertable_name IN ('events', 'logs', 'otel_metrics', 'otel_traces')
 ORDER BY mb DESC;
 ```
 
@@ -151,95 +153,34 @@ Migration and bootstrap jobs should still connect to `cnpg-rw.<namespace>.svc.cl
 directly. Do not troubleshoot DDL or extension setup through the transaction
 pooler.
 
-## Slow-Query Triage Runbook
+## Slow-Query Triage
 
-Use this flow for issue triage when web-ng pages degrade.
+When web-ng pages degrade, triage slow queries against CNPG:
 
-1. Capture the current top query offenders from `pg_stat_statements`:
-
-```sql
-SELECT
-  round(total_exec_time, 2) AS total_exec_ms,
-  round(mean_exec_time, 2) AS mean_exec_ms,
-  round(max_exec_time, 2) AS max_exec_ms,
-  calls,
-  rows,
-  query
-FROM pg_stat_statements
-ORDER BY total_exec_time DESC
-LIMIT 20;
-```
-
-2. Check currently running and blocked statements:
-
-```sql
-SELECT
-  pid,
-  usename,
-  application_name,
-  state,
-  wait_event_type,
-  wait_event,
-  now() - query_start AS runtime,
-  query
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND state <> 'idle'
-ORDER BY runtime DESC
-LIMIT 20;
-```
-
-3. Confirm lock contention hotspots:
-
-```sql
-SELECT
-  locktype,
-  relation::regclass AS relation,
-  mode,
-  granted,
-  COUNT(*) AS lock_count
-FROM pg_locks
-GROUP BY 1,2,3,4
-ORDER BY lock_count DESC
-LIMIT 20;
-```
-
-4. Correlate with CNPG slow-query logs (with `log_min_duration_statement=500ms`):
+1. Capture the top offenders from `pg_stat_statements`, ordered by `total_exec_time`.
+2. Check currently running and blocked statements in `pg_stat_activity`
+   (`state <> 'idle'`, ordered by runtime).
+3. Confirm lock contention hotspots in `pg_locks`.
+4. Correlate with CNPG slow-query logs (`log_min_duration_statement=500ms`):
 
 ```bash
 kubectl logs -n <namespace> <cnpg-pod> --since=15m | rg "duration:|statement:"
 ```
 
-5. Optional sampling reset to isolate a fresh incident window:
+Optionally call `SELECT pg_stat_statements_reset();` to isolate a fresh incident
+window, then compare the next 10-15 minutes against web-ng request latency.
 
-```sql
-SELECT pg_stat_statements_reset();
-```
+## Slow-Query Dashboards
 
-Record the reset timestamp and compare the next 10-15 minutes against web-ng request latency and service logs.
-
-## Slow-Query Metric Schema
-
-Use these low-cardinality derived metrics from `pg_stat_statements` for dashboards and alerts:
-
-- `cnpg_slow_query_total`: count of statements where `mean_exec_time >= 500ms`.
-- `cnpg_slow_query_calls_total`: sum of `calls` for statements where `mean_exec_time >= 500ms`.
-- `cnpg_slow_query_time_ms_total`: sum of `total_exec_time` for statements where `mean_exec_time >= 500ms`.
-- `cnpg_query_latency_bucket`: bucketed statement counts by `mean_exec_time` range (`lt_100`, `100_500`, `500_1000`, `1000_5000`, `gte_5000`).
-- `cnpg_query_error_proxy_total`: count of statements with `rows = 0` and high mean latency (proxy signal, not SQLSTATE-accurate).
-
-Avoid raw query text as a label. Use normalized grouping (service, database, latency bucket).
-
-## Slow-Query Metric Derivation Queries
-
-Use these SQL panels in Grafana against CNPG:
+Surface slow-query load with these panels against `pg_stat_statements`. Avoid raw
+query text as a label—group by latency bucket instead.
 
 ```sql
 -- Snapshot counters for slow-query load
 SELECT
-  COUNT(*) FILTER (WHERE mean_exec_time >= 500) AS cnpg_slow_query_total,
-  COALESCE(SUM(calls) FILTER (WHERE mean_exec_time >= 500), 0) AS cnpg_slow_query_calls_total,
-  COALESCE(ROUND((SUM(total_exec_time) FILTER (WHERE mean_exec_time >= 500))::numeric, 2), 0) AS cnpg_slow_query_time_ms_total
+  COUNT(*) FILTER (WHERE mean_exec_time >= 500) AS slow_query_total,
+  COALESCE(SUM(calls) FILTER (WHERE mean_exec_time >= 500), 0) AS slow_query_calls_total,
+  COALESCE(ROUND((SUM(total_exec_time) FILTER (WHERE mean_exec_time >= 500))::numeric, 2), 0) AS slow_query_time_ms_total
 FROM pg_stat_statements;
 ```
 
@@ -275,56 +216,18 @@ ORDER BY total_exec_time DESC
 LIMIT 20;
 ```
 
-## Validation Flow
-
-1. Run the three SQL queries above and save panel screenshots/results.
-2. Generate a known slow query in a controlled window (for example, a high-cardinality SRQL page load).
-3. Re-run the panels and verify:
-   - `cnpg_slow_query_total` increases.
-   - At least one row lands in `500_1000` or higher bucket.
-   - Top statements panel includes the expected query family.
-4. Confirm CNPG logs show matching slow entries:
-
-```bash
-kubectl logs -n <namespace> <cnpg-pod> --since=10m | rg "duration:|statement:"
-```
-
-## Threshold Tuning and Rollback
-
-A reasonable starting threshold is `log_min_duration_statement=500ms`.
-
-- Increase to reduce log volume/noise: `750ms` or `1000ms`.
-- Decrease for deeper analysis windows: `200ms` or `100ms` (short-lived only).
-
-Helm values location:
-- `spire.postgres.postgresqlParameters.log_min_duration_statement` in `helm/serviceradar/values.yaml`.
-
-Rollback path:
-1. Revert threshold and related CNPG parameter edits in Helm/Kustomize.
-2. Deploy updated manifests.
-3. Verify CNPG restart/reload and confirm expected log volume.
-4. Keep `pg_stat_statements` queries active so baseline visibility remains intact.
-
-### Establishing an alert baseline
-
-After enabling slow-query logging, capture a short baseline sample window
-(for example, 12 samples at a 15s interval) while the system is healthy. Reset
-`pg_stat_statements` first, then record:
-
-- Slow query cardinality (`mean_exec_time >= 500ms`) — expect a low or zero count on a healthy system.
-- Latency bucket distribution — most statements should land in `lt_100`.
-- Slow log verification: run a controlled query such as `SELECT pg_sleep(0.7)`, confirm it is logged, then reset again.
-
-Use the observed baseline to tune alerts. As a starting point:
-- Warning: `cnpg_slow_query_total > 5` for 10 minutes.
-- Critical: `cnpg_slow_query_total > 20` for 10 minutes.
-- Critical: any `latency_bucket = gte_5000` for 5 minutes.
+The slow-query log threshold is set with
+`spire.postgres.postgresqlParameters.log_min_duration_statement` in
+`helm/serviceradar/values.yaml`. A reasonable starting value is `500ms`; raise it
+to reduce log noise or lower it for short deep-analysis windows. After enabling
+slow-query logging on a healthy system, capture a baseline (most statements
+should land in `lt_100`) and use it to tune alert thresholds.
 
 ## Alert Ideas
 
 | Signal | Query/Metric | Suggested Threshold |
 |--------|--------------|---------------------|
-| Ingestion Stall | `SELECT COUNT(*) FROM logs WHERE created_at >= now() - INTERVAL '5 minutes'` | `< 1` row triggers paging |
+| Ingestion Stall | `SELECT COUNT(*) FROM platform.logs WHERE created_at >= now() - INTERVAL '5 minutes'` | `< 1` row triggers paging |
 | Retention Lag | `timescaledb_information.job_stats.last_successful_finish` | older than 15 minutes |
 | PVC Growth | `hypertable_detailed_size.total_bytes` | >10% growth per hour |
 | pgx Errors | `kubectl logs deploy/serviceradar-db-event-writer | grep "cnpg"` | any non-zero error rate should alert |

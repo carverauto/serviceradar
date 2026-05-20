@@ -28,248 +28,13 @@ Network Devices → NetFlow Collector → NATS → EventWriter → ocsf_network_
 
 ## BGP Routing Support
 
-ServiceRadar captures and visualizes BGP routing information from NetFlow/IPFIX exports, enabling deep insights into AS-level traffic patterns and routing decisions.
-
-### BGP Fields
-
-**AS Path** (`as_path` in `bgp_routing_info`):
-- Ordered array of AS numbers in the routing path
-- Format: `[SOURCE_AS, INTERMEDIATE_AS, ..., DEST_AS]`
-- Example: `[64512, 64513, 64514]` indicates traffic traversed three autonomous systems
-- Stored as PostgreSQL `INTEGER[]` in `bgp_routing_info` with GIN index for fast containment queries
-
-**BGP Communities** (`bgp_communities` in `bgp_routing_info`):
-- Array of 32-bit community values (RFC 1997 format)
-- Format: High 16 bits = AS number, low 16 bits = value
-- Example: `4259840100` = `0xFDE80064` = `65000:100`
-- Enables policy-based routing and traffic engineering visibility
-- Stored as PostgreSQL `INTEGER[]` in `bgp_routing_info` with GIN index
-
-**Well-Known Communities**:
-- `NO_EXPORT` (0xFFFFFF01): Do not advertise to EBGP peers
-- `NO_ADVERTISE` (0xFFFFFF02): Do not advertise to any peer
-- `NO_EXPORT_SUBCONFED` (0xFFFFFF03): Do not advertise outside sub-confederation
-- `NOPEER` (0xFFFFFF04): Do not advertise to peers
-
-### Querying BGP Data
-
-AS path and BGP community enrichment is explored through the **NetFlow → BGP
-Analysis** view in the UI, and through SQL analytics against the
-`bgp_routing_info` table. See [BGP Routing](./bgp-routing.md) for query examples.
-
-### BGP Visualization in UI
-
-Navigate to **NetFlow → BGP Analysis** to view:
-
-**1. AS Path Display**
-- Visual representation: `AS64512 → AS64513 → AS64514`
-- Hop count and path length metrics
-- Identification of transit vs. direct peers
-
-**2. Traffic by AS Statistics**
-- Top 10 AS numbers by traffic volume
-- Bar chart with bytes/packets/flow count per AS
-- Drill-down to see all flows for a specific AS
-
-**3. Top BGP Communities**
-- Most common communities in your traffic
-- Traffic volume per community
-- Well-known community name mapping
-
-**4. AS Path Diversity Metrics**
-- Unique path count
-- Average path length
-- Maximum path length
-- Path redundancy analysis
-
-**5. AS Topology Graph** (Interactive SVG)
-- Nodes: Autonomous systems sized by traffic volume
-- Edges: AS connections sized by connection traffic
-- Hover tooltips show AS number, bytes, flow count
-- Click-to-filter applies `as_path:[X]` filter
-
-### Database Queries
-
-**Direct PostgreSQL queries for advanced analysis:**
-
-**Find all flows traversing AS 64512:**
-```sql
-SELECT
-  timestamp,
-  src_ip,
-  dst_ip,
-  as_path,
-  total_bytes,
-  total_packets
-FROM bgp_routing_info
-WHERE as_path @> ARRAY[64512]
-  AND timestamp > NOW() - INTERVAL '1 hour'
-ORDER BY total_bytes DESC
-LIMIT 20;
-```
-
-**Traffic aggregation by AS:**
-```sql
-SELECT
-  unnest(as_path) AS asn,
-  SUM(total_bytes) AS total_bytes,
-  SUM(total_packets) AS total_packets,
-  SUM(flow_count) AS flow_count
-FROM bgp_routing_info
-WHERE timestamp > NOW() - INTERVAL '1 hour'
-  AND as_path IS NOT NULL
-GROUP BY asn
-ORDER BY total_bytes DESC
-LIMIT 10;
-```
-
-**Find flows with specific BGP community:**
-```sql
-SELECT
-  timestamp,
-  src_ip,
-  dst_ip,
-  as_path,
-  bgp_communities,
-  total_bytes
-FROM bgp_routing_info
-WHERE bgp_communities @> ARRAY[4259840100]  -- 65000:100
-  AND timestamp > NOW() - INTERVAL '1 hour'
-ORDER BY timestamp DESC;
-```
-
-**AS path topology (edges between ASNs):**
-```sql
-WITH path_edges AS (
-  SELECT
-    as_path[i] as source_as,
-    as_path[i+1] as dest_as,
-    total_bytes,
-    total_packets
-  FROM bgp_routing_info,
-       generate_series(1, array_length(as_path, 1) - 1) i
-  WHERE timestamp > NOW() - INTERVAL '1 hour'
-    AND as_path IS NOT NULL
-    AND array_length(as_path, 1) > 1
-)
-SELECT
-  source_as,
-  dest_as,
-  SUM(total_bytes) as total_bytes,
-  SUM(total_packets) as total_packets,
-  COUNT(*) as flow_count
-FROM path_edges
-GROUP BY source_as, dest_as
-ORDER BY total_bytes DESC
-LIMIT 20;
-```
-
-### GIN Index Performance
-
-The `bgp_routing_info` table uses **GIN (Generalized Inverted Index)** indexes for fast array containment queries:
-
-**Indexes:**
-```sql
-CREATE INDEX idx_bgp_routing_as_path
-  ON bgp_routing_info USING GIN (as_path);
-
-CREATE INDEX idx_bgp_routing_communities
-  ON bgp_routing_info USING GIN (bgp_communities);
-```
-
-**Performance Characteristics:**
-- Containment query (`@>` operator): O(log n) lookup
-- Ideal for queries like: `WHERE as_path @> ARRAY[64512]`
-- Index size: ~30% of table size
-- Update performance: Slightly slower inserts due to index maintenance
-
-**Query Planner Usage:**
-```sql
-EXPLAIN ANALYZE
-SELECT COUNT(*) FROM bgp_routing_info
-WHERE as_path @> ARRAY[64512];
-
--- Output shows:
--- Bitmap Index Scan on idx_bgp_routing_as_path
--- Index Cond: (as_path @> '{64512}'::integer[])
-```
-
-### Device Configuration for BGP Fields
-
-**Cisco IOS-XE (IPFIX with BGP):**
-```cisco
-flow record SERVICERADAR-BGP-RECORD
-  match ipv4 protocol
-  match ipv4 source address
-  match ipv4 destination address
-  match transport source-port
-  match transport destination-port
-  collect counter bytes
-  collect counter packets
-  collect timestamp sys-uptime first
-  collect timestamp sys-uptime last
-  collect routing source as
-  collect routing destination as
-  collect routing next-hop as
-  collect routing source as peer
-  collect routing destination as peer
-  collect bgp source-community-list
-  collect bgp destination-community-list
-
-flow monitor SERVICERADAR-BGP-MONITOR
-  exporter SERVICERADAR-COLLECTOR
-  cache timeout active 60
-  cache timeout inactive 15
-  record SERVICERADAR-BGP-RECORD
-```
-
-**Juniper (IPFIX with BGP):**
-```juniper
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP ipv4-template
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP flow-active-timeout 60
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP flow-inactive-timeout 15
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP source-address <ROUTER-IP>
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP nexthop-learning enable
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP autonomous-system-type origin
-set services flow-monitoring version-ipfix template SERVICERADAR-BGP peer-as-fill-in-first-as
-
-set forwarding-options sampling instance SERVICERADAR-BGP
-set forwarding-options sampling instance SERVICERADAR-BGP family inet output flow-server <COLLECTOR-IP> port 2055
-set forwarding-options sampling instance SERVICERADAR-BGP family inet output flow-server <COLLECTOR-IP> version-ipfix template SERVICERADAR-BGP
-set forwarding-options sampling instance SERVICERADAR-BGP family inet output flow-server <COLLECTOR-IP> autonomous-system-type origin
-```
-
-**Important Notes:**
-- BGP fields are only available in **IPFIX** exports
-- NetFlow v5 and v9 have limited or no BGP support
-- Router must have BGP configured to export BGP fields
-- `bgp_communities` requires explicit configuration in flow record
-
-### Type Conversion Notes (Developers)
-
-**uint32 → int32 Conversion:**
-
-IPFIX defines BGP fields as `unsigned32` (uint32), but PostgreSQL `INTEGER` type is signed (int32):
-- **Max int32 value**: 2,147,483,647
-- **Max uint32 value**: 4,294,967,295
-
-**Handling:**
-- Rust collector passes uint32 values as-is in protobuf
-- Elixir EventWriter caps values at max int32: `min(value, 2_147_483_647)`
-- In practice, AS numbers < 4,294,967,295 (32-bit ASNs)
-- BGP communities typically < 2^31 for standard communities
-
-**Why not BIGINT?**
-- INTEGER[] arrays more efficient for GIN indexes
-- AS numbers > 2^31 are extremely rare
-- Extended communities use different format (not covered here)
+NetFlow v9 and IPFIX exports can carry BGP information elements (AS numbers, communities). ServiceRadar derives BGP analytics from these flows into the `bgp_routing_info` table. To keep this guide focused on the ingest path, all BGP field details, query examples, indexing, and device configuration for BGP elements live in [BGP Routing](./bgp-routing.md).
 
 ## Collector Layout
 
 ### Components
 
-- **Listener**: Receives UDP packets on port 2055 (default), parses NetFlow v5/v7/v9/IPFIX
+- **Listener**: Receives UDP packets on port 2055 (default), parses NetFlow v5/v9/IPFIX
 - **Parser**: AutoScopedParser with per-source template caching (prevents collisions)
 - **Publisher**: Batches flows and publishes to NATS JetStream (default: 100 flows/batch)
 - **Metrics Reporter**: Logs template cache statistics every 30 seconds
@@ -327,157 +92,11 @@ Network devices (routers, switches, firewalls) must be configured to export NetF
 
 1. **Destination IP**: ServiceRadar collector IP address
 2. **Port**: 2055/udp (default, configurable)
-3. **Protocol**: NetFlow v5, v9, or IPFIX (recommended)
+3. **Protocol**: NetFlow v5, v9, or IPFIX (IPFIX recommended)
 4. **Timeouts**: Active 60s, Inactive 15s (recommended)
 5. **Interfaces**: Which interfaces to monitor
 
-### Cisco IOS/IOS-XE (NetFlow v9)
-
-```cisco
-! Configure flow exporter
-flow exporter SERVICERADAR-COLLECTOR
-  destination <COLLECTOR-IP>
-  transport udp 2055
-  source Loopback0
-  template data timeout 60
-
-! Configure flow record
-flow record SERVICERADAR-RECORD
-  match ipv4 protocol
-  match ipv4 source address
-  match ipv4 destination address
-  match transport source-port
-  match transport destination-port
-  collect counter bytes
-  collect counter packets
-  collect timestamp sys-uptime first
-  collect timestamp sys-uptime last
-
-! Configure flow monitor
-flow monitor SERVICERADAR-MONITOR
-  exporter SERVICERADAR-COLLECTOR
-  cache timeout active 60
-  cache timeout inactive 15
-  record SERVICERADAR-RECORD
-
-! Apply to interfaces
-interface GigabitEthernet0/0
-  ip flow monitor SERVICERADAR-MONITOR input
-  ip flow monitor SERVICERADAR-MONITOR output
-
-interface GigabitEthernet0/1
-  ip flow monitor SERVICERADAR-MONITOR input
-  ip flow monitor SERVICERADAR-MONITOR output
-```
-
-### Cisco NXOS (NetFlow)
-
-```cisco
-feature netflow
-
-flow exporter SERVICERADAR
-  destination <COLLECTOR-IP> use-vrf management
-  transport udp 2055
-  source mgmt0
-  version 9
-
-flow record SERVICERADAR-RECORD
-  match ipv4 source address
-  match ipv4 destination address
-  match ip protocol
-  match transport source-port
-  match transport destination-port
-  collect counter bytes
-  collect counter packets
-
-flow monitor SERVICERADAR-MONITOR
-  record SERVICERADAR-RECORD
-  exporter SERVICERADAR
-
-interface Ethernet1/1
-  ip flow monitor SERVICERADAR-MONITOR input
-  ip flow monitor SERVICERADAR-MONITOR output
-```
-
-### Juniper (IPFIX)
-
-```juniper
-set services flow-monitoring version-ipfix template SERVICERADAR-TEMPLATE
-set services flow-monitoring version-ipfix template SERVICERADAR-TEMPLATE flow-active-timeout 60
-set services flow-monitoring version-ipfix template SERVICERADAR-TEMPLATE flow-inactive-timeout 15
-set services flow-monitoring version-ipfix template SERVICERADAR-TEMPLATE template-refresh-rate packets 30
-set services flow-monitoring version-ipfix template SERVICERADAR-TEMPLATE template-refresh-rate seconds 60
-set services flow-monitoring version-ipfix template SERVICERADAR-TEMPLATE ipv4-template
-
-set forwarding-options sampling instance SERVICERADAR-INSTANCE
-set forwarding-options sampling instance SERVICERADAR-INSTANCE family inet output flow-server <COLLECTOR-IP> port 2055
-set forwarding-options sampling instance SERVICERADAR-INSTANCE family inet output flow-server <COLLECTOR-IP> version-ipfix template SERVICERADAR-TEMPLATE
-
-set interfaces ge-0/0/0 unit 0 family inet sampling input
-set interfaces ge-0/0/0 unit 0 family inet sampling output
-```
-
-### MikroTik RouterOS
-
-```mikrotik
-/ip traffic-flow
-set enabled=yes
-set interfaces=ether1,ether2
-set cache-entries=16k
-set active-flow-timeout=1m
-set inactive-flow-timeout=15s
-
-/ip traffic-flow target
-add address=<COLLECTOR-IP>:2055 version=9
-```
-
-### Fortinet FortiGate
-
-```fortinet
-config system netflow
-    set collector-ip <COLLECTOR-IP>
-    set collector-port 2055
-    set source-ip 0.0.0.0
-    set active-flow-timeout 60
-    set inactive-flow-timeout 15
-end
-
-config system interface
-    edit "port1"
-        set netflow-sampler both
-    next
-    edit "port2"
-        set netflow-sampler both
-    next
-end
-```
-
-### Palo Alto Networks
-
-```paloalto
-set deviceconfig system netflow-collector <COLLECTOR-NAME> server <COLLECTOR-IP>
-set deviceconfig system netflow-collector <COLLECTOR-NAME> port 2055
-set deviceconfig system netflow-collector <COLLECTOR-NAME> transport udp
-
-set network profiles netflow SERVICERADAR-PROFILE
-set network profiles netflow SERVICERADAR-PROFILE server <COLLECTOR-NAME>
-set network profiles netflow SERVICERADAR-PROFILE template-refresh-rate 60
-set network profiles netflow SERVICERADAR-PROFILE active-timeout 60
-set network profiles netflow SERVICERADAR-PROFILE inactive-timeout 15
-
-set zone-protection-profile default-zone-protection netflow SERVICERADAR-PROFILE
-```
-
-### VyOS
-
-```vyos
-set system flow-accounting interface eth0
-set system flow-accounting interface eth1
-set system flow-accounting netflow server <COLLECTOR-IP> port 2055
-set system flow-accounting netflow version 9
-set system flow-accounting netflow timeout expiry-interval 60
-set system flow-accounting netflow timeout flow-generic 15
-```
+Per-vendor flow-export snippets (Cisco IOS-XE/NXOS, Juniper, MikroTik, Fortinet, Palo Alto, VyOS) are maintained in the device quick reference at `rust/flow-collector/DEVICE-CONFIG.md`. BGP-specific flow-record configuration is covered in [BGP Routing](./bgp-routing.md).
 
 ## Multi-Source Deployments
 
@@ -577,27 +196,39 @@ Monitor these in logs and system metrics:
 
 ### Collector Configuration
 
-`/etc/serviceradar/flow-collector.json`:
+The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.json`). Listener tuning fields (`buffer_size`, `max_templates`, `max_template_fields`, `pending_flows`) belong **inside each listener entry**, not at the top level.
 
 ```json
 {
   "nats_url": "nats://nats:4222",
+  "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
   "stream_name": "events",
+  "stream_subjects": ["flows.raw.netflow", "flows.raw.sflow"],
+  "stream_max_bytes": 10737418240,
+  "stream_replicas": 1,
+  "partition": "default",
   "listeners": [
     {
       "protocol": "netflow",
       "listen_addr": "0.0.0.0:2055",
-      "subject": "flows.raw.netflow"
+      "subject": "flows.raw.netflow",
+      "buffer_size": 65536,
+      "max_templates": 2000,
+      "max_template_fields": 10000,
+      "pending_flows": {
+        "max_pending_flows": 256,
+        "max_entries_per_template": 1024,
+        "max_entry_size_bytes": 65535,
+        "ttl_secs": 300
+      }
     },
     {
       "protocol": "sflow",
       "listen_addr": "0.0.0.0:6343",
-      "subject": "flows.raw.sflow"
+      "subject": "flows.raw.sflow",
+      "buffer_size": 65536
     }
   ],
-  "partition": "default",
-  "max_templates": 2000,
-  "max_template_fields": 10000,
   "channel_size": 10000,
   "batch_size": 100,
   "publish_timeout_ms": 5000,
@@ -615,37 +246,50 @@ Monitor these in logs and system metrics:
 }
 ```
 
-**Key Parameters:**
-- `listeners`: UDP sockets and subjects for NetFlow and sFlow
-- `stream_name`: JetStream stream for NetFlow subjects (default: events)
-- `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest
-- `max_templates`: Template cache size per source (default: 2000)
-- `max_template_fields`: Max fields per template for security (default: 10,000)
+**Top-level parameters:**
+- `nats_url`: NATS endpoint for JetStream publishing
+- `nats_creds_file`: Optional path to NATS credentials file
+- `stream_name`: JetStream stream for flow subjects (default: events)
+- `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
+- `stream_max_bytes`: Stream size cap in bytes (default: 10 GiB)
+- `stream_replicas`: JetStream replica count (default: 1, must be > 0)
+- `partition`: Partition tag applied to ingested flows (default: `default`)
+- `listeners`: One entry per UDP socket (`netflow` or `sflow`)
 - `channel_size`: Bounded channel depth (default: 10,000)
 - `batch_size`: Flows per NATS publish (default: 100)
-- `drop_policy`: Backpressure handling (drop_oldest, drop_newest, block)
+- `publish_timeout_ms`: NATS publish timeout (default: 5,000)
+- `drop_policy`: Backpressure handling (`drop_oldest`, `drop_newest`, `block`)
+- `metrics_addr`: Optional address for the collector metrics endpoint
+
+**Per-listener parameters:**
+- `buffer_size`: UDP socket receive buffer (default: 65,536) — applies to both `netflow` and `sflow` listeners
+- `max_templates` (netflow only): Template cache size per source (default: 2,000)
+- `max_template_fields` (netflow only): Max fields per template for security (default: 10,000)
+- `pending_flows` (netflow only): Optional cache for flow data that arrives before its template. Fields: `max_pending_flows` (1–10,000, default 256), `max_entries_per_template` (1–100,000, default 1,024), `max_entry_size_bytes` (1–1,048,576, default 65,535), `ttl_secs` (1–3,600, default 300)
+- `max_samples_per_datagram` (sflow only): Optional cap on samples parsed per datagram
 
 ### Tuning for High Volume
 
-**For 10,000+ flows/second:**
+For high flow rates, raise the per-netflow-listener cache sizes and the top-level channel/batch settings. The listener tuning fields stay inside the netflow listener entry:
 
 ```json
 {
-  "buffer_size": 131072,
-  "max_templates": 5000,
   "channel_size": 50000,
   "batch_size": 500,
-  "publish_timeout_ms": 10000
+  "publish_timeout_ms": 10000,
+  "listeners": [
+    {
+      "protocol": "netflow",
+      "listen_addr": "0.0.0.0:2055",
+      "subject": "flows.raw.netflow",
+      "buffer_size": 131072,
+      "max_templates": 5000
+    }
+  ]
 }
 ```
 
-**For multiple routers (10+ sources):**
-
-```json
-{
-  "max_templates": 10000
-}
-```
+For deployments with many routers, increase `max_templates` on the netflow listener so each source has enough template cache headroom.
 
 ## Registry and Metadata
 
@@ -784,7 +428,7 @@ Navigate to **http://localhost/netflows** to view:
 ### High CPU Usage
 
 **Causes:**
-- Very high flow rate (>50,000 flows/sec)
+- Very high flow rate
 - Complex templates with many fields
 - Insufficient batching
 
@@ -810,11 +454,11 @@ Navigate to **http://localhost/netflows** to view:
 
 ## Performance Characteristics
 
-**Tested Performance:**
-- **Single source**: 50,000 flows/sec sustained on 4 CPU cores
-- **Multi-source**: 20,000 flows/sec from 10 routers on 4 CPU cores
-- **Memory**: ~500MB base + ~50MB per active source
-- **Latency**: p95 < 10ms from UDP receipt to NATS publish
+The Rust flow collector is designed for high-throughput ingest with bounded memory. Actual sustainable rate depends on CPU allocation, template complexity, batch settings, and NATS/JetStream performance, so benchmark in your own environment rather than relying on fixed numbers. As general guidance:
+
+- Throughput scales with CPU cores and `batch_size`; enable router-side sampling for very high flow rates.
+- Memory stays bounded by `channel_size`, the per-listener template caches, and the optional `pending_flows` cache.
+- End-to-end latency from UDP receipt to NATS publish is dominated by batching (`batch_size`) and `publish_timeout_ms`.
 
 ## Security Considerations
 

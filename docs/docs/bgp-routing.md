@@ -24,13 +24,27 @@ Network Devices     NetFlow Collector      NATS JetStream       EventWriter     
                                                                                      └─ bgp_routing_info
 ```
 
-The BGP data model is **protocol-agnostic**. Today, BGP data is collected from:
+The BGP data model is **protocol-agnostic**. BGP data is collected from:
 - NetFlow v9 (Cisco, Juniper)
 - IPFIX (RFC 7012)
+- BMP (BGP Monitoring Protocol) — see [BMP Ingest](#bmp-ingest) below
 
-The following collection sources are planned but **not yet available**:
+The following collection source is planned but **not yet available**:
 - sFlow
-- Direct BGP peering / BMP
+
+## BMP Ingest
+
+In addition to flow-derived AS data, ServiceRadar deploys a dedicated **BMP collector** for direct routing telemetry. The Helm chart ships a `bmp-collector` deployment (`bmpCollector.enabled`) that runs the upstream **arancini** image — the in-repo `rust/bmp-collector` crate is a legacy adapter retained for reference only.
+
+The BMP collector:
+- Listens for BMP sessions over **TCP 11019** (`listen_addr`, default `0.0.0.0:11019`).
+- Publishes BMP updates to a JetStream stream named **`ARANCINI_CAUSAL`** (`stream_name`).
+- Uses the subject prefix **`arancini.updates`**, so the stream covers `arancini.updates.>`.
+- Connects to NATS with mTLS by default.
+
+Point a router's BMP station configuration at the collector's TCP 11019 endpoint to stream routing updates.
+
+What can be verified from the code today: BMP updates land in the `ARANCINI_CAUSAL` JetStream stream under `arancini.updates.>`. Whether and how those updates are joined into the `bgp_routing_info` table is not confirmed here — the BGP dashboard and `bgp_routing_info` queries described below are populated from NetFlow/IPFIX exports.
 
 ## BGP Data Model
 
@@ -122,10 +136,11 @@ Or directly: `http://your-serviceradar-instance/bgp-routing`
 - Last 7 Days
 
 **Source Protocol Filter**:
-- NetFlow / IPFIX (the currently supported source)
+- NetFlow / IPFIX (the source for the dashboard's AS path and community analytics)
 
-Additional source protocols (sFlow, direct BGP peering) are planned but not yet
-available, so filtering by them is not possible today.
+sFlow as a BGP data source is planned but not yet available. BMP routing
+telemetry is ingested separately into the `ARANCINI_CAUSAL` JetStream stream
+(see [BMP Ingest](#bmp-ingest)).
 
 **AS and Community Filters**:
 - Click any AS number to filter entire dashboard

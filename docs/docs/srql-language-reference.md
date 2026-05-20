@@ -213,6 +213,7 @@ fields; using a field that the entity does not support returns an
 | `process_metrics` | `processes` | Per-process CPU/memory time-series |
 | `timeseries_metrics` | `timeseries` | Generic time-series metrics (incl. SNMP) |
 | `snmp_metrics` | `snmp` | SNMP-collected metrics |
+| `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
 
@@ -579,16 +580,6 @@ Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 | `time range cannot exceed 90 days` | Narrow the window, or use a metric entity with `stats:`/`bucket:` for longer ranges. |
 | `invalid limit` / `limit must be a positive integer` | `limit:` requires a positive integer. |
 | `expected scalar value` / `expected list value` | Operator/value mismatch — e.g. a list value where a scalar is expected. |
-
-## Reference notes
-
-- The SRQL engine source lives in `rust/srql`. The grammar and entity resolution are
-  in `rust/srql/src/parser.rs`; each entity's filterable fields are defined in the
-  corresponding module under `rust/srql/src/query/` (for example
-  `rust/srql/src/query/devices.rs`). The `in:` aliases are resolved by the
-  `parse_entity` function in `rust/srql/src/parser.rs`.
-- Entity-to-table routing happens inside the per-entity query modules and the Diesel
-  schema definitions in `rust/srql/src/schema.rs`.
 
 ## See also
 

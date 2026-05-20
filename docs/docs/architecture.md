@@ -21,12 +21,11 @@ flowchart TB
   subgraph Core["Core Platform (Kubernetes or Docker Compose)"]
     Ingress["Edge proxy (Ingress/Caddy)"]
     Web["web-ng (Phoenix LiveView)<br/>SRQL embedded (Rustler/NIF)"]
-    CoreElx["core-elx (Elixir control plane)"]
+    CoreSvc["core (serviceradar_core)<br/>control plane + in-process log-promotion consumer"]
     GW["agent-gateway (Elixir)"]
 
     NATS["NATS JetStream"]
     Zen["zen-consumer"]
-    Promote["log-promotion"]
     Writer["db-event-writer"]
 
     DB["CNPG (Postgres + Timescale + AGE)"]
@@ -39,15 +38,15 @@ flowchart TB
   User -->|HTTPS| Ingress --> Web
 
   Agent <-->|mTLS gRPC<br/>streaming, chunking, control stream| GW
-  GW <-->|mTLS ERTS/RPC/PubSub| CoreElx
-  Web <-->|mTLS ERTS/RPC/PubSub| CoreElx
+  GW <-->|mTLS ERTS/RPC/PubSub| CoreSvc
+  Web <-->|mTLS ERTS/RPC/PubSub| CoreSvc
 
   %% Bulk ingestion
   NATS --> Zen --> NATS
-  NATS --> Promote --> NATS
+  NATS <--> CoreSvc
   NATS --> Writer --> DB
 
-  CoreElx --> DB
+  CoreSvc --> DB
   Web --> DB
 ```
 
@@ -55,7 +54,10 @@ flowchart TB
 
 The core platform is an ERTS cluster of:
 
-- `core-elx`: APIs, orchestration, ingestion, and persistence
+- `core`: APIs, orchestration, ingestion, and persistence. The control-plane OTP
+  application is `serviceradar_core`; the `core` service runs it via the
+  `serviceradar_core_elx` wrapper, which enables cluster mode and schedulers but
+  starts no duplicate children of its own.
 - `web-ng`: UI and HTTP API surface; SRQL is embedded via Rustler/NIF
 - `agent-gateway`: edge ingress (agent connectivity and ingestion)
 
@@ -74,24 +76,23 @@ See [Edge Model](./edge-model.md).
 
 ## Bulk Telemetry Pipeline (NATS JetStream)
 
-Collectors publish bulk telemetry into JetStream (commonly the `events` stream). The platform currently runs three consumers on `events`:
+Collectors publish bulk telemetry into JetStream (commonly the `events` stream). The platform runs:
 
-- `zen-consumer` (normalization)
-- `log-promotion` (promotion into OCSF-style events)
-- `db-event-writer` (persistence into CNPG)
+- `zen-consumer` (normalization), a standalone service
+- `log-promotion`, an in-process JetStream pull consumer inside `serviceradar_core`
+  that promotes matching logs into OCSF-style events
+- `db-event-writer` (persistence into CNPG), a standalone service
 
 See [Data Pipeline](./data-pipeline.md).
 
 ### Kubernetes HA Profile
 
-The Helm chart defaults stay conservative, but the validated Kubernetes HA profile now runs the control plane and most ingest workers with multiple replicas:
-
-- `core-elx`, `web-ng`, and `agent-gateway` at `3`
-- `datasvc`, `zen`, and `db-event-writer` at `3`
-- `log-collector`, `log-collector-tcp`, `flow-collector`, and `trapd` at `3`
-- `bmp-collector` at `3`
-
-For the queue-backed services, the HA pattern is shared JetStream streams and shared durable pull consumers rather than local singleton disk state. The main shared `events` stream is also explicitly sized so it can sustain `3` JetStream replicas in the demo environment without over-reserving file-store capacity.
+The Helm chart defaults stay conservative, but a validated Kubernetes HA profile
+runs the control plane and ingest workers with multiple replicas. For the
+queue-backed services, the HA pattern is shared JetStream streams and shared
+durable pull consumers rather than local singleton disk state. See
+[Helm Configuration](./helm-configuration.md) for replica counts and JetStream
+sizing.
 
 ## Identity And TLS
 

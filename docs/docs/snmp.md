@@ -6,17 +6,19 @@ title: SNMP Ingest Guide
 
 Simple Network Management Protocol (SNMP) polling remains the fastest way to populate ServiceRadar with device inventory and health metrics. Use this guide alongside the detailed [Device Configuration Reference](./device-configuration.md#snmp-configuration) to standardize credentials, access, and polling strategy.
 
-## Prepare Gateways
+SNMP polling is an **embedded service inside the ServiceRadar agent** — not a separate gateway component. Each agent runs its own SNMP poller and reaches monitored devices directly. Deploy agents close to the network gear you want to poll. See [Embedded Agent SNMP](#embedded-agent-snmp) below for configuration details.
 
-1. Ensure each gateway can reach monitored devices on UDP 161 (and UDP 162 if you plan to receive traps).
-2. Store SNMP communities or v3 credentials in the gateway configuration/profile data so gateways can refresh secrets without redeploys.
-3. Map device targets to the correct SNMP profile inside the registry. The [sync runtime guide](./sync.md) explains how to seed profiles programmatically.
+## Prepare Agents
+
+1. Ensure each agent can reach its monitored devices on UDP 161 (and that devices can reach the trap collector on UDP 162 if you plan to receive traps).
+2. Store SNMP communities or v3 credentials in SNMP Profiles so agents can refresh secrets without redeploys.
+3. Map device targets to the correct SNMP profile. The [sync runtime guide](./sync.md) explains how to seed targets programmatically.
 
 ## Define Credentials
 
 - **SNMPv2c** – use unique read-only community strings per device class; avoid `public` or `private`.
 - **SNMPv3** – prefer `authPriv` with SHA-256 and AES-256 where devices allow. Record usernames, auth passwords, and privacy keys in profiles.
-- Rotate secrets quarterly and update the registry via the embedded sync runtime to prevent stale gateway configs.
+- Rotate secrets quarterly and update SNMP Profiles via the embedded sync runtime to prevent stale agent configs.
 
 ## Build Polling Plans
 
@@ -33,6 +35,8 @@ Traps complement polling by pushing urgent events:
 3. Confirm delivery with `tcpdump` or `kubectl logs` on the trap receiver pod.
 
 `serviceradar-trapd` is stateless; see `helm/serviceradar/files/serviceradar-config.yaml` or `build/packaging/trapd/config/trapd.json` for base settings you can override through file edits or a pinned overlay.
+
+**trapd security:** trapd's gRPC interface supports a `SecurityMode` of `mtls` (the default), `spiffe`, or `none`. When `grpc_listen_addr` is set, `none` is rejected — the gRPC endpoint must use `mtls` or `spiffe`. The default gRPC health/listener address is `0.0.0.0:50043`. For SPIFFE mode, a `trust_domain` is required. Keep the trap UDP port (162) and the gRPC port restricted to trusted networks.
 
 ## Trap Processing Pipeline
 
@@ -203,17 +207,14 @@ The profile with the highest priority that matches a device is used. If no targe
 
 ### Monitoring Agent SNMP Status
 
-Check the agent's SNMP service status via the API or logs:
+The agent runs in push mode: it does not expose an HTTP status endpoint. SNMP service status is reported over the agent's gRPC interface and surfaced in the ServiceRadar UI and core API. For direct inspection, check the agent logs:
 
 ```bash
 # View agent logs for SNMP activity
 kubectl logs -f deploy/serviceradar-agent | grep -i snmp
-
-# Check agent status endpoint
-curl http://agent:8080/status | jq '.snmp'
 ```
 
-The status includes:
+Reported SNMP status includes:
 - Whether SNMP is enabled
 - Number of active targets
 - Config source (remote, local file, or cached)

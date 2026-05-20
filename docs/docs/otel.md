@@ -4,13 +4,15 @@ title: OTEL Ingest Guide
 
 # OTEL Ingest Guide
 
-OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cloud-native workloads. The platform includes an OTLP gateway that normalizes telemetry before it lands in CNPG and the ServiceRadar registry.
+OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cloud-native workloads. The OTEL collector normalizes telemetry before it lands in CNPG and the ServiceRadar registry.
+
+The OTEL collector is not a standalone service. It runs embedded inside `log-collector`, which supervises both a flowgger (syslog/GELF) input and an OTEL input from a single deployment. Enabling or disabling OTEL ingest is controlled by the `[otel]` block in the `log-collector` config.
 
 ## Endpoint Overview
 
-- **Protocol**: OTLP over gRPC (`0.0.0.0:4317`) and OTLP over HTTP (`0.0.0.0:4318`).
+- **Protocol**: OTLP over gRPC only (`0.0.0.0:4317`). The collector does not serve OTLP over HTTP — there is no `:4318` endpoint. Configure your OTEL exporters to use the gRPC (`otlp`) protocol, not `otlphttp`.
 - **Kubernetes**: Access the service via `serviceradar-log-collector` (`ClusterIP` by default). For internet exposure, front it with an ingress or load balancer that terminates TLS.
-- **Docker Compose**: Ports 4317/4318 map directly to the host for local deployments.
+- **Docker Compose**: Port 4317 maps directly to the host for local deployments.
 
 ## Authentication
 
@@ -31,10 +33,19 @@ OpenTelemetry (OTEL) lets ServiceRadar receive traces, metrics, and logs from cl
 
 Use the [CNPG Monitoring dashboards](./cnpg-monitoring.md) to watch ingestion volume and Timescale retention jobs, or run ad-hoc SQL directly from the `serviceradar-tools` pod (`cnpg-sql "SELECT COUNT(*) FROM otel_traces WHERE timestamp > now() - INTERVAL '5 minutes';"`).
 
+## Metrics Endpoint
+
+The OTEL collector exposes its own operational metrics over a small HTTP server, separate from the OTLP gRPC listener:
+
+- `GET /metrics` — Prometheus exposition format (`text/plain; version=0.0.4`).
+- `GET /health` — returns `200 OK` for liveness checks.
+
+The shipped `otel.toml` binds this server on `0.0.0.0:9464` via the `[server.metrics]` block. If `[server.metrics]` is omitted, the metrics server is not started; when started without an explicit port the built-in code default is `9090`. Scrape `:9464` unless you have overridden it.
+
 ## Troubleshooting
 
 - Validate connectivity with `otelcol --config test-collector.yaml --dry-run`.
-- If running in Kubernetes, check the gateway logs (`kubectl logs deploy/serviceradar-log-collector -n <namespace>`) for schema rejection or TLS errors.
+- If running in Kubernetes, check the collector logs (`kubectl logs deploy/serviceradar-log-collector -n <namespace>`) for schema rejection or TLS errors.
 - Refer to the [Troubleshooting Guide](./troubleshooting-guide.md#otel) for rate limiting and export lag scenarios.
 
 ## Core Capability Metrics

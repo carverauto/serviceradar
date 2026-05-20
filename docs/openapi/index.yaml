@@ -1,1366 +1,854 @@
-{
-  "schemes": [
-    "http",
-    "https"
-  ],
-  "swagger": "2.0",
-  "info": {
-    "description": "API for monitoring and managing service pollers in the ServiceRadar system",
-    "title": "ServiceRadar API",
-    "termsOfService": "https://serviceradar.cloud/terms/",
-    "contact": {
-      "name": "API Support",
-      "url": "https://serviceradar.cloud/support",
-      "email": "support@serviceradar.cloud"
-    },
-    "license": {
-      "name": "Apache 2.0",
-      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
-    },
-    "version": "1.0"
-  },
-  "basePath": "/",
-  "paths": {
-    "/api/pollers": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves a list of all known pollers",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Pollers"
-        ],
-        "summary": "Get all pollers",
-        "responses": {
-          "200": {
-            "description": "List of poller statuses",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/api.PollerStatus"
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/pollers/{id}": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves detailed information about a specific poller",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Pollers"
-        ],
-        "summary": "Get poller details",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Poller status details",
-            "schema": {
-              "$ref": "#/definitions/api.PollerStatus"
-            }
-          },
-          "404": {
-            "description": "Poller not found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/pollers/{id}/history": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves historical status information for a specific poller",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Pollers"
-        ],
-        "summary": "Get poller history",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Historical status points",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/api.PollerHistoryPoint"
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error or history handler not configured",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/pollers/{id}/metrics": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves performance metrics for a specific poller",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Metrics"
-        ],
-        "summary": "Get poller metrics",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Poller metrics data",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/models.MetricPoint"
-              }
-            }
-          },
-          "404": {
-            "description": "No metrics found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error or metrics not configured",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/pollers/{id}/services": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves all services monitored by a specific poller",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Services"
-        ],
-        "summary": "Get poller services",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "List of service statuses",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/api.ServiceStatus"
-              }
-            }
-          },
-          "404": {
-            "description": "Poller not found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/pollers/{id}/services/{service}": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves detailed information about a specific service monitored by a poller",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Services"
-        ],
-        "summary": "Get service details",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Service name",
-            "name": "service",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Service status details",
-            "schema": {
-              "$ref": "#/definitions/api.ServiceStatus"
-            }
-          },
-          "404": {
-            "description": "Poller or service not found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/pollers/{id}/snmp": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves SNMP metrics data for a specific poller within the given time range",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "SNMP"
-        ],
-        "summary": "Get SNMP data",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Start time in RFC3339 format",
-            "name": "start",
-            "in": "query",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "End time in RFC3339 format",
-            "name": "end",
-            "in": "query",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "SNMP metrics data",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/models.SNMPMetric"
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/query": {
-      "post": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Executes a ServiceRadar Query Language (SRQL) query against the database",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "SRQL"
-        ],
-        "summary": "Execute SRQL query",
-        "parameters": [
-          {
-            "description": "SRQL query string",
-            "name": "query",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/api.QueryRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Query results",
-            "schema": {
-              "$ref": "#/definitions/api.QueryResponse"
-            }
-          },
-          "400": {
-            "description": "Invalid query or request",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/api/status": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves overall system status including counts of total and healthy pollers",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "System"
-        ],
-        "summary": "Get system status",
-        "responses": {
-          "200": {
-            "description": "System status information",
-            "schema": {
-              "$ref": "#/definitions/api.SystemStatus"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/auth/login": {
-      "post": {
-        "description": "Logs in a user with username and password and returns authentication tokens",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Authentication"
-        ],
-        "summary": "Authenticate with username and password",
-        "parameters": [
-          {
-            "description": "User credentials",
-            "name": "credentials",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/api.LoginCredentials"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Authentication tokens",
-            "schema": {
-              "$ref": "#/definitions/models.Token"
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Authentication failed",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/auth/refresh": {
-      "post": {
-        "description": "Refreshes an expired authentication token",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Authentication"
-        ],
-        "summary": "Refresh authentication token",
-        "parameters": [
-          {
-            "description": "Refresh token",
-            "name": "refresh_token",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/api.RefreshTokenRequest"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "New authentication tokens",
-            "schema": {
-              "$ref": "#/definitions/models.Token"
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "401": {
-            "description": "Invalid refresh token",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/auth/{provider}": {
-      "get": {
-        "description": "Initiates OAuth authentication flow with the specified provider.",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Authentication"
-        ],
-        "summary": "Begin OAuth authentication.",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "OAuth provider (e.g., 'google', 'github')",
-            "name": "provider",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "302": {
-            "description": "Redirect to OAuth provider",
-            "schema": {
-              "type": "string"
-            }
-          },
-          "400": {
-            "description": "Invalid provider",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/auth/{provider}/callback": {
-      "get": {
-        "description": "Completes OAuth authentication flow and returns authentication tokens",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Authentication"
-        ],
-        "summary": "Complete OAuth authentication.",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "OAuth provider (e.g., 'google', 'github')",
-            "name": "provider",
-            "in": "path",
-            "required": true
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Authentication tokens",
-            "schema": {
-              "$ref": "#/definitions/models.Token"
-            }
-          },
-          "400": {
-            "description": "Invalid request",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/pollers/{id}/rperf": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves network performance metrics measured by rperf for a specific poller within a time range",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Rperf"
-        ],
-        "summary": "Get rperf metrics",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Start time in RFC3339 format (default: 24h ago)",
-            "name": "start",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "End time in RFC3339 format (default: now)",
-            "name": "end",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Network performance metrics data",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/models.RperfMetric"
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "No rperf metrics found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error or rperf manager not configured",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/pollers/{id}/sysmon/cpu": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves CPU usage metrics for a specific poller within a time range",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Sysmon"
-        ],
-        "summary": "Get CPU metrics",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Start time in RFC3339 format (default: 24h ago)",
-            "name": "start",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "End time in RFC3339 format (default: now)",
-            "name": "end",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "CPU metrics data",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/models.CPUMetric"
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "No metrics found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "System metrics not supported",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/pollers/{id}/sysmon/disk": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves disk usage metrics for a specific poller within a time range",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Sysmon"
-        ],
-        "summary": "Get disk metrics",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Filter by specific mount point",
-            "name": "mount_point",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "Start time in RFC3339 format (default: 24h ago)",
-            "name": "start",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "End time in RFC3339 format (default: now)",
-            "name": "end",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Disk metrics data grouped by timestamp",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/db.SysmonDiskResponse"
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "No metrics found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "System metrics not supported",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    },
-    "/pollers/{id}/sysmon/memory": {
-      "get": {
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "description": "Retrieves memory usage metrics for a specific poller within a time range",
-        "consumes": [
-          "application/json"
-        ],
-        "produces": [
-          "application/json"
-        ],
-        "tags": [
-          "Sysmon"
-        ],
-        "summary": "Get memory metrics",
-        "parameters": [
-          {
-            "type": "string",
-            "description": "Poller ID",
-            "name": "id",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "description": "Start time in RFC3339 format (default: 24h ago)",
-            "name": "start",
-            "in": "query"
-          },
-          {
-            "type": "string",
-            "description": "End time in RFC3339 format (default: now)",
-            "name": "end",
-            "in": "query"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Memory metrics data grouped by timestamp",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/definitions/db.SysmonMemoryResponse"
-              }
-            }
-          },
-          "400": {
-            "description": "Invalid request parameters",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "404": {
-            "description": "No metrics found",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          },
-          "501": {
-            "description": "System metrics not supported",
-            "schema": {
-              "$ref": "#/definitions/models.ErrorResponse"
-            }
-          }
-        }
-      }
-    }
-  },
-  "definitions": {
-    "api.LoginCredentials": {
-      "type": "object",
-      "properties": {
-        "password": {
-          "description": "Password for authentication",
-          "type": "string",
-          "example": "password123"
-        },
-        "username": {
-          "description": "Username for authentication",
-          "type": "string",
-          "example": "admin"
-        }
-      }
-    },
-    "api.PollerHistoryPoint": {
-      "type": "object",
-      "properties": {
-        "is_healthy": {
-          "type": "boolean"
-        },
-        "timestamp": {
-          "type": "string"
-        }
-      }
-    },
-    "api.PollerStatus": {
-      "type": "object",
-      "properties": {
-        "first_seen": {
-          "type": "string"
-        },
-        "is_healthy": {
-          "type": "boolean"
-        },
-        "last_update": {
-          "type": "string"
-        },
-        "metrics": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/models.MetricPoint"
-          }
-        },
-        "poller_id": {
-          "type": "string"
-        },
-        "services": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/api.ServiceStatus"
-          }
-        },
-        "uptime": {
-          "type": "string"
-        }
-      }
-    },
-    "api.QueryRequest": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "example": "show devices where ip = '192.168.1.1'"
-        }
-      }
-    },
-    "api.QueryResponse": {
-      "type": "object",
-      "properties": {
-        "error": {
-          "type": "string"
-        },
-        "results": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        }
-      }
-    },
-    "api.RefreshTokenRequest": {
-      "type": "object",
-      "properties": {
-        "refresh_token": {
-          "description": "Refresh token from previous authentication",
-          "type": "string",
-          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-        }
-      }
-    },
-    "api.ServiceStatus": {
-      "type": "object",
-      "properties": {
-        "available": {
-          "type": "boolean"
-        },
-        "details": {
-          "description": "Flexible field for service-specific data",
-          "type": "array",
-          "items": {
-            "type": "integer"
-          }
-        },
-        "message": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "type": {
-          "description": "e.g., \"process\", \"port\", \"blockchain\", etc.",
-          "type": "string"
-        }
-      }
-    },
-    "api.SystemStatus": {
-      "type": "object",
-      "properties": {
-        "healthy_pollers": {
-          "type": "integer"
-        },
-        "last_update": {
-          "type": "string"
-        },
-        "total_pollers": {
-          "type": "integer"
-        }
-      }
-    },
-    "db.SysmonDiskResponse": {
-      "type": "object",
-      "properties": {
-        "disks": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/models.DiskMetric"
-          }
-        },
-        "timestamp": {
-          "type": "string"
-        }
-      }
-    },
-    "db.SysmonMemoryResponse": {
-      "type": "object",
-      "properties": {
-        "memory": {
-          "$ref": "#/definitions/models.MemoryMetric"
-        },
-        "timestamp": {
-          "type": "string"
-        }
-      }
-    },
-    "models.CPUMetric": {
-      "description": "CPU usage metrics for an individual processor core.",
-      "type": "object",
-      "properties": {
-        "core_id": {
-          "description": "ID number of the CPU core",
-          "type": "integer",
-          "example": 0
-        },
-        "timestamp": {
-          "description": "When this metric was collected",
-          "type": "string",
-          "example": "2025-04-24T14:15:22Z"
-        },
-        "usage_percent": {
-          "description": "Usage percentage (0-100)",
-          "type": "number",
-          "example": 45.2
-        }
-      }
-    },
-    "models.DiskMetric": {
-      "description": "Storage usage metrics for a disk partition.",
-      "type": "object",
-      "properties": {
-        "mount_point": {
-          "description": "Mount point path",
-          "type": "string",
-          "example": "/var"
-        },
-        "timestamp": {
-          "description": "When this metric was collected",
-          "type": "string",
-          "example": "2025-04-24T14:15:22Z"
-        },
-        "total_bytes": {
-          "description": "Total capacity in bytes",
-          "type": "integer",
-          "example": 107374182400
-        },
-        "used_bytes": {
-          "description": "Bytes currently in use",
-          "type": "integer",
-          "example": 10737418240
-        }
-      }
-    },
-    "models.ErrorResponse": {
-      "description": "Error information returned from the API.",
-      "type": "object",
-      "properties": {
-        "message": {
-          "description": "Error message",
-          "type": "string",
-          "example": "Invalid request parameters"
-        },
-        "status": {
-          "description": "HTTP status code",
-          "type": "integer",
-          "example": 400
-        }
-      }
-    },
-    "models.MemoryMetric": {
-      "description": "System memory utilization metrics.",
-      "type": "object",
-      "properties": {
-        "timestamp": {
-          "description": "When this metric was collected",
-          "type": "string",
-          "example": "2025-04-24T14:15:22Z"
-        },
-        "total_bytes": {
-          "description": "Total memory capacity in bytes",
-          "type": "integer",
-          "example": 17179869184
-        },
-        "used_bytes": {
-          "description": "Bytes currently in use",
-          "type": "integer",
-          "example": 4294967296
-        }
-      }
-    },
-    "models.MetricPoint": {
-      "description": "A single point of performance metric data with timestamp information.",
-      "type": "object",
-      "properties": {
-        "response_time": {
-          "description": "The response time in milliseconds",
-          "type": "integer",
-          "example": 42
-        },
-        "service_name": {
-          "description": "The name of the service this metric is for",
-          "type": "string",
-          "example": "postgres"
-        },
-        "timestamp": {
-          "description": "The time when this metric was collected",
-          "type": "string",
-          "example": "2025-04-24T14:15:22Z"
-        }
-      }
-    },
-    "models.RperfMetric": {
-      "description": "Single network performance test result for a specific target.",
-      "type": "object",
-      "properties": {
-        "bits_per_second": {
-          "description": "Network throughput in bits per second",
-          "type": "number",
-          "example": 943215000
-        },
-        "bytes_received": {
-          "description": "Total bytes received during the test",
-          "type": "integer",
-          "example": 12582912
-        },
-        "bytes_sent": {
-          "description": "Total bytes sent during the test",
-          "type": "integer",
-          "example": 12582912
-        },
-        "duration": {
-          "description": "Test duration in seconds",
-          "type": "number",
-          "example": 10.05
-        },
-        "error": {
-          "description": "Error message if test failed (null if successful)",
-          "type": "string",
-          "example": "connection refused"
-        },
-        "jitter_ms": {
-          "description": "Network jitter in milliseconds",
-          "type": "number",
-          "example": 0.85
-        },
-        "loss_percent": {
-          "description": "Percentage of packets lost during the test",
-          "type": "number",
-          "example": 0.02
-        },
-        "name": {
-          "description": "Test name or identifier",
-          "type": "string",
-          "example": "rperf_tcp_test"
-        },
-        "packets_lost": {
-          "description": "Number of packets lost during the test",
-          "type": "integer",
-          "example": 2
-        },
-        "packets_received": {
-          "description": "Number of packets received during the test",
-          "type": "integer",
-          "example": 9998
-        },
-        "packets_sent": {
-          "description": "Number of packets sent during the test",
-          "type": "integer",
-          "example": 10000
-        },
-        "success": {
-          "description": "Whether the test was successful",
-          "type": "boolean",
-          "example": true
-        },
-        "target": {
-          "description": "Target hostname or IP address",
-          "type": "string",
-          "example": "192.168.1.1"
-        },
-        "timestamp": {
-          "description": "When the test was performed",
-          "type": "string",
-          "example": "2025-04-24T14:15:22Z"
-        }
-      }
-    },
-    "models.SNMPMetric": {
-      "description": "A metric collected via SNMP, including its value, type, and timestamp.",
-      "type": "object",
-      "properties": {
-        "is_delta": {
-          "description": "Whether the metric represents a delta value\n@example false",
-          "type": "boolean"
-        },
-        "oid_name": {
-          "description": "The name of the OID (Object Identifier)\n@example \"sysUpTime\"",
-          "type": "string"
-        },
-        "scale": {
-          "description": "The scale factor applied to the value\n@example 1.0",
-          "type": "number"
-        },
-        "timestamp": {
-          "description": "The time when the metric was collected\n@example \"2025-04-24T14:15:22Z\"",
-          "type": "string"
-        },
-        "value": {
-          "description": "The value of the metric\n@example 12345"
-        },
-        "value_type": {
-          "description": "The type of the value (e.g., integer, string)\n@example \"integer\"",
-          "type": "string"
-        }
-      }
-    },
-    "models.Token": {
-      "description": "Authentication tokens for API access.",
-      "type": "object",
-      "properties": {
-        "access_token": {
-          "description": "JWT access token used for API authorization",
-          "type": "string",
-          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-        },
-        "expires_at": {
-          "description": "When the access token expires",
-          "type": "string",
-          "example": "2025-04-25T12:00:00Z"
-        },
-        "refresh_token": {
-          "description": "JWT refresh token used to obtain new access tokens",
-          "type": "string",
-          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-        }
-      }
-    }
-  },
-  "securityDefinitions": {
-    "ApiKeyAuth": {
-      "type": "apiKey",
-      "name": "Authorization",
-      "in": "header"
-    }
-  }
-}
+openapi: 3.0.3
+info:
+  title: ServiceRadar API
+  description: |
+    HTTP API for the ServiceRadar platform, served by the ServiceRadar web
+    application (`web-ng`).
+
+    The API is JSON over HTTPS. Most endpoints require an authenticated
+    request. There are two ways to authenticate:
+
+    - **Session** — when the request originates from a logged-in browser
+      session, the existing session cookie is used.
+    - **Bearer token** — for CLI tools and external integrations, send an
+      `Authorization: Bearer <token>` header. Tokens are issued from the
+      ServiceRadar UI under **Settings → API Credentials**
+      (`/settings/api-credentials`).
+
+    The data-plane endpoints under `/api` (for example `/api/query` and
+    `/api/devices`) accept either form of authentication. Some admin and
+    onboarding endpoints additionally accept an `X-API-Key` header.
+
+    See the published **API Reference** documentation page for an
+    authentication walkthrough and SRQL query examples.
+  termsOfService: https://serviceradar.cloud/terms/
+  contact:
+    name: API Support
+    url: https://serviceradar.cloud/support
+    email: support@serviceradar.cloud
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  version: "1.0"
+servers:
+  - url: /
+    description: Same origin as the ServiceRadar web application
+tags:
+  - name: SRQL
+    description: ServiceRadar Query Language endpoints
+  - name: Devices
+    description: Device inventory
+  - name: System
+    description: System health and status
+  - name: Admin
+    description: Administrative endpoints (require admin privileges)
+paths:
+  /api/query:
+    post:
+      tags:
+        - SRQL
+      summary: Execute an SRQL query
+      description: |
+        Executes a ServiceRadar Query Language (SRQL) query and returns the
+        result set. SRQL is read-only: only `SELECT`/`WITH` statements are
+        produced and executed.
+
+        Results are subject to the caller's authorization scope.
+      operationId: executeQuery
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              devices:
+                summary: List recently seen devices
+                value:
+                  query: "show devices order by last_seen desc"
+                  limit: 50
+      responses:
+        '200':
+          description: Query results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid or non-read-only query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/devices:
+    get:
+      tags:
+        - Devices
+      summary: List devices
+      description: |
+        Returns a paginated list of devices from the inventory. Pagination is
+        offset based; use the `next_offset` value from the response to fetch
+        the next page.
+      operationId: listDevices
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of devices to return (default 100, max 500).
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+        - name: offset
+          in: query
+          description: Number of devices to skip for pagination (default 0).
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: search
+          in: query
+          description: Free-text search across device identity fields.
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by availability status.
+          required: false
+          schema:
+            type: string
+            enum:
+              - online
+              - offline
+        - name: gateway_id
+          in: query
+          description: Filter devices reported by a specific gateway.
+          required: false
+          schema:
+            type: string
+        - name: device_type
+          in: query
+          description: Filter by device type.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A page of devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Device'
+                  pagination:
+                    $ref: '#/components/schemas/OffsetPagination'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/devices/{uid}:
+    get:
+      tags:
+        - Devices
+      summary: Get a device by UID
+      description: Returns a single device identified by its OCSF `uid`.
+      operationId: getDevice
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: uid
+          in: path
+          description: The device's unique identifier (OCSF `uid`).
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The requested device
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Device'
+        '400':
+          description: Missing or malformed UID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Device not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/devices/ocsf/export:
+    get:
+      tags:
+        - Devices
+      summary: Export devices in OCSF format
+      description: |
+        Exports devices as OCSF v1.7.0 Device objects
+        (`Device Inventory Info`, class UID 5001). Supports filtering by
+        device type, time range, and offset pagination.
+      operationId: exportDevicesOcsf
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: type_id
+          in: query
+          description: Filter by OCSF device `type_id`.
+          required: false
+          schema:
+            type: integer
+        - name: first_seen_after
+          in: query
+          description: Only include devices first seen after this ISO 8601 timestamp.
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: last_seen_after
+          in: query
+          description: Only include devices last seen after this ISO 8601 timestamp.
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Maximum number of devices to return (default 100, max 1000).
+          required: false
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          description: Number of devices to skip for pagination (default 0).
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: OCSF device export
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ocsf_version:
+                    type: string
+                    example: "1.7.0"
+                  class_uid:
+                    type: integer
+                    example: 5001
+                  class_name:
+                    type: string
+                    example: "Device Inventory Info"
+                  devices:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  count:
+                    type: integer
+                  pagination:
+                    $ref: '#/components/schemas/OffsetPagination'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /health:
+    get:
+      tags:
+        - System
+      summary: Readiness probe
+      description: |
+        Returns the application's readiness, including database connectivity.
+        Responds with `200 ready` when healthy and `503 not ready` otherwise.
+        This endpoint is unauthenticated. (`/health/ready` is an alias and
+        `/health/live` is a lightweight liveness probe.)
+      operationId: healthReady
+      responses:
+        '200':
+          description: The application is ready to serve traffic
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: ready
+        '503':
+          description: The application is not ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: not ready
+  /api/admin/users:
+    get:
+      tags:
+        - Admin
+      summary: List users
+      description: Lists user accounts. Requires admin privileges.
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of users to return (default 100).
+          required: false
+          schema:
+            type: integer
+            default: 100
+        - name: role
+          in: query
+          description: Filter by role.
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by account status.
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags:
+        - Admin
+      summary: Create a user
+      description: Creates a new user account. Requires admin privileges.
+      operationId: createUser
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: The created user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/users/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get a user
+      description: Returns a single user account by ID. Requires admin privileges.
+      operationId: getUser
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: The user's unique identifier.
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The requested user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags:
+        - Admin
+      summary: Update a user
+      description: Updates a user account. Requires admin privileges.
+      operationId: updateUser
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: The user's unique identifier.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name:
+                  type: string
+                role:
+                  type: string
+                role_profile_id:
+                  type: string
+      responses:
+        '200':
+          description: The updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/role-profiles:
+    get:
+      tags:
+        - Admin
+      summary: List role profiles
+      description: Lists configured RBAC role profiles. Requires admin privileges.
+      operationId: listRoleProfiles
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      responses:
+        '200':
+          description: A list of role profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RoleProfile'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/role-profiles/catalog:
+    get:
+      tags:
+        - Admin
+      summary: Get the RBAC permission catalog
+      description: |
+        Returns the catalog of RBAC permissions and resources available when
+        building role profiles. Requires admin privileges.
+      operationId: getRoleProfileCatalog
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      responses:
+        '200':
+          description: The RBAC catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/admin/openapi:
+    get:
+      tags:
+        - Admin
+      summary: Get the live admin OpenAPI document
+      description: |
+        Returns the OpenAPI document generated from the running web
+        application for the admin API surface. Requires admin privileges.
+        A published copy is also available unauthenticated at
+        `/api/docs/v1/admin/openapi.json`.
+      operationId: getAdminOpenapi
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      responses:
+        '200':
+          description: The admin OpenAPI document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Insufficient privileges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API credential token issued from the ServiceRadar UI under
+        **Settings → API Credentials**. Send it as
+        `Authorization: Bearer <token>`.
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: _serviceradar_web_ng_key
+      description: |
+        Browser session cookie. Used automatically when the API is called
+        from a logged-in ServiceRadar session.
+  schemas:
+    QueryRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: The SRQL query to execute.
+          example: "show devices where ip = '192.168.1.1'"
+        limit:
+          type: integer
+          description: Maximum number of rows to return.
+          example: 100
+        cursor:
+          type: string
+          description: Opaque pagination cursor returned by a previous response.
+        direction:
+          type: string
+          description: Pagination direction relative to the cursor.
+          enum:
+            - next
+            - prev
+        mode:
+          type: string
+          description: Optional execution mode hint.
+    QueryResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          description: |
+            The result rows. Each element is typically an object keyed by
+            column name; scalar projections may return primitive values.
+          items: {}
+        pagination:
+          $ref: '#/components/schemas/CursorPagination'
+        viz:
+          type: object
+          nullable: true
+          description: Visualization hints derived from the query, if any.
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+          description: Error message, or null on success.
+    CursorPagination:
+      type: object
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the next page, or null when there is no next page.
+        prev_cursor:
+          type: string
+          nullable: true
+          description: Cursor for the previous page, or null.
+        limit:
+          type: integer
+          nullable: true
+          description: The effective row limit applied to the query.
+    OffsetPagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: The effective page size.
+        offset:
+          type: integer
+          description: The offset applied to this page.
+        next_offset:
+          type: integer
+          nullable: true
+          description: Offset for the next page, or null when there is no next page.
+    Device:
+      type: object
+      description: |
+        A device inventory record. Fields follow the OCSF Device object with
+        ServiceRadar extensions; nested objects are returned as-is.
+      properties:
+        uid:
+          type: string
+          description: Unique device identifier (OCSF `uid`).
+        type_id:
+          type: integer
+          description: OCSF device type ID.
+        type:
+          type: string
+        name:
+          type: string
+        hostname:
+          type: string
+        ip:
+          type: string
+        mac:
+          type: string
+        vendor_name:
+          type: string
+        model:
+          type: string
+        domain:
+          type: string
+        zone:
+          type: string
+        region:
+          type: string
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        first_seen_time:
+          type: string
+          format: date-time
+        last_seen_time:
+          type: string
+          format: date-time
+        risk_level:
+          type: string
+        risk_score:
+          type: number
+        is_managed:
+          type: boolean
+        is_available:
+          type: boolean
+        gateway_id:
+          type: string
+        agent_id:
+          type: string
+        discovery_sources:
+          type: array
+          items:
+            type: string
+        os:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        display_name:
+          type: string
+        role:
+          type: string
+        role_profile_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+        has_password:
+          type: boolean
+        has_external_id:
+          type: boolean
+        confirmed_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_auth_method:
+          type: string
+          nullable: true
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          example: jane@example.com
+        display_name:
+          type: string
+          example: Jane Doe
+        role:
+          type: string
+          example: viewer
+        password:
+          type: string
+          description: Optional password for a local account.
+        role_profile_id:
+          type: string
+          description: Optional RBAC role profile to assign.
+    RoleProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        system:
+          type: boolean
+          description: Whether this is a built-in (non-editable) profile.
+      additionalProperties: true
+    ErrorResponse:
+      type: object
+      description: Error payload returned by the API on a failed request.
+      properties:
+        error:
+          type: string
+          description: Human-readable error message.
+          example: "missing required field: query"

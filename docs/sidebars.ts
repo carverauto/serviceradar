@@ -15,6 +15,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'intro', label: 'Introduction'},
         {type: 'doc', id: 'quickstart', label: 'Quickstart'},
         {type: 'doc', id: 'architecture', label: 'Architecture'},
+        {type: 'doc', id: 'web-ui-overview', label: 'Navigating the Web UI'},
       ],
     },
     {
@@ -27,6 +28,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'service-port-map', label: 'Service Port Map'},
         {type: 'doc', id: 'tls-security', label: 'TLS & mTLS'},
         {type: 'doc', id: 'auth-configuration', label: 'Authentication'},
+        {type: 'doc', id: 'rbac-and-roles', label: 'Roles & Permissions'},
       ],
     },
     {
@@ -35,11 +37,13 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'edge-model', label: 'Edge Model'},
         {type: 'doc', id: 'edge-agent-onboarding', label: 'Edge Onboarding'},
+        {type: 'doc', id: 'agent-configuration', label: 'Agent Configuration'},
         {type: 'doc', id: 'agent-release-management', label: 'Agent Release Management'},
         {type: 'doc', id: 'discovery', label: 'Discovery'},
         {type: 'doc', id: 'network-sweeps', label: 'Network Sweeps'},
         {type: 'doc', id: 'syn-scanner-tuning', label: 'SYN Scanner Tuning'},
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
+        {type: 'doc', id: 'rperf', label: 'Network Performance Testing'},
       ],
     },
     {
@@ -77,6 +81,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'srql-tutorial', label: 'SRQL Tutorial'},
         {type: 'doc', id: 'srql-language-reference', label: 'SRQL Reference'},
         {type: 'doc', id: 'srql-cookbook', label: 'SRQL Cookbook'},
+        {type: 'doc', id: 'api-reference', label: 'API Reference'},
         {type: 'doc', id: 'rule-builder', label: 'Rule Builder'},
         {type: 'doc', id: 'network-topology', label: 'Network Topology'},
       ],
@@ -96,6 +101,8 @@ const sidebars: SidebarsConfig = {
       label: 'Operate',
       items: [
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
+        {type: 'doc', id: 'cli-reference', label: 'ServiceRadar CLI'},
+        {type: 'doc', id: 'configuration-system', label: 'Configuration & KV Store'},
         {type: 'doc', id: 'database-bootstrap', label: 'Database Bootstrap'},
         {type: 'doc', id: 'cnpg-monitoring', label: 'CNPG Monitoring'},
         {type: 'doc', id: 'observability-rollup-recovery', label: 'Observability Rollup Recovery'},

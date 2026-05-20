@@ -150,17 +150,8 @@ Never store RDP passwords, generated RDP files, smart-card material, or credenti
 
 ## TLS And NLA
 
-Use NLA-required RDP as the default posture:
-
-```json
-{
-  "tls": {
-    "mode": "verify",
-    "nla_mode": "required",
-    "server_name": "win-admin-01.example.com"
-  }
-}
-```
+Use NLA-required RDP as the default posture — see the `tls` block in the
+[Target Policy](#target-policy) example above.
 
 TLS modes:
 
@@ -195,20 +186,8 @@ Keep `nla_mode` set to `required` for Windows RDP. Disabling NLA is a temporary 
 
 ## Redirection Controls
 
-All redirection features are disabled by default:
-
-```json
-{
-  "redirection": {
-    "clipboard_mode": "disabled",
-    "drive": false,
-    "printer": false,
-    "audio": false,
-    "smart_card": false,
-    "file_copy": false
-  }
-}
-```
+All redirection features are disabled by default — see the `redirection` block
+in the [Target Policy](#target-policy) example above.
 
 Clipboard modes:
 
@@ -270,17 +249,13 @@ For release artifact details, see [Agent Release Management](./agent-release-man
 
 ## Validating A New Deployment
 
-When bringing up RDP in a new environment, validate against a private target that is reachable from the selected edge agent but not reachable directly from web-ng or the operator browser. A Windows host with NLA enabled is the production-representative path.
-
-Register one target in **Settings > Networks > RDP Desktop Targets**:
-
-- Route: select the edge agent that can reach the target.
-- Upstream: set the private target host or IP and port `3389`.
-- TLS/NLA: keep NLA required. Use `verify` or `pinned_ca` with the target certificate DNS name plus registered CA bundle ID and PEM material for private Windows certificates.
-- Credential custody: start with `memory_user` so the user supplies their own domain or local account for one session.
-- Redirection: keep clipboard, drive, printer, audio, smart-card, and file-copy disabled.
-- Recording: keep metadata enabled and screen/clipboard/file/audio content disabled.
-- Screen policy: start with `1280x720`, 15 fps, and a conservative bitrate, then raise limits after backpressure counters stay healthy.
+When bringing up RDP in a new environment, validate against a private target
+that is reachable from the selected edge agent but not reachable directly from
+web-ng or the operator browser. A Windows host with NLA enabled is the
+production-representative path. Register the target as described in the
+[Operator Workflow](#operator-workflow) (step 5), starting with a conservative
+screen policy such as `1280x720` at 15 fps and raising limits only after
+backpressure counters stay healthy.
 
 Validation checklist:
 
