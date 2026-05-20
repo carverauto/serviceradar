@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.75
+
+Manual device reconciliation and Armis northbound scheduler recovery.
+
+## Whats New
+
+**1.2.75**
+- Reconciled manual device creation for hostname-only records so re-adding a hostname can merge with the existing device, resolve the IP address, and navigate directly to the device details page.
+- Fixed Armis northbound scheduling so stale executing Oban jobs no longer leave integrations stuck in `Running`, and ensured northbound workers load decrypted Armis credentials before requesting access tokens.
+
 # ServiceRadar v1.2.74
 
 Fresh install, demo ingestion, Armis, and observability dashboard recovery.
