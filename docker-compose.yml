@@ -65,7 +65,7 @@ services:
       - serviceradar-net
 
   cnpg:
-    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd}
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5}
     container_name: serviceradar-cnpg-mtls
     user: "0:0"
     entrypoint: ["/bin/sh", "/check-cnpg-major-version.sh"]
@@ -178,7 +178,7 @@ services:
       - serviceradar-net
 
   cnpg-app-bootstrap:
-    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2-a78b3afd}
+    image: ${CNPG_IMAGE:-registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.3.0-sr2@sha256:db1dee5a7f8f52f627d7dfecbce7754977c8f7294f007825294fd5359402fff5}
     container_name: serviceradar-cnpg-app-bootstrap
     user: "0:0"
     environment:
