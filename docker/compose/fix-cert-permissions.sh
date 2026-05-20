@@ -41,4 +41,10 @@ if [ -f "${CERT_DIR}/cnpg-key.pem" ]; then
   echo "  CNPG key: uid 26, mode 600"
 fi
 
+if [ -f "${CERT_DIR}/db-superuser-key.pem" ]; then
+  chown 26:26 "${CERT_DIR}/db-superuser-key.pem"
+  chmod 600 "${CERT_DIR}/db-superuser-key.pem"
+  echo "  CNPG superuser client key: uid 26, mode 600"
+fi
+
 echo "✅ Certificate permissions fixed (uid ${APP_UID}, gid ${APP_GID}, keys 600)"
