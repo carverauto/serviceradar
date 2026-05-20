@@ -47,7 +47,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       manual: manual?
     )
 
-    case source_module().get_by_id(integration_source_id, actor: actor) do
+    case load_source(integration_source_id, actor) do
       {:ok, source} ->
         source
         |> runner().run_for_source(
@@ -87,6 +87,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         {:error, reason}
     end
   end
+
+  defp load_source(integration_source_id, actor) do
+    with {:ok, source} <- source_module().get_by_id(integration_source_id, actor: actor) do
+      load_source_credentials(source, actor)
+    end
+  end
+
+  defp load_source_credentials(%IntegrationSource{} = source, actor) do
+    Ash.load(source, [:credentials_encrypted, :credentials], actor: actor)
+  end
+
+  defp load_source_credentials(source, _actor), do: {:ok, source}
 
   defp enqueue(integration_source_id, opts) do
     if support_module().available?() do

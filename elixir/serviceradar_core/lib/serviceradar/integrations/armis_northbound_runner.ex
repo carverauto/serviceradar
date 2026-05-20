@@ -81,6 +81,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     source
     |> Map.get(:credentials, %{})
     |> case do
+      %Ash.NotLoaded{} -> %{}
       value when is_map(value) -> value
       _ -> %{}
     end
@@ -1043,7 +1044,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> list_runs.(actor)
     |> Enum.filter(&stale_running_run?(&1, now, cutoff_seconds))
     |> Enum.each(fn run ->
-      if orphaned_oban_state?(oban_state.(run.oban_job_id)) do
+      if orphaned_oban_state?(oban_state.(run.oban_job_id), now, cutoff_seconds) do
         attrs = %{
           device_count: run.device_count || 0,
           updated_count: run.updated_count || 0,
@@ -1095,17 +1096,41 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       DateTime.diff(now, run.started_at, :second) >= cutoff_seconds
   end
 
-  defp orphaned_oban_state?(nil), do: true
-  defp orphaned_oban_state?(state) when state in ["completed", "discarded", "cancelled"], do: true
-  defp orphaned_oban_state?(_state), do: false
+  defp orphaned_oban_state?(nil, _now, _cutoff_seconds), do: true
+
+  defp orphaned_oban_state?(%{state: state} = job, now, cutoff_seconds) do
+    cond do
+      terminal_oban_state?(state) ->
+        true
+
+      state == "executing" ->
+        stale_oban_attempt?(job, now, cutoff_seconds)
+
+      true ->
+        false
+    end
+  end
+
+  defp orphaned_oban_state?(state, _now, _cutoff_seconds), do: terminal_oban_state?(state)
+
+  defp terminal_oban_state?(state), do: state in ["completed", "discarded", "cancelled"]
+
+  defp stale_oban_attempt?(%{attempted_at: %DateTime{} = attempted_at}, now, cutoff_seconds) do
+    DateTime.diff(now, attempted_at, :second) >= cutoff_seconds
+  end
+
+  defp stale_oban_attempt?(_job, _now, _cutoff_seconds), do: false
 
   defp fetch_oban_job_state(nil), do: nil
 
   defp fetch_oban_job_state(oban_job_id) do
-    case Repo.query("select state::text from platform.oban_jobs where id = $1 limit 1", [
-           oban_job_id
-         ]) do
-      {:ok, %{rows: [[state]]}} -> state
+    case Repo.query(
+           "select state::text, attempted_at from platform.oban_jobs where id = $1 limit 1",
+           [
+             oban_job_id
+           ]
+         ) do
+      {:ok, %{rows: [[state, attempted_at]]}} -> %{state: state, attempted_at: attempted_at}
       _ -> nil
     end
   end
@@ -1129,7 +1154,18 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp default_token_fetcher(source) do
     credentials = credentials(source)
-    body = %{"secret_key" => armis_secret_key(credentials)}
+
+    case armis_secret_key(credentials) do
+      secret_key when is_binary(secret_key) and secret_key != "" ->
+        fetch_access_token_with_secret(source, secret_key)
+
+      _ ->
+        {:error, :missing_secret_key}
+    end
+  end
+
+  defp fetch_access_token_with_secret(source, secret_key) do
+    body = %{"secret_key" => secret_key}
 
     case default_form_request(
            "/api/v1/access_token/",
@@ -1159,7 +1195,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp armis_secret_key(credentials) do
     Enum.find_value(
-      ["secret_key", :secret_key, "api_secret", :api_secret, "api_key", :api_key],
+      ["secret_key", :secret_key, "api_secret", :api_secret],
       "",
       fn key ->
         case Map.get(credentials, key) do

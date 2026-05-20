@@ -21,6 +21,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
   @default_scheduler_interval_seconds 60
   @default_northbound_interval_seconds 3600
+  @default_stale_run_cutoff_seconds 120
 
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
   def ensure_scheduled do
@@ -42,7 +43,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
     case source_module().list_by_type(:armis, actor: actor) do
       {:ok, sources} ->
-        Enum.each(sources, &ensure_source_job(&1, now))
+        Enum.each(sources, &ensure_source_job(&1, now, actor))
         schedule_next()
         :ok
 
@@ -70,25 +71,68 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
     end
   end
 
-  defp ensure_source_job(%{enabled: true, northbound_enabled: true} = source, now) do
-    cond do
-      source_job_exists?(source.id) ->
-        :ok
+  defp ensure_source_job(%{enabled: true, northbound_enabled: true} = source, now, actor) do
+    reconcile_stale_source_jobs(source, now, actor)
 
-      runner_module().northbound_ready?(source) != :ok ->
-        :ok
+    case load_source_credentials(source, actor) do
+      {:ok, source} ->
+        cond do
+          source_job_exists?(source.id) ->
+            :ok
 
-      true ->
-        _ =
-          run_worker_module().enqueue_recurring(source.id,
-            schedule_in: seconds_until_next(source, now)
-          )
+          runner_module().northbound_ready?(source) != :ok ->
+            :ok
+
+          true ->
+            _ =
+              run_worker_module().enqueue_recurring(source.id,
+                schedule_in: seconds_until_next(source, now)
+              )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        Logger.warning("Failed to load Armis source credentials for northbound scheduling",
+          integration_source_id: inspect(Map.get(source, :id)),
+          reason: inspect(reason)
+        )
 
         :ok
     end
   end
 
-  defp ensure_source_job(_source, _now), do: :ok
+  defp ensure_source_job(_source, _now, _actor), do: :ok
+
+  defp load_source_credentials(%IntegrationSource{} = source, actor) do
+    Ash.load(source, [:credentials_encrypted, :credentials], actor: actor)
+  end
+
+  defp load_source_credentials(source, _actor), do: {:ok, source}
+
+  defp reconcile_stale_source_jobs(source, now, actor) do
+    cutoff_seconds = stale_run_cutoff_seconds()
+
+    _ = reap_stale_jobs_fun().(run_worker_module(), source.id, now, cutoff_seconds)
+
+    if function_exported?(runner_module(), :reconcile_stale_runs, 3) do
+      _ =
+        runner_module().reconcile_stale_runs(source, actor,
+          now: now,
+          stale_run_cutoff_seconds: cutoff_seconds
+        )
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("Failed to reconcile stale Armis northbound jobs",
+        integration_source_id: inspect(Map.get(source, :id)),
+        error: Exception.message(error)
+      )
+
+      :ok
+  end
 
   defp schedule_next do
     _ =
@@ -102,6 +146,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
       :serviceradar_core,
       :armis_northbound_scheduler_interval_seconds,
       @default_scheduler_interval_seconds
+    )
+  end
+
+  defp stale_run_cutoff_seconds do
+    Application.get_env(
+      :serviceradar_core,
+      :armis_northbound_stale_run_cutoff_seconds,
+      @default_stale_run_cutoff_seconds
     )
   end
 
@@ -140,6 +192,24 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
     _ -> false
   end
 
+  defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds) do
+    worker_name = inspect(worker)
+    cutoff = DateTime.add(now, -cutoff_seconds, :second)
+    prefix = support_module().prefix()
+
+    Oban.Job
+    |> where([j], j.worker == ^worker_name)
+    |> where([j], j.state == "executing")
+    |> where([j], not is_nil(j.attempted_at) and j.attempted_at < ^cutoff)
+    |> where(
+      [j],
+      fragment("? ->> ? = ?", j.args, ^"integration_source_id", ^to_string(integration_source_id))
+    )
+    |> ServiceRadar.Repo.update_all(set: [state: "discarded", discarded_at: now], prefix: prefix)
+  rescue
+    _ -> {0, nil}
+  end
+
   defp maybe_filter_args(query, args_filter) when args_filter in [%{}, nil], do: query
 
   defp maybe_filter_args(query, args_filter) do
@@ -176,6 +246,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
       :serviceradar_core,
       :armis_northbound_active_job_exists_fun,
       &default_active_job_exists/2
+    )
+  end
+
+  defp reap_stale_jobs_fun do
+    Application.get_env(
+      :serviceradar_core,
+      :armis_northbound_reap_stale_jobs_fun,
+      &default_reap_stale_source_jobs/4
     )
   end
 
