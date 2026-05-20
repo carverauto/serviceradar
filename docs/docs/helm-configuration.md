@@ -3,30 +3,38 @@ sidebar_position: 8
 title: Helm Deployment and Configuration
 ---
 
-This guide shows how to deploy ServiceRadar via the bundled Helm chart and tune sweep performance safely using chart values. For sweep behavior and concepts, see [Network Sweeps](./network-sweeps.md).
+This guide shows how to deploy ServiceRadar via the bundled Helm chart. For sweep behavior, tuning, and concepts, see [Network Sweeps](./network-sweeps.md) and [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
+
+:::note Chart version
+The examples below pin `<chart-version>` and image tags to `1.2.73`, the
+current chart release. Always check the [latest published chart
+version](https://registry.carverauto.dev/serviceradar/charts/serviceradar) and
+substitute it before deploying.
+:::
 
 Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
 - Deploy from the official OCI chart (recommended):
-  - `helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.20 -n serviceradar --create-namespace -f my-values.yaml`
+  - `helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml`
+  - Example with the current release: `--version 1.2.73`.
 - Deploy from a repo checkout (development):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
 
 OCI chart quick start
 - Inspect chart metadata and defaults:
-  - `helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.20`
-  - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.20 > values.yaml`
+  - `helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
+  - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > values.yaml`
 - Pin images to a release tag (recommended):
-  - `--set global.imageTag="v1.2.20"`
+  - `--set global.imageTag="v1.2.73"` (use the release that matches your chart version).
 - Track mutable images (staging/dev):
   - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
   - If you omit `global.imageTag`, the chart defaults to `latest`.
 
-HA profile and demo overlay
+HA profile overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.
-- `helm/serviceradar/values-demo.yaml` is the validated HA overlay used by the Kubernetes `demo` environment.
-- The current demo profile runs these at `3` replicas:
+- `helm/serviceradar/values-ha.yaml` ships as a purpose-named HA overlay. Apply it with `-f values-ha.yaml` as the starting point for a multi-replica deployment. (`values-demo.yaml` is a broader demo overlay that also raises replica counts.)
+- The HA overlay runs these at `3` replicas:
   - `core`
   - `webNg`
   - `agentGateway`
@@ -38,7 +46,7 @@ HA profile and demo overlay
   - `trapd`
   - `flowCollector`
   - `bmpCollector`
-- Demo also disables PVC-backed local state for the services above where shared NATS/JetStream state is the real source of truth.
+- The profile also disables PVC-backed local state for the services above where shared NATS/JetStream state is the real source of truth.
 
 JetStream sizing values
 - The shared `events` stream is created and reconciled by multiple services. The important knobs are:
@@ -53,31 +61,27 @@ JetStream sizing values
   - `datasvc.bucketMaxBytes`
   - `datasvc.objectMaxBytes`
   - `datasvc.objectStoreBytes`
-- Demo intentionally shrinks those reserved capacities compared to the generic chart defaults so `events` can run at `3` replicas without exhausting the JetStream account's file-store budget.
-- `bmpCollector` is scaled to `3` pods in demo, but its dedicated `ARANCINI_CAUSAL` stream still uses `bmpCollector.config.streamReplicas=1` for now. That is an explicit sizing choice, not a pod-level HA limitation.
+- The example HA profile intentionally shrinks those reserved capacities compared to the generic chart defaults so `events` can run at `3` replicas without exhausting the JetStream account's file-store budget.
+- `bmpCollector` is scaled to `3` pods in the example profile, but its dedicated causal-overlay stream still uses `bmpCollector.config.streamReplicas=1`. That is an explicit sizing choice, not a pod-level HA limitation.
+
+Key values: workload identity (`spire`)
+- `spire.enabled` defaults to `false`. The chart still issues runtime mTLS
+  certificates without SPIRE (see [TLS Security](./tls-security.md)).
+- Set `spire.enabled=true` to provision SPIFFE/SPIRE workload identities, and
+  set `spire.trustDomain` to your environment's trust domain.
 
 Key values: `sweep`
-- networks: list of CIDRs/IPs to scan.
-- ports: list of TCP ports to probe.
-- modes: list of scanning modes (`icmp`, `tcp`).
-- interval: sweep interval (e.g., `5m`).
-- concurrency: global sweep concurrency.
-- timeout: per-target timeout (Go duration).
 
-TCP (SYN) settings: `sweep.tcp`
-- rateLimit: global SYN pps limit (default 20000).
-- rateLimitBurst: burst size (default 20000).
-- maxBatch: packets per sendmmsg batch (default 32).
-- concurrency: SYN scanner concurrency (default 256).
-- timeout: per-connection timeout (default `3s`).
-- routeDiscoveryHost: source IP discovery target (default `8.8.8.8:80`).
-- ringBlockSize: TPACKET_V3 block size (bytes, default 0 = internal default).
-- ringBlockCount: number of blocks (default 0 = internal default).
-- interface: network interface name (default empty = auto-detect).
-- suppressRSTReply: bool to suppress RST replies (default false).
-- globalRingMemoryMB: global ring memory cap (MB, default 0 = internal default).
-- ringReaders: number of AF_PACKET ring readers (default 0 = auto).
-- ringPollTimeoutMs: poll timeout per reader (ms, default 0 = auto).
+The chart exposes the full sweep configuration tree (`sweep.networks`,
+`sweep.ports`, `sweep.modes`, `sweep.tcp.*`, `sweep.icmp.*`, and related tuning
+knobs). Rather than duplicate that reference here, see:
+
+- [Network Sweeps](./network-sweeps.md) — sweep concepts, modes, and behavior.
+- [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) — the
+  per-knob reference for `sweep.tcp` SYN-scan tuning and conntrack mitigation.
+
+Inspect the current defaults for your chart version with
+`helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
 
 Key values: edge gateway address
 - `webNg.gatewayAddress`: Optional external gateway address for edge agents (`host:port`).
@@ -110,62 +114,6 @@ agent:
     storageClassName: fast-rwo
     size: 5Gi
 ```
-
-ICMP settings: `sweep.icmp`
-- highPerf: enable raw-socket ICMP where permitted (default true).
-- rateLimit: global ICMP pps limit (default 5000).
-- settings.rateLimit: per-batch ICMP rate (default 1000).
-- settings.timeout: per-ICMP timeout (default `5s`).
-- settings.maxBatch: batch size (default 64).
-
-Recommended safe defaults
-- SYN scanning is fast; start conservative: `sweep.tcp.rateLimit: 20000` and `rateLimitBurst: 20000`.
-- Increase carefully if you control the upstream firewall/router and apply NOTRACK/conntrack tuning (see [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md)).
-
-Example values.yaml
-```
-sweep:
-  networks: ["10.0.0.0/24", "10.0.1.0/24"]
-  ports: [22, 80, 443]
-  modes: ["icmp", "tcp"]
-  interval: 5m
-  concurrency: 150
-  timeout: 8s
-  tcp:
-    rateLimit: 15000
-    rateLimitBurst: 20000
-    maxBatch: 64
-    concurrency: 512
-    timeout: 2s
-    routeDiscoveryHost: 10.0.0.1:80
-    ringBlockSize: 2097152
-    ringBlockCount: 16
-    interface: "eth0"
-    suppressRSTReply: false
-    globalRingMemoryMB: 64
-    ringReaders: 4
-    ringPollTimeoutMs: 100
-  icmp:
-    highPerf: true
-    rateLimit: 3000
-    settings:
-      rateLimit: 1000
-      timeout: 3s
-      maxBatch: 32
-```
-
-Command-line overrides (examples)
-- Set SYN rate and burst: `--set sweep.tcp.rateLimit=12000 --set sweep.tcp.rateLimitBurst=18000`
-- Limit networks and ports: `--set sweep.networks='{10.1.0.0/24}' --set sweep.ports='{22,443}'`
-- Disable high-perf ICMP: `--set sweep.icmp.highPerf=false`
-
-Operational notes
-- Defaults aim to avoid overwhelming upstream connection tracking by capping SYN to ~20k pps.
-- For keeping scans fast with tuned routers, apply NOTRACK/conntrack tuning in parallel. See: [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
-
-See also
-- [Network Sweeps](./network-sweeps.md) for sweep behavior and troubleshooting
-- [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md) for upstream router guidance
 
 ## Kubernetes NetworkPolicy (Recommended)
 

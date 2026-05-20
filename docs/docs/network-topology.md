@@ -1,10 +1,14 @@
-# God-View Topology
+---
+title: Network Topology
+---
 
-God-View is the high-density topology experience for large graphs with causal blast-radius overlays.
+# Network Topology
+
+The Network Topology view is the high-density topology experience for large graphs with causal blast-radius overlays.
 
 ## Feature Flag
 
-God-View is controlled by:
+The Network Topology view is controlled by:
 
 - `SERVICERADAR_GOD_VIEW_ENABLED=true|false`
 
@@ -17,7 +21,7 @@ Runtime behavior:
 
 Recommended rollout order:
 
-1. Enable in local Docker Compose or `demo` first.
+1. Enable in a non-production environment first.
 2. Validate stability and performance.
 3. Enable broader environments only after SLO validation.
 
@@ -27,7 +31,7 @@ For Helm-based deployments:
 
 ## Operator Controls
 
-Primary controls in God-View:
+Primary controls in the Network Topology view:
 
 - Causal filter toggles (`root_cause`, `affected`, `healthy`, `unknown`)
 - Visual ghosting/highlight controls
@@ -50,7 +54,7 @@ Interpretation:
 
 ## Telemetry and Signals
 
-God-View emits operational telemetry for:
+The Network Topology view emits operational telemetry for:
 
 - Snapshot build latency
 - Snapshot payload size
@@ -58,12 +62,6 @@ God-View emits operational telemetry for:
 - Snapshot error count
 
 Use these metrics to validate rollout health and SLO readiness.
-
-Recent local validation (February 14, 2026, Docker Compose CNPG + `web-ng`):
-
-- Snapshot build (`GodViewStream.latest_snapshot/0`, 20 runs): `p50=14.12ms`, `p95=35.26ms` (warm path).
-- Synthetic 100k encode (`Native.encode_snapshot/8`): `33.96ms` for `100,000` nodes and `99,999` edges.
-- Synthetic 100k causal evaluation (`Native.evaluate_causal_states/2`): `103.23ms` for `100,000` nodes.
 
 ## Troubleshooting
 

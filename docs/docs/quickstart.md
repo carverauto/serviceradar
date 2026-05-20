@@ -14,7 +14,7 @@ Follow these condensed steps to get ServiceRadar collecting data within an hour.
 
 ## 2. Bootstrap Access
 
-1. Generate TLS material with the [Self-Signed Certificates guide](./self-signed.md) or import your existing CA chain.
+1. Generate TLS material with the [Self-Signed Certificates guide](./tls-security.md#self-signed-certificates) or import your existing CA chain.
 2. Sign in with the bootstrapped admin user (Helm/Docker Compose generate this for you) and review **Settings -> Authentication** to enable Direct SSO or Gateway Proxy if desired.
 
 ## 3. Ingest Device Data
@@ -25,12 +25,17 @@ Pick one telemetry channel to validate the pipeline end to end:
 - **Syslog** – forward device logs to the ServiceRadar stack via the [Syslog ingest guide](./syslog.md).
 - **OTEL** – export traces and metrics toward the OTLP endpoint documented in the [OTEL integration page](./otel.md).
 
-Once the first data source is healthy, layer on additional protocols through the [Get Data In](./snmp.md) section.
+Once the first data source is healthy, layer on additional protocols — see
+[Device Configuration](./device-configuration.md), [NetFlow](./netflow.md), and
+[BGP Routing](./bgp-routing.md).
 
-## 4. Explore the UI
+## 4. Explore and Query
 
-- Sign in to the dashboard at `https://<web-host>` and bookmark the SRQL explorer.
-- Use [Tools Pod](./tools.md) to sanity check JetStream consumers and CNPG connectivity during debugging.
+- Sign in to the dashboard at `https://<web-host>` and open the SRQL explorer.
+- Learn the query language with the [SRQL Tutorial](./srql-tutorial.md), then keep the
+  [SRQL Cookbook](./srql-cookbook.md) handy for common queries.
+- Use [Tools Pod](./tools.md) to sanity check JetStream consumers and CNPG connectivity
+  during debugging.
 
 ## 5. Automate Integrations
 

@@ -40,9 +40,6 @@ In the web UI:
 3. Fill in the required fields in the modal (gateway, agent ID/label, etc.)
 4. Submit
 
-<!-- TODO: screenshot: Settings -> Agents -> Deploy page -->
-<!-- TODO: screenshot: Create Agent Package modal -->
-
 The UI will show a one-liner enroll command that looks like:
 
 ```bash
@@ -91,8 +88,6 @@ Sysmon profiles control host metrics collection from enrolled agents.
    - `in:devices tags.role:server` (only servers)
 4. Save
 
-<!-- TODO: screenshot: Sysmon profile editor with Target Query set to in:devices -->
-
 Agents fetch updated profiles via `GetConfig` and start publishing host metrics.
 
 See: [Sysmon Profiles](./sysmon-profiles.md)
@@ -109,8 +104,6 @@ Sweep groups schedule scans against device inventories and static targets.
    - schedule
 4. Enable the group
 
-<!-- TODO: screenshot: Sweep Group editor -->
-
 See: [Network Sweeps](./network-sweeps.md)
 
 ### SNMP Polling
@@ -121,8 +114,6 @@ SNMP profiles configure embedded agent SNMP polling.
 2. Create a profile and set a **Target Query** (SRQL) to select devices
 3. Add targets/credentials and enable polling
 
-<!-- TODO: screenshot: SNMP profile editor -->
-
 See: [SNMP Ingest Guide](./snmp.md)
 
 ### Discovery / Mapper
@@ -132,7 +123,5 @@ Discovery runs inside `serviceradar-agent` and is configured from the UI.
 1. Go to **Settings -> Networks -> Discovery**
 2. Create/enable discovery jobs
 3. Verify interfaces and topology are flowing into inventory and the graph
-
-<!-- TODO: screenshot: Discovery job editor -->
 
 See: [Discovery Guide](./discovery.md)

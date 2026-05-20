@@ -12,6 +12,21 @@ ServiceRadar collects log events through `serviceradar-log-collector`, publishes
 2. Allocate dedicated volumes if you need to buffer bursts; CNPG ingests events in near real time, but disk headroom protects against traffic spikes.
 3. Attach `site`, `account`, or other metadata using Zen rules or **Settings → Integrations** so logs stay filterable in SRQL and dashboards.
 
+### TCP Syslog
+
+The default `serviceradar-log-collector` deployment listens for syslog over **UDP 514**. To accept syslog over **TCP 514**, enable the separate `serviceradar-log-collector-tcp` deployment via `logCollector.tcpCollector.enabled` in the Helm values. It runs the same log-collector binary with only the flowgger input enabled (OTEL disabled) and a TCP-mode flowgger input:
+
+```yaml
+logCollector:
+  tcpCollector:
+    enabled: true
+    listen: "0.0.0.0:514"   # TCP
+    format: "rfc3164"        # or rfc5424
+    framing: "line"
+```
+
+TCP syslog is line-framed by default and publishes to the same NATS `events` stream and `logs.syslog` subject as the UDP collector, so the downstream pipeline (Zen rules, db-event-writer) is identical. Use TCP when devices need reliable delivery; UDP remains the default for lightweight, fire-and-forget exporters.
+
 Example Kubernetes Gateway API values:
 
 ```yaml
@@ -32,13 +47,13 @@ Network devices should send syslog to `<SYSLOG_GATEWAY_ADDRESS>:514/UDP`. Keep t
 
 ## Configure Devices
 
-- Use TLS-capable transports (TCP/TLS or RELP) where supported. When restricted to UDP, enforce ACLs and use an out-of-band management network.
+- Prefer TCP or TLS transports where supported (see [TCP Syslog](#tcp-syslog)). The log-collector's flowgger input supports `udp`, `tcp`, and `tls`; it does not support RELP. When restricted to UDP, enforce ACLs and use an out-of-band management network.
 - Normalize time zones to UTC to keep SRQL queries aligned with SNMP and OTEL data.
 - Leverage structured data fields (RFC 5424) for network appliances that support it; ServiceRadar stores them as JSON for easier filtering.
 
 ## Event Pipeline
 
-1. `serviceradar-log-collector` accepts syslog over UDP 514 and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
+1. `serviceradar-log-collector` accepts syslog over UDP 514 (or TCP 514 via the optional `serviceradar-log-collector-tcp` deployment) and publishes each message to the NATS JetStream stream named `events` on the `logs.syslog` subject.
 2. JetStream retains the raw envelope while `serviceradar-zen` (the zen engine) consumes the same stream using the `zen-consumer` durable. The consumer appends a `.processed` suffix (for example `logs.syslog.processed`) after rules execute so downstream writers can subscribe without reprocessing the original payload.
 3. The `serviceradar-db-event-writer` deployment reads the `.processed` subjects and batches inserts into the CNPG/Timescale tables. Because both the raw and processed subjects live in the `events` stream you can replay either layer during troubleshooting.
 

@@ -5,26 +5,30 @@ title: ServiceRadar Introduction
 
 # ServiceRadar Introduction
 
-ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting capabilities, ensuring you stay informed even during network or power outages.
+ServiceRadar is an IT operations and network management platform with built-in
+observability and security analytics. It is designed to monitor infrastructure and
+services in hard-to-reach places and constrained environments, with cloud-based alerting
+so you stay informed even during network or power outages.
 
 ## What is ServiceRadar?
 
-ServiceRadar offers:
-- Real-time monitoring of internal services
-- Distributed architecture for scalability and reliability
-- SNMP integration for network device monitoring
-- Secure communication with mTLS
-- Modern web UI with dashboard visualization
-- SRQL key:value query language for unified analytics across devices, events, and telemetry
-- User authentication with JWT-based sessions
-- External system integration via embedded sync runtime (agent)
+ServiceRadar brings four capabilities together in one platform:
+
+- **Network management** — discover, map, and monitor your network with SNMP, NetFlow,
+  BGP, network sweeps, and live topology.
+- **IT operations** — track devices, services, and infrastructure health with a
+  distributed, agent-based architecture built for the edge.
+- **Observability** — collect metrics, traces, and logs with OpenTelemetry and query
+  everything with SRQL, ServiceRadar's unified query language.
+- **Security analytics** — ingest syslog, runtime security events, and vulnerability
+  scans into one normalized, alertable event store.
 
 :::tip What you'll need
 - Linux-based system (Ubuntu/Debian recommended)
 - Root or sudo access
 - Basic understanding of network services
 - Target services to monitor
-  :::
+:::
 
 ## Key Components
 
@@ -32,43 +36,52 @@ ServiceRadar consists of several main components:
 
 1. **Agent** - Runs on monitored hosts, collects data, and pushes results over gRPC
 2. **Agent-Gateway** - Edge ingress for agent and collector traffic
-3. **Core Service (core-elx)** - Control plane for DIRE, ingestion, APIs, and alerts
+3. **Core Service (core-elx)** - Control plane for ingestion, APIs, and alerts
 4. **Web UI (web-ng)** - Phoenix LiveView dashboard with SRQL embedded via Rustler/NIF
 5. **CNPG + TimescaleDB** - System of record for telemetry and inventory
 6. **NATS JetStream** - Messaging backbone for platform services
 
-For a detailed explanation of the architecture, please see the [Architecture](./architecture.md) page.
+For a detailed explanation of the architecture, see the [Architecture](./architecture.md)
+page.
 
 ## Security Features
 
 ServiceRadar is designed with security in mind:
 
 1. **mTLS Authentication** - Secure communication between components using mutual TLS
-2. **User Authentication** - Password login, Direct SSO (OIDC/SAML), or gateway-proxied JWT auth
+2. **User Authentication** - Password login, Direct SSO (OIDC/SAML), or gateway-proxied
+   JWT auth
 3. **Session Management** - Secure, expirable sessions for the web UI and API access
 4. **Role-Based Access** - Instance-scoped roles and permissions for administrative actions
 
-For more details, see the [TLS Security](./tls-security.md) and [Authentication Configuration](./auth-configuration.md) documentation.
+For more details, see the [TLS & mTLS](./tls-security.md) and
+[Authentication](./auth-configuration.md) documentation.
 
 ## Getting Started
 
-Navigate through our documentation to get ServiceRadar up and running:
+Work through the documentation in roughly this order:
 
-### Quick Start with Docker
-- **[Docker Setup Guide](./docker-setup.md)** - Complete Docker deployment guide with automatic configuration
-- **[Device Configuration](./device-configuration.md)** - Configure network devices for SNMP, Syslog, and trap collection
+### Deploy
+1. **[Quickstart](./quickstart.md)** - The fastest path to a running instance
+2. **[Docker Compose](./docker-setup.md)** - Complete Docker deployment with automatic
+   configuration
+3. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
+4. **[TLS & mTLS](./tls-security.md)** - Secure service-to-service and agent connectivity
+5. **[Authentication](./auth-configuration.md)** - Users, sessions, and SSO integration
 
-### Deploy + Secure
-1. **[Kubernetes (Helm)](./helm-configuration.md)** - Production-style deployments
-2. **[TLS / mTLS](./tls-security.md)** - Secure service-to-service and agent connectivity
-3. **[Authentication](./auth-configuration.md)** - Users, sessions, and SSO integration
+### Get data in
+6. **[Device Configuration](./device-configuration.md)** - Configure network devices for
+   SNMP, Syslog, and trap collection
+7. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
 
-### Advanced Topics
-4. **[Architecture](./architecture.md)** - Understand the system architecture
-5. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
-6. **[Data Pipeline](./data-pipeline.md)** - JetStream consumers and CNPG persistence
-7. **[Tools Pod](./tools.md)** - Preconfigured operational CLI environment
-8. **[CNPG PG18 Upgrade](./cnpg-pg18-upgrade-and-search-policy.md)** - Upgrade runbook, validation, and BM25 extension policy
-9. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
+### Query and analyze
+8. **[SRQL Tutorial](./srql-tutorial.md)** - Learn ServiceRadar's query language
+9. **[Rule Builder](./rule-builder.md)** - Turn queries into alerts
 
-**Recommended**: Start with the [Docker Setup Guide](./docker-setup.md) for the fastest and most reliable deployment experience.
+### Go deeper
+10. **[Architecture](./architecture.md)** - Understand the system architecture
+11. **[Edge Model](./edge-model.md)** - Agent lifecycle, config flow, and command bus
+12. **[Wasm Plugins](./wasm-plugins.md)** - Sandboxed plugin system and SDKs
+
+**Recommended**: Start with the [Quickstart](./quickstart.md) for the fastest path to a
+running instance.

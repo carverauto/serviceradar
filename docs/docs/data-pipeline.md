@@ -23,28 +23,38 @@ flowchart LR
     Trapd["SNMP trap receiver"]
   end
 
-  NATS["NATS JetStream\n(stream: events)"]
+  NATS["NATS JetStream"]
 
   Zen["zen-consumer\n(normalize)"]
-  Promote["log-promotion\n(OCSF promotion)"]
+  Core["serviceradar_core\n(in-process log-promotion)"]
   Writer["db-event-writer\n(persist)"]
 
   CNPG["CNPG\n(Postgres + Timescale + AGE)"]
 
-  Syslog --> NATS
-  Netflow --> NATS
-  Trapd --> NATS
+  Syslog -->|"*.logs.syslog"| NATS
+  Trapd -->|"*.logs.snmp"| NATS
+  Netflow -->|"flows.raw.>"| NATS
 
-  NATS --> Zen --> NATS
-  NATS --> Promote --> NATS
+  NATS -->|"*.logs.{syslog,snmp,otel}"| Zen --> NATS
+  NATS -->|"logs.*.processed"| Core --> NATS
   NATS --> Writer --> CNPG
 ```
 
-Current `events` consumers:
+Zen normalizes logs (syslog, SNMP traps, OTEL logs) and raw OTEL metrics.
+NetFlow data publishes to `flows.raw.>` and does not pass through Zen—it is
+written directly by the writer path. `log-promotion` is an in-process JetStream
+pull consumer running inside `serviceradar_core` (not a separate deployment); it
+subscribes to processed log subjects and promotes matching logs into OCSF
+events. `db-event-writer` persists records into CNPG.
 
-- `zen-consumer`
-- `log-promotion`
-- `db-event-writer`
+## Data Service (datasvc)
+
+`datasvc` is a gRPC service (port `50057`) that fronts the platform's NATS-backed
+key-value and object stores. Other components use it for shared configuration and
+state—for example, the KV bucket `serviceradar-datasvc` holds rule definitions
+and runtime settings, and the object store carries larger payloads. Routing this
+state through one service keeps NATS KV/object access consistent and avoids
+components manipulating JetStream buckets directly.
 
 ## CNPG (System Of Record)
 

@@ -25,6 +25,26 @@ Discovery keeps the registry aligned with real-world infrastructure. Use Mapper 
 2. Onboard a sync-capable agent.
 3. Verify updates flow through DIRE into inventory.
 
+## Supported Devices for Enriched Discovery
+
+Mapper discovers and enriches any SNMP-capable device. For selected platforms it
+also queries the vendor's native API to add identity, interface, and topology
+detail beyond what SNMP alone provides.
+
+| Source | Devices | What it adds |
+| --- | --- | --- |
+| SNMP / LLDP / CDP | Any SNMP-capable device — Cisco, Juniper, Arista, Aruba, and others | Baseline inventory, interfaces, and L2/L3 topology |
+| MikroTik RouterOS API | MikroTik routers and switches | Device identity, full interface inventory, bridge/VLAN context, neighbor evidence — see below |
+| Ubiquiti UniFi API | UniFi controllers and managed devices | Site and device inventory with port-level topology |
+| Proxmox VE API | Proxmox VE hypervisors | Guest and host inventory — see [Proxmox VE](./proxmox.md) |
+
+SNMP, LLDP, and CDP remain the universal baseline and are authoritative wherever
+they provide stronger interface attribution than vendor-API data.
+
+Need enriched API discovery for a platform that is not listed? Open a request on
+the [ServiceRadar repository](https://github.com/carverauto/serviceradar/issues)
+so it can be prioritized.
+
 ## MikroTik RouterOS API Discovery
 
 ServiceRadar can query MikroTik RouterOS directly from the edge agent by using the RouterOS REST API over HTTP(S). The current implementation is read-only and is intended to improve device identity, interface coverage, and topology evidence without replacing SNMP where SNMP remains stronger.
@@ -50,54 +70,13 @@ ServiceRadar can query MikroTik RouterOS directly from the edge agent by using t
 - REST resource coverage varies by RouterOS version. Unsupported endpoints degrade to partial discovery rather than failing the full mapper run.
 - SNMP, LLDP, and CDP remain authoritative when they provide stronger interface attribution than RouterOS neighbor data.
 
-### Demo Validation
+### Validating RouterOS API Discovery
 
-Use the live CHR target in `demo` as the validation baseline:
-
-- Device UID: `sr:36e0e348-6da6-4474-bb3c-f7af1eb4d5b8`
-- Expected management IP: `192.168.6.167`
-
-Cluster-side validation commands:
-
-```bash
-kubectl exec -n demo cnpg-10 -- bash -lc \
-  "PGPASSWORD='<serviceradar-db-password>' psql -h cnpg-rw -U serviceradar -d serviceradar \
-  -c \"SELECT uid, hostname, ip, vendor_name, model, os, hw_info, discovery_sources
-      FROM platform.ocsf_devices
-      WHERE uid = 'sr:36e0e348-6da6-4474-bb3c-f7af1eb4d5b8';\""
-```
-
-```bash
-kubectl exec -n demo cnpg-10 -- bash -lc \
-  "PGPASSWORD='<serviceradar-db-password>' psql -h cnpg-rw -U serviceradar -d serviceradar \
-  -c \"SELECT device_id, device_ip, if_name, metadata->>'source' AS source
-      FROM platform.discovered_interfaces
-      WHERE device_id = 'sr:36e0e348-6da6-4474-bb3c-f7af1eb4d5b8'
-      ORDER BY timestamp DESC
-      LIMIT 20;\""
-```
-
-```bash
-kubectl exec -n demo cnpg-10 -- bash -lc \
-  "PGPASSWORD='<serviceradar-db-password>' psql -h cnpg-rw -U serviceradar -d serviceradar \
-  -c \"SELECT timestamp, protocol, metadata->>'source' AS source,
-             local_if_name, neighbor_system_name, neighbor_mgmt_addr
-      FROM platform.mapper_topology_links
-      WHERE local_device_id = 'sr:36e0e348-6da6-4474-bb3c-f7af1eb4d5b8'
-      ORDER BY timestamp DESC
-      LIMIT 20;\""
-```
-
-Post-deploy success criteria for RouterOS API validation:
+After enabling RouterOS API discovery against a router, confirm the data lands in
+the registry. Look in the device's detail view, or query the platform tables for
+the device, and check the following:
 
 1. `ocsf_devices.os` includes `RouterOS` name/version data.
 2. `ocsf_devices.hw_info` includes serial and architecture when the router exposes them.
 3. `discovered_interfaces.metadata->>'source'` shows `mikrotik-api` on RouterOS-derived interfaces.
-4. `mapper_topology_links` contains `mikrotik-api-neighbor` evidence if the CHR exposes neighbor data.
-
-## Topology Cleanup/Rebuild
-
-For polluted topology evidence or unstable adjacency after parser/pipeline fixes, use the
-[Topology Reset and Rebuild Runbook](./topology-reset-rebuild.md).
-That runbook also defines rollout/rollback flags for v2 contract ingestion and AGE-authoritative
-render cutover.
+4. `mapper_topology_links` contains `mikrotik-api-neighbor` evidence if the router exposes neighbor data.

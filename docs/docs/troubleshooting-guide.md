@@ -60,7 +60,7 @@ For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 ## Core Services
 
 - **Check pod health**: `kubectl get pods -n <namespace>` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets, PVC mounts, or bad environment variables.
-- **Verify API availability**: `curl -k https://<core-host>/healthz`. TLS errors tie back to mismatched certificates—reissue them with the [Self-Signed Certificates guide](./self-signed.md).
+- **Verify API availability**: `curl -k https://<core-host>/healthz`. TLS errors tie back to mismatched certificates—reissue them with the [Self-Signed Certificates guide](./tls-security.md#self-signed-certificates).
 - **Configuration drift**: Most configuration is managed through the web UI and delivered to agents via `GetConfig`. If changes are not taking effect, confirm the agent is online and check `agent-gateway` logs for config fetch errors.
 
 ## Observability Rollups
@@ -76,7 +76,7 @@ For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 ## Syslog
 
 - **No events**: Ensure devices forward to the correct address and protocol (`UDP/TCP 514`). In Kubernetes, validate the listener with `kubectl logs deploy/serviceradar-log-collector -n <namespace> --since=10m`. If syslog enters through Gateway API, also check `kubectl describe udproute -n <namespace> serviceradar-syslog`.
-- **Parsing issues**: Update CNPG grok rules when new vendors join; refer to the [Syslog ingest guide](./syslog.md).
+- **Parsing issues**: Update the Zen parsing rules when new vendors join; refer to the [Syslog ingest guide](./syslog.md).
 - **Clock drift**: Systems with unsynchronized NTP create out-of-order events; align to UTC.
 
 ## NetFlow
@@ -185,26 +185,6 @@ docker logs serviceradar-flow-collector-mtls | grep "Template Cache"
 4. **Check template cache size**: May need larger cache for many routers
    - Verify: Check "Template Cache" logs show size near max
    - Fix: Increase `max_templates` in config (default: 2000)
-
-### Template Collisions (Pre-0.8.0)
-
-**Note:** This issue is **fixed in 0.8.0** with AutoScopedParser. If you see template collisions on 0.8.0+, report as a bug.
-
-**Symptoms:**
-- Flows from Router A misinterpreted when Router B sends data
-- Wrong fields showing in database
-- Log warnings: "Template collision - ID: 256"
-
-**Why it happened (pre-0.8.0):**
-- Router A uses template ID 256 for: [SRC_IP, DST_IP, BYTES]
-- Router B uses template ID 256 for: [SRC_IP, DST_IP, PACKETS, PROTOCOL]
-- Collector couldn't distinguish which router sent which template
-- Router B's definition overwrites Router A's → data corruption
-
-**Solution:**
-- **Upgrade to 0.8.0+**: AutoScopedParser isolates templates per source IP
-- Each router maintains independent template cache
-- Template ID 256 from 192.168.1.1 ≠ template ID 256 from 192.168.1.2
 
 ### High CPU Usage
 
@@ -323,20 +303,17 @@ For 10+ sources:
 ### Memory Usage Higher Than Expected
 
 **Symptoms:**
-- Collector using more memory than before 0.8.0
+- Collector using more memory than expected
 - OOM (Out of Memory) errors
 
-**Expected Memory Usage (0.8.0+):**
+**Expected Memory Usage:**
 - **Base**: ~500MB
 - **Per Source**: ~50MB per active exporter
 - **10 sources**: ~1GB total
 - **100 sources**: ~5.5GB total
 
-**Comparison to 0.7.1:**
-- 0.7.1: ~500MB regardless of source count (single global cache)
-- 0.8.0: ~500MB + (50MB × num_sources) (per-source caches)
-
-**This is expected** due to AutoScopedParser's per-source isolation.
+AutoScopedParser keeps a separate template cache per source IP, so memory grows
+roughly linearly with the number of active exporters. This is expected behavior.
 
 **If memory exceeds expectations:**
 
@@ -541,9 +518,58 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 - Version-specific changes: `rust/netflow-collector/CHANGELOG.md`
 - Testing procedures: `rust/netflow-collector/TESTING.md`
 
+## MTR Automation
+
+ServiceRadar can run automated MTR (My Traceroute) captures to baseline network
+paths and react to state transitions. The behavior is controlled with feature
+flags in `serviceradar_core` — no code changes required.
+
+### Feature Flags
+
+- `MTR_AUTOMATION_ENABLED`: global default for all automated MTR workers.
+- `MTR_AUTOMATION_BASELINE_ENABLED`: baseline scheduler.
+- `MTR_AUTOMATION_TRIGGER_ENABLED`: state-transition trigger worker.
+- `MTR_AUTOMATION_CONSENSUS_ENABLED`: cohort consensus and causal emitter worker.
+
+Each `MTR_AUTOMATION_*_ENABLED` flag defaults to the global value when unset.
+After changing any flag, restart or redeploy `serviceradar_core` so the
+supervision tree is rebuilt with the new worker set.
+
+### Recommended Staged Rollout
+
+1. **Baseline only:**
+   - `MTR_AUTOMATION_ENABLED=true`
+   - `MTR_AUTOMATION_BASELINE_ENABLED=true`
+   - `MTR_AUTOMATION_TRIGGER_ENABLED=false`
+   - `MTR_AUTOMATION_CONSENSUS_ENABLED=false`
+2. **Add state-triggered capture:** set `MTR_AUTOMATION_TRIGGER_ENABLED=true`.
+3. **Add consensus + causal emission:** set `MTR_AUTOMATION_CONSENSUS_ENABLED=true`.
+
+### Rollback Switches
+
+- **Stop all automated MTR immediately**: `MTR_AUTOMATION_ENABLED=false`
+- **Stop only event-driven runs**: `MTR_AUTOMATION_TRIGGER_ENABLED=false`
+- **Stop only causal consensus/emission** while keeping dispatch: `MTR_AUTOMATION_CONSENSUS_ENABLED=false`
+- **Stop only baseline scheduling** while keeping incident capture: `MTR_AUTOMATION_BASELINE_ENABLED=false`
+
+### Helm Values
+
+For chart-based deploys, set the same behavior under `core.mtrAutomation`:
+
+```yaml
+core:
+  mtrAutomation:
+    enabled: false
+    baselineEnabled: false
+    triggerEnabled: false
+    consensusEnabled: false
+    baselineTickMs: 60000
+    consensusCohortRetentionMs: 300000
+```
+
 ## OTEL
 
-- **TLS failures**: Double-check the OTLP gateway certificate bundle. Clients should trust the CA described in [Self-Signed Certificates](./self-signed.md).
+- **TLS failures**: Double-check the OTLP gateway certificate bundle. Clients should trust the CA described in [Self-Signed Certificates](./tls-security.md#self-signed-certificates).
 - **Backpressure**: Inspect the gateway metrics; enable batching in exporters. Follow the [OTEL guide](./otel.md) for tuning tips.
 - **Missing spans**: Ensure `service.name` and other attributes are populated—SRQL filters rely on them.
 
@@ -583,5 +609,5 @@ sudo timeout 30 tcpdump -i any -n port 2055 -w netflow-capture.pcap
 
 ## Still Stuck?
 
-- Capture failing commands, logs, and SRQL queries before escalating to the core team.
-- File follow-up work items in Beads (`bd`) so the broader team can track remediations.
+- Capture failing commands, logs, and SRQL queries so the issue can be reproduced.
+- Open an issue with those details so the problem can be tracked and resolved.
