@@ -7,6 +7,14 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   """
 
   @default_time_window "last_24h"
+  @log_severity_values %{
+    fatal: ~w(fatal FATAL Fatal critical CRITICAL Critical emergency EMERGENCY Emergency alert ALERT Alert),
+    error: ~w(error ERROR Error err ERR Err),
+    warning: ~w(warning WARNING Warning warn WARN Warn),
+    info:
+      ~w(info INFO Info information INFORMATION Information informational INFORMATIONAL Informational notice NOTICE Notice),
+    debug: ~w(debug DEBUG Debug trace TRACE Trace)
+  }
 
   @doc """
   Build SRQL query for logs severity stats.
@@ -33,6 +41,51 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     else
       "#{base} #{filters}"
     end
+  end
+
+  @doc """
+  Return the exact `severity_text` values used for a log severity group.
+
+  SRQL text filters are exact-match and case-sensitive. These groups intentionally
+  include lower, upper, and title case variants so click-through queries match the
+  rollup CAGG, which groups with `lower(severity_text)`.
+  """
+  @spec log_severity_values(atom() | [atom()]) :: [String.t()]
+  def log_severity_values(levels) when is_list(levels) do
+    levels
+    |> Enum.flat_map(&log_severity_values/1)
+    |> Enum.uniq()
+  end
+
+  def log_severity_values(level) when is_atom(level), do: Map.fetch!(@log_severity_values, level)
+
+  @doc "Build an exact-match SRQL severity_text filter for one or more log severity groups."
+  @spec log_severity_filter(atom() | [atom()]) :: String.t()
+  def log_severity_filter(levels), do: "severity_text:(#{levels |> log_severity_values() |> Enum.join(",")})"
+
+  @doc "Build a log data query for a severity group using the shared severity mapping."
+  @spec logs_severity_data_query(atom() | [atom()], keyword()) :: String.t()
+  def logs_severity_data_query(levels, opts \\ []) do
+    time = Keyword.get(opts, :time, @default_time_window)
+    sort = Keyword.get(opts, :sort, "timestamp:desc")
+    limit = Keyword.get(opts, :limit)
+
+    base = "in:logs #{log_severity_filter(levels)} time:#{time} sort:#{sort}"
+
+    if is_integer(limit) and limit > 0 do
+      "#{base} limit:#{limit}"
+    else
+      base
+    end
+  end
+
+  @doc "Build a log count query for a severity group using the shared severity mapping."
+  @spec logs_severity_count_query(atom() | [atom()], keyword()) :: String.t()
+  def logs_severity_count_query(levels, opts \\ []) do
+    time = Keyword.get(opts, :time, @default_time_window)
+    alias_name = Keyword.get(opts, :alias, "total")
+
+    ~s|in:logs #{log_severity_filter(levels)} time:#{time} stats:"count() as #{alias_name}"|
   end
 
   @doc """
