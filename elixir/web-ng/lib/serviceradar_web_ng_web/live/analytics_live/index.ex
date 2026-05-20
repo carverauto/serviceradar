@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Stats
+  alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
 
   require Logger
 
@@ -80,57 +81,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     end
   end
 
-  # Query the continuous aggregation for efficient pre-computed stats
-  defp get_hourly_metrics_stats(_scope) do
-    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
-
-    query =
-      from(s in "otel_metrics_hourly_stats",
-        where: s.bucket >= ^cutoff,
-        select: %{
-          total_count: sum(s.total_count),
-          error_count: sum(s.error_count),
-          slow_count: sum(s.slow_count),
-          http_4xx_count: sum(s.http_4xx_count),
-          http_5xx_count: sum(s.http_5xx_count),
-          grpc_error_count: sum(s.grpc_error_count),
-          avg_duration_ms:
-            fragment(
-              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-              s.total_count,
-              s.avg_duration_ms,
-              s.total_count,
-              s.total_count
-            ),
-          p95_duration_ms: max(s.p95_duration_ms),
-          max_duration_ms: max(s.max_duration_ms)
-        }
-      )
-
-    case Repo.one(query) do
-      %{total_count: total} = stats when not is_nil(total) ->
-        %{
-          total: to_int(total),
-          error: to_int(stats.error_count),
-          slow: to_int(stats.slow_count),
-          http_4xx: to_int(stats.http_4xx_count),
-          http_5xx: to_int(stats.http_5xx_count),
-          grpc_error: to_int(stats.grpc_error_count),
-          avg_duration_ms: to_float(stats.avg_duration_ms),
-          p95_duration_ms: to_float(stats.p95_duration_ms),
-          max_duration_ms: to_float(stats.max_duration_ms)
-        }
-
-      _ ->
-        Logger.debug("Hourly metrics stats not available, falling back to SRQL queries")
-        nil
-    end
-  rescue
-    error ->
-      Logger.warning("Failed to query hourly metrics stats: #{inspect(error)}")
-      nil
-  end
-
   defp get_hourly_event_stats(_scope) do
     cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
 
@@ -150,19 +100,13 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       nil
   end
 
-  defp to_float(nil), do: 0.0
-  defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
-  defp to_float(v) when is_float(v), do: v
-  defp to_float(v) when is_integer(v), do: v * 1.0
-  defp to_float(_), do: 0.0
-
   defp load_analytics(socket) do
     srql_module = srql_module()
     scope = Map.get(socket.assigns, :current_scope)
 
     initial =
       run_named_tasks([
-        {:hourly_stats, fn -> get_hourly_metrics_stats(scope) end},
+        {:metrics_summary, fn -> Stats.metrics_summary(scope: scope) end},
         {:event_stats, fn -> get_hourly_event_stats(scope) end},
         {:service_counts, &get_service_counts/0},
         {:logs_severity, fn -> Stats.logs_severity(scope: scope) end},
@@ -170,23 +114,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         {:trace_rollup_status, &Stats.trace_rollup_status/0}
       ])
 
-    hourly_stats = Map.get(initial, :hourly_stats)
+    metrics_summary = Map.get(initial, :metrics_summary, Stats.empty_metrics_summary())
     event_stats = Map.get(initial, :event_stats)
     service_counts = Map.get(initial, :service_counts)
-
-    # Check if logs severity CAGG returned real data
-    logs_severity_cagg =
-      case Map.get(initial, :logs_severity) do
-        %{total: total} = logs_severity when total > 0 -> logs_severity
-        _ -> nil
-      end
+    logs_severity = Map.get(initial, :logs_severity, Stats.empty_logs_severity())
 
     queries = %{
       devices_total: ~s|in:devices stats:"count() as total"|,
       devices_online: ~s|in:devices is_available:true stats:"count() as online"|,
       devices_offline: ~s|in:devices is_available:false stats:"count() as offline"|,
-      logs_critical_recent:
-        "in:logs time:last_24h severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) sort:timestamp:desc limit:5",
+      logs_critical_recent: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 5),
       slow_spans: "in:otel_metrics time:last_24h is_slow:true sort:duration_ms:desc limit:25",
       cpu_metrics: "in:cpu_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
       memory_metrics: "in:memory_metrics time:last_1h sort:timestamp:desc limit:#{@default_metrics_limit}",
@@ -200,38 +137,6 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           :services_list,
           "in:services time:last_1h sort:timestamp:desc limit:5000"
         )
-      else
-        queries
-      end
-
-    # Only add SRQL fallback queries if hourly stats failed
-    queries =
-      if is_nil(hourly_stats) do
-        Map.merge(queries, %{
-          metrics_total: ~s|in:otel_metrics time:last_24h stats:"count() as total"|,
-          metrics_slow: ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|,
-          metrics_error_http4: ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|,
-          metrics_error_http5: ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|,
-          metrics_error_grpc:
-            ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|
-        })
-      else
-        queries
-      end
-
-    # Fall back to individual SRQL count queries if CAGG didn't return data
-    queries =
-      if is_nil(logs_severity_cagg) do
-        Map.merge(queries, %{
-          logs_fatal_count:
-            ~s|in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) time:last_24h stats:"count() as total"|,
-          logs_error_count: ~s|in:logs severity_text:(error,ERROR,err,ERR) time:last_24h stats:"count() as total"|,
-          logs_warning_count:
-            ~s|in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h stats:"count() as total"|,
-          logs_info_count:
-            ~s|in:logs severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) time:last_24h stats:"count() as total"|,
-          logs_debug_count: ~s|in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h stats:"count() as total"|
-        })
       else
         queries
       end
@@ -259,42 +164,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> run_named_tasks()
 
     results =
-      if hourly_stats do
-        Map.put(results, :hourly_stats, hourly_stats)
-      else
-        results
-      end
-
-    results =
       if event_stats do
         Map.put(results, :event_stats, event_stats)
       else
         results
       end
 
-    # Use CAGG data if available, otherwise build from individual count queries
-    logs_severity =
-      if logs_severity_cagg do
-        logs_severity_cagg
-      else
-        %{
-          total:
-            extract_count(results[:logs_fatal_count]) +
-              extract_count(results[:logs_error_count]) +
-              extract_count(results[:logs_warning_count]) +
-              extract_count(results[:logs_info_count]) +
-              extract_count(results[:logs_debug_count]),
-          fatal: extract_count(results[:logs_fatal_count]),
-          error: extract_count(results[:logs_error_count]),
-          warning: extract_count(results[:logs_warning_count]),
-          info: extract_count(results[:logs_info_count]),
-          debug: extract_count(results[:logs_debug_count])
-        }
-      end
-
     results =
       results
       |> Map.put(:service_counts, service_counts)
+      |> Map.put(:metrics_summary, metrics_summary)
       |> Map.put(:logs_severity, logs_severity)
       |> Map.put(:traces_summary, Map.get(initial, :traces_summary))
 
@@ -403,22 +282,10 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
     logs_summary = build_logs_summary(logs_rows, logs_counts)
 
-    # Build observability summary - prefer pre-computed hourly stats if available
-    {metrics_total, _metrics_error, metrics_slow, _avg_duration} =
-      case Map.get(results, :hourly_stats) do
-        %{total: total, error: error, slow: slow, avg_duration_ms: avg_ms} ->
-          # Use efficient pre-computed stats from continuous aggregation
-          {total, error, slow, avg_ms}
-
-        _ ->
-          # Fallback to individual SRQL query results
-          total = extract_count(results[:metrics_total])
-          slow = extract_count(results[:metrics_slow])
-          http4 = extract_count(results[:metrics_error_http4])
-          http5 = extract_count(results[:metrics_error_http5])
-          grpc = extract_count(results[:metrics_error_grpc])
-          {total, http4 + http5 + grpc, slow, 0}
-      end
+    # Observability stat cards are rollup-only to avoid raw-table scans on load.
+    metrics_rollup = Map.get(results, :metrics_summary, Stats.empty_metrics_summary())
+    metrics_total = Map.get(metrics_rollup, :total, 0)
+    metrics_slow = Map.get(metrics_rollup, :slow_spans, 0)
 
     trace_summary =
       case Map.get(results, :traces_summary) do
@@ -634,6 +501,12 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp to_int(value) when is_float(value), do: trunc(value)
   defp to_int(%Decimal{} = d), do: Decimal.to_integer(d)
   defp to_int(_), do: 0
+
+  defp to_float(nil), do: 0.0
+  defp to_float(%Decimal{} = d), do: Decimal.to_float(d)
+  defp to_float(v) when is_float(v), do: v
+  defp to_float(v) when is_integer(v), do: v * 1.0
+  defp to_float(_), do: 0.0
 
   defp merge_event_stats(base, rows) when is_list(rows) do
     Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
@@ -1289,7 +1162,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
         </.link>
         <.link
           href={
-            ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) time:last_24h sort:timestamp:desc limit:100"}}"
+            ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error], limit: 100)}}"
           }
           class="text-base-content/60 hover:text-primary"
           title="View critical logs"
@@ -1318,7 +1191,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="error"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:fatal, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1327,7 +1200,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="warning"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(error,ERROR,err,ERR) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:error, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1336,7 +1209,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="info"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(warning,warn,WARNING,WARN) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:warning, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1345,7 +1218,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="primary"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:info, limit: 100)}}"
               }
             />
             <.severity_row
@@ -1354,7 +1227,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
               total={Map.get(@summary, :total, 0)}
               color="neutral"
               href={
-                ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(debug,trace,DEBUG,TRACE) time:last_24h sort:timestamp:desc limit:100"}}"
+                ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query(:debug, limit: 100)}}"
               }
             />
           </tbody>

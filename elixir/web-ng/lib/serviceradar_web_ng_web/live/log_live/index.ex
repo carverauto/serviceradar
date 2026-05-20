@@ -22,13 +22,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
+  alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
 
   require Ash.Query
   require Logger
 
   @default_limit 20
   @max_limit 100
-  @default_stats_window "last_24h"
   @refresh_debounce_ms 5_000
   @default_events_limit 20
   @max_events_limit 100
@@ -931,15 +931,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  def handle_info({:load_log_summary_counts, srql_module, scope}, socket) do
-    if socket.assigns.active_tab == "logs" do
-      summary = load_summary_counts(srql_module, scope)
-      {:noreply, assign(socket, :summary, summary)}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_info({:logs_ingested, _event}, socket) do
     {:noreply, maybe_schedule_live_logs_refresh(socket)}
   end
@@ -1220,7 +1211,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.link>
           <.link
             patch={
-              ~p"/observability?#{%{tab: "logs", q: "in:logs severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT,error,ERROR,err,ERR) time:last_24h sort:timestamp:desc"}}"
+              ~p"/observability?#{%{tab: "logs", q: StatsQuery.logs_severity_data_query([:fatal, :error])}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -1234,35 +1225,35 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           count={@fatal}
           total={@total}
           color="error"
-          level="fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT"
+          level={:fatal}
         />
         <.level_stat
           label="Error"
           count={@error}
           total={@total}
           color="warning"
-          level="error,ERROR,err,ERR"
+          level={:error}
         />
         <.level_stat
           label="Warning"
           count={@warning}
           total={@total}
           color="info"
-          level="warn,warning,WARN,WARNING"
+          level={:warning}
         />
         <.level_stat
           label="Info"
           count={@info}
           total={@total}
           color="primary"
-          level="info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE"
+          level={:info}
         />
         <.level_stat
           label="Debug"
           count={@debug}
           total={@total}
           color="success"
-          level="debug,trace,DEBUG,TRACE"
+          level={:debug}
         />
       </div>
     </div>
@@ -1273,11 +1264,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:count, :integer, required: true)
   attr(:total, :integer, required: true)
   attr(:color, :string, required: true)
-  attr(:level, :string, required: true)
+  attr(:level, :atom, required: true)
 
   defp level_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:logs severity_text:(#{assigns.level}) time:last_24h sort:timestamp:desc"
+    query = StatsQuery.logs_severity_data_query(assigns.level)
 
     assigns =
       assigns
@@ -6319,67 +6310,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  # Fetch accurate log severity counts via individual SRQL count queries.
-  # Used as async fallback when CAGG data is unavailable.
-  # Uses the same unfiltered last_24h window as the analytics page.
-  defp load_summary_counts(srql_module, scope) do
-    base = "in:logs time:#{@default_stats_window}"
-
-    # Severity groupings must match the CAGG (logs_severity_stats_5m) definitions exactly
-    queries = %{
-      fatal:
-        ~s|#{base} severity_text:(fatal,FATAL,critical,CRITICAL,emergency,EMERGENCY,alert,ALERT) stats:"count() as total"|,
-      error: ~s|#{base} severity_text:(error,ERROR,err,ERR) stats:"count() as total"|,
-      warning: ~s|#{base} severity_text:(warning,warn,WARNING,WARN) stats:"count() as total"|,
-      info:
-        ~s|#{base} severity_text:(info,INFO,information,INFORMATION,informational,INFORMATIONAL,notice,NOTICE) stats:"count() as total"|,
-      debug: ~s|#{base} severity_text:(debug,trace,DEBUG,TRACE) stats:"count() as total"|
-    }
-
-    counts =
-      queries
-      |> Task.async_stream(
-        fn {level, q} -> {level, extract_stats_count(srql_module.query(q, %{scope: scope}))} end,
-        ordered: false,
-        timeout: 15_000
-      )
-      |> Enum.reduce(%{}, fn
-        {:ok, {level, count}}, acc -> Map.put(acc, level, count)
-        _, acc -> acc
-      end)
-
-    %{
-      total:
-        Map.get(counts, :fatal, 0) + Map.get(counts, :error, 0) + Map.get(counts, :warning, 0) +
-          Map.get(counts, :info, 0) + Map.get(counts, :debug, 0),
-      fatal: Map.get(counts, :fatal, 0),
-      error: Map.get(counts, :error, 0),
-      warning: Map.get(counts, :warning, 0),
-      info: Map.get(counts, :info, 0),
-      debug: Map.get(counts, :debug, 0)
-    }
-  end
-
-  defp extract_stats_count({:ok, %{"results" => [%{} = row | _]}}) do
-    row
-    |> Map.values()
-    |> Enum.find_value(0, fn
-      v when is_integer(v) ->
-        v
-
-      v when is_binary(v) ->
-        case Integer.parse(String.trim(v)) do
-          {n, ""} -> n
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end)
-  end
-
-  defp extract_stats_count(_), do: 0
-
   defp extract_time_from_query(""), do: nil
 
   defp extract_time_from_query(query) when is_binary(query) do
@@ -6571,10 +6501,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, "traces", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    trace_latency = compute_trace_latency(socket.assigns.traces)
+    {trace_stats, trace_latency} = load_trace_summary_cards(srql_module, scope)
 
     socket
-    |> assign(:trace_stats, load_trace_stats(srql_module, scope))
+    |> assign(:trace_stats, trace_stats)
     |> assign(:trace_latency, trace_latency)
     |> assign(:trace_rollup_status, Stats.trace_rollup_status())
     |> assign(:metrics_stats, empty_metrics_stats())
@@ -6885,13 +6815,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp stream_active_tab(socket, _tab), do: socket
 
-  defp build_metrics_stats(srql_module, scope) do
-    metrics_counts = load_metrics_counts(srql_module, scope)
-    duration_stats = load_duration_stats_from_cagg(scope)
-
-    metrics_counts
-    |> Map.merge(duration_stats)
-    |> Map.put(:error_rate, compute_error_rate(metrics_counts.total, metrics_counts.error_spans))
+  defp build_metrics_stats(_srql_module, scope) do
+    metrics = Stats.metrics_summary(scope: scope)
+    Map.put(metrics, :error_rate, compute_error_rate(metrics.total, metrics.error_spans))
   end
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
@@ -6905,23 +6831,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp fetch_log_summary(socket, srql_module, scope) do
+  defp fetch_log_summary(_socket, srql_module, scope) do
     # Use the same simple call as the analytics page — no query-specific filters.
     # The stat cards always show the overall 24h picture.
-    cagg_result = Stats.logs_severity(srql_module: srql_module, scope: scope)
-
-    case cagg_result do
-      %{total: total} when total > 0 ->
-        cagg_result
-
-      _ ->
-        # CAGG unavailable — schedule async count fetch
-        if connected?(socket) do
-          send(self(), {:load_log_summary_counts, srql_module, scope})
-        end
-
-        %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0}
-    end
+    Stats.logs_severity(srql_module: srql_module, scope: scope)
   end
 
   defp maybe_load_netflow_summary(socket, srql_module, scope) do
@@ -7011,103 +6924,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity) || "logs"
   end
 
-  # Use pre-computed CAGG via rollup_stats pattern for traces stats
-  defp load_trace_stats(srql_module, scope) do
+  # Use pre-computed CAGG via rollup_stats pattern for trace stat cards.
+  defp load_trace_summary_cards(srql_module, scope) do
     summary = Stats.traces_summary(srql_module: srql_module, scope: scope)
 
-    # Map the rollup_stats fields to the expected structure
-    # Note: slow_traces is not available from CAGG, so we use 0 for now
-    # A future enhancement could add slow_count to the CAGG
-    %{
+    trace_stats = %{
       total: Map.get(summary, :total, 0),
       error_traces: Map.get(summary, :errors, 0),
       slow_traces: 0
     }
-  end
 
-  defp load_metrics_counts(srql_module, scope) do
-    case load_metrics_counts_from_repo() do
-      %{total: total} = counts when total > 0 ->
-        counts
+    trace_latency = %{
+      avg_duration_ms: Map.get(summary, :avg_duration_ms, 0.0),
+      p95_duration_ms: Map.get(summary, :p95_duration_ms, 0.0),
+      service_count: 0,
+      sample_size: Map.get(summary, :total, 0)
+    }
 
-      _ ->
-        load_metrics_counts_from_srql(srql_module, scope)
-    end
-  rescue
-    _ -> load_metrics_counts_from_srql(srql_module, scope)
-  end
-
-  defp load_metrics_counts_from_repo do
-    sql = """
-    SELECT
-      count(*)::bigint AS total,
-      count(*) FILTER (WHERE is_slow IS TRUE)::bigint AS slow_spans,
-      count(*) FILTER (
-        WHERE level IN ('error', 'ERROR')
-           OR http_status_code LIKE '4%'
-           OR http_status_code LIKE '5%'
-           OR (
-             grpc_status_code IS NOT NULL
-             AND grpc_status_code <> ''
-             AND grpc_status_code <> '0'
-           )
-      )::bigint AS error_spans
-    FROM platform.otel_metrics
-    WHERE timestamp >= now() - interval '24 hours'
-    """
-
-    case Repo.query(sql, [], timeout: 5_000) do
-      {:ok, %{rows: [[total, slow_spans, error_spans]]}} ->
-        %{
-          total: to_int(total),
-          slow_spans: to_int(slow_spans),
-          error_spans: to_int(error_spans)
-        }
-
-      _ ->
-        empty_metrics_stats()
-    end
-  end
-
-  defp load_metrics_counts_from_srql(srql_module, scope) do
-    total_query = ~s|in:otel_metrics time:last_24h stats:"count() as total"|
-    slow_query = ~s|in:otel_metrics time:last_24h is_slow:true stats:"count() as total"|
-
-    error_level_query =
-      ~s|in:otel_metrics time:last_24h level:(error,ERROR) stats:"count() as total"|
-
-    error_http4_query =
-      ~s|in:otel_metrics time:last_24h http_status_code:4% stats:"count() as total"|
-
-    error_http5_query =
-      ~s|in:otel_metrics time:last_24h http_status_code:5% stats:"count() as total"|
-
-    error_grpc_query =
-      ~s|in:otel_metrics time:last_24h !grpc_status_code:0 !grpc_status_code:"" stats:"count() as total"|
-
-    total = extract_stats_count(srql_module.query(total_query, %{scope: scope}), "total")
-    slow_spans = extract_stats_count(srql_module.query(slow_query, %{scope: scope}), "total")
-
-    error_level =
-      extract_stats_count(srql_module.query(error_level_query, %{scope: scope}), "total")
-
-    error_spans =
-      if error_level > 0 do
-        error_level
-      else
-        error_http4 =
-          extract_stats_count(srql_module.query(error_http4_query, %{scope: scope}), "total")
-
-        error_http5 =
-          extract_stats_count(srql_module.query(error_http5_query, %{scope: scope}), "total")
-
-        error_grpc =
-          extract_stats_count(srql_module.query(error_grpc_query, %{scope: scope}), "total")
-
-        error_http4 + error_http5 + error_grpc
-      end
-
-    %{total: total, slow_spans: slow_spans, error_spans: error_spans}
+    {trace_stats, trace_latency}
   end
 
   defp load_netflow_summary(srql_module, current_query, scope) do
@@ -8305,45 +8139,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_bucket(seconds) when is_integer(seconds), do: "#{seconds}s"
 
-  defp load_duration_stats_from_cagg(_scope) do
-    cutoff = DateTime.add(DateTime.utc_now(), -24, :hour)
-
-    query =
-      from(s in "otel_metrics_hourly_stats",
-        where: s.bucket >= ^cutoff,
-        select: %{
-          total_count: sum(s.total_count),
-          avg_duration_ms:
-            fragment(
-              "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-              s.total_count,
-              s.avg_duration_ms,
-              s.total_count,
-              s.total_count
-            ),
-          p95_duration_ms: max(s.p95_duration_ms)
-        }
-      )
-
-    case Repo.one(query) do
-      %{total_count: total} = stats when not is_nil(total) and total > 0 ->
-        %{
-          avg_duration_ms: numeric_to_float(stats.avg_duration_ms),
-          p95_duration_ms: numeric_to_float(stats.p95_duration_ms),
-          sample_size: to_int(total)
-        }
-
-      _ ->
-        %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
-    end
-  rescue
-    e ->
-      require Logger
-
-      Logger.warning("Failed to load duration stats from cagg: #{inspect(e)}")
-      %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
-  end
-
   # Load sparkline data for gauge/counter metrics
   # Returns a map of metric_name -> list of {bucket, avg_value} tuples
   defp load_sparklines(metrics, scope) when is_list(metrics) do
@@ -8401,60 +8196,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp compute_error_rate(_total, _errors), do: 0.0
-
-  defp compute_trace_latency(rows) do
-    # For trace summaries, don't filter by is_timing_metric since traces are inherently timing data
-    duration_stats = compute_trace_duration_stats(rows)
-    services = unique_services_from_traces(rows)
-    Map.put(duration_stats, :service_count, map_size(services))
-  end
-
-  # Compute duration stats specifically for trace summaries (no HTTP/gRPC filter needed)
-  defp compute_trace_duration_stats(rows) when is_list(rows) do
-    durations =
-      rows
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn row -> extract_number(Map.get(row, "duration_ms")) end)
-      |> Enum.filter(fn ms -> is_number(ms) and ms >= 0 and ms < 3_600_000 end)
-
-    sample_size = length(durations)
-
-    avg =
-      if sample_size > 0 do
-        Enum.sum(durations) / sample_size
-      else
-        0.0
-      end
-
-    p95 =
-      if sample_size > 0 do
-        sorted = Enum.sort(durations)
-        idx = trunc(Float.floor(sample_size * 0.95))
-        Enum.at(sorted, min(idx, sample_size - 1)) || 0.0
-      else
-        0.0
-      end
-
-    %{avg_duration_ms: avg, p95_duration_ms: p95, sample_size: sample_size}
-  end
-
-  defp compute_trace_duration_stats(_), do: %{avg_duration_ms: 0.0, p95_duration_ms: 0.0, sample_size: 0}
-
-  defp unique_services_from_traces(rows) when is_list(rows) do
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce(%{}, fn row, acc ->
-      name = Map.get(row, "root_service_name") || Map.get(row, "service_name")
-
-      if is_binary(name) and String.trim(name) != "" do
-        Map.put(acc, name, true)
-      else
-        acc
-      end
-    end)
-  end
-
-  defp unique_services_from_traces(_), do: %{}
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)

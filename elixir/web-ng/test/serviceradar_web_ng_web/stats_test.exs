@@ -2,6 +2,30 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarWebNGWeb.Stats
+  alias ServiceRadarWebNGWeb.Stats.Query
+
+  describe "log severity query helpers" do
+    test "include title case variants used by direct log rows" do
+      assert "Critical" in Query.log_severity_values(:fatal)
+      assert "Debug" in Query.log_severity_values(:debug)
+      assert "Warning" in Query.log_severity_values(:warning)
+      assert "Notice" in Query.log_severity_values(:info)
+      assert "Error" in Query.log_severity_values(:error)
+    end
+
+    test "builds click-through queries from shared severity groups" do
+      assert Query.logs_severity_data_query(:debug, limit: 100) ==
+               "in:logs severity_text:(debug,DEBUG,Debug,trace,TRACE,Trace) time:last_24h sort:timestamp:desc limit:100"
+
+      assert Query.logs_severity_data_query([:fatal, :error]) =~ "Critical"
+      assert Query.logs_severity_data_query([:fatal, :error]) =~ "Err"
+    end
+
+    test "builds fallback count queries from the same severity groups" do
+      assert Query.logs_severity_count_query(:fatal) ==
+               ~s|in:logs severity_text:(fatal,FATAL,Fatal,critical,CRITICAL,Critical,emergency,EMERGENCY,Emergency,alert,ALERT,Alert) time:last_24h stats:"count() as total"|
+    end
+  end
 
   describe "assess_trace_rollup_status/1" do
     test "returns healthy when assets are present and within lag threshold" do
