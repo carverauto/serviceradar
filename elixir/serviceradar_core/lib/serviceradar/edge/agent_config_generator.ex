@@ -289,6 +289,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.read!()
 
     assignments
+    |> Enum.map(&ensure_plugin_package_loaded(&1, actor))
     |> Enum.filter(&has_approved_package?/1)
     |> Enum.uniq_by(&logical_plugin_id/1)
     |> Enum.map(&build_plugin_assignment_config/1)
@@ -296,6 +297,27 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     e ->
       Logger.warning("Error loading plugin assignments: #{inspect(e)}")
       []
+  end
+
+  defp ensure_plugin_package_loaded(
+         %PluginAssignment{plugin_package: %PluginPackage{}} = assignment,
+         _actor
+       ) do
+    assignment
+  end
+
+  defp ensure_plugin_package_loaded(%PluginAssignment{} = assignment, actor) do
+    case load_plugin_package(assignment.plugin_package_id, actor) do
+      {:ok, %PluginPackage{} = package} -> %{assignment | plugin_package: package}
+      _ -> assignment
+    end
+  end
+
+  defp load_plugin_package(package_id, actor) do
+    PluginPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^package_id)
+    |> Ash.read_one(actor: actor)
   end
 
   defp has_approved_package?(
@@ -310,6 +332,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
       false
     end
+  end
+
+  defp has_approved_package?(%PluginAssignment{} = assignment) do
+    Logger.warning(
+      "Skipping plugin assignment #{assignment.id}: package is not approved or was not loaded"
+    )
+
+    false
   end
 
   defp wasm_available?(%PluginPackage{} = package) do

@@ -176,17 +176,6 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     {:ok, old_package} = create_approved_package(actor, plugin_id)
     {:ok, new_package} = create_package_version(actor, plugin_id, "1.0.1")
 
-    {:ok, _revoked_old} =
-      old_package
-      |> Ash.Changeset.for_update(
-        :revoke,
-        %{denied_reason: "superseded by package update test"},
-        actor: actor
-      )
-      |> Ash.update()
-
-    {:ok, new_package} = approve_package(actor, new_package)
-
     {:ok, assignment} =
       PluginAssignment
       |> Ash.Changeset.for_create(
@@ -205,6 +194,17 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
         actor: actor
       )
       |> Ash.create()
+
+    {:ok, _revoked_old} =
+      old_package
+      |> Ash.Changeset.for_update(
+        :revoke,
+        %{denied_reason: "superseded by package update test"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, new_package} = approve_package(actor, new_package)
 
     assert {:ok, updated} =
              assignment
