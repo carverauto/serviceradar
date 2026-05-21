@@ -222,6 +222,47 @@ func TestRunProxmoxCredentialTest_BrokerGrantDoesNotExposeSecret(t *testing.T) {
 	}
 }
 
+func TestRunProxmoxCredentialTest_RequiresBrokerGrantEnvelope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		grant proxmoxCredentialBrokerGrant
+	}{
+		{
+			name: "missing schema",
+			grant: proxmoxCredentialBrokerGrant{
+				GrantID:             "grant-1",
+				GrantType:           "proxmox_api_token",
+				CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+			},
+		},
+		{
+			name: "missing grant type",
+			grant: proxmoxCredentialBrokerGrant{
+				Schema:              "serviceradar.edge_credential_broker_grant.v1",
+				GrantID:             "grant-1",
+				CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+				CredentialRuleID: "rule-1",
+				CredentialBroker: tc.grant,
+				Target:           proxmoxTestTarget{DeviceUID: "device-1", BaseURL: "https://pve.example:8006"},
+			})
+			if !errors.Is(err, errInvalidCredentialBrokerGrant) {
+				t.Fatalf("expected invalid broker grant error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestRunProxmoxCredentialTest_DeniesGrantTargetMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -249,6 +290,60 @@ func TestRunProxmoxCredentialTest_DeniesGrantTargetMismatch(t *testing.T) {
 	})
 	if !errors.Is(err, errCredentialBrokerGrantDenied) {
 		t.Fatalf("expected grant denied error, got %v", err)
+	}
+}
+
+func TestRunProxmoxCredentialTest_DeniesGrantKindAndAgentMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target proxmoxTestTarget
+	}{
+		{
+			name:   "kind",
+			target: proxmoxTestTarget{Kind: "service", DeviceUID: "device-1", BaseURL: "https://pve.example:8006"},
+		},
+		{
+			name: "agent",
+			target: proxmoxTestTarget{
+				Kind:      "device",
+				DeviceUID: "device-1",
+				AgentID:   "agent-2",
+				BaseURL:   "https://pve.example:8006",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+				CredentialRuleID: "rule-1",
+				CredentialBroker: proxmoxCredentialBrokerGrant{
+					Schema:              "serviceradar.edge_credential_broker_grant.v1",
+					GrantID:             "grant-1",
+					GrantType:           "proxmox_api_token",
+					CredentialRuleID:    "rule-1",
+					CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+					Target:              tc.target,
+					Allow: proxmoxCredentialBrokerACL{
+						Methods: []string{"GET"},
+						Paths:   []string{"/api2/json/version"},
+					},
+				},
+				Target: proxmoxTestTarget{
+					Kind:      "device",
+					DeviceUID: "device-1",
+					AgentID:   "agent-1",
+					BaseURL:   "https://pve.example:8006",
+				},
+			})
+			if !errors.Is(err, errCredentialBrokerGrantDenied) {
+				t.Fatalf("expected grant denied error, got %v", err)
+			}
+		})
 	}
 }
 

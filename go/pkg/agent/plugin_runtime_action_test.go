@@ -397,6 +397,43 @@ func TestPluginExecutionCredentialInjectionDeniesInsecureTLSByDefault(t *testing
 	}
 }
 
+func TestCredentialBrokerBasicAuthRequiresExplicitFields(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	grant := credentialBrokerGrant{
+		Inject: map[string]string{"type": "basic_auth"},
+	}
+	material := CredentialBrokerMaterial{Value: "shared-secret"}
+
+	if err := applyCredentialBrokerHTTPInjection(req, grant, material); !errors.Is(err, errCredentialBrokerMaterialUnavailable) {
+		t.Fatalf("expected material unavailable error, got %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization header = %q, want empty", got)
+	}
+}
+
+func TestCredentialBrokerBasicAuthUsesUsernamePasswordFields(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	grant := credentialBrokerGrant{
+		Inject: map[string]string{"type": "basic_auth"},
+	}
+	material := CredentialBrokerMaterial{
+		Fields: map[string]string{"username": "svc-user", "password": "svc-password"},
+	}
+
+	if err := applyCredentialBrokerHTTPInjection(req, grant, material); err != nil {
+		t.Fatalf("applyCredentialBrokerHTTPInjection returned error: %v", err)
+	}
+	username, password, ok := req.BasicAuth()
+	if !ok || username != "svc-user" || password != "svc-password" {
+		t.Fatalf("basic auth = %q/%q ok=%v, want svc-user/svc-password true", username, password, ok)
+	}
+}
+
 func TestCredentialBrokerResolutionRejectsExpiredProviderLease(t *testing.T) {
 	t.Parallel()
 
