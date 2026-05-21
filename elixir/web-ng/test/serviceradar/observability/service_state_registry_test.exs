@@ -131,6 +131,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert state.available == true
     assert state.gateway_id == agent.gateway_id
     assert state.message == "cached plugin result"
+    assert [^state] = active_logical_states_for(agent, package.name)
   end
 
   test "agent-reported plugin status preserves payload details for service cards" do
@@ -178,6 +179,22 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
       actor: system_actor()
     )
     |> Ash.read_one!(domain: ServiceRadar.Observability)
+  end
+
+  defp active_logical_states_for(agent, service_name) do
+    metadata = agent.metadata || %{}
+    partition = metadata["partition"] || "default"
+
+    ServiceState
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      agent_id == ^agent.uid and
+        partition == ^partition and
+        service_type == "plugin" and
+        service_name == ^service_name and
+        state == "active"
+    )
+    |> Ash.read!(actor: system_actor(), domain: ServiceRadar.Observability)
   end
 
   defp approved_package_fixture(output) do

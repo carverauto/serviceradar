@@ -78,7 +78,18 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     plugin_id = "policy-package-update-#{unique_id}"
     agent_uid = "agent-policy-package-update-#{unique_id}"
     {:ok, old_package} = create_approved_package(actor, plugin_id)
-    {:ok, new_package} = create_approved_package_version(actor, plugin_id, "1.0.1")
+    {:ok, new_package} = create_package_version(actor, plugin_id, "1.0.1")
+
+    {:ok, _revoked_old} =
+      old_package
+      |> Ash.Changeset.for_update(
+        :revoke,
+        %{denied_reason: "superseded by package update test"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, new_package} = approve_package(actor, new_package)
 
     {:ok, assignment} =
       PluginAssignment
@@ -124,10 +135,12 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
       )
       |> Ash.create()
 
-    create_approved_package_version(actor, plugin_id, "1.0.0")
+    with {:ok, package} <- create_package_version(actor, plugin_id, "1.0.0") do
+      approve_package(actor, package)
+    end
   end
 
-  defp create_approved_package_version(actor, plugin_id, version) do
+  defp create_package_version(actor, plugin_id, version) do
     manifest = %{
       "id" => plugin_id,
       "name" => "Duplicate Guard",
@@ -143,28 +156,29 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
       }
     }
 
-    {:ok, package} =
-      PluginPackage
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          plugin_id: plugin_id,
-          name: "Duplicate Guard",
-          version: version,
-          entrypoint: "run_check",
-          runtime: "wasi-preview1",
-          outputs: "serviceradar.plugin_result.v1",
-          manifest: manifest,
-          config_schema: %{},
-          display_contract: %{},
-          content_hash: "sha256:#{plugin_id}:#{version}",
-          signature: %{},
-          source_type: :upload
-        },
-        actor: actor
-      )
-      |> Ash.create()
+    PluginPackage
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Duplicate Guard",
+        version: version,
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: manifest,
+        config_schema: %{},
+        display_contract: %{},
+        content_hash: "sha256:#{plugin_id}:#{version}",
+        signature: %{},
+        source_type: :upload
+      },
+      actor: actor
+    )
+    |> Ash.create()
+  end
 
+  defp approve_package(actor, package) do
     package
     |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
     |> Ash.update()

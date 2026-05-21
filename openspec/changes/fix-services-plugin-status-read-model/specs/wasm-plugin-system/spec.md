@@ -35,6 +35,8 @@ The control plane SHALL allow assigning plugin packages to agents and SHALL deli
 
 Assignments SHALL NOT embed reusable bearer download URLs for plugin blobs. Agents SHALL receive only the internal plugin reference material needed to perform an authenticated fetch without a tokenized URL appearing in config payloads. First-party assignments SHALL deliver the runtime configuration fields required by their plugin schemas before execution.
 
+Only one package version for a given plugin ID SHALL be approved at a time. Approving a different version of the same plugin SHALL revoke the previously approved package and disable assignments that reference a superseded package.
+
 #### Scenario: Assign plugin to an agent
 - **GIVEN** a plugin package exists
 - **WHEN** an admin assigns the plugin to an agent
@@ -53,6 +55,13 @@ Assignments SHALL NOT embed reusable bearer download URLs for plugin blobs. Agen
 - **WHEN** the control plane generates the agent plugin config
 - **THEN** the assignment params SHALL include the required schema fields for that plugin or a typed configuration error before execution
 - **AND** the generated permissions SHALL include only the approved capabilities and allowlists required by that plugin
+
+#### Scenario: Approving a new package version supersedes the old version
+- **GIVEN** plugin `proxmox-inventory` version `0.1.0` is approved
+- **WHEN** an operator approves version `0.1.1` for the same plugin ID
+- **THEN** version `0.1.0` SHALL be revoked
+- **AND** assignments for version `0.1.0` SHALL be disabled
+- **AND** the database SHALL reject a second simultaneously approved package for `proxmox-inventory`
 
 ### Requirement: Agent Wasm Runtime Sandbox
 The agent MUST execute plugins in a sandboxed Wasm runtime with resource limits and must not expose raw filesystem or socket access.

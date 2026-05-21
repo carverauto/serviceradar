@@ -11,6 +11,7 @@ Operators need `/services` to be a durable current-state view backed by Postgres
 - Prevent assignment reconciliation from overwriting newer real plugin results with `plugin assignment pending result`.
 - Backfill or repair current-state rows from recent `service_status` history when the read model is missing or stale.
 - Audit and fix first-party plugin assignments/config materialization so required runtime fields such as AWX `base_url`/`api_token` and Proxmox target credentials are present before execution.
+- Enforce one approved package version per plugin ID and disable assignments for superseded package versions.
 - Add regression coverage for first-party scheduled plugins and `/services` reload behavior.
 
 ## Impact
@@ -22,6 +23,9 @@ Operators need `/services` to be a durable current-state view backed by Postgres
   - `elixir/serviceradar_core/lib/serviceradar/results_router.ex`
   - `elixir/serviceradar_core/lib/serviceradar/edge/agent_config_generator.ex`
   - `elixir/serviceradar_core/lib/serviceradar/credentials/plugin_assignment_materializer.ex`
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/plugin_package.ex`
+  - `elixir/serviceradar_core/priv/repo/migrations/*`
+  - `elixir/web-ng/lib/serviceradar_web_ng/plugins/packages.ex`
   - `go/pkg/agent/plugin_runtime.go`
   - `go/cmd/wasm-plugins/{awx,proxmox,alienvault-otx,dusk-checker,unifi-protect,sample-northbound}`
-- Data impact: no new table is expected initially; if investigation shows `service_state` needs extra columns or indexes, add an Elixir migration under `elixir/serviceradar_core/priv/repo/migrations/` using the `platform` schema.
+- Data impact: add a partial unique index in the `platform` schema so only one package per plugin can be `approved`; superseded approved packages are revoked and their assignments disabled during migration.

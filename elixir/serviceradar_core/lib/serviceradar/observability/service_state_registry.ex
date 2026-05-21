@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> Ash.create(domain: ServiceRadar.Observability)
     |> case do
       {:ok, state} ->
+        deactivate_shadowed_plugin_states(state, actor)
         ServiceStatePubSub.broadcast_update(state)
         :ok
 
@@ -205,6 +206,44 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       {:error, error} ->
         Logger.warning("Failed to load service state: #{inspect(error)}")
         :ok
+    end
+  end
+
+  defp deactivate_shadowed_plugin_states(
+         %ServiceState{service_type: "plugin"} = current_state,
+         actor
+       ) do
+    ServiceState
+    |> filter(
+      id != ^current_state.id and
+        agent_id == ^current_state.agent_id and
+        partition == ^current_state.partition and
+        service_type == ^current_state.service_type and
+        service_name == ^current_state.service_name and
+        state == "active"
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} ->
+        Enum.each(states, &deactivate_shadow_state(&1, actor))
+
+      {:error, error} ->
+        Logger.warning("Failed to load shadowed plugin states: #{inspect(error)}")
+    end
+  end
+
+  defp deactivate_shadowed_plugin_states(_state, _actor), do: :ok
+
+  defp deactivate_shadow_state(%ServiceState{} = state, actor) do
+    state
+    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
+    |> Ash.update(domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, updated} ->
+        ServiceStatePubSub.broadcast_update(updated)
+
+      {:error, error} ->
+        Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
     end
   end
 
@@ -437,6 +476,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> Ash.create(domain: ServiceRadar.Observability)
     |> case do
       {:ok, state} ->
+        deactivate_shadowed_plugin_states(state, actor)
         ServiceStatePubSub.broadcast_update(state)
         :ok
 

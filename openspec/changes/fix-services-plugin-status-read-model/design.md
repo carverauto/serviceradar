@@ -5,6 +5,7 @@ The symptoms indicate three distinct failure classes:
 - **Read model freshness**: reload should read the latest current row from Postgres immediately instead of waiting for the next PubSub event or scheduled check.
 - **Placeholder overwrite**: `ServiceStateRegistry.reconcile_plugin_assignments/1` seeds assignment placeholders. Those placeholders must never replace newer real plugin results or make an old failure look like the current state.
 - **Execution/config regressions**: AWX reports missing `base_url`, Proxmox traps in TinyGo/JSON reflection, OTX/Dusk host-function calls fail, and several rows stay pending because no result reaches ingestion.
+- **Package activation drift**: multiple approved versions of the same plugin can remain present, which lets stale assignments and current-state rows look like duplicate plugins.
 
 ## Goals
 - Make `/services` deterministic on page reload from persisted current state.
@@ -12,6 +13,7 @@ The symptoms indicate three distinct failure classes:
 - Keep historical `service_status` ingestion intact for SRQL/history.
 - Add first-party plugin smoke coverage that exercises the same config shape agents receive.
 - Surface actionable plugin failures without truncating away the root cause needed to debug.
+- Keep plugin activation singular: one approved package version per plugin ID.
 
 ## Non-Goals
 - Replace SRQL or remove `service_status` history.
@@ -45,7 +47,13 @@ The symptoms indicate three distinct failure classes:
    - For Proxmox, isolate and fix the TinyGo runtime trap with a minimal fixture test before changing inventory behavior.
    - For host-function failures, distinguish expected network/policy denial from runtime host-function bugs.
 
+6. Enforce package activation invariants.
+   - Add a partial unique index on approved plugin packages by plugin ID.
+   - Make package approval revoke sibling approved packages before approving the selected package.
+   - Disable assignments that reference packages revoked by migration or approval.
+
 ## Risks
 - Updating both `service_status` and `service_state` must not create inconsistent records if one write succeeds and the other fails. The implementation should return/report partial failures and favor retryable idempotent writes.
 - `service_state` identities must remain stable. Changing service names or agent IDs would fragment current-state rows.
 - First-party plugin smoke tests may require mocked host functions rather than real external services to avoid flaky network dependencies.
+- Revoking superseded packages must be coordinated with assignment disablement so agents do not keep receiving stale package versions.
