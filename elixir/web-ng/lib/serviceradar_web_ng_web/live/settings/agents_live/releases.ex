@@ -1939,8 +1939,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     |> length()
   end
 
-  defp artifact_count(%{artifacts: artifacts}) when is_list(artifacts),
-    do: artifact_count(%{"artifacts" => artifacts})
+  defp artifact_count(%{artifacts: artifacts}) when is_list(artifacts), do: artifact_count(%{"artifacts" => artifacts})
 
   defp artifact_count(_manifest), do: 0
 

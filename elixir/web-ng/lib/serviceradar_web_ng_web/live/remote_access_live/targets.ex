@@ -167,7 +167,11 @@ defmodule ServiceRadarWebNGWeb.RemoteAccessLive.Targets do
 
   defp load_targets(socket) do
     with {:ok, application_targets} <-
-           maybe_read_targets(RemoteAccessApplicationTarget, socket.assigns.current_scope, socket.assigns.can_open_app?),
+           maybe_read_targets(
+             RemoteAccessApplicationTarget,
+             socket.assigns.current_scope,
+             socket.assigns.can_open_app?
+           ),
          {:ok, tcp_targets} <-
            maybe_read_targets(RemoteAccessTcpTarget, socket.assigns.current_scope, socket.assigns.can_open_tcp?) do
       socket

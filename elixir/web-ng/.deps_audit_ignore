@@ -21,3 +21,7 @@ GHSA-4g2h-vm7x-747c
 # Keep this waiver local to this quality gate until the shared dependency graph
 # accepts Decimal 3.x or the dependency is otherwise removed from this release.
 GHSA-rhv4-8758-jx7v
+
+# cowlib cookie encoder advisory has no patched release as of cowlib 2.16.1.
+# Keep cowlib at 2.16.1+ for GHSA-32p9-57cr-4x65 and GHSA-hv23-4qp7-8c8r.
+GHSA-g2wm-735q-3f56

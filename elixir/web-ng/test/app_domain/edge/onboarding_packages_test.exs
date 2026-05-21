@@ -403,9 +403,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                  issuance_quota: quota
                )
 
-      assert {:error,
-              {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_actor,
-               retry_after}} =
+      assert {:error, {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_actor, retry_after}} =
                OnboardingPackages.create_with_gateway_cert(attrs,
                  actor: actor,
                  issuance_quota: quota
@@ -437,9 +435,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
                  issuance_quota: quota
                )
 
-      assert {:error,
-              {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_partition,
-               retry_after}} =
+      assert {:error, {:edge_onboarding_quota_exceeded, :edge_onboarding_package_create_partition, retry_after}} =
                OnboardingPackages.create_with_gateway_cert(attrs,
                  actor: %{id: "operator-partition-quota-b-#{unique}", role: :operator},
                  issuance_quota: quota

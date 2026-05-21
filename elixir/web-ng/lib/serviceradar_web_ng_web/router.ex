@@ -66,6 +66,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:fetch_live_flash)
     plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
     plug(SecurityHeaders)
+    plug(:require_same_origin_websocket)
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
@@ -901,6 +902,54 @@ defmodule ServiceRadarWebNGWeb.Router do
       _ -> conn
     end
   end
+
+  defp require_same_origin_websocket(conn, _opts) do
+    if websocket_upgrade?(conn) and cross_origin_websocket?(conn) do
+      conn
+      |> Plug.Conn.send_resp(:forbidden, "Forbidden")
+      |> Plug.Conn.halt()
+    else
+      conn
+    end
+  end
+
+  defp websocket_upgrade?(conn) do
+    upgrade =
+      conn
+      |> Plug.Conn.get_req_header("upgrade")
+      |> List.first()
+      |> to_string()
+      |> String.downcase()
+
+    connection =
+      conn
+      |> Plug.Conn.get_req_header("connection")
+      |> Enum.join(",")
+      |> String.downcase()
+
+    upgrade == "websocket" and String.contains?(connection, "upgrade")
+  end
+
+  defp cross_origin_websocket?(conn) do
+    case Plug.Conn.get_req_header(conn, "origin") do
+      [] -> false
+      [origin | _] -> not same_request_origin?(conn, origin)
+    end
+  end
+
+  defp same_request_origin?(conn, origin) do
+    case URI.parse(origin) do
+      %URI{scheme: scheme, host: host} = uri when scheme in ["http", "https"] and is_binary(host) ->
+        String.downcase(host) == String.downcase(conn.host) and effective_origin_port(uri) == conn.port
+
+      _other ->
+        false
+    end
+  end
+
+  defp effective_origin_port(%URI{port: nil, scheme: "https"}), do: 443
+  defp effective_origin_port(%URI{port: nil, scheme: "http"}), do: 80
+  defp effective_origin_port(%URI{port: port}), do: port
 
   # Set the Ash actor from the current user for policy enforcement
   # Includes partition context from request header or session

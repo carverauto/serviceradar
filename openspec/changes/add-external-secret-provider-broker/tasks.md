@@ -12,17 +12,17 @@
 - [x] 2.4.1 Enforce Proxmox credential-test grant target, method, path, host, port, and expiry policy in the Go agent before credential resolution.
 - [x] 2.4.2 Enforce northbound `plugin.run_action` broker grant method/path/host/port/expiry policy in the agent `http_request` host function.
 - [x] 2.4.3 Add authenticated agent-gateway/core credential grant resolution RPC with persisted grant validation and resolution audit.
-- [ ] 2.5 Add cache/lease policy enforcement with default `no_cache` or short memory-only TTL.
+- [ ] 2.5 Add provider lease renewal/revocation policy enforcement beyond the current grant TTL and agent memory-cache caps.
 - [x] 2.5.1 Add agent-side default no-cache behavior and opt-in memory-only credential material caching capped by grant expiry.
 
 ## 3. Consumer Integration
-- [ ] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.
+- [x] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.
 - [x] 3.1.1 Add an agent-owned credential broker resolver interface and broker-grant-driven HTTP injection for northbound action host functions.
 - [x] 3.1.2 Wire the Go agent plugin manager to resolve broker grants through the gateway broker API.
 - [ ] 3.2 Update mapper/discovery credential resolution to call the broker and stop direct row decryption in compilers/tools.
 - [x] 3.2.1 Add broker-backed SNMP credential references for SNMP profiles, explicit SNMP targets, and device SNMP overrides while keeping legacy encrypted SNMP credential fallback.
-- [ ] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
-- [ ] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.
+- [x] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
+- [x] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.
 - [x] 3.4.1 Issue persisted credential broker grants for northbound `plugin.run_action` launch/poll dispatches using descriptor/provider credential requirements and invocation-selected credential references.
 - [ ] 3.5 Add compatibility tests proving internal encrypted credentials still work.
 - [x] 3.5.1 Add focused SNMP compiler coverage for broker-backed internal credential secrets.
@@ -36,6 +36,12 @@
 
 ## 5. Security and Validation
 - [x] 5.1 Add redaction tests for provider paths, bootstrap credentials, resolved secrets, grants, logs, plugin params, and result payloads.
-- [ ] 5.2 Add audit events for provider test, secret resolution success/failure, cache use, lease renewal, revocation, ad-hoc task launch/dispatch/completion, and task credential resolution.
+- [ ] 5.2 Add the remaining audit events for provider test, cache use, lease renewal, revocation, and full ad-hoc task launch/dispatch/completion. Secret resolution success/failure and grant resolution are already audited.
 - [x] 5.3 Run `openspec validate add-external-secret-provider-broker --strict`.
-- [ ] 5.4 Run focused Elixir/Go tests for credential broker consumers before implementation PRs merge.
+- [x] 5.4 Run focused Elixir/Go tests for credential broker consumers before implementation PRs merge.
+
+## Remaining Follow-up PR Scope
+- Settings UI/API for provider/reference CRUD, provider testing, health, visibility, and rotation state.
+- Mapper/discovery callers that still decrypt directly outside the SNMP/profile path.
+- Provider lease renewal/revocation semantics beyond grant expiry and agent memory-cache caps.
+- Broader internal-encrypted compatibility coverage across all consumer families, not only SNMP.

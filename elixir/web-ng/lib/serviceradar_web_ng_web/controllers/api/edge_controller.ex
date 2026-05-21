@@ -270,8 +270,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     conn |> put_status(:unauthorized) |> json(%{error: "onboarding token invalid"})
   end
 
-  defp handle_download_error(conn, reason)
-       when reason in [:already_delivered, :revoked, :deleted] do
+  defp handle_download_error(conn, reason) when reason in [:already_delivered, :revoked, :deleted] do
     conn |> put_status(:conflict) |> json(%{error: "package #{reason}"})
   end
 
@@ -435,13 +434,11 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     }
   end
 
-  defp verify_onboarding_token_package(%{pkg: token_package_id}, package_id)
-       when token_package_id == package_id, do: :ok
+  defp verify_onboarding_token_package(%{pkg: token_package_id}, package_id) when token_package_id == package_id, do: :ok
 
   defp verify_onboarding_token_package(_payload, _package_id), do: {:error, :package_mismatch}
 
-  defp verify_onboarding_token_partition(%{partition_id: partition_id}, package)
-       when is_binary(partition_id) do
+  defp verify_onboarding_token_partition(%{partition_id: partition_id}, package) when is_binary(partition_id) do
     if normalize_partition_id(partition_id) == package_partition_id(package) do
       :ok
     else
@@ -502,17 +499,12 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
 
   Revokes an agent mTLS certificate by component id on the selected gateway.
   """
-  def revoke_agent_certificate(
-        conn,
-        %{"gateway_id" => gateway_id, "component_id" => component_id} = params
-      ) do
+  def revoke_agent_certificate(conn, %{"gateway_id" => gateway_id, "component_id" => component_id} = params) do
     reason = params["reason"]
 
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "settings.edge.manage") do
-      case GatewayCertificateIssuer.revoke_agent_certificate(gateway_id, component_id,
-             reason: reason
-           ) do
+      case GatewayCertificateIssuer.revoke_agent_certificate(gateway_id, component_id, reason: reason) do
         {:ok, result} ->
           json(conn, result)
 

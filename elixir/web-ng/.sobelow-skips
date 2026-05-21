@@ -63,3 +63,6 @@ SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex
 SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:1805,6EBA71B
 SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2689,781E7D7
 SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/dashboard_live/data.ex:2162,7AE0139
+
+Config.CSRF: Missing CSRF Protections,lib/serviceradar_web_ng_web/router.ex:64,4B2D56B
+SQL.Query: SQL injection,lib/serviceradar_web_ng_web/live/log_live/index.ex:7217,78D02A4

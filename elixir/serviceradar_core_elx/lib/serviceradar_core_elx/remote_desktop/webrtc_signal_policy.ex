@@ -104,21 +104,35 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalPolicy do
   defp validate_media_sections(sections) do
     media_types = Enum.map(sections, & &1.media_type)
 
-    cond do
-      Enum.any?(media_types, &(not MapSet.member?(@allowed_media_types, &1))) ->
-        {:error, :unsupported_media_type}
-
-      length(media_types) != length(Enum.uniq(media_types)) ->
-        {:error, :duplicate_media_section}
-
-      true ->
-        Enum.reduce_while(sections, :ok, fn section, :ok ->
-          case validate_media_section(section) do
-            :ok -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
+    with :ok <- validate_allowed_media_types(media_types),
+         :ok <- validate_unique_media_types(media_types) do
+      validate_all_media_sections(sections)
     end
+  end
+
+  defp validate_allowed_media_types(media_types) do
+    if Enum.any?(media_types, &(not MapSet.member?(@allowed_media_types, &1))) do
+      {:error, :unsupported_media_type}
+    else
+      :ok
+    end
+  end
+
+  defp validate_unique_media_types(media_types) do
+    if length(media_types) == length(Enum.uniq(media_types)) do
+      :ok
+    else
+      {:error, :duplicate_media_section}
+    end
+  end
+
+  defp validate_all_media_sections(sections) do
+    Enum.reduce_while(sections, :ok, fn section, :ok ->
+      case validate_media_section(section) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp validate_media_section(%{media_type: "application"}), do: :ok
@@ -226,18 +240,17 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalPolicy do
   end
 
   defp validate_candidate_address(address) do
-    if address |> String.downcase() |> String.ends_with?(".local") do
-      {:error, :blocked_ice_candidate}
+    with false <- local_candidate_address?(address),
+         {:ok, tuple} <- :inet.parse_address(String.to_charlist(address)),
+         false <- blocked_ip_tuple?(tuple) do
+      :ok
     else
-      case :inet.parse_address(String.to_charlist(address)) do
-        {:ok, tuple} ->
-          if blocked_ip_tuple?(tuple), do: {:error, :blocked_ice_candidate}, else: :ok
-
-        {:error, _reason} ->
-          {:error, :invalid_ice_candidate}
-      end
+      true -> {:error, :blocked_ice_candidate}
+      {:error, _reason} -> {:error, :invalid_ice_candidate}
     end
   end
+
+  defp local_candidate_address?(address), do: address |> String.downcase() |> String.ends_with?(".local")
 
   defp blocked_ip_tuple?({127, _b, _c, _d}), do: true
   defp blocked_ip_tuple?({10, _b, _c, _d}), do: true
