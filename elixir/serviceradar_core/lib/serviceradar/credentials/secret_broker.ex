@@ -8,6 +8,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialEventWriter
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.CredentialSecretProvider
@@ -39,6 +40,49 @@ defmodule ServiceRadar.Credentials.SecretBroker do
 
     with {:ok, secret} <- NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor) do
       resolve_loaded_secret(secret, opts)
+    end
+  end
+
+  @doc """
+  Resolves a credential through an already-loaded broker grant.
+
+  This is the intended entry point for task runners and agent-side broker
+  integrations that have been handed a scoped grant instead of plaintext
+  credentials.
+  """
+  @spec resolve_with_grant(map() | struct(), keyword()) ::
+          {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
+  def resolve_with_grant(grant, opts \\ []) when is_map(grant) do
+    with {:ok, secret_id} <- secret_id_from_grant(grant),
+         :ok <-
+           CredentialBrokerGrant.validate_loaded_grant(
+             grant,
+             Keyword.put(opts, :secret_id, secret_id)
+           ) do
+      resolve_network_credential_secret(secret_id, grant_resolution_opts(grant, opts))
+    end
+  end
+
+  @doc """
+  Resolves an already-loaded credential through an already-loaded broker grant.
+  """
+  @spec resolve_loaded_secret_with_grant(map() | struct(), map() | struct(), keyword()) ::
+          {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
+  def resolve_loaded_secret_with_grant(secret, grant, opts \\ [])
+      when is_map(secret) and is_map(grant) do
+    secret_id = string_value(value(secret, :id))
+
+    with {:ok, grant_secret_id} <- secret_id_from_grant(grant),
+         true <- grant_secret_id == secret_id,
+         :ok <-
+           CredentialBrokerGrant.validate_loaded_grant(
+             grant,
+             Keyword.put(opts, :secret_id, secret_id)
+           ) do
+      resolve_loaded_secret(secret, grant_resolution_opts(grant, opts))
+    else
+      false -> {:error, {:grant_scope_mismatch, :secret_id}}
+      error -> error
     end
   end
 
@@ -107,7 +151,33 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp external_resolution_allowed?(opts) do
     Keyword.get(opts, :allow_external_resolution?, false) ||
       present?(Keyword.get(opts, :grant_id)) ||
+      is_map(Keyword.get(opts, :grant)) ||
       Keyword.get(opts, :trusted_broker_context?, false)
+  end
+
+  defp secret_id_from_grant(grant) do
+    case value(grant, :secret_id) || secret_id_from_ref(value(grant, :secret_ref)) do
+      secret_id when is_binary(secret_id) and secret_id != "" -> {:ok, secret_id}
+      _ -> {:error, :grant_missing_secret_id}
+    end
+  end
+
+  defp secret_id_from_ref("credentialref:network-credential-secret:" <> secret_id), do: secret_id
+  defp secret_id_from_ref(_ref), do: nil
+
+  defp grant_resolution_opts(grant, opts) do
+    opts
+    |> Keyword.put(:grant, grant)
+    |> Keyword.put(:grant_id, string_value(value(grant, :id)))
+    |> Keyword.put(:allow_external_resolution?, true)
+    |> Keyword.put(:trusted_broker_context?, true)
+    |> Keyword.put_new(:consumer_kind, value(grant, :consumer_kind))
+    |> Keyword.put_new(:consumer_id, value(grant, :consumer_id))
+    |> Keyword.put_new(:purpose, value(grant, :purpose))
+    |> Keyword.put_new(:target_kind, value(grant, :target_kind))
+    |> Keyword.put_new(:target_id, value(grant, :target_id))
+    |> Keyword.put_new(:agent_id, value(grant, :agent_id))
+    |> Keyword.put_new(:resolution_location, value(grant, :resolution_location))
   end
 
   defp do_resolve_external(secret, opts) do
@@ -262,6 +332,10 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp string_value(nil), do: nil
+  defp string_value(value) when is_binary(value), do: value
+  defp string_value(value), do: to_string(value)
 
   defp audit_attrs(outcome, secret, provider, result, opts) do
     %{

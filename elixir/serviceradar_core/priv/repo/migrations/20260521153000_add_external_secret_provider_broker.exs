@@ -75,6 +75,105 @@ defmodule ServiceRadar.Repo.Migrations.AddExternalSecretProviderBroker do
              name: :credential_secret_provider_versions_source_idx
            )
 
+    create table(:credential_broker_grants, primary_key: false, prefix: @prefix) do
+      add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
+
+      add(
+        :secret_id,
+        references(:network_credential_secrets,
+          type: :uuid,
+          on_delete: :restrict,
+          prefix: @prefix
+        )
+      )
+
+      add(:secret_ref, :text, null: false)
+      add(:credential_rule_id, :uuid)
+      add(:grant_type, :text, null: false)
+      add(:consumer_kind, :text, null: false)
+      add(:consumer_id, :text)
+      add(:purpose, :text, null: false)
+      add(:target_kind, :text)
+      add(:target_id, :text)
+      add(:agent_id, :text)
+      add(:resolution_location, :text, null: false, default: "control_plane")
+      add(:allowed_methods, {:array, :text}, null: false, default: [])
+      add(:allowed_paths, {:array, :text}, null: false, default: [])
+      add(:allowed_hosts, {:array, :text}, null: false, default: [])
+      add(:allowed_ports, {:array, :integer}, null: false, default: [])
+      add(:inject, :map, null: false, default: %{})
+      add(:metadata, :map, null: false, default: %{})
+      add(:ttl_seconds, :integer, null: false, default: 300)
+      add(:expires_at, :utc_datetime_usec, null: false)
+      add(:issued_by_actor_id, :text)
+      add(:status, :text, null: false, default: "issued")
+      add(:issued_at, :utc_datetime_usec)
+      add(:consumed_at, :utc_datetime_usec)
+      add(:denied_at, :utc_datetime_usec)
+      add(:denial_reason, :text)
+      add(:revoked_at, :utc_datetime_usec)
+      add(:revocation_reason, :text)
+
+      add(:inserted_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+
+      add(:updated_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+    end
+
+    create index(:credential_broker_grants, [:secret_id, :status],
+             prefix: @prefix,
+             name: :credential_broker_grants_secret_status_idx
+           )
+
+    create index(:credential_broker_grants, [:consumer_kind, :consumer_id],
+             prefix: @prefix,
+             name: :credential_broker_grants_consumer_idx
+           )
+
+    create index(:credential_broker_grants, [:agent_id, :status, :expires_at],
+             prefix: @prefix,
+             name: :credential_broker_grants_agent_status_expires_idx
+           )
+
+    create table(:credential_broker_grant_versions, primary_key: false, prefix: @prefix) do
+      add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
+      add(:version_action_type, :text, null: false)
+      add(:version_action_name, :text, null: false)
+      add(:version_action_inputs, :map, null: false)
+
+      add(
+        :version_source_id,
+        references(:credential_broker_grants,
+          type: :uuid,
+          name: "credential_broker_grant_versions_version_source_id_fkey",
+          prefix: @prefix
+        ),
+        null: false
+      )
+
+      add(:changes, :map)
+
+      add(:version_inserted_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+
+      add(:version_updated_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+    end
+
+    create index(:credential_broker_grant_versions, [:version_source_id],
+             prefix: @prefix,
+             name: :credential_broker_grant_versions_source_idx
+           )
+
     alter table(:network_credential_secrets, prefix: @prefix) do
       add(:source_type, :text, null: false, default: "internal_encrypted")
 

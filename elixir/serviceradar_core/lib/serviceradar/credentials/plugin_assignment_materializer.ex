@@ -10,6 +10,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.PluginPackage
@@ -158,38 +159,46 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     do: proxmox_params_template(rule, secret_id, @inventory_purpose)
 
   defp proxmox_inventory_credential_broker_grant(rule, secret_id) do
-    %{
-      "schema" => "serviceradar.edge_credential_broker_grant.v1",
-      "grant_type" => "proxmox_api_token",
-      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "inject" => %{
+    CredentialBrokerGrant.to_payload(%{
+      secret_id: secret_id,
+      secret_ref: SecretRefs.network_credential_ref(secret_id),
+      credential_rule_id: value_string(rule, [:id, "id"]),
+      grant_type: "proxmox_api_token",
+      consumer_kind: :plugin,
+      consumer_id: @proxmox_inventory_plugin_id,
+      purpose: "inventory_enrichment",
+      resolution_location: :agent,
+      inject: %{
         "header" => "Authorization",
         "scheme" => "PVEAPIToken"
       },
-      "allow" => %{
-        "methods" => ["GET"],
-        "paths" => [
-          "/api2/json/version",
-          "/api2/json/cluster/status",
-          "/api2/json/nodes",
-          "/api2/json/nodes/*",
-          "/api2/json/cluster/resources"
-        ]
-      },
-      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
-    }
+      allowed_methods: ["GET"],
+      allowed_paths: [
+        "/api2/json/version",
+        "/api2/json/cluster/status",
+        "/api2/json/nodes",
+        "/api2/json/nodes/*",
+        "/api2/json/cluster/resources"
+      ],
+      ttl_seconds: metadata_int(rule, "credential_broker_ttl_seconds", 300)
+    })
   end
 
   defp proxmox_console_credential_broker_grant(rule, secret_id) do
-    %{
-      "schema" => "serviceradar.edge_credential_broker_grant.v1",
-      "grant_type" => "proxmox_console",
-      "auth_method" => auth_method(rule),
-      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
-    }
+    CredentialBrokerGrant.to_payload(
+      %{
+        secret_id: secret_id,
+        secret_ref: SecretRefs.network_credential_ref(secret_id),
+        credential_rule_id: value_string(rule, [:id, "id"]),
+        grant_type: "proxmox_console",
+        consumer_kind: :plugin,
+        consumer_id: @proxmox_console_plugin_id,
+        purpose: "console_access",
+        resolution_location: :agent,
+        ttl_seconds: metadata_int(rule, "credential_broker_ttl_seconds", 300)
+      },
+      %{"auth_method" => auth_method(rule)}
+    )
   end
 
   defp rules_for_agent_scope(agent_id, purpose, actor, opts) do

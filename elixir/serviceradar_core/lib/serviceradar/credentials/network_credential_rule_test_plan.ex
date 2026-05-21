@@ -8,6 +8,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Plugins.SecretRefs
@@ -99,19 +100,31 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
   defp credential_broker_grant(rule, target, secret_id) do
     target = target_payload(target)
 
-    compact_map(%{
-      "schema" => "serviceradar.edge_credential_broker_grant.v1",
-      "grant_type" => "proxmox_api_token",
-      "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "target" => %{
-        "device_uid" => Map.get(target, "device_uid"),
-        "base_url" => Map.get(target, "base_url")
+    CredentialBrokerGrant.to_payload(
+      %{
+        secret_id: secret_id,
+        secret_ref: SecretRefs.network_credential_ref(secret_id),
+        credential_rule_id: value_string(rule, [:id, "id"]),
+        grant_type: "proxmox_api_token",
+        consumer_kind: :test,
+        consumer_id: value_string(rule, [:id, "id"]),
+        purpose: "credential_rule_test",
+        target_kind: "device",
+        target_id: Map.get(target, "device_uid"),
+        agent_id: value_string(target, ["agent_id", :agent_id]),
+        resolution_location: :agent,
+        inject: %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
+        allowed_methods: ["GET"],
+        allowed_paths: ["/api2/json/version", "/api2/json/nodes"],
+        ttl_seconds: metadata_int(rule, "test_ttl_seconds", 120)
       },
-      "inject" => %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
-      "allow" => %{"methods" => ["GET"], "paths" => ["/api2/json/version", "/api2/json/nodes"]},
-      "ttl_seconds" => metadata_int(rule, "test_ttl_seconds", 120)
-    })
+      %{
+        "target" => %{
+          "device_uid" => Map.get(target, "device_uid"),
+          "base_url" => Map.get(target, "base_url")
+        }
+      }
+    )
   end
 
   defp select_target(preview) do

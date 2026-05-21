@@ -17,12 +17,12 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   """
 
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.SecretRefs
 
   @payload_schema "serviceradar.awx_command.v1"
-  @grant_schema "serviceradar.edge_credential_broker_grant.v1"
   @grant_type "awx_oauth2_token"
   @default_grant_ttl_seconds 300
   @default_command_ttl_seconds 60
@@ -167,22 +167,26 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   end
 
   defp credential_broker_grant(%Controller{} = controller, verb) do
-    %{
-      "schema" => @grant_schema,
-      "grant_type" => @grant_type,
-      "credential_secret_ref" =>
-        SecretRefs.network_credential_ref(controller.credential_secret_id),
-      "inject" => %{
+    CredentialBrokerGrant.to_payload(%{
+      secret_id: controller.credential_secret_id,
+      secret_ref: SecretRefs.network_credential_ref(controller.credential_secret_id),
+      grant_type: @grant_type,
+      consumer_kind: :ansible,
+      consumer_id: controller.id,
+      purpose: verb,
+      target_kind: "awx_controller",
+      target_id: controller.id,
+      agent_id: controller.agent_id,
+      resolution_location: :agent,
+      inject: %{
         "type" => "http_header",
         "name" => "Authorization",
         "scheme" => "Bearer"
       },
-      "allow" => %{
-        "methods" => allowed_methods_for(verb),
-        "paths" => ["/api/v2/"]
-      },
-      "ttl_seconds" => @default_grant_ttl_seconds
-    }
+      allowed_methods: allowed_methods_for(verb),
+      allowed_paths: ["/api/v2/"],
+      ttl_seconds: @default_grant_ttl_seconds
+    })
   end
 
   defp allowed_methods_for("awx.launch_job"), do: ["POST"]

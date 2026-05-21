@@ -74,7 +74,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
 
     assert plan.payload["credential_broker"]["target"] == %{
              "device_uid" => "device-1",
-             "base_url" => "https://192.0.2.10:8006"
+             "base_url" => "https://192.0.2.10:8006",
+             "kind" => "device",
+             "id" => "device-1"
            }
 
     assert plan.payload["credential_broker"]["allow"] == %{

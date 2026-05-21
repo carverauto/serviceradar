@@ -33,6 +33,13 @@ The system SHALL model external secret providers separately from credential refe
 ### Requirement: Broker grants govern credential resolution
 Credential resolution SHALL require a broker grant scoped to consumer, purpose, target, allowed network/resource policy, resolution location, and expiration.
 
+#### Scenario: Broker grant is a persisted lifecycle resource
+- **GIVEN** a trusted ServiceRadar component needs to authorize credential resolution for a runtime consumer
+- **WHEN** it issues a broker grant
+- **THEN** ServiceRadar SHALL persist a first-class grant record with secret reference, consumer, purpose, target, allowed request policy, TTL, resolution location, status, issuer, and audit metadata
+- **AND** grant lifecycle transitions SHALL be constrained to issued, active, consumed, denied, expired, or revoked
+- **AND** the grant SHALL be versioned with AshPaperTrail
+
 #### Scenario: Plugin receives grant reference only
 - **GIVEN** a plugin-backed check needs an HTTP bearer token
 - **WHEN** the assignment is compiled

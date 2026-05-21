@@ -6,8 +6,9 @@
 ## 2. Broker Interface
 - [x] 2.1 Define project-owned credential broker behaviour/interfaces for control-plane and agent-side resolution.
 - [x] 2.2 Add a test/stub provider adapter that returns synthetic secrets for integration tests without a real secret server.
-- [ ] 2.3 Add grant validation for target, consumer, purpose, provider, allowed host/path/port, TTL, and resolution location.
-- [ ] 2.4 Add cache/lease policy enforcement with default `no_cache` or short memory-only TTL.
+- [x] 2.3 Add first-class broker grant resource with lifecycle, PaperTrail, system-only write policy, compatibility payload builder, and validation for target/consumer/purpose/TTL/resolution location.
+- [ ] 2.4 Add provider/host/path/port request enforcement for broker grants at the agent/control-plane resolution boundary.
+- [ ] 2.5 Add cache/lease policy enforcement with default `no_cache` or short memory-only TTL.
 
 ## 3. Consumer Integration
 - [ ] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.

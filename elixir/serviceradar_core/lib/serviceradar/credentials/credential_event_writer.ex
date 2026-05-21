@@ -31,6 +31,13 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     |> record_event()
   end
 
+  @doc "Write a broker grant lifecycle event."
+  def write_broker_grant_lifecycle(grant, action) do
+    grant
+    |> broker_grant_lifecycle_event_attrs(action)
+    |> record_event()
+  end
+
   def provider_lifecycle_event_attrs(provider, action) do
     activity_id = OCSF.activity_log_update()
     severity_id = severity_for_provider_action(action)
@@ -140,6 +147,49 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     )
   end
 
+  def broker_grant_lifecycle_event_attrs(grant, action) do
+    activity_id = OCSF.activity_log_update()
+    severity_id = severity_for_grant_action(action)
+    status_id = status_for_action(action)
+    grant_id = value(grant, :id)
+    secret_id = value(grant, :secret_id)
+
+    metadata =
+      CredentialRedactor.redact(%{
+        "event_family" => "credential_broker_grant_lifecycle",
+        "credential_broker_grant_id" => stringify(grant_id),
+        "network_credential_secret_id" => stringify(secret_id),
+        "credential_rule_id" => stringify(value(grant, :credential_rule_id)),
+        "grant_type" => value(grant, :grant_type),
+        "consumer_kind" => stringify(value(grant, :consumer_kind)),
+        "consumer_id" => value(grant, :consumer_id),
+        "purpose" => value(grant, :purpose),
+        "target_kind" => value(grant, :target_kind),
+        "target_id" => value(grant, :target_id),
+        "agent_id" => value(grant, :agent_id),
+        "resolution_location" => stringify(value(grant, :resolution_location)),
+        "status" => stringify(value(grant, :status)),
+        "action" => stringify(action)
+      })
+
+    base_event_attrs(
+      activity_id: activity_id,
+      severity_id: severity_id,
+      status_id: status_id,
+      message: "Credential broker grant #{grant_id} #{human_action(action)}",
+      correlation_uid: "credential_broker_grant:#{grant_id}",
+      log_name: "credential.broker_grant.lifecycle",
+      metadata: metadata,
+      observables:
+        observables([
+          observable(grant_id, "Credential Broker Grant ID"),
+          observable(secret_id, "Network Credential Secret ID"),
+          observable(value(grant, :consumer_id), "Credential Consumer ID"),
+          observable(value(grant, :target_id), "Credential Target ID")
+        ])
+    )
+  end
+
   defp base_event_attrs(opts) do
     activity_id = Keyword.fetch!(opts, :activity_id)
     severity_id = Keyword.fetch!(opts, :severity_id)
@@ -204,13 +254,20 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   defp severity_for_secret_action(:fail_rotation), do: OCSF.severity_medium()
   defp severity_for_secret_action(_action), do: OCSF.severity_informational()
 
+  defp severity_for_grant_action(action) when action in [:deny, :revoke],
+    do: OCSF.severity_medium()
+
+  defp severity_for_grant_action(:expire), do: OCSF.severity_low()
+  defp severity_for_grant_action(_action), do: OCSF.severity_informational()
+
   defp severity_for_resolution_outcome(:success), do: OCSF.severity_informational()
   defp severity_for_resolution_outcome(:cache_hit), do: OCSF.severity_informational()
   defp severity_for_resolution_outcome(:denied), do: OCSF.severity_medium()
   defp severity_for_resolution_outcome(_outcome), do: OCSF.severity_low()
 
-  defp status_for_action(action) when action in [:record_test_unavailable, :fail_rotation],
-    do: OCSF.status_failure()
+  defp status_for_action(action)
+       when action in [:record_test_unavailable, :fail_rotation, :deny, :revoke],
+       do: OCSF.status_failure()
 
   defp status_for_action(_action), do: OCSF.status_success()
 

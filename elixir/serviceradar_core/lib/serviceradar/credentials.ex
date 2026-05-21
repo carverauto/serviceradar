@@ -18,6 +18,7 @@ defmodule ServiceRadar.Credentials do
   end
 
   resources do
+    resource ServiceRadar.Credentials.CredentialBrokerGrant
     resource ServiceRadar.Credentials.CredentialSecretProvider
     resource ServiceRadar.Credentials.CredentialSecretResolutionAudit
     resource ServiceRadar.Credentials.NetworkCredentialSecret
