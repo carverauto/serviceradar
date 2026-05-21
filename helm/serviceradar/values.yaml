@@ -1361,6 +1361,13 @@ networkPolicy:
       enabled: true
       allowedCIDRs:
         - "0.0.0.0/0"
+    cnpgOperator:
+      # CloudNativePG operators call each instance manager on port 8000 to
+      # extract cluster status. Keep this pod-scoped so operator access does
+      # not broaden application ingress.
+      enabled: false
+      namespace: cnpg-system
+      port: 8000
   egress:
     allowDNS: true
     allowKubeAPIServer: true
