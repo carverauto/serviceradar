@@ -8,6 +8,8 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const testCredentialBrokerGrantID = "grant-1"
+
 type fakeCredentialGrantGateway struct {
 	req  *proto.CredentialBrokerResolveRequest
 	resp *proto.CredentialBrokerResolveResponse
@@ -30,10 +32,10 @@ func TestControlPlaneCredentialBrokerResolverResolvesMaterial(t *testing.T) {
 			Fields:  map[string]string{"value": "token-value"},
 		},
 	}
-	resolver := newControlPlaneCredentialBrokerResolver(gateway, "agent-1")
+	resolver := newControlPlaneCredentialBrokerResolver(gateway, testDesktopMediaAgentID)
 
 	material, err := resolver.ResolveCredentialGrant(t.Context(), credentialBrokerGrant{
-		GrantID:             "grant-1",
+		GrantID:             testCredentialBrokerGrantID,
 		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
 		Consumer: map[string]string{
 			"kind":    "northbound_action",
@@ -48,8 +50,8 @@ func TestControlPlaneCredentialBrokerResolverResolvesMaterial(t *testing.T) {
 	if material.Value != "token-value" || material.Fields["value"] != "token-value" {
 		t.Fatalf("material = %#v", material)
 	}
-	if gateway.req.GetAgentId() != "agent-1" ||
-		gateway.req.GetGrantId() != "grant-1" ||
+	if gateway.req.GetAgentId() != testDesktopMediaAgentID ||
+		gateway.req.GetGrantId() != testCredentialBrokerGrantID ||
 		gateway.req.GetCredentialSecretRef() != "credentialref:network-credential-secret:secret-1" ||
 		gateway.req.GetConsumerKind() != "northbound_action" ||
 		gateway.req.GetConsumerId() != "invocation-1" ||
@@ -66,9 +68,9 @@ func TestControlPlaneCredentialBrokerResolverDeniesFailedResponse(t *testing.T) 
 			Message: "denied",
 		},
 	}
-	resolver := newControlPlaneCredentialBrokerResolver(gateway, "agent-1")
+	resolver := newControlPlaneCredentialBrokerResolver(gateway, testDesktopMediaAgentID)
 
-	_, err := resolver.ResolveCredentialGrant(t.Context(), credentialBrokerGrant{GrantID: "grant-1"})
+	_, err := resolver.ResolveCredentialGrant(t.Context(), credentialBrokerGrant{GrantID: testCredentialBrokerGrantID})
 	if !errors.Is(err, errCredentialBrokerResolutionDenied) {
 		t.Fatalf("ResolveCredentialGrant error = %v, want %v", err, errCredentialBrokerResolutionDenied)
 	}

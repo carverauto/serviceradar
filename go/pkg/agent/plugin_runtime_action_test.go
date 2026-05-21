@@ -246,7 +246,6 @@ func TestValidatePluginActionHTTPGrantDeniesMismatchedRequest(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -491,7 +490,7 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 func httptestRequest(t *testing.T, method, rawURL string) *http.Request {
 	t.Helper()
 
-	req, err := http.NewRequest(method, rawURL, nil)
+	req, err := http.NewRequestWithContext(t.Context(), method, rawURL, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
