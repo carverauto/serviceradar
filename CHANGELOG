@@ -1,3 +1,22 @@
+# ServiceRadar v1.2.76
+
+Armis northbound bulk update authentication recovery.
+
+## Whats New
+
+**1.2.76**
+- Fixed Armis northbound bulk updates to send the fetched Armis access token as the raw `Authorization` header value, matching the Armis API and the existing southbound sync client behavior.
+
+# ServiceRadar v1.2.75
+
+Manual device reconciliation and Armis northbound scheduler recovery.
+
+## Whats New
+
+**1.2.75**
+- Reconciled manual device creation for hostname-only records so re-adding a hostname can merge with the existing device, resolve the IP address, and navigate directly to the device details page.
+- Fixed Armis northbound scheduling so stale executing Oban jobs no longer leave integrations stuck in `Running`, and ensured northbound workers load decrypted Armis credentials before requesting access tokens.
+
 # ServiceRadar v1.2.74
 
 Fresh install, demo ingestion, Armis, and observability dashboard recovery.

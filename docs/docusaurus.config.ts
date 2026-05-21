@@ -8,7 +8,7 @@ import type * as Redocusaurus from 'redocusaurus';
 
 const config: Config = {
   title: 'ServiceRadar',
-  tagline: 'ServiceRadar Docs',
+  tagline: 'IT operations and network management platform',
   favicon: 'img/favicon.ico',
 
   url: 'https://docs.serviceradar.cloud',
@@ -24,6 +24,11 @@ const config: Config = {
     locales: ['en'],
   },
 
+  // Load the shared monospace font used across ServiceRadar web properties.
+  stylesheets: [
+    'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap',
+  ],
+
   // Add markdown configuration with Mermaid enabled
   markdown: {
     mermaid: true,
@@ -34,6 +39,28 @@ const config: Config = {
 
   // Add theme-mermaid to the themes array
   themes: ['@docusaurus/theme-mermaid'],
+
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        // Redirects for pages removed or renamed in the docs reorganization,
+        // so existing external/bookmarked links continue to resolve.
+        redirects: [
+          {from: '/docs/god-view-topology', to: '/docs/network-topology'},
+          {from: '/docs/topology-reset-rebuild', to: '/docs/network-topology'},
+          {from: '/docs/self-signed', to: '/docs/tls-security'},
+          {from: '/docs/falco-integration', to: '/docs/falco'},
+          {from: '/docs/mtr-automation-rollout', to: '/docs/troubleshooting-guide'},
+          {from: '/docs/cnpg-pg18-upgrade-and-search-policy', to: '/docs/cnpg-monitoring'},
+          {from: '/docs/repository-layout', to: '/docs/architecture'},
+          {from: '/docs/rust-bazel-deps', to: '/docs/intro'},
+          {from: '/docs/camera-analysis-reference-worker', to: '/docs/sdks'},
+          {from: '/docs/wifi-map-local-compose', to: '/docs/dashboard-sdk'},
+        ],
+      },
+    ],
+  ],
 
   presets: [
     [
@@ -62,7 +89,7 @@ const config: Config = {
         // Theme Options for modifying how redoc renders them
         theme: {
           // Change with your site colors
-          primaryColor: '#1890ff',
+          primaryColor: '#0369a1',
         },
       },
     ] satisfies Redocusaurus.PresetEntry,
@@ -81,7 +108,7 @@ const config: Config = {
           type: 'docSidebar',
           sidebarId: 'tutorialSidebar',
           position: 'left',
-          label: 'Tutorial',
+          label: 'Docs',
         },
         {to: '/blog', label: 'Blog', position: 'left'},
         {
@@ -98,8 +125,12 @@ const config: Config = {
           title: 'Docs',
           items: [
             {
-              label: 'Tutorial',
+              label: 'Introduction',
               to: '/docs/intro',
+            },
+            {
+              label: 'Quickstart',
+              to: '/docs/quickstart',
             },
           ],
         },
@@ -130,11 +161,11 @@ const config: Config = {
     },
     prism: {
       theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      darkTheme: prismThemes.palenight,
     },
-    // Optional: Add Mermaid theme configuration
+    // Mermaid diagram theme configuration
     mermaid: {
-      theme: { light: 'neutral', dark: 'base' },
+      theme: { light: 'neutral', dark: 'dark' },
     },
   } satisfies Preset.ThemeConfig,
 };

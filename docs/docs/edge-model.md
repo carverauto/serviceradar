@@ -19,7 +19,6 @@ The agent is not just a "status pusher". It is the edge runtime for:
 - embedded sync integrations (inventory sources like NetBox/ArMIS)
 - SNMP polling
 - discovery/mapping engines (topology discovery)
-- mDNS collection (where enabled)
 
 ## Connection And Config Flow
 
@@ -58,6 +57,7 @@ The edge agent talks to the platform through `AgentGatewayService`:
 
 - `Hello`: initial enrollment/identity handshake (mTLS identity is derived from the certificate).
 - `GetConfig`: fetch effective config; supports versioning (`not_modified` when unchanged).
+- `StreamConfig`: server-streaming config delivery; streams the effective config in chunks for large payloads.
 - `PushStatus`: unary push for status/results payloads that fit comfortably in a single request.
 - `StreamStatus`: client-streaming push for large status/results payloads (chunked).
 - `ControlStream`: bidirectional stream for command dispatch, command acks/progress/results, and pushed config updates.

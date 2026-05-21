@@ -615,6 +615,7 @@ func (r *SyncRuntime) sendSyncUpdates(
 	if len(statusChunks) == 0 {
 		return 0, nil
 	}
+	markStatusStreamFinal(statusChunks)
 
 	_, err = r.gateway.StreamStatus(ctx, statusChunks)
 	return len(chunks), err
@@ -631,6 +632,18 @@ func (r *SyncRuntime) buildResultsStatusChunks(
 	r.server.mu.RUnlock()
 	gatewayID := r.gateway.GetGatewayID()
 	return buildResultsStatusChunksForAgent(chunks, serviceName, serviceType, agentID, partition, gatewayID)
+}
+
+func markStatusStreamFinal(chunks []*proto.GatewayStatusChunk) {
+	totalChunks := int32(len(chunks))
+	for i, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+		chunk.ChunkIndex = int32(i)
+		chunk.TotalChunks = totalChunks
+		chunk.IsFinal = int32(i) == totalChunks-1
+	}
 }
 
 func (r *syncSourceRunner) tryStart() bool {

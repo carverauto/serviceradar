@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,12 @@ import (
 )
 
 const testArmisDeviceQuery = "in:devices"
+
+var (
+	errFakeSyncGatewayEmptyStream  = errors.New("empty stream")
+	errFakeSyncGatewayInvalidChunk = errors.New("invalid stream chunk")
+	errFakeSyncGatewayMissingFinal = errors.New("stream ended without final chunk")
+)
 
 func TestArmisAccessTokenUsesFormEncodedSecretKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -806,8 +813,27 @@ func (f *fakeSyncGateway) StreamStatus(
 	_ context.Context,
 	chunks []*proto.GatewayStatusChunk,
 ) (*proto.GatewayStatusResponse, error) {
-	if len(chunks) > 0 && !chunks[len(chunks)-1].IsFinal {
-		return nil, fmt.Errorf("stream ended without final chunk")
+	if len(chunks) == 0 {
+		return nil, errFakeSyncGatewayEmptyStream
+	}
+	for i, chunk := range chunks {
+		if chunk == nil {
+			return nil, fmt.Errorf("nil chunk %d: %w", i, errFakeSyncGatewayInvalidChunk)
+		}
+		if chunk.ChunkIndex != int32(i) {
+			return nil, fmt.Errorf("chunk index %d, want %d: %w", chunk.ChunkIndex, i, errFakeSyncGatewayInvalidChunk)
+		}
+		if chunk.TotalChunks != int32(len(chunks)) {
+			return nil, fmt.Errorf(
+				"total chunks %d, want %d: %w",
+				chunk.TotalChunks,
+				len(chunks),
+				errFakeSyncGatewayInvalidChunk,
+			)
+		}
+	}
+	if !chunks[len(chunks)-1].IsFinal {
+		return nil, errFakeSyncGatewayMissingFinal
 	}
 
 	f.mu.Lock()
@@ -926,7 +952,7 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 
 func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want int) {
 	t.Helper()
-	meta := syncMetaFromFinalUpdate(t, chunk)
+	meta := syncMetaFromStatusChunk(t, chunk)
 
 	got, ok := meta["total_devices"].(float64)
 	if !ok {
@@ -939,36 +965,35 @@ func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want
 
 func assertSyncChunkRunFinal(t *testing.T, chunk *proto.GatewayStatusChunk, want bool) {
 	t.Helper()
-	meta := syncMetaFromFinalUpdate(t, chunk)
+	meta := syncMetaFromStatusChunk(t, chunk)
 
 	got, ok := meta["is_final"].(bool)
 	if !ok {
 		t.Fatalf("sync_meta is_final = %#v", meta["is_final"])
 	}
 	if got != want {
-		t.Fatalf("sync_meta is_final = %t, want %t", got, want)
+		t.Fatalf("sync_meta is_final = %v, want %v", got, want)
 	}
 }
 
-func syncMetaFromFinalUpdate(t *testing.T, chunk *proto.GatewayStatusChunk) map[string]interface{} {
+func syncMetaFromStatusChunk(t *testing.T, chunk *proto.GatewayStatusChunk) map[string]interface{} {
 	t.Helper()
 	if len(chunk.Services) == 0 {
-		t.Fatal("final chunk has no services")
+		t.Fatal("chunk has no services")
 	}
 
 	var updates []map[string]interface{}
 	if err := json.Unmarshal(chunk.Services[0].Message, &updates); err != nil {
-		t.Fatalf("decode final chunk: %v", err)
+		t.Fatalf("decode chunk: %v", err)
 	}
 	if len(updates) == 0 {
-		t.Fatal("final chunk has no updates")
+		t.Fatal("chunk has no updates")
 	}
 
 	meta, ok := updates[len(updates)-1]["sync_meta"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("final update missing sync_meta: %#v", updates[len(updates)-1])
+		t.Fatalf("update missing sync_meta: %#v", updates[len(updates)-1])
 	}
-
 	return meta
 }
 

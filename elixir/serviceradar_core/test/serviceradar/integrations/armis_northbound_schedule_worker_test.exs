@@ -81,6 +81,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest.RunnerStub
 
   def northbound_ready?(%{custom_fields: []}), do: {:error, :missing_custom_field}
   def northbound_ready?(_source), do: :ok
+
+  def reconcile_stale_runs(source, _actor, opts) do
+    send(Process.get(:test_pid), {:reconcile_stale_runs, source.id, opts})
+    :ok
+  end
 end
 
 defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest do
@@ -98,9 +103,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest do
       support: Application.get_env(:serviceradar_core, :armis_northbound_oban_support_module),
       active_job_exists:
         Application.get_env(:serviceradar_core, :armis_northbound_active_job_exists_fun),
+      reap_stale_jobs:
+        Application.get_env(:serviceradar_core, :armis_northbound_reap_stale_jobs_fun),
       now_fun: Application.get_env(:serviceradar_core, :armis_northbound_schedule_now_fun),
       scheduler_interval:
-        Application.get_env(:serviceradar_core, :armis_northbound_scheduler_interval_seconds)
+        Application.get_env(:serviceradar_core, :armis_northbound_scheduler_interval_seconds),
+      stale_cutoff:
+        Application.get_env(:serviceradar_core, :armis_northbound_stale_run_cutoff_seconds)
     }
 
     Application.put_env(
@@ -134,6 +143,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest do
     )
 
     Application.put_env(:serviceradar_core, :armis_northbound_scheduler_interval_seconds, 45)
+    Application.put_env(:serviceradar_core, :armis_northbound_stale_run_cutoff_seconds, 120)
+
+    Application.put_env(:serviceradar_core, :armis_northbound_reap_stale_jobs_fun, fn
+      worker, source_id, now, cutoff_seconds ->
+        send(self(), {:reap_stale_jobs, worker, source_id, now, cutoff_seconds})
+        {0, nil}
+    end)
 
     on_exit(fn ->
       restore_env(:armis_northbound_source_module, original.source)
@@ -141,8 +157,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest do
       restore_env(:armis_northbound_runner, original.runner)
       restore_env(:armis_northbound_oban_support_module, original.support)
       restore_env(:armis_northbound_active_job_exists_fun, original.active_job_exists)
+      restore_env(:armis_northbound_reap_stale_jobs_fun, original.reap_stale_jobs)
       restore_env(:armis_northbound_schedule_now_fun, original.now_fun)
       restore_env(:armis_northbound_scheduler_interval_seconds, original.scheduler_interval)
+      restore_env(:armis_northbound_stale_run_cutoff_seconds, original.stale_cutoff)
       Process.delete(:support_available)
       Process.delete(:test_pid)
     end)
@@ -170,6 +188,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorkerTest do
     refute_received {:enqueue_recurring, "source-disabled", _}
     refute_received {:enqueue_recurring, "source-invalid", _}
     refute_received {:enqueue_recurring, "source-paused", _}
+
+    assert_received {:reap_stale_jobs, _, "source-due", ~U[2026-04-13 12:00:00Z], 120}
+    assert_received {:reconcile_stale_runs, "source-due", opts}
+    assert opts[:now] == ~U[2026-04-13 12:00:00Z]
+    assert opts[:stale_run_cutoff_seconds] == 120
 
     assert_received {:safe_insert, scheduler_job}
     assert %Ecto.Changeset{} = scheduler_job

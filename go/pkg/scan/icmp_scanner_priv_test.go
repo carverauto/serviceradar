@@ -179,7 +179,7 @@ func TestICMPSweeper_Stop(t *testing.T) {
 	}
 
 	// Check that rawSocketFD is closed
-	if sweeper.rawSocketFD != 0 {
+	if sweeper.rawSocketFD != invalidRawSocketFD {
 		t.Errorf("rawSocketFD not reset after Stop()")
 	}
 

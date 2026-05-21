@@ -27,11 +27,22 @@ Sweep groups are the primary unit of configuration. Each group includes:
 Profiles define reusable scan settings:
 
 - **Ports**: List of TCP ports to scan.
-- **Sweep modes**: `icmp`, `tcp`, `tcp_connect` (as supported by the agent).
+- **Sweep modes**: One or more of the three supported modes (see below).
 - **Concurrency**: Parallel scan worker count.
 - **Timeouts**: Per-target scan timeout.
 
 Groups can either reference a profile or define settings inline.
+
+### Sweep Modes
+
+All three sweep modes are supported by the agent:
+
+- **`tcp`**: SYN scanning. Fast, but raw SYN packets break upstream connection
+  tracking. Tune rate limits and apply conntrack mitigation before scaling it up
+  — see [SYN Scanner Tuning and Conntrack Mitigation](./syn-scanner-tuning.md).
+- **`tcp_connect`**: Full TCP connect scanning. Slower than SYN, but completes
+  the handshake so it is conntrack-safe and works without raw-socket privileges.
+- **`icmp`**: ICMP echo (ping) sweeps for host reachability.
 
 ## Target Criteria Syntax
 

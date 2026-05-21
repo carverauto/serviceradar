@@ -63,21 +63,27 @@ ssh-keygen -t ed25519 -f serviceradar_user_ca -C serviceradar-remote-access-ca
 
 Store `serviceradar_user_ca` as a private secret for the signer. Distribute only `serviceradar_user_ca.pub` to target hosts.
 
-Production deployments should keep the CA private key outside web-ng, core, and
-agent-gateway processes. The bundled `serviceradar-sshca-signer` supports a
-file-backed key for bootstrap and lab use, but the preferred production custody
-model is an isolated signer command/service backed by OpenBao Transit, Vault
-Transit, cloud KMS, or an HSM. That signer should expose the same bounded command
-interface, load the key inside the custody boundary, audit every signing request,
-and deny operation if the custody backend is unavailable.
+### CA Key Custody
 
-The command-signer boundary is the ServiceRadar KMS/HSM integration point. A
-production signer wrapper can keep a non-exportable key in OpenBao/Vault Transit,
-cloud KMS, or an HSM and implement the same stdin/request-file JSON contract as
-`serviceradar-sshca-signer`. ServiceRadar should receive only the signed
-certificate response. If the bootstrap signer is used with a file or environment
-key, configure `--audit-file` or `SERVICERADAR_SSHCA_AUDIT_FILE` so the signer
-records CA key-load events without writing audit data to stdout.
+Production deployments must keep the CA private key outside the web-ng, core,
+and agent-gateway processes. The bundled `serviceradar-sshca-signer` supports a
+file-backed or environment-variable key for bootstrap and lab use, but the
+production custody model is an isolated signer command/service backed by OpenBao
+Transit, Vault Transit, cloud KMS, or an HSM. Such a signer keeps a
+non-exportable key inside the custody boundary, implements the same
+stdin/request-file JSON contract as `serviceradar-sshca-signer`, returns only
+the signed certificate response, audits every signing request, and fails closed
+when the custody backend is unavailable. In practice, run the signer beside an
+agent/template process that writes the current encrypted CA key into an
+in-memory volume such as `/run/secrets/serviceradar_ssh_ca` (readable only by
+the signer user) and point `--ca-key-file` at that path. The signer records the
+key source class (`file` or `env`) in each certificate issue result so audit
+events show how the key was loaded without exposing the key path or material.
+Environment-variable custody is suitable only for development; file-backed
+Kubernetes secrets are an acceptable bootstrap, and OpenBao/Vault/KMS/HSM is the
+production target.
+
+### Configuring The Signer
 
 Configure the signer in the web-ng or core environment that approves remote access sessions:
 
@@ -89,9 +95,20 @@ SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON='["--ca-key-file","/run/secre
 SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID=serviceradar-user-ca-2026q2
 ```
 
-`SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED` defaults to `false`. Keep it disabled until targets, RBAC, host-key policy, and the SSH CA signer are ready; the device-details SSH action and remote-access session API are hidden or blocked while it is disabled.
+Signer environment variables:
 
-The signer can also read the private key from `SERVICERADAR_SSH_CA_KEY`; use `SERVICERADAR_SSH_CA_PASSPHRASE` when the key is encrypted. Environment-variable custody is suitable only for development because process dumps, debug output, and host introspection can expose the key. File-backed Kubernetes secrets are a better bootstrap option, and OpenBao/Vault/KMS/HSM custody is the production target.
+| Variable | Purpose |
+|----------|---------|
+| `SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED` | Master switch for SSH remote access. Defaults to `false`; while disabled the device-details SSH action and remote-access session API are hidden or blocked. |
+| `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED` | Enables the CA signer integration. |
+| `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND` | Path/name of the signer binary or wrapper. |
+| `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON` | JSON array of signer arguments (for example `--ca-key-file`, `--max-ttl`, `--audit-file`). |
+| `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` | Key ID stamped into issued certificates; advance this when rotating the CA. |
+| `SERVICERADAR_SSH_CA_KEY` | Alternative to `--ca-key-file`: the CA private key read from the environment (development only). |
+| `SERVICERADAR_SSH_CA_PASSPHRASE` | Passphrase when the CA key is encrypted. |
+| `SERVICERADAR_SSHCA_AUDIT_FILE` | Audit log path for the bootstrap signer (equivalent to `--audit-file`); records CA key-load events without writing audit data to stdout. |
+| `SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_FILE` | Path to a mounted certificate policy file (preferred for production). |
+| `SERVICERADAR_REMOTE_ACCESS_SSH_CERTIFICATE_POLICY_JSON` | Inline certificate policy JSON (for small lab policies). |
 
 Certificate issuance is rate limited per actor. The default bucket is
 `remote_access_ssh_certificate_issue` with a limit of 10 certificates per minute.
@@ -99,11 +116,7 @@ Tune it in `ServiceRadar.Security.RateLimiter` config if your SSO/session patter
 requires a different issuance rate, and alert on throttling because repeated
 denials can indicate credential stuffing or automation misuse.
 
-Rotate the SSH user CA by adding a new CA public key to target hosts, switching
-`SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` and signer key material, then removing
-the old public key after all certificates signed by the old CA have expired.
-
-For production, prefer a secret-store backed file instead of a long-lived environment variable. With OpenBao, Vault, or a cloud KMS, run the signer beside an agent/template process that writes the current encrypted CA key into an in-memory volume such as `/run/secrets/serviceradar_ssh_ca`, then point `--ca-key-file` at that path. Keep the mount readable only by the signer user. The signer reports the key source class (`file` or `env`) in the certificate issue result so the audit event records how the CA key was loaded without exposing the key path or material. Rotate by updating the secret-store version, restarting or reloading the signer workload, changing `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`, and leaving both old and new public CA keys trusted on targets until the maximum certificate TTL has elapsed.
+For the CA key-rotation procedure, see [Rotation](#rotation).
 
 The signer intentionally limits certificate power. By default it issues only the `permit-pty` OpenSSH extension and rejects caller-supplied critical options such as `force-command` and `source-address` unless the signer policy explicitly allows them. Use Ed25519 or ECDSA P-256+ CA keys; RSA CA keys must be at least 4096 bits and are signed with SHA-2 algorithms.
 
@@ -194,11 +207,11 @@ Use authorized principals only when you need this extra mapping layer. It is sim
 
 ## Ansible Enrollment
 
-Example automation lives in `docs/ansible/remote-access-ssh-ca/`.
+You can automate SSH CA enrollment with a small Ansible playbook that installs the public CA key and SSH server configuration on each target.
 
 ServiceRadar already has an AWX/AAP-backed [Ansible Integration](./ansible). Use that integration as the normal enrollment path:
 
-1. Copy `docs/ansible/remote-access-ssh-ca/playbook.yml` into a git repository that AWX uses as a Project.
+1. Copy the example playbook from the ServiceRadar repository ([`docs/ansible/remote-access-ssh-ca/`](https://github.com/carverauto/serviceradar/tree/main/docs/ansible/remote-access-ssh-ca)) into a git repository that AWX uses as a Project.
 2. Create an AWX Job Template for that playbook.
 3. Attach the AWX inventory that contains the Linux hosts, Proxmox VE hosts, or VMs you want to enroll.
 4. Register the AWX controller in ServiceRadar under **Settings -> Ansible**.
@@ -219,12 +232,12 @@ Example launch variables:
 
 For Debian or Ubuntu targets, set `serviceradar_sshd_service` to `ssh` if that is the systemd service name.
 
-The local `ansible-playbook` path is useful for testing the playbook outside ServiceRadar:
+Running the playbook directly with `ansible-playbook` is useful for testing it outside ServiceRadar:
 
 ```bash
 ansible-playbook \
-  -i docs/ansible/remote-access-ssh-ca/inventory.example.ini \
-  docs/ansible/remote-access-ssh-ca/playbook.yml \
+  -i <inventory-file> \
+  <playbook.yml> \
   -e serviceradar_ssh_ca_public_key_file=/secure/path/serviceradar_user_ca.pub
 ```
 
@@ -234,8 +247,8 @@ For Debian or Ubuntu targets in local fallback mode, set the service name if nee
 
 ```bash
 ansible-playbook \
-  -i docs/ansible/remote-access-ssh-ca/inventory.example.ini \
-  docs/ansible/remote-access-ssh-ca/playbook.yml \
+  -i <inventory-file> \
+  <playbook.yml> \
   -e serviceradar_sshd_service=ssh \
   -e serviceradar_ssh_ca_public_key_file=/secure/path/serviceradar_user_ca.pub
 ```
@@ -243,6 +256,22 @@ ansible-playbook \
 ## Host Key Trust
 
 The edge agent verifies the target server host key before opening an SSH session. Prefer one of these modes:
+
+- `known_hosts`: the agent uses a managed known-hosts file.
+- `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.
+- `skip_verify`: only for temporary local testing.
+
+Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
+
+The web UI can expose host-key review and override controls only when the deployment enables them:
+
+```bash
+SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED=false
+SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED=false
+SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
+```
+
+Keep overrides disabled unless an operator workflow explicitly needs them.
 
 ## Application And TCP Targets
 
@@ -274,81 +303,7 @@ TCP targets are separate resources. The UI exposes a TCP launcher only when the 
 
 Without that metadata, TCP targets remain registered and policy-enforced but are not exposed as generic browser tunnels. This prevents turning ServiceRadar into an arbitrary forwarding proxy by accident.
 
-### Private HTTP Echo Demo
-
-This demo proves the application access path against a private HTTP service reachable from an edge agent but not published through ingress.
-
-Create a private echo service in the same namespace as the in-cluster agent:
-
-```bash
-kubectl -n demo create deployment sr-remote-access-echo \
-  --image=registry.k8s.io/e2e-test-images/agnhost:2.53 \
-  -- /agnhost netexec --http-port=8080
-
-kubectl -n demo expose deployment sr-remote-access-echo \
-  --name=sr-remote-access-echo \
-  --port=8080 \
-  --target-port=8080 \
-  --type=ClusterIP
-```
-
-Confirm it is private:
-
-```bash
-kubectl -n demo get svc sr-remote-access-echo
-```
-
-The service should have only a cluster IP and no ingress, load balancer, or node port.
-
-Register the target from a trusted ServiceRadar IEx shell. Use the agent ID that can reach the service; in the demo namespace this is usually `k8s-agent`.
-
-```elixir
-alias ServiceRadar.Actors.SystemActor
-alias ServiceRadar.Edge.RemoteAccessApplicationTarget
-
-actor = SystemActor.system(:remote_access_echo_demo)
-
-{:ok, target} =
-  RemoteAccessApplicationTarget.create_target(
-    %{
-      name: "Demo private echo",
-      description: "ClusterIP-only HTTP echo target for remote application access proof",
-      device_uid: "demo-private-http-echo",
-      agent_id: "k8s-agent",
-      upstream_scheme: :http,
-      upstream_host: "sr-remote-access-echo.demo.svc.cluster.local",
-      upstream_port: 8080,
-      allowed_methods: ["GET", "HEAD"],
-      allowed_path_prefixes: ["/"],
-      tls_policy: %{"verify" => "disabled"},
-      metadata: %{"demo" => "private-http-echo"}
-    },
-    actor: actor
-  )
-```
-
-Open `/remote-access/targets`, choose **Demo private echo**, and request `/`. A successful response proves:
-
-- The browser did not reach the service directly.
-- web-ng created a registered application session from target intent only.
-- agent-gateway routed the session to the selected agent.
-- the agent reached the private ClusterIP service and returned the response through the typed app frames.
-
-- `known_hosts`: the agent uses a managed known-hosts file.
-- `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.
-- `skip_verify`: only for temporary local testing.
-
-Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
-
-The web UI can expose host-key review and override controls only when the deployment enables them:
-
-```bash
-SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED=false
-SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED=false
-SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
-```
-
-Keep overrides disabled unless an operator workflow explicitly needs them.
+To register an application or TCP target, use **Remote access targets** at `/remote-access/targets` (or the `/api/remote-access/targets` API) and provide the target name, device UID, the agent ID that can reach the service, the upstream scheme/host/port, and the allowed methods, path prefixes, and TLS policy. Targets are validated and stored centrally; the browser only ever selects an existing target ID.
 
 ## User Workflows
 
@@ -397,21 +352,21 @@ Common failures:
 - Host key rejected: the target host key is absent from known-hosts or changed since the last trusted connection.
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
 
-Smoke tests for lab environments are available in:
-
-```bash
-scripts/remote-access-authentik-oidc-ssh-smoke.sh
-scripts/remote-access-demo-ssh-smoke.sh
-```
-
 ## Rotation
 
-Rotate the SSH user CA with an overlap window:
+Rotate the SSH user CA with an overlap window so no in-flight certificate is
+invalidated:
 
 1. Generate the new CA keypair.
-2. Add the new public key to every target while leaving the old public key trusted.
-3. Update the ServiceRadar signer to use the new private key and `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID`.
-4. Wait longer than the maximum certificate TTL.
-5. Remove the old public key from targets.
+2. Add the new public key to every target while leaving the old public key
+   trusted.
+3. Update the ServiceRadar signer to use the new private key. With a
+   secret-store backed signer, publish a new secret version and restart or
+   reload the signer workload rather than copying key material by hand.
+4. Advance `SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID` to the new key ID.
+5. Wait longer than the maximum certificate TTL so all certificates signed by
+   the old CA have expired.
+6. Remove the old public key from targets.
 
-Never rotate by copying the private key to agents or target hosts. Only public trust anchors belong on SSH servers.
+Never rotate by copying the private key to agents or target hosts. Only public
+trust anchors belong on SSH servers.

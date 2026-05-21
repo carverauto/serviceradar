@@ -17,7 +17,7 @@ ServiceRadar sync is embedded in `serviceradar-agent`. It fetches inventory from
 
 ```mermaid
 graph TD
-    UI["Web UI Integrations"] --> Core["Core (Ash)"]
+    UI["Web UI Integrations"] --> Core["core-elx"]
     Core -->|GetConfig| Gateway["Agent-Gateway"]
 
     Agent["Agent + Embedded Sync"] -->|Hello, GetConfig| Gateway

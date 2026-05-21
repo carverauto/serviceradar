@@ -45,36 +45,31 @@ If `raw_latest` is materially newer than `summary_latest` or `rollup_latest`, tr
 
 ## Check the Scheduler
 
-Inspect the trace summary worker and stale-job reaper:
+The trace summary refresh runs as a periodic Oban job, and a separate reaper
+clears stale periodic jobs. Inspect their recent runs:
 
 ```sql
 SELECT worker, state, queue, attempt, attempted_at, completed_at, scheduled_at
 FROM platform.oban_jobs
-WHERE worker IN (
-  'ServiceRadar.Jobs.RefreshTraceSummariesWorker',
-  'ServiceRadar.Jobs.ReapStalePeriodicJobsWorker'
-)
+WHERE worker LIKE 'ServiceRadar.Jobs.%'
 ORDER BY inserted_at DESC
 LIMIT 20;
 ```
 
-Healthy steady state looks like:
-
-- recent `completed` rows for `ServiceRadar.Jobs.RefreshTraceSummariesWorker`
-- recent `completed` rows for `ServiceRadar.Jobs.ReapStalePeriodicJobsWorker`
-- no long-lived `executing` rows for the trace refresh worker
+In a healthy steady state, the trace refresh and reaper workers show recent
+`completed` rows and no long-lived `executing` rows.
 
 ## Remediation
 
-### 1. Reap stale periodic jobs
-
-The product fix includes an automatic reaper, but you can trigger it immediately if recovery is lagging. Open a release shell in the core runtime:
+The stale-job reaper and trace summary refresh both run automatically. If
+recovery is lagging, an operator can trigger them immediately from a release
+shell in the core runtime:
 
 ```bash
 kubectl exec -it deploy/serviceradar-core-elx -n <namespace> -- /app/bin/serviceradar_core_elx remote
 ```
 
-Then enqueue the stale-job reaper:
+### 1. Reap stale periodic jobs
 
 ```elixir
 alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
@@ -116,7 +111,7 @@ LIMIT 5;
 If the summary worker keeps retrying or timing out:
 
 - check `serviceradar-core-elx` logs for DB checkout or statement timeouts
-- verify `platform.otel_trace_summaries` is still being pruned and is not growing without bound
-- verify the latest migrations ran successfully, especially the migrations that create `platform.traces_stats_5m` and the stale periodic-job reaper
+- verify `platform.otel_trace_summaries` is being pruned and is not growing without bound
 
-If the trace summary table or CAGG is missing entirely after upgrade, rerun migrations before attempting manual recovery.
+If `platform.otel_trace_summaries` or `platform.traces_stats_5m` is missing
+entirely after an upgrade, rerun migrations before attempting manual recovery.

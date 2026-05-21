@@ -40,6 +40,7 @@ const (
 	defaultICMPTimeout   = 5 * time.Second
 	batchInterval        = 10 * time.Millisecond
 	defaultICMPCount     = 3 // default number of ICMP packets per target
+	invalidRawSocketFD   = -1
 )
 
 type ICMPSweeper struct {
@@ -94,14 +95,16 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 	identifier := int(time.Now().UnixNano() % defaultIdentifierMod)
 
 	// Create raw socket for IPv4 sending.
-	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
+	fd := invalidRawSocketFD
+	socketFD, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to create ICMPv4 raw socket")
-		fd = 0
+	} else {
+		fd = socketFD
 	}
 
 	var conn *icmp.PacketConn
-	if fd > 0 {
+	if fd >= 0 {
 		var listenErr error
 
 		// Create IPv4 listener for receiving.
@@ -112,7 +115,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int, log logger.Logger, opt
 				return nil, closeErr
 			}
 
-			fd = 0
+			fd = invalidRawSocketFD
 			log.Warn().Err(listenErr).Msg("Failed to create ICMPv4 listener")
 		}
 	}
@@ -165,9 +168,17 @@ func (s *ICMPSweeper) Capabilities() ScannerCapabilities {
 	}
 
 	return ScannerCapabilities{
-		ICMPv4: s.conn != nil,
+		ICMPv4: s.icmpv4Available(),
 		ICMPv6: s.conn6 != nil,
 	}
+}
+
+func (s *ICMPSweeper) icmpv4Available() bool {
+	return s != nil && s.conn != nil && rawSocketAvailable(s.rawSocketFD)
+}
+
+func rawSocketAvailable(fd int) bool {
+	return fd >= 0
 }
 
 // ICMPSweeperOption configures an ICMPSweeper instance.
@@ -446,7 +457,7 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte, seq in
 	stats.mu.Unlock()
 
 	if ip4 := ipAddr.To4(); ip4 != nil {
-		if s.conn == nil || s.rawSocketFD == 0 {
+		if !s.icmpv4Available() {
 			s.recordUnavailableResult(target, ErrICMPv4Unavailable)
 			return
 		}
@@ -787,6 +798,7 @@ func (s *ICMPSweeper) Stop() error {
 
 			return err
 		}
+		s.conn = nil
 	}
 
 	if s.conn6 != nil {
@@ -796,9 +808,10 @@ func (s *ICMPSweeper) Stop() error {
 
 			return err
 		}
+		s.conn6 = nil
 	}
 
-	if s.rawSocketFD != 0 {
+	if rawSocketAvailable(s.rawSocketFD) {
 		err := syscall.Close(s.rawSocketFD)
 		if err != nil {
 			s.logger.Error().Err(err).Msg("Error closing raw socket")
@@ -806,7 +819,7 @@ func (s *ICMPSweeper) Stop() error {
 			return err
 		}
 
-		s.rawSocketFD = 0
+		s.rawSocketFD = invalidRawSocketFD
 	}
 
 	return nil

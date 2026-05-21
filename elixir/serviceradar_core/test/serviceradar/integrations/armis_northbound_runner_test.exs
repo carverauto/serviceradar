@@ -23,6 +23,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                custom_fields: ["availability"]
              })
 
+    assert {:error, :missing_credentials} =
+             ArmisNorthboundRunner.northbound_ready?(%{
+               northbound_enabled: true,
+               endpoint: "https://armis.example",
+               custom_fields: ["availability"],
+               credentials: %Ash.NotLoaded{field: :credentials, type: :calculation}
+             })
+
     assert :ok =
              ArmisNorthboundRunner.northbound_ready?(%{
                northbound_enabled: true,
@@ -107,8 +115,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"id" => "armis-1", "customProperties" => %{"availability" => false}},
-             %{"id" => "armis-2", "customProperties" => %{"availability" => true}}
+             %{"id" => "armis-1", "customProperties" => %{"availability" => "false"}},
+             %{"id" => "armis-2", "customProperties" => %{"availability" => "true"}}
            ]
   end
 
@@ -132,8 +140,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"id" => "armis-1", "customProperties" => %{"OT_Isolation_Compliant" => false}},
-             %{"id" => "armis-2", "customProperties" => %{"OT_Isolation_Compliant" => true}}
+             %{"id" => "armis-1", "customProperties" => %{"OT_Isolation_Compliant" => "false"}},
+             %{"id" => "armis-2", "customProperties" => %{"OT_Isolation_Compliant" => "true"}}
            ]
   end
 
@@ -157,8 +165,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => false}},
-             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => true}}
+             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => "false"}},
+             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => "true"}}
            ]
   end
 
@@ -231,7 +239,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert sql =~ "'availability_source_agent_id', $1::text"
   end
 
-  test "execute_batches authenticates, batches requests, and aggregates counts" do
+  test "execute_batches authenticates with raw Armis token, batches requests, and aggregates counts" do
     source = %{
       id: "source-1",
       northbound_enabled: true,
@@ -295,10 +303,34 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
                      body2}
 
-    assert headers1["authorization"] == "Bearer token-abc"
-    assert headers1["content-type"] == "application/json"
+    assert headers1["Authorization"] == "token-abc"
+    assert headers1["Content-Type"] == "application/json"
+    assert headers1["Accept"] == "application/json"
     assert length(body1) == 2
     assert length(body2) == 1
+  end
+
+  test "execute_batches fails before token request when secret key is unavailable" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_key" => "key-only"}
+    }
+
+    candidates = [
+      %{
+        armis_device_id: "armis-1",
+        is_available: true,
+        device_ids: ["d1"],
+        sync_service_ids: ["source-1"],
+        metadata: %{}
+      }
+    ]
+
+    assert {:error, result} = ArmisNorthboundRunner.execute_batches(source, candidates)
+    assert result.errors == [%{reason: :missing_secret_key}]
   end
 
   test "execute_batches posts inverted sample availability data to a fake Armis bulk endpoint" do
@@ -343,7 +375,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     assert_receive {:fake_armis_bulk_request, request}, 1_000
     assert request.path == "/api/v1/devices/custom-properties/_bulk/"
-    assert request.headers["authorization"] == "Bearer fake-token-test"
+    assert request.headers["authorization"] == "fake-token-test"
     assert request.headers["content-type"] =~ "application/json"
 
     assert request.body == [
@@ -351,14 +383,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                "upsert" => %{
                  "deviceId" => 101,
                  "key" => "OT_Isolation_Compliant",
-                 "value" => false
+                 "value" => "false"
                }
              },
              %{
                "upsert" => %{
                  "deviceId" => 202,
                  "key" => "OT_Isolation_Compliant",
-                 "value" => true
+                 "value" => "true"
                }
              }
            ]
@@ -892,8 +924,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     stale_active = %{stale_orphan | id: "run-active", oban_job_id: 103}
     already_success = %{stale_orphan | id: "run-success", status: :success, oban_job_id: 104}
+    stale_abandoned = %{stale_orphan | id: "run-abandoned", oban_job_id: 105}
 
-    list_runs = fn _src, _actor -> [stale_orphan, fresh_orphan, stale_active, already_success] end
+    list_runs = fn _src, _actor ->
+      [stale_orphan, fresh_orphan, stale_active, already_success, stale_abandoned]
+    end
 
     finish_run = fn run, action, attrs, _actor, opts ->
       send(parent, {:finish_run, run.id, action, attrs, opts})
@@ -910,6 +945,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       102 -> nil
       103 -> "executing"
       104 -> "completed"
+      105 -> %{state: "executing", attempted_at: ~U[2026-04-14 03:20:00Z]}
     end
 
     assert :ok =
@@ -926,6 +962,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert attrs.error_message == "Marked timed out after orphaned Oban job"
     assert attrs.metadata["reconciled"] == true
     assert attrs.metadata["reason"] == "orphaned_oban_job"
+
+    assert_received {:finish_run, "run-abandoned", :finish_timeout, _attrs, %{status: :timeout}}
 
     assert_received {:update_source, :northbound_failed,
                      %{

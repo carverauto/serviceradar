@@ -24,13 +24,13 @@ Expose these only if you are ingesting telemetry from network devices or externa
 
 | Collector | Port | Protocol | Purpose |
 |---|---|---|---|
-| Syslog (`serviceradar-log-collector`) | 514 | UDP | Syslog ingestion |
+| Syslog (`serviceradar-log-collector`) | 514 | UDP | Syslog ingestion (UDP) |
+| Syslog TCP (`serviceradar-log-collector-tcp`) | 514 | TCP | Syslog ingestion (TCP, optional deployment) |
 | SNMP traps (trapd) | 162 | UDP | SNMP trap ingestion |
-| NetFlow | 2055 | UDP | NetFlow v5/v9 |
+| NetFlow / IPFIX | 2055 | UDP | NetFlow v5/v9/IPFIX (IPFIX is decoded by the same NetFlow handler — there is no separate IPFIX collector) |
+| NetFlow / IPFIX (alternate) | 4739 | UDP | Optional alternate UDP port for the NetFlow handler. The Helm chart can expose this `ipfix` service port; route it to an additional `netflow` listener in the flow-collector config if used. |
 | sFlow | 6343 | UDP | sFlow |
-| IPFIX | 4739 | UDP | IPFIX |
-| OTLP (otel) | 4317 | OTLP | OTEL ingestion (optional) |
-| OTLP (otel) | 4318 | OTLP/HTTP | OTEL ingestion (optional) |
+| OTLP (otel) | 4317 | gRPC | OTEL ingestion over OTLP/gRPC (optional). No OTLP/HTTP `:4318` endpoint is served. |
 
 ## Kubernetes External Address Map
 
