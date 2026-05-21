@@ -178,6 +178,8 @@ networkPolicy:
       # Envoy Gateway runs shared Gateway data-plane pods in this namespace;
       # allow those proxies to reach ServiceRadar backends.
       - envoy-gateway-system
+    cnpgOperator:
+      enabled: true
   egress:
     allowDNS: true
     allowKubeAPIServer: true
