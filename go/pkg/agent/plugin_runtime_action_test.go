@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -162,6 +164,123 @@ func TestPluginManagerRunActionWithSampleNorthboundWasm(t *testing.T) {
 	}
 }
 
+func TestPluginActionCredentialGrantsParseAndDedupe(t *testing.T) {
+	t.Parallel()
+
+	grants, err := pluginActionCredentialGrants(json.RawMessage(`{
+		"credential_broker": {
+			"schema": "serviceradar.edge_credential_broker_grant.v1",
+			"grant_id": "grant-1",
+			"credential_secret_ref": "credentialref:network-credential-secret:secret-1"
+		},
+		"credential_brokers": [{
+			"schema": "serviceradar.edge_credential_broker_grant.v1",
+			"grant_id": "grant-1",
+			"credential_secret_ref": "credentialref:network-credential-secret:secret-1"
+		}, {
+			"schema": "serviceradar.edge_credential_broker_grant.v1",
+			"grant_id": "grant-2",
+			"credential_secret_ref": "credentialref:network-credential-secret:secret-2"
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("pluginActionCredentialGrants returned error: %v", err)
+	}
+	if len(grants) != 2 {
+		t.Fatalf("grants len = %d, want 2: %#v", len(grants), grants)
+	}
+	if grants[0].GrantID != "grant-1" || grants[1].GrantID != "grant-2" {
+		t.Fatalf("unexpected grant order: %#v", grants)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantAllowsScopedRequest(t *testing.T) {
+	t.Parallel()
+
+	reqURL := mustParseURL(t, "https://api.example.com:8443/api/v1/devices")
+	grants := []credentialBrokerGrant{{
+		Schema:              "serviceradar.edge_credential_broker_grant.v1",
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Allow: credentialBrokerACL{
+			Methods: []string{"GET", "POST"},
+			Paths:   []string{"/api/v1/"},
+			Hosts:   []string{"api.example.com"},
+			Ports:   []int{8443},
+		},
+		ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}}
+
+	if err := validatePluginActionHTTPGrant(grants, "POST", reqURL, time.Now()); err != nil {
+		t.Fatalf("validatePluginActionHTTPGrant returned error: %v", err)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantDeniesMismatchedRequest(t *testing.T) {
+	t.Parallel()
+
+	baseGrant := credentialBrokerGrant{
+		Schema:              "serviceradar.edge_credential_broker_grant.v1",
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Allow: credentialBrokerACL{
+			Methods: []string{"POST"},
+			Paths:   []string{"/api/v1/"},
+			Hosts:   []string{"api.example.com"},
+			Ports:   []int{443},
+		},
+		ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		url    string
+	}{
+		{name: "method", method: "GET", url: "https://api.example.com/api/v1/devices"},
+		{name: "path", method: "POST", url: "https://api.example.com/admin"},
+		{name: "host", method: "POST", url: "https://other.example.com/api/v1/devices"},
+		{name: "port", method: "POST", url: "https://api.example.com:8443/api/v1/devices"},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validatePluginActionHTTPGrant(
+				[]credentialBrokerGrant{baseGrant},
+				tc.method,
+				mustParseURL(t, tc.url),
+				time.Now(),
+			)
+			if !errors.Is(err, errCredentialBrokerGrantDenied) {
+				t.Fatalf("expected grant denied error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidatePluginActionHTTPGrantRejectsExpiredGrant(t *testing.T) {
+	t.Parallel()
+
+	err := validatePluginActionHTTPGrant(
+		[]credentialBrokerGrant{{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+			Allow:               credentialBrokerACL{Methods: []string{"GET"}},
+			ExpiresAt:           time.Now().Add(-time.Minute).Format(time.RFC3339),
+		}},
+		"GET",
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+		time.Now(),
+	)
+	if !errors.Is(err, errCredentialBrokerGrantExpired) {
+		t.Fatalf("expected grant expired error, got %v", err)
+	}
+}
+
 func newActionFixtureManager(t *testing.T, objectKey string, cfg *proto.PluginAssignmentConfig) *PluginManager {
 	t.Helper()
 
@@ -211,6 +330,17 @@ func runFixtureAction(t *testing.T, manager *PluginManager, payload json.RawMess
 	}
 
 	return decoded
+}
+
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse url %q: %v", raw, err)
+	}
+
+	return parsed
 }
 
 func firstTargetResult(t *testing.T, decoded map[string]interface{}) map[string]interface{} {

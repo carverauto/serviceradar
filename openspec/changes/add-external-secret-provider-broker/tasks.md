@@ -9,6 +9,7 @@
 - [x] 2.3 Add first-class broker grant resource with lifecycle, PaperTrail, system-only write policy, compatibility payload builder, and validation for target/consumer/purpose/TTL/resolution location.
 - [ ] 2.4 Add provider/host/path/port request enforcement for broker grants at the agent/control-plane resolution boundary.
 - [x] 2.4.1 Enforce Proxmox credential-test grant target, method, path, host, port, and expiry policy in the Go agent before credential resolution.
+- [x] 2.4.2 Enforce northbound `plugin.run_action` broker grant method/path/host/port/expiry policy in the agent `http_request` host function.
 - [ ] 2.5 Add cache/lease policy enforcement with default `no_cache` or short memory-only TTL.
 
 ## 3. Consumer Integration

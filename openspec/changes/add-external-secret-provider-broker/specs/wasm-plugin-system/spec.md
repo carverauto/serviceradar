@@ -15,6 +15,7 @@ Wasm plugins SHALL NOT be allowed to retrieve plaintext credentials directly fro
 - **WHEN** ServiceRadar dispatches the `plugin.run_action` command to an agent
 - **THEN** ServiceRadar SHALL create a scoped credential broker grant for the invocation, phase, actor, agent, and target
 - **AND** the command payload SHALL include only broker grant metadata, not plaintext credentials
+- **AND** agent-owned host functions SHALL enforce the grant method, path, host, port, and expiry policy before making broker-scoped API calls
 - **AND** missing required invocation-selected credentials SHALL fail closed before dispatch
 
 #### Scenario: Plugin tries direct provider access

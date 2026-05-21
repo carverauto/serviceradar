@@ -1027,7 +1027,13 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON)
+	credentialGrants, err := pluginActionCredentialGrants(invocationPayload)
+	if err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
+	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
 	m.recordExecution(err == nil)
 	return result, err
 }
@@ -1491,6 +1497,7 @@ func (m *PluginManager) executeActionWithWasm(
 	assignment *pluginAssignment,
 	wasm []byte,
 	configJSON []byte,
+	credentialGrants []credentialBrokerGrant,
 ) ([]byte, error) {
 	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
 	runtimeCfg := wazero.NewRuntimeConfig()
@@ -1506,6 +1513,7 @@ func (m *PluginManager) executeActionWithWasm(
 	exec := newPluginExecution(m, assignment)
 	exec.mode = pluginExecutionModeAction
 	exec.configJSON = configJSON
+	exec.credentialGrants = credentialGrants
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
 		return nil, err
 	}
@@ -1870,18 +1878,19 @@ func safeJoin(base, target string) (string, error) {
 }
 
 type pluginExecution struct {
-	manager       *PluginManager
-	assignment    *pluginAssignment
-	mode          pluginExecutionMode
-	configJSON    []byte
-	actionResult  []byte
-	mediaBridge   *pluginCameraMediaBridge
-	consoleBridge *pluginProxmoxConsoleBridge
-	mu            sync.Mutex
-	conns         map[uint32]net.Conn
-	wsConns       map[uint32]*websocket.Conn
-	nextHandle    uint32
-	submitted     bool
+	manager          *PluginManager
+	assignment       *pluginAssignment
+	mode             pluginExecutionMode
+	configJSON       []byte
+	actionResult     []byte
+	mediaBridge      *pluginCameraMediaBridge
+	consoleBridge    *pluginProxmoxConsoleBridge
+	credentialGrants []credentialBrokerGrant
+	mu               sync.Mutex
+	conns            map[uint32]net.Conn
+	wsConns          map[uint32]*websocket.Conn
+	nextHandle       uint32
+	submitted        bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
@@ -2199,6 +2208,11 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		method = http.MethodGet
 	}
 
+	if err := e.validateCredentialBrokerGrantForHTTP(method, reqURL); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+
 	body, err := decodeBody(payload)
 	if err != nil {
 		return pluginErrInvalid
@@ -2281,6 +2295,14 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	return int32(len(responseBytes))
 }
 
+func (e *pluginExecution) validateCredentialBrokerGrantForHTTP(method string, reqURL *url.URL) error {
+	if e == nil || e.mode != pluginExecutionModeAction || len(e.credentialGrants) == 0 {
+		return nil
+	}
+
+	return validatePluginActionHTTPGrant(e.credentialGrants, method, reqURL, time.Now())
+}
+
 func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, method string, reason string) {
 	if e == nil || e.manager == nil || err == nil || reqURL == nil {
 		return
@@ -2295,6 +2317,22 @@ func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, m
 		Str("host", reqURL.Hostname()).
 		Str("reason", reason).
 		Msg("Plugin host HTTP request failed")
+}
+
+func (e *pluginExecution) logPluginHostHTTPDenied(err error, reqURL *url.URL, method string) {
+	if e == nil || e.manager == nil || err == nil || reqURL == nil {
+		return
+	}
+
+	e.manager.logger.Warn().
+		Err(err).
+		Str("assignment_id", e.assignment.AssignmentID).
+		Str("plugin_id", e.assignment.PluginID).
+		Str("method", method).
+		Str("scheme", reqURL.Scheme).
+		Str("host", reqURL.Hostname()).
+		Str("path", reqURL.EscapedPath()).
+		Msg("Plugin host HTTP request denied by credential broker grant policy")
 }
 
 func decodeBody(payload httpRequestPayload) ([]byte, error) {
@@ -3135,6 +3173,149 @@ func buildActionPluginConfig(baseConfig []byte, invocationPayload json.RawMessag
 
 	config["plugin_config_base64"] = base64.StdEncoding.EncodeToString(baseConfig)
 	return json.Marshal(config)
+}
+
+func pluginActionCredentialGrants(invocationPayload json.RawMessage) ([]credentialBrokerGrant, error) {
+	if len(bytes.TrimSpace(invocationPayload)) == 0 {
+		return nil, nil
+	}
+
+	var payload struct {
+		CredentialBroker  *credentialBrokerGrant  `json:"credential_broker"`
+		CredentialBrokers []credentialBrokerGrant `json:"credential_brokers"`
+	}
+	if err := json.Unmarshal(invocationPayload, &payload); err != nil {
+		return nil, fmt.Errorf("decode action credential grants: %w", err)
+	}
+
+	grants := make([]credentialBrokerGrant, 0, len(payload.CredentialBrokers)+1)
+	if payload.CredentialBroker != nil {
+		grants = append(grants, *payload.CredentialBroker)
+	}
+	grants = append(grants, payload.CredentialBrokers...)
+	if len(grants) == 0 {
+		return nil, nil
+	}
+
+	normalized := make([]credentialBrokerGrant, 0, len(grants))
+	seen := make(map[string]struct{}, len(grants))
+	for _, grant := range grants {
+		key := strings.TrimSpace(grant.GrantID)
+		if key == "" {
+			key = strings.TrimSpace(grant.CredentialSecretRef)
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		normalized = append(normalized, grant)
+	}
+
+	return normalized, nil
+}
+
+func validatePluginActionHTTPGrant(
+	grants []credentialBrokerGrant,
+	method string,
+	reqURL *url.URL,
+	now time.Time,
+) error {
+	if len(grants) == 0 {
+		return nil
+	}
+	if reqURL == nil || reqURL.Host == "" {
+		return errInvalidCredentialBrokerGrant
+	}
+
+	lastErr := errCredentialBrokerGrantDenied
+	for _, grant := range grants {
+		if err := validatePluginActionCredentialGrantEnvelope(grant, now); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := validatePluginActionGrantAllow(grant.Allow, method, reqURL); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+
+	return lastErr
+}
+
+func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, now time.Time) error {
+	if strings.TrimSpace(grant.CredentialSecretRef) == "" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if grant.Schema != "" && grant.Schema != "serviceradar.edge_credential_broker_grant.v1" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if grant.TTLSeconds < 0 {
+		return errInvalidCredentialBrokerGrant
+	}
+	if strings.TrimSpace(grant.ExpiresAt) == "" {
+		return nil
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(grant.ExpiresAt))
+	if err != nil {
+		return errInvalidCredentialBrokerGrant
+	}
+	if !now.Before(expiresAt) {
+		return errCredentialBrokerGrantExpired
+	}
+
+	return nil
+}
+
+func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, reqURL *url.URL) error {
+	if len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods) {
+		return errCredentialBrokerGrantDenied
+	}
+
+	requestedPath := reqURL.EscapedPath()
+	if requestedPath == "" {
+		requestedPath = "/"
+	}
+	if len(allow.Paths) > 0 && !credentialBrokerPathAllowed(allow.Paths, requestedPath) {
+		return errCredentialBrokerGrantDenied
+	}
+
+	if len(allow.Hosts) > 0 {
+		host := reqURL.Hostname()
+		if !stringInFoldedList(host, allow.Hosts) && !stringInFoldedList(reqURL.Host, allow.Hosts) {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+
+	if len(allow.Ports) > 0 {
+		port := portForURL(reqURL)
+		if port == 0 || !intInList(port, allow.Ports) {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+
+	return nil
+}
+
+func credentialBrokerPathAllowed(patterns []string, requested string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		switch {
+		case pattern == "":
+			continue
+		case pattern == requested:
+			return true
+		case strings.HasSuffix(pattern, "*") && strings.HasPrefix(requested, strings.TrimSuffix(pattern, "*")):
+			return true
+		case strings.HasSuffix(pattern, "/") && strings.HasPrefix(requested, pattern):
+			return true
+		}
+	}
+
+	return false
 }
 
 func readMemory(mod api.Module, ptr, size uint32) ([]byte, bool) {

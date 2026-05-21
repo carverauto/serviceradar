@@ -115,20 +115,22 @@ type proxmoxTestTLS struct {
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
-type proxmoxCredentialBrokerGrant struct {
-	Schema              string                     `json:"schema,omitempty"`
-	GrantID             string                     `json:"grant_id,omitempty"`
-	GrantType           string                     `json:"grant_type,omitempty"`
-	CredentialRuleID    string                     `json:"credential_rule_id,omitempty"`
-	CredentialSecretRef string                     `json:"credential_secret_ref,omitempty"`
-	Consumer            map[string]string          `json:"consumer,omitempty"`
-	Target              proxmoxTestTarget          `json:"target,omitempty"`
-	ResolutionLocation  string                     `json:"resolution_location,omitempty"`
-	Inject              map[string]string          `json:"inject,omitempty"`
-	Allow               proxmoxCredentialBrokerACL `json:"allow,omitempty"`
-	TTLSeconds          int                        `json:"ttl_seconds,omitempty"`
-	ExpiresAt           string                     `json:"expires_at,omitempty"`
+type credentialBrokerGrant struct {
+	Schema              string              `json:"schema,omitempty"`
+	GrantID             string              `json:"grant_id,omitempty"`
+	GrantType           string              `json:"grant_type,omitempty"`
+	CredentialRuleID    string              `json:"credential_rule_id,omitempty"`
+	CredentialSecretRef string              `json:"credential_secret_ref,omitempty"`
+	Consumer            map[string]string   `json:"consumer,omitempty"`
+	Target              proxmoxTestTarget   `json:"target,omitempty"`
+	ResolutionLocation  string              `json:"resolution_location,omitempty"`
+	Inject              map[string]string   `json:"inject,omitempty"`
+	Allow               credentialBrokerACL `json:"allow,omitempty"`
+	TTLSeconds          int                 `json:"ttl_seconds,omitempty"`
+	ExpiresAt           string              `json:"expires_at,omitempty"`
 }
+
+type proxmoxCredentialBrokerGrant = credentialBrokerGrant
 
 type pluginRunActionPayload struct {
 	InvocationID       string          `json:"invocation_id"`
@@ -138,12 +140,14 @@ type pluginRunActionPayload struct {
 	Payload            json.RawMessage `json:"-"`
 }
 
-type proxmoxCredentialBrokerACL struct {
+type credentialBrokerACL struct {
 	Methods []string `json:"methods,omitempty"`
 	Paths   []string `json:"paths,omitempty"`
 	Hosts   []string `json:"hosts,omitempty"`
 	Ports   []int    `json:"ports,omitempty"`
 }
+
+type proxmoxCredentialBrokerACL = credentialBrokerACL
 
 type controlStreamSender struct {
 	mu     sync.Mutex
