@@ -35,8 +35,7 @@
 - [ ] 6.4 Add demo data and documentation showing 200 URL checks, 200 database checks, and device-tag-driven service monitoring.
 
 ## 7. Validation
-- [ ] 7.1 Run `openspec validate add-service-oriented-plugin-monitoring --strict`.
+- [x] 7.1 Run `openspec validate add-service-oriented-plugin-monitoring --strict`.
 - [ ] 7.2 Add focused unit/integration tests for compiler behavior, credential scoping, target chunking, result ingestion, and SRQL.
 - [ ] 7.3 Add LiveView/browser coverage for picker, bulk import, device monitoring, and service inventory flows.
 - [ ] 7.4 Run applicable Elixir, Go, Rust, and dashboard SDK tests before implementation PRs are merged.
-
