@@ -350,6 +350,82 @@ func TestPluginExecutionCredentialInjectionUsesResolverWithoutPluginSecret(t *te
 	}
 }
 
+func TestCredentialBrokerResolutionDefaultsNoCache(t *testing.T) {
+	t.Parallel()
+
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Value: "resolved-token"},
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	grant := credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+	}
+
+	if _, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant); err != nil {
+		t.Fatalf("first resolve returned error: %v", err)
+	}
+	if _, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant); err != nil {
+		t.Fatalf("second resolve returned error: %v", err)
+	}
+	if resolver.calls != 2 {
+		t.Fatalf("resolver calls = %d, want 2 for default no_cache", resolver.calls)
+	}
+}
+
+func TestCredentialBrokerResolutionMemoryCacheExpires(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Value: "resolved-token"},
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	manager.credentialNow = func() time.Time { return now }
+
+	grant := credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Cache: credentialBrokerCachePolicy{
+			Mode:       "memory",
+			TTLSeconds: 30,
+		},
+		ExpiresAt: now.Add(time.Minute).Format(time.RFC3339),
+	}
+
+	first, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("first resolve returned error: %v", err)
+	}
+	if first.Value != "resolved-token" {
+		t.Fatalf("first material = %q, want resolved-token", first.Value)
+	}
+
+	resolver.material = CredentialBrokerMaterial{Value: "rotated-token"}
+	second, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("second resolve returned error: %v", err)
+	}
+	if second.Value != "resolved-token" {
+		t.Fatalf("second material = %q, want cached resolved-token", second.Value)
+	}
+	if resolver.calls != 1 {
+		t.Fatalf("resolver calls = %d, want 1 while cache is valid", resolver.calls)
+	}
+
+	now = now.Add(31 * time.Second)
+	third, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("third resolve returned error: %v", err)
+	}
+	if third.Value != "rotated-token" {
+		t.Fatalf("third material = %q, want rotated-token after expiry", third.Value)
+	}
+	if resolver.calls != 2 {
+		t.Fatalf("resolver calls = %d, want 2 after cache expiry", resolver.calls)
+	}
+}
+
 func newActionFixtureManager(t *testing.T, objectKey string, cfg *proto.PluginAssignmentConfig) *PluginManager {
 	t.Helper()
 
@@ -427,12 +503,14 @@ type fakeCredentialBrokerResolver struct {
 	grantID  string
 	material CredentialBrokerMaterial
 	err      error
+	calls    int
 }
 
 func (f *fakeCredentialBrokerResolver) ResolveCredentialGrant(
 	_ context.Context,
 	grant credentialBrokerGrant,
 ) (CredentialBrokerMaterial, error) {
+	f.calls++
 	f.grantID = grant.GrantID
 	if f.err != nil {
 		return CredentialBrokerMaterial{}, f.err

@@ -26,3 +26,18 @@ Credential consumers SHALL fail closed when required external secrets cannot be 
 - **THEN** the check SHALL fail with a credential resolution status
 - **AND** it SHALL NOT run anonymously or with stale unrelated credentials
 
+### Requirement: Broker credential material caching is explicit and bounded
+Credential consumers SHALL default to no cache for resolved credential material unless a broker grant explicitly allows short memory-only caching.
+
+#### Scenario: Agent resolves a broker grant without cache policy
+- **GIVEN** an agent-owned plugin host function resolves a credential broker grant
+- **WHEN** the grant does not include an explicit memory cache policy
+- **THEN** each broker use SHALL call the resolver
+- **AND** plaintext credential material SHALL NOT be stored in durable config, logs, results, or plugin memory
+
+#### Scenario: Agent resolves a broker grant with memory cache policy
+- **GIVEN** an agent-owned plugin host function resolves a credential broker grant with memory-only caching enabled
+- **WHEN** the grant is reused before the cache TTL and grant expiry
+- **THEN** the agent MAY reuse memory-only credential material
+- **AND** the cache TTL SHALL be bounded by the grant expiry and a short maximum TTL
+- **AND** expired cached material SHALL be discarded before reuse

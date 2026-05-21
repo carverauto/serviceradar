@@ -11,6 +11,7 @@
 - [x] 2.4.1 Enforce Proxmox credential-test grant target, method, path, host, port, and expiry policy in the Go agent before credential resolution.
 - [x] 2.4.2 Enforce northbound `plugin.run_action` broker grant method/path/host/port/expiry policy in the agent `http_request` host function.
 - [ ] 2.5 Add cache/lease policy enforcement with default `no_cache` or short memory-only TTL.
+- [x] 2.5.1 Add agent-side default no-cache behavior and opt-in memory-only credential material caching capped by grant expiry.
 
 ## 3. Consumer Integration
 - [ ] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.

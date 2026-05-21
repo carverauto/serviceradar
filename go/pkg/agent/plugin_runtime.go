@@ -124,6 +124,9 @@ type PluginManager struct {
 	localStoreDir    string
 	httpClient       *http.Client
 	credentialBroker CredentialBrokerResolver
+	credentialCache  map[string]credentialBrokerCacheEntry
+	credentialNow    func() time.Time
+	credentialMu     sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -154,6 +157,11 @@ type PluginManager struct {
 type assignmentState struct {
 	firstSeen time.Time
 	ready     bool
+}
+
+type credentialBrokerCacheEntry struct {
+	material  CredentialBrokerMaterial
+	expiresAt time.Time
 }
 
 // PluginResult captures a raw plugin result payload.
@@ -335,6 +343,8 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		localStoreDir:    localStoreDir,
 		httpClient:       client,
 		credentialBroker: cfg.CredentialBroker,
+		credentialCache:  make(map[string]credentialBrokerCacheEntry),
+		credentialNow:    time.Now,
 		ctx:              rootCtx,
 		cancel:           cancel,
 		runners:          make(map[string]*pluginRunner),
@@ -2340,12 +2350,137 @@ func (e *pluginExecution) applyCredentialBrokerInjection(
 		return errCredentialBrokerResolverUnavailable
 	}
 
-	material, err := e.manager.credentialBroker.ResolveCredentialGrant(ctx, *grant)
+	material, err := e.manager.resolveCredentialBrokerMaterial(ctx, *grant)
 	if err != nil {
 		return err
 	}
 
 	return applyCredentialBrokerHTTPInjection(req, *grant, material)
+}
+
+func (m *PluginManager) resolveCredentialBrokerMaterial(
+	ctx context.Context,
+	grant credentialBrokerGrant,
+) (CredentialBrokerMaterial, error) {
+	if m == nil || m.credentialBroker == nil {
+		return CredentialBrokerMaterial{}, errCredentialBrokerResolverUnavailable
+	}
+
+	key, ttl := m.credentialBrokerCacheDecision(grant)
+	if key == "" || ttl <= 0 {
+		return m.credentialBroker.ResolveCredentialGrant(ctx, grant)
+	}
+
+	now := m.credentialNowTime()
+	if material, ok := m.getCachedCredentialBrokerMaterial(key, now); ok {
+		return material, nil
+	}
+
+	material, err := m.credentialBroker.ResolveCredentialGrant(ctx, grant)
+	if err != nil {
+		return CredentialBrokerMaterial{}, err
+	}
+
+	m.putCachedCredentialBrokerMaterial(key, material, now.Add(ttl))
+	return material, nil
+}
+
+func (m *PluginManager) credentialBrokerCacheDecision(grant credentialBrokerGrant) (string, time.Duration) {
+	mode := strings.ToLower(strings.TrimSpace(grant.Cache.Mode))
+	if mode == "" || mode == "no_cache" || mode == "none" || mode == "disabled" {
+		return "", 0
+	}
+	if mode != "memory" && mode != "memory_only" {
+		return "", 0
+	}
+
+	ttlSeconds := grant.Cache.TTLSeconds
+	if ttlSeconds <= 0 || ttlSeconds > 300 {
+		ttlSeconds = 300
+	}
+	if grant.TTLSeconds > 0 && grant.TTLSeconds < ttlSeconds {
+		ttlSeconds = grant.TTLSeconds
+	}
+
+	now := m.credentialNowTime()
+	if expiresAt, ok := parseCredentialBrokerExpiresAt(grant.ExpiresAt); ok {
+		remaining := expiresAt.Sub(now)
+		if remaining <= 0 {
+			return "", 0
+		}
+		if remaining < time.Duration(ttlSeconds)*time.Second {
+			ttlSeconds = int(remaining / time.Second)
+			if ttlSeconds <= 0 {
+				return "", 0
+			}
+		}
+	}
+
+	key := strings.TrimSpace(grant.GrantID)
+	if key == "" {
+		key = strings.TrimSpace(grant.CredentialSecretRef)
+	}
+	if key == "" {
+		return "", 0
+	}
+
+	return key, time.Duration(ttlSeconds) * time.Second
+}
+
+func (m *PluginManager) getCachedCredentialBrokerMaterial(
+	key string,
+	now time.Time,
+) (CredentialBrokerMaterial, bool) {
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+
+	entry, ok := m.credentialCache[key]
+	if !ok || !now.Before(entry.expiresAt) {
+		delete(m.credentialCache, key)
+		return CredentialBrokerMaterial{}, false
+	}
+
+	return cloneCredentialBrokerMaterial(entry.material), true
+}
+
+func (m *PluginManager) putCachedCredentialBrokerMaterial(
+	key string,
+	material CredentialBrokerMaterial,
+	expiresAt time.Time,
+) {
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+
+	m.credentialCache[key] = credentialBrokerCacheEntry{
+		material:  cloneCredentialBrokerMaterial(material),
+		expiresAt: expiresAt,
+	}
+}
+
+func (m *PluginManager) credentialNowTime() time.Time {
+	if m != nil && m.credentialNow != nil {
+		return m.credentialNow()
+	}
+	return time.Now()
+}
+
+func cloneCredentialBrokerMaterial(material CredentialBrokerMaterial) CredentialBrokerMaterial {
+	clone := CredentialBrokerMaterial{Value: material.Value}
+	if material.Fields != nil {
+		clone.Fields = make(map[string]string, len(material.Fields))
+		for key, value := range material.Fields {
+			clone.Fields[key] = value
+		}
+	}
+	return clone
+}
+
+func parseCredentialBrokerExpiresAt(raw string) (time.Time, bool) {
+	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return expiresAt, true
 }
 
 func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, method string, reason string) {
