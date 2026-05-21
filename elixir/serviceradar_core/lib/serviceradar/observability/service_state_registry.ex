@@ -53,7 +53,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   @spec repair_plugin_states_from_history(keyword()) ::
           {:ok, non_neg_integer()} | {:error, term()}
   def repair_plugin_states_from_history(opts \\ []) do
-    interval = Keyword.get(opts, :interval, "30 days")
+    interval = opts |> Keyword.get(:interval, "30 days") |> to_string()
     limit = Keyword.get(opts, :limit, 5_000)
 
     case Repo.query(latest_plugin_status_sql(), [interval, limit]) do
@@ -506,7 +506,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       timestamp
     FROM platform.service_status
     WHERE service_type = 'plugin'
-      AND timestamp >= (now() - $1::interval)
+      AND timestamp >= (now() - ($1::text)::interval)
     ORDER BY agent_id, COALESCE(partition, 'default'), service_type, service_name, timestamp DESC
     LIMIT $2
     """
