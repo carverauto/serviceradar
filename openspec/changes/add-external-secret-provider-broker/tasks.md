@@ -7,15 +7,17 @@
 - [x] 2.1 Define project-owned credential broker behaviour/interfaces for control-plane and agent-side resolution.
 - [x] 2.2 Add a test/stub provider adapter that returns synthetic secrets for integration tests without a real secret server.
 - [x] 2.3 Add first-class broker grant resource with lifecycle, PaperTrail, system-only write policy, compatibility payload builder, and validation for target/consumer/purpose/TTL/resolution location.
-- [ ] 2.4 Add provider/host/path/port request enforcement for broker grants at the agent/control-plane resolution boundary.
+- [x] 2.4 Add provider/host/path/port request enforcement for broker grants at the agent/control-plane resolution boundary.
 - [x] 2.4.1 Enforce Proxmox credential-test grant target, method, path, host, port, and expiry policy in the Go agent before credential resolution.
 - [x] 2.4.2 Enforce northbound `plugin.run_action` broker grant method/path/host/port/expiry policy in the agent `http_request` host function.
+- [x] 2.4.3 Add authenticated agent-gateway/core credential grant resolution RPC with persisted grant validation and resolution audit.
 - [ ] 2.5 Add cache/lease policy enforcement with default `no_cache` or short memory-only TTL.
 - [x] 2.5.1 Add agent-side default no-cache behavior and opt-in memory-only credential material caching capped by grant expiry.
 
 ## 3. Consumer Integration
 - [ ] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.
 - [x] 3.1.1 Add an agent-owned credential broker resolver interface and broker-grant-driven HTTP injection for northbound action host functions.
+- [x] 3.1.2 Wire the Go agent plugin manager to resolve broker grants through the gateway broker API.
 - [ ] 3.2 Update mapper/discovery credential resolution to call the broker and stop direct row decryption in compilers/tools.
 - [ ] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
 - [ ] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.

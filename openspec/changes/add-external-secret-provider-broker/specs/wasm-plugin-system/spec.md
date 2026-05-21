@@ -17,6 +17,7 @@ Wasm plugins SHALL NOT be allowed to retrieve plaintext credentials directly fro
 - **AND** the command payload SHALL include only broker grant metadata, not plaintext credentials
 - **AND** agent-owned host functions SHALL enforce the grant method, path, host, port, and expiry policy before making broker-scoped API calls
 - **AND** agent-owned host functions SHALL resolve and inject credential material through an agent broker resolver without returning plaintext to the Wasm plugin
+- **AND** the agent broker resolver SHALL resolve material through the authenticated agent-gateway/core broker API rather than local plugin code
 - **AND** missing required invocation-selected credentials SHALL fail closed before dispatch
 
 #### Scenario: Plugin tries direct provider access

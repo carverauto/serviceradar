@@ -355,6 +355,15 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 	}
 }
 
+// SetCredentialBroker installs the trusted host-side credential resolver.
+func (m *PluginManager) SetCredentialBroker(resolver CredentialBrokerResolver) {
+	if m == nil {
+		return
+	}
+
+	m.credentialBroker = resolver
+}
+
 // ApplyConfig applies plugin assignments from config, replacing existing runners.
 func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	if m == nil {

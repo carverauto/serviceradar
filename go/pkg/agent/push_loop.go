@@ -349,6 +349,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	if interval <= 0 {
 		interval = defaultPushInterval
 	}
+	configurePluginCredentialBroker(server, gateway)
 	debounce, heartbeat := clampStatusIntervals(interval, defaultStatusHeartbeatInterval, interval)
 	cameraRelayManager := newCameraRelayManager(gateway, log)
 	cameraRelayManager.pluginSourceFactory = func(ctx context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
@@ -401,6 +402,25 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		mtrBulkJobSem:        make(chan struct{}, 1),
 		cameraRelayManager:   cameraRelayManager,
 		remoteConsoleManager: remoteConsoleManager,
+	}
+}
+
+func configurePluginCredentialBroker(server *Server, gateway *agentgateway.GatewayClient) {
+	if server == nil || gateway == nil {
+		return
+	}
+
+	resolver := newControlPlaneCredentialBrokerResolver(gateway, serverAgentID(server))
+	if resolver == nil {
+		return
+	}
+
+	server.mu.RLock()
+	pluginManager := server.pluginManager
+	server.mu.RUnlock()
+
+	if pluginManager != nil {
+		pluginManager.SetCredentialBroker(resolver)
 	}
 }
 

@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias Ash.Error.Invalid
   alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.OnboardingPackage
@@ -93,6 +95,30 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   def resolve_release_artifact_download(target_id, command_id, caller_agent_id) do
     ReleaseArtifactDelivery.resolve_download(target_id, command_id, caller_agent_id)
   end
+
+  @spec resolve_credential_broker_grant(map()) :: {:ok, map()} | {:error, term()}
+  def resolve_credential_broker_grant(%{} = request) do
+    actor = SystemActor.system(:gateway_credential_broker)
+    grant_id = string_value(map_value(request, :grant_id))
+    agent_id = string_value(map_value(request, :agent_id))
+
+    with :ok <- present_required(grant_id, :grant_id),
+         :ok <- present_required(agent_id, :agent_id),
+         {:ok, %CredentialBrokerGrant{} = grant} <-
+           CredentialBrokerGrant.get_by_id(grant_id, actor: actor),
+         :ok <- validate_broker_request(grant, request),
+         {:ok, resolved} <-
+           SecretBroker.resolve_with_grant(grant,
+             actor: actor,
+             audit?: true,
+             agent_id: agent_id,
+             resolution_location: grant.resolution_location
+           ) do
+      {:ok, credential_material(resolved)}
+    end
+  end
+
+  def resolve_credential_broker_grant(_request), do: {:error, :invalid_credential_broker_request}
 
   @doc """
   Ensure a device record exists for the agent's host.
@@ -973,4 +999,100 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp not_found_error?(_error), do: false
+
+  defp validate_broker_request(grant, request) do
+    with :ok <- validate_agent_bound_grant(grant, request),
+         :ok <- validate_agent_resolution_location(grant),
+         :ok <- validate_optional_match(grant, request, :secret_ref, :credential_secret_ref),
+         :ok <- validate_optional_match(grant, request, :consumer_kind, :consumer_kind),
+         :ok <- validate_optional_match(grant, request, :consumer_id, :consumer_id) do
+      validate_optional_match(grant, request, :purpose, :purpose)
+    end
+  end
+
+  defp validate_agent_bound_grant(grant, request) do
+    expected_agent_id = string_value(map_value(request, :agent_id))
+
+    case string_value(Map.get(grant, :agent_id)) do
+      ^expected_agent_id -> :ok
+      _ -> {:error, {:grant_scope_mismatch, :agent_id}}
+    end
+  end
+
+  defp validate_agent_resolution_location(grant) do
+    if grant.resolution_location in [:agent, :hybrid] do
+      :ok
+    else
+      {:error, {:grant_scope_mismatch, :resolution_location}}
+    end
+  end
+
+  defp validate_optional_match(grant, request, grant_key, request_key) do
+    expected = string_value(map_value(request, request_key))
+
+    if expected == "" do
+      :ok
+    else
+      actual = grant |> Map.get(grant_key) |> string_value()
+
+      if actual == expected do
+        :ok
+      else
+        {:error, {:grant_scope_mismatch, request_key}}
+      end
+    end
+  end
+
+  defp credential_material(resolved) do
+    value = string_value(Map.get(resolved, :value))
+    fields = credential_material_fields(value)
+
+    %{
+      value: value,
+      fields: fields,
+      source_type: string_value(Map.get(resolved, :source_type)),
+      lease_expires_at_unix: unix_seconds(Map.get(resolved, :lease_expires_at)),
+      cache_status: string_value(Map.get(resolved, :cache_status))
+    }
+  end
+
+  defp credential_material_fields(value) do
+    base = if value == "", do: %{}, else: %{"value" => value}
+
+    case Jason.decode(value) do
+      {:ok, %{} = decoded} ->
+        Enum.reduce(decoded, base, fn
+          {key, field_value}, acc when is_binary(field_value) ->
+            Map.put(acc, to_string(key), field_value)
+
+          {key, field_value}, acc when is_number(field_value) or is_boolean(field_value) ->
+            Map.put(acc, to_string(key), to_string(field_value))
+
+          _other, acc ->
+            acc
+        end)
+
+      _ ->
+        base
+    end
+  end
+
+  defp unix_seconds(%DateTime{} = value), do: DateTime.to_unix(value)
+  defp unix_seconds(_value), do: 0
+
+  defp present_required(value, field) do
+    if value == "" do
+      {:error, {:missing_required_field, field}}
+    else
+      :ok
+    end
+  end
+
+  defp map_value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
+  defp map_value(_map, _key), do: nil
+
+  defp string_value(nil), do: ""
+  defp string_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp string_value(value) when is_binary(value), do: String.trim(value)
+  defp string_value(value), do: value |> to_string() |> String.trim()
 end

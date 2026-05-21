@@ -52,6 +52,14 @@ Credential resolution SHALL require a broker grant scoped to consumer, purpose, 
 - **THEN** the broker SHALL deny the resolution or injection attempt
 - **AND** an audit event SHALL record the denied target mismatch without secret values
 
+#### Scenario: Agent resolves grant through gateway broker
+- **GIVEN** an authenticated agent receives a broker grant for a plugin action
+- **WHEN** the agent needs credential material for an agent-owned host operation
+- **THEN** it SHALL call the agent-gateway credential resolution RPC with the grant ID, credential reference, agent ID, consumer, purpose, and resolution location
+- **AND** the gateway SHALL validate the caller mTLS identity before forwarding resolution to core
+- **AND** core SHALL validate the persisted grant scope and audit the resolution before returning memory-only credential material to the agent
+- **AND** plaintext credential material SHALL NOT be returned to the plugin or stored in the command payload
+
 #### Scenario: Ad-hoc device task receives scoped credential grant
 - **GIVEN** an authorized operator runs an ad-hoc task against device `dev-1`
 - **AND** the task needs to call an external API that requires credentials
