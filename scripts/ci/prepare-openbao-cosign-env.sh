@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# Source this script immediately before a cosign signing command in Forgejo
+# Actions. It intentionally exports the OpenBao token only into the current
+# shell step instead of writing it to GITHUB_ENV.
+
+set -euo pipefail
+
+: "${OPENBAO_ADDR:=http://openbao-active.openbao-system.svc.cluster.local:8200}"
+: "${OPENBAO_K8S_ROLE:=forgejo-runner}"
+: "${COSIGN_KEY_REF:=hashivault://cosign-release}"
+
+if [[ -n "${OPENBAO_SIGNING_ALLOWED_REFS_REGEX:-}" ]]; then
+  ref="${GITHUB_REF:-}"
+  if [[ ! "${ref}" =~ ${OPENBAO_SIGNING_ALLOWED_REFS_REGEX} ]]; then
+    echo "OpenBao signing is not allowed for ref '${ref}'." >&2
+    exit 1
+  fi
+fi
+
+# CI signing must use the centrally managed OpenBao key, not a Forgejo-stored
+# private key secret. Keep these unset even if older repository secrets exist.
+unset COSIGN_PRIVATE_KEY
+unset COSIGN_PASSWORD
+
+sa_token_file="/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+if [[ -f "${sa_token_file}" ]]; then
+  vault_token="$(
+    curl -fsSL \
+      -H 'Content-Type: application/json' \
+      -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"$(tr -d '\n' < "${sa_token_file}")\"}" \
+      "${OPENBAO_ADDR}/v1/auth/kubernetes/login" \
+      | jq -er '.auth.client_token'
+  )"
+
+  export VAULT_ADDR="${OPENBAO_ADDR}"
+  export VAULT_TOKEN="${vault_token}"
+  export COSIGN_KEY_REF
+  echo "Authenticated to OpenBao for this signing step."
+elif [[ -n "${VAULT_TOKEN:-}" && -n "${VAULT_ADDR:-}" && -n "${COSIGN_KEY_REF:-}" ]]; then
+  echo "Using runner-provided OpenBao signing environment for this signing step."
+else
+  echo "No Kubernetes service account token and no runner-provided OpenBao signing env; cannot sign OCI artifacts." >&2
+  exit 1
+fi

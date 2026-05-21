@@ -59,6 +59,36 @@ keyless signing:
 In Forgejo Actions, `id-token: write` must be granted to the job so the runner
 can mint an OIDC token for Cosign.
 
+## OpenBao signing boundary
+
+Forgejo runners only need OpenBao access for the OCI signing step. They must not
+receive general OpenBao access or reusable signing key material.
+
+Current hardening requirements:
+
+- Forgejo jobs use the OpenBao Transit-backed `hashivault://cosign-release` key
+  for signing. The matching public key is the one used by Kyverno admission in
+  the `demo` namespace.
+- CI workflows must authenticate to OpenBao immediately before signing. The
+  token must stay in the current shell step and must not be written to
+  `GITHUB_ENV`.
+- Forgejo workflows must not expose `COSIGN_PRIVATE_KEY` or `COSIGN_PASSWORD`
+  as job-wide environment variables. CI signing uses the centrally managed
+  OpenBao key.
+- The OpenBao role used by runners should be bound to a dedicated signing
+  runner service account, preferably in a protected signing environment, not a
+  shared runner service account that executes arbitrary jobs.
+- The OpenBao policy should be sign-only for the release key. It should not
+  allow key read/export/update/delete, arbitrary Transit paths, or KV access.
+- The token TTL should be as short as practical for the signing step, and the
+  role should bind service account name, namespace, and audience where OpenBao
+  supports it.
+
+A runner compromise during a signing job can still sign whatever that job can
+push to the registry. Treat the signer and registry credentials as one trust
+boundary: protect branch/tag publishing, keep release environments approval
+gated, and prefer a dedicated signing runner over a general runner pool.
+
 ## Verification example
 
 ```bash
