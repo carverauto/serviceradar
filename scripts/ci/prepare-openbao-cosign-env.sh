@@ -23,7 +23,7 @@ fi
 unset COSIGN_PRIVATE_KEY
 unset COSIGN_PASSWORD
 
-sa_token_file="/var/run/secrets/kubernetes.io/serviceaccount/token"
+sa_token_file="${OPENBAO_K8S_TOKEN_FILE:-/var/run/secrets/kubernetes.io/serviceaccount/token}"
 
 if [[ -f "${sa_token_file}" ]]; then
   vault_token="$(
@@ -41,6 +41,6 @@ if [[ -f "${sa_token_file}" ]]; then
 elif [[ -n "${VAULT_TOKEN:-}" && -n "${VAULT_ADDR:-}" && -n "${COSIGN_KEY_REF:-}" ]]; then
   echo "Using runner-provided OpenBao signing environment for this signing step."
 else
-  echo "No Kubernetes service account token and no runner-provided OpenBao signing env; cannot sign OCI artifacts." >&2
+  echo "No Kubernetes service account token at '${sa_token_file}' and no runner-provided OpenBao signing env; cannot sign OCI artifacts." >&2
   exit 1
 fi
