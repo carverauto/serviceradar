@@ -16,6 +16,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SecretProviderAdapters.OpenBao
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Vault
 
   @default_external_lease_seconds 300
@@ -60,7 +61,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
     with {:ok, secret_id} <- secret_id_from_grant(grant),
          :ok <-
            CredentialBrokerGrant.validate_loaded_grant(
-             grant,
+             grant_with_secret_id(grant, secret_id),
              Keyword.put(opts, :secret_id, secret_id)
            ) do
       resolve_network_credential_secret(secret_id, grant_resolution_opts(grant, opts))
@@ -80,7 +81,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
          true <- grant_secret_id == secret_id,
          :ok <-
            CredentialBrokerGrant.validate_loaded_grant(
-             grant,
+             grant_with_secret_id(grant, grant_secret_id),
              Keyword.put(opts, :secret_id, secret_id)
            ) do
       resolve_loaded_secret(secret, grant_resolution_opts(grant, opts))
@@ -206,8 +207,22 @@ defmodule ServiceRadar.Credentials.SecretBroker do
     end
   end
 
-  defp secret_id_from_ref("credentialref:network-credential-secret:" <> secret_id), do: secret_id
+  defp secret_id_from_ref(ref) when is_binary(ref) do
+    case SecretRefs.network_credential_ref_id(ref) do
+      {:ok, secret_id} -> secret_id
+      {:error, _reason} -> nil
+    end
+  end
+
   defp secret_id_from_ref(_ref), do: nil
+
+  defp grant_with_secret_id(grant, secret_id) do
+    if present?(string_value(value(grant, :secret_id))) do
+      grant
+    else
+      Map.put(grant, :secret_id, secret_id)
+    end
+  end
 
   defp grant_resolution_opts(grant, opts) do
     opts

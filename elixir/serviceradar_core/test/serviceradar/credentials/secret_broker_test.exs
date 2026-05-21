@@ -12,10 +12,11 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest.LeasedAdapter do
 end
 
 defmodule ServiceRadar.Credentials.SecretBrokerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Credentials.SecretBrokerTest.LeasedAdapter
+  alias ServiceRadar.Plugins.SecretRefs
 
   test "resolves internally encrypted credential payloads through shared broker API" do
     secret = %{
@@ -89,6 +90,29 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
 
     assert {:error, :external_secret_requires_broker_grant} =
              SecretBroker.resolve_loaded_secret(secret)
+  end
+
+  test "resolves grant secret ids through shared network credential ref parser" do
+    put_crypto_secret()
+
+    secret = %{
+      id: "secret-from-ref",
+      source_type: :internal_encrypted,
+      provider: "test",
+      credential_kind: :api_token,
+      secret_payload: "token-from-ref"
+    }
+
+    grant = %{
+      id: "grant-1",
+      secret_ref: SecretRefs.network_credential_grant_ref(secret.id),
+      status: :issued,
+      resolution_location: :agent,
+      expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+    }
+
+    assert {:ok, resolved} = SecretBroker.resolve_loaded_secret_with_grant(secret, grant)
+    assert resolved.value == "token-from-ref"
   end
 
   test "denies resolution from locations not allowed by provider policy" do
@@ -242,5 +266,18 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
                now: ~U[2026-05-21 12:00:00Z],
                lease_expires_at: ~U[2026-05-21 11:59:00Z]
              )
+  end
+
+  defp put_crypto_secret do
+    original = Application.get_env(:serviceradar_core, :crypto_secret)
+    Application.put_env(:serviceradar_core, :crypto_secret, String.duplicate("a", 32))
+
+    on_exit(fn ->
+      if is_nil(original) do
+        Application.delete_env(:serviceradar_core, :crypto_secret)
+      else
+        Application.put_env(:serviceradar_core, :crypto_secret, original)
+      end
+    end)
   end
 end
