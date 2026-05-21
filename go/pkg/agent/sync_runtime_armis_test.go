@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -526,13 +527,14 @@ func TestRunArmisSyncStreamsLargePagedDatasetAsGatewayResults(t *testing.T) {
 			}
 		}
 		lastChunk := stream[len(stream)-1]
+		if !lastChunk.IsFinal {
+			t.Fatalf("stream %d last chunk is not final", streamIdx)
+		}
 		if streamIdx == len(streams)-1 {
-			if !lastChunk.IsFinal {
-				t.Fatalf("final stream last chunk is not final")
-			}
+			assertSyncChunkRunFinal(t, lastChunk, true)
 			assertSyncChunkRunTotal(t, lastChunk, totalDevices)
-		} else if lastChunk.IsFinal {
-			t.Fatalf("stream %d was marked final before the run completed", streamIdx)
+		} else {
+			assertSyncChunkRunFinal(t, lastChunk, false)
 		}
 	}
 
@@ -805,6 +807,24 @@ func (f *fakeSyncGateway) StreamStatus(
 	_ context.Context,
 	chunks []*proto.GatewayStatusChunk,
 ) (*proto.GatewayStatusResponse, error) {
+	if len(chunks) == 0 {
+		return nil, errors.New("empty stream")
+	}
+	for i, chunk := range chunks {
+		if chunk == nil {
+			return nil, fmt.Errorf("nil chunk %d", i)
+		}
+		if chunk.ChunkIndex != int32(i) {
+			return nil, fmt.Errorf("chunk index %d, want %d", chunk.ChunkIndex, i)
+		}
+		if chunk.TotalChunks != int32(len(chunks)) {
+			return nil, fmt.Errorf("total chunks %d, want %d", chunk.TotalChunks, len(chunks))
+		}
+	}
+	if !chunks[len(chunks)-1].IsFinal {
+		return nil, errors.New("stream ended without final chunk")
+	}
+
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	copied := append([]*proto.GatewayStatusChunk(nil), chunks...)
@@ -921,22 +941,7 @@ func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk)
 
 func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want int) {
 	t.Helper()
-	if len(chunk.Services) == 0 {
-		t.Fatal("final chunk has no services")
-	}
-
-	var updates []map[string]interface{}
-	if err := json.Unmarshal(chunk.Services[0].Message, &updates); err != nil {
-		t.Fatalf("decode final chunk: %v", err)
-	}
-	if len(updates) == 0 {
-		t.Fatal("final chunk has no updates")
-	}
-
-	meta, ok := updates[len(updates)-1]["sync_meta"].(map[string]interface{})
-	if !ok {
-		t.Fatalf("final update missing sync_meta: %#v", updates[len(updates)-1])
-	}
+	meta := syncMetaFromStatusChunk(t, chunk)
 
 	got, ok := meta["total_devices"].(float64)
 	if !ok {
@@ -945,6 +950,40 @@ func assertSyncChunkRunTotal(t *testing.T, chunk *proto.GatewayStatusChunk, want
 	if int(got) != want {
 		t.Fatalf("sync_meta total_devices = %d, want %d", int(got), want)
 	}
+}
+
+func assertSyncChunkRunFinal(t *testing.T, chunk *proto.GatewayStatusChunk, want bool) {
+	t.Helper()
+	meta := syncMetaFromStatusChunk(t, chunk)
+
+	got, ok := meta["is_final"].(bool)
+	if !ok {
+		t.Fatalf("sync_meta is_final = %#v", meta["is_final"])
+	}
+	if got != want {
+		t.Fatalf("sync_meta is_final = %v, want %v", got, want)
+	}
+}
+
+func syncMetaFromStatusChunk(t *testing.T, chunk *proto.GatewayStatusChunk) map[string]interface{} {
+	t.Helper()
+	if len(chunk.Services) == 0 {
+		t.Fatal("chunk has no services")
+	}
+
+	var updates []map[string]interface{}
+	if err := json.Unmarshal(chunk.Services[0].Message, &updates); err != nil {
+		t.Fatalf("decode chunk: %v", err)
+	}
+	if len(updates) == 0 {
+		t.Fatal("chunk has no updates")
+	}
+
+	meta, ok := updates[len(updates)-1]["sync_meta"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("update missing sync_meta: %#v", updates[len(updates)-1])
+	}
+	return meta
 }
 
 func releaseGateArmisIP(deviceNumber int) string {

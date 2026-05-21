@@ -773,12 +773,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       </td>
                       <td>
                         <.status_badge enabled={source.enabled} result={source.last_sync_result} />
-                        <%= if source.last_error_message do %>
+                        <%= if error_message = visible_error_message(source.last_error_message) do %>
                           <div
                             class="text-xs text-error/80 max-w-[180px] truncate"
-                            title={source.last_error_message}
+                            title={error_message}
                           >
-                            {source.last_error_message}
+                            {error_message}
                           </div>
                         <% end %>
                         <div class="mt-1 text-xs text-base-content/60">
@@ -1569,10 +1569,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             </div>
           <% end %>
 
-          <%= if @source.last_error_message do %>
+          <%= if error_message = visible_error_message(@source.last_error_message) do %>
             <div class="alert alert-error text-sm">
               <.icon name="hero-exclamation-circle" class="size-5" />
-              <span>{@source.last_error_message}</span>
+              <span>{error_message}</span>
             </div>
           <% end %>
 
@@ -1837,6 +1837,25 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp format_dispatch_result(:ok), do: "Pushed"
   defp format_dispatch_result({:error, _reason}), do: "Failed"
   defp format_dispatch_result(_), do: "-"
+
+  defp visible_error_message(nil), do: nil
+
+  defp visible_error_message(message) when is_binary(message) do
+    message = String.trim(message)
+
+    cond do
+      message == "" -> nil
+      stale_utc_datetime_error?(message) -> nil
+      true -> message
+    end
+  end
+
+  defp visible_error_message(_), do: nil
+
+  defp stale_utc_datetime_error?(message) do
+    String.contains?(message, ":utc_datetime expects microseconds to be empty") and
+      String.contains?(message, "DateTime.truncate(utc_datetime, :second)")
+  end
 
   defp format_interval(nil), do: "5 minutes"
 

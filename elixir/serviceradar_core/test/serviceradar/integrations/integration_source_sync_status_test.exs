@@ -59,6 +59,31 @@ defmodule ServiceRadar.Integrations.IntegrationSourceSyncStatusTest do
     assert failed.last_sync_at.microsecond == {0, 0}
   end
 
+  test "sync_start clears stale failure message from prior run", %{actor: actor} do
+    source = create_source!(actor, name: unique_name("sync-start-clears-error"))
+    {:ok, running} = update_with_action(source, :sync_start, %{device_count: 0}, actor)
+
+    {:ok, failed} =
+      update_with_action(
+        running,
+        :sync_failed,
+        %{
+          result: :failed,
+          device_count: 0,
+          error_message: "old timestamp precision error"
+        },
+        actor
+      )
+
+    assert failed.last_error_message == "old timestamp precision error"
+
+    assert {:ok, rerunning} =
+             update_with_action(failed, :sync_start, %{device_count: 10}, actor)
+
+    assert rerunning.sync_status == :running
+    assert rerunning.last_error_message == nil
+  end
+
   defp create_source!(actor, attrs) do
     endpoint = "https://example.invalid/#{System.unique_integer([:positive])}"
     agent = create_connected_agent!(actor)

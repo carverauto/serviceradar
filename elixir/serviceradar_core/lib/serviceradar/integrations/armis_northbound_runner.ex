@@ -702,7 +702,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end)
   end
 
-  defp northbound_value(is_available), do: not is_available
+  defp northbound_value(is_available), do: to_string(not is_available)
 
   defp parse_armis_device_id(value) when is_integer(value), do: {:ok, value}
 
@@ -1212,9 +1212,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   defp request_headers(token) do
     %{
-      "authorization" => authorization_header(token),
-      "content-type" => "application/json",
-      "accept" => "application/json"
+      "Authorization" => authorization_header(token),
+      "Content-Type" => "application/json",
+      "Accept" => "application/json"
     }
   end
 

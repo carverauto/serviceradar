@@ -243,6 +243,42 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     refute html =~ "dispatch-secret"
   end
 
+  test "details modal suppresses stale internal timestamp precision errors", %{
+    conn: conn,
+    scope: scope
+  } do
+    raw_error = """
+    %ArgumentError{message: ":utc_datetime expects microseconds to be empty, got: ~U[2026-05-15 18:00:08.246357Z]\n\nUse `DateTime.truncate(utc_datetime, :second)` (available in Elixir v1.6+) to remove microseconds.\n"}
+    """
+
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Stale Error Detail",
+        credentials: %{api_key: "stale-error-key", api_secret: "stale-error-secret"}
+      })
+
+    source =
+      source
+      |> Ash.Changeset.for_update(:sync_start, %{device_count: 0})
+      |> Ash.update!(scope: scope)
+
+    source
+    |> Ash.Changeset.for_update(:sync_failed, %{
+      result: :failed,
+      device_count: 0,
+      error_message: raw_error
+    })
+    |> Ash.update!(scope: scope)
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+    assert html =~ "Agent Config Dispatch"
+    assert html =~ "No recent config dispatch recorded for this source."
+    refute html =~ "%ArgumentError"
+    refute html =~ ":utc_datetime expects microseconds"
+    refute html =~ "DateTime.truncate(utc_datetime, :second)"
+  end
+
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
     scope = Scope.for_user(user)
