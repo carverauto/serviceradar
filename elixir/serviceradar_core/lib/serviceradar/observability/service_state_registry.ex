@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   alias ServiceRadar.Observability.ServiceStatePubSub
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -23,13 +24,14 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   def upsert_from_status(status) when is_map(status) do
     actor = SystemActor.system(:service_state_registry)
 
-    attrs = build_attrs_from_status(status)
+    attrs = build_attrs_from_status(status, actor)
 
     ServiceState
     |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
     |> Ash.create(domain: ServiceRadar.Observability)
     |> case do
       {:ok, state} ->
+        deactivate_shadowed_plugin_states(state, actor)
         ServiceStatePubSub.broadcast_update(state)
         :ok
 
@@ -48,6 +50,31 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   def upsert_from_status(_), do: :ok
+
+  @spec repair_plugin_states_from_history(keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def repair_plugin_states_from_history(opts \\ []) do
+    interval = opts |> Keyword.get(:interval, "30 days") |> to_string()
+    limit = Keyword.get(opts, :limit, 5_000)
+
+    case Repo.query(latest_plugin_status_sql(), [interval, limit]) do
+      {:ok, %{rows: rows}} ->
+        Enum.each(rows, fn row -> upsert_from_status(status_from_history_row(row)) end)
+
+        case deactivate_inactive_plugin_state_count() do
+          {:ok, inactive_count} -> {:ok, length(rows) + inactive_count}
+          {:error, _reason} = error -> error
+        end
+
+      {:error, reason} = error ->
+        Logger.warning("Plugin service state history repair failed: #{inspect(reason)}")
+        error
+    end
+  rescue
+    error ->
+      Logger.warning("Plugin service state history repair failed: #{Exception.message(error)}")
+      {:error, error}
+  end
 
   @spec upsert_for_assignment(PluginAssignment.t()) :: :ok
   def upsert_for_assignment(%PluginAssignment{} = assignment) do
@@ -85,7 +112,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> case do
       {:ok, assignments} ->
         Enum.each(assignments, &upsert_for_assignment/1)
-        {:ok, length(assignments)}
+
+        case deactivate_inactive_plugin_state_count() do
+          {:ok, inactive_count} -> {:ok, length(assignments) + inactive_count}
+          {:error, _reason} = error -> error
+        end
 
       {:error, reason} = error ->
         Logger.warning("Failed to reconcile plugin assignment service states: #{inspect(reason)}")
@@ -93,9 +124,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   rescue
     error ->
-      Logger.warning(
-        "Plugin assignment service state reconciliation failed: #{Exception.message(error)}"
-      )
+      Logger.warning("Plugin assignment service state reconciliation failed: #{Exception.message(error)}")
 
       {:error, error}
   end
@@ -186,12 +215,167 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_status(status) do
+  defp deactivate_shadowed_plugin_states(%ServiceState{service_type: "plugin"} = current_state, actor) do
+    ServiceState
+    |> filter(
+      id != ^current_state.id and
+        agent_id == ^current_state.agent_id and
+        partition == ^current_state.partition and
+        service_type == ^current_state.service_type and
+        service_name == ^current_state.service_name and
+        state == "active"
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} ->
+        Enum.each(states, &deactivate_shadow_state(&1, actor))
+
+      {:error, error} ->
+        Logger.warning("Failed to load shadowed plugin states: #{inspect(error)}")
+    end
+  end
+
+  defp deactivate_shadowed_plugin_states(_state, _actor), do: :ok
+
+  defp deactivate_shadow_state(%ServiceState{} = state, actor) do
+    state
+    |> Ash.Changeset.for_update(:deactivate, %{}, actor: actor)
+    |> Ash.update(domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, updated} ->
+        ServiceStatePubSub.broadcast_update(updated)
+
+      {:error, error} ->
+        Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
+    end
+  end
+
+  defp deactivate_stale_active_plugin_shadows do
+    case Repo.query(deactivate_stale_active_plugin_shadows_sql(), []) do
+      {:ok, %{rows: [[count]]}} ->
+        {:ok, normalize_count(count)}
+
+      {:ok, _result} ->
+        {:ok, 0}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to deactivate stale plugin service shadows: #{inspect(reason)}")
+        error
+    end
+  end
+
+  defp deactivate_orphaned_active_plugin_states do
+    params = [
+      @plugin_result_output,
+      @streaming_plugin_output,
+      @streaming_plugin_capability
+    ]
+
+    case Repo.query(deactivate_orphaned_active_plugin_states_sql(), params) do
+      {:ok, %{rows: [[count]]}} ->
+        {:ok, normalize_count(count)}
+
+      {:ok, _result} ->
+        {:ok, 0}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to deactivate orphaned plugin service states: #{inspect(reason)}")
+        error
+    end
+  end
+
+  defp deactivate_inactive_plugin_state_count do
+    # These bulk cleanup passes intentionally skip PubSub. They reconcile reload-time
+    # Postgres state and avoid broadcasting one message per stale row.
+    with {:ok, shadow_count} <- deactivate_stale_active_plugin_shadows(),
+         {:ok, orphan_count} <- deactivate_orphaned_active_plugin_states() do
+      {:ok, shadow_count + orphan_count}
+    end
+  end
+
+  defp deactivate_stale_active_plugin_shadows_sql do
+    """
+    WITH ranked AS (
+      SELECT
+        id,
+        row_number() OVER (
+          PARTITION BY agent_id, partition, service_type, service_name
+          ORDER BY last_observed_at DESC, updated_at DESC, inserted_at DESC, id DESC
+        ) AS row_number
+      FROM platform.service_state
+      WHERE service_type = 'plugin' AND state = 'active'
+    ),
+    deactivated AS (
+      UPDATE platform.service_state AS service_state
+      SET state = 'inactive',
+          updated_at = (now() AT TIME ZONE 'utc')
+      FROM ranked
+      WHERE service_state.id = ranked.id
+        AND ranked.row_number > 1
+      RETURNING service_state.id
+    )
+    SELECT count(*)::bigint FROM deactivated
+    """
+  end
+
+  defp deactivate_orphaned_active_plugin_states_sql do
+    """
+    WITH deactivated AS (
+      UPDATE platform.service_state AS service_state
+      SET state = 'inactive',
+          updated_at = (now() AT TIME ZONE 'utc')
+      WHERE service_state.service_type = 'plugin'
+        AND service_state.state = 'active'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM platform.plugin_assignments AS assignment
+          JOIN platform.plugin_packages AS package
+            ON package.id = assignment.plugin_package_id
+          WHERE assignment.enabled = true
+            AND assignment.agent_uid = service_state.agent_id
+            AND (
+              package.name = service_state.service_name
+              OR (
+                service_state.details IS JSON
+                AND (
+                  service_state.details::jsonb #>> '{labels,plugin_id}' = package.plugin_id
+                  OR service_state.details::jsonb ->> 'plugin_id' = package.plugin_id
+                )
+              )
+            )
+            AND (
+              package.outputs IN ($1, $2)
+              OR $3 = ANY(package.approved_capabilities)
+              OR (
+                coalesce(array_length(package.approved_capabilities, 1), 0) = 0
+                AND package.manifest->'capabilities' ? $3
+              )
+            )
+        )
+      RETURNING service_state.id
+    )
+    SELECT count(*)::bigint FROM deactivated
+    """
+  end
+
+  defp normalize_count(count) when is_integer(count), do: count
+
+  defp normalize_count(count) when is_binary(count) do
+    case Integer.parse(count) do
+      {value, _rest} -> value
+      :error -> 0
+    end
+  end
+
+  defp normalize_count(_count), do: 0
+
+  defp build_attrs_from_status(status, actor) do
     message = normalize_message(fetch(status, :message))
+    agent_id = normalize_string(fetch(status, :agent_id), "unknown")
 
     %{
-      agent_id: normalize_string(fetch(status, :agent_id), "unknown"),
-      gateway_id: normalize_string(fetch(status, :gateway_id), "unknown"),
+      agent_id: agent_id,
+      gateway_id: canonical_gateway_id(status, agent_id, actor),
       partition: resolve_partition(status),
       service_type: normalize_string(fetch(status, :service_type), "unknown"),
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
@@ -291,10 +475,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
   end
 
-  defp should_track_assignment_service?(
-         %PluginAssignment{} = assignment,
-         %PluginPackage{} = package
-       ) do
+  defp should_track_assignment_service?(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
     assignment.enabled == true and
       (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
@@ -319,11 +500,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_assignment(
-         %PluginAssignment{} = assignment,
-         agent,
-         %PluginPackage{} = package
-       ) do
+  defp build_attrs_from_assignment(%PluginAssignment{} = assignment, agent, %PluginPackage{} = package) do
     plugin_type = assignment_plugin_type(package)
     {available, message} = assignment_initial_state(plugin_type)
 
@@ -346,7 +523,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   defp maybe_upsert_assignment_state(attrs, actor) do
-    case load_existing_state(attrs, actor) do
+    case load_existing_logical_state(attrs, actor) do
       {:ok, %ServiceState{state: "active"} = state} ->
         if assignment_placeholder_state?(state) do
           upsert_service_state(attrs, actor)
@@ -359,24 +536,42 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp load_existing_state(attrs, actor) do
+  defp load_existing_logical_state(attrs, actor) do
     ServiceState
-    |> Ash.Query.for_read(
-      :by_identity,
-      %{
-        agent_id: Map.fetch!(attrs, :agent_id),
-        gateway_id: Map.fetch!(attrs, :gateway_id),
-        partition: Map.fetch!(attrs, :partition),
-        service_type: Map.fetch!(attrs, :service_type),
-        service_name: Map.fetch!(attrs, :service_name)
-      },
-      actor: actor
+    |> filter(
+      agent_id == ^Map.fetch!(attrs, :agent_id) and
+        partition == ^Map.fetch!(attrs, :partition) and
+        service_type == ^Map.fetch!(attrs, :service_type) and
+        service_name == ^Map.fetch!(attrs, :service_name) and
+        state == "active"
     )
-    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} ->
+        {:ok, Enum.max_by(states, &logical_state_rank/1, fn -> nil end)}
+
+      error ->
+        error
+    end
   end
 
   defp assignment_placeholder_state?(%ServiceState{} = state) do
-    state.message in ["plugin assignment pending result", "streaming plugin ready"]
+    placeholder_message?(state.message)
+  end
+
+  defp placeholder_message?("plugin assignment pending result"), do: true
+  defp placeholder_message?("streaming plugin ready"), do: true
+  defp placeholder_message?(_), do: false
+
+  defp logical_state_rank(%ServiceState{} = state) do
+    observed_at =
+      case state.last_observed_at do
+        %DateTime{} = dt -> DateTime.to_unix(dt, :nanosecond)
+        _ -> 0
+      end
+
+    real_result_rank = if placeholder_message?(state.message), do: 0, else: 1
+    {real_result_rank, observed_at}
   end
 
   defp assignment_plugin_type(%PluginPackage{} = package) do
@@ -396,6 +591,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> Ash.create(domain: ServiceRadar.Observability)
     |> case do
       {:ok, state} ->
+        deactivate_shadowed_plugin_states(state, actor)
         ServiceStatePubSub.broadcast_update(state)
         :ok
 
@@ -429,5 +625,67 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     metadata = agent.metadata || %{}
 
     metadata["partition_id"] || metadata["partition"] || "default"
+  end
+
+  defp canonical_gateway_id(status, agent_id, actor) do
+    raw_gateway_id = normalize_string(fetch(status, :gateway_id), "unknown")
+
+    if normalize_string(fetch(status, :service_type), "unknown") == "plugin" do
+      agent_gateway_id(agent_id, actor) || raw_gateway_id
+    else
+      raw_gateway_id
+    end
+  end
+
+  defp agent_gateway_id(agent_id, actor) when is_binary(agent_id) and agent_id not in ["", "unknown"] do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, agent} -> normalize_string(agent.gateway_id, nil)
+      _ -> nil
+    end
+  end
+
+  defp agent_gateway_id(_agent_id, _actor), do: nil
+
+  defp latest_plugin_status_sql do
+    """
+    SELECT DISTINCT ON (agent_id, COALESCE(partition, 'default'), service_type, service_name)
+      agent_id,
+      gateway_id,
+      COALESCE(partition, 'default') AS partition,
+      service_type,
+      service_name,
+      available,
+      message,
+      details,
+      timestamp
+    FROM platform.service_status
+    WHERE service_type = 'plugin'
+      AND timestamp >= (now() - ($1::text)::interval)
+    ORDER BY agent_id, COALESCE(partition, 'default'), service_type, service_name, timestamp DESC
+    LIMIT $2
+    """
+  end
+
+  defp status_from_history_row([
+         agent_id,
+         gateway_id,
+         partition,
+         service_type,
+         service_name,
+         available,
+         message,
+         details,
+         timestamp
+       ]) do
+    %{
+      agent_id: agent_id,
+      gateway_id: gateway_id,
+      partition: partition,
+      service_type: service_type,
+      service_name: service_name,
+      available: available,
+      message: details || message,
+      timestamp: timestamp
+    }
   end
 end

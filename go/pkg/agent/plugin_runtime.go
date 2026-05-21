@@ -157,8 +157,9 @@ type PluginManager struct {
 }
 
 type assignmentState struct {
-	firstSeen time.Time
-	ready     bool
+	firstSeen   time.Time
+	ready       bool
+	contentHash string
 }
 
 type credentialBrokerCacheEntry struct {
@@ -1757,8 +1758,9 @@ func (m *PluginManager) refreshAssignmentStates(assignments []*pluginAssignment)
 
 	for _, assignment := range assignments {
 		state := m.states[assignment.AssignmentID]
-		if state == nil {
-			state = &assignmentState{firstSeen: now}
+		contentHash := assignmentStateContentHash(assignment)
+		if state == nil || state.contentHash != contentHash {
+			state = &assignmentState{firstSeen: now, contentHash: contentHash}
 		}
 		if !state.ready && m.cacheExists(assignment) {
 			state.ready = true
@@ -1809,6 +1811,17 @@ func (m *PluginManager) shouldSkipWarmup(assignment *pluginAssignment) bool {
 		return false
 	}
 	return time.Since(state.firstSeen) < pluginWarmupGrace
+}
+
+func assignmentStateContentHash(assignment *pluginAssignment) string {
+	if assignment == nil {
+		return ""
+	}
+	if assignment.ContentHash != "" {
+		return assignment.ContentHash
+	}
+
+	return assignment.PackageID + "|" + assignment.WasmObject + "|" + assignment.Version
 }
 
 func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {

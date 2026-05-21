@@ -234,6 +234,112 @@ func TestDuskCheckerWithConfig(t *testing.T) {
 	}
 }
 
+func TestProxmoxInventoryWasmRuntimeFetchesInventory(t *testing.T) {
+	wasmPath := os.Getenv("WASM_PATH")
+	if wasmPath == "" {
+		t.Skip("set WASM_PATH to proxmox-inventory plugin.wasm")
+	}
+
+	if _, err := os.Stat(wasmPath); err != nil {
+		t.Skipf("wasm file not found at %s", wasmPath)
+	}
+
+	wasm, err := os.ReadFile(wasmPath)
+	if err != nil {
+		t.Fatalf("read wasm: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api2/json/version":
+			_, _ = w.Write([]byte(`{"data":{"version":"8.2.4","release":"8.2","repoid":"test-repo"}}`))
+		case "/api2/json/cluster/status":
+			_, _ = w.Write([]byte(`{"data":[{"id":"node/pve-a","name":"pve-a","type":"node","online":1,"ip":"10.10.0.11"}]}`))
+		case "/api2/json/nodes":
+			_, _ = w.Write([]byte(`{"data":[{"node":"pve-a","status":"online","cpu":0.25,"maxcpu":16,"mem":1024,"maxmem":4096,"uptime":3600}]}`))
+		case "/api2/json/nodes/pve-a/status":
+			_, _ = w.Write([]byte(`{"data":{"wait":0.01}}`))
+		case "/api2/json/nodes/pve-a/storage":
+			_, _ = w.Write([]byte(`{"data":[{"storage":"local-zfs","type":"zfspool","content":"images,rootdir","used":8192,"total":16384}]}`))
+		case "/api2/json/nodes/pve-a/network":
+			_, _ = w.Write([]byte(`{"data":[{"iface":"vmbr0","type":"bridge","method":"static","families":["inet"],"bridge-ports":"eno1"}]}`))
+		case "/api2/json/nodes/pve-a/disks/list":
+			_, _ = w.Write([]byte(`{"data":[{"devpath":"/dev/sda","model":"Test SSD","type":"ssd","size":1024,"health":"PASSED"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+	port, err := strconv.Atoi(serverURL.Port())
+	if err != nil {
+		t.Fatalf("parse server port: %v", err)
+	}
+
+	config := map[string]interface{}{
+		"base_url":       server.URL,
+		"api_token":      "root@pam!sr=test-token",
+		"include_guests": false,
+	}
+	configJSON, _ := json.Marshal(config)
+
+	manager := NewPluginManager(context.Background(), PluginManagerConfig{
+		Logger: logger.NewTestLogger(),
+	})
+	defer manager.Stop()
+
+	assignment := &pluginAssignment{
+		AssignmentID: "proxmox-inventory-test",
+		PluginID:     "proxmox-inventory",
+		Name:         "Proxmox Inventory",
+		Entrypoint:   "run_check",
+		Runtime:      "wasi-preview1",
+		ParamsJSON:   configJSON,
+		Capabilities: map[string]bool{
+			"get_config":    true,
+			"log":           true,
+			"submit_result": true,
+			"http_request":  true,
+		},
+		Permissions: pluginPermissions{
+			AllowedDomains: []string{serverURL.Hostname()},
+			AllowedPorts:   []int{port},
+		},
+		Resources: pluginResources{
+			RequestedMemoryMB:  64,
+			MaxOpenConnections: 2,
+		},
+		Timeout: 10 * time.Second,
+	}
+	assignment.Permissions.normalize()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if err := manager.executeWithWasm(ctx, assignment, wasm); err != nil {
+		t.Fatalf("executeWithWasm: %v", err)
+	}
+
+	results := manager.DrainResults(1)
+	if len(results) == 0 {
+		t.Fatalf("expected plugin result, got none")
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(results[0].Payload, &result); err != nil {
+		t.Fatalf("unmarshal plugin result: %v\n%s", err, string(results[0].Payload))
+	}
+
+	if status, _ := result["status"].(string); status != "OK" {
+		t.Fatalf("expected OK status, got %q payload=%s", status, string(results[0].Payload))
+	}
+}
+
 func TestAlienVaultOTXWasmRuntimeFetchesAndEmitsThreatIntel(t *testing.T) {
 	wasmPath := os.Getenv("OTX_WASM_PATH")
 	if wasmPath == "" {

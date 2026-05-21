@@ -6,8 +6,10 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Automation.Northbound.PluginActionSync
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Plugins.Manifest
+  alias ServiceRadar.Plugins.PackageAssignmentLifecycle
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
@@ -100,10 +102,10 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> apply_manifest_defaults(package.manifest || %{})
         |> maybe_put(:approved_by, Keyword.get(opts, :approved_by))
 
-      package
-      |> Ash.Changeset.for_update(:approve, attrs)
-      |> update_resource_with_opts(ash_opts)
-      |> sync_northbound_actions(:approved)
+      with {:ok, {approved, revoked_packages}} <- approve_package(package, attrs, ash_opts),
+           :ok <- sync_disabled_packages(revoked_packages) do
+        sync_northbound_actions({:ok, approved}, :approved)
+      end
     end
   end
 
@@ -141,8 +143,10 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> update_resource_with_opts(ash_opts)
       |> case do
         {:ok, updated} ->
-          ServiceStateRegistry.deactivate_for_package(updated)
-          sync_northbound_actions({:ok, updated}, :disabled)
+          with :ok <- disable_assignments_for_package(updated, ash_opts) do
+            ServiceStateRegistry.deactivate_for_package(updated)
+            sync_northbound_actions({:ok, updated}, :disabled)
+          end
 
         other ->
           other
@@ -549,6 +553,61 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     |> Ash.read_one(ash_opts)
   end
 
+  defp approve_package(%PluginPackage{} = package, attrs, ash_opts) do
+    Repo.transaction(fn ->
+      with {:ok, revoked_packages} <- revoke_approved_sibling_packages(package, ash_opts),
+           {:ok, approved} <-
+             package
+             |> Ash.Changeset.for_update(:approve, attrs)
+             |> update_resource_with_opts(ash_opts) do
+        {approved, revoked_packages}
+      else
+        {:error, error} -> Repo.rollback(error)
+      end
+    end)
+  end
+
+  defp revoke_approved_sibling_packages(%PluginPackage{} = package, ash_opts) do
+    with {:ok, siblings} <- read_approved_sibling_packages(package, ash_opts) do
+      siblings
+      |> Enum.reduce_while({:ok, []}, fn sibling, {:ok, acc} ->
+        sibling
+        |> Ash.Changeset.for_update(:revoke, %{
+          denied_reason: "superseded by approved package #{package.id}"
+        })
+        |> update_resource_with_opts(ash_opts)
+        |> case do
+          {:ok, revoked} ->
+            case disable_assignments_for_package(revoked, ash_opts) do
+              :ok -> {:cont, {:ok, [revoked | acc]}}
+              {:error, error} -> {:halt, {:error, error}}
+            end
+
+          {:error, error} ->
+            {:halt, {:error, error}}
+        end
+      end)
+      |> case do
+        {:ok, revoked} -> {:ok, Enum.reverse(revoked)}
+        error -> error
+      end
+    end
+  end
+
+  defp read_approved_sibling_packages(%PluginPackage{} = package, []) do
+    PluginPackage
+    |> Ash.Query.for_read(:approved)
+    |> Ash.Query.filter(plugin_id == ^package.plugin_id and id != ^package.id)
+    |> Ash.read()
+  end
+
+  defp read_approved_sibling_packages(%PluginPackage{} = package, ash_opts) do
+    PluginPackage
+    |> Ash.Query.for_read(:approved)
+    |> Ash.Query.filter(plugin_id == ^package.plugin_id and id != ^package.id)
+    |> Ash.read(ash_opts)
+  end
+
   defp create_resource(changeset, []), do: Ash.create(changeset)
   defp create_resource(changeset, ash_opts), do: Ash.create(changeset, ash_opts)
 
@@ -581,6 +640,24 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp sync_northbound_actions(other, _mode), do: other
+
+  defp sync_disabled_packages(packages) when is_list(packages) do
+    Enum.reduce_while(packages, :ok, fn package, :ok ->
+      with :ok <- disable_assignments_for_package(package, []),
+           {:ok, _result} <- PluginActionSync.disable_package(package) do
+        ServiceStateRegistry.deactivate_for_package(package)
+        {:cont, :ok}
+      else
+        {:error, error} -> {:halt, {:error, error}}
+      end
+    end)
+  end
+
+  defp disable_assignments_for_package(%PluginPackage{} = package, ash_opts) do
+    PackageAssignmentLifecycle.disable_for_package(package, actor_opts(ash_opts))
+  end
+
+  defp actor_opts(ash_opts) when is_list(ash_opts), do: Keyword.take(ash_opts, [:actor])
 
   defp maybe_put_actor(opts, nil), do: opts
   defp maybe_put_actor(opts, actor), do: Keyword.put(opts, :actor, actor)

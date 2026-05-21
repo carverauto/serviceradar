@@ -13,6 +13,14 @@ defmodule ServiceRadar.Plugins.Validations.PackageApproved do
 
   @impl true
   def validate(changeset, _opts, _context) do
+    if changed_or_current(changeset, :enabled) == false do
+      :ok
+    else
+      validate_package_approved(changeset)
+    end
+  end
+
+  defp validate_package_approved(changeset) do
     package_id =
       Ash.Changeset.get_attribute(changeset, :plugin_package_id) ||
         Map.get(changeset.data, :plugin_package_id)
@@ -41,6 +49,13 @@ defmodule ServiceRadar.Plugins.Validations.PackageApproved do
         {:error, _error} ->
           {:error, field: :plugin_package_id, message: "plugin package lookup failed"}
       end
+    end
+  end
+
+  defp changed_or_current(changeset, attribute) do
+    case Ash.Changeset.get_attribute(changeset, attribute) do
+      nil -> Map.get(changeset.data, attribute)
+      value -> value
     end
   end
 end
