@@ -9,6 +9,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.CredentialErrorClassifier
   alias ServiceRadar.Credentials.CredentialEventWriter
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.CredentialSecretProvider
@@ -108,6 +109,48 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   @spec external_reference?(map() | struct()) :: boolean()
   def external_reference?(secret) when is_map(secret),
     do: source_type(secret) == :external_reference
+
+  @doc """
+  Tests an external secret provider through the broker boundary.
+
+  The caller supplies a provider record or provider ID plus a provider-specific
+  reference. The broker owns adapter dispatch and provider health transitions so
+  UI/API code never calls secret provider adapters directly.
+  """
+  @spec test_provider_reference(String.t() | map() | struct(), map(), keyword()) ::
+          {:ok, map()} | {:error, atom() | {atom(), term()}}
+  def test_provider_reference(provider_or_id, reference_attrs, opts \\ [])
+
+  def test_provider_reference(provider_id, reference_attrs, opts) when is_binary(provider_id) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_provider_test))
+
+    with {:ok, provider} <- CredentialSecretProvider.get_by_id(provider_id, actor: actor) do
+      test_provider_reference(provider, reference_attrs, opts)
+    end
+  end
+
+  def test_provider_reference(provider, reference_attrs, opts)
+      when is_map(provider) and is_map(reference_attrs) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_provider_test))
+
+    with {:ok, adapter} <- adapter_for_provider(provider, opts),
+         reference = provider_test_reference(provider, reference_attrs),
+         {:ok, result} <- call_provider_test(adapter, reference, provider, opts) do
+      mark_provider_test(provider, :success, "Provider test succeeded", actor, opts)
+      {:ok, CredentialRedactor.redact(result)}
+    else
+      {:error, reason} = error ->
+        mark_provider_test(
+          provider,
+          provider_test_outcome(reason),
+          provider_test_message(reason),
+          actor,
+          opts
+        )
+
+        error
+    end
+  end
 
   @spec source_type(map() | struct()) :: atom()
   def source_type(secret) when is_map(secret) do
@@ -308,6 +351,74 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp built_in_adapter(:vault), do: OpenBao
   defp built_in_adapter(_provider_type), do: nil
 
+  defp provider_test_reference(provider, attrs) do
+    %{
+      provider_type: provider |> value(:provider_type) |> normalize_atom(nil),
+      external_secret_ref: value(attrs, :external_secret_ref),
+      external_secret_version: value(attrs, :external_secret_version),
+      external_secret_fields: value(attrs, :external_secret_fields) || %{},
+      credential_kind: value(attrs, :credential_kind),
+      metadata: value(attrs, :metadata) || %{}
+    }
+  end
+
+  defp call_provider_test(adapter, reference, provider, opts) do
+    cond do
+      function_exported?(adapter, :test, 3) ->
+        adapter.test(reference, provider, opts)
+
+      function_exported?(adapter, :resolve, 3) ->
+        case adapter.resolve(reference, provider, opts) do
+          {:ok, resolved} ->
+            {:ok, Map.take(resolved, [:cache_status, :lease_expires_at, :metadata])}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      true ->
+        {:error, :adapter_unavailable}
+    end
+  end
+
+  defp mark_provider_test(provider, outcome, message, actor, opts) do
+    if Keyword.get(opts, :record_provider_state?, true) do
+      action =
+        case outcome do
+          :success -> :record_test_success
+          :unavailable -> :record_test_unavailable
+          _ -> :record_test_failure
+        end
+
+      provider
+      |> Ash.Changeset.for_update(action, %{last_test_message: message}, actor: actor)
+      |> Ash.update(actor: actor)
+
+      :ok
+    else
+      :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp provider_test_outcome(reason) do
+    case reason do
+      :missing_endpoint_url -> :unavailable
+      :missing_provider_token -> :unavailable
+      :unreachable -> :unavailable
+      :timeout -> :unavailable
+      {:http_error, status} when is_integer(status) and status >= 500 -> :unavailable
+      _ -> :failed
+    end
+  end
+
+  defp provider_test_message(reason) do
+    reason
+    |> inspect()
+    |> String.slice(0, 512)
+  end
+
   defp external_reference(secret, provider) do
     %{
       provider_type: provider |> value(:provider_type) |> normalize_atom(nil),
@@ -366,40 +477,12 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp audit_error({error_class, _detail}) when is_atom(error_class),
-    do: %{error_class: normalize_error_class(error_class)}
+    do: %{error_class: CredentialErrorClassifier.audit_error_class(error_class)}
 
   defp audit_error(error_class) when is_atom(error_class),
-    do: %{error_class: normalize_error_class(error_class)}
+    do: %{error_class: CredentialErrorClassifier.audit_error_class(error_class)}
 
   defp audit_error(_), do: %{error_class: :internal_error}
-
-  defp normalize_error_class(error_class)
-       when error_class in [
-              :not_found,
-              :unauthorized,
-              :unreachable,
-              :rate_limited,
-              :bad_field_mapping,
-              :provider_policy_denied,
-              :adapter_unavailable,
-              :invalid_reference,
-              :internal_error
-            ],
-       do: error_class
-
-  defp normalize_error_class(error_class)
-       when error_class in [
-              :missing_endpoint_url,
-              :missing_provider,
-              :missing_secret_provider,
-              :missing_provider_token,
-              :missing_kubernetes_auth_role,
-              :missing_kubernetes_jwt
-            ],
-       do: :invalid_reference
-
-  defp normalize_error_class(:provider_http_error), do: :unreachable
-  defp normalize_error_class(_error_class), do: :internal_error
 
   defp value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, to_string(key))

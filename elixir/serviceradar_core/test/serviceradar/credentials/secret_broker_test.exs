@@ -123,4 +123,41 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
                resolution_location: :control_plane
              )
   end
+
+  test "tests providers through broker-owned adapter dispatch" do
+    provider = %{
+      id: "provider-1",
+      provider_type: :stub,
+      enabled: false,
+      resolution_locations: [:control_plane]
+    }
+
+    reference = %{
+      external_secret_ref: "folders/prod/healthcheck",
+      metadata: %{"stub_secret_value" => "healthcheck-secret"}
+    }
+
+    assert {:ok, result} =
+             SecretBroker.test_provider_reference(provider, reference,
+               record_provider_state?: false
+             )
+
+    assert result.status == :success
+    assert result.adapter == :stub
+    refute inspect(result) =~ "healthcheck-secret"
+  end
+
+  test "provider test errors stay behind the broker boundary" do
+    provider = %{
+      id: "provider-1",
+      provider_type: :stub,
+      enabled: false,
+      resolution_locations: [:control_plane]
+    }
+
+    assert {:error, :not_found} =
+             SecretBroker.test_provider_reference(provider, %{external_secret_ref: "missing"},
+               record_provider_state?: false
+             )
+  end
 end

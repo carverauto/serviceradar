@@ -41,9 +41,18 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
     transitions do
       transition :enable, from: [:disabled, :degraded, :unavailable], to: :active
       transition :disable, from: [:active, :degraded, :unavailable], to: :disabled
-      transition :record_test_failure, from: [:active, :unavailable], to: :degraded
-      transition :record_test_unavailable, from: [:active, :degraded], to: :unavailable
-      transition :record_test_success, from: [:active, :degraded, :unavailable], to: :active
+
+      transition :record_test_failure,
+        from: [:disabled, :active, :degraded, :unavailable],
+        to: :degraded
+
+      transition :record_test_unavailable,
+        from: [:disabled, :active, :degraded, :unavailable],
+        to: :unavailable
+
+      transition :record_test_success,
+        from: [:disabled, :active, :degraded, :unavailable],
+        to: :active
     end
   end
 

@@ -41,6 +41,7 @@
 ## 5. Security and Validation
 - [x] 5.1 Add redaction tests for provider paths, bootstrap credentials, resolved secrets, grants, logs, plugin params, and result payloads.
 - [ ] 5.2 Add the remaining audit events for provider test, cache use, lease renewal, revocation, and full ad-hoc task launch/dispatch/completion. Secret resolution success/failure and grant resolution are already audited.
+- [x] 5.2.1 Add broker-owned provider test dispatch with provider health transitions, PaperTrail-backed state changes, and OCSF lifecycle events.
 - [x] 5.3 Run `openspec validate add-external-secret-provider-broker --strict`.
 - [x] 5.4 Run focused Elixir/Go tests for credential broker consumers before implementation PRs merge.
 
