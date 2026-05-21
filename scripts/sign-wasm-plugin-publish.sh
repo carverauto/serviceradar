@@ -38,7 +38,7 @@ REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
 COMMIT_TAG="sha-$(git -C "${REPO_ROOT}" rev-parse HEAD)"
 export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
-COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-legacy}"
+COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
 
 if [[ "$#" -eq 0 ]]; then
@@ -203,12 +203,45 @@ put_manifest_tag() {
     "https://${REGISTRY_HOST}/v2/${repo_path}/manifests/${tag}" >/dev/null
 }
 
+extract_detached_signature() {
+  local signature_file="$1"
+  local stdout_file="$2"
+  local bundle_file="$3"
+  local candidate=""
+
+  if [[ -s "${signature_file}" ]]; then
+    candidate="$(tr -d '\r\n' <"${signature_file}")"
+  fi
+
+  if [[ -z "${candidate}" && -s "${stdout_file}" ]]; then
+    candidate="$(tr -d '\r\n' <"${stdout_file}")"
+  fi
+
+  if [[ ! "${candidate}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]] && [[ -s "${bundle_file}" ]]; then
+    candidate="$(
+      jq -r '
+        .messageSignature.signature
+        // .base64Signature
+        // .Base64Signature
+        // .dsseEnvelope.signatures[0].sig
+        // empty
+      ' "${bundle_file}"
+    )"
+  fi
+
+  if [[ ! "${candidate}" =~ ^[A-Za-z0-9+/]+={0,2}$ ]]; then
+    return 1
+  fi
+
+  printf '%s\n' "${candidate}"
+}
+
 attach_legacy_signature() {
   local ref="$1"
   local repo="${ref%@*}"
   local repo_path="${repo#${REGISTRY_HOST}/}"
   local signature_ref signature_tag
-  local payload_file signature_file bundle_file stdout_file config_file manifest_file
+  local payload_file signature_file bundle_file stdout_file extracted_signature_file config_file manifest_file
   local payload_digest payload_size config_digest config_size
 
   signature_ref="$(cosign triangulate "${ref}")"
@@ -218,6 +251,7 @@ attach_legacy_signature() {
   signature_file="$(mktemp)"
   bundle_file="$(mktemp)"
   stdout_file="$(mktemp)"
+  extracted_signature_file="$(mktemp)"
   config_file="$(mktemp)"
   manifest_file="$(mktemp)"
 
@@ -230,16 +264,11 @@ attach_legacy_signature() {
     --output-signature "${signature_file}" \
     "${payload_file}" >"${stdout_file}"
 
-  if [[ ! -s "${signature_file}" && -s "${stdout_file}" ]]; then
-    cp "${stdout_file}" "${signature_file}"
-  fi
-  if [[ ! -s "${signature_file}" ]]; then
-    jq -r '.messageSignature.signature // .base64Signature // empty' "${bundle_file}" >"${signature_file}"
-  fi
-  if [[ ! -s "${signature_file}" ]]; then
+  if ! extract_detached_signature "${signature_file}" "${stdout_file}" "${bundle_file}" >"${extracted_signature_file}"; then
     echo "error: detached cosign signature was empty for ${ref}" >&2
     exit 1
   fi
+  cp "${extracted_signature_file}" "${signature_file}"
 
   payload_digest="sha256:$(shasum -a 256 "${payload_file}" | awk '{print $1}')"
   payload_size="$(wc -c <"${payload_file}" | tr -d ' ')"
@@ -258,7 +287,7 @@ EOF
 EOF
 
   put_manifest_tag "${repo_path}" "${signature_tag}" "${manifest_file}"
-  rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}" "${config_file}" "${manifest_file}"
+  rm -f "${payload_file}" "${signature_file}" "${bundle_file}" "${stdout_file}" "${extracted_signature_file}" "${config_file}" "${manifest_file}"
 }
 
 "${BAZEL_BIN}" build //build/wasm_plugins:all_metadata >/dev/null
