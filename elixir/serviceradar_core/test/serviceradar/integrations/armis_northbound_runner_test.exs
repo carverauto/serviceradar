@@ -115,8 +115,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"id" => "armis-1", "customProperties" => %{"availability" => false}},
-             %{"id" => "armis-2", "customProperties" => %{"availability" => true}}
+             %{"id" => "armis-1", "customProperties" => %{"availability" => "false"}},
+             %{"id" => "armis-2", "customProperties" => %{"availability" => "true"}}
            ]
   end
 
@@ -140,8 +140,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"id" => "armis-1", "customProperties" => %{"OT_Isolation_Compliant" => false}},
-             %{"id" => "armis-2", "customProperties" => %{"OT_Isolation_Compliant" => true}}
+             %{"id" => "armis-1", "customProperties" => %{"OT_Isolation_Compliant" => "false"}},
+             %{"id" => "armis-2", "customProperties" => %{"OT_Isolation_Compliant" => "true"}}
            ]
   end
 
@@ -165,8 +165,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       ])
 
     assert payload == [
-             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => false}},
-             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => true}}
+             %{"upsert" => %{"deviceId" => 101, "key" => "availability", "value" => "false"}},
+             %{"upsert" => %{"deviceId" => 202, "key" => "availability", "value" => "true"}}
            ]
   end
 
@@ -303,8 +303,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
                      body2}
 
-    assert headers1["authorization"] == "token-abc"
-    assert headers1["content-type"] == "application/json"
+    assert headers1["Authorization"] == "token-abc"
+    assert headers1["Content-Type"] == "application/json"
+    assert headers1["Accept"] == "application/json"
     assert length(body1) == 2
     assert length(body2) == 1
   end
@@ -382,14 +383,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                "upsert" => %{
                  "deviceId" => 101,
                  "key" => "OT_Isolation_Compliant",
-                 "value" => false
+                 "value" => "false"
                }
              },
              %{
                "upsert" => %{
                  "deviceId" => 202,
                  "key" => "OT_Isolation_Compliant",
-                 "value" => true
+                 "value" => "true"
                }
              }
            ]

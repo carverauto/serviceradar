@@ -45,6 +45,16 @@ func TestWithICMPCount(t *testing.T) {
 	}
 }
 
+func TestRawSocketFDZeroIsAvailable(t *testing.T) {
+	if !rawSocketAvailable(0) {
+		t.Fatal("file descriptor 0 is a valid raw socket descriptor")
+	}
+
+	if rawSocketAvailable(invalidRawSocketFD) {
+		t.Fatal("invalid raw socket descriptor reported available")
+	}
+}
+
 func TestPrepareEchoRequestForFamilyIPv6(t *testing.T) {
 	sweeper := &ICMPSweeper{identifier: 1234}
 

@@ -168,6 +168,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       argument :device_count, :integer, default: 0
 
       change transition_state(:running)
+      change set_attribute(:last_error_message, nil)
       change {PublishSyncLog, stage: :started}
     end
 
