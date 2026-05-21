@@ -35,6 +35,12 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.Automation.Northbound.ActionDescriptor,
     ServiceRadar.Automation.Northbound.ActionInvocation,
     ServiceRadar.Automation.Northbound.ActionEventHandler,
+    ServiceRadar.Monitoring.MonitoredService,
+    ServiceRadar.Monitoring.ServiceGroup,
+    ServiceRadar.Monitoring.ServiceGroupMembership,
+    ServiceRadar.Monitoring.MonitoringBinding,
+    ServiceRadar.Monitoring.CheckInstance,
+    ServiceRadar.Monitoring.MonitoredServiceImportBatch,
     ServiceRadar.Security.AuthLockout
   ]
 

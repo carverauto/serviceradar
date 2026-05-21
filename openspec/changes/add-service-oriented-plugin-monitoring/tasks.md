@@ -1,6 +1,6 @@
 ## 1. Foundation
-- [ ] 1.1 Model monitored services, service groups, monitoring bindings, check instances, and latest check state in the `platform` schema through Elixir migrations.
-- [ ] 1.2 Define Ash resources/actions/policies for service targets, groups, bindings, check instances, and bulk import batches.
+- [x] 1.1 Model monitored services, service groups, monitoring bindings, check instances, and latest check state in the `platform` schema through Elixir migrations.
+- [x] 1.2 Define Ash resources/actions/policies for service targets, groups, bindings, check instances, and bulk import batches.
 - [ ] 1.3 Add migration/backfill paths from existing `service_checks`, `service_state`, and plugin-result service identities where mappings are unambiguous.
 - [ ] 1.4 Add SRQL entities/fields for monitored services, check instances, service groups, target associations, and availability rollups.
 
