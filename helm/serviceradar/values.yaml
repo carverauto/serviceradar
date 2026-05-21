@@ -229,6 +229,10 @@ core:
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
+  # OpenBao providers can also use Kubernetes auth with the pod service account
+  # token, so a static OPENBAO_TOKEN secret is optional when that auth mode is
+  # configured in the provider metadata and pre-authorized by the OpenBao
+  # operators.
   # Example:
   # extraEnvValueFrom:
   #   OPENBAO_TOKEN:

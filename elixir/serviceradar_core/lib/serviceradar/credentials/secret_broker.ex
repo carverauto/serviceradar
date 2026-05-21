@@ -392,7 +392,9 @@ defmodule ServiceRadar.Credentials.SecretBroker do
               :missing_endpoint_url,
               :missing_provider,
               :missing_secret_provider,
-              :missing_provider_token
+              :missing_provider_token,
+              :missing_kubernetes_auth_role,
+              :missing_kubernetes_jwt
             ],
        do: :invalid_reference
 

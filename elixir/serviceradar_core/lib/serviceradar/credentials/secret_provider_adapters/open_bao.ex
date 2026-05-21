@@ -3,8 +3,11 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
   OpenBao/HashiCorp Vault HTTP adapter for credential broker resolution.
 
   The adapter supports KV v2 by default. Provider records supply non-secret
-  connection metadata; the OpenBao token is read from an environment variable
-  such as `OPENBAO_TOKEN` or `VAULT_TOKEN`.
+  connection metadata; credentials are either read from an environment variable
+  such as `OPENBAO_TOKEN`/`VAULT_TOKEN` or obtained through OpenBao's
+  Kubernetes auth method using the pod service account token. ServiceRadar is
+  only a consumer of OpenBao here; auth mounts, roles, policies, KV mounts, and
+  secret paths must be provisioned by the OpenBao operators.
   """
 
   @behaviour ServiceRadar.Credentials.SecretProviderAdapter
@@ -14,7 +17,7 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
   @impl true
   def resolve(reference, provider, opts) do
     with {:ok, endpoint} <- endpoint(provider),
-         {:ok, token} <- token(provider, opts),
+         {:ok, token} <- token(endpoint, provider, opts),
          {:ok, request} <- request(endpoint, reference, provider, token, opts),
          {:ok, response} <- do_request(request, opts),
          {:ok, body} <- decode_response(response),
@@ -50,7 +53,7 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
     end
   end
 
-  defp token(provider, opts) do
+  defp token(endpoint, provider, opts) do
     cond do
       present?(opts[:openbao_token]) ->
         {:ok, opts[:openbao_token]}
@@ -67,8 +70,102 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
       present?(System.get_env("VAULT_TOKEN")) ->
         {:ok, System.fetch_env!("VAULT_TOKEN")}
 
+      kubernetes_auth?(provider) ->
+        kubernetes_auth_token(endpoint, provider, opts)
+
       true ->
         {:error, :missing_provider_token}
+    end
+  end
+
+  defp kubernetes_auth_token(endpoint, provider, opts) do
+    with {:ok, role} <- kubernetes_role(provider),
+         {:ok, jwt} <- kubernetes_jwt(provider, opts),
+         {:ok, request} <- kubernetes_login_request(endpoint, provider, role, jwt, opts),
+         {:ok, response} <- do_request(request, opts),
+         {:ok, body} <- decode_response(response),
+         token when is_binary(token) and token != "" <- get_in(body, ["auth", "client_token"]) do
+      {:ok, token}
+    else
+      nil -> {:error, :missing_provider_token}
+      "" -> {:error, :missing_provider_token}
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :invalid_reference}
+    end
+  end
+
+  defp kubernetes_login_request(endpoint, provider, role, jwt, opts) do
+    path = "/v1/auth/#{kubernetes_auth_mount(provider)}/login"
+
+    headers =
+      maybe_namespace_header(
+        [{"accept", "application/json"}, {"content-type", "application/json"}],
+        provider
+      )
+
+    {:ok,
+     [
+       method: :post,
+       url: endpoint <> path,
+       headers: headers,
+       json: %{role: role, jwt: jwt},
+       receive_timeout: Keyword.get(opts, :receive_timeout, @default_timeout_ms)
+     ]}
+  end
+
+  defp kubernetes_auth?(provider) do
+    provider
+    |> metadata_value("auth_method")
+    |> case do
+      method when method in ["kubernetes", :kubernetes] -> true
+      _ -> false
+    end
+  end
+
+  defp kubernetes_role(provider) do
+    role =
+      metadata_value(provider, "kubernetes_role") ||
+        metadata_value(provider, "k8s_role") ||
+        metadata_value(provider, "role")
+
+    if present?(role), do: {:ok, role}, else: {:error, :missing_kubernetes_auth_role}
+  end
+
+  defp kubernetes_jwt(provider, opts) do
+    cond do
+      present?(opts[:kubernetes_jwt]) ->
+        {:ok, opts[:kubernetes_jwt]}
+
+      present?(opts[:openbao_kubernetes_jwt]) ->
+        {:ok, opts[:openbao_kubernetes_jwt]}
+
+      true ->
+        path =
+          metadata_value(provider, "kubernetes_jwt_path") ||
+            "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+        case File.read(path) do
+          {:ok, jwt} ->
+            jwt = String.trim(jwt)
+            if present?(jwt), do: {:ok, jwt}, else: {:error, :missing_kubernetes_jwt}
+
+          {:error, _reason} ->
+            {:error, :missing_kubernetes_jwt}
+        end
+    end
+  end
+
+  defp kubernetes_auth_mount(provider) do
+    provider
+    |> metadata_value("kubernetes_auth_mount")
+    |> case do
+      mount when is_binary(mount) and mount != "" ->
+        mount
+        |> String.trim()
+        |> String.trim("/")
+
+      _ ->
+        "kubernetes"
     end
   end
 

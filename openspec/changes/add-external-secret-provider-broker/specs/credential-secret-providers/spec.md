@@ -31,11 +31,12 @@ The system SHALL model external secret providers separately from credential refe
 - **AND** they SHALL NOT appear in UI responses, logs, or plugin/agent assignment params
 
 #### Scenario: OpenBao provider resolves KV reference
-- **GIVEN** an enabled OpenBao provider points at a KV mount and a reusable credential references a secret path and field mapping
+- **GIVEN** an enabled OpenBao provider points at an operator-provisioned KV mount and a reusable credential references an operator-authorized secret path and field mapping
 - **WHEN** the broker resolves the credential from the control plane
-- **THEN** it SHALL call OpenBao using deployment-sourced bootstrap credentials
+- **THEN** it SHALL call OpenBao using deployment-sourced bootstrap credentials or a preconfigured Kubernetes auth role for the ServiceRadar service account token
 - **AND** it SHALL return only the selected secret field or a structured JSON payload to the broker consumer
 - **AND** it SHALL persist redacted resolution audit metadata without the OpenBao token or resolved secret value
+- **AND** ServiceRadar SHALL NOT create or modify OpenBao auth mounts, policies, roles, KV mounts, or secret objects as part of normal credential resolution
 
 ### Requirement: Broker grants govern credential resolution
 Credential resolution SHALL require a broker grant scoped to consumer, purpose, target, allowed network/resource policy, resolution location, and expiration.

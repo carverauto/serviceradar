@@ -6,7 +6,7 @@
 ## 2. Broker Interface
 - [x] 2.1 Define project-owned credential broker behaviour/interfaces for control-plane and agent-side resolution.
 - [x] 2.2 Add a test/stub provider adapter that returns synthetic secrets for integration tests without a real secret server.
-- [x] 2.2.1 Add a built-in OpenBao/Vault KV adapter with deployment-sourced token auth for real in-cluster validation.
+- [x] 2.2.1 Add a built-in OpenBao/Vault KV adapter with deployment-sourced token auth and Kubernetes auth for real in-cluster validation.
 - [x] 2.3 Add first-class broker grant resource with lifecycle, PaperTrail, system-only write policy, compatibility payload builder, and validation for target/consumer/purpose/TTL/resolution location.
 - [x] 2.4 Add provider/host/path/port request enforcement for broker grants at the agent/control-plane resolution boundary.
 - [x] 2.4.1 Enforce Proxmox credential-test grant target, method, path, host, port, and expiry policy in the Go agent before credential resolution.
