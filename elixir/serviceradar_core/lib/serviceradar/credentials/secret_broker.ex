@@ -189,7 +189,11 @@ defmodule ServiceRadar.Credentials.SecretBroker do
 
   defp resolve_external(secret, opts) do
     if external_resolution_allowed?(opts) do
-      opts = Keyword.put(opts, :audit?, true)
+      opts =
+        opts
+        |> Keyword.put(:audit?, true)
+        |> put_grant_id_from_grant()
+
       do_resolve_external(secret, opts)
     else
       {:error, :external_secret_requires_broker_grant}
@@ -197,7 +201,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp external_resolution_allowed?(opts) do
-    present?(Keyword.get(opts, :grant_id)) || is_map(Keyword.get(opts, :grant))
+    is_map(Keyword.get(opts, :grant))
   end
 
   defp secret_id_from_grant(grant) do
@@ -221,6 +225,14 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       grant
     else
       Map.put(grant, :secret_id, secret_id)
+    end
+  end
+
+  defp put_grant_id_from_grant(opts) do
+    case {Keyword.get(opts, :grant_id), Keyword.get(opts, :grant)} do
+      {nil, %{} = grant} -> Keyword.put(opts, :grant_id, string_value(value(grant, :id)))
+      {"", %{} = grant} -> Keyword.put(opts, :grant_id, string_value(value(grant, :id)))
+      _other -> opts
     end
   end
 

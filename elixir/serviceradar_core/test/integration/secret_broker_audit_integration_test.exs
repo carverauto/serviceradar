@@ -45,7 +45,13 @@ defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
     assert {:error, {:resolution_location_not_allowed, :agent}} =
              SecretBroker.resolve_network_credential_secret(secret.id,
                audit?: true,
-               grant_id: "grant-#{unique}",
+               grant: %{
+                 id: "grant-#{unique}",
+                 secret_id: to_string(secret.id),
+                 status: :active,
+                 resolution_location: :agent,
+                 expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+               },
                consumer_kind: :plugin,
                consumer_id: "plugin-#{unique}"
              )
