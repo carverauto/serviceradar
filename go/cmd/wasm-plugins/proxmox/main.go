@@ -3,6 +3,7 @@ package main
 
 import "code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 
+//export run_check
 func run_check() {
 	cfg, err := loadConfig()
 	if err != nil {
