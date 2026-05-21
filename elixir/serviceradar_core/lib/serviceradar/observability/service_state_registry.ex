@@ -60,7 +60,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     case Repo.query(latest_plugin_status_sql(), [interval, limit]) do
       {:ok, %{rows: rows}} ->
         Enum.each(rows, fn row -> upsert_from_status(status_from_history_row(row)) end)
-        {:ok, length(rows)}
+
+        case deactivate_stale_active_plugin_shadows() do
+          {:ok, stale_count} -> {:ok, length(rows) + stale_count}
+          {:error, _reason} = error -> error
+        end
 
       {:error, reason} = error ->
         Logger.warning("Plugin service state history repair failed: #{inspect(reason)}")
@@ -246,6 +250,56 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
         Logger.warning("Failed to deactivate shadowed plugin state: #{inspect(error)}")
     end
   end
+
+  defp deactivate_stale_active_plugin_shadows do
+    case Repo.query(deactivate_stale_active_plugin_shadows_sql(), []) do
+      {:ok, %{rows: [[count]]}} ->
+        {:ok, normalize_count(count)}
+
+      {:ok, _result} ->
+        {:ok, 0}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to deactivate stale plugin service shadows: #{inspect(reason)}")
+        error
+    end
+  end
+
+  defp deactivate_stale_active_plugin_shadows_sql do
+    """
+    WITH ranked AS (
+      SELECT
+        id,
+        row_number() OVER (
+          PARTITION BY agent_id, partition, service_type, service_name
+          ORDER BY last_observed_at DESC, updated_at DESC, inserted_at DESC, id DESC
+        ) AS row_number
+      FROM platform.service_state
+      WHERE service_type = 'plugin' AND state = 'active'
+    ),
+    deactivated AS (
+      UPDATE platform.service_state AS service_state
+      SET state = 'inactive',
+          updated_at = (now() AT TIME ZONE 'utc')
+      FROM ranked
+      WHERE service_state.id = ranked.id
+        AND ranked.row_number > 1
+      RETURNING service_state.id
+    )
+    SELECT count(*)::bigint FROM deactivated
+    """
+  end
+
+  defp normalize_count(count) when is_integer(count), do: count
+
+  defp normalize_count(count) when is_binary(count) do
+    case Integer.parse(count) do
+      {value, _rest} -> value
+      :error -> 0
+    end
+  end
+
+  defp normalize_count(_count), do: 0
 
   defp build_attrs_from_status(status, actor) do
     message = normalize_message(fetch(status, :message))

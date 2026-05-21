@@ -134,6 +134,44 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert [^state] = active_logical_states_for(agent, package.name)
   end
 
+  test "history repair collapses stale active plugin rows without fresh results" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    service_name = "Legacy OTX #{System.unique_integer([:positive])}"
+    now = DateTime.utc_now()
+
+    insert_service_state!(%{
+      agent_id: agent.uid,
+      gateway_id: "serviceradar_agent_gateway@10.42.0.10",
+      partition: "default",
+      service_type: "plugin",
+      service_name: service_name,
+      available: false,
+      message: "old gateway result",
+      last_observed_at: DateTime.add(now, -3_600, :second),
+      state: "active"
+    })
+
+    insert_service_state!(%{
+      agent_id: agent.uid,
+      gateway_id: "serviceradar_agent_gateway@10.42.0.11",
+      partition: "default",
+      service_type: "plugin",
+      service_name: service_name,
+      available: true,
+      message: "newer gateway result",
+      last_observed_at: now,
+      state: "active"
+    })
+
+    assert {:ok, count} = ServiceStateRegistry.repair_plugin_states_from_history()
+    assert count >= 1
+
+    assert [state] = active_logical_states_for(agent, service_name)
+    assert state.gateway_id == "serviceradar_agent_gateway@10.42.0.11"
+    assert state.message == "newer gateway result"
+  end
+
   test "agent-reported plugin status preserves payload details for service cards" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -195,6 +233,12 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
         state == "active"
     )
     |> Ash.read!(actor: system_actor(), domain: ServiceRadar.Observability)
+  end
+
+  defp insert_service_state!(attrs) do
+    ServiceState
+    |> Ash.Changeset.for_create(:upsert, attrs, actor: system_actor())
+    |> Ash.create!(domain: ServiceRadar.Observability)
   end
 
   defp approved_package_fixture(output) do

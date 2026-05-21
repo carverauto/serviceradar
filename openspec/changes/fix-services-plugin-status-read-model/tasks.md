@@ -7,7 +7,8 @@
 - [x] 2.1 Update plugin result ingestion so every accepted plugin result writes the historical `service_status` row and upserts the corresponding `service_state` row.
 - [x] 2.2 Make assignment reconciliation monotonic so placeholders cannot overwrite newer real results.
 - [x] 2.3 Add an idempotent repair path that rebuilds active plugin service states from recent `service_status` rows.
-- [x] 2.4 Ensure `/services` initial render reads active plugin state from Postgres and does not wait for the next status check.
+- [x] 2.4 Collapse stale active plugin service rows that share the same logical service identity but were written with transient gateway IDs.
+- [x] 2.5 Ensure `/services` initial render reads active plugin state from Postgres and does not wait for the next status check.
 
 ## 3. Plugin Execution Repair
 - [ ] 3.1 Add generated-config assertions for AWX/AAP assignments, including `base_url`, token/credential material, timeout, TLS policy, and approved HTTP permissions.
@@ -20,7 +21,7 @@
 ## 4. Plugin Package Invariants
 - [x] 4.1 Enforce one approved package version per plugin ID in code and database schema.
 - [x] 4.2 Revoke superseded package versions and disable assignments that still point at superseded packages.
-- [ ] 4.3 Repair existing demo rows so stale package versions and assignments are no longer active.
+- [x] 4.3 Repair existing demo rows so stale package versions and assignments are no longer active.
 
 ## 5. UI and Diagnostics
 - [x] 5.1 Keep failures sorted first and newest-first within each status class.
