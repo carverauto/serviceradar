@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -80,9 +81,18 @@ func (r controlPlaneCredentialBrokerResolver) ResolveCredentialGrant(
 	}
 
 	return CredentialBrokerMaterial{
-		Value:  resp.GetValue(),
-		Fields: cloneCredentialBrokerFields(resp.GetFields()),
+		Value:          resp.GetValue(),
+		Fields:         cloneCredentialBrokerFields(resp.GetFields()),
+		LeaseExpiresAt: credentialBrokerLeaseExpiresAt(resp.GetLeaseExpiresAtUnix()),
 	}, nil
+}
+
+func credentialBrokerLeaseExpiresAt(unixSeconds int64) time.Time {
+	if unixSeconds <= 0 {
+		return time.Time{}
+	}
+
+	return time.Unix(unixSeconds, 0).UTC()
 }
 
 func cloneCredentialBrokerFields(values map[string]string) map[string]string {

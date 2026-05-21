@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -27,9 +28,10 @@ func (f *fakeCredentialGrantGateway) ResolveCredentialGrant(
 func TestControlPlaneCredentialBrokerResolverResolvesMaterial(t *testing.T) {
 	gateway := &fakeCredentialGrantGateway{
 		resp: &proto.CredentialBrokerResolveResponse{
-			Success: true,
-			Value:   "token-value",
-			Fields:  map[string]string{"value": "token-value"},
+			Success:            true,
+			Value:              "token-value",
+			Fields:             map[string]string{"value": "token-value"},
+			LeaseExpiresAtUnix: 1_779_385_200,
 		},
 	}
 	resolver := newControlPlaneCredentialBrokerResolver(gateway, testDesktopMediaAgentID)
@@ -49,6 +51,9 @@ func TestControlPlaneCredentialBrokerResolverResolvesMaterial(t *testing.T) {
 	}
 	if material.Value != "token-value" || material.Fields["value"] != "token-value" {
 		t.Fatalf("material = %#v", material)
+	}
+	if material.LeaseExpiresAt != time.Unix(1_779_385_200, 0).UTC() {
+		t.Fatalf("lease expires at = %s", material.LeaseExpiresAt)
 	}
 	if gateway.req.GetAgentId() != testDesktopMediaAgentID ||
 		gateway.req.GetGrantId() != testCredentialBrokerGrantID ||

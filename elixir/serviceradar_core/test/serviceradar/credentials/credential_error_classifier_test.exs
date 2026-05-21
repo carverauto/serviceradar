@@ -12,6 +12,9 @@ defmodule ServiceRadar.Credentials.CredentialErrorClassifierTest do
 
     assert CredentialErrorClassifier.audit_error_class(:external_secret_requires_broker_grant) ==
              :provider_policy_denied
+
+    assert CredentialErrorClassifier.audit_error_class(:provider_lease_expired) ==
+             :provider_policy_denied
   end
 
   test "maps missing provider references into invalid reference audit class" do

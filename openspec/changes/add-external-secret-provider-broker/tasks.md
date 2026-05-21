@@ -14,6 +14,7 @@
 - [x] 2.4.3 Add authenticated agent-gateway/core credential grant resolution RPC with persisted grant validation and resolution audit.
 - [ ] 2.5 Add provider lease renewal/revocation policy enforcement beyond the current grant TTL and agent memory-cache caps.
 - [x] 2.5.1 Add agent-side default no-cache behavior and opt-in memory-only credential material caching capped by grant expiry.
+- [x] 2.5.2 Carry provider lease expiry through gateway resolution and cap agent memory caches by the earlier provider lease or broker grant expiry.
 
 ## 3. Consumer Integration
 - [x] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.

@@ -247,13 +247,14 @@ defmodule ServiceRadar.Credentials.SecretBroker do
          :ok <- resolution_location_allowed?(provider, requested_location),
          {:ok, adapter} <- adapter_for_provider(provider, opts),
          {:ok, adapter_result} <-
-           adapter.resolve(external_reference(secret, provider), provider, opts) do
+           adapter.resolve(external_reference(secret, provider), provider, opts),
+         {:ok, lease_expires_at} <- effective_lease_expires_at(adapter_result, opts) do
       resolved = %{
         value: Map.fetch!(adapter_result, :value),
         source_type: :external_reference,
         secret: secret,
         provider: provider,
-        lease_expires_at: Map.get(adapter_result, :lease_expires_at),
+        lease_expires_at: lease_expires_at,
         cache_status: Map.get(adapter_result, :cache_status, :miss),
         metadata: Map.get(adapter_result, :metadata, %{})
       }
@@ -445,6 +446,42 @@ defmodule ServiceRadar.Credentials.SecretBroker do
     }
   end
 
+  defp effective_lease_expires_at(adapter_result, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    with {:ok, provider_lease} <- datetime_value(Map.get(adapter_result, :lease_expires_at)),
+         :ok <- provider_lease_active?(provider_lease, now),
+         {:ok, grant_expires_at} <-
+           opts |> Keyword.get(:grant) |> value(:expires_at) |> datetime_value() do
+      {:ok, earliest_datetime(provider_lease, grant_expires_at)}
+    end
+  end
+
+  defp provider_lease_active?(nil, _now), do: :ok
+
+  defp provider_lease_active?(%DateTime{} = provider_lease, %DateTime{} = now) do
+    if DateTime.after?(provider_lease, now), do: :ok, else: {:error, :provider_lease_expired}
+  end
+
+  defp earliest_datetime(nil, right), do: right
+  defp earliest_datetime(left, nil), do: left
+
+  defp earliest_datetime(%DateTime{} = left, %DateTime{} = right) do
+    if DateTime.before?(left, right), do: left, else: right
+  end
+
+  defp datetime_value(nil), do: {:ok, nil}
+  defp datetime_value(%DateTime{} = value), do: {:ok, value}
+
+  defp datetime_value(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      {:error, _reason} -> {:error, :invalid_lease_expiration}
+    end
+  end
+
+  defp datetime_value(_value), do: {:error, :invalid_lease_expiration}
+
   defp maybe_audit(outcome, secret, provider, result, opts) do
     if Keyword.get(opts, :audit?, false) do
       attrs = audit_attrs(outcome, secret, provider, result, opts)
@@ -502,6 +539,8 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, to_string(key))
   end
+
+  defp value(_map, _key), do: nil
 
   defp normalize_atom(value, _default) when is_atom(value), do: value
 

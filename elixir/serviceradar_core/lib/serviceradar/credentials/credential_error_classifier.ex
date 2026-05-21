@@ -24,6 +24,8 @@ defmodule ServiceRadar.Credentials.CredentialErrorClassifier do
 
   @provider_policy_errors [
     :provider_disabled,
+    :provider_lease_expired,
+    :invalid_lease_expiration,
     :resolution_location_not_allowed,
     :external_secret_requires_broker_grant,
     :grant_scope_mismatch

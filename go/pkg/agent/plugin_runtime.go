@@ -113,8 +113,9 @@ type CredentialBrokerResolver interface {
 // CredentialBrokerMaterial is memory-only credential material returned to the
 // agent host function after policy validation.
 type CredentialBrokerMaterial struct {
-	Value  string
-	Fields map[string]string
+	Value          string
+	Fields         map[string]string
+	LeaseExpiresAt time.Time
 }
 
 // PluginManager manages Wasm plugin assignments and execution.
@@ -2390,7 +2391,17 @@ func (m *PluginManager) resolveCredentialBrokerMaterial(
 		return CredentialBrokerMaterial{}, err
 	}
 
-	m.putCachedCredentialBrokerMaterial(key, material, now.Add(ttl))
+	expiresAt := now.Add(ttl)
+	if !material.LeaseExpiresAt.IsZero() {
+		if !now.Before(material.LeaseExpiresAt) {
+			return material, nil
+		}
+		if material.LeaseExpiresAt.Before(expiresAt) {
+			expiresAt = material.LeaseExpiresAt
+		}
+	}
+
+	m.putCachedCredentialBrokerMaterial(key, material, expiresAt)
 	return material, nil
 }
 
@@ -2474,7 +2485,7 @@ func (m *PluginManager) credentialNowTime() time.Time {
 }
 
 func cloneCredentialBrokerMaterial(material CredentialBrokerMaterial) CredentialBrokerMaterial {
-	clone := CredentialBrokerMaterial{Value: material.Value}
+	clone := CredentialBrokerMaterial{Value: material.Value, LeaseExpiresAt: material.LeaseExpiresAt}
 	if material.Fields != nil {
 		clone.Fields = make(map[string]string, len(material.Fields))
 		for key, value := range material.Fields {
