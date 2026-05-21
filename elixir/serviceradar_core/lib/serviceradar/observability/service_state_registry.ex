@@ -61,8 +61,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       {:ok, %{rows: rows}} ->
         Enum.each(rows, fn row -> upsert_from_status(status_from_history_row(row)) end)
 
-        case deactivate_stale_active_plugin_shadows() do
-          {:ok, stale_count} -> {:ok, length(rows) + stale_count}
+        case deactivate_inactive_plugin_state_count() do
+          {:ok, inactive_count} -> {:ok, length(rows) + inactive_count}
           {:error, _reason} = error -> error
         end
 
@@ -112,7 +112,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     |> case do
       {:ok, assignments} ->
         Enum.each(assignments, &upsert_for_assignment/1)
-        {:ok, length(assignments)}
+
+        case deactivate_inactive_plugin_state_count() do
+          {:ok, inactive_count} -> {:ok, length(assignments) + inactive_count}
+          {:error, _reason} = error -> error
+        end
 
       {:error, reason} = error ->
         Logger.warning("Failed to reconcile plugin assignment service states: #{inspect(reason)}")
@@ -265,6 +269,33 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
+  defp deactivate_orphaned_active_plugin_states do
+    params = [
+      @plugin_result_output,
+      @streaming_plugin_output,
+      @streaming_plugin_capability
+    ]
+
+    case Repo.query(deactivate_orphaned_active_plugin_states_sql(), params) do
+      {:ok, %{rows: [[count]]}} ->
+        {:ok, normalize_count(count)}
+
+      {:ok, _result} ->
+        {:ok, 0}
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to deactivate orphaned plugin service states: #{inspect(reason)}")
+        error
+    end
+  end
+
+  defp deactivate_inactive_plugin_state_count do
+    with {:ok, shadow_count} <- deactivate_stale_active_plugin_shadows(),
+         {:ok, orphan_count} <- deactivate_orphaned_active_plugin_states() do
+      {:ok, shadow_count + orphan_count}
+    end
+  end
+
   defp deactivate_stale_active_plugin_shadows_sql do
     """
     WITH ranked AS (
@@ -284,6 +315,37 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       FROM ranked
       WHERE service_state.id = ranked.id
         AND ranked.row_number > 1
+      RETURNING service_state.id
+    )
+    SELECT count(*)::bigint FROM deactivated
+    """
+  end
+
+  defp deactivate_orphaned_active_plugin_states_sql do
+    """
+    WITH deactivated AS (
+      UPDATE platform.service_state AS service_state
+      SET state = 'inactive',
+          updated_at = (now() AT TIME ZONE 'utc')
+      WHERE service_state.service_type = 'plugin'
+        AND service_state.state = 'active'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM platform.plugin_assignments AS assignment
+          JOIN platform.plugin_packages AS package
+            ON package.id = assignment.plugin_package_id
+          WHERE assignment.enabled = true
+            AND assignment.agent_uid = service_state.agent_id
+            AND package.name = service_state.service_name
+            AND (
+              package.outputs IN ($1, $2)
+              OR $3 = ANY(package.approved_capabilities)
+              OR (
+                coalesce(array_length(package.approved_capabilities, 1), 0) = 0
+                AND package.manifest->'capabilities' ? $3
+              )
+            )
+        )
       RETURNING service_state.id
     )
     SELECT count(*)::bigint FROM deactivated

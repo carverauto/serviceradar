@@ -61,6 +61,33 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert state.message == "streaming plugin ready"
   end
 
+  test "reconcile_plugin_assignments deactivates plugin service rows without enabled assignments" do
+    gateway = gateway_fixture()
+    current_agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    stale_agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    _assignment = assignment_fixture(current_agent.uid, package.id)
+
+    stale_state =
+      insert_service_state!(%{
+        agent_id: stale_agent.uid,
+        gateway_id: stale_agent.gateway_id,
+        partition: "default",
+        service_type: "plugin",
+        service_name: package.name,
+        available: false,
+        message: "old plugin result",
+        last_observed_at: DateTime.utc_now(),
+        state: "active"
+      })
+
+    assert {:ok, count} = ServiceStateRegistry.reconcile_plugin_assignments()
+    assert count >= 2
+
+    assert service_state_for(current_agent, package.name).state == "active"
+    assert reloaded_state(stale_state).state == "inactive"
+  end
+
   test "agent-reported plugin status updates the plugin service row" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -239,6 +266,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     ServiceState
     |> Ash.Changeset.for_create(:upsert, attrs, actor: system_actor())
     |> Ash.create!(domain: ServiceRadar.Observability)
+  end
+
+  defp reloaded_state(%ServiceState{id: id}) do
+    ServiceState
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.read_one!(actor: system_actor(), domain: ServiceRadar.Observability)
   end
 
   defp approved_package_fixture(output) do
