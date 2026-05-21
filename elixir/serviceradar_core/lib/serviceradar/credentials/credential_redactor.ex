@@ -48,6 +48,9 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
       |> String.trim()
 
     cond do
+      normalized == "external_secret_ref" ->
+        true
+
       String.ends_with?(normalized, "_secret_ref") ->
         false
 
@@ -62,6 +65,9 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
             "passphrase",
             "secret_payload",
             "encrypted_secret_payload",
+            "provider_bootstrap",
+            "provider_auth",
+            "external_secret_ref",
             "api_token",
             "private_key",
             "credential_material"
@@ -81,6 +87,7 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
 
   defp secret_ref?(value) do
     String.starts_with?(value, "secretref:") or
-      String.starts_with?(value, "credentialref:network-credential-secret:")
+      String.starts_with?(value, "credentialref:network-credential-secret:") or
+      String.starts_with?(value, "credentialref:network-credential-grant:")
   end
 end

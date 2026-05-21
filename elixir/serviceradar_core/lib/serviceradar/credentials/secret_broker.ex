@@ -1,0 +1,297 @@
+defmodule ServiceRadar.Credentials.SecretBroker do
+  @moduledoc """
+  Provider-neutral credential resolution boundary.
+
+  The broker hides whether a credential is internally encrypted or externally
+  referenced. Plugins should receive broker grants and host-function policies;
+  they should not call this module or provider adapters directly.
+  """
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Credentials.CredentialSecretProvider
+  alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Vault
+
+  @type resolved_secret :: %{
+          required(:value) => String.t(),
+          required(:source_type) => :internal_encrypted | :external_reference,
+          required(:secret) => map() | struct(),
+          optional(:provider) => map() | struct() | nil,
+          optional(:lease_expires_at) => DateTime.t() | nil,
+          optional(:cache_status) => atom() | nil,
+          optional(:metadata) => map()
+        }
+
+  @doc """
+  Resolves a reusable network credential secret by ID.
+
+  External references require `allow_external_resolution?: true` and a matching
+  resolution location. Internal credentials continue to decrypt through
+  AshCloak/Cloak-managed storage.
+  """
+  @spec resolve_network_credential_secret(String.t(), keyword()) ::
+          {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
+  def resolve_network_credential_secret(secret_id, opts \\ []) when is_binary(secret_id) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_broker))
+
+    with {:ok, secret} <- NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor) do
+      resolve_loaded_secret(secret, opts)
+    end
+  end
+
+  @doc """
+  Resolves an already-loaded credential secret.
+  """
+  @spec resolve_loaded_secret(map() | struct(), keyword()) ::
+          {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
+  def resolve_loaded_secret(secret, opts \\ []) when is_map(secret) do
+    case source_type(secret) do
+      :internal_encrypted ->
+        resolve_internal(secret, opts)
+
+      :external_reference ->
+        resolve_external(secret, opts)
+
+      other ->
+        {:error, {:unsupported_credential_source_type, other}}
+    end
+  end
+
+  @spec external_reference?(map() | struct()) :: boolean()
+  def external_reference?(secret) when is_map(secret),
+    do: source_type(secret) == :external_reference
+
+  @spec source_type(map() | struct()) :: atom()
+  def source_type(secret) when is_map(secret) do
+    secret
+    |> value(:source_type)
+    |> normalize_atom(:internal_encrypted)
+  end
+
+  defp resolve_internal(secret, opts) do
+    with {:ok, payload} <- decrypt_internal_payload(secret),
+         true <- payload != "" do
+      resolved = %{
+        value: payload,
+        source_type: :internal_encrypted,
+        secret: secret,
+        provider: nil,
+        cache_status: :disabled,
+        metadata: %{}
+      }
+
+      maybe_audit(:success, secret, nil, resolved, opts)
+      {:ok, resolved}
+    else
+      {:error, reason} ->
+        maybe_audit(:failed, secret, nil, %{error_class: :invalid_reference}, opts)
+        {:error, reason}
+
+      _ ->
+        maybe_audit(:failed, secret, nil, %{error_class: :invalid_reference}, opts)
+        {:error, :missing_internal_secret_payload}
+    end
+  end
+
+  defp resolve_external(secret, opts) do
+    if Keyword.get(opts, :allow_external_resolution?, true) do
+      do_resolve_external(secret, opts)
+    else
+      {:error, :external_secret_requires_broker_grant}
+    end
+  end
+
+  defp do_resolve_external(secret, opts) do
+    requested_location =
+      opts
+      |> Keyword.get(:resolution_location, value(secret, :resolution_location) || :control_plane)
+      |> normalize_atom(:control_plane)
+
+    with {:ok, provider} <- provider_for_secret(secret, opts),
+         :ok <- provider_enabled?(provider, opts),
+         :ok <- resolution_location_allowed?(provider, requested_location),
+         {:ok, adapter} <- adapter_for_provider(provider, opts),
+         {:ok, adapter_result} <-
+           adapter.resolve(external_reference(secret, provider), provider, opts) do
+      resolved = %{
+        value: Map.fetch!(adapter_result, :value),
+        source_type: :external_reference,
+        secret: secret,
+        provider: provider,
+        lease_expires_at: Map.get(adapter_result, :lease_expires_at),
+        cache_status: Map.get(adapter_result, :cache_status, :miss),
+        metadata: Map.get(adapter_result, :metadata, %{})
+      }
+
+      maybe_audit(:success, secret, provider, resolved, opts)
+      {:ok, resolved}
+    else
+      {:error, reason} = error ->
+        maybe_audit(:failed, secret, Keyword.get(opts, :provider), audit_error(reason), opts)
+        error
+    end
+  end
+
+  defp decrypt_internal_payload(secret) do
+    case value(secret, :secret_payload) do
+      payload when is_binary(payload) and payload != "" ->
+        {:ok, payload}
+
+      _ ->
+        decrypt_ash_cloak_payload(value(secret, :encrypted_secret_payload))
+    end
+  end
+
+  defp decrypt_ash_cloak_payload(encrypted) when is_binary(encrypted) and encrypted != "" do
+    with {:ok, decoded} <- Base.decode64(encrypted),
+         decrypted = Vault.decrypt!(decoded),
+         payload when is_binary(payload) <- Ash.Helpers.non_executable_binary_to_term(decrypted),
+         true <- payload != "" do
+      {:ok, payload}
+    else
+      _ -> {:error, :missing_internal_secret_payload}
+    end
+  rescue
+    _ -> {:error, :missing_internal_secret_payload}
+  end
+
+  defp decrypt_ash_cloak_payload(_), do: {:error, :missing_internal_secret_payload}
+
+  defp provider_for_secret(secret, opts) do
+    cond do
+      provider = Keyword.get(opts, :provider) ->
+        {:ok, provider}
+
+      provider = value(secret, :secret_provider) ->
+        {:ok, provider}
+
+      provider_id = value(secret, :secret_provider_id) ->
+        actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_broker))
+        CredentialSecretProvider.get_by_id(to_string(provider_id), actor: actor)
+
+      true ->
+        {:error, :missing_secret_provider}
+    end
+  end
+
+  defp provider_enabled?(provider, opts) do
+    cond do
+      Keyword.get(opts, :allow_disabled_provider?, false) ->
+        :ok
+
+      value(provider, :enabled) == true ->
+        :ok
+
+      true ->
+        {:error, :provider_disabled}
+    end
+  end
+
+  defp resolution_location_allowed?(provider, requested_location) do
+    locations =
+      provider
+      |> value(:resolution_locations)
+      |> List.wrap()
+      |> Enum.map(&normalize_atom(&1, nil))
+      |> Enum.reject(&is_nil/1)
+
+    if requested_location in locations do
+      :ok
+    else
+      {:error, {:resolution_location_not_allowed, requested_location}}
+    end
+  end
+
+  defp adapter_for_provider(provider, opts) do
+    provider_type = provider |> value(:provider_type) |> normalize_atom(nil)
+
+    adapters =
+      Keyword.get(opts, :adapters) ||
+        Application.get_env(:serviceradar_core, :secret_provider_adapters, %{})
+
+    adapter =
+      Keyword.get(opts, :adapter) ||
+        Map.get(adapters, provider_type) ||
+        Map.get(adapters, to_string(provider_type)) ||
+        built_in_adapter(provider_type)
+
+    if is_atom(adapter) and Code.ensure_loaded?(adapter) and
+         function_exported?(adapter, :resolve, 3) do
+      {:ok, adapter}
+    else
+      {:error, :adapter_unavailable}
+    end
+  end
+
+  defp built_in_adapter(:stub), do: ServiceRadar.Credentials.SecretProviderAdapters.Stub
+  defp built_in_adapter(_provider_type), do: nil
+
+  defp external_reference(secret, provider) do
+    %{
+      provider_type: provider |> value(:provider_type) |> normalize_atom(nil),
+      external_secret_ref: value(secret, :external_secret_ref),
+      external_secret_version: value(secret, :external_secret_version),
+      external_secret_fields: value(secret, :external_secret_fields) || %{},
+      credential_kind: value(secret, :credential_kind),
+      metadata: value(secret, :metadata) || %{}
+    }
+  end
+
+  defp maybe_audit(outcome, secret, provider, result, opts) do
+    if Keyword.get(opts, :audit?, false) do
+      attrs = audit_attrs(outcome, secret, provider, result, opts)
+      actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_broker))
+      CredentialSecretResolutionAudit.create_audit(attrs, actor: actor)
+    else
+      :ok
+    end
+  end
+
+  defp audit_attrs(outcome, secret, provider, result, opts) do
+    %{
+      secret_id: value(secret, :id),
+      secret_provider_id: provider && value(provider, :id),
+      grant_id: Keyword.get(opts, :grant_id),
+      consumer_kind: Keyword.get(opts, :consumer_kind, :test),
+      consumer_id: Keyword.get(opts, :consumer_id),
+      purpose: Keyword.get(opts, :purpose),
+      target_kind: Keyword.get(opts, :target_kind),
+      target_id: Keyword.get(opts, :target_id),
+      agent_id: Keyword.get(opts, :agent_id),
+      resolution_location: Keyword.get(opts, :resolution_location, :control_plane),
+      outcome: outcome,
+      error_class: Map.get(result, :error_class),
+      cache_status: Map.get(result, :cache_status),
+      lease_expires_at: Map.get(result, :lease_expires_at),
+      metadata: CredentialRedactor.redact(Map.get(result, :metadata, %{})),
+      occurred_at: DateTime.utc_now()
+    }
+  end
+
+  defp audit_error({error_class, _detail}) when is_atom(error_class),
+    do: %{error_class: error_class}
+
+  defp audit_error(error_class) when is_atom(error_class), do: %{error_class: error_class}
+  defp audit_error(_), do: %{error_class: :internal_error}
+
+  defp value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, to_string(key))
+  end
+
+  defp normalize_atom(value, _default) when is_atom(value), do: value
+
+  defp normalize_atom(value, default) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> default
+      trimmed -> String.to_existing_atom(trimmed)
+    end
+  rescue
+    ArgumentError -> default
+  end
+
+  defp normalize_atom(_value, default), do: default
+end

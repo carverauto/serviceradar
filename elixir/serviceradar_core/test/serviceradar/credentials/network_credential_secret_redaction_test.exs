@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
   use ExUnit.Case, async: true
 
+  alias Ash.Resource.Info
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SshPrivateKeyCredential
 
@@ -26,6 +27,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
       assert :credential_kind in selected
       assert :username in selected
       assert :public_fingerprint in selected
+      assert :source_type in selected
+      assert :external_secret_ref in selected
       assert :last_rotated_at in selected
       assert :next_rotation_due_at in selected
 
@@ -45,6 +48,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
     assert :credential_kind in selected
     assert :username in selected
     assert :metadata in selected
+    assert :source_type in selected
+    assert :external_secret_ref in selected
     assert :encrypted_secret_payload in selected
 
     refute :name in selected
@@ -53,10 +58,28 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretRedactionTest do
   end
 
   test "encrypted backing field is non-public and sensitive" do
-    encrypted = Ash.Resource.Info.attribute(NetworkCredentialSecret, :encrypted_secret_payload)
+    encrypted = Info.attribute(NetworkCredentialSecret, :encrypted_secret_payload)
 
     assert encrypted.public? == false
     assert encrypted.sensitive? == true
+    assert Map.has_key?(struct(NetworkCredentialSecret), :secret_payload)
+  end
+
+  test "external reference metadata is public but not plaintext secret material" do
+    for attr <- [
+          :source_type,
+          :secret_provider_id,
+          :external_secret_ref,
+          :external_secret_version,
+          :external_secret_fields,
+          :resolution_location,
+          :cache_policy,
+          :cache_ttl_seconds
+        ] do
+      assert Info.attribute(NetworkCredentialSecret, attr).public? == true
+    end
+
+    refute Info.attribute(NetworkCredentialSecret, :encrypted_secret_payload).public?
     assert Map.has_key?(struct(NetworkCredentialSecret), :secret_payload)
   end
 

@@ -24,8 +24,19 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :credential_kind,
     :username,
     :public_fingerprint,
+    :source_type,
+    :secret_provider_id,
+    :external_secret_ref,
+    :external_secret_version,
+    :external_secret_fields,
+    :resolution_location,
+    :cache_policy,
+    :cache_ttl_seconds,
     :last_rotated_at,
     :next_rotation_due_at,
+    :last_resolved_at,
+    :last_resolution_status,
+    :last_resolution_message,
     :metadata
   ]
 
@@ -36,6 +47,14 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :credential_kind,
     :username,
     :metadata,
+    :source_type,
+    :secret_provider_id,
+    :external_secret_ref,
+    :external_secret_version,
+    :external_secret_fields,
+    :resolution_location,
+    :cache_policy,
+    :cache_ttl_seconds,
     :encrypted_secret_payload
   ]
 
@@ -156,6 +175,60 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       description "Optional public key, certificate, or token fingerprint"
     end
 
+    attribute :source_type, :atom do
+      allow_nil? false
+      public? true
+      default :internal_encrypted
+      constraints one_of: [:internal_encrypted, :external_reference]
+
+      description "Whether the credential is stored internally or resolved from an external provider"
+    end
+
+    attribute :secret_provider_id, :uuid do
+      allow_nil? true
+      public? true
+      description "External secret provider used when source_type is external_reference"
+    end
+
+    attribute :external_secret_ref, :string do
+      allow_nil? true
+      public? true
+      description "Provider-specific object, item, path, or secret identifier"
+    end
+
+    attribute :external_secret_version, :string do
+      allow_nil? true
+      public? true
+      description "Optional provider-specific version selector"
+    end
+
+    attribute :external_secret_fields, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "Provider field mapping for structured external secrets"
+    end
+
+    attribute :resolution_location, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:control_plane, :agent, :hybrid]
+      description "Preferred broker location for resolving the external reference"
+    end
+
+    attribute :cache_policy, :atom do
+      allow_nil? false
+      public? true
+      default :no_cache
+      constraints one_of: [:no_cache, :memory_ttl, :encrypted_ttl]
+    end
+
+    attribute :cache_ttl_seconds, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1
+    end
+
     attribute :last_rotated_at, :utc_datetime_usec do
       allow_nil? true
       public? true
@@ -166,6 +239,22 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? true
       public? true
       description "Operator-facing rotation due date for this credential"
+    end
+
+    attribute :last_resolved_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :last_resolution_status, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:success, :failed, :denied, :cache_hit]
+    end
+
+    attribute :last_resolution_message, :string do
+      allow_nil? true
+      public? true
     end
 
     attribute :secret_payload, :string do
@@ -183,6 +272,16 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :secret_provider, ServiceRadar.Credentials.CredentialSecretProvider do
+      allow_nil? true
+      public? true
+      source_attribute :secret_provider_id
+      destination_attribute :id
+      define_attribute? false
+    end
   end
 
   calculations do
