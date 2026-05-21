@@ -29,8 +29,11 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.Changes.PublishSyncLog
+
+  require Logger
 
   @source_fields [
     :name,
@@ -48,7 +51,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     :network_blacklist,
     :queries,
     :custom_fields,
-    :settings
+    :settings,
+    :credential_secret_id
   ]
   @source_create_fields [:source_type | @source_fields]
 
@@ -467,6 +471,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "Encrypted credentials JSON"
     end
 
+    attribute :credential_secret_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Optional NetworkCredentialSecret used by the credential broker"
+    end
+
     # Sync tracking
     attribute :last_sync_at, :utc_datetime do
       public? true
@@ -563,6 +573,14 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      source_attribute :credential_secret_id
+      destination_attribute :id
+      define_attribute? false
+    end
+
     has_many :update_runs, ServiceRadar.Integrations.IntegrationUpdateRun do
       destination_attribute :integration_source_id
       public? true
@@ -573,16 +591,23 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     calculate :credentials, :map, fn records, _opts ->
       # Decrypt and parse credentials JSON
       Enum.map(records, fn record ->
-        case record.credentials_encrypted do
-          nil -> nil
-          "" -> %{}
-          %Ash.NotLoaded{} -> nil
-          json when is_binary(json) -> Jason.decode!(json)
-          _ -> nil
+        case broker_credentials(record) do
+          {:ok, credentials} ->
+            credentials
+
+          :legacy ->
+            legacy_credentials(record)
+
+          {:error, reason} ->
+            Logger.warning(
+              "IntegrationSource: failed to resolve broker credential #{inspect(record.credential_secret_id)} - #{inspect(reason)}"
+            )
+
+            nil
         end
       end)
     end do
-      load [:credentials_encrypted]
+      load [:credentials_encrypted, :credential_secret_id]
     end
 
     calculate :poll_interval_display,
@@ -669,6 +694,50 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   defp encrypt_credentials(changeset, credentials) do
     AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
+  end
+
+  defp broker_credentials(%{credential_secret_id: secret_id} = record)
+       when is_binary(secret_id) and secret_id != "" do
+    opts = [
+      actor: SystemActor.system(:integration_source_credential_broker),
+      allow_external_resolution?: true,
+      trusted_broker_context?: true,
+      audit?: true,
+      consumer_kind: :plugin,
+      consumer_id: "integration_source:#{record.id}",
+      purpose: "integration_source_credentials",
+      target_kind: "integration_source",
+      target_id: to_string(record.id),
+      agent_id: record.agent_id,
+      resolution_location: :control_plane
+    ]
+
+    with {:ok, %{value: payload}} <-
+           SecretBroker.resolve_network_credential_secret(secret_id, opts) do
+      decode_broker_credentials(payload)
+    end
+  end
+
+  defp broker_credentials(_record), do: :legacy
+
+  defp decode_broker_credentials(payload) when is_binary(payload) do
+    case Jason.decode(String.trim(payload)) do
+      {:ok, credentials} when is_map(credentials) -> {:ok, credentials}
+      {:ok, _other} -> {:error, :invalid_credentials_payload}
+      {:error, _reason} -> {:error, :invalid_credentials_payload}
+    end
+  end
+
+  defp decode_broker_credentials(_payload), do: {:error, :invalid_credentials_payload}
+
+  defp legacy_credentials(record) do
+    case record.credentials_encrypted do
+      nil -> nil
+      "" -> %{}
+      %Ash.NotLoaded{} -> nil
+      json when is_binary(json) -> Jason.decode!(json)
+      _ -> nil
+    end
   end
 
   @doc false

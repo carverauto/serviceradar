@@ -23,11 +23,13 @@
 - [x] 3.2.1 Add broker-backed SNMP credential references for SNMP profiles, explicit SNMP targets, and device SNMP overrides while keeping legacy encrypted SNMP credential fallback.
 - [x] 3.2.2 Add broker-backed mapper API controller credential references for UniFi and MikroTik controller secrets while keeping legacy encrypted field fallback.
 - [x] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
+- [x] 3.3.1 Add broker-backed IntegrationSource credential references for sync/northbound API credentials while keeping legacy encrypted credential-map fallback.
 - [x] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.
 - [x] 3.4.1 Issue persisted credential broker grants for northbound `plugin.run_action` launch/poll dispatches using descriptor/provider credential requirements and invocation-selected credential references.
 - [ ] 3.5 Add compatibility tests proving internal encrypted credentials still work.
 - [x] 3.5.1 Add focused SNMP compiler coverage for broker-backed internal credential secrets.
 - [x] 3.5.2 Add focused mapper compiler coverage for broker-backed internal controller secrets.
+- [x] 3.5.3 Add focused sync config coverage for broker-backed internal integration credentials.
 
 ## 4. UI and API
 - [ ] 4.1 Add Settings -> Credentials provider records and external reference create/edit/test flows.
