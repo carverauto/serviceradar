@@ -55,6 +55,55 @@ type Target struct {
 	Partition string `json:"partition"`
 }
 
+type configJSON struct {
+	BaseURL            string          `json:"base_url"`
+	APIToken           string          `json:"api_token"`
+	APITokenSecretRef  string          `json:"api_token_secret_ref"`
+	CredentialBroker   json.RawMessage `json:"credential_broker,omitempty"`
+	Targets            []Target        `json:"targets"`
+	TimeoutMS          int             `json:"timeout_ms"`
+	MaxResponseBytes   int             `json:"max_response_bytes"`
+	IncludeGuests      *bool           `json:"include_guests"`
+	InsecureSkipVerify bool            `json:"insecure_skip_verify"`
+	AutoDiscovery      bool            `json:"auto_discovery_enabled"`
+}
+
+type pluginInputsJSON struct {
+	Schema        string          `json:"schema"`
+	PolicyID      string          `json:"policy_id"`
+	PolicyVersion int             `json:"policy_version"`
+	AgentID       string          `json:"agent_id"`
+	GeneratedAt   string          `json:"generated_at"`
+	Template      json.RawMessage `json:"template,omitempty"`
+	Inputs        []pluginInput   `json:"inputs"`
+}
+
+type pluginInput struct {
+	Name       string            `json:"name"`
+	Entity     string            `json:"entity"`
+	Query      string            `json:"query"`
+	ChunkIndex int               `json:"chunk_index"`
+	ChunkTotal int               `json:"chunk_total"`
+	ChunkHash  string            `json:"chunk_hash"`
+	Items      []pluginInputItem `json:"items"`
+}
+
+type pluginInputItem struct {
+	UID            string `json:"uid"`
+	DeviceUID      string `json:"device_uid"`
+	DeviceID       string `json:"device_id"`
+	IP             string `json:"ip"`
+	DeviceIP       string `json:"device_ip"`
+	Hostname       string `json:"hostname"`
+	Name           string `json:"name"`
+	BaseURL        string `json:"base_url"`
+	ProxmoxBaseURL string `json:"proxmox_base_url"`
+	Endpoint       string `json:"endpoint"`
+	ManagementURL  string `json:"management_url"`
+	Partition      string `json:"partition"`
+	Site           string `json:"site"`
+}
+
 type checkSummary struct {
 	Targets           int `json:"targets"`
 	Nodes             int `json:"nodes"`
@@ -344,7 +393,7 @@ func run_check() {
 }
 
 func loadConfig() (Config, error) {
-	var raw map[string]any
+	var raw json.RawMessage
 	if err := sdk.LoadConfig(&raw); err != nil {
 		return defaultConfig(), err
 	}
@@ -352,7 +401,20 @@ func loadConfig() (Config, error) {
 		return defaultConfig(), nil
 	}
 
-	return configFromMap(raw)
+	return configFromJSON(raw)
+}
+
+func configFromJSON(raw json.RawMessage) (Config, error) {
+	if looksLikePluginInputsJSON(raw) {
+		return configFromPluginInputsJSON(raw)
+	}
+
+	cfg := defaultConfig()
+	if err := applyConfigJSON(raw, &cfg); err != nil {
+		return defaultConfig(), err
+	}
+
+	return cfg, nil
 }
 
 func configFromMap(raw map[string]any) (Config, error) {
@@ -363,6 +425,32 @@ func configFromMap(raw map[string]any) (Config, error) {
 	cfg := defaultConfig()
 	if err := applyConfigMap(raw, &cfg); err != nil {
 		return defaultConfig(), err
+	}
+
+	return cfg, nil
+}
+
+func configFromPluginInputsJSON(raw json.RawMessage) (Config, error) {
+	var payload pluginInputsJSON
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return defaultConfig(), err
+	}
+	if err := validatePluginInputsJSON(payload); err != nil {
+		return defaultConfig(), err
+	}
+
+	cfg := defaultConfig()
+	if len(payload.Template) > 0 {
+		if err := applyConfigJSON(payload.Template, &cfg); err != nil {
+			return defaultConfig(), err
+		}
+	}
+
+	generatedTargets := targetsFromPluginInputsJSON(payload, cfg)
+	if len(generatedTargets) > 0 {
+		cfg.Targets = append(cfg.Targets, generatedTargets...)
+		cfg.Targets = dedupeTargets(cfg.Targets)
+		cfg.BaseURL = ""
 	}
 
 	return cfg, nil
@@ -513,6 +601,25 @@ func applyConfigMap(raw map[string]any, cfg *Config) error {
 	if err := json.Unmarshal(encoded, cfg); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func applyConfigJSON(raw json.RawMessage, cfg *Config) error {
+	var decoded configJSON
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+
+	cfg.BaseURL = decoded.BaseURL
+	cfg.APIToken = decoded.APIToken
+	cfg.APITokenSecretRef = decoded.APITokenSecretRef
+	cfg.Targets = decoded.Targets
+	cfg.TimeoutMS = decoded.TimeoutMS
+	cfg.MaxResponseBytes = decoded.MaxResponseBytes
+	cfg.IncludeGuests = decoded.IncludeGuests
+	cfg.InsecureSkipVerify = decoded.InsecureSkipVerify
+	cfg.AutoDiscovery = decoded.AutoDiscovery
 
 	return nil
 }
@@ -1370,6 +1477,65 @@ func looksLikePluginInputs(raw map[string]any) bool {
 	return false
 }
 
+func looksLikePluginInputsJSON(raw json.RawMessage) bool {
+	var probe struct {
+		Schema string            `json:"schema"`
+		Inputs []json.RawMessage `json:"inputs"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(probe.Schema) == sdk.PluginInputsSchemaV1 || len(probe.Inputs) > 0
+}
+
+func validatePluginInputsJSON(payload pluginInputsJSON) error {
+	if strings.TrimSpace(payload.Schema) != sdk.PluginInputsSchemaV1 {
+		return fmt.Errorf("plugin inputs payload has invalid schema: %q", payload.Schema)
+	}
+	if strings.TrimSpace(payload.PolicyID) == "" {
+		return errors.New("plugin inputs payload missing policy_id")
+	}
+	if payload.PolicyVersion < 1 {
+		return errors.New("plugin inputs payload has invalid policy_version")
+	}
+	if strings.TrimSpace(payload.AgentID) == "" {
+		return errors.New("plugin inputs payload missing agent_id")
+	}
+	if strings.TrimSpace(payload.GeneratedAt) == "" {
+		return errors.New("plugin inputs payload missing generated_at")
+	}
+	if len(payload.Inputs) == 0 {
+		return errors.New("plugin inputs payload missing inputs")
+	}
+
+	for i, input := range payload.Inputs {
+		if strings.TrimSpace(input.Name) == "" {
+			return fmt.Errorf("plugin inputs payload missing input name at inputs[%d]", i)
+		}
+		if strings.TrimSpace(input.Entity) == "" {
+			return fmt.Errorf("plugin inputs payload missing input entity at inputs[%d]", i)
+		}
+		if strings.TrimSpace(input.Query) == "" {
+			return fmt.Errorf("plugin inputs payload missing input query at inputs[%d]", i)
+		}
+		if input.ChunkIndex < 0 {
+			return fmt.Errorf("plugin inputs payload has invalid input chunk_index at inputs[%d]", i)
+		}
+		if input.ChunkTotal < 1 {
+			return fmt.Errorf("plugin inputs payload has invalid input chunk_total at inputs[%d]", i)
+		}
+		if strings.TrimSpace(input.ChunkHash) == "" {
+			return fmt.Errorf("plugin inputs payload missing input chunk_hash at inputs[%d]", i)
+		}
+		if len(input.Items) == 0 {
+			return fmt.Errorf("plugin inputs payload missing input items at inputs[%d]", i)
+		}
+	}
+
+	return nil
+}
+
 func targetsFromPluginInputs(payload *sdk.PluginInputsPayload, cfg Config) []Target {
 	if payload == nil {
 		return nil
@@ -1384,6 +1550,24 @@ func targetsFromPluginInputs(payload *sdk.PluginInputsPayload, cfg Config) []Tar
 		target := targetFromInputItem(input.Item, cfg)
 		if strings.TrimSpace(target.BaseURL) != "" {
 			targets = append(targets, target)
+		}
+	}
+
+	return targets
+}
+
+func targetsFromPluginInputsJSON(payload pluginInputsJSON, cfg Config) []Target {
+	targets := make([]Target, 0)
+	for _, input := range payload.Inputs {
+		if input.Entity != "devices" {
+			continue
+		}
+
+		for _, item := range input.Items {
+			target := targetFromPluginInputItem(item, cfg)
+			if strings.TrimSpace(target.BaseURL) != "" {
+				targets = append(targets, target)
+			}
 		}
 	}
 
@@ -1408,6 +1592,25 @@ func targetFromInputItem(item map[string]any, cfg Config) Target {
 		Partition: firstNonEmpty(
 			stringValue(item, "partition"),
 			stringValue(item, "site"),
+		),
+	}
+}
+
+func targetFromPluginInputItem(item pluginInputItem, cfg Config) Target {
+	hostname := firstNonEmpty(item.Hostname, item.Name)
+
+	return Target{
+		BaseURL:  baseURLForPluginInputItem(item, cfg),
+		APIToken: cfg.APIToken,
+		DeviceID: firstNonEmpty(
+			item.UID,
+			item.DeviceUID,
+			item.DeviceID,
+		),
+		Hostname: hostname,
+		Partition: firstNonEmpty(
+			item.Partition,
+			item.Site,
 		),
 	}
 }
@@ -1437,6 +1640,30 @@ func baseURLForItem(item map[string]any, cfg Config) string {
 		stringValue(item, "device_ip"),
 		stringValue(item, "hostname"),
 		stringValue(item, "name"),
+	)
+	if host != "" {
+		return normalizeBaseURL(host)
+	}
+
+	return normalizeBaseURL(cfg.BaseURL)
+}
+
+func baseURLForPluginInputItem(item pluginInputItem, cfg Config) string {
+	direct := firstNonEmpty(
+		item.BaseURL,
+		item.ProxmoxBaseURL,
+		item.Endpoint,
+		item.ManagementURL,
+	)
+	if direct != "" {
+		return normalizeBaseURL(direct)
+	}
+
+	host := firstNonEmpty(
+		item.IP,
+		item.DeviceIP,
+		item.Hostname,
+		item.Name,
 	)
 	if host != "" {
 		return normalizeBaseURL(host)

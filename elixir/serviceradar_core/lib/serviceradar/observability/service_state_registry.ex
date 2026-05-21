@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   alias ServiceRadar.Observability.ServiceStatePubSub
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -23,7 +24,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   def upsert_from_status(status) when is_map(status) do
     actor = SystemActor.system(:service_state_registry)
 
-    attrs = build_attrs_from_status(status)
+    attrs = build_attrs_from_status(status, actor)
 
     ServiceState
     |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
@@ -48,6 +49,27 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   def upsert_from_status(_), do: :ok
+
+  @spec repair_plugin_states_from_history(keyword()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def repair_plugin_states_from_history(opts \\ []) do
+    interval = Keyword.get(opts, :interval, "30 days")
+    limit = Keyword.get(opts, :limit, 5_000)
+
+    case Repo.query(latest_plugin_status_sql(), [interval, limit]) do
+      {:ok, %{rows: rows}} ->
+        Enum.each(rows, fn row -> upsert_from_status(status_from_history_row(row)) end)
+        {:ok, length(rows)}
+
+      {:error, reason} = error ->
+        Logger.warning("Plugin service state history repair failed: #{inspect(reason)}")
+        error
+    end
+  rescue
+    error ->
+      Logger.warning("Plugin service state history repair failed: #{Exception.message(error)}")
+      {:error, error}
+  end
 
   @spec upsert_for_assignment(PluginAssignment.t()) :: :ok
   def upsert_for_assignment(%PluginAssignment{} = assignment) do
@@ -186,12 +208,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_status(status) do
+  defp build_attrs_from_status(status, actor) do
     message = normalize_message(fetch(status, :message))
+    agent_id = normalize_string(fetch(status, :agent_id), "unknown")
 
     %{
-      agent_id: normalize_string(fetch(status, :agent_id), "unknown"),
-      gateway_id: normalize_string(fetch(status, :gateway_id), "unknown"),
+      agent_id: agent_id,
+      gateway_id: canonical_gateway_id(status, agent_id, actor),
       partition: resolve_partition(status),
       service_type: normalize_string(fetch(status, :service_type), "unknown"),
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
@@ -346,7 +369,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   defp maybe_upsert_assignment_state(attrs, actor) do
-    case load_existing_state(attrs, actor) do
+    case load_existing_logical_state(attrs, actor) do
       {:ok, %ServiceState{state: "active"} = state} ->
         if assignment_placeholder_state?(state) do
           upsert_service_state(attrs, actor)
@@ -359,24 +382,42 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp load_existing_state(attrs, actor) do
+  defp load_existing_logical_state(attrs, actor) do
     ServiceState
-    |> Ash.Query.for_read(
-      :by_identity,
-      %{
-        agent_id: Map.fetch!(attrs, :agent_id),
-        gateway_id: Map.fetch!(attrs, :gateway_id),
-        partition: Map.fetch!(attrs, :partition),
-        service_type: Map.fetch!(attrs, :service_type),
-        service_name: Map.fetch!(attrs, :service_name)
-      },
-      actor: actor
+    |> filter(
+      agent_id == ^Map.fetch!(attrs, :agent_id) and
+        partition == ^Map.fetch!(attrs, :partition) and
+        service_type == ^Map.fetch!(attrs, :service_type) and
+        service_name == ^Map.fetch!(attrs, :service_name) and
+        state == "active"
     )
-    |> Ash.read_one(actor: actor, domain: ServiceRadar.Observability)
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} ->
+        {:ok, Enum.max_by(states, &logical_state_rank/1, fn -> nil end)}
+
+      error ->
+        error
+    end
   end
 
   defp assignment_placeholder_state?(%ServiceState{} = state) do
-    state.message in ["plugin assignment pending result", "streaming plugin ready"]
+    placeholder_message?(state.message)
+  end
+
+  defp placeholder_message?("plugin assignment pending result"), do: true
+  defp placeholder_message?("streaming plugin ready"), do: true
+  defp placeholder_message?(_), do: false
+
+  defp logical_state_rank(%ServiceState{} = state) do
+    observed_at =
+      case state.last_observed_at do
+        %DateTime{} = dt -> DateTime.to_unix(dt, :nanosecond)
+        _ -> 0
+      end
+
+    real_result_rank = if placeholder_message?(state.message), do: 0, else: 1
+    {real_result_rank, observed_at}
   end
 
   defp assignment_plugin_type(%PluginPackage{} = package) do
@@ -429,5 +470,68 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     metadata = agent.metadata || %{}
 
     metadata["partition_id"] || metadata["partition"] || "default"
+  end
+
+  defp canonical_gateway_id(status, agent_id, actor) do
+    raw_gateway_id = normalize_string(fetch(status, :gateway_id), "unknown")
+
+    if normalize_string(fetch(status, :service_type), "unknown") == "plugin" do
+      agent_gateway_id(agent_id, actor) || raw_gateway_id
+    else
+      raw_gateway_id
+    end
+  end
+
+  defp agent_gateway_id(agent_id, actor)
+       when is_binary(agent_id) and agent_id not in ["", "unknown"] do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, agent} -> normalize_string(agent.gateway_id, nil)
+      _ -> nil
+    end
+  end
+
+  defp agent_gateway_id(_agent_id, _actor), do: nil
+
+  defp latest_plugin_status_sql do
+    """
+    SELECT DISTINCT ON (agent_id, COALESCE(partition, 'default'), service_type, service_name)
+      agent_id,
+      gateway_id,
+      COALESCE(partition, 'default') AS partition,
+      service_type,
+      service_name,
+      available,
+      message,
+      details,
+      timestamp
+    FROM platform.service_status
+    WHERE service_type = 'plugin'
+      AND timestamp >= (now() - $1::interval)
+    ORDER BY agent_id, COALESCE(partition, 'default'), service_type, service_name, timestamp DESC
+    LIMIT $2
+    """
+  end
+
+  defp status_from_history_row([
+         agent_id,
+         gateway_id,
+         partition,
+         service_type,
+         service_name,
+         available,
+         message,
+         details,
+         timestamp
+       ]) do
+    %{
+      agent_id: agent_id,
+      gateway_id: gateway_id,
+      partition: partition,
+      service_type: service_type,
+      service_name: service_name,
+      available: available,
+      message: details || message,
+      timestamp: timestamp
+    }
   end
 end

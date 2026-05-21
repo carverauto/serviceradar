@@ -107,6 +107,32 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert state.message == "cached plugin result"
   end
 
+  test "assignment reconciliation preserves agent-reported plugin status from transient gateway ids" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    assignment = assignment_fixture(agent.uid, package.id)
+
+    assert :ok =
+             ServiceStateRegistry.upsert_from_status(%{
+               agent_id: agent.uid,
+               gateway_id: "serviceradar_agent_gateway@10.42.0.12",
+               partition: "default",
+               service_type: "plugin",
+               service_name: package.name,
+               available: true,
+               message: %{"status" => "OK", "summary" => "cached plugin result"},
+               observed_at: DateTime.utc_now()
+             })
+
+    assert :ok = ServiceStateRegistry.upsert_for_assignment(assignment)
+
+    state = service_state_for(agent, package.name)
+    assert state.available == true
+    assert state.gateway_id == agent.gateway_id
+    assert state.message == "cached plugin result"
+  end
+
   test "agent-reported plugin status preserves payload details for service cards" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})

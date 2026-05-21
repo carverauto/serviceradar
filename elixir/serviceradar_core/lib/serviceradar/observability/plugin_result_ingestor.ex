@@ -12,6 +12,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Observability.ServiceIdentity
+  alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
@@ -41,6 +42,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       )
 
     with :ok <- insert_status(status_row, actor),
+         :ok <- upsert_current_state(status_row),
          :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
       ingest_registered_handlers(payload, status, observed_at, actor)
     end
@@ -71,6 +73,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       {:error, error} -> {:error, error}
       other -> {:error, other}
     end
+  end
+
+  defp upsert_current_state(row) when is_map(row) do
+    ServiceStateRegistry.upsert_from_status(%{
+      agent_id: Map.get(row, :agent_id),
+      gateway_id: Map.get(row, :gateway_id),
+      partition: Map.get(row, :partition),
+      service_type: Map.get(row, :service_type),
+      service_name: Map.get(row, :service_name),
+      available: Map.get(row, :available),
+      message: Map.get(row, :details) || Map.get(row, :message),
+      timestamp: Map.get(row, :timestamp)
+    })
   end
 
   defp resolve_observed_at(payload, status) do

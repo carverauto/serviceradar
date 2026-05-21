@@ -358,6 +358,63 @@ func TestConfigFromMapBuildsTargetsFromPluginInputs(t *testing.T) {
 	}
 }
 
+func TestConfigFromJSONBuildsTargetsFromPluginInputs(t *testing.T) {
+	cfg, err := configFromJSON(json.RawMessage(`{
+		"schema": "serviceradar.plugin_inputs.v1",
+		"policy_id": "policy-1",
+		"policy_version": 1,
+		"agent_id": "agent-1",
+		"generated_at": "2026-05-06T19:00:00Z",
+		"template": {
+			"api_token_secret_ref": "credentialref:network-credential-secret:test-secret",
+			"api_token": "PVEAPIToken=root@pam!sr=test-token",
+			"include_guests": true,
+			"timeout_ms": 45000,
+			"credential_broker": {
+				"schema": "serviceradar.edge_credential_broker_grant.v1",
+				"allow": {"methods": ["GET"], "paths": ["/api2/json/version"]}
+			}
+		},
+		"inputs": [{
+			"name": "targets",
+			"entity": "devices",
+			"query": "in:devices metadata.proxmox_candidate:true",
+			"chunk_index": 0,
+			"chunk_total": 1,
+			"chunk_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"items": [
+				{"uid": "sr:device:1", "ip": "10.10.0.11", "hostname": "pve-a", "partition": "dc-a"},
+				{"uid": "sr:device:2", "proxmox_base_url": "https://pve-b.example:8006/", "hostname": "pve-b"}
+			]
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("configFromJSON() error = %v", err)
+	}
+
+	if cfg.TimeoutMS != 45000 {
+		t.Fatalf("unexpected timeout: %d", cfg.TimeoutMS)
+	}
+	if !cfg.includeGuests() {
+		t.Fatalf("expected include_guests=true from template")
+	}
+	if cfg.APIToken != "PVEAPIToken=root@pam!sr=test-token" {
+		t.Fatalf("expected template API token, got %q", cfg.APIToken)
+	}
+	if got := len(cfg.Targets); got != 2 {
+		t.Fatalf("expected two generated targets, got %d", got)
+	}
+	if cfg.Targets[0].BaseURL != "https://10.10.0.11:8006" {
+		t.Fatalf("unexpected first target URL: %s", cfg.Targets[0].BaseURL)
+	}
+	if cfg.Targets[0].DeviceID != "sr:device:1" || cfg.Targets[0].Partition != "dc-a" {
+		t.Fatalf("unexpected first target metadata: %#v", cfg.Targets[0])
+	}
+	if cfg.Targets[1].BaseURL != "https://pve-b.example:8006" {
+		t.Fatalf("unexpected second target URL: %s", cfg.Targets[1].BaseURL)
+	}
+}
+
 func TestConfigFromMapAppliesRuntimeResolvedAPITokenToPluginInputTargets(t *testing.T) {
 	cfg, err := configFromMap(map[string]any{
 		"schema":         sdk.PluginInputsSchemaV1,
