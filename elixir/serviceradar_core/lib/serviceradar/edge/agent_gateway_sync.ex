@@ -108,12 +108,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
            CredentialBrokerGrant.get_by_id(grant_id, actor: actor),
          :ok <- validate_broker_request(grant, request),
          {:ok, resolved} <-
-           SecretBroker.resolve_with_grant(grant,
-             actor: actor,
-             audit?: true,
-             agent_id: agent_id,
-             resolution_location: grant.resolution_location
-           ) do
+           resolve_broker_grant_material(grant, actor, agent_id) do
       {:ok, credential_material(resolved)}
     end
   end
@@ -1042,6 +1037,46 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       end
     end
   end
+
+  defp resolve_broker_grant_material(%CredentialBrokerGrant{} = grant, actor, agent_id) do
+    result =
+      SecretBroker.resolve_with_grant(grant,
+        actor: actor,
+        audit?: true,
+        agent_id: agent_id,
+        resolution_location: grant.resolution_location
+      )
+
+    case result do
+      {:error, :grant_expired} ->
+        expire_broker_grant(grant, actor)
+        result
+
+      _ ->
+        result
+    end
+  end
+
+  defp expire_broker_grant(%CredentialBrokerGrant{status: status} = grant, actor)
+       when status in [:issued, :active] do
+    grant
+    |> Ash.Changeset.for_update(:expire, %{}, actor: actor)
+    |> Ash.update(actor: actor)
+    |> case do
+      {:ok, _grant} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to expire credential broker grant after TTL rejection",
+          grant_id: grant.id,
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp expire_broker_grant(_grant, _actor), do: :ok
 
   defp credential_material(resolved) do
     value = string_value(Map.get(resolved, :value))

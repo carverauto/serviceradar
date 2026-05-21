@@ -187,8 +187,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       resolution_location: request.resolution_location
     }
 
-    case core_call(AgentGatewaySync, :resolve_credential_broker_grant, [request_map], 15_000) do
-      {:ok, material} ->
+    AgentGatewaySync
+    |> core_call(:resolve_credential_broker_grant, [request_map], 15_000)
+    |> credential_grant_response(agent_id, request.grant_id)
+  end
+
+  @doc false
+  def credential_grant_response(core_result, agent_id, grant_id) do
+    case core_result do
+      {:ok, {:ok, material}} ->
         %Monitoring.CredentialBrokerResolveResponse{
           success: true,
           message: "credential grant resolved",
@@ -199,16 +206,23 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           cache_status: Map.get(material, :cache_status, "")
         }
 
-      {:error, reason} ->
-        Logger.warning(
-          "Credential broker grant resolution denied: agent_id=#{agent_id}, grant_id=#{request.grant_id}, reason=#{inspect(reason)}"
-        )
+      {:ok, {:error, reason}} ->
+        credential_grant_denied_response(agent_id, grant_id, reason)
 
-        %Monitoring.CredentialBrokerResolveResponse{
-          success: false,
-          message: "credential grant resolution denied"
-        }
+      {:error, reason} ->
+        credential_grant_denied_response(agent_id, grant_id, reason)
     end
+  end
+
+  defp credential_grant_denied_response(agent_id, grant_id, reason) do
+    Logger.warning(
+      "Credential broker grant resolution denied: agent_id=#{agent_id}, grant_id=#{grant_id}, reason=#{inspect(reason)}"
+    )
+
+    %Monitoring.CredentialBrokerResolveResponse{
+      success: false,
+      message: "credential grant resolution denied"
+    }
   end
 
   @doc """

@@ -45,7 +45,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
          {:ok, target} <- select_target(preview),
          {:ok, agent_id} <- select_agent(preview, target),
          {:ok, secret_id} <- required_string(rule, [:secret_id, "secret_id"], "secret_id") do
-      {:ok, build_plan(rule, preview, target, agent_id, secret_id)}
+      build_plan(rule, preview, target, agent_id, secret_id, opts)
     end
   end
 
@@ -64,43 +64,46 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
     end
   end
 
-  defp build_plan(rule, preview, target, agent_id, secret_id) do
+  defp build_plan(rule, preview, target, agent_id, secret_id, opts) do
     credential_rule_id = value_string(rule, [:id, "id"])
 
-    %{
-      command_type: @proxmox_command_type,
-      agent_id: agent_id,
-      required_capability: "http",
-      ttl_seconds: metadata_int(rule, "test_ttl_seconds", 120),
-      context: %{
-        credential_rule_id: credential_rule_id,
-        provider: @proxmox_provider,
-        device_uid: device_uid(target),
-        target_query: value_string(rule, [:target_query, "target_query"])
-      },
-      payload: %{
-        "schema" => "serviceradar.proxmox_credential_test.v1",
-        "credential_rule_id" => credential_rule_id,
-        "provider" => @proxmox_provider,
-        "auth_method" => "proxmox_api_token",
-        "credential_broker" => credential_broker_grant(rule, target, secret_id),
-        "target" => target_payload(target),
-        "tls" => %{
-          "insecure_skip_verify" => tls_policy(rule) == :skip_verify
-        },
-        "timeout_ms" => metadata_int(rule, "timeout_ms", @default_timeout_ms),
-        "preview" => %{
-          "matched_devices" => Map.get(preview, :matched_devices, 0),
-          "scoped_devices" => Map.get(preview, :scoped_devices, 0)
-        }
-      }
-    }
+    with {:ok, grant} <- credential_broker_grant(rule, target, agent_id, secret_id, opts) do
+      {:ok,
+       %{
+         command_type: @proxmox_command_type,
+         agent_id: agent_id,
+         required_capability: "http",
+         ttl_seconds: metadata_int(rule, "test_ttl_seconds", 120),
+         context: %{
+           credential_rule_id: credential_rule_id,
+           provider: @proxmox_provider,
+           device_uid: device_uid(target),
+           target_query: value_string(rule, [:target_query, "target_query"])
+         },
+         payload: %{
+           "schema" => "serviceradar.proxmox_credential_test.v1",
+           "credential_rule_id" => credential_rule_id,
+           "provider" => @proxmox_provider,
+           "auth_method" => "proxmox_api_token",
+           "credential_broker" => grant,
+           "target" => target_payload(target, agent_id),
+           "tls" => %{
+             "insecure_skip_verify" => tls_policy(rule) == :skip_verify
+           },
+           "timeout_ms" => metadata_int(rule, "timeout_ms", @default_timeout_ms),
+           "preview" => %{
+             "matched_devices" => Map.get(preview, :matched_devices, 0),
+             "scoped_devices" => Map.get(preview, :scoped_devices, 0)
+           }
+         }
+       }}
+    end
   end
 
-  defp credential_broker_grant(rule, target, secret_id) do
-    target = target_payload(target)
+  defp credential_broker_grant(rule, target, agent_id, secret_id, opts) do
+    target = target_payload(target, agent_id)
 
-    CredentialBrokerGrant.to_payload(
+    attrs =
       %{
         secret_id: secret_id,
         secret_ref: SecretRefs.network_credential_ref(secret_id),
@@ -111,20 +114,24 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
         purpose: "credential_rule_test",
         target_kind: "device",
         target_id: Map.get(target, "device_uid"),
-        agent_id: value_string(target, ["agent_id", :agent_id]),
+        agent_id: agent_id,
         resolution_location: :agent,
         inject: %{"type" => "http_header", "name" => "Authorization", "scheme" => "PVEAPIToken"},
         allowed_methods: ["GET"],
+        allowed_hosts: allowed_hosts_for(Map.get(target, "base_url")),
         allowed_paths: ["/api2/json/version", "/api2/json/nodes"],
         ttl_seconds: metadata_int(rule, "test_ttl_seconds", 120)
-      },
-      %{
-        "target" => %{
-          "device_uid" => Map.get(target, "device_uid"),
-          "base_url" => Map.get(target, "base_url")
-        }
       }
-    )
+
+    issue_grant(attrs, opts, %{
+      "target" => %{
+        "kind" => "device",
+        "id" => Map.get(target, "device_uid"),
+        "agent_id" => agent_id,
+        "device_uid" => Map.get(target, "device_uid"),
+        "base_url" => Map.get(target, "base_url")
+      }
+    })
   end
 
   defp select_target(preview) do
@@ -167,8 +174,54 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
 
   defp valid_target?(_target), do: false
 
-  defp target_payload(target) do
+  defp issue_grant(attrs, opts, extras) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:network_credential_rule_test_plan))
+    issuer = Keyword.get(opts, :grant_issuer, default_grant_issuer(actor))
+
+    case issuer.(attrs) do
+      {:ok, %{} = grant} -> {:ok, CredentialBrokerGrant.to_payload(grant, extras)}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_credential_broker_grant_issuer_result, other}}
+    end
+  end
+
+  defp issue_persisted_grant(attrs) do
+    attrs
+    |> CredentialBrokerGrant.issue_attrs()
+    |> CredentialBrokerGrant.issue_grant(
+      actor: SystemActor.system(:network_credential_rule_test_plan)
+    )
+  end
+
+  defp default_grant_issuer(actor) do
+    if SystemActor.system_actor?(actor) do
+      &issue_persisted_grant/1
+    else
+      &issue_ephemeral_test_grant/1
+    end
+  end
+
+  defp issue_ephemeral_test_grant(attrs) do
+    grant =
+      attrs
+      |> CredentialBrokerGrant.issue_attrs()
+      |> Map.put(:id, "test-grant-#{System.unique_integer([:positive])}")
+
+    {:ok, grant}
+  end
+
+  defp allowed_hosts_for(base_url) do
+    case URI.parse(to_string(base_url)) do
+      %URI{host: host} when is_binary(host) and host != "" -> [host]
+      _ -> []
+    end
+  end
+
+  defp target_payload(target, agent_id) do
     compact_map(%{
+      "kind" => "device",
+      "id" => device_uid(target),
+      "agent_id" => agent_id,
       "device_uid" => device_uid(target),
       "base_url" => target_base_url(target),
       "hostname" => value_string(target, [:hostname, "hostname", :name, "name"]),

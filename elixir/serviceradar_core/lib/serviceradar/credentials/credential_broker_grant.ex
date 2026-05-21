@@ -105,7 +105,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
     create :issue do
       accept @fields
-      change set_attribute(:issued_at, &DateTime.utc_now/0)
+      change set_attribute(:issued_at, &__MODULE__.utc_now/0)
       change {WriteBrokerGrantLifecycleEvent, action: :issue}
     end
 
@@ -116,14 +116,14 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
     update :consume do
       change transition_state(:consumed)
-      change set_attribute(:consumed_at, &DateTime.utc_now/0)
+      change set_attribute(:consumed_at, &__MODULE__.utc_now/0)
       change {WriteBrokerGrantLifecycleEvent, action: :consume}
     end
 
     update :deny do
       argument :reason, :string
       change transition_state(:denied)
-      change set_attribute(:denied_at, &DateTime.utc_now/0)
+      change set_attribute(:denied_at, &__MODULE__.utc_now/0)
       change set_attribute(:denial_reason, arg(:reason))
       change {WriteBrokerGrantLifecycleEvent, action: :deny}
     end
@@ -136,7 +136,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     update :revoke do
       argument :reason, :string
       change transition_state(:revoked)
-      change set_attribute(:revoked_at, &DateTime.utc_now/0)
+      change set_attribute(:revoked_at, &__MODULE__.utc_now/0)
       change set_attribute(:revocation_reason, arg(:reason))
       change {WriteBrokerGrantLifecycleEvent, action: :revoke}
     end
@@ -269,7 +269,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       constraints min: 1
     end
 
-    attribute :expires_at, :utc_datetime_usec do
+    # AshPaperTrail 0.5.7's notification builder dumps tracked datetime
+    # attributes as :utc_datetime; keep lifecycle timestamps at seconds
+    # precision even though the database columns can store microseconds.
+    attribute :expires_at, :utc_datetime do
       allow_nil? false
       public? true
     end
@@ -286,17 +289,17 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       constraints one_of: [:issued, :active, :consumed, :denied, :expired, :revoked]
     end
 
-    attribute :issued_at, :utc_datetime_usec do
+    attribute :issued_at, :utc_datetime do
       allow_nil? true
       public? true
     end
 
-    attribute :consumed_at, :utc_datetime_usec do
+    attribute :consumed_at, :utc_datetime do
       allow_nil? true
       public? true
     end
 
-    attribute :denied_at, :utc_datetime_usec do
+    attribute :denied_at, :utc_datetime do
       allow_nil? true
       public? true
     end
@@ -306,7 +309,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       public? true
     end
 
-    attribute :revoked_at, :utc_datetime_usec do
+    attribute :revoked_at, :utc_datetime do
       allow_nil? true
       public? true
     end
@@ -337,6 +340,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     ttl_seconds = int_value(attrs, :ttl_seconds, 300)
     secret_id = value(attrs, :secret_id)
     secret_ref = value(attrs, :secret_ref) || secret_ref_for(secret_id)
+    default_expires_at = now |> DateTime.add(ttl_seconds, :second) |> truncate_datetime()
 
     @fields
     |> Enum.reduce(%{}, fn field, acc ->
@@ -347,13 +351,14 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     end)
     |> Map.put(:ttl_seconds, ttl_seconds)
     |> Map.put(:secret_ref, secret_ref)
-    |> Map.put_new(:expires_at, DateTime.add(now, ttl_seconds, :second))
+    |> Map.update(:expires_at, default_expires_at, &truncate_datetime/1)
   end
 
   @doc "Build the legacy wire payload used by agents and plugins."
   def to_payload(grant_or_attrs, extras \\ %{}) when is_map(grant_or_attrs) do
     inject = value(grant_or_attrs, :inject) || %{}
     allow = allow_payload(grant_or_attrs)
+    expires_at = value(grant_or_attrs, :expires_at) || derived_expires_at(grant_or_attrs)
 
     %{
       "schema" => @schema,
@@ -375,7 +380,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       "inject" => inject,
       "allow" => allow,
       "ttl_seconds" => int_value(grant_or_attrs, :ttl_seconds, 300),
-      "expires_at" => iso8601(value(grant_or_attrs, :expires_at))
+      "expires_at" => iso8601(expires_at)
     }
     |> deep_merge(extras)
     |> compact_map()
@@ -448,6 +453,19 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   defp secret_ref_for(nil), do: nil
   defp secret_ref_for(secret_id), do: SecretRefs.network_credential_ref(to_string(secret_id))
+
+  def utc_now, do: DateTime.truncate(DateTime.utc_now(), :second)
+
+  defp truncate_datetime(%DateTime{} = value), do: DateTime.truncate(value, :second)
+  defp truncate_datetime(value), do: value
+
+  defp derived_expires_at(grant_or_attrs) do
+    if value(grant_or_attrs, :id) do
+      nil
+    else
+      DateTime.add(utc_now(), int_value(grant_or_attrs, :ttl_seconds, 300), :second)
+    end
+  end
 
   defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
 

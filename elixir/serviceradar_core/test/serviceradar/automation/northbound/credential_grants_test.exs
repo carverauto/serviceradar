@@ -79,7 +79,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
     assert attrs.allowed_ports == [443, 8443]
     assert attrs.issued_by_actor_id == "user-1"
 
-    grant = prepared.payload_fields["credential_broker"]
+    [grant] = prepared.payload_fields["credential_brokers"]
 
     assert grant["schema"] == CredentialBrokerGrant.schema()
     assert grant["grant_type"] == "http_api_callout"
@@ -87,7 +87,6 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
     assert grant["credential_secret_ref"] ==
              "credentialref:network-credential-secret:#{@secret_id}"
 
-    assert prepared.payload_fields["credential_brokers"] == [grant]
     assert prepared.context == %{credential_broker_grant_ids: ["grant-device-api-call"]}
     refute inspect(prepared) =~ "Bearer "
   end

@@ -76,19 +76,24 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
              "device_uid" => "device-1",
              "base_url" => "https://192.0.2.10:8006",
              "kind" => "device",
-             "id" => "device-1"
+             "id" => "device-1",
+             "agent_id" => "agent-a"
            }
 
     assert plan.payload["credential_broker"]["allow"] == %{
              "methods" => ["GET"],
-             "paths" => ["/api2/json/version", "/api2/json/nodes"]
+             "paths" => ["/api2/json/version", "/api2/json/nodes"],
+             "hosts" => ["192.0.2.10"]
            }
 
     assert plan.payload["target"] == %{
              "device_uid" => "device-1",
              "base_url" => "https://192.0.2.10:8006",
              "hostname" => "pve-a",
-             "ip" => "192.0.2.10"
+             "ip" => "192.0.2.10",
+             "kind" => "device",
+             "id" => "device-1",
+             "agent_id" => "agent-a"
            }
 
     assert plan.payload["tls"] == %{"insecure_skip_verify" => true}

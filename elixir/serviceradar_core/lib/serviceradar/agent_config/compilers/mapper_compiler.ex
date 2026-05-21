@@ -131,8 +131,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     broker_opts =
       [
         actor: actor,
-        allow_external_resolution?: true,
-        trusted_broker_context?: true,
         audit?: true,
         consumer_kind: :mapper,
         consumer_id: mapper_controller_consumer_id(controller),

@@ -117,6 +117,8 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
                     :discovery,
                     :snmp,
                     :remote_access,
+                    :device_task,
+                    :ansible,
                     :northbound_action,
                     :service_monitoring,
                     :test

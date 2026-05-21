@@ -508,13 +508,27 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp compile_device_target_with_host(device, profile, oids, actor, host) do
     credential = resolve_device_credentials(device.uid, profile, actor)
 
-    if valid_credentials?(credential) do
-      version = Map.get(credential, :version, profile.version)
-      base_target = build_base_target(device, host, profile, oids, version)
-      apply_snmp_auth(base_target, version, credential)
-    else
-      Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
-      nil
+    case credential do
+      {:error, reason} ->
+        Logger.warning(
+          "SNMPCompiler: skipping device #{device.uid} because credential resolution failed - #{inspect(reason)}"
+        )
+
+        nil
+
+      credential when is_map(credential) ->
+        if valid_credentials?(credential) do
+          version = Map.get(credential, :version, profile.version)
+          base_target = build_base_target(device, host, profile, oids, version)
+          apply_snmp_auth(base_target, version, credential)
+        else
+          Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
+          nil
+        end
+
+      _ ->
+        Logger.debug("SNMPCompiler: skipping device #{device.uid} (missing credentials)")
+        nil
     end
   end
 
@@ -594,7 +608,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
           target_id: target.id
         )
 
-      version = Map.get(credential || %{}, :version, target.version)
+      version =
+        if is_map(credential),
+          do: Map.get(credential, :version, target.version),
+          else: target.version
 
       base_target = %{
         "id" => target.id,
@@ -608,11 +625,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         "oids" => compile_oids(oids)
       }
 
-      if valid_credentials?(credential) do
-        apply_snmp_auth(base_target, version, credential)
-      else
-        Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
-        nil
+      case credential do
+        {:error, reason} ->
+          Logger.warning(
+            "SNMPCompiler: skipping target #{target.id} because credential resolution failed - #{inspect(reason)}"
+          )
+
+          nil
+
+        credential when is_map(credential) ->
+          if valid_credentials?(credential) do
+            apply_snmp_auth(base_target, version, credential)
+          else
+            Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
+            nil
+          end
+
+        _ ->
+          Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
+          nil
       end
     end
   end
@@ -760,6 +791,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       {:ok, %{credential: credential, source: :profile}} when is_map(credential) ->
         credential
+
+      {:error, reason} ->
+        {:error, reason}
 
       _ ->
         # Use profile credentials as fallback

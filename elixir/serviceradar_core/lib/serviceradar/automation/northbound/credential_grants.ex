@@ -57,9 +57,15 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
       requirements
       |> Enum.reduce_while({:ok, []}, fn requirement, {:ok, grants} ->
         case issue_requirement(requirement, invocation, target, assignment, phase, opts) do
-          {:ok, nil} -> {:cont, {:ok, grants}}
-          {:ok, grant} -> {:cont, {:ok, [grant | grants]}}
-          {:error, reason} -> {:halt, {:error, reason}}
+          {:ok, nil} ->
+            {:cont, {:ok, grants}}
+
+          {:ok, grant} ->
+            {:cont, {:ok, [grant | grants]}}
+
+          {:error, reason} ->
+            revoke_issued_grants(grants)
+            {:halt, {:error, reason}}
         end
       end)
       |> case do
@@ -77,10 +83,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
     grant_ids = grant_ids([grant])
 
     %{
-      payload_fields: %{
-        "credential_broker" => grant,
-        "credential_brokers" => [grant]
-      },
+      payload_fields: %{"credential_brokers" => [grant]},
       context: %{credential_broker_grant_ids: grant_ids}
     }
   end
@@ -96,6 +99,25 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
     grants
     |> Enum.map(&map_get(&1, "grant_id"))
     |> Enum.filter(&present?/1)
+  end
+
+  defp revoke_issued_grants(grants) do
+    actor = SystemActor.system(:northbound_credential_grants_cleanup)
+
+    grants
+    |> grant_ids()
+    |> Enum.each(fn grant_id ->
+      case CredentialBrokerGrant.get_by_id(grant_id, actor: actor) do
+        {:ok, %CredentialBrokerGrant{status: status} = grant} when status in [:issued, :active] ->
+          _ = CredentialBrokerGrant.revoke(grant, %{reason: "grant_issue_failed"}, actor: actor)
+          :ok
+
+        _ ->
+          :ok
+      end
+    end)
+  rescue
+    _ -> :ok
   end
 
   defp issue_requirement(requirement, invocation, target, assignment, phase, opts) do

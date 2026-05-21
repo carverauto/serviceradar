@@ -932,6 +932,8 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   defp cross_origin_websocket?(conn) do
     case Plug.Conn.get_req_header(conn, "origin") do
+      # Non-browser API clients often omit Origin; authentication still gates
+      # the websocket route, so only browser cross-origin attempts are rejected.
       [] -> false
       [origin | _] -> not same_request_origin?(conn, origin)
     end

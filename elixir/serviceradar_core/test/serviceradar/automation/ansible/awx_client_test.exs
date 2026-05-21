@@ -3,6 +3,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
   alias ServiceRadar.Automation.Ansible.AwxClient
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
 
   defmodule FakeCommandBus do
     @moduledoc false
@@ -30,7 +31,17 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
     Map.merge(base, overrides)
   end
 
-  defp dispatch_opts, do: [command_bus: FakeCommandBus, test_pid: self()]
+  defp dispatch_opts,
+    do: [command_bus: FakeCommandBus, test_pid: self(), grant_issuer: &fake_grant/1]
+
+  defp fake_grant(attrs) do
+    grant =
+      attrs
+      |> CredentialBrokerGrant.issue_attrs()
+      |> Map.put(:id, "grant-1")
+
+    {:ok, CredentialBrokerGrant.to_payload(grant)}
+  end
 
   describe "dispatchability validation" do
     test "rejects controller with missing agent_id" do

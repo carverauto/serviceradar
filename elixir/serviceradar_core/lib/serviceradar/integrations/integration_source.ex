@@ -29,7 +29,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     notifiers: [ServiceRadar.Integrations.IntegrationSourceNotifier]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.Changes.PublishSyncLog
 
@@ -589,22 +588,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   calculations do
     calculate :credentials, :map, fn records, _opts ->
-      # Decrypt and parse credentials JSON
+      # Public reads must not resolve broker-backed external references. Runtime
+      # sync paths that need plaintext credentials must use a scoped broker grant.
       Enum.map(records, fn record ->
-        case broker_credentials(record) do
-          {:ok, credentials} ->
-            credentials
-
-          :legacy ->
-            legacy_credentials(record)
-
-          {:error, reason} ->
-            Logger.warning(
-              "IntegrationSource: failed to resolve broker credential #{inspect(record.credential_secret_id)} - #{inspect(reason)}"
-            )
-
-            nil
-        end
+        legacy_credentials(record)
       end)
     end do
       load [:credentials_encrypted, :credential_secret_id]
@@ -695,40 +682,6 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   defp encrypt_credentials(changeset, credentials) do
     AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
   end
-
-  defp broker_credentials(%{credential_secret_id: secret_id} = record)
-       when is_binary(secret_id) and secret_id != "" do
-    opts = [
-      actor: SystemActor.system(:integration_source_credential_broker),
-      allow_external_resolution?: true,
-      trusted_broker_context?: true,
-      audit?: true,
-      consumer_kind: :plugin,
-      consumer_id: "integration_source:#{record.id}",
-      purpose: "integration_source_credentials",
-      target_kind: "integration_source",
-      target_id: to_string(record.id),
-      agent_id: record.agent_id,
-      resolution_location: :control_plane
-    ]
-
-    with {:ok, %{value: payload}} <-
-           SecretBroker.resolve_network_credential_secret(secret_id, opts) do
-      decode_broker_credentials(payload)
-    end
-  end
-
-  defp broker_credentials(_record), do: :legacy
-
-  defp decode_broker_credentials(payload) when is_binary(payload) do
-    case Jason.decode(String.trim(payload)) do
-      {:ok, credentials} when is_map(credentials) -> {:ok, credentials}
-      {:ok, _other} -> {:error, :invalid_credentials_payload}
-      {:error, _reason} -> {:error, :invalid_credentials_payload}
-    end
-  end
-
-  defp decode_broker_credentials(_payload), do: {:error, :invalid_credentials_payload}
 
   defp legacy_credentials(record) do
     case record.credentials_encrypted do

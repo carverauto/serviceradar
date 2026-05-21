@@ -214,7 +214,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
     attribute :last_test_status, :atom do
       allow_nil? true
       public? true
-      constraints one_of: [:success, :failed, :timeout, :skipped, :unavailable]
+      constraints one_of: [:success, :failed, :unavailable]
     end
 
     attribute :last_tested_at, :utc_datetime_usec do

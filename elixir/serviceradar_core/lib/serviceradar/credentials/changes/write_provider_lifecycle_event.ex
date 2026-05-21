@@ -20,5 +20,7 @@ defmodule ServiceRadar.Credentials.Changes.WriteProviderLifecycleEvent do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, opts, _context) do
+    {:ok, change(changeset, opts, %{})}
+  end
 end

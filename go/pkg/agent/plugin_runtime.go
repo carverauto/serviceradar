@@ -93,6 +93,7 @@ var (
 	errCredentialBrokerResolverUnavailable  = errors.New("credential broker resolver unavailable")
 	errCredentialBrokerMaterialUnavailable  = errors.New("credential broker material unavailable")
 	errCredentialBrokerInjectionUnsupported = errors.New("credential broker injection unsupported")
+	errCredentialBrokerInsecureTLSDenied    = errors.New("credential broker injection denied for insecure TLS request")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
@@ -362,6 +363,8 @@ func (m *PluginManager) SetCredentialBroker(resolver CredentialBrokerResolver) {
 		return
 	}
 
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
 	m.credentialBroker = resolver
 }
 
@@ -2278,7 +2281,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		httpReq.Header.Set(key, value)
 	}
 
-	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant); err != nil {
+	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
 		e.logPluginHostHTTPDenied(err, reqURL, method)
 		return pluginErrDenied
 	}
@@ -2345,18 +2348,27 @@ func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *ur
 		return nil, nil
 	}
 
-	return pluginActionGrantForHTTPRequest(e.credentialGrants, method, reqURL, time.Now())
+	now := time.Now()
+	if e.manager != nil {
+		now = e.manager.credentialNowTime()
+	}
+
+	return pluginActionGrantForHTTPRequest(e.credentialGrants, method, reqURL, now)
 }
 
 func (e *pluginExecution) applyCredentialBrokerInjection(
 	ctx context.Context,
 	req *http.Request,
 	grant *credentialBrokerGrant,
+	insecureSkipVerify bool,
 ) error {
 	if grant == nil || len(grant.Inject) == 0 {
 		return nil
 	}
-	if e == nil || e.manager == nil || e.manager.credentialBroker == nil {
+	if insecureSkipVerify && !credentialBrokerGrantAllowsInsecureTLS(*grant) {
+		return errCredentialBrokerInsecureTLSDenied
+	}
+	if e == nil || e.manager == nil || e.manager.credentialBrokerResolver() == nil {
 		return errCredentialBrokerResolverUnavailable
 	}
 
@@ -2368,17 +2380,22 @@ func (e *pluginExecution) applyCredentialBrokerInjection(
 	return applyCredentialBrokerHTTPInjection(req, *grant, material)
 }
 
+func credentialBrokerGrantAllowsInsecureTLS(grant credentialBrokerGrant) bool {
+	return strings.EqualFold(strings.TrimSpace(grant.Inject["allow_insecure_tls"]), "true")
+}
+
 func (m *PluginManager) resolveCredentialBrokerMaterial(
 	ctx context.Context,
 	grant credentialBrokerGrant,
 ) (CredentialBrokerMaterial, error) {
-	if m == nil || m.credentialBroker == nil {
+	resolver := m.credentialBrokerResolver()
+	if resolver == nil {
 		return CredentialBrokerMaterial{}, errCredentialBrokerResolverUnavailable
 	}
 
 	key, ttl := m.credentialBrokerCacheDecision(grant)
 	if key == "" || ttl <= 0 {
-		return m.credentialBroker.ResolveCredentialGrant(ctx, grant)
+		return resolver.ResolveCredentialGrant(ctx, grant)
 	}
 
 	now := m.credentialNowTime()
@@ -2386,7 +2403,7 @@ func (m *PluginManager) resolveCredentialBrokerMaterial(
 		return material, nil
 	}
 
-	material, err := m.credentialBroker.ResolveCredentialGrant(ctx, grant)
+	material, err := resolver.ResolveCredentialGrant(ctx, grant)
 	if err != nil {
 		return CredentialBrokerMaterial{}, err
 	}
@@ -2394,7 +2411,7 @@ func (m *PluginManager) resolveCredentialBrokerMaterial(
 	expiresAt := now.Add(ttl)
 	if !material.LeaseExpiresAt.IsZero() {
 		if !now.Before(material.LeaseExpiresAt) {
-			return material, nil
+			return CredentialBrokerMaterial{}, errCredentialBrokerGrantExpired
 		}
 		if material.LeaseExpiresAt.Before(expiresAt) {
 			expiresAt = material.LeaseExpiresAt
@@ -2410,7 +2427,7 @@ func (m *PluginManager) credentialBrokerCacheDecision(grant credentialBrokerGran
 	if mode == "" || mode == "no_cache" || mode == "none" || mode == "disabled" {
 		return "", 0
 	}
-	if mode != "memory" && mode != "memory_only" {
+	if mode != "memory" && mode != "memory_only" && mode != "memory_ttl" {
 		return "", 0
 	}
 
@@ -2445,6 +2462,17 @@ func (m *PluginManager) credentialBrokerCacheDecision(grant credentialBrokerGran
 	}
 
 	return key, time.Duration(ttlSeconds) * time.Second
+}
+
+func (m *PluginManager) credentialBrokerResolver() CredentialBrokerResolver {
+	if m == nil {
+		return nil
+	}
+
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+
+	return m.credentialBroker
 }
 
 func (m *PluginManager) getCachedCredentialBrokerMaterial(
@@ -3416,16 +3444,6 @@ func pluginActionCredentialGrants(invocationPayload json.RawMessage) ([]credenti
 	return normalized, nil
 }
 
-func validatePluginActionHTTPGrant(
-	grants []credentialBrokerGrant,
-	method string,
-	reqURL *url.URL,
-	now time.Time,
-) error {
-	_, err := pluginActionGrantForHTTPRequest(grants, method, reqURL, now)
-	return err
-}
-
 func pluginActionGrantForHTTPRequest(
 	grants []credentialBrokerGrant,
 	method string,
@@ -3482,6 +3500,10 @@ func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, no
 }
 
 func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, reqURL *url.URL) error {
+	if len(allow.Hosts) == 0 {
+		return errCredentialBrokerGrantDenied
+	}
+
 	if len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods) {
 		return errCredentialBrokerGrantDenied
 	}
@@ -3555,8 +3577,8 @@ func applyCredentialBrokerHTTPInjection(
 		grant.Inject = inject
 		return applyCredentialBrokerHeaderInjection(req, grant, material)
 	case "basic_auth", "http_basic_auth":
-		username := credentialMaterialValue(material, "username", "user")
-		password := credentialMaterialValue(material, "password", "value", "secret")
+		username := credentialMaterialFieldValue(material, "username", "user")
+		password := credentialMaterialFieldValue(material, "password")
 		if strings.TrimSpace(username) == "" || password == "" {
 			return errCredentialBrokerMaterialUnavailable
 		}
@@ -3613,6 +3635,21 @@ func credentialMaterialValue(material CredentialBrokerMaterial, keys ...string) 
 	}
 
 	return strings.TrimSpace(material.Value)
+}
+
+func credentialMaterialFieldValue(material CredentialBrokerMaterial, keys ...string) string {
+	for _, key := range keys {
+		if material.Fields == nil {
+			continue
+		}
+		for _, candidate := range []string{key, strings.ToLower(key), strings.ToUpper(key)} {
+			if value := strings.TrimSpace(material.Fields[candidate]); value != "" {
+				return value
+			}
+		}
+	}
+
+	return ""
 }
 
 func readMemory(mod api.Module, ptr, size uint32) ([]byte, bool) {

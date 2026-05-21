@@ -419,6 +419,10 @@ func configurePluginCredentialBroker(server *Server, gateway *agentgateway.Gatew
 	pluginManager := server.pluginManager
 	server.mu.RUnlock()
 
+	server.mu.Lock()
+	server.credentialBroker = resolver
+	server.mu.Unlock()
+
 	if pluginManager != nil {
 		pluginManager.SetCredentialBroker(resolver)
 	}

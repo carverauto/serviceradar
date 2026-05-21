@@ -52,7 +52,10 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
             target_id: device_uid
           )
 
-        {:ok, %{credential: credential, profile: nil, source: :device_override}}
+        case credential do
+          {:error, reason} -> {:error, reason}
+          credential -> {:ok, %{credential: credential, profile: nil, source: :device_override}}
+        end
 
       {:ok, nil} ->
         profile = resolve_profile(device_uid, actor)
@@ -64,10 +67,16 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
             target_id: device_uid
           )
 
-        if credential_present?(credential) do
-          {:ok, %{credential: credential, profile: profile, source: :profile}}
-        else
-          {:ok, %{credential: nil, profile: profile, source: :none}}
+        case credential do
+          {:error, reason} ->
+            {:error, reason}
+
+          credential ->
+            if credential_present?(credential) do
+              {:ok, %{credential: credential, profile: profile, source: :profile}}
+            else
+              {:ok, %{credential: nil, profile: profile, source: :none}}
+            end
         end
 
       {:error, reason} ->
@@ -95,10 +104,16 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         target_id: profile && profile.id
       )
 
-    if credential_present?(credential) do
-      {:ok, %{credential: credential, profile: profile, source: :default_profile}}
-    else
-      {:ok, %{credential: nil, profile: profile, source: :none}}
+    case credential do
+      {:error, reason} ->
+        {:error, reason}
+
+      credential ->
+        if credential_present?(credential) do
+          {:ok, %{credential: credential, profile: profile, source: :default_profile}}
+        else
+          {:ok, %{credential: nil, profile: profile, source: :none}}
+        end
     end
   end
 
@@ -153,7 +168,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   `security_level`, `auth_protocol`, `auth_password`, `priv_protocol`, and
   `priv_password`.
   """
-  @spec build_credential(map() | nil, map(), keyword()) :: credential_map() | nil
+  @spec build_credential(map() | nil, map(), keyword()) ::
+          credential_map() | nil | {:error, term()}
   def build_credential(record, actor, opts \\ [])
 
   def build_credential(nil, _actor, _opts), do: nil
@@ -303,8 +319,6 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       Keyword.reject(
         [
           actor: actor,
-          allow_external_resolution?: true,
-          trusted_broker_context?: true,
           audit?: true,
           consumer_kind: :snmp,
           consumer_id: Keyword.get(opts, :consumer_id) || record_consumer_id(record),
@@ -325,7 +339,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
           "SNMPCredentialResolver: failed to resolve broker credential #{secret_id} - #{inspect(reason)}"
         )
 
-        nil
+        {:error, {:credential_resolution_failed, reason}}
     end
   end
 

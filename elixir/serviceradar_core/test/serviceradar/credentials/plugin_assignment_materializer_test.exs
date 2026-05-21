@@ -84,7 +84,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
                "credential_secret_ref" => ref,
                "credential_rule_id" => "rule-1",
                "grant_type" => "proxmox_api_token",
-               "inject" => %{"header" => "Authorization", "scheme" => "PVEAPIToken"}
+               "inject" => %{
+                 "type" => "http_header",
+                 "name" => "Authorization",
+                 "scheme" => "PVEAPIToken"
+               }
              },
              "api_token_secret_ref" => ref,
              "credential_rule_id" => "rule-1",

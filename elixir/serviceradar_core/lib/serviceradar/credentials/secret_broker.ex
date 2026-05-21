@@ -18,6 +18,8 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   alias ServiceRadar.Credentials.SecretProviderAdapters.OpenBao
   alias ServiceRadar.Vault
 
+  @default_external_lease_seconds 300
+
   @type resolved_secret :: %{
           required(:value) => String.t(),
           required(:source_type) => :internal_encrypted | :external_reference,
@@ -31,7 +33,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   @doc """
   Resolves a reusable network credential secret by ID.
 
-  External references require `allow_external_resolution?: true` and a matching
+  External references require a validated broker grant and a matching
   resolution location. Internal credentials continue to decrypt through
   AshCloak/Cloak-managed storage.
   """
@@ -186,6 +188,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
 
   defp resolve_external(secret, opts) do
     if external_resolution_allowed?(opts) do
+      opts = Keyword.put(opts, :audit?, true)
       do_resolve_external(secret, opts)
     else
       {:error, :external_secret_requires_broker_grant}
@@ -193,10 +196,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp external_resolution_allowed?(opts) do
-    Keyword.get(opts, :allow_external_resolution?, false) ||
-      present?(Keyword.get(opts, :grant_id)) ||
-      is_map(Keyword.get(opts, :grant)) ||
-      Keyword.get(opts, :trusted_broker_context?, false)
+    present?(Keyword.get(opts, :grant_id)) || is_map(Keyword.get(opts, :grant))
   end
 
   defp secret_id_from_grant(grant) do
@@ -423,17 +423,28 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       :missing_endpoint_url -> :unavailable
       :missing_provider_token -> :unavailable
       :unreachable -> :unavailable
+      {:unreachable, _reason} -> :unavailable
       :timeout -> :unavailable
       {:http_error, status} when is_integer(status) and status >= 500 -> :unavailable
+      {:provider_http_error, status} when is_integer(status) and status >= 500 -> :unavailable
       _ -> :failed
     end
   end
 
-  defp provider_test_message(reason) do
-    reason
-    |> inspect()
-    |> String.slice(0, 512)
-  end
+  defp provider_test_message({:provider_http_error, status}) when is_integer(status),
+    do: "provider_http_error:#{status}"
+
+  defp provider_test_message({:http_error, status}) when is_integer(status),
+    do: "provider_http_error:#{status}"
+
+  defp provider_test_message({:unreachable, reason}), do: "unreachable:#{safe_reason(reason)}"
+
+  defp provider_test_message(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp provider_test_message(_reason), do: "provider_test_failed"
+
+  defp safe_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp safe_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 128)
+  defp safe_reason(_reason), do: "transport_error"
 
   defp external_reference(secret, provider) do
     %{
@@ -453,7 +464,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
          :ok <- provider_lease_active?(provider_lease, now),
          {:ok, grant_expires_at} <-
            opts |> Keyword.get(:grant) |> value(:expires_at) |> datetime_value() do
-      {:ok, earliest_datetime(provider_lease, grant_expires_at)}
+      {:ok, earliest_datetime(provider_lease, grant_expires_at) || default_external_lease(now)}
     end
   end
 
@@ -469,6 +480,9 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp earliest_datetime(%DateTime{} = left, %DateTime{} = right) do
     if DateTime.before?(left, right), do: left, else: right
   end
+
+  defp default_external_lease(now),
+    do: DateTime.add(now, @default_external_lease_seconds, :second)
 
   defp datetime_value(nil), do: {:ok, nil}
   defp datetime_value(%DateTime{} = value), do: {:ok, value}
@@ -487,14 +501,21 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       attrs = audit_attrs(outcome, secret, provider, result, opts)
       audit_actor = SystemActor.system(:credential_secret_broker_audit)
 
-      audit_result =
-        CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor)
-
+      _audit_result = CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor)
       CredentialEventWriter.write_secret_resolution(attrs)
-      audit_result
+      :ok
     else
       :ok
     end
+  rescue
+    exception ->
+      require Logger
+
+      Logger.warning("Failed to write credential secret resolution audit",
+        reason: Exception.message(exception)
+      )
+
+      :ok
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

@@ -119,9 +119,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   ## Internals
 
   defp dispatch_verb(%Controller{} = controller, verb, args, opts) do
-    with :ok <- ensure_controller_dispatchable(controller) do
+    with :ok <- ensure_controller_dispatchable(controller),
+         {:ok, payload} <- build_payload(controller, verb, args, opts) do
       {bus, opts} = Keyword.pop(opts, :command_bus, AgentCommandBus)
-      payload = controller |> build_payload(verb, args) |> CredentialRedactor.redact()
+      {_grant_issuer, opts} = Keyword.pop(opts, :grant_issuer)
+      payload = CredentialRedactor.redact(payload)
 
       bus.dispatch(
         controller.agent_id,
@@ -153,21 +155,37 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
     end
   end
 
-  defp build_payload(%Controller{} = controller, verb, args) do
-    %{
-      "schema" => @payload_schema,
-      "verb" => verb,
-      "args" => args,
-      "base_url" => controller.base_url,
-      "controller_id" => controller.id,
-      "controller_name" => controller.name,
-      "insecure_skip_verify" => insecure_skip_verify?(controller),
-      "credential_broker" => credential_broker_grant(controller, verb)
-    }
+  defp build_payload(%Controller{} = controller, verb, args, opts) do
+    with {:ok, grant} <- credential_broker_grant(controller, verb, opts) do
+      {:ok,
+       %{
+         "schema" => @payload_schema,
+         "verb" => verb,
+         "args" => args,
+         "base_url" => controller.base_url,
+         "controller_id" => controller.id,
+         "controller_name" => controller.name,
+         "insecure_skip_verify" => insecure_skip_verify?(controller),
+         "credential_broker" => grant
+       }}
+    end
   end
 
-  defp credential_broker_grant(%Controller{} = controller, verb) do
-    CredentialBrokerGrant.to_payload(%{
+  defp credential_broker_grant(%Controller{} = controller, verb, opts) do
+    inject = %{
+      "type" => "http_header",
+      "name" => "Authorization",
+      "scheme" => "Bearer"
+    }
+
+    inject =
+      if insecure_skip_verify?(controller) do
+        Map.put(inject, "allow_insecure_tls", "true")
+      else
+        inject
+      end
+
+    attrs = %{
       secret_id: controller.credential_secret_id,
       secret_ref: SecretRefs.network_credential_ref(controller.credential_secret_id),
       grant_type: @grant_type,
@@ -178,20 +196,39 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
       target_id: controller.id,
       agent_id: controller.agent_id,
       resolution_location: :agent,
-      inject: %{
-        "type" => "http_header",
-        "name" => "Authorization",
-        "scheme" => "Bearer"
-      },
+      inject: inject,
       allowed_methods: allowed_methods_for(verb),
+      allowed_hosts: allowed_hosts_for(controller.base_url),
       allowed_paths: ["/api/v2/"],
       ttl_seconds: @default_grant_ttl_seconds
-    })
+    }
+
+    issuer = Keyword.get(opts, :grant_issuer, &issue_persisted_grant/1)
+    issuer.(attrs)
+  end
+
+  defp issue_persisted_grant(attrs) do
+    attrs
+    |> CredentialBrokerGrant.issue_attrs()
+    |> CredentialBrokerGrant.issue_grant(
+      actor: ServiceRadar.Actors.SystemActor.system(:awx_client)
+    )
+    |> case do
+      {:ok, grant} -> {:ok, CredentialBrokerGrant.to_payload(grant)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp allowed_methods_for("awx.launch_job"), do: ["POST"]
   defp allowed_methods_for("awx.cancel_job"), do: ["POST"]
   defp allowed_methods_for(_), do: ["GET"]
+
+  defp allowed_hosts_for(base_url) do
+    case URI.parse(to_string(base_url)) do
+      %URI{host: host} when is_binary(host) and host != "" -> [host]
+      _ -> []
+    end
+  end
 
   defp insecure_skip_verify?(%Controller{metadata: meta}) when is_map(meta) do
     if Map.get(meta, "insecure_skip_verify") do

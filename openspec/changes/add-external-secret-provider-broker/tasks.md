@@ -15,6 +15,7 @@
 - [ ] 2.5 Add provider lease renewal/revocation policy enforcement beyond the current grant TTL and agent memory-cache caps.
 - [x] 2.5.1 Add agent-side default no-cache behavior and opt-in memory-only credential material caching capped by grant expiry.
 - [x] 2.5.2 Carry provider lease expiry through gateway resolution and cap agent memory caches by the earlier provider lease or broker grant expiry.
+- [x] 2.5.3 Expire persisted broker grants on post-TTL resolution attempts so stale grant use is visible in lifecycle state.
 
 ## 3. Consumer Integration
 - [x] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.
@@ -43,6 +44,7 @@
 - [x] 5.1 Add redaction tests for provider paths, bootstrap credentials, resolved secrets, grants, logs, plugin params, and result payloads.
 - [ ] 5.2 Add the remaining audit events for provider test, cache use, lease renewal, revocation, and full ad-hoc task launch/dispatch/completion. Secret resolution success/failure and grant resolution are already audited.
 - [x] 5.2.1 Add broker-owned provider test dispatch with provider health transitions, PaperTrail-backed state changes, and OCSF lifecycle events.
+- [x] 5.2.2 Emit broker grant lifecycle events when agent resolution observes an expired grant.
 - [x] 5.3 Run `openspec validate add-external-secret-provider-broker --strict`.
 - [x] 5.4 Run focused Elixir/Go tests for credential broker consumers before implementation PRs merge.
 

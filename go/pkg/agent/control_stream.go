@@ -1093,10 +1093,13 @@ func validateProxmoxCredentialBrokerGrant(payload proxmoxCredentialTestPayload, 
 	if strings.TrimSpace(grant.CredentialSecretRef) == "" {
 		return errMissingProxmoxCredentialBrokerGrant
 	}
-	if grant.Schema != "" && grant.Schema != "serviceradar.edge_credential_broker_grant.v1" {
+	if strings.TrimSpace(grant.Schema) != "serviceradar.edge_credential_broker_grant.v1" {
 		return errInvalidCredentialBrokerGrant
 	}
-	if grant.GrantType != "" && grant.GrantType != "proxmox_api_token" {
+	if strings.TrimSpace(grant.GrantID) == "" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if grant.GrantType != "proxmox_api_token" {
 		return errInvalidCredentialBrokerGrant
 	}
 	if strings.TrimSpace(grant.CredentialRuleID) != "" &&
@@ -1127,6 +1130,15 @@ func validateProxmoxCredentialBrokerGrant(payload proxmoxCredentialTestPayload, 
 }
 
 func validateProxmoxGrantTarget(commandTarget, grantTarget proxmoxTestTarget, baseURL string) error {
+	if strings.TrimSpace(grantTarget.Kind) != "" &&
+		strings.TrimSpace(grantTarget.Kind) != "device" {
+		return errCredentialBrokerGrantDenied
+	}
+	if strings.TrimSpace(grantTarget.AgentID) != "" &&
+		strings.TrimSpace(commandTarget.AgentID) != "" &&
+		strings.TrimSpace(grantTarget.AgentID) != strings.TrimSpace(commandTarget.AgentID) {
+		return errCredentialBrokerGrantDenied
+	}
 	if strings.TrimSpace(grantTarget.DeviceUID) != "" &&
 		strings.TrimSpace(commandTarget.DeviceUID) != "" &&
 		strings.TrimSpace(grantTarget.DeviceUID) != strings.TrimSpace(commandTarget.DeviceUID) {

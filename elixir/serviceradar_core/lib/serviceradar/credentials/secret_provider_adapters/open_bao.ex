@@ -109,6 +109,7 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
        url: endpoint <> path,
        headers: headers,
        json: %{role: role, jwt: jwt},
+       connect_options: [timeout: Keyword.get(opts, :connect_timeout, @default_timeout_ms)],
        receive_timeout: Keyword.get(opts, :receive_timeout, @default_timeout_ms)
      ]}
   end
@@ -198,6 +199,7 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
        url: endpoint <> path,
        headers: headers,
        params: query,
+       connect_options: [timeout: Keyword.get(opts, :connect_timeout, @default_timeout_ms)],
        receive_timeout: Keyword.get(opts, :receive_timeout, @default_timeout_ms)
      ]}
   end
@@ -206,15 +208,34 @@ defmodule ServiceRadar.Credentials.SecretProviderAdapters.OpenBao do
     request_fun = Keyword.get(opts, :request_fun, &Req.request/1)
 
     case request_fun.(request) do
-      {:ok, %{status: status} = response} when status in 200..299 -> {:ok, response}
-      {:ok, %{status: 403}} -> {:error, :unauthorized}
-      {:ok, %{status: 404}} -> {:error, :not_found}
-      {:ok, %{status: 429}} -> {:error, :rate_limited}
-      {:ok, %{status: status}} -> {:error, {:provider_http_error, status}}
-      {:error, %Req.TransportError{reason: reason}} -> {:error, {:unreachable, reason}}
-      {:error, reason} -> {:error, {:unreachable, reason}}
+      {:ok, %{status: status} = response} when status in 200..299 ->
+        {:ok, response}
+
+      {:ok, %{status: 403}} ->
+        {:error, :unauthorized}
+
+      {:ok, %{status: 404}} ->
+        {:error, :not_found}
+
+      {:ok, %{status: 429}} ->
+        {:error, :rate_limited}
+
+      {:ok, %{status: status}} ->
+        {:error, {:provider_http_error, status}}
+
+      {:error, %Req.TransportError{reason: reason}} ->
+        {:error, {:unreachable, safe_transport_reason(reason)}}
+
+      {:error, reason} ->
+        {:error, {:unreachable, safe_transport_reason(reason)}}
     end
   end
+
+  defp safe_transport_reason(reason) when reason in [:timeout, :closed, :econnrefused, :nxdomain],
+    do: reason
+
+  defp safe_transport_reason(reason) when is_atom(reason), do: reason
+  defp safe_transport_reason(_reason), do: :transport_error
 
   defp decode_response(%{body: body}) when is_map(body), do: {:ok, body}
 

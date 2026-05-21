@@ -198,6 +198,8 @@ func TestRunProxmoxCredentialTest_BrokerGrantDoesNotExposeSecret(t *testing.T) {
 		CredentialRuleID: "rule-1",
 		CredentialBroker: proxmoxCredentialBrokerGrant{
 			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
+			GrantType:           "proxmox_api_token",
 			CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
 		},
 		Target: proxmoxTestTarget{
@@ -227,6 +229,7 @@ func TestRunProxmoxCredentialTest_DeniesGrantTargetMismatch(t *testing.T) {
 		CredentialRuleID: "rule-1",
 		CredentialBroker: proxmoxCredentialBrokerGrant{
 			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
 			GrantType:           "proxmox_api_token",
 			CredentialRuleID:    "rule-1",
 			CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
@@ -290,6 +293,7 @@ func TestRunProxmoxCredentialTest_DeniesGrantHostPortPathMismatch(t *testing.T) 
 				CredentialRuleID: "rule-1",
 				CredentialBroker: proxmoxCredentialBrokerGrant{
 					Schema:              "serviceradar.edge_credential_broker_grant.v1",
+					GrantID:             "grant-1",
 					GrantType:           "proxmox_api_token",
 					CredentialRuleID:    "rule-1",
 					CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
@@ -318,6 +322,7 @@ func TestRunProxmoxCredentialTest_DeniesExpiredGrant(t *testing.T) {
 		CredentialRuleID: "rule-1",
 		CredentialBroker: proxmoxCredentialBrokerGrant{
 			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
 			GrantType:           "proxmox_api_token",
 			CredentialRuleID:    "rule-1",
 			CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
