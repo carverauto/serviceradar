@@ -58,7 +58,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     plugin_states = load_plugin_service_states(socket.assigns.current_scope)
     summary = load_summary(socket, plugin_states)
-    cards = build_service_cards(plugin_states, socket.assigns.services, socket.assigns.current_scope)
+
+    cards =
+      build_service_cards(plugin_states, socket.assigns.services, socket.assigns.current_scope)
 
     {:noreply,
      socket
@@ -92,11 +94,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
   @impl true
@@ -150,8 +154,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :summary, :map, required: true
-  attr :has_filter, :boolean, default: false
+  attr(:summary, :map, required: true)
+  attr(:has_filter, :boolean, default: false)
 
   defp service_summary(assigns) do
     total = assigns.summary.total
@@ -295,7 +299,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :cards, :any, required: true
+  attr(:cards, :any, required: true)
 
   defp service_card_grid(assigns) do
     ~H"""
@@ -311,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :card, :map, required: true
+  attr(:card, :map, required: true)
 
   defp service_card(assigns) do
     ~H"""
@@ -352,7 +356,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     """
   end
 
-  attr :available, :any, default: nil
+  attr(:available, :any, default: nil)
 
   defp status_badge(assigns) do
     available = normalize_available(assigns.available)
@@ -465,10 +469,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     |> Map.values()
   end
 
-  defp state_sort_key(%ServiceState{last_observed_at: %DateTime{} = observed_at}),
-    do: {1, DateTime.to_unix(observed_at, :nanosecond)}
+  defp state_sort_key(%ServiceState{last_observed_at: %DateTime{} = observed_at} = state),
+    do: {state_result_rank(state), DateTime.to_unix(observed_at, :nanosecond)}
 
   defp state_sort_key(_), do: {0, 0}
+
+  defp state_result_rank(%ServiceState{message: "plugin assignment pending result"}), do: 0
+  defp state_result_rank(%ServiceState{message: "streaming plugin ready"}), do: 0
+  defp state_result_rank(%ServiceState{}), do: 1
 
   defp state_identity_key(%ServiceState{} = state) do
     agent_id = state.agent_id || ""
@@ -559,7 +567,9 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
     plugin_states = load_plugin_service_states(socket.assigns.current_scope)
     summary = load_summary(socket, plugin_states)
-    cards = build_service_cards(plugin_states, socket.assigns.services, socket.assigns.current_scope)
+
+    cards =
+      build_service_cards(plugin_states, socket.assigns.services, socket.assigns.current_scope)
 
     socket
     |> assign(:summary, summary)
@@ -711,7 +721,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp ensure_default_query(_params), do: %{"q" => @default_query}
 
-  defp build_service_cards(plugin_states, _services, scope) when is_list(plugin_states) and plugin_states != [] do
+  defp build_service_cards(plugin_states, _services, scope)
+       when is_list(plugin_states) and plugin_states != [] do
     plugin_states
     |> Enum.map(&service_state_to_service/1)
     |> build_service_cards_from_services(scope)
@@ -821,7 +832,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp extract_display_instructions(_), do: []
 
-  defp filter_display_by_contract(display, details, scope) when is_list(display) and is_map(details) do
+  defp filter_display_by_contract(display, details, scope)
+       when is_list(display) and is_map(details) do
     plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
 
     if is_binary(plugin_id) and plugin_id != "" do

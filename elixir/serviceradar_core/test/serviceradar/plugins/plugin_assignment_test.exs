@@ -71,6 +71,102 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     assert Exception.message(error) =~ "plugin is already assigned to this agent by policy"
   end
 
+  test "agents cannot have two enabled assignments for one plugin", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    plugin_id = "single-enabled-assignment-#{unique_id}"
+    agent_uid = "agent-single-enabled-assignment-#{unique_id}"
+    {:ok, package} = create_approved_package(actor, plugin_id)
+
+    assert {:ok, assignment} =
+             PluginAssignment
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: package.id,
+                 source: :manual,
+                 enabled: true,
+                 interval_seconds: 60,
+                 timeout_seconds: 10,
+                 params: %{}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    assert assignment.plugin_id == plugin_id
+
+    assert {:error, error} =
+             PluginAssignment
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: package.id,
+                 source: :policy,
+                 source_key: "single-enabled-assignment:#{unique_id}",
+                 policy_id: "single-enabled-assignment-#{unique_id}",
+                 enabled: true,
+                 interval_seconds: 300,
+                 timeout_seconds: 30,
+                 params: %{}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    assert Exception.message(error) =~ "plugin is already enabled for this agent"
+  end
+
+  test "disabled duplicate assignments are allowed but not active", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    plugin_id = "disabled-duplicate-assignment-#{unique_id}"
+    agent_uid = "agent-disabled-duplicate-assignment-#{unique_id}"
+    {:ok, package} = create_approved_package(actor, plugin_id)
+
+    assert {:ok, _active} =
+             PluginAssignment
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: package.id,
+                 enabled: true,
+                 interval_seconds: 60,
+                 timeout_seconds: 10,
+                 params: %{}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    assert {:ok, disabled} =
+             PluginAssignment
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: package.id,
+                 source: :policy,
+                 source_key: "disabled-duplicate-assignment:#{unique_id}",
+                 policy_id: "disabled-duplicate-assignment-#{unique_id}",
+                 enabled: false,
+                 interval_seconds: 300,
+                 timeout_seconds: 30,
+                 params: %{}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    assert disabled.plugin_id == plugin_id
+    assert disabled.enabled == false
+  end
+
   test "policy assignments can move to a newer approved package", %{
     actor: actor,
     unique_id: unique_id
@@ -78,7 +174,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     plugin_id = "policy-package-update-#{unique_id}"
     agent_uid = "agent-policy-package-update-#{unique_id}"
     {:ok, old_package} = create_approved_package(actor, plugin_id)
-    {:ok, new_package} = create_approved_package_version(actor, plugin_id, "1.0.1")
+    {:ok, new_package} = create_package_version(actor, plugin_id, "1.0.1")
 
     {:ok, assignment} =
       PluginAssignment
@@ -98,6 +194,17 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
         actor: actor
       )
       |> Ash.create()
+
+    {:ok, _revoked_old} =
+      old_package
+      |> Ash.Changeset.for_update(
+        :revoke,
+        %{denied_reason: "superseded by package update test"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, new_package} = approve_package(actor, new_package)
 
     assert {:ok, updated} =
              assignment
@@ -124,10 +231,12 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
       )
       |> Ash.create()
 
-    create_approved_package_version(actor, plugin_id, "1.0.0")
+    with {:ok, package} <- create_package_version(actor, plugin_id, "1.0.0") do
+      approve_package(actor, package)
+    end
   end
 
-  defp create_approved_package_version(actor, plugin_id, version) do
+  defp create_package_version(actor, plugin_id, version) do
     manifest = %{
       "id" => plugin_id,
       "name" => "Duplicate Guard",
@@ -143,28 +252,29 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
       }
     }
 
-    {:ok, package} =
-      PluginPackage
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          plugin_id: plugin_id,
-          name: "Duplicate Guard",
-          version: version,
-          entrypoint: "run_check",
-          runtime: "wasi-preview1",
-          outputs: "serviceradar.plugin_result.v1",
-          manifest: manifest,
-          config_schema: %{},
-          display_contract: %{},
-          content_hash: "sha256:#{plugin_id}:#{version}",
-          signature: %{},
-          source_type: :upload
-        },
-        actor: actor
-      )
-      |> Ash.create()
+    PluginPackage
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: "Duplicate Guard",
+        version: version,
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: manifest,
+        config_schema: %{},
+        display_contract: %{},
+        content_hash: "sha256:#{plugin_id}:#{version}",
+        signature: %{},
+        source_type: :upload
+      },
+      actor: actor
+    )
+    |> Ash.create()
+  end
 
+  defp approve_package(actor, package) do
     package
     |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
     |> Ash.update()

@@ -10,7 +10,9 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.ApplyConfigDefaults
+  alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
   alias ServiceRadar.Plugins.Validations.AssignmentParams
+  alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment
   alias ServiceRadar.Plugins.Validations.PackageApproved
 
   @mutable_fields [
@@ -62,8 +64,10 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     create :create do
       accept @create_fields
 
+      change SetAssignmentPluginId
       change ApplyConfigDefaults
       validate PackageApproved
+      validate NoDuplicateEnabledAssignment
       validate ServiceRadar.Plugins.Validations.NoShadowedManualAssignment
       validate AssignmentParams
     end
@@ -71,8 +75,10 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     update :update do
       accept @mutable_fields
 
+      change SetAssignmentPluginId
       change ApplyConfigDefaults
       validate PackageApproved
+      validate NoDuplicateEnabledAssignment
       validate AssignmentParams
     end
   end
@@ -89,6 +95,13 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
     attribute :agent_uid, :string do
       allow_nil? false
       public? true
+    end
+
+    attribute :plugin_id, :string do
+      allow_nil? false
+      public? true
+
+      description "Denormalized plugin identifier used to enforce one enabled assignment per agent/plugin."
     end
 
     attribute :plugin_package_id, :uuid do

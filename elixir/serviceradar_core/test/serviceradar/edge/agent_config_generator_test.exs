@@ -402,6 +402,104 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
              }
     end
 
+    test "plugin config excludes disabled duplicate assignments", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+      plugin_id = "plugin-disabled-duplicate-#{unique_id}"
+
+      {:ok, _plugin} =
+        Plugin
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: plugin_id,
+            name: "Plugin Disabled Duplicate #{unique_id}"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, package} =
+        PluginPackage
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            plugin_id: plugin_id,
+            name: "Plugin Disabled Duplicate #{unique_id}",
+            version: "1.0.0",
+            entrypoint: "run_check",
+            outputs: "serviceradar.plugin_result.v1",
+            manifest: plugin_manifest(plugin_id, "Plugin Disabled Duplicate #{unique_id}"),
+            config_schema: %{},
+            display_contract: %{},
+            content_hash: "sha256:#{unique_id}",
+            signature: %{},
+            source_type: :upload
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(
+          :update,
+          %{wasm_object_key: "plugins/#{unique_id}/plugin.wasm"},
+          actor: actor
+        )
+        |> Ash.update()
+
+      {:ok, package} =
+        package
+        |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
+        |> Ash.update()
+
+      {:ok, active_assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            enabled: true,
+            interval_seconds: 60,
+            timeout_seconds: 10,
+            params: %{}
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _disabled_assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            source: :policy,
+            source_key: "plugin-disabled-duplicate:#{unique_id}",
+            policy_id: "plugin-disabled-duplicate-#{unique_id}",
+            enabled: false,
+            interval_seconds: 120,
+            timeout_seconds: 20,
+            params: %{}
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [plugin] = config.plugins
+      assert plugin.assignment_id == to_string(active_assignment.id)
+      assert plugin.plugin_id == plugin_id
+      assert plugin.enabled == true
+    end
+
     test "plugin assignment overrides cannot widen approved permissions or resources", %{
       actor: actor,
       agent_uid: agent_uid,

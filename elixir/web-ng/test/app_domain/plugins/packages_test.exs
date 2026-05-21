@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0, system_actor: 0]
 
   alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.Packages
@@ -292,6 +293,82 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
   end
 
+  test "approve revokes previously approved versions for the same plugin" do
+    plugin_id = "single-approved-package-#{System.unique_integer([:positive])}"
+    _plugin = create_plugin(plugin_id)
+    old_package = create_package(plugin_id, "1.0.0")
+    new_package = create_package(plugin_id, "1.0.1")
+
+    assert {:ok, approved_old} = Packages.approve(old_package.id, %{}, actor: system_actor())
+    assert approved_old.status == :approved
+
+    assert {:ok, approved_new} = Packages.approve(new_package.id, %{}, actor: system_actor())
+    assert approved_new.status == :approved
+
+    reloaded_old =
+      PluginPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^old_package.id)
+      |> Ash.read_one!(actor: system_actor())
+
+    assert reloaded_old.status == :revoked
+    assert reloaded_old.denied_reason == "superseded by approved package #{new_package.id}"
+  end
+
+  test "approve disables assignments for superseded package versions" do
+    plugin_id = "single-enabled-package-assignment-#{System.unique_integer([:positive])}"
+    agent_uid = "agent-single-enabled-package-assignment-#{System.unique_integer([:positive])}"
+    _plugin = create_plugin(plugin_id)
+    old_package = create_package(plugin_id, "1.0.0")
+    new_package = create_package(plugin_id, "1.0.1")
+
+    assert {:ok, approved_old} = Packages.approve(old_package.id, %{}, actor: system_actor())
+
+    assignment =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: approved_old.id,
+          enabled: true,
+          interval_seconds: 60,
+          timeout_seconds: 10,
+          params: %{}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    assert {:ok, approved_new} = Packages.approve(new_package.id, %{}, actor: system_actor())
+
+    reloaded_assignment =
+      PluginAssignment
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^assignment.id)
+      |> Ash.read_one!(actor: system_actor())
+
+    assert reloaded_assignment.enabled == false
+
+    assert {:ok, new_assignment} =
+             PluginAssignment
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: approved_new.id,
+                 enabled: true,
+                 interval_seconds: 60,
+                 timeout_seconds: 10,
+                 params: %{}
+               },
+               actor: system_actor()
+             )
+             |> Ash.create()
+
+    assert new_assignment.plugin_package_id == approved_new.id
+  end
+
   def first_party_release(tag \\ "v1.0.1") do
     %{
       "tag_name" => tag,
@@ -384,12 +461,12 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     end
   end
 
-  defp create_plugin do
+  defp create_plugin(plugin_id \\ "unifi-protect-camera") do
     Plugin
     |> Ash.Changeset.for_create(
       :create,
       %{
-        plugin_id: "unifi-protect-camera",
+        plugin_id: plugin_id,
         name: "UniFi Protect Camera",
         description: "Test plugin"
       },
@@ -398,19 +475,23 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     |> Ash.create!()
   end
 
-  defp create_package do
+  defp create_package(plugin_id \\ "unifi-protect-camera", version \\ "0.1.0") do
+    manifest = %{@manifest | "id" => plugin_id, "version" => version}
+
     PluginPackage
     |> Ash.Changeset.for_create(
       :create,
       %{
-        plugin_id: "unifi-protect-camera",
+        plugin_id: plugin_id,
         name: "UniFi Protect Camera",
-        version: "0.1.0",
+        version: version,
         entrypoint: "run_check",
         outputs: "serviceradar.plugin_result.v1",
-        manifest: @manifest,
+        manifest: manifest,
         config_schema: %{},
-        signature: %{}
+        signature: %{},
+        source_type: :github,
+        source_commit: "test-#{plugin_id}-#{version}"
       },
       actor: system_actor()
     )
