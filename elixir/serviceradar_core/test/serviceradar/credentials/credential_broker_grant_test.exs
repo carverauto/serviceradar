@@ -98,6 +98,24 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
     assert payload["allow"] == %{"methods" => ["POST"], "paths" => ["/api/v2/"]}
   end
 
+  test "payload derives expiry for non-persisted attrs" do
+    payload =
+      CredentialBrokerGrant.to_payload(%{
+        secret_id: @secret_id,
+        secret_ref: "credentialref:network-credential-secret:#{@secret_id}",
+        grant_type: "awx_oauth2_token",
+        consumer_kind: :ansible,
+        consumer_id: "controller-1",
+        purpose: "awx.launch_job",
+        resolution_location: :agent,
+        ttl_seconds: 120
+      })
+
+    refute Map.has_key?(payload, "grant_id")
+    assert {:ok, expires_at, 0} = DateTime.from_iso8601(payload["expires_at"])
+    assert DateTime.after?(expires_at, DateTime.utc_now())
+  end
+
   test "grant validation enforces scope and expiry" do
     grant = %{
       id: "grant-1",

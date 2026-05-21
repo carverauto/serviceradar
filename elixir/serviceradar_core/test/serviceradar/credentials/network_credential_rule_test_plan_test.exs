@@ -69,6 +69,11 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
     assert plan.payload["credential_broker"]["schema"] ==
              "serviceradar.edge_credential_broker_grant.v1"
 
+    assert is_binary(plan.payload["credential_broker"]["grant_id"])
+
+    assert {:ok, _expires_at, 0} =
+             DateTime.from_iso8601(plan.payload["credential_broker"]["expires_at"])
+
     assert plan.payload["credential_broker"]["credential_secret_ref"] ==
              "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
 

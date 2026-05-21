@@ -73,7 +73,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxClientTest do
 
       grant = payload["credential_broker"]
       assert grant["schema"] == "serviceradar.edge_credential_broker_grant.v1"
+      assert grant["grant_id"] == "grant-1"
       assert grant["grant_type"] == "awx_oauth2_token"
+      assert {:ok, _expires_at, 0} = DateTime.from_iso8601(grant["expires_at"])
 
       assert grant["credential_secret_ref"] ==
                "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
