@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu24
+    runs-on: serviceradar-signing
     enable-openid-connect: true
     environment: release
     env:
@@ -119,7 +119,7 @@ jobs:
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag }}
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
-          OPENBAO_K8S_ROLE: forgejo-runner
+          OPENBAO_K8S_ROLE: forgejo-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
