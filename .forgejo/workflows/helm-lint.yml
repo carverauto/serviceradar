@@ -23,30 +23,29 @@ on:
     paths:
       - 'helm/**'
       - '.forgejo/workflows/helm-lint.yml'
+      - 'scripts/run-helm.sh'
   pull_request:
     branches: [ staging ]
     paths:
       - 'helm/**'
       - '.forgejo/workflows/helm-lint.yml'
+      - 'scripts/run-helm.sh'
 
 jobs:
   lint:
     name: Helm Lint
     runs-on: ubuntu24
+    env:
+      HELM_VERSION: 3.14.4
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
-      - name: Set up Helm
-        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2
-        with:
-          version: 'v3.14.0'
-
       - name: Run helm lint
-        run: helm lint helm/serviceradar
+        run: ./scripts/run-helm.sh lint helm/serviceradar
 
       - name: Run helm template (validate rendering)
         run: |
-          helm template serviceradar helm/serviceradar \
+          ./scripts/run-helm.sh template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --debug > /dev/null
