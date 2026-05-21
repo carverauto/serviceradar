@@ -15,6 +15,12 @@ Mapper and network discovery credential consumers SHALL resolve internal and ext
 - **THEN** it SHALL NOT decrypt Ash/Cloak database rows directly
 - **AND** it SHALL require a brokered export or test-only explicit credential input
 
+#### Scenario: SNMP credentials use reusable broker secrets
+- **GIVEN** an SNMP profile, explicit SNMP target, or device SNMP override references a reusable network credential secret
+- **WHEN** mapper or SNMP agent configuration is compiled
+- **THEN** the compiler SHALL resolve the SNMP credential through the credential broker
+- **AND** legacy encrypted SNMP fields SHALL remain valid as a compatibility fallback until migrated
+
 ### Requirement: Discovery external reference tests are scoped
 Discovery and mapper credential tests SHALL run through the selected control-plane or agent-side broker path with target and provider scope enforcement.
 
@@ -23,4 +29,3 @@ Discovery and mapper credential tests SHALL run through the selected control-pla
 - **WHEN** an admin tests a discovery credential reference through an eligible agent
 - **THEN** the test SHALL use an agent-side broker grant
 - **AND** the response SHALL report reachability/auth/status without returning secret values
-

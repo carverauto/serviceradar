@@ -383,6 +383,13 @@ spec:
           value: {{ $value | quote }}
         {{- end }}
         {{- end }}
+        {{- with $coreVals.extraEnvValueFrom }}
+        {{- range $name, $valueFrom := . }}
+        - name: {{ $name | quote }}
+          valueFrom:
+{{- toYaml $valueFrom | nindent 12 }}
+        {{- end }}
+        {{- end }}
         volumeMounts:
         - name: cert-data
           mountPath: /etc/serviceradar/certs

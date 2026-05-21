@@ -74,7 +74,11 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
 
     create :create do
       accept @fields
-      change set_attribute(:occurred_at, &DateTime.utc_now/0)
+
+      change set_attribute(
+               :occurred_at,
+               &ServiceRadar.Credentials.CredentialSecretResolutionAudit.utc_now/0
+             )
     end
   end
 
@@ -179,7 +183,9 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
       constraints one_of: [:miss, :hit, :disabled, :bypass]
     end
 
-    attribute :lease_expires_at, :utc_datetime_usec do
+    # Keep seconds precision here because AshPaperTrail 0.5.7 copies tracked
+    # datetime attributes to version resources that use :utc_datetime.
+    attribute :lease_expires_at, :utc_datetime do
       allow_nil? true
       public? true
     end
@@ -190,7 +196,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
       default %{}
     end
 
-    attribute :occurred_at, :utc_datetime_usec do
+    attribute :occurred_at, :utc_datetime do
       allow_nil? false
       public? true
     end
@@ -214,5 +220,9 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
       destination_attribute :id
       define_attribute? false
     end
+  end
+
+  def utc_now do
+    DateTime.truncate(DateTime.utc_now(), :second)
   end
 end

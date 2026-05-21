@@ -30,6 +30,13 @@ The system SHALL model external secret providers separately from credential refe
 - **THEN** they SHALL be stored as protected secret material or referenced from deployment runtime secret configuration
 - **AND** they SHALL NOT appear in UI responses, logs, or plugin/agent assignment params
 
+#### Scenario: OpenBao provider resolves KV reference
+- **GIVEN** an enabled OpenBao provider points at a KV mount and a reusable credential references a secret path and field mapping
+- **WHEN** the broker resolves the credential from the control plane
+- **THEN** it SHALL call OpenBao using deployment-sourced bootstrap credentials
+- **AND** it SHALL return only the selected secret field or a structured JSON payload to the broker consumer
+- **AND** it SHALL persist redacted resolution audit metadata without the OpenBao token or resolved secret value
+
 ### Requirement: Broker grants govern credential resolution
 Credential resolution SHALL require a broker grant scoped to consumer, purpose, target, allowed network/resource policy, resolution location, and expiration.
 

@@ -6,6 +6,7 @@
 ## 2. Broker Interface
 - [x] 2.1 Define project-owned credential broker behaviour/interfaces for control-plane and agent-side resolution.
 - [x] 2.2 Add a test/stub provider adapter that returns synthetic secrets for integration tests without a real secret server.
+- [x] 2.2.1 Add a built-in OpenBao/Vault KV adapter with deployment-sourced token auth for real in-cluster validation.
 - [x] 2.3 Add first-class broker grant resource with lifecycle, PaperTrail, system-only write policy, compatibility payload builder, and validation for target/consumer/purpose/TTL/resolution location.
 - [x] 2.4 Add provider/host/path/port request enforcement for broker grants at the agent/control-plane resolution boundary.
 - [x] 2.4.1 Enforce Proxmox credential-test grant target, method, path, host, port, and expiry policy in the Go agent before credential resolution.
@@ -19,16 +20,19 @@
 - [x] 3.1.1 Add an agent-owned credential broker resolver interface and broker-grant-driven HTTP injection for northbound action host functions.
 - [x] 3.1.2 Wire the Go agent plugin manager to resolve broker grants through the gateway broker API.
 - [ ] 3.2 Update mapper/discovery credential resolution to call the broker and stop direct row decryption in compilers/tools.
+- [x] 3.2.1 Add broker-backed SNMP credential references for SNMP profiles, explicit SNMP targets, and device SNMP overrides while keeping legacy encrypted SNMP credential fallback.
 - [ ] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
 - [ ] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.
 - [x] 3.4.1 Issue persisted credential broker grants for northbound `plugin.run_action` launch/poll dispatches using descriptor/provider credential requirements and invocation-selected credential references.
 - [ ] 3.5 Add compatibility tests proving internal encrypted credentials still work.
+- [x] 3.5.1 Add focused SNMP compiler coverage for broker-backed internal credential secrets.
 
 ## 4. UI and API
 - [ ] 4.1 Add Settings -> Credentials provider records and external reference create/edit/test flows.
 - [ ] 4.2 Add selectable external references in credential rules and plugin secret-reference fields.
 - [ ] 4.3 Add consumer visibility and provider health/audit state without exposing secret values.
 - [ ] 4.4 Add first-class rotation UI/API states for due, rotating, failed, disabled, and active credentials.
+- [x] 4.5 Add Helm hooks for secret-sourced core environment variables and demo egress to the in-cluster OpenBao namespace.
 
 ## 5. Security and Validation
 - [x] 5.1 Add redaction tests for provider paths, bootstrap credentials, resolved secrets, grants, logs, plugin params, and result payloads.

@@ -71,7 +71,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.SRQLQuery
-  alias ServiceRadar.Vault
 
   require Ash.Query
   require Logger
@@ -568,7 +567,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       {:ok, targets} ->
         targets
         |> Enum.sort_by(&target_sort_key/1)
-        |> Enum.map(&compile_profile_target(&1, profile))
+        |> Enum.map(&compile_profile_target(&1, profile, actor))
         |> Enum.reject(&is_nil/1)
         |> sort_targets()
 
@@ -578,7 +577,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp compile_profile_target(%SNMPTarget{} = target, profile) do
+  defp compile_profile_target(%SNMPTarget{} = target, profile, actor) do
     oids =
       target.oid_configs
       |> Enum.map(&oid_config_to_map/1)
@@ -588,23 +587,37 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     if oids == [] do
       nil
     else
+      credential =
+        CredentialResolver.build_credential(target, actor,
+          consumer_id: "snmp_target:#{target.id}",
+          target_kind: "snmp_target",
+          target_id: target.id
+        )
+
+      version = Map.get(credential || %{}, :version, target.version)
+
       base_target = %{
         "id" => target.id,
         "name" => target.name,
         "host" => target.host,
         "port" => target.port,
-        "version" => ProtocolFormatter.version(target.version),
+        "version" => ProtocolFormatter.version(version),
         "poll_interval_seconds" => profile.poll_interval,
         "timeout_seconds" => profile.timeout,
         "retries" => profile.retries,
         "oids" => compile_oids(oids)
       }
 
-      apply_snmp_auth(base_target, target.version, target_credential(target))
+      if valid_credentials?(credential) do
+        apply_snmp_auth(base_target, version, credential)
+      else
+        Logger.debug("SNMPCompiler: skipping target #{target.id} (missing credentials)")
+        nil
+      end
     end
   end
 
-  defp compile_profile_target(_, _), do: nil
+  defp compile_profile_target(_, _, _), do: nil
 
   defp oid_config_to_map(%SNMPOIDConfig{} = oid) do
     %{
@@ -707,19 +720,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp target_credential(%SNMPTarget{} = target) do
-    %{
-      version: target.version || :v2c,
-      community: decrypt_credential(Map.get(target, :community_encrypted)),
-      username: target.username,
-      security_level: target.security_level,
-      auth_protocol: target.auth_protocol,
-      auth_password: decrypt_credential(Map.get(target, :auth_password_encrypted)),
-      priv_protocol: target.priv_protocol,
-      priv_password: decrypt_credential(Map.get(target, :priv_password_encrypted))
-    }
-  end
-
   defp merge_targets(primary, secondary) do
     (primary ++ secondary)
     |> Enum.reduce(%{}, fn target, acc ->
@@ -763,31 +763,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       _ ->
         # Use profile credentials as fallback
-        build_profile_credential(profile)
-    end
-  end
-
-  # Build credential map from profile
-  defp build_profile_credential(profile) do
-    %{
-      version: profile.version || :v2c,
-      community: decrypt_credential(profile.community_encrypted),
-      username: profile.username,
-      security_level: profile.security_level,
-      auth_protocol: profile.auth_protocol,
-      auth_password: decrypt_credential(profile.auth_password_encrypted),
-      priv_protocol: profile.priv_protocol,
-      priv_password: decrypt_credential(profile.priv_password_encrypted)
-    }
-  end
-
-  # Decrypt an encrypted credential, returning nil if not set
-  defp decrypt_credential(nil), do: nil
-
-  defp decrypt_credential(encrypted) do
-    case Vault.decrypt(encrypted) do
-      {:ok, decrypted} -> decrypted
-      {:error, _} -> nil
+        CredentialResolver.build_credential(profile, actor,
+          consumer_id: profile && "snmp_profile:#{profile.id}",
+          target_kind: "snmp_profile",
+          target_id: profile && profile.id
+        )
     end
   end
 

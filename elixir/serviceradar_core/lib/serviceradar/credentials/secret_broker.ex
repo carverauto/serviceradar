@@ -14,6 +14,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SecretProviderAdapters.OpenBao
   alias ServiceRadar.Vault
 
   @type resolved_secret :: %{
@@ -303,6 +304,8 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp built_in_adapter(:stub), do: ServiceRadar.Credentials.SecretProviderAdapters.Stub
+  defp built_in_adapter(:openbao), do: OpenBao
+  defp built_in_adapter(:vault), do: OpenBao
   defp built_in_adapter(_provider_type), do: nil
 
   defp external_reference(secret, provider) do
@@ -354,15 +357,47 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       cache_status: Map.get(result, :cache_status),
       lease_expires_at: Map.get(result, :lease_expires_at),
       metadata: CredentialRedactor.redact(Map.get(result, :metadata, %{})),
-      occurred_at: DateTime.utc_now()
+      occurred_at: utc_now()
     }
   end
 
-  defp audit_error({error_class, _detail}) when is_atom(error_class),
-    do: %{error_class: error_class}
+  defp utc_now do
+    DateTime.truncate(DateTime.utc_now(), :second)
+  end
 
-  defp audit_error(error_class) when is_atom(error_class), do: %{error_class: error_class}
+  defp audit_error({error_class, _detail}) when is_atom(error_class),
+    do: %{error_class: normalize_error_class(error_class)}
+
+  defp audit_error(error_class) when is_atom(error_class),
+    do: %{error_class: normalize_error_class(error_class)}
+
   defp audit_error(_), do: %{error_class: :internal_error}
+
+  defp normalize_error_class(error_class)
+       when error_class in [
+              :not_found,
+              :unauthorized,
+              :unreachable,
+              :rate_limited,
+              :bad_field_mapping,
+              :provider_policy_denied,
+              :adapter_unavailable,
+              :invalid_reference,
+              :internal_error
+            ],
+       do: error_class
+
+  defp normalize_error_class(error_class)
+       when error_class in [
+              :missing_endpoint_url,
+              :missing_provider,
+              :missing_secret_provider,
+              :missing_provider_token
+            ],
+       do: :invalid_reference
+
+  defp normalize_error_class(:provider_http_error), do: :unreachable
+  defp normalize_error_class(_error_class), do: :internal_error
 
   defp value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, to_string(key))

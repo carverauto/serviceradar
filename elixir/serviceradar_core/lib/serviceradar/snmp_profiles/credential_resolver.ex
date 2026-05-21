@@ -8,6 +8,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   3. None
   """
 
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
@@ -44,11 +45,24 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
     case load_device_override(device_uid, actor) do
       {:ok, %DeviceSNMPCredential{} = override} ->
-        {:ok, %{credential: build_credential(override), profile: nil, source: :device_override}}
+        credential =
+          build_credential(override, actor,
+            consumer_id: "device_snmp_credential:#{override.id}",
+            target_kind: "device",
+            target_id: device_uid
+          )
+
+        {:ok, %{credential: credential, profile: nil, source: :device_override}}
 
       {:ok, nil} ->
         profile = resolve_profile(device_uid, actor)
-        credential = build_credential(profile)
+
+        credential =
+          build_credential(profile, actor,
+            consumer_id: profile && "snmp_profile:#{profile.id}",
+            target_kind: "device",
+            target_id: device_uid
+          )
 
         if credential_present?(credential) do
           {:ok, %{credential: credential, profile: profile, source: :profile}}
@@ -73,7 +87,13 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
           | {:error, term()}
   def resolve_default(actor) do
     profile = get_default_profile(actor)
-    credential = build_credential(profile)
+
+    credential =
+      build_credential(profile, actor,
+        consumer_id: profile && "snmp_profile:#{profile.id}",
+        target_kind: "snmp_profile",
+        target_id: profile && profile.id
+      )
 
     if credential_present?(credential) do
       {:ok, %{credential: credential, profile: profile, source: :default_profile}}
@@ -122,6 +142,30 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         ),
       "privacy_password" => Map.get(credential, :priv_password)
     })
+  end
+
+  @doc """
+  Builds a concrete SNMP credential from either a broker-backed secret reference
+  or the legacy encrypted SNMP fields on the record.
+
+  Broker payloads can be either a raw community string for SNMPv1/v2c, or a JSON
+  object with SNMP keys such as `version`, `community`, `username`,
+  `security_level`, `auth_protocol`, `auth_password`, `priv_protocol`, and
+  `priv_password`.
+  """
+  @spec build_credential(map() | nil, map(), keyword()) :: credential_map() | nil
+  def build_credential(record, actor, opts \\ [])
+
+  def build_credential(nil, _actor, _opts), do: nil
+
+  def build_credential(%{version: version} = record, actor, opts) do
+    case credential_secret_id(record) do
+      secret_id when is_binary(secret_id) and secret_id != "" ->
+        build_broker_credential(record, secret_id, actor, opts)
+
+      _ ->
+        build_legacy_credential(record, version)
+    end
   end
 
   defp resolve_profile(device_uid, actor) do
@@ -241,9 +285,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp build_credential(nil), do: nil
-
-  defp build_credential(%{version: version} = record) do
+  defp build_legacy_credential(record, version) do
     %{
       version: version || :v2c,
       community: decrypt_credential(Map.get(record, :community_encrypted)),
@@ -255,6 +297,186 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       priv_password: decrypt_credential(Map.get(record, :priv_password_encrypted))
     }
   end
+
+  defp build_broker_credential(record, secret_id, actor, opts) do
+    broker_opts =
+      Keyword.reject(
+        [
+          actor: actor,
+          allow_external_resolution?: true,
+          trusted_broker_context?: true,
+          audit?: true,
+          consumer_kind: :snmp,
+          consumer_id: Keyword.get(opts, :consumer_id) || record_consumer_id(record),
+          purpose: Keyword.get(opts, :purpose, "snmp_monitoring"),
+          target_kind: Keyword.get(opts, :target_kind) || record_target_kind(record),
+          target_id: Keyword.get(opts, :target_id) || record_id(record),
+          resolution_location: Keyword.get(opts, :resolution_location, :control_plane)
+        ],
+        fn {_key, value} -> is_nil(value) end
+      )
+
+    case SecretBroker.resolve_network_credential_secret(secret_id, broker_opts) do
+      {:ok, %{value: payload, secret: secret}} ->
+        parse_broker_payload(payload, record, secret)
+
+      {:error, reason} ->
+        Logger.warning(
+          "SNMPCredentialResolver: failed to resolve broker credential #{secret_id} - #{inspect(reason)}"
+        )
+
+        nil
+    end
+  end
+
+  defp parse_broker_payload(payload, record, secret) when is_binary(payload) do
+    trimmed = String.trim(payload)
+
+    case Jason.decode(trimmed) do
+      {:ok, decoded} when is_map(decoded) ->
+        broker_json_credential(decoded, record, secret)
+
+      _ ->
+        broker_raw_credential(trimmed, record, secret)
+    end
+  end
+
+  defp parse_broker_payload(_payload, _record, _secret), do: nil
+
+  defp broker_json_credential(payload, record, secret) do
+    version =
+      normalize_version(map_value(payload, "version") || Map.get(record, :version) || :v2c)
+
+    %{
+      version: version,
+      community: map_value(payload, "community"),
+      username:
+        map_value(payload, "username") || Map.get(record, :username) || Map.get(secret, :username),
+      security_level:
+        normalize_security_level(
+          map_value(payload, "security_level") || Map.get(record, :security_level)
+        ),
+      auth_protocol:
+        normalize_auth_protocol(
+          map_value(payload, "auth_protocol") || Map.get(record, :auth_protocol)
+        ),
+      auth_password: map_value(payload, "auth_password"),
+      priv_protocol:
+        normalize_priv_protocol(
+          map_value(payload, "priv_protocol") ||
+            map_value(payload, "privacy_protocol") ||
+            Map.get(record, :priv_protocol)
+        ),
+      priv_password: map_value(payload, "priv_password") || map_value(payload, "privacy_password")
+    }
+  end
+
+  defp broker_raw_credential("", _record, _secret), do: nil
+
+  defp broker_raw_credential(payload, record, secret) do
+    version = normalize_version(Map.get(record, :version) || :v2c)
+
+    %{
+      version: version,
+      community: if(version in [:v1, :v2c], do: payload),
+      username: Map.get(record, :username) || Map.get(secret, :username),
+      security_level: Map.get(record, :security_level),
+      auth_protocol: Map.get(record, :auth_protocol),
+      auth_password: nil,
+      priv_protocol: Map.get(record, :priv_protocol),
+      priv_password: nil
+    }
+  end
+
+  defp credential_secret_id(record), do: Map.get(record, :credential_secret_id)
+
+  defp record_id(record), do: Map.get(record, :id) && to_string(Map.get(record, :id))
+
+  defp record_consumer_id(record) do
+    cond do
+      match?(%DeviceSNMPCredential{}, record) -> "device_snmp_credential:#{record.id}"
+      match?(%SNMPProfile{}, record) -> "snmp_profile:#{record.id}"
+      true -> record_id(record)
+    end
+  end
+
+  defp record_target_kind(record) do
+    cond do
+      match?(%DeviceSNMPCredential{}, record) -> "device"
+      match?(%SNMPProfile{}, record) -> "snmp_profile"
+      true -> "snmp_target"
+    end
+  end
+
+  defp map_value(map, key), do: Map.get(map, key) || Map.get(map, known_atom_key(key))
+
+  defp known_atom_key("version"), do: :version
+  defp known_atom_key("community"), do: :community
+  defp known_atom_key("username"), do: :username
+  defp known_atom_key("security_level"), do: :security_level
+  defp known_atom_key("auth_protocol"), do: :auth_protocol
+  defp known_atom_key("auth_password"), do: :auth_password
+  defp known_atom_key("priv_protocol"), do: :priv_protocol
+  defp known_atom_key("privacy_protocol"), do: :privacy_protocol
+  defp known_atom_key("priv_password"), do: :priv_password
+  defp known_atom_key("privacy_password"), do: :privacy_password
+  defp known_atom_key(_key), do: nil
+
+  defp normalize_version(value) when value in [:v1, :v2c, :v3], do: value
+  defp normalize_version("v1"), do: :v1
+  defp normalize_version("1"), do: :v1
+  defp normalize_version("v2c"), do: :v2c
+  defp normalize_version("2c"), do: :v2c
+  defp normalize_version("v3"), do: :v3
+  defp normalize_version("3"), do: :v3
+  defp normalize_version(_value), do: :v2c
+
+  defp normalize_security_level(value)
+       when value in [:no_auth_no_priv, :auth_no_priv, :auth_priv], do: value
+
+  defp normalize_security_level("noAuthNoPriv"), do: :no_auth_no_priv
+  defp normalize_security_level("authNoPriv"), do: :auth_no_priv
+  defp normalize_security_level("authPriv"), do: :auth_priv
+  defp normalize_security_level("no_auth_no_priv"), do: :no_auth_no_priv
+  defp normalize_security_level("auth_no_priv"), do: :auth_no_priv
+  defp normalize_security_level("auth_priv"), do: :auth_priv
+  defp normalize_security_level(_value), do: nil
+
+  defp normalize_auth_protocol(value)
+       when value in [:md5, :sha, :sha224, :sha256, :sha384, :sha512], do: value
+
+  defp normalize_auth_protocol(value) when is_binary(value) do
+    case value |> String.downcase() |> String.replace("-", "") do
+      "md5" -> :md5
+      "sha" -> :sha
+      "sha1" -> :sha
+      "sha224" -> :sha224
+      "sha256" -> :sha256
+      "sha384" -> :sha384
+      "sha512" -> :sha512
+      _ -> nil
+    end
+  end
+
+  defp normalize_auth_protocol(_value), do: nil
+
+  defp normalize_priv_protocol(value)
+       when value in [:des, :aes, :aes192, :aes256, :aes192c, :aes256c], do: value
+
+  defp normalize_priv_protocol(value) when is_binary(value) do
+    case value |> String.downcase() |> String.replace("-", "") do
+      "des" -> :des
+      "aes" -> :aes
+      "aes128" -> :aes
+      "aes192" -> :aes192
+      "aes256" -> :aes256
+      "aes192c" -> :aes192c
+      "aes256c" -> :aes256c
+      _ -> nil
+    end
+  end
+
+  defp normalize_priv_protocol(_value), do: nil
 
   defp decrypt_credential(nil), do: nil
 

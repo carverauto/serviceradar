@@ -228,6 +228,15 @@ core:
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
+  # Extra environment variables sourced from Kubernetes secrets/configmaps.
+  # Example:
+  # extraEnvValueFrom:
+  #   OPENBAO_TOKEN:
+  #     secretKeyRef:
+  #       name: openbao-serviceradar-token
+  #       key: token
+  #       optional: true
+  extraEnvValueFrom: {}
   database:
     poolSize: 40
     queueTargetMs: 2000
@@ -1373,6 +1382,9 @@ networkPolicy:
     allowKubeAPIServer: true
     allowDefaultNamespace: true
     allowSameNamespace: true
+    # Additional namespaces ServiceRadar workloads may call. Useful for
+    # in-cluster secret providers such as OpenBao/Vault.
+    allowedNamespaces: []
     allowedCIDRs: []
   calicoLogDenied:
     enabled: false

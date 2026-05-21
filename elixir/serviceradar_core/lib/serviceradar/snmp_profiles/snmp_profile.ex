@@ -82,6 +82,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     :security_level,
     :auth_protocol,
     :priv_protocol,
+    :credential_secret_id,
     :oid_template_ids
   ]
 

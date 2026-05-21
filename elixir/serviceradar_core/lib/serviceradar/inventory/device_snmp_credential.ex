@@ -19,7 +19,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     :username,
     :security_level,
     :auth_protocol,
-    :priv_protocol
+    :priv_protocol,
+    :credential_secret_id
   ]
   @device_snmp_credential_fields [:device_id | @snmp_credential_fields]
 
@@ -157,6 +158,12 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
       allow_nil? true
       public? false
       description "Encrypted SNMPv3 privacy password"
+    end
+
+    attribute :credential_secret_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Optional NetworkCredentialSecret used by the credential broker"
     end
 
     timestamps()

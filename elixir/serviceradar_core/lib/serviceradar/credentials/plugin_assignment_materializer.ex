@@ -173,6 +173,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
         "scheme" => "PVEAPIToken"
       },
       allowed_methods: ["GET"],
+      # Proxmox VE's historical REST API prefix is /api2/json.
       allowed_paths: [
         "/api2/json/version",
         "/api2/json/cluster/status",
