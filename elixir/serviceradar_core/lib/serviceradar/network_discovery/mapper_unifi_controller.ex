@@ -13,6 +13,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperUnifiController do
     secret_description: "UniFi API key",
     name_description: "Optional controller name",
     insecure_description: "Skip TLS verification for UniFi API",
-    create_accept: [:name, :base_url, :api_key, :insecure_skip_verify, :mapper_job_id],
-    update_accept: [:name, :base_url, :api_key, :insecure_skip_verify]
+    create_accept: [
+      :name,
+      :base_url,
+      :api_key,
+      :insecure_skip_verify,
+      :credential_secret_id,
+      :mapper_job_id
+    ],
+    update_accept: [:name, :base_url, :api_key, :insecure_skip_verify, :credential_secret_id]
 end

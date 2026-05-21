@@ -16,6 +16,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperMikrotikController do
     extra_fields: [
       {:username, :string, [allow_nil?: false, description: "RouterOS API username"]}
     ],
-    create_accept: [:name, :base_url, :username, :password, :insecure_skip_verify, :mapper_job_id],
-    update_accept: [:name, :base_url, :username, :password, :insecure_skip_verify]
+    create_accept: [
+      :name,
+      :base_url,
+      :username,
+      :password,
+      :insecure_skip_verify,
+      :credential_secret_id,
+      :mapper_job_id
+    ],
+    update_accept: [
+      :name,
+      :base_url,
+      :username,
+      :password,
+      :insecure_skip_verify,
+      :credential_secret_id
+    ]
 end

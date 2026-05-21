@@ -255,6 +255,83 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
+  test "resolves mapper API controller secrets through credential broker references" do
+    actor = SystemActor.system(:test)
+    unique_id = System.unique_integer([:positive])
+    job_name = "Mapper Job API Broker Secret #{unique_id}"
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: job_name,
+          discovery_mode: :api,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, mikrotik_secret} =
+      create_mapper_secret(
+        "mikrotik",
+        "RouterOS Password #{unique_id}",
+        Jason.encode!(%{"password" => "routeros-broker-secret"}),
+        actor
+      )
+
+    {:ok, unifi_secret} =
+      create_mapper_secret(
+        "unifi",
+        "UniFi API Key #{unique_id}",
+        "unifi-broker-api-key",
+        actor
+      )
+
+    {:ok, _mikrotik_controller} =
+      MapperMikrotikController
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          mapper_job_id: job.id,
+          name: "chr-broker-#{unique_id}",
+          base_url: "https://192.168.88.1",
+          username: "admin",
+          credential_secret_id: mikrotik_secret.id
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, _unifi_controller} =
+      MapperUnifiController
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          mapper_job_id: job.id,
+          name: "unifi-broker-#{unique_id}",
+          base_url: "https://192.168.10.1",
+          credential_secret_id: unifi_secret.id
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, config} = MapperCompiler.compile("default", nil, actor: actor)
+
+    assert Enum.any?(config["mikrotik_apis"], fn controller ->
+             controller["name"] == "chr-broker-#{unique_id}" and
+               controller["password"] == "routeros-broker-secret"
+           end)
+
+    assert Enum.any?(config["unifi_apis"], fn controller ->
+             controller["name"] == "unifi-broker-#{unique_id}" and
+               controller["api_key"] == "unifi-broker-api-key"
+           end)
+  end
+
+  @tag :integration
   test "enables Proxmox candidate probing on API mapper jobs when scoped credential rule opts in" do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive])
@@ -418,6 +495,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
         username: "root@pam!serviceradar",
         secret_payload: "token-secret",
         metadata: %{"secret_payload_format" => "proxmox_api_token.v1"}
+      },
+      actor: actor
+    )
+    |> Ash.create(actor: actor)
+  end
+
+  defp create_mapper_secret(provider, name, secret_payload, actor) do
+    NetworkCredentialSecret
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: name,
+        provider: provider,
+        credential_kind: :opaque,
+        secret_payload: secret_payload
       },
       actor: actor
     )
