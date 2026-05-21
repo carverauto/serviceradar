@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -216,6 +217,128 @@ func TestRunProxmoxCredentialTest_BrokerGrantDoesNotExposeSecret(t *testing.T) {
 	}
 	if body := result["credential_secret_ref"]; body != nil {
 		t.Fatalf("result leaked credential ref: %#v", body)
+	}
+}
+
+func TestRunProxmoxCredentialTest_DeniesGrantTargetMismatch(t *testing.T) {
+	t.Parallel()
+
+	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: proxmoxCredentialBrokerGrant{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantType:           "proxmox_api_token",
+			CredentialRuleID:    "rule-1",
+			CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+			Target: proxmoxTestTarget{
+				DeviceUID: "device-2",
+				BaseURL:   "https://pve.example:8006",
+			},
+			Allow: proxmoxCredentialBrokerACL{
+				Methods: []string{"GET"},
+				Paths:   []string{"/api2/json/version"},
+			},
+		},
+		Target: proxmoxTestTarget{
+			DeviceUID: "device-1",
+			BaseURL:   "https://pve.example:8006",
+		},
+	})
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("expected grant denied error, got %v", err)
+	}
+}
+
+func TestRunProxmoxCredentialTest_DeniesGrantHostPortPathMismatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		allow proxmoxCredentialBrokerACL
+	}{
+		{
+			name:  "method",
+			allow: proxmoxCredentialBrokerACL{Methods: []string{"POST"}},
+		},
+		{
+			name:  "path",
+			allow: proxmoxCredentialBrokerACL{Methods: []string{"GET"}, Paths: []string{"/api2/json/nodes"}},
+		},
+		{
+			name: "host",
+			allow: proxmoxCredentialBrokerACL{
+				Methods: []string{"GET"},
+				Paths:   []string{"/api2/json/version"},
+				Hosts:   []string{"other.example"},
+			},
+		},
+		{
+			name: "port",
+			allow: proxmoxCredentialBrokerACL{
+				Methods: []string{"GET"},
+				Paths:   []string{"/api2/json/version"},
+				Ports:   []int{443},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+				CredentialRuleID: "rule-1",
+				CredentialBroker: proxmoxCredentialBrokerGrant{
+					Schema:              "serviceradar.edge_credential_broker_grant.v1",
+					GrantType:           "proxmox_api_token",
+					CredentialRuleID:    "rule-1",
+					CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+					Target: proxmoxTestTarget{
+						DeviceUID: "device-1",
+						BaseURL:   "https://pve.example:8006",
+					},
+					Allow: tc.allow,
+				},
+				Target: proxmoxTestTarget{
+					DeviceUID: "device-1",
+					BaseURL:   "https://pve.example:8006",
+				},
+			})
+			if !errors.Is(err, errCredentialBrokerGrantDenied) {
+				t.Fatalf("expected grant denied error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestRunProxmoxCredentialTest_DeniesExpiredGrant(t *testing.T) {
+	t.Parallel()
+
+	_, err := runProxmoxCredentialTest(context.Background(), proxmoxCredentialTestPayload{
+		CredentialRuleID: "rule-1",
+		CredentialBroker: proxmoxCredentialBrokerGrant{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantType:           "proxmox_api_token",
+			CredentialRuleID:    "rule-1",
+			CredentialSecretRef: "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+			Target: proxmoxTestTarget{
+				DeviceUID: "device-1",
+				BaseURL:   "https://pve.example:8006",
+			},
+			Allow: proxmoxCredentialBrokerACL{
+				Methods: []string{"GET"},
+				Paths:   []string{"/api2/json/version"},
+			},
+			ExpiresAt: time.Now().Add(-time.Minute).Format(time.RFC3339),
+		},
+		Target: proxmoxTestTarget{
+			DeviceUID: "device-1",
+			BaseURL:   "https://pve.example:8006",
+		},
+	})
+	if !errors.Is(err, errCredentialBrokerGrantExpired) {
+		t.Fatalf("expected grant expired error, got %v", err)
 	}
 }
 
