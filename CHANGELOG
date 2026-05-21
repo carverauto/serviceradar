@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.77
+
+Plugin status read model and Proxmox inventory recovery.
+
+## Whats New
+
+**1.2.77**
+- Restored durable plugin status display on `/services` so page reloads read the latest persisted service state instead of waiting for the next checker cycle to turn healthy plugins green.
+- Fixed plugin assignment reconciliation so stale rows are retired without creating duplicate active plugin services, while preserving the latest result for each assigned plugin.
+- Reworked the Proxmox inventory WASM plugin to use reflection-free TinyGo JSON handling, eliminating the runtime panic and restoring inventory summaries, device discovery, and resource event output.
+- Hardened Proxmox plugin result serialization, UTF-8-safe response truncation, and service-state orphan matching across package names and plugin identifiers.
+
 # ServiceRadar v1.2.76
 
 Armis northbound bulk update authentication recovery.
