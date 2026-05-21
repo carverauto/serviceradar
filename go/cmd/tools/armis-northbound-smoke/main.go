@@ -36,6 +36,17 @@ const (
 	defaultMaxPages = 50
 )
 
+var (
+	errRequiredEnvMissing              = errors.New("missing required env")
+	errInvalidNorthboundValue          = errors.New("invalid northbound value")
+	errTokenRequestFailed              = errors.New("token request failed")
+	errTokenResponseMissingAccessToken = errors.New("token response missing data.access_token")
+	errArmisDeviceNotFound             = errors.New("armis device not found")
+	errSearchRequestFailed             = errors.New("search request failed")
+	errBulkUpdateFailed                = errors.New("bulk update failed")
+	errPositiveIntegerRequired         = errors.New("positive integer required")
+)
+
 type accessTokenResponse struct {
 	Data struct {
 		AccessToken string `json:"access_token"`
@@ -132,7 +143,7 @@ func requiredEnv(name string) (string, error) {
 		return value, nil
 	}
 
-	return "", fmt.Errorf("missing required env %s", name)
+	return "", fmt.Errorf("%w: %s", errRequiredEnvMissing, name)
 }
 
 func northboundValue() (string, error) {
@@ -142,7 +153,11 @@ func northboundValue() (string, error) {
 	}
 
 	if value != "true" && value != "false" {
-		return "", fmt.Errorf("SERVICERADAR_ARMIS_NORTHBOUND_VALUE must be true or false, got %q", value)
+		return "", fmt.Errorf(
+			"%w: SERVICERADAR_ARMIS_NORTHBOUND_VALUE must be true or false, got %q",
+			errInvalidNorthboundValue,
+			value,
+		)
 	}
 
 	return value, nil
@@ -164,7 +179,9 @@ func fetchAccessToken(ctx context.Context, client *http.Client, endpoint, secret
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -172,7 +189,7 @@ func fetchAccessToken(ctx context.Context, client *http.Client, endpoint, secret
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("token request returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return "", fmt.Errorf("%w: HTTP %d: %s", errTokenRequestFailed, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var parsed accessTokenResponse
@@ -181,7 +198,7 @@ func fetchAccessToken(ctx context.Context, client *http.Client, endpoint, secret
 	}
 
 	if strings.TrimSpace(parsed.Data.AccessToken) == "" {
-		return "", errors.New("token response missing data.access_token")
+		return "", errTokenResponseMissingAccessToken
 	}
 
 	return parsed.Data.AccessToken, nil
@@ -217,7 +234,13 @@ func findDeviceByIP(ctx context.Context, client *http.Client, endpoint, token, d
 		}
 	}
 
-	return nil, fmt.Errorf("no Armis device with IP %s found using AQL %q in %d scanned rows", deviceIP, aql, maxPages*defaultPageSize)
+	return nil, fmt.Errorf(
+		"%w: IP %s using AQL %q in %d scanned rows",
+		errArmisDeviceNotFound,
+		deviceIP,
+		aql,
+		maxPages*defaultPageSize,
+	)
 }
 
 func searchDevices(ctx context.Context, client *http.Client, endpoint, token, aql string, from, length int) (*searchResponse, error) {
@@ -246,7 +269,9 @@ func searchDevices(ctx context.Context, client *http.Client, endpoint, token, aq
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -254,7 +279,7 @@ func searchDevices(ctx context.Context, client *http.Client, endpoint, token, aq
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("search request returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("%w: HTTP %d: %s", errSearchRequestFailed, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var parsedBody searchResponse
@@ -294,7 +319,9 @@ func sendBulkUpdate(ctx context.Context, client *http.Client, endpoint, token st
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
@@ -302,7 +329,7 @@ func sendBulkUpdate(ctx context.Context, client *http.Client, endpoint, token st
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("bulk update returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+		return fmt.Errorf("%w: HTTP %d: %s", errBulkUpdateFailed, resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
 	fmt.Printf("Bulk update accepted with HTTP %d: %s\n", resp.StatusCode, strings.TrimSpace(string(respBody)))
@@ -332,7 +359,7 @@ func positiveIntEnv(name string, defaultValue int) (int, error) {
 
 	parsed, err := strconv.Atoi(value)
 	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("%s must be a positive integer", name)
+		return 0, fmt.Errorf("%w: %s", errPositiveIntegerRequired, name)
 	}
 
 	return parsed, nil

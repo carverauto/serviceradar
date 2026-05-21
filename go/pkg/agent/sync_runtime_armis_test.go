@@ -22,6 +22,12 @@ import (
 
 const testArmisDeviceQuery = "in:devices"
 
+var (
+	errFakeSyncGatewayEmptyStream  = errors.New("empty stream")
+	errFakeSyncGatewayInvalidChunk = errors.New("invalid stream chunk")
+	errFakeSyncGatewayMissingFinal = errors.New("stream ended without final chunk")
+)
+
 func TestArmisAccessTokenUsesFormEncodedSecretKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != armisAccessTokenPath {
@@ -808,21 +814,26 @@ func (f *fakeSyncGateway) StreamStatus(
 	chunks []*proto.GatewayStatusChunk,
 ) (*proto.GatewayStatusResponse, error) {
 	if len(chunks) == 0 {
-		return nil, errors.New("empty stream")
+		return nil, errFakeSyncGatewayEmptyStream
 	}
 	for i, chunk := range chunks {
 		if chunk == nil {
-			return nil, fmt.Errorf("nil chunk %d", i)
+			return nil, fmt.Errorf("nil chunk %d: %w", i, errFakeSyncGatewayInvalidChunk)
 		}
 		if chunk.ChunkIndex != int32(i) {
-			return nil, fmt.Errorf("chunk index %d, want %d", chunk.ChunkIndex, i)
+			return nil, fmt.Errorf("chunk index %d, want %d: %w", chunk.ChunkIndex, i, errFakeSyncGatewayInvalidChunk)
 		}
 		if chunk.TotalChunks != int32(len(chunks)) {
-			return nil, fmt.Errorf("total chunks %d, want %d", chunk.TotalChunks, len(chunks))
+			return nil, fmt.Errorf(
+				"total chunks %d, want %d: %w",
+				chunk.TotalChunks,
+				len(chunks),
+				errFakeSyncGatewayInvalidChunk,
+			)
 		}
 	}
 	if !chunks[len(chunks)-1].IsFinal {
-		return nil, errors.New("stream ended without final chunk")
+		return nil, errFakeSyncGatewayMissingFinal
 	}
 
 	f.mu.Lock()

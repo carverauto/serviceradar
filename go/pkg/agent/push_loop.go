@@ -2269,15 +2269,23 @@ func buildResultsStatusChunksForAgent(
 			AgentId:     agentID,
 			Timestamp:   chunk.Timestamp,
 			Partition:   partition,
-			IsFinal:     chunk.IsFinal,
-			ChunkIndex:  chunk.ChunkIndex,
-			TotalChunks: chunk.TotalChunks,
+			IsFinal:     false,
+			ChunkIndex:  0,
+			TotalChunks: 0,
 			KvStoreId:   "",
 			Version:     runtimeMetadata.Version,
 			Hostname:    runtimeMetadata.Hostname,
 			Os:          runtimeMetadata.Os,
 			Arch:        runtimeMetadata.Arch,
 		})
+	}
+
+	// GatewayStatusChunk framing is per StreamStatus RPC. Result payloads may carry
+	// their own run-level finality, so keep the outer stream final on every RPC.
+	for idx, chunk := range statusChunks {
+		chunk.ChunkIndex = int32(idx)
+		chunk.TotalChunks = int32(len(statusChunks))
+		chunk.IsFinal = idx == len(statusChunks)-1
 	}
 
 	return statusChunks
