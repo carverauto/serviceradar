@@ -230,8 +230,20 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       |> Keyword.get(:resolution_location, value(secret, :resolution_location) || :control_plane)
       |> normalize_atom(:control_plane)
 
-    with {:ok, provider} <- provider_for_secret(secret, opts),
-         :ok <- provider_enabled?(provider, opts),
+    audit_opts = Keyword.put(opts, :resolution_location, requested_location)
+
+    case provider_for_secret(secret, opts) do
+      {:ok, provider} ->
+        resolve_external_with_provider(secret, provider, requested_location, audit_opts)
+
+      {:error, reason} = error ->
+        maybe_audit(:failed, secret, nil, audit_error(reason), audit_opts)
+        error
+    end
+  end
+
+  defp resolve_external_with_provider(secret, provider, requested_location, opts) do
+    with :ok <- provider_enabled?(provider, opts),
          :ok <- resolution_location_allowed?(provider, requested_location),
          {:ok, adapter} <- adapter_for_provider(provider, opts),
          {:ok, adapter_result} <-
@@ -250,7 +262,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       {:ok, resolved}
     else
       {:error, reason} = error ->
-        maybe_audit(:failed, secret, Keyword.get(opts, :provider), audit_error(reason), opts)
+        maybe_audit(:failed, secret, provider, audit_error(reason), opts)
         error
     end
   end
@@ -285,7 +297,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
       provider = Keyword.get(opts, :provider) ->
         {:ok, provider}
 
-      provider = value(secret, :secret_provider) ->
+      provider = loaded_relationship(value(secret, :secret_provider)) ->
         {:ok, provider}
 
       provider_id = value(secret, :secret_provider_id) ->
@@ -296,6 +308,9 @@ defmodule ServiceRadar.Credentials.SecretBroker do
         {:error, :missing_secret_provider}
     end
   end
+
+  defp loaded_relationship(%Ash.NotLoaded{}), do: nil
+  defp loaded_relationship(value), do: value
 
   defp provider_enabled?(provider, opts) do
     cond do
