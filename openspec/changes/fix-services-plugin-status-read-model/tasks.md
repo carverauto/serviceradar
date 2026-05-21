@@ -22,6 +22,7 @@
 - [x] 4.1 Enforce one approved package version per plugin ID in code and database schema.
 - [x] 4.2 Revoke superseded package versions and disable assignments that still point at superseded packages.
 - [x] 4.3 Repair existing demo rows so stale package versions and assignments are no longer active.
+- [x] 4.4 Enforce one enabled assignment per agent/plugin ID and exclude disabled assignments from generated agent config.
 
 ## 5. UI and Diagnostics
 - [x] 5.1 Keep failures sorted first and newest-first within each status class.

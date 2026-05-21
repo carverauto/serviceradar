@@ -283,11 +283,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     assignments =
       PluginAssignment
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+      |> Ash.Query.filter(enabled == true)
+      |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
       |> Ash.Query.load(:plugin_package)
       |> Ash.read!()
 
     assignments
     |> Enum.filter(&has_approved_package?/1)
+    |> Enum.uniq_by(&logical_plugin_id/1)
     |> Enum.map(&build_plugin_assignment_config/1)
   rescue
     e ->
@@ -313,6 +316,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     key = package.wasm_object_key
     is_binary(key) and String.trim(key) != ""
   end
+
+  defp logical_plugin_id(%PluginAssignment{plugin_package: %PluginPackage{plugin_id: plugin_id}}),
+    do: plugin_id
+
+  defp logical_plugin_id(%PluginAssignment{plugin_id: plugin_id}), do: plugin_id
 
   defp load_plugin_engine_limits(agent_id) do
     actor = SystemActor.system(:plugin_engine_limits)

@@ -37,6 +37,8 @@ Assignments SHALL NOT embed reusable bearer download URLs for plugin blobs. Agen
 
 Only one package version for a given plugin ID SHALL be approved at a time. Approving a different version of the same plugin SHALL revoke the previously approved package and disable assignments that reference a superseded package.
 
+An agent SHALL NOT receive more than one enabled assignment for the same plugin ID. Disabled historical assignments MAY remain for auditability but MUST NOT be included in generated agent config.
+
 #### Scenario: Assign plugin to an agent
 - **GIVEN** a plugin package exists
 - **WHEN** an admin assigns the plugin to an agent
@@ -62,6 +64,12 @@ Only one package version for a given plugin ID SHALL be approved at a time. Appr
 - **THEN** version `0.1.0` SHALL be revoked
 - **AND** assignments for version `0.1.0` SHALL be disabled
 - **AND** the database SHALL reject a second simultaneously approved package for `proxmox-inventory`
+
+#### Scenario: Duplicate enabled assignment rejected
+- **GIVEN** an agent already has an enabled assignment for plugin `proxmox-inventory`
+- **WHEN** another assignment for `proxmox-inventory` is created or enabled for the same agent
+- **THEN** the database SHALL reject the duplicate enabled assignment
+- **AND** generated agent config SHALL include only enabled assignments
 
 ### Requirement: Agent Wasm Runtime Sandbox
 The agent MUST execute plugins in a sandboxed Wasm runtime with resource limits and must not expose raw filesystem or socket access.
