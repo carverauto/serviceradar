@@ -42,6 +42,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
     assert {:ok, resolved} =
              SecretBroker.resolve_loaded_secret(secret,
                provider: provider,
+               grant_id: "grant-1",
                resolution_location: :agent,
                consumer_kind: :plugin,
                target_id: "svc-db"
@@ -65,6 +66,17 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
              SecretBroker.resolve_loaded_secret(secret, allow_external_resolution?: false)
   end
 
+  test "blocks external reference resolution by default without a broker grant" do
+    secret = %{
+      id: "secret-1",
+      source_type: :external_reference,
+      external_secret_ref: "folders/prod/http-token"
+    }
+
+    assert {:error, :external_secret_requires_broker_grant} =
+             SecretBroker.resolve_loaded_secret(secret)
+  end
+
   test "denies resolution from locations not allowed by provider policy" do
     provider = %{
       id: "provider-1",
@@ -84,6 +96,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
     assert {:error, {:resolution_location_not_allowed, :agent}} =
              SecretBroker.resolve_loaded_secret(secret,
                provider: provider,
+               grant_id: "grant-1",
                resolution_location: :agent
              )
   end
@@ -106,6 +119,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerTest do
     assert {:error, :adapter_unavailable} =
              SecretBroker.resolve_loaded_secret(secret,
                provider: provider,
+               grant_id: "grant-1",
                resolution_location: :control_plane
              )
   end

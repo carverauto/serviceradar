@@ -71,6 +71,14 @@ The system SHALL resolve check credentials through unified credentials with dete
 - **WHEN** the assignment is compiled
 - **THEN** no credential grant SHALL be attached
 
+#### Scenario: Ad-hoc service/device task uses same credential precedence
+- **GIVEN** an operator runs an ad-hoc task against a device or service
+- **AND** the task descriptor declares an API credential requirement
+- **WHEN** ServiceRadar prepares the task execution
+- **THEN** it SHALL select credentials using the same service/device/rule precedence model
+- **AND** it SHALL attach only a scoped broker grant to the task execution
+- **AND** it SHALL record redacted audit and OCSF events for launch, dispatch, credential resolution, completion, denial, or failure
+
 ### Requirement: Vantage-point aware execution
 The system SHALL allow monitoring bindings to specify eligible agents, gateways, edge sites, or partitions as execution vantage points and SHALL preserve per-vantage latest state.
 
@@ -102,4 +110,3 @@ The system SHALL preserve existing manually configured plugin assignments while 
 - **WHEN** the service-oriented monitoring model is enabled
 - **THEN** the assignment SHALL continue to run with its existing params
 - **AND** it SHALL be labeled as an advanced/manual assignment in admin UI
-

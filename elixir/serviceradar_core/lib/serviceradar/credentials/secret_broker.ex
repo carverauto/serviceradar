@@ -8,6 +8,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialEventWriter
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
@@ -96,11 +97,17 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp resolve_external(secret, opts) do
-    if Keyword.get(opts, :allow_external_resolution?, true) do
+    if external_resolution_allowed?(opts) do
       do_resolve_external(secret, opts)
     else
       {:error, :external_secret_requires_broker_grant}
     end
+  end
+
+  defp external_resolution_allowed?(opts) do
+    Keyword.get(opts, :allow_external_resolution?, false) ||
+      present?(Keyword.get(opts, :grant_id)) ||
+      Keyword.get(opts, :trusted_broker_context?, false)
   end
 
   defp do_resolve_external(secret, opts) do
@@ -242,12 +249,19 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp maybe_audit(outcome, secret, provider, result, opts) do
     if Keyword.get(opts, :audit?, false) do
       attrs = audit_attrs(outcome, secret, provider, result, opts)
-      actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_broker))
-      CredentialSecretResolutionAudit.create_audit(attrs, actor: actor)
+      audit_actor = SystemActor.system(:credential_secret_broker_audit)
+
+      audit_result =
+        CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor)
+
+      CredentialEventWriter.write_secret_resolution(attrs)
+      audit_result
     else
       :ok
     end
   end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp audit_attrs(outcome, secret, provider, result, opts) do
     %{

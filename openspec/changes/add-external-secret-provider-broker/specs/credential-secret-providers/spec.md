@@ -45,6 +45,20 @@ Credential resolution SHALL require a broker grant scoped to consumer, purpose, 
 - **THEN** the broker SHALL deny the resolution or injection attempt
 - **AND** an audit event SHALL record the denied target mismatch without secret values
 
+#### Scenario: Ad-hoc device task receives scoped credential grant
+- **GIVEN** an authorized operator runs an ad-hoc task against device `dev-1`
+- **AND** the task needs to call an external API that requires credentials
+- **WHEN** the task execution request is created
+- **THEN** ServiceRadar SHALL attach a credential broker grant scoped to the task execution ID, device, API target, actor, purpose, and TTL
+- **AND** the task payload SHALL NOT contain plaintext credentials
+
+#### Scenario: Ad-hoc task source is transparent to the task runner
+- **GIVEN** an ad-hoc task references a reusable credential
+- **WHEN** the credential source is `external_reference`
+- **THEN** the broker SHALL retrieve the value from the configured secret provider subject to provider and grant policy
+- **AND** when the credential source is `internal_encrypted`, the same broker API SHALL resolve the internally stored encrypted value
+- **AND** the task runner SHALL NOT need separate code paths for secret-provider versus internally stored credentials
+
 ### Requirement: Resolution location is explicit
 The system SHALL resolve external secrets only from locations allowed by provider policy and grant policy.
 
@@ -90,3 +104,24 @@ The system SHALL audit external secret provider tests, resolutions, failures, ca
 - **THEN** it SHALL include provider ID, reference ID, consumer kind, target ID, agent ID, grant ID, resolution location, cache/lease status, and timestamp
 - **AND** it SHALL NOT include the resolved secret value
 
+#### Scenario: Ad-hoc task execution emits audit and informational events
+- **GIVEN** an authorized operator launches an ad-hoc device task that uses a credential broker grant
+- **WHEN** the task is queued, dispatched, resolved, completed, denied, or failed
+- **THEN** ServiceRadar SHALL persist redacted audit records for the task execution and credential resolution
+- **AND** it SHALL emit OCSF events, informational for normal queue/dispatch/success transitions and higher severity for denial or failure
+- **AND** the events SHALL include actor, device, task execution ID, credential reference ID, provider ID when present, and target metadata without secret values
+
+### Requirement: Credential lifecycle is first class
+Credential providers, credential references, broker grants, task executions, and credential rotation SHALL model lifecycle transitions explicitly instead of relying on free-form status fields.
+
+#### Scenario: Credential provider availability transitions are constrained
+- **GIVEN** a credential provider is disabled
+- **WHEN** an admin enables it or a provider test succeeds
+- **THEN** the provider SHALL transition through an explicit lifecycle action to `active`
+- **AND** unavailable or degraded states SHALL only be reached through explicit broker/provider test outcomes
+
+#### Scenario: Credential rotation is tracked as a lifecycle
+- **GIVEN** a reusable credential has a rotation due date
+- **WHEN** rotation begins, succeeds, fails, is disabled, or is re-enabled
+- **THEN** the credential SHALL transition through explicit rotation lifecycle actions
+- **AND** each transition SHALL be audit/version tracked and MAY emit informational or failure events as appropriate

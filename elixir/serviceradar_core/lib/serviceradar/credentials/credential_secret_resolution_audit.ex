@@ -6,6 +6,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
   use Ash.Resource,
     domain: ServiceRadar.Credentials,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -35,6 +36,17 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
     table "credential_secret_resolution_audits"
     repo ServiceRadar.Repo
     schema "platform"
+  end
+
+  paper_trail do
+    primary_key_type :uuid_v7
+    table_name "credential_secret_resolution_audit_versions"
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    change_tracking_mode :changes_only
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? false
+    ignore_attributes [:inserted_at]
   end
 
   code_interface do
@@ -71,7 +83,6 @@ defmodule ServiceRadar.Credentials.CredentialSecretResolutionAudit do
 
     system_bypass()
     read_with_permission(@credential_manage_check)
-    action_type_with_permission(:create, @credential_manage_check)
   end
 
   attributes do

@@ -93,6 +93,10 @@ defmodule ServiceRadar.Repo.Migrations.AddExternalSecretProviderBroker do
       add(:resolution_location, :text)
       add(:cache_policy, :text, null: false, default: "no_cache")
       add(:cache_ttl_seconds, :integer)
+      add(:rotation_state, :text, null: false, default: "active")
+      add(:rotation_started_at, :utc_datetime_usec)
+      add(:last_rotation_failed_at, :utc_datetime_usec)
+      add(:last_rotation_failure_message, :text)
       add(:last_resolved_at, :utc_datetime_usec)
       add(:last_resolution_status, :text)
       add(:last_resolution_message, :text)
@@ -158,6 +162,43 @@ defmodule ServiceRadar.Repo.Migrations.AddExternalSecretProviderBroker do
     create index(:credential_secret_resolution_audits, [:consumer_kind, :consumer_id],
              prefix: @prefix,
              name: :credential_secret_resolution_audits_consumer_idx
+           )
+
+    create table(:credential_secret_resolution_audit_versions,
+             primary_key: false,
+             prefix: @prefix
+           ) do
+      add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
+      add(:version_action_type, :text, null: false)
+      add(:version_action_name, :text, null: false)
+      add(:version_action_inputs, :map, null: false)
+
+      add(
+        :version_source_id,
+        references(:credential_secret_resolution_audits,
+          type: :uuid,
+          name: "credential_secret_resolution_audit_versions_version_source_id_fkey",
+          prefix: @prefix
+        ),
+        null: false
+      )
+
+      add(:changes, :map)
+
+      add(:version_inserted_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+
+      add(:version_updated_at, :utc_datetime_usec,
+        null: false,
+        default: fragment("(now() AT TIME ZONE 'utc')")
+      )
+    end
+
+    create index(:credential_secret_resolution_audit_versions, [:version_source_id],
+             prefix: @prefix,
+             name: :credential_secret_resolution_audit_versions_source_idx
            )
   end
 end

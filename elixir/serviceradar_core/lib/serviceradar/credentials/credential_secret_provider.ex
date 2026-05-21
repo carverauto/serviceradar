@@ -9,9 +9,10 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
   use Ash.Resource,
     domain: ServiceRadar.Credentials,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshStateMachine, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Credentials.Changes.WriteProviderLifecycleEvent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
@@ -23,8 +24,6 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
     :endpoint_url,
     :auth_mode,
     :resolution_locations,
-    :enabled,
-    :status,
     :metadata
   ]
 
@@ -32,6 +31,20 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
     table "credential_secret_providers"
     repo ServiceRadar.Repo
     schema "platform"
+  end
+
+  state_machine do
+    initial_states [:disabled]
+    default_initial_state :disabled
+    state_attribute :status
+
+    transitions do
+      transition :enable, from: [:disabled, :degraded, :unavailable], to: :active
+      transition :disable, from: [:active, :degraded, :unavailable], to: :disabled
+      transition :record_test_failure, from: [:active, :unavailable], to: :degraded
+      transition :record_test_unavailable, from: [:active, :degraded], to: :unavailable
+      transition :record_test_success, from: [:active, :degraded, :unavailable], to: :active
+    end
   end
 
   paper_trail do
@@ -50,7 +63,11 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
     define :list_by_type, action: :by_type, args: [:provider_type]
     define :create_provider, action: :create
     define :update_provider, action: :update
-    define :record_test_result, action: :record_test_result
+    define :enable, action: :enable
+    define :disable, action: :disable
+    define :record_test_success, action: :record_test_success
+    define :record_test_failure, action: :record_test_failure
+    define :record_test_unavailable, action: :record_test_unavailable
   end
 
   actions do
@@ -75,9 +92,43 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
       accept @fields
     end
 
-    update :record_test_result do
-      accept [:last_test_status, :last_test_message, :status]
+    update :enable do
+      accept []
+      change transition_state(:active)
+      change set_attribute(:enabled, true)
+      change {WriteProviderLifecycleEvent, action: :enable}
+    end
+
+    update :disable do
+      accept [:last_test_message]
+      change transition_state(:disabled)
+      change set_attribute(:enabled, false)
+      change {WriteProviderLifecycleEvent, action: :disable}
+    end
+
+    update :record_test_success do
+      accept [:last_test_message]
+      change transition_state(:active)
+      change set_attribute(:enabled, true)
+      change set_attribute(:last_test_status, :success)
       change set_attribute(:last_tested_at, &DateTime.utc_now/0)
+      change {WriteProviderLifecycleEvent, action: :record_test_success}
+    end
+
+    update :record_test_failure do
+      accept [:last_test_message]
+      change transition_state(:degraded)
+      change set_attribute(:last_test_status, :failed)
+      change set_attribute(:last_tested_at, &DateTime.utc_now/0)
+      change {WriteProviderLifecycleEvent, action: :record_test_failure}
+    end
+
+    update :record_test_unavailable do
+      accept [:last_test_message]
+      change transition_state(:unavailable)
+      change set_attribute(:last_test_status, :unavailable)
+      change set_attribute(:last_tested_at, &DateTime.utc_now/0)
+      change {WriteProviderLifecycleEvent, action: :record_test_unavailable}
     end
   end
 
