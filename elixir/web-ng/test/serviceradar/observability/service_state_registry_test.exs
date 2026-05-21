@@ -8,6 +8,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
+  require Ash.Query
+
   test "scheduled health-result plugin assignments appear as pending service rows" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent"), metadata: %{"partition" => "edge"}})
@@ -88,6 +90,32 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
     assert reloaded_state(stale_state).state == "inactive"
   end
 
+  test "reconcile_plugin_assignments preserves active plugin rows matched by emitted plugin_id" do
+    gateway = gateway_fixture()
+    agent = agent_fixture(gateway, %{uid: unique_id("agent")})
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    _assignment = assignment_fixture(agent.uid, package.id)
+
+    reported_state =
+      insert_service_state!(%{
+        agent_id: agent.uid,
+        gateway_id: agent.gateway_id,
+        partition: "default",
+        service_type: "plugin",
+        service_name: "Runtime Display Name #{System.unique_integer([:positive])}",
+        available: true,
+        message: "runtime plugin ok",
+        details: Jason.encode!(%{"labels" => %{"plugin_id" => package.plugin_id}}),
+        last_observed_at: DateTime.utc_now(),
+        state: "active"
+      })
+
+    assert {:ok, count} = ServiceStateRegistry.reconcile_plugin_assignments()
+    assert count >= 1
+
+    assert reloaded_state(reported_state).state == "active"
+  end
+
   test "agent-reported plugin status updates the plugin service row" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
@@ -164,7 +192,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   test "history repair collapses stale active plugin rows without fresh results" do
     gateway = gateway_fixture()
     agent = agent_fixture(gateway, %{uid: unique_id("agent")})
-    service_name = "Legacy OTX #{System.unique_integer([:positive])}"
+    package = approved_package_fixture("serviceradar.plugin_result.v1")
+    _assignment = assignment_fixture(agent.uid, package.id)
+    service_name = package.name
     now = DateTime.utc_now()
 
     insert_service_state!(%{

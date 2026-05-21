@@ -124,9 +124,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   rescue
     error ->
-      Logger.warning(
-        "Plugin assignment service state reconciliation failed: #{Exception.message(error)}"
-      )
+      Logger.warning("Plugin assignment service state reconciliation failed: #{Exception.message(error)}")
 
       {:error, error}
   end
@@ -217,10 +215,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp deactivate_shadowed_plugin_states(
-         %ServiceState{service_type: "plugin"} = current_state,
-         actor
-       ) do
+  defp deactivate_shadowed_plugin_states(%ServiceState{service_type: "plugin"} = current_state, actor) do
     ServiceState
     |> filter(
       id != ^current_state.id and
@@ -290,6 +285,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   defp deactivate_inactive_plugin_state_count do
+    # These bulk cleanup passes intentionally skip PubSub. They reconcile reload-time
+    # Postgres state and avoid broadcasting one message per stale row.
     with {:ok, shadow_count} <- deactivate_stale_active_plugin_shadows(),
          {:ok, orphan_count} <- deactivate_orphaned_active_plugin_states() do
       {:ok, shadow_count + orphan_count}
@@ -336,7 +333,16 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
             ON package.id = assignment.plugin_package_id
           WHERE assignment.enabled = true
             AND assignment.agent_uid = service_state.agent_id
-            AND package.name = service_state.service_name
+            AND (
+              package.name = service_state.service_name
+              OR (
+                service_state.details IS JSON
+                AND (
+                  service_state.details::jsonb #>> '{labels,plugin_id}' = package.plugin_id
+                  OR service_state.details::jsonb ->> 'plugin_id' = package.plugin_id
+                )
+              )
+            )
             AND (
               package.outputs IN ($1, $2)
               OR $3 = ANY(package.approved_capabilities)
@@ -469,10 +475,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     Map.get(status, key) || Map.get(status, Atom.to_string(key))
   end
 
-  defp should_track_assignment_service?(
-         %PluginAssignment{} = assignment,
-         %PluginPackage{} = package
-       ) do
+  defp should_track_assignment_service?(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
     assignment.enabled == true and
       (streaming_plugin_package?(package) or plugin_result_package?(package))
   end
@@ -497,11 +500,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp build_attrs_from_assignment(
-         %PluginAssignment{} = assignment,
-         agent,
-         %PluginPackage{} = package
-       ) do
+  defp build_attrs_from_assignment(%PluginAssignment{} = assignment, agent, %PluginPackage{} = package) do
     plugin_type = assignment_plugin_type(package)
     {available, message} = assignment_initial_state(plugin_type)
 
@@ -638,8 +637,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     end
   end
 
-  defp agent_gateway_id(agent_id, actor)
-       when is_binary(agent_id) and agent_id not in ["", "unknown"] do
+  defp agent_gateway_id(agent_id, actor) when is_binary(agent_id) and agent_id not in ["", "unknown"] do
     case Agent.get_by_uid(agent_id, actor: actor) do
       {:ok, agent} -> normalize_string(agent.gateway_id, nil)
       _ -> nil

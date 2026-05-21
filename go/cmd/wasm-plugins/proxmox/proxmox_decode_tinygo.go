@@ -5,10 +5,10 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/tidwall/gjson"
 )
 
 func getJSON[T any](cfg Config, target Target, token, path string, out *T) error {
@@ -33,50 +33,48 @@ func getJSON[T any](cfg Config, target Target, token, path string, out *T) error
 }
 
 func decodeProxmoxJSON[T any](body []byte, out *T) error {
-	raw := string(body)
+	root := gjson.ParseBytes(body)
+	data := root.Get("data")
 
 	switch typed := any(out).(type) {
 	case *proxmoxVersionResponse:
-		data := jsonDataObject(raw)
 		typed.Data = proxmoxVersion{
-			Version: jsonStringValue(data, "version"),
-			Release: jsonStringValue(data, "release"),
-			RepoID:  jsonStringValue(data, "repoid"),
+			Version: data.Get("version").String(),
+			Release: data.Get("release").String(),
+			RepoID:  data.Get("repoid").String(),
 		}
 	case *proxmoxNodesResponse:
-		typed.Data = parseProxmoxNodes(jsonDataArray(raw))
+		typed.Data = parseProxmoxNodes(data)
 	case *proxmoxResourcesResponse:
-		typed.Data = parseProxmoxResources(jsonDataArray(raw))
+		typed.Data = parseProxmoxResources(data)
 	case *proxmoxClusterStatusResponse:
-		typed.Data = parseProxmoxClusterNodes(jsonDataArray(raw))
+		typed.Data = parseProxmoxClusterNodes(data)
 	case *proxmoxNodeStatusResponse:
-		data := jsonDataObject(raw)
-		typed.Data = proxmoxNodeStatus{Wait: jsonFloatValue(data, "wait")}
+		typed.Data = proxmoxNodeStatus{Wait: data.Get("wait").Float()}
 	case *proxmoxStorageResponse:
-		typed.Data = parseProxmoxStorage(jsonDataArray(raw))
+		typed.Data = parseProxmoxStorage(data)
 	case *proxmoxNetworkResponse:
-		typed.Data = parseProxmoxNetwork(jsonDataArray(raw))
+		typed.Data = parseProxmoxNetwork(data)
 	case *proxmoxDiskResponse:
-		typed.Data = parseProxmoxDisks(jsonDataArray(raw))
+		typed.Data = parseProxmoxDisks(data)
 	case *proxmoxCephStatusResponse:
-		data := jsonDataObject(raw)
-		health := jsonStringValue(data, "health")
-		if healthObject := jsonObjectValue(data, "health"); healthObject != "" {
-			health = firstNonEmpty(jsonStringValue(healthObject, "status"), health)
+		health := data.Get("health").String()
+		if healthObject := data.Get("health"); healthObject.IsObject() {
+			health = firstNonEmpty(healthObject.Get("status").String(), health)
 		}
 		typed.Data = proxmoxCephStatus{
 			Health:        health,
-			Status:        jsonStringValue(data, "status"),
-			OverallStatus: jsonStringValue(data, "overall_status"),
+			Status:        data.Get("status").String(),
+			OverallStatus: data.Get("overall_status").String(),
 		}
 	case *proxmoxStringMapResponse:
-		typed.Data = jsonObjectStringMap(jsonDataObject(raw))
+		typed.Data = jsonObjectStringMap(data)
 	case *proxmoxGuestAgentNetworkResponse:
-		typed.Data.Result = parseGuestAgentInterfaces(jsonArrayValue(jsonDataObject(raw), "result"))
+		typed.Data.Result = parseGuestAgentInterfaces(data.Get("result"))
 	case *proxmoxGuestAgentFSInfoResponse:
-		typed.Data.Result = parseGuestFilesystems(jsonArrayValue(jsonDataObject(raw), "result"))
+		typed.Data.Result = parseGuestFilesystems(data.Get("result"))
 	case *proxmoxLXCInterfacesResponse:
-		typed.Data = parseLXCInterfaces(jsonDataArray(raw))
+		typed.Data = parseLXCInterfaces(data)
 	default:
 		return fmt.Errorf("unsupported proxmox response type")
 	}
@@ -84,260 +82,223 @@ func decodeProxmoxJSON[T any](body []byte, out *T) error {
 	return nil
 }
 
-func jsonDataArray(raw string) string {
-	return jsonArrayValue(raw, "data")
-}
-
-func jsonDataObject(raw string) string {
-	return jsonObjectValue(raw, "data")
-}
-
-func jsonArrayValue(raw string, key string) string {
-	start, end, ok := jsonValueSpan(raw, key)
-	if !ok || start >= end || raw[start] != '[' {
-		return ""
-	}
-
-	return raw[start:end]
-}
-
-func jsonObjectValue(raw string, key string) string {
-	start, end, ok := jsonValueSpan(raw, key)
-	if !ok || start >= end || raw[start] != '{' {
-		return ""
-	}
-
-	return raw[start:end]
-}
-
-func parseProxmoxNodes(array string) []proxmoxNode {
-	items := rawJSONObjectList(array)
+func parseProxmoxNodes(array gjson.Result) []proxmoxNode {
+	items := array.Array()
 	out := make([]proxmoxNode, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxNode{
-			Node:   jsonStringValue(item, "node"),
-			Status: jsonStringValue(item, "status"),
-			IP:     jsonStringValue(item, "ip"),
-			CPU:    jsonFloatValue(item, "cpu"),
-			MaxCPU: jsonFloatValue(item, "maxcpu"),
-			Mem:    jsonFloatValue(item, "mem"),
-			MaxMem: jsonFloatValue(item, "maxmem"),
-			Uptime: jsonFloatValue(item, "uptime"),
+			Node:   item.Get("node").String(),
+			Status: item.Get("status").String(),
+			IP:     item.Get("ip").String(),
+			CPU:    item.Get("cpu").Float(),
+			MaxCPU: item.Get("maxcpu").Float(),
+			Mem:    item.Get("mem").Float(),
+			MaxMem: item.Get("maxmem").Float(),
+			Uptime: item.Get("uptime").Float(),
 		})
 	}
 
 	return out
 }
 
-func parseProxmoxResources(array string) []proxmoxResource {
-	items := rawJSONObjectList(array)
+func parseProxmoxResources(array gjson.Result) []proxmoxResource {
+	items := array.Array()
 	out := make([]proxmoxResource, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxResource{
-			ID:      jsonStringValue(item, "id"),
-			Node:    jsonStringValue(item, "node"),
-			Name:    jsonStringValue(item, "name"),
-			Type:    jsonStringValue(item, "type"),
-			Status:  jsonStringValue(item, "status"),
-			VMID:    jsonIntValue(item, "vmid"),
-			CPU:     jsonFloatValue(item, "cpu"),
-			MaxCPU:  jsonFloatValue(item, "maxcpu"),
-			Mem:     jsonFloatValue(item, "mem"),
-			MaxMem:  jsonFloatValue(item, "maxmem"),
-			Disk:    jsonFloatValue(item, "disk"),
-			MaxDisk: jsonFloatValue(item, "maxdisk"),
-			Uptime:  jsonFloatValue(item, "uptime"),
+			ID:      item.Get("id").String(),
+			Node:    item.Get("node").String(),
+			Name:    item.Get("name").String(),
+			Type:    item.Get("type").String(),
+			Status:  item.Get("status").String(),
+			VMID:    int(item.Get("vmid").Int()),
+			CPU:     item.Get("cpu").Float(),
+			MaxCPU:  item.Get("maxcpu").Float(),
+			Mem:     item.Get("mem").Float(),
+			MaxMem:  item.Get("maxmem").Float(),
+			Disk:    item.Get("disk").Float(),
+			MaxDisk: item.Get("maxdisk").Float(),
+			Uptime:  item.Get("uptime").Float(),
 		})
 	}
 
 	return out
 }
 
-func parseProxmoxClusterNodes(array string) []proxmoxClusterNode {
-	items := rawJSONObjectList(array)
+func parseProxmoxClusterNodes(array gjson.Result) []proxmoxClusterNode {
+	items := array.Array()
 	out := make([]proxmoxClusterNode, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxClusterNode{
-			ID:      jsonStringValue(item, "id"),
-			Name:    jsonStringValue(item, "name"),
-			Type:    jsonStringValue(item, "type"),
-			NodeID:  jsonIntValue(item, "nodeid"),
-			Nodes:   jsonIntValue(item, "nodes"),
-			Quorate: jsonIntValue(item, "quorate"),
-			IP:      jsonStringValue(item, "ip"),
-			Local:   jsonIntValue(item, "local"),
-			Online:  jsonIntValue(item, "online"),
+			ID:      item.Get("id").String(),
+			Name:    item.Get("name").String(),
+			Type:    item.Get("type").String(),
+			NodeID:  int(item.Get("nodeid").Int()),
+			Nodes:   int(item.Get("nodes").Int()),
+			Quorate: int(item.Get("quorate").Int()),
+			IP:      item.Get("ip").String(),
+			Local:   int(item.Get("local").Int()),
+			Online:  int(item.Get("online").Int()),
 		})
 	}
 
 	return out
 }
 
-func parseProxmoxStorage(array string) []proxmoxStorage {
-	items := rawJSONObjectList(array)
+func parseProxmoxStorage(array gjson.Result) []proxmoxStorage {
+	items := array.Array()
 	out := make([]proxmoxStorage, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxStorage{
-			Storage: jsonStringValue(item, "storage"),
-			Type:    jsonStringValue(item, "type"),
-			Content: jsonStringValue(item, "content"),
-			Used:    jsonFloatValue(item, "used"),
-			Avail:   jsonFloatValue(item, "avail"),
-			Total:   jsonFloatValue(item, "total"),
+			Storage: item.Get("storage").String(),
+			Type:    item.Get("type").String(),
+			Content: item.Get("content").String(),
+			Used:    item.Get("used").Float(),
+			Avail:   item.Get("avail").Float(),
+			Total:   item.Get("total").Float(),
 		})
 	}
 
 	return out
 }
 
-func parseProxmoxNetwork(array string) []proxmoxNetworkInterface {
-	items := rawJSONObjectList(array)
+func parseProxmoxNetwork(array gjson.Result) []proxmoxNetworkInterface {
+	items := array.Array()
 	out := make([]proxmoxNetworkInterface, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxNetworkInterface{
-			Iface:       jsonStringValue(item, "iface"),
-			Type:        jsonStringValue(item, "type"),
-			Method:      jsonStringValue(item, "method"),
-			Method6:     jsonStringValue(item, "method6"),
-			Address:     jsonStringValue(item, "address"),
-			Netmask:     jsonStringValue(item, "netmask"),
-			Gateway:     jsonStringValue(item, "gateway"),
-			CIDR:        jsonStringValue(item, "cidr"),
-			BridgePorts: jsonStringValue(item, "bridge-ports"),
-			Families:    jsonStringArrayValue(item, "families"),
+			Iface:       item.Get("iface").String(),
+			Type:        item.Get("type").String(),
+			Method:      item.Get("method").String(),
+			Method6:     item.Get("method6").String(),
+			Address:     item.Get("address").String(),
+			Netmask:     item.Get("netmask").String(),
+			Gateway:     item.Get("gateway").String(),
+			CIDR:        item.Get("cidr").String(),
+			BridgePorts: item.Get("bridge-ports").String(),
+			Families:    jsonStringArrayValue(item.Get("families")),
 		})
 	}
 
 	return out
 }
 
-func parseProxmoxDisks(array string) []proxmoxDisk {
-	items := rawJSONObjectList(array)
+func parseProxmoxDisks(array gjson.Result) []proxmoxDisk {
+	items := array.Array()
 	out := make([]proxmoxDisk, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxDisk{
-			DevPath: jsonStringValue(item, "devpath"),
-			ByID:    jsonStringValue(item, "by_id_link"),
-			Type:    jsonStringValue(item, "type"),
-			Model:   jsonStringValue(item, "model"),
-			Vendor:  jsonStringValue(item, "vendor"),
-			Used:    jsonStringValue(item, "used"),
-			Health:  jsonStringValue(item, "health"),
-			Size:    jsonFloatValue(item, "size"),
+			DevPath: item.Get("devpath").String(),
+			ByID:    item.Get("by_id_link").String(),
+			Type:    item.Get("type").String(),
+			Model:   item.Get("model").String(),
+			Vendor:  item.Get("vendor").String(),
+			Used:    item.Get("used").String(),
+			Health:  item.Get("health").String(),
+			Size:    item.Get("size").Float(),
 		})
 	}
 
 	return out
 }
 
-func parseGuestAgentInterfaces(array string) []proxmoxGuestAgentInterface {
-	items := rawJSONObjectList(array)
+func parseGuestAgentInterfaces(array gjson.Result) []proxmoxGuestAgentInterface {
+	items := array.Array()
 	out := make([]proxmoxGuestAgentInterface, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxGuestAgentInterface{
-			Name:            jsonStringValue(item, "name"),
-			HardwareAddress: jsonStringValue(item, "hardware-address"),
-			IPAddresses:     parseGuestAgentIPAddresses(jsonArrayValue(item, "ip-addresses")),
+			Name:            item.Get("name").String(),
+			HardwareAddress: item.Get("hardware-address").String(),
+			IPAddresses:     parseGuestAgentIPAddresses(item.Get("ip-addresses")),
 		})
 	}
 
 	return out
 }
 
-func parseGuestAgentIPAddresses(array string) []proxmoxGuestAgentIPAddress {
-	items := rawJSONObjectList(array)
+func parseGuestAgentIPAddresses(array gjson.Result) []proxmoxGuestAgentIPAddress {
+	items := array.Array()
 	out := make([]proxmoxGuestAgentIPAddress, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxGuestAgentIPAddress{
-			IPAddress:     jsonStringValue(item, "ip-address"),
-			IPAddressType: jsonStringValue(item, "ip-address-type"),
-			Prefix:        jsonIntValue(item, "prefix"),
+			IPAddress:     item.Get("ip-address").String(),
+			IPAddressType: item.Get("ip-address-type").String(),
+			Prefix:        int(item.Get("prefix").Int()),
 		})
 	}
 
 	return out
 }
 
-func parseGuestFilesystems(array string) []proxmoxGuestFilesystem {
-	items := rawJSONObjectList(array)
+func parseGuestFilesystems(array gjson.Result) []proxmoxGuestFilesystem {
+	items := array.Array()
 	out := make([]proxmoxGuestFilesystem, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxGuestFilesystem{
-			Name:       jsonStringValue(item, "name"),
-			Mountpoint: jsonStringValue(item, "mountpoint"),
-			Type:       jsonStringValue(item, "type"),
-			TotalBytes: jsonFloatValue(item, "total-bytes"),
-			UsedBytes:  jsonFloatValue(item, "used-bytes"),
+			Name:       item.Get("name").String(),
+			Mountpoint: item.Get("mountpoint").String(),
+			Type:       item.Get("type").String(),
+			TotalBytes: item.Get("total-bytes").Float(),
+			UsedBytes:  item.Get("used-bytes").Float(),
 		})
 	}
 
 	return out
 }
 
-func parseLXCInterfaces(array string) []proxmoxLXCInterface {
-	items := rawJSONObjectList(array)
+func parseLXCInterfaces(array gjson.Result) []proxmoxLXCInterface {
+	items := array.Array()
 	out := make([]proxmoxLXCInterface, 0, len(items))
 	for _, item := range items {
 		out = append(out, proxmoxLXCInterface{
-			Name:       jsonStringValue(item, "name"),
-			Hardware:   jsonStringValue(item, "hardware"),
-			MACAddress: jsonStringValue(item, "hwaddr"),
-			Inet:       jsonStringValue(item, "inet"),
-			Inet6:      jsonStringValue(item, "inet6"),
+			Name:       item.Get("name").String(),
+			Hardware:   item.Get("hardware").String(),
+			MACAddress: item.Get("hwaddr").String(),
+			Inet:       item.Get("inet").String(),
+			Inet6:      item.Get("inet6").String(),
 		})
 	}
 
 	return out
 }
 
-func jsonObjectStringMap(object string) map[string]string {
-	object = strings.TrimSpace(object)
-	if len(object) < 2 || object[0] != '{' {
+func jsonObjectStringMap(object gjson.Result) map[string]string {
+	if !object.IsObject() {
 		return nil
 	}
+
 	out := map[string]string{}
-	for i := 1; i < len(object)-1; {
-		i = skipJSONWhitespace(object, i)
-		if i >= len(object)-1 || object[i] == '}' {
-			break
+	object.ForEach(func(key, value gjson.Result) bool {
+		if value.IsObject() || value.IsArray() || value.Type == gjson.Null {
+			return true
 		}
-		if object[i] != '"' {
-			i++
-			continue
-		}
-		keyEnd := jsonStringEnd(object, i)
-		if keyEnd < 0 {
-			break
-		}
-		key, err := strconv.Unquote(object[i : keyEnd+1])
-		if err != nil {
-			break
-		}
-		colon := skipJSONWhitespace(object, keyEnd+1)
-		if colon >= len(object) || object[colon] != ':' {
-			i = keyEnd + 1
-			continue
-		}
-		valueStart := skipJSONWhitespace(object, colon+1)
-		valueEnd := jsonValueEnd(object, valueStart)
-		if valueEnd < 0 {
-			break
-		}
-		value := strings.TrimSpace(object[valueStart:valueEnd])
-		if strings.HasPrefix(value, `"`) {
-			if unquoted, err := strconv.Unquote(value); err == nil {
-				out[key] = unquoted
-			}
-		} else if value != "null" && value != "" && !strings.HasPrefix(value, "{") && !strings.HasPrefix(value, "[") {
-			out[key] = strings.Trim(value, ` "`)
-		}
-		i = valueEnd + 1
-	}
+		out[key.String()] = value.String()
+		return true
+	})
 	if len(out) == 0 {
 		return nil
 	}
 
 	return out
+}
+
+func jsonStringArrayValue(array gjson.Result) []string {
+	if !array.IsArray() {
+		return nil
+	}
+
+	values := make([]string, 0)
+	array.ForEach(func(_key, value gjson.Result) bool {
+		if value.Type != gjson.Null {
+			values = append(values, value.String())
+		}
+		return true
+	})
+	if len(values) == 0 {
+		return nil
+	}
+
+	return values
 }
 
 func responseBodySuffix(body []byte) string {
@@ -346,9 +307,7 @@ func responseBodySuffix(body []byte) string {
 	if bodyText == "" {
 		return ""
 	}
-	if len(bodyText) > 300 {
-		bodyText = bodyText[:300] + "..."
-	}
+	bodyText = truncateString(bodyText, 300)
 
 	return ": " + bodyText
 }

@@ -192,6 +192,45 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if len(result.Metrics) < 14 {
 		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
 	}
+	if len(result.DeviceDiscovery) != 1 {
+		t.Fatalf("expected one device discovery envelope, got %#v", result.DeviceDiscovery)
+	}
+	if got := len(result.DeviceDiscovery[0].Devices); got != 2 {
+		t.Fatalf("expected node and guest discoveries, got %d: %#v", got, result.DeviceDiscovery[0].Devices)
+	}
+}
+
+func TestEmitResourceEventsAddsOCSFEvents(t *testing.T) {
+	result := newPluginResult(sdk.StatusWarning, "resource pressure")
+	emitResourceEvents(result, proxmoxDetails{Targets: []proxmoxTarget{
+		{
+			BaseURL: "https://pve-a.example:8006",
+			Nodes: []proxmoxNode{
+				{
+					Node:         "pve-a",
+					CPU:          0.91,
+					Mem:          950,
+					MaxMem:       1000,
+					RuntimeState: proxmoxNodeStatus{Wait: 0.41},
+				},
+			},
+			Guests: []proxmoxGuest{
+				{proxmoxResource: proxmoxResource{Type: "qemu", VMID: 100, CPU: 0.85, Mem: 900, MaxMem: 1000}},
+			},
+		},
+	}})
+
+	if len(result.Events) < 5 {
+		t.Fatalf("expected resource events, got %#v", result.Events)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(result.JSON(), &payload); err != nil {
+		t.Fatalf("result JSON should be valid: %v", err)
+	}
+	if events, ok := payload["events"].([]any); !ok || len(events) != len(result.Events) {
+		t.Fatalf("expected serialized events, got %#v", payload["events"])
+	}
 }
 
 func TestInterfacesFromLXCInterfacesIncludesRuntimeDHCPAddress(t *testing.T) {

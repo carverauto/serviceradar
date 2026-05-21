@@ -6,27 +6,32 @@ import (
 	"strings"
 
 	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/tidwall/gjson"
 )
 
 func configFromRawConfig(raw string) Config {
+	root := gjson.Parse(raw)
 	cfg := defaultConfig()
-	cfg.BaseURL = jsonStringValue(raw, "base_url")
-	cfg.APIToken = jsonStringValue(raw, "api_token")
-	cfg.APITokenSecretRef = jsonStringValue(raw, "api_token_secret_ref")
-	cfg.TimeoutMS = jsonIntValue(raw, "timeout_ms")
-	cfg.MaxResponseBytes = jsonIntValue(raw, "max_response_bytes")
-	if value, ok := jsonBoolValue(raw, "include_guests"); ok {
-		cfg.IncludeGuests = &value
+	cfg.BaseURL = root.Get("base_url").String()
+	cfg.APIToken = root.Get("api_token").String()
+	cfg.APITokenSecretRef = root.Get("api_token_secret_ref").String()
+	cfg.TimeoutMS = int(root.Get("timeout_ms").Int())
+	cfg.MaxResponseBytes = int(root.Get("max_response_bytes").Int())
+	if value := root.Get("include_guests"); value.Exists() {
+		includeGuests := value.Bool()
+		cfg.IncludeGuests = &includeGuests
 	}
-	if value, ok := jsonBoolValue(raw, "insecure_skip_verify"); ok {
-		cfg.InsecureSkipVerify = value
+	if value := root.Get("insecure_skip_verify"); value.Exists() {
+		cfg.InsecureSkipVerify = value.Bool()
 	}
-	if value, ok := jsonBoolValue(raw, "auto_discovery_enabled"); ok {
-		cfg.AutoDiscovery = value
+	if value := root.Get("auto_discovery_enabled"); value.Exists() {
+		cfg.AutoDiscovery = value.Bool()
 	}
 
-	if strings.Contains(raw, sdk.PluginInputsSchemaV1) {
-		cfg.Targets = targetsFromRawPluginInputItems(raw, cfg)
+	if strings.TrimSpace(root.Get("schema").String()) == sdk.PluginInputsSchemaV1 ||
+		root.Get("inputs").Exists() ||
+		strings.Contains(raw, sdk.PluginInputsSchemaV1) {
+		cfg.Targets = targetsFromRawPluginInputItems(root, cfg)
 		if len(cfg.Targets) > 0 {
 			cfg.BaseURL = ""
 		}
@@ -35,55 +40,58 @@ func configFromRawConfig(raw string) Config {
 	return cfg
 }
 
-func targetsFromRawPluginInputItems(raw string, cfg Config) []Target {
-	items := rawJSONObjectList(rawItemsArray(raw))
-	targets := make([]Target, 0, len(items))
+func targetsFromRawPluginInputItems(root gjson.Result, cfg Config) []Target {
+	inputs := root.Get("inputs").Array()
+	targets := make([]Target, 0)
 
-	for _, item := range items {
-		target := targetFromRawPluginInputItem(item, cfg)
-		if strings.TrimSpace(target.BaseURL) != "" {
-			targets = append(targets, target)
-		}
+	for _, input := range inputs {
+		input.Get("items").ForEach(func(_key, item gjson.Result) bool {
+			target := targetFromRawPluginInputItem(item, cfg)
+			if strings.TrimSpace(target.BaseURL) != "" {
+				targets = append(targets, target)
+			}
+			return true
+		})
 	}
 
 	return dedupeTargets(targets)
 }
 
-func targetFromRawPluginInputItem(item string, cfg Config) Target {
-	hostname := firstNonEmpty(jsonStringValue(item, "hostname"), jsonStringValue(item, "name"))
+func targetFromRawPluginInputItem(item gjson.Result, cfg Config) Target {
+	hostname := firstNonEmpty(item.Get("hostname").String(), item.Get("name").String())
 
 	return Target{
 		BaseURL:  rawItemBaseURL(item, cfg),
 		APIToken: cfg.APIToken,
 		DeviceID: firstNonEmpty(
-			jsonStringValue(item, "uid"),
-			jsonStringValue(item, "device_uid"),
-			jsonStringValue(item, "device_id"),
+			item.Get("uid").String(),
+			item.Get("device_uid").String(),
+			item.Get("device_id").String(),
 		),
 		Hostname: hostname,
 		Partition: firstNonEmpty(
-			jsonStringValue(item, "partition"),
-			jsonStringValue(item, "site"),
+			item.Get("partition").String(),
+			item.Get("site").String(),
 		),
 	}
 }
 
-func rawItemBaseURL(item string, cfg Config) string {
+func rawItemBaseURL(item gjson.Result, cfg Config) string {
 	direct := firstNonEmpty(
-		jsonStringValue(item, "base_url"),
-		jsonStringValue(item, "proxmox_base_url"),
-		jsonStringValue(item, "endpoint"),
-		jsonStringValue(item, "management_url"),
+		item.Get("base_url").String(),
+		item.Get("proxmox_base_url").String(),
+		item.Get("endpoint").String(),
+		item.Get("management_url").String(),
 	)
 	if direct != "" {
 		return normalizeBaseURL(direct)
 	}
 
 	host := firstNonEmpty(
-		jsonStringValue(item, "ip"),
-		jsonStringValue(item, "device_ip"),
-		jsonStringValue(item, "hostname"),
-		jsonStringValue(item, "name"),
+		item.Get("ip").String(),
+		item.Get("device_ip").String(),
+		item.Get("hostname").String(),
+		item.Get("name").String(),
 	)
 	if host != "" {
 		return normalizeBaseURL(host)

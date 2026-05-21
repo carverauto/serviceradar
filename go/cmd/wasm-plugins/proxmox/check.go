@@ -17,6 +17,8 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	}
 
 	now := time.Now().UTC()
+	discovery := sdk.NewDeviceDiscovery(discoverySource)
+	discovery.ObservedAt = now.Format(time.RFC3339Nano)
 	details := proxmoxDetails{
 		Schema:  "serviceradar.proxmox_enrichment.v1",
 		Targets: make([]proxmoxTarget, 0, len(targets)),
@@ -29,6 +31,9 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 			details.Errors[target.safeName()] = sanitizeError(err)
 			continue
 		}
+
+		addNodeDiscoveries(discovery, target, inventory.Nodes)
+		addGuestDiscoveries(discovery, inventory.Guests)
 
 		details.Targets = append(details.Targets, proxmoxTarget{
 			BaseURL:  target.redactedBaseURL(),
@@ -104,6 +109,10 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	result.AddMetric("proxmox_guest_mem_ratio_max", details.ResourceSummary.MaxGuestMemRatio, "ratio", sdk.Thresholds(0.80, 0.90))
 	result.AddMetric("proxmox_guest_disk_ratio_max", details.ResourceSummary.MaxGuestDiskRatio, "ratio", sdk.Thresholds(0.80, 0.90))
 	result.AddLabel("plugin_id", pluginID)
+	emitResourceEvents(result, details)
+	if len(discovery.Devices) > 0 {
+		result.AddDeviceDiscovery(*discovery)
+	}
 
 	return result, nil
 }

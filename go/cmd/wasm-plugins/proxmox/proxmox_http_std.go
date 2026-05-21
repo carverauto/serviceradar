@@ -37,9 +37,7 @@ func responseBodySuffix(body []byte) string {
 	if bodyText == "" {
 		return ""
 	}
-	if len(bodyText) > 300 {
-		bodyText = bodyText[:300] + "..."
-	}
+	bodyText = truncateString(bodyText, 300)
 
 	return ": " + bodyText
 }

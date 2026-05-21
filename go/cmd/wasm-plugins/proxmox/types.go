@@ -129,13 +129,15 @@ type resourceSummary struct {
 }
 
 type pluginResult struct {
-	Status        sdk.Status        `json:"status"`
-	Summary       string            `json:"summary"`
-	Details       string            `json:"details,omitempty"`
-	Metrics       []pluginMetric    `json:"metrics,omitempty"`
-	Labels        map[string]string `json:"labels,omitempty"`
-	ObservedAt    string            `json:"observed_at,omitempty"`
-	SchemaVersion int               `json:"schema_version,omitempty"`
+	Status          sdk.Status            `json:"status"`
+	Summary         string                `json:"summary"`
+	Details         string                `json:"details,omitempty"`
+	Metrics         []pluginMetric        `json:"metrics,omitempty"`
+	Labels          map[string]string     `json:"labels,omitempty"`
+	Events          []sdk.OCSFEvent       `json:"events,omitempty"`
+	DeviceDiscovery []sdk.DeviceDiscovery `json:"device_discovery,omitempty"`
+	ObservedAt      string                `json:"observed_at,omitempty"`
+	SchemaVersion   int                   `json:"schema_version,omitempty"`
 }
 
 type pluginMetric struct {

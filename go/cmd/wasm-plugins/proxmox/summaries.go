@@ -280,7 +280,7 @@ func mergeResourceSummary(acc, next resourceSummary) resourceSummary {
 	return acc
 }
 
-func emitResourceEvents(result *sdk.Result, details proxmoxDetails) {
+func emitResourceEvents(result *pluginResult, details proxmoxDetails) {
 	for _, target := range details.Targets {
 		for _, node := range target.Nodes {
 			emitRatioEvent(result, "node_cpu", target.safeEventPrefix()+node.Node, ratio(node.CPU, 1))
@@ -303,7 +303,7 @@ func emitResourceEvents(result *sdk.Result, details proxmoxDetails) {
 	}
 }
 
-func emitIOWaitEvent(result *sdk.Result, key string, value float64) {
+func emitIOWaitEvent(result *pluginResult, key string, value float64) {
 	switch {
 	case value >= 0.40:
 		result.EmitEvent(
@@ -320,7 +320,7 @@ func emitIOWaitEvent(result *sdk.Result, key string, value float64) {
 	}
 }
 
-func emitRatioEvent(result *sdk.Result, kind, key string, value float64) {
+func emitRatioEvent(result *pluginResult, kind, key string, value float64) {
 	switch {
 	case value >= 0.90:
 		result.EmitEvent(
@@ -337,7 +337,7 @@ func emitRatioEvent(result *sdk.Result, kind, key string, value float64) {
 	}
 }
 
-func emitCephHealthEvent(result *sdk.Result, key string, ceph *proxmoxCeph) {
+func emitCephHealthEvent(result *pluginResult, key string, ceph *proxmoxCeph) {
 	if ceph == nil {
 		return
 	}
@@ -358,7 +358,7 @@ func emitCephHealthEvent(result *sdk.Result, key string, ceph *proxmoxCeph) {
 	}
 }
 
-func emitDiskHealthEvent(result *sdk.Result, key string, disk proxmoxDisk) {
+func emitDiskHealthEvent(result *pluginResult, key string, disk proxmoxDisk) {
 	health := strings.ToUpper(strings.TrimSpace(disk.Health))
 	if health == "" || health == "OK" || health == "PASSED" {
 		return
