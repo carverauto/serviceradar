@@ -24,6 +24,8 @@ const (
 	sampleNorthboundFixtureAssignmentID = "sample-northbound-action"
 	sampleNorthboundFixturePluginID     = "sample-northbound-nms"
 	sampleNorthboundFixtureObjectKey    = "sample_northbound.wasm"
+	resolvedToken                       = "resolved-token"
+	testCredentialAPIURL                = "https://api.example.com/api/v1/devices"
 )
 
 func TestPluginManagerRunActionWithFixtureWasm(t *testing.T) {
@@ -285,7 +287,7 @@ func TestValidatePluginActionHTTPGrantRejectsExpiredGrant(t *testing.T) {
 func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
 	t.Parallel()
 
-	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	req := httptestRequest(t)
 	grant := credentialBrokerGrant{
 		Inject: map[string]string{
 			"type":   "http_header",
@@ -294,11 +296,11 @@ func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
 		},
 	}
 
-	err := applyCredentialBrokerHTTPInjection(req, grant, CredentialBrokerMaterial{Value: "resolved-token"})
+	err := applyCredentialBrokerHTTPInjection(req, grant, CredentialBrokerMaterial{Value: resolvedToken})
 	if err != nil {
 		t.Fatalf("applyCredentialBrokerHTTPInjection returned error: %v", err)
 	}
-	if got := req.Header.Get("Authorization"); got != "Bearer resolved-token" {
+	if got := req.Header.Get("Authorization"); got != "Bearer "+resolvedToken {
 		t.Fatalf("Authorization header = %q, want bearer token", got)
 	}
 }
@@ -306,7 +308,7 @@ func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
 func TestPluginExecutionCredentialInjectionRequiresResolver(t *testing.T) {
 	t.Parallel()
 
-	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	req := httptestRequest(t)
 	exec := &pluginExecution{
 		manager: NewPluginManager(t.Context(), PluginManagerConfig{}),
 	}
@@ -322,9 +324,9 @@ func TestPluginExecutionCredentialInjectionRequiresResolver(t *testing.T) {
 func TestPluginExecutionCredentialInjectionUsesResolverWithoutPluginSecret(t *testing.T) {
 	t.Parallel()
 
-	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	req := httptestRequest(t)
 	resolver := &fakeCredentialBrokerResolver{
-		material: CredentialBrokerMaterial{Fields: map[string]string{"value": "resolved-token"}},
+		material: CredentialBrokerMaterial{Fields: map[string]string{"value": resolvedToken}},
 	}
 	exec := &pluginExecution{
 		manager: NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver}),
@@ -344,7 +346,7 @@ func TestPluginExecutionCredentialInjectionUsesResolverWithoutPluginSecret(t *te
 	if resolver.grantID != "grant-1" {
 		t.Fatalf("resolver grant id = %q, want grant-1", resolver.grantID)
 	}
-	if got := req.Header.Get("Authorization"); got != "Bearer resolved-token" {
+	if got := req.Header.Get("Authorization"); got != "Bearer "+resolvedToken {
 		t.Fatalf("Authorization header = %q, want resolved token", got)
 	}
 }
@@ -375,9 +377,9 @@ func TestValidatePluginActionHTTPGrantDeniesEmptyHostACL(t *testing.T) {
 func TestPluginExecutionCredentialInjectionDeniesInsecureTLSByDefault(t *testing.T) {
 	t.Parallel()
 
-	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	req := httptestRequest(t)
 	resolver := &fakeCredentialBrokerResolver{
-		material: CredentialBrokerMaterial{Fields: map[string]string{"value": "resolved-token"}},
+		material: CredentialBrokerMaterial{Fields: map[string]string{"value": resolvedToken}},
 	}
 	exec := &pluginExecution{
 		manager: NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver}),
@@ -400,7 +402,7 @@ func TestPluginExecutionCredentialInjectionDeniesInsecureTLSByDefault(t *testing
 func TestCredentialBrokerBasicAuthRequiresExplicitFields(t *testing.T) {
 	t.Parallel()
 
-	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	req := httptestRequest(t)
 	grant := credentialBrokerGrant{
 		Inject: map[string]string{"type": "basic_auth"},
 	}
@@ -417,7 +419,7 @@ func TestCredentialBrokerBasicAuthRequiresExplicitFields(t *testing.T) {
 func TestCredentialBrokerBasicAuthUsesUsernamePasswordFields(t *testing.T) {
 	t.Parallel()
 
-	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	req := httptestRequest(t)
 	grant := credentialBrokerGrant{
 		Inject: map[string]string{"type": "basic_auth"},
 	}
@@ -466,7 +468,7 @@ func TestCredentialBrokerResolutionDefaultsNoCache(t *testing.T) {
 	t.Parallel()
 
 	resolver := &fakeCredentialBrokerResolver{
-		material: CredentialBrokerMaterial{Value: "resolved-token"},
+		material: CredentialBrokerMaterial{Value: resolvedToken},
 	}
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
 	grant := credentialBrokerGrant{
@@ -490,7 +492,7 @@ func TestCredentialBrokerResolutionMemoryCacheExpires(t *testing.T) {
 
 	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
 	resolver := &fakeCredentialBrokerResolver{
-		material: CredentialBrokerMaterial{Value: "resolved-token"},
+		material: CredentialBrokerMaterial{Value: resolvedToken},
 	}
 	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
 	manager.credentialNow = func() time.Time { return now }
@@ -509,7 +511,7 @@ func TestCredentialBrokerResolutionMemoryCacheExpires(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first resolve returned error: %v", err)
 	}
-	if first.Value != "resolved-token" {
+	if first.Value != resolvedToken {
 		t.Fatalf("first material = %q, want resolved-token", first.Value)
 	}
 
@@ -518,7 +520,7 @@ func TestCredentialBrokerResolutionMemoryCacheExpires(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second resolve returned error: %v", err)
 	}
-	if second.Value != "resolved-token" {
+	if second.Value != resolvedToken {
 		t.Fatalf("second material = %q, want cached resolved-token", second.Value)
 	}
 	if resolver.calls != 1 {
@@ -544,7 +546,7 @@ func TestCredentialBrokerResolutionMemoryCacheCappedByProviderLease(t *testing.T
 	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
 	resolver := &fakeCredentialBrokerResolver{
 		material: CredentialBrokerMaterial{
-			Value:          "resolved-token",
+			Value:          resolvedToken,
 			LeaseExpiresAt: now.Add(10 * time.Second),
 		},
 	}
@@ -565,7 +567,7 @@ func TestCredentialBrokerResolutionMemoryCacheCappedByProviderLease(t *testing.T
 	if err != nil {
 		t.Fatalf("first resolve returned error: %v", err)
 	}
-	if first.Value != "resolved-token" {
+	if first.Value != resolvedToken {
 		t.Fatalf("first material = %q, want resolved-token", first.Value)
 	}
 
@@ -649,10 +651,10 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	return parsed
 }
 
-func httptestRequest(t *testing.T, method, rawURL string) *http.Request {
+func httptestRequest(t *testing.T) *http.Request {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), method, rawURL, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, testCredentialAPIURL, nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
