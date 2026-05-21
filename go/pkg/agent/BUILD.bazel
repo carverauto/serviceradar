@@ -6,6 +6,7 @@ go_library(
         "app_tcp_route.go",
         "camera_relay.go",
         "camera_relay_rtsp.go",
+        "credential_broker_resolver.go",
         "desktop_media_sender.go",
         "desktop_rdp_helper_adapter.go",
         "desktop_rdp_helper_protocol.go",
@@ -86,6 +87,7 @@ go_test(
     srcs = [
         "camera_relay_test.go",
         "control_stream_test.go",
+        "credential_broker_resolver_test.go",
         "desktop_media_sender_test.go",
         "desktop_rdp_helper_adapter_test.go",
         "desktop_rdp_helper_protocol_test.go",
