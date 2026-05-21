@@ -10,6 +10,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.PluginPackage
@@ -91,7 +92,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp reconcile_rule(rule, agent_id, package, purpose, actor, reconciler, opts) do
-    with {:ok, policy} <- policy_for_rule(rule, package, purpose),
+    with {:ok, policy} <- policy_for_rule(rule, package, purpose, agent_id, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
       reconcile_opts =
         opts
@@ -103,16 +104,18 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp policy_for_rule(rule, package, purpose) do
+  defp policy_for_rule(rule, package, purpose, agent_id, actor, opts) do
     with {:ok, rule_id} <- required_string(rule, [:id, "id"], "id"),
          {:ok, secret_id} <- required_string(rule, [:secret_id, "secret_id"], "secret_id"),
-         {:ok, package_id} <- required_string(package, [:id, "id"], "plugin package id") do
+         {:ok, package_id} <- required_string(package, [:id, "id"], "plugin package id"),
+         {:ok, params_template} <-
+           proxmox_params_template(rule, secret_id, purpose, agent_id, actor, opts) do
       {:ok,
        %{
          policy_id: policy_id_for_rule(rule_id, purpose),
          policy_version: rule_version(rule),
          plugin_package_id: package_id,
-         params_template: proxmox_params_template(rule, secret_id, purpose),
+         params_template: params_template,
          enabled: rule_enabled?(rule),
          interval_seconds: metadata_int(rule, "interval_seconds", 300),
          timeout_seconds: metadata_int(rule, "timeout_seconds", 30)
@@ -126,70 +129,129 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp proxmox_params_template(rule, secret_id, @inventory_purpose) do
-    %{
-      "credential_broker" => proxmox_inventory_credential_broker_grant(rule, secret_id),
-      "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "include_guests" => metadata_bool(rule, "include_guests", true),
-      "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
-      "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
-      "auto_discovery_enabled" => metadata_bool(rule, "auto_discovery_enabled", false),
-      "credential_rule_id" => value_string(rule, [:id, "id"])
-    }
-  end
-
-  defp proxmox_params_template(rule, secret_id, @console_purpose) do
-    params = %{
-      "credential_broker" => proxmox_console_credential_broker_grant(rule, secret_id),
-      "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
-      "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
-      "ssh_host_key_policy" => ssh_host_key_policy(rule),
-      "credential_rule_id" => value_string(rule, [:id, "id"])
-    }
-
-    if auth_method(rule) == "proxmox_api_token" do
-      Map.put(params, "api_token_secret_ref", SecretRefs.network_credential_ref(secret_id))
-    else
-      Map.put(params, "credential_secret", SecretRefs.network_credential_ref(secret_id))
+  defp proxmox_params_template(rule, secret_id, @inventory_purpose, agent_id, actor, opts) do
+    with {:ok, grant} <-
+           proxmox_inventory_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
+      {:ok,
+       %{
+         "credential_broker" => grant,
+         "api_token_secret_ref" => SecretRefs.network_credential_ref(secret_id),
+         "include_guests" => metadata_bool(rule, "include_guests", true),
+         "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
+         "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
+         "auto_discovery_enabled" => metadata_bool(rule, "auto_discovery_enabled", false),
+         "credential_rule_id" => value_string(rule, [:id, "id"])
+       }}
     end
   end
 
-  defp proxmox_params_template(rule, secret_id, _purpose),
-    do: proxmox_params_template(rule, secret_id, @inventory_purpose)
+  defp proxmox_params_template(rule, secret_id, @console_purpose, agent_id, actor, opts) do
+    with {:ok, grant} <-
+           proxmox_console_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
+      params = %{
+        "credential_broker" => grant,
+        "timeout_ms" => metadata_int(rule, "timeout_ms", 30_000),
+        "insecure_skip_verify" => tls_policy(rule) == :skip_verify,
+        "ssh_host_key_policy" => ssh_host_key_policy(rule),
+        "credential_rule_id" => value_string(rule, [:id, "id"])
+      }
 
-  defp proxmox_inventory_credential_broker_grant(rule, secret_id) do
-    %{
-      "schema" => "serviceradar.edge_credential_broker_grant.v1",
-      "grant_type" => "proxmox_api_token",
-      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "inject" => %{
-        "header" => "Authorization",
-        "scheme" => "PVEAPIToken"
-      },
-      "allow" => %{
-        "methods" => ["GET"],
-        "paths" => [
+      if auth_method(rule) == "proxmox_api_token" do
+        {:ok,
+         Map.put(params, "api_token_secret_ref", SecretRefs.network_credential_ref(secret_id))}
+      else
+        {:ok, Map.put(params, "credential_secret", SecretRefs.network_credential_ref(secret_id))}
+      end
+    end
+  end
+
+  defp proxmox_params_template(rule, secret_id, _purpose, agent_id, actor, opts),
+    do: proxmox_params_template(rule, secret_id, @inventory_purpose, agent_id, actor, opts)
+
+  defp proxmox_inventory_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
+    issue_grant(
+      %{
+        secret_id: secret_id,
+        secret_ref: SecretRefs.network_credential_ref(secret_id),
+        credential_rule_id: value_string(rule, [:id, "id"]),
+        grant_type: "proxmox_api_token",
+        consumer_kind: :plugin,
+        consumer_id: @proxmox_inventory_plugin_id,
+        purpose: "inventory_enrichment",
+        agent_id: agent_id,
+        resolution_location: :agent,
+        inject: %{
+          "type" => "http_header",
+          "name" => "Authorization",
+          "scheme" => "PVEAPIToken"
+        },
+        allowed_methods: ["GET"],
+        # Proxmox VE's historical REST API prefix is /api2/json.
+        allowed_paths: [
           "/api2/json/version",
           "/api2/json/cluster/status",
           "/api2/json/nodes",
           "/api2/json/nodes/*",
           "/api2/json/cluster/resources"
-        ]
+        ],
+        ttl_seconds: metadata_int(rule, "credential_broker_ttl_seconds", 300)
       },
-      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
-    }
+      actor,
+      opts
+    )
   end
 
-  defp proxmox_console_credential_broker_grant(rule, secret_id) do
-    %{
-      "schema" => "serviceradar.edge_credential_broker_grant.v1",
-      "grant_type" => "proxmox_console",
-      "auth_method" => auth_method(rule),
-      "credential_secret_ref" => SecretRefs.network_credential_ref(secret_id),
-      "credential_rule_id" => value_string(rule, [:id, "id"]),
-      "ttl_seconds" => metadata_int(rule, "credential_broker_ttl_seconds", 300)
-    }
+  defp proxmox_console_credential_broker_grant(rule, secret_id, agent_id, actor, opts) do
+    issue_grant(
+      %{
+        secret_id: secret_id,
+        secret_ref: SecretRefs.network_credential_ref(secret_id),
+        credential_rule_id: value_string(rule, [:id, "id"]),
+        grant_type: "proxmox_console",
+        consumer_kind: :plugin,
+        consumer_id: @proxmox_console_plugin_id,
+        purpose: "console_access",
+        agent_id: agent_id,
+        resolution_location: :agent,
+        ttl_seconds: metadata_int(rule, "credential_broker_ttl_seconds", 300)
+      },
+      actor,
+      opts,
+      %{"auth_method" => auth_method(rule)}
+    )
+  end
+
+  defp issue_grant(attrs, actor, opts, extras \\ %{}) do
+    issuer = Keyword.get(opts, :grant_issuer, default_grant_issuer(actor))
+
+    case issuer.(attrs) do
+      {:ok, %{} = grant} -> {:ok, CredentialBrokerGrant.to_payload(grant, extras)}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_credential_broker_grant_issuer_result, other}}
+    end
+  end
+
+  defp default_grant_issuer(actor) do
+    if SystemActor.system_actor?(actor) do
+      &issue_persisted_grant(&1, actor)
+    else
+      &issue_ephemeral_test_grant/1
+    end
+  end
+
+  defp issue_persisted_grant(attrs, actor) do
+    attrs
+    |> CredentialBrokerGrant.issue_attrs()
+    |> CredentialBrokerGrant.issue_grant(actor: actor)
+  end
+
+  defp issue_ephemeral_test_grant(attrs) do
+    grant =
+      attrs
+      |> CredentialBrokerGrant.issue_attrs()
+      |> Map.put(:id, "test-grant-#{System.unique_integer([:positive])}")
+
+    {:ok, grant}
   end
 
   defp rules_for_agent_scope(agent_id, purpose, actor, opts) do

@@ -84,7 +84,11 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
                "credential_secret_ref" => ref,
                "credential_rule_id" => "rule-1",
                "grant_type" => "proxmox_api_token",
-               "inject" => %{"header" => "Authorization", "scheme" => "PVEAPIToken"}
+               "inject" => %{
+                 "type" => "http_header",
+                 "name" => "Authorization",
+                 "scheme" => "PVEAPIToken"
+               }
              },
              "api_token_secret_ref" => ref,
              "credential_rule_id" => "rule-1",
@@ -95,6 +99,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
+    broker = policy.params_template["credential_broker"]
+    assert is_binary(broker["grant_id"])
+    assert {:ok, _expires_at, 0} = DateTime.from_iso8601(broker["expires_at"])
     refute Map.has_key?(policy.params_template, "credential_secret_id")
   end
 
@@ -172,6 +179,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:018f3f56-5555-7666-8777-123456789abc"
+    broker = policy.params_template["credential_broker"]
+    assert is_binary(broker["grant_id"])
+    assert {:ok, _expires_at, 0} = DateTime.from_iso8601(broker["expires_at"])
     refute Map.has_key?(policy.params_template, "include_guests")
     refute Map.has_key?(policy.params_template, "auto_discovery_enabled")
   end
@@ -214,6 +224,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:secret-proxmox-api-shared"
+    broker = policy.params_template["credential_broker"]
+    assert is_binary(broker["grant_id"])
+    assert {:ok, _expires_at, 0} = DateTime.from_iso8601(broker["expires_at"])
     refute Map.has_key?(policy.params_template, "credential_secret")
   end
 

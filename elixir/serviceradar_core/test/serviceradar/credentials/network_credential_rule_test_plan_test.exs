@@ -69,24 +69,36 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
     assert plan.payload["credential_broker"]["schema"] ==
              "serviceradar.edge_credential_broker_grant.v1"
 
+    assert is_binary(plan.payload["credential_broker"]["grant_id"])
+
+    assert {:ok, _expires_at, 0} =
+             DateTime.from_iso8601(plan.payload["credential_broker"]["expires_at"])
+
     assert plan.payload["credential_broker"]["credential_secret_ref"] ==
              "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
 
     assert plan.payload["credential_broker"]["target"] == %{
              "device_uid" => "device-1",
-             "base_url" => "https://192.0.2.10:8006"
+             "base_url" => "https://192.0.2.10:8006",
+             "kind" => "device",
+             "id" => "device-1",
+             "agent_id" => "agent-a"
            }
 
     assert plan.payload["credential_broker"]["allow"] == %{
              "methods" => ["GET"],
-             "paths" => ["/api2/json/version", "/api2/json/nodes"]
+             "paths" => ["/api2/json/version", "/api2/json/nodes"],
+             "hosts" => ["192.0.2.10"]
            }
 
     assert plan.payload["target"] == %{
              "device_uid" => "device-1",
              "base_url" => "https://192.0.2.10:8006",
              "hostname" => "pve-a",
-             "ip" => "192.0.2.10"
+             "ip" => "192.0.2.10",
+             "kind" => "device",
+             "id" => "device-1",
+             "agent_id" => "agent-a"
            }
 
     assert plan.payload["tls"] == %{"insecure_skip_verify" => true}

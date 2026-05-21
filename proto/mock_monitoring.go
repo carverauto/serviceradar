@@ -21,6 +21,7 @@ import (
 type MockAgentServiceClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockAgentServiceClientMockRecorder
+	isgomock struct{}
 }
 
 // MockAgentServiceClientMockRecorder is the mock recorder for MockAgentServiceClient.
@@ -104,6 +105,7 @@ func (mr *MockAgentServiceClientMockRecorder) StreamResults(ctx, in any, opts ..
 type MockAgentServiceServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockAgentServiceServerMockRecorder
+	isgomock struct{}
 }
 
 // MockAgentServiceServerMockRecorder is the mock recorder for MockAgentServiceServer.
@@ -183,6 +185,7 @@ func (mr *MockAgentServiceServerMockRecorder) mustEmbedUnimplementedAgentService
 type MockUnsafeAgentServiceServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeAgentServiceServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeAgentServiceServerMockRecorder is the mock recorder for MockUnsafeAgentServiceServer.
@@ -218,6 +221,7 @@ func (mr *MockUnsafeAgentServiceServerMockRecorder) mustEmbedUnimplementedAgentS
 type MockAgentGatewayServiceClient struct {
 	ctrl     *gomock.Controller
 	recorder *MockAgentGatewayServiceClientMockRecorder
+	isgomock struct{}
 }
 
 // MockAgentGatewayServiceClientMockRecorder is the mock recorder for MockAgentGatewayServiceClient.
@@ -277,26 +281,6 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) GetConfig(ctx, in any, opts
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).GetConfig), varargs...)
 }
 
-// StreamConfig mocks base method.
-func (m *MockAgentGatewayServiceClient) StreamConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[AgentConfigChunk], error) {
-	m.ctrl.T.Helper()
-	varargs := []any{ctx, in}
-	for _, a := range opts {
-		varargs = append(varargs, a)
-	}
-	ret := m.ctrl.Call(m, "StreamConfig", varargs...)
-	ret0, _ := ret[0].(grpc.ServerStreamingClient[AgentConfigChunk])
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// StreamConfig indicates an expected call of StreamConfig.
-func (mr *MockAgentGatewayServiceClientMockRecorder) StreamConfig(ctx, in any, opts ...any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, in}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).StreamConfig), varargs...)
-}
-
 // Hello mocks base method.
 func (m *MockAgentGatewayServiceClient) Hello(ctx context.Context, in *AgentHelloRequest, opts ...grpc.CallOption) (*AgentHelloResponse, error) {
 	m.ctrl.T.Helper()
@@ -337,6 +321,46 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) PushStatus(ctx, in any, opt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).PushStatus), varargs...)
 }
 
+// ResolveCredentialGrant mocks base method.
+func (m *MockAgentGatewayServiceClient) ResolveCredentialGrant(ctx context.Context, in *CredentialBrokerResolveRequest, opts ...grpc.CallOption) (*CredentialBrokerResolveResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ResolveCredentialGrant", varargs...)
+	ret0, _ := ret[0].(*CredentialBrokerResolveResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveCredentialGrant indicates an expected call of ResolveCredentialGrant.
+func (mr *MockAgentGatewayServiceClientMockRecorder) ResolveCredentialGrant(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveCredentialGrant", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).ResolveCredentialGrant), varargs...)
+}
+
+// StreamConfig mocks base method.
+func (m *MockAgentGatewayServiceClient) StreamConfig(ctx context.Context, in *AgentConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[AgentConfigChunk], error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "StreamConfig", varargs...)
+	ret0, _ := ret[0].(grpc.ServerStreamingClient[AgentConfigChunk])
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// StreamConfig indicates an expected call of StreamConfig.
+func (mr *MockAgentGatewayServiceClientMockRecorder) StreamConfig(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).StreamConfig), varargs...)
+}
+
 // StreamStatus mocks base method.
 func (m *MockAgentGatewayServiceClient) StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse], error) {
 	m.ctrl.T.Helper()
@@ -361,6 +385,7 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) StreamStatus(ctx any, opts 
 type MockAgentGatewayServiceServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockAgentGatewayServiceServerMockRecorder
+	isgomock struct{}
 }
 
 // MockAgentGatewayServiceServerMockRecorder is the mock recorder for MockAgentGatewayServiceServer.
@@ -409,20 +434,6 @@ func (mr *MockAgentGatewayServiceServerMockRecorder) GetConfig(arg0, arg1 any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).GetConfig), arg0, arg1)
 }
 
-// StreamConfig mocks base method.
-func (m *MockAgentGatewayServiceServer) StreamConfig(arg0 *AgentConfigRequest, arg1 grpc.ServerStreamingServer[AgentConfigChunk]) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StreamConfig", arg0, arg1)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StreamConfig indicates an expected call of StreamConfig.
-func (mr *MockAgentGatewayServiceServerMockRecorder) StreamConfig(arg0, arg1 any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).StreamConfig), arg0, arg1)
-}
-
 // Hello mocks base method.
 func (m *MockAgentGatewayServiceServer) Hello(arg0 context.Context, arg1 *AgentHelloRequest) (*AgentHelloResponse, error) {
 	m.ctrl.T.Helper()
@@ -451,6 +462,35 @@ func (m *MockAgentGatewayServiceServer) PushStatus(arg0 context.Context, arg1 *G
 func (mr *MockAgentGatewayServiceServerMockRecorder) PushStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).PushStatus), arg0, arg1)
+}
+
+// ResolveCredentialGrant mocks base method.
+func (m *MockAgentGatewayServiceServer) ResolveCredentialGrant(arg0 context.Context, arg1 *CredentialBrokerResolveRequest) (*CredentialBrokerResolveResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveCredentialGrant", arg0, arg1)
+	ret0, _ := ret[0].(*CredentialBrokerResolveResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveCredentialGrant indicates an expected call of ResolveCredentialGrant.
+func (mr *MockAgentGatewayServiceServerMockRecorder) ResolveCredentialGrant(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveCredentialGrant", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).ResolveCredentialGrant), arg0, arg1)
+}
+
+// StreamConfig mocks base method.
+func (m *MockAgentGatewayServiceServer) StreamConfig(arg0 *AgentConfigRequest, arg1 grpc.ServerStreamingServer[AgentConfigChunk]) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StreamConfig", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StreamConfig indicates an expected call of StreamConfig.
+func (mr *MockAgentGatewayServiceServerMockRecorder) StreamConfig(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StreamConfig", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).StreamConfig), arg0, arg1)
 }
 
 // StreamStatus mocks base method.
@@ -483,6 +523,7 @@ func (mr *MockAgentGatewayServiceServerMockRecorder) mustEmbedUnimplementedAgent
 type MockUnsafeAgentGatewayServiceServer struct {
 	ctrl     *gomock.Controller
 	recorder *MockUnsafeAgentGatewayServiceServerMockRecorder
+	isgomock struct{}
 }
 
 // MockUnsafeAgentGatewayServiceServerMockRecorder is the mock recorder for MockUnsafeAgentGatewayServiceServer.

@@ -43,6 +43,8 @@ service AgentGatewayService {
   rpc StreamStatus(stream GatewayStatusChunk) returns (GatewayStatusResponse) {}
   // ControlStream establishes a bidirectional control channel for commands and push-config.
   rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse) {}
+  // ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
+  rpc ResolveCredentialGrant(CredentialBrokerResolveRequest) returns (CredentialBrokerResolveResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -406,6 +408,31 @@ message ControlStreamResponse {
     AgentConfigResponse config = 2;
     ConsoleFrame console_frame = 3;
   }
+}
+
+// CredentialBrokerResolveRequest asks the gateway/control plane to resolve a
+// scoped credential broker grant for an authenticated agent. The gateway uses
+// the mTLS identity as the source of truth for agent authorization.
+message CredentialBrokerResolveRequest {
+  string agent_id = 1;
+  string grant_id = 2;
+  string credential_secret_ref = 3;
+  string consumer_kind = 4;
+  string consumer_id = 5;
+  string purpose = 6;
+  string resolution_location = 7;
+}
+
+// CredentialBrokerResolveResponse returns memory-only credential material to
+// the trusted agent host. Plugins receive only the original grant envelope.
+message CredentialBrokerResolveResponse {
+  bool success = 1;
+  string message = 2;
+  string value = 3;
+  map<string, string> fields = 4;
+  string source_type = 5;
+  int64 lease_expires_at_unix = 6;
+  string cache_status = 7;
 }
 
 // PluginConfig defines plugin assignments for the agent.

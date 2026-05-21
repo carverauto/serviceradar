@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.PollWorker
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.Crypto
 
@@ -92,6 +93,8 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
         record_target_results(invocation, payload, terminal_status, actor)
         record_invocation_result(invocation, data, payload, terminal_status, actor)
       end
+
+      consume_command_credential_grants(context, actor)
     else
       {:error, :not_northbound_command} ->
         :ok
@@ -118,6 +121,35 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
       _ -> {:error, :not_northbound_command}
     end
   end
+
+  defp consume_command_credential_grants(context, actor) do
+    context
+    |> map_get(:credential_broker_grant_ids, [])
+    |> List.wrap()
+    |> Enum.each(&consume_command_credential_grant(&1, actor))
+  end
+
+  defp consume_command_credential_grant(grant_id, actor)
+       when is_binary(grant_id) and grant_id != "" do
+    case CredentialBrokerGrant.get_by_id(grant_id, actor: actor) do
+      {:ok, %CredentialBrokerGrant{status: status} = grant} when status in [:issued, :active] ->
+        _ = CredentialBrokerGrant.consume(grant, actor: actor)
+        :ok
+
+      _ ->
+        :ok
+    end
+  rescue
+    exception ->
+      Logger.warning("Failed to consume northbound credential broker grant",
+        grant_id: grant_id,
+        reason: Exception.message(exception)
+      )
+
+      :ok
+  end
+
+  defp consume_command_credential_grant(_grant_id, _actor), do: :ok
 
   defp get_invocation(id, actor) do
     case ActionInvocation.get_by_id(id, actor: actor) do

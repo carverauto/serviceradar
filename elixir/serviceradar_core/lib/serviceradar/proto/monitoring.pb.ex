@@ -623,6 +623,55 @@ defmodule Monitoring.ControlStreamResponse do
   field(:console_frame, 3, type: Monitoring.ConsoleFrame, json_name: "consoleFrame", oneof: 0)
 end
 
+defmodule Monitoring.CredentialBrokerResolveResponse.FieldsEntry do
+  @moduledoc false
+
+  use Protobuf, map: true, protoc_gen_elixir_version: "0.16.0", syntax: :proto3
+
+  field(:key, 1, type: :string)
+  field(:value, 2, type: :string)
+end
+
+defmodule Monitoring.CredentialBrokerResolveRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CredentialBrokerResolveRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:agent_id, 1, type: :string, json_name: "agentId")
+  field(:grant_id, 2, type: :string, json_name: "grantId")
+  field(:credential_secret_ref, 3, type: :string, json_name: "credentialSecretRef")
+  field(:consumer_kind, 4, type: :string, json_name: "consumerKind")
+  field(:consumer_id, 5, type: :string, json_name: "consumerId")
+  field(:purpose, 6, type: :string)
+  field(:resolution_location, 7, type: :string, json_name: "resolutionLocation")
+end
+
+defmodule Monitoring.CredentialBrokerResolveResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CredentialBrokerResolveResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:success, 1, type: :bool)
+  field(:message, 2, type: :string)
+  field(:value, 3, type: :string)
+
+  field(:fields, 4,
+    repeated: true,
+    type: Monitoring.CredentialBrokerResolveResponse.FieldsEntry,
+    map: true
+  )
+
+  field(:source_type, 5, type: :string, json_name: "sourceType")
+  field(:lease_expires_at_unix, 6, type: :int64, json_name: "leaseExpiresAtUnix")
+  field(:cache_status, 7, type: :string, json_name: "cacheStatus")
+end
+
 defmodule Monitoring.PluginConfig do
   @moduledoc false
 
@@ -964,6 +1013,12 @@ defmodule Monitoring.AgentGatewayService.Service do
     :ControlStream,
     stream(Monitoring.ControlStreamRequest),
     stream(Monitoring.ControlStreamResponse)
+  )
+
+  rpc(
+    :ResolveCredentialGrant,
+    Monitoring.CredentialBrokerResolveRequest,
+    Monitoring.CredentialBrokerResolveResponse
   )
 end
 

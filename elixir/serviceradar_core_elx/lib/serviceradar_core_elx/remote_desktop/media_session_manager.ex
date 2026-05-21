@@ -34,8 +34,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
     GenServer.call(server_name(opts), {:remove_webrtc_viewer, session_id, viewer_session_id})
   end
 
-  def forward_frame(session_id, %Desktopmedia.DesktopMediaFrameChunk{} = frame, opts \\ [])
-      when is_binary(session_id) do
+  def forward_frame(session_id, %Desktopmedia.DesktopMediaFrameChunk{} = frame, opts \\ []) when is_binary(session_id) do
     GenServer.call(
       server_name(opts),
       {:forward_frame, session_id, frame, opts},
@@ -82,11 +81,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   end
 
   @impl true
-  def handle_call(
-        {:add_webrtc_viewer, session_id, viewer_session_id, signaling, opts},
-        _from,
-        state
-      ) do
+  def handle_call({:add_webrtc_viewer, session_id, viewer_session_id, signaling, opts}, _from, state) do
     with {:ok, provider} <- resolve_offer_provider(opts),
          :ok <- provider.add_webrtc_viewer(session_id, viewer_session_id, signaling, opts) do
       session = Map.get(state.sessions, session_id, new_session(session_id))
@@ -193,22 +188,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
             {:reply, {:error, :invalid_control_frame}, state}
 
           true ->
-            case forward_browser_control(state, session, viewer_session_id, frame) do
-              :ok ->
-                updated =
-                  session
-                  |> Map.update!(:control_frame_count, &(&1 + 1))
-                  |> Map.put(:last_control_frame, safe_control_frame(frame))
-                  |> Map.put(:updated_at_unix, now_unix())
-
-                emit_browser_control_event(updated, viewer_session_id, frame)
-
-                {:reply, {:ok, sanitize_session(updated)},
-                 put_in(state, [:sessions, session_id], updated)}
-
-              {:error, reason} ->
-                {:reply, {:error, reason}, state}
-            end
+            apply_bound_browser_control(state, session, viewer_session_id, frame)
         end
     end
   end
@@ -326,8 +306,25 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
 
         emit_browser_ack_event(updated, viewer_session_id, ack, credit_bytes)
 
-        {:reply, {:ok, sanitize_session(updated)},
-         put_in(state, [:sessions, session.session_id], updated)}
+        {:reply, {:ok, sanitize_session(updated)}, put_in(state, [:sessions, session.session_id], updated)}
+    end
+  end
+
+  defp apply_bound_browser_control(state, session, viewer_session_id, frame) do
+    case forward_browser_control(state, session, viewer_session_id, frame) do
+      :ok ->
+        updated =
+          session
+          |> Map.update!(:control_frame_count, &(&1 + 1))
+          |> Map.put(:last_control_frame, safe_control_frame(frame))
+          |> Map.put(:updated_at_unix, now_unix())
+
+        emit_browser_control_event(updated, viewer_session_id, frame)
+
+        {:reply, {:ok, sanitize_session(updated)}, put_in(state, [:sessions, session.session_id], updated)}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
   end
 
@@ -443,8 +440,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
       valid_control_frame_type?(string_value(frame, "frame_type"), frame)
   end
 
-  defp valid_control_frame_type?("desktop.input", frame),
-    do: input_kind(frame) in ["key", "pointer", "focus"]
+  defp valid_control_frame_type?("desktop.input", frame), do: input_kind(frame) in ["key", "pointer", "focus"]
 
   defp valid_control_frame_type?("desktop.resize", frame) do
     uint_value(frame, "width") > 0 and uint_value(frame, "height") > 0
@@ -492,8 +488,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   defp normalize_control_forward_result({:ok, _result}), do: :ok
   defp normalize_control_forward_result({:error, reason}), do: {:error, reason}
 
-  defp normalize_control_forward_result(other),
-    do: {:error, {:invalid_control_forward_result, other}}
+  defp normalize_control_forward_result(other), do: {:error, {:invalid_control_forward_result, other}}
 
   defp safe_control_frame(frame) do
     frame
@@ -544,11 +539,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   end
 
   defp remove_provider_viewer(
-         %{
-           offer_provider: provider,
-           offer_provider_opts: opts,
-           viewer_session_id: viewer_session_id
-         },
+         %{offer_provider: provider, offer_provider_opts: opts, viewer_session_id: viewer_session_id},
          session_id
        ) do
     if function_exported?(provider, :remove_webrtc_viewer, 3) do
@@ -651,8 +642,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManager do
   defp signaling_pid(%{pid: pid}) when is_pid(pid), do: pid
   defp signaling_pid(_signaling), do: nil
 
-  defp frame_byte_count(frame),
-    do: byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
+  defp frame_byte_count(frame), do: byte_size(frame.metadata || <<>>) + byte_size(frame.payload || <<>>)
 
   defp normalize_uint(value) when is_integer(value) and value >= 0, do: value
   defp normalize_uint(_value), do: 0

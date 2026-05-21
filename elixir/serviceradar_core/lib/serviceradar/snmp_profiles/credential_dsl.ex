@@ -63,6 +63,12 @@ defmodule ServiceRadar.SNMPProfiles.CredentialDsl do
         public? false
         description "Encrypted SNMPv3 privacy password"
       end
+
+      attribute :credential_secret_id, :uuid do
+        allow_nil? true
+        public? true
+        description "Optional NetworkCredentialSecret used by the credential broker"
+      end
     end
   end
 end

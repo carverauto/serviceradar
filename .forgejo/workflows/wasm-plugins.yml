@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu24
+    runs-on: serviceradar-signing
     enable-openid-connect: true
     environment: release
     env:
@@ -23,9 +23,6 @@ jobs:
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
@@ -121,6 +118,10 @@ jobs:
       - name: Publish Wasm plugin OCI artifacts
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag }}
+          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: forgejo-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
+          COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
           if [[ -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
@@ -140,8 +141,10 @@ jobs:
           fi
 
           ./scripts/push_all_wasm_plugins.sh "${push_args[@]}"
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
           ./scripts/sign-wasm-plugin-publish.sh "${verify_tags[@]}"
           ./scripts/verify-wasm-plugin-publish.sh "${verify_tags[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Generate import index
         env:

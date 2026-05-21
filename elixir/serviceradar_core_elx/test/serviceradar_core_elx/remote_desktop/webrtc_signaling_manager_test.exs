@@ -142,7 +142,12 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
              WebRTCSignalingManager.create_session(session_id, server: server_name)
 
     assert {:ok, %{signaling_state: "answer_applied"}} =
-             WebRTCSignalingManager.submit_answer(session_id, viewer_session_id, valid_answer_sdp(), server: server_name)
+             WebRTCSignalingManager.submit_answer(
+               session_id,
+               viewer_session_id,
+               valid_answer_sdp(),
+               server: server_name
+             )
 
     candidate = %{"candidate" => "candidate:1 1 UDP 1234 8.8.8.8 4000 typ srflx"}
 
@@ -355,10 +360,14 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManagerTest do
     session_id = Ecto.UUID.generate()
     server_name = unique_server_name()
 
-    start_supervised!(
-      {WebRTCSignalingManager,
-       name: server_name, session_tracker: BareSessionTrackerStub, media_manager: MediaManagerStub, session_ttl_ms: 5_000}
-    )
+    manager_opts = [
+      name: server_name,
+      session_tracker: BareSessionTrackerStub,
+      media_manager: MediaManagerStub,
+      session_ttl_ms: 5_000
+    ]
+
+    start_supervised!({WebRTCSignalingManager, manager_opts})
 
     assert {:ok,
             %{viewer_session_id: viewer_session_id, signaling_state: "offer_created", offer_sdp: "v=0\r\ndesktop-offer"}} =

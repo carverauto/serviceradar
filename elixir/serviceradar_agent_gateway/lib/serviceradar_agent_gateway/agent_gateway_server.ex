@@ -161,6 +161,71 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   @doc """
+  Resolve a scoped credential broker grant for an authenticated agent.
+
+  The agent receives credential material only after the gateway validates the
+  caller's mTLS identity and core validates the persisted grant scope. Plugins
+  continue to see only grant envelopes.
+  """
+  @spec resolve_credential_grant(
+          Monitoring.CredentialBrokerResolveRequest.t(),
+          GRPC.Server.Stream.t()
+        ) :: Monitoring.CredentialBrokerResolveResponse.t()
+  def resolve_credential_grant(request, stream) do
+    agent_id = required_agent_id(request.agent_id)
+    identity = extract_identity_from_stream(stream)
+    {identity, _component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+
+    request_map = %{
+      agent_id: agent_id,
+      grant_id: request.grant_id,
+      credential_secret_ref: request.credential_secret_ref,
+      consumer_kind: request.consumer_kind,
+      consumer_id: request.consumer_id,
+      purpose: request.purpose,
+      resolution_location: request.resolution_location
+    }
+
+    AgentGatewaySync
+    |> core_call(:resolve_credential_broker_grant, [request_map], 15_000)
+    |> credential_grant_response(agent_id, request.grant_id)
+  end
+
+  @doc false
+  def credential_grant_response(core_result, agent_id, grant_id) do
+    case core_result do
+      {:ok, {:ok, material}} ->
+        %Monitoring.CredentialBrokerResolveResponse{
+          success: true,
+          message: "credential grant resolved",
+          value: Map.get(material, :value, ""),
+          fields: Map.get(material, :fields, %{}),
+          source_type: Map.get(material, :source_type, ""),
+          lease_expires_at_unix: Map.get(material, :lease_expires_at_unix, 0),
+          cache_status: Map.get(material, :cache_status, "")
+        }
+
+      {:ok, {:error, reason}} ->
+        credential_grant_denied_response(agent_id, grant_id, reason)
+
+      {:error, reason} ->
+        credential_grant_denied_response(agent_id, grant_id, reason)
+    end
+  end
+
+  defp credential_grant_denied_response(agent_id, grant_id, reason) do
+    Logger.warning(
+      "Credential broker grant resolution denied: agent_id=#{agent_id}, grant_id=#{grant_id}, reason=#{inspect(reason)}"
+    )
+
+    %Monitoring.CredentialBrokerResolveResponse{
+      success: false,
+      message: "credential grant resolution denied"
+    }
+  end
+
+  @doc """
   Stream an agent config response in bounded chunks.
 
   The payload chunks contain the protobuf-encoded AgentConfigResponse that unary
@@ -906,7 +971,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp core_node_basename do
     System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
-      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename, "serviceradar_core")
+      Application.get_env(
+        :serviceradar_agent_gateway,
+        :cluster_core_node_basename,
+        "serviceradar_core"
+      )
   end
 
   # Extract component identity from the gRPC stream's mTLS certificate
@@ -1066,6 +1135,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp decode_config_json(_config_json), do: %{}
 
   defp mapper_scheduled_job_count(%{"scheduled_jobs" => jobs}) when is_list(jobs), do: length(jobs)
+
   defp mapper_scheduled_job_count(_mapper), do: 0
 
   defp plugin_assignment_count(%{"assignments" => assignments}) when is_list(assignments), do: length(assignments)
@@ -1168,9 +1238,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   @doc false
   def send_config_chunks(chunks, stream) when is_list(chunks) do
-    Enum.reduce(chunks, stream, fn %Monitoring.AgentConfigChunk{} = chunk, stream ->
-      GRPC.Server.send_reply(stream, chunk)
-    end)
+    _stream =
+      Enum.reduce(chunks, stream, fn %Monitoring.AgentConfigChunk{} = chunk, stream ->
+        GRPC.Server.send_reply(stream, chunk)
+      end)
 
     :ok
   end
@@ -1400,7 +1471,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp register_control_session(session, agent_id, partition_id, capabilities, identity_context) do
-    case ControlStreamSession.register(session, agent_id, partition_id, capabilities, identity_context) do
+    case ControlStreamSession.register(
+           session,
+           agent_id,
+           partition_id,
+           capabilities,
+           identity_context
+         ) do
       :ok ->
         Logger.info("Control stream established: agent_id=#{agent_id}, partition=#{partition_id}")
         reconcile_agent_release(agent_id)

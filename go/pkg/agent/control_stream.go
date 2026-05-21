@@ -65,6 +65,9 @@ var (
 	errMissingProxmoxCredentialBrokerGrant = errors.New("missing proxmox credential broker grant")
 	errProxmoxCredentialBrokerUnavailable  = errors.New("credential broker unavailable")
 	errDirectProxmoxAPITokenPayload        = errors.New("direct proxmox api token payloads are not allowed")
+	errInvalidCredentialBrokerGrant        = errors.New("invalid credential broker grant")
+	errCredentialBrokerGrantExpired        = errors.New("credential broker grant expired")
+	errCredentialBrokerGrantDenied         = errors.New("credential broker grant denied")
 	errMissingProxmoxBaseURL               = errors.New("missing proxmox base_url")
 	errInvalidProxmoxBaseURL               = errors.New("invalid proxmox base_url")
 	errInvalidProxmoxBaseURLScheme         = errors.New("invalid proxmox base_url scheme")
@@ -99,6 +102,9 @@ type proxmoxCredentialTestPayload struct {
 }
 
 type proxmoxTestTarget struct {
+	Kind      string `json:"kind,omitempty"`
+	ID        string `json:"id,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 	DeviceUID string `json:"device_uid,omitempty"`
 	BaseURL   string `json:"base_url"`
 	Hostname  string `json:"hostname,omitempty"`
@@ -109,16 +115,23 @@ type proxmoxTestTLS struct {
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
-type proxmoxCredentialBrokerGrant struct {
-	Schema              string                     `json:"schema,omitempty"`
-	GrantType           string                     `json:"grant_type,omitempty"`
-	CredentialRuleID    string                     `json:"credential_rule_id,omitempty"`
-	CredentialSecretRef string                     `json:"credential_secret_ref,omitempty"`
-	Target              proxmoxTestTarget          `json:"target,omitempty"`
-	Inject              map[string]string          `json:"inject,omitempty"`
-	Allow               proxmoxCredentialBrokerACL `json:"allow,omitempty"`
-	TTLSeconds          int                        `json:"ttl_seconds,omitempty"`
+type credentialBrokerGrant struct {
+	Schema              string                      `json:"schema,omitempty"`
+	GrantID             string                      `json:"grant_id,omitempty"`
+	GrantType           string                      `json:"grant_type,omitempty"`
+	CredentialRuleID    string                      `json:"credential_rule_id,omitempty"`
+	CredentialSecretRef string                      `json:"credential_secret_ref,omitempty"`
+	Consumer            map[string]string           `json:"consumer,omitempty"`
+	Target              proxmoxTestTarget           `json:"target,omitempty"`
+	ResolutionLocation  string                      `json:"resolution_location,omitempty"`
+	Inject              map[string]string           `json:"inject,omitempty"`
+	Cache               credentialBrokerCachePolicy `json:"cache,omitempty"`
+	Allow               credentialBrokerACL         `json:"allow,omitempty"`
+	TTLSeconds          int                         `json:"ttl_seconds,omitempty"`
+	ExpiresAt           string                      `json:"expires_at,omitempty"`
 }
+
+type proxmoxCredentialBrokerGrant = credentialBrokerGrant
 
 type pluginRunActionPayload struct {
 	InvocationID       string          `json:"invocation_id"`
@@ -128,10 +141,19 @@ type pluginRunActionPayload struct {
 	Payload            json.RawMessage `json:"-"`
 }
 
-type proxmoxCredentialBrokerACL struct {
+type credentialBrokerACL struct {
 	Methods []string `json:"methods,omitempty"`
 	Paths   []string `json:"paths,omitempty"`
+	Hosts   []string `json:"hosts,omitempty"`
+	Ports   []int    `json:"ports,omitempty"`
 }
+
+type credentialBrokerCachePolicy struct {
+	Mode       string `json:"mode,omitempty"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`
+}
+
+type proxmoxCredentialBrokerACL = credentialBrokerACL
 
 type controlStreamSender struct {
 	mu     sync.Mutex
@@ -1056,14 +1078,178 @@ func runProxmoxCredentialTest(
 	}
 
 	if strings.TrimSpace(payload.APIToken) == "" {
-		if strings.TrimSpace(payload.CredentialBroker.CredentialSecretRef) == "" {
-			return nil, errMissingProxmoxCredentialBrokerGrant
+		if err := validateProxmoxCredentialBrokerGrant(payload, baseURL); err != nil {
+			return nil, err
 		}
 
 		return proxmoxCredentialTestResult(payload, baseURL, 0, 0), errProxmoxCredentialBrokerUnavailable
 	}
 
 	return nil, errDirectProxmoxAPITokenPayload
+}
+
+func validateProxmoxCredentialBrokerGrant(payload proxmoxCredentialTestPayload, baseURL string) error {
+	grant := payload.CredentialBroker
+	if strings.TrimSpace(grant.CredentialSecretRef) == "" {
+		return errMissingProxmoxCredentialBrokerGrant
+	}
+	if strings.TrimSpace(grant.Schema) != "serviceradar.edge_credential_broker_grant.v1" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if strings.TrimSpace(grant.GrantID) == "" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if grant.GrantType != "proxmox_api_token" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if strings.TrimSpace(grant.CredentialRuleID) != "" &&
+		strings.TrimSpace(payload.CredentialRuleID) != "" &&
+		strings.TrimSpace(grant.CredentialRuleID) != strings.TrimSpace(payload.CredentialRuleID) {
+		return errCredentialBrokerGrantDenied
+	}
+	if grant.TTLSeconds < 0 {
+		return errInvalidCredentialBrokerGrant
+	}
+	if strings.TrimSpace(grant.ExpiresAt) != "" {
+		expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(grant.ExpiresAt))
+		if err != nil {
+			return errInvalidCredentialBrokerGrant
+		}
+		if !time.Now().Before(expiresAt) {
+			return errCredentialBrokerGrantExpired
+		}
+	}
+	if err := validateProxmoxGrantTarget(payload.Target, grant.Target, baseURL); err != nil {
+		return err
+	}
+	if err := validateProxmoxGrantAllow(grant.Allow, baseURL); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateProxmoxGrantTarget(commandTarget, grantTarget proxmoxTestTarget, baseURL string) error {
+	if strings.TrimSpace(grantTarget.Kind) != "" &&
+		strings.TrimSpace(grantTarget.Kind) != "device" {
+		return errCredentialBrokerGrantDenied
+	}
+	if strings.TrimSpace(grantTarget.AgentID) != "" &&
+		strings.TrimSpace(commandTarget.AgentID) != "" &&
+		strings.TrimSpace(grantTarget.AgentID) != strings.TrimSpace(commandTarget.AgentID) {
+		return errCredentialBrokerGrantDenied
+	}
+	if strings.TrimSpace(grantTarget.DeviceUID) != "" &&
+		strings.TrimSpace(commandTarget.DeviceUID) != "" &&
+		strings.TrimSpace(grantTarget.DeviceUID) != strings.TrimSpace(commandTarget.DeviceUID) {
+		return errCredentialBrokerGrantDenied
+	}
+	if strings.TrimSpace(grantTarget.ID) != "" &&
+		strings.TrimSpace(commandTarget.DeviceUID) != "" &&
+		strings.TrimSpace(grantTarget.ID) != strings.TrimSpace(commandTarget.DeviceUID) {
+		return errCredentialBrokerGrantDenied
+	}
+	if strings.TrimSpace(grantTarget.BaseURL) != "" {
+		grantBaseURL, err := proxmoxCredentialTestBaseURL(grantTarget.BaseURL)
+		if err != nil {
+			return errInvalidCredentialBrokerGrant
+		}
+		if grantBaseURL != baseURL {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+
+	return nil
+}
+
+func validateProxmoxGrantAllow(allow proxmoxCredentialBrokerACL, baseURL string) error {
+	if len(allow.Methods) > 0 && !stringInFoldedList("GET", allow.Methods) {
+		return errCredentialBrokerGrantDenied
+	}
+	if len(allow.Paths) > 0 && !anyPathAllowed(allow.Paths, "/api2/json/version") {
+		return errCredentialBrokerGrantDenied
+	}
+	if len(allow.Hosts) > 0 {
+		parsed, err := url.Parse(baseURL)
+		if err != nil || parsed.Host == "" {
+			return errInvalidProxmoxBaseURL
+		}
+		host := parsed.Hostname()
+		if !stringInFoldedList(host, allow.Hosts) && !stringInFoldedList(parsed.Host, allow.Hosts) {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+	if len(allow.Ports) > 0 {
+		parsed, err := url.Parse(baseURL)
+		if err != nil || parsed.Host == "" {
+			return errInvalidProxmoxBaseURL
+		}
+		port := portForURL(parsed)
+		if port == 0 || !intInList(port, allow.Ports) {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+
+	return nil
+}
+
+func anyPathAllowed(patterns []string, requested string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		switch {
+		case pattern == requested:
+			return true
+		case strings.HasSuffix(pattern, "*") && strings.HasPrefix(requested, strings.TrimSuffix(pattern, "*")):
+			return true
+		}
+	}
+
+	return false
+}
+
+func stringInFoldedList(value string, list []string) bool {
+	for _, item := range list {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(value)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func intInList(value int, list []int) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+
+	return false
+}
+
+func portForURL(parsed *url.URL) int {
+	if port := parsed.Port(); port != "" {
+		return parsePositiveInt(port)
+	}
+	switch parsed.Scheme {
+	case "https":
+		return 443
+	case "http":
+		return 80
+	default:
+		return 0
+	}
+}
+
+func parsePositiveInt(value string) int {
+	n := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
 }
 
 func proxmoxCredentialTestBaseURL(raw string) (string, error) {

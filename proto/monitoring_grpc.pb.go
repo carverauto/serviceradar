@@ -216,12 +216,13 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	AgentGatewayService_Hello_FullMethodName         = "/monitoring.AgentGatewayService/Hello"
-	AgentGatewayService_GetConfig_FullMethodName     = "/monitoring.AgentGatewayService/GetConfig"
-	AgentGatewayService_StreamConfig_FullMethodName  = "/monitoring.AgentGatewayService/StreamConfig"
-	AgentGatewayService_PushStatus_FullMethodName    = "/monitoring.AgentGatewayService/PushStatus"
-	AgentGatewayService_StreamStatus_FullMethodName  = "/monitoring.AgentGatewayService/StreamStatus"
-	AgentGatewayService_ControlStream_FullMethodName = "/monitoring.AgentGatewayService/ControlStream"
+	AgentGatewayService_Hello_FullMethodName                  = "/monitoring.AgentGatewayService/Hello"
+	AgentGatewayService_GetConfig_FullMethodName              = "/monitoring.AgentGatewayService/GetConfig"
+	AgentGatewayService_StreamConfig_FullMethodName           = "/monitoring.AgentGatewayService/StreamConfig"
+	AgentGatewayService_PushStatus_FullMethodName             = "/monitoring.AgentGatewayService/PushStatus"
+	AgentGatewayService_StreamStatus_FullMethodName           = "/monitoring.AgentGatewayService/StreamStatus"
+	AgentGatewayService_ControlStream_FullMethodName          = "/monitoring.AgentGatewayService/ControlStream"
+	AgentGatewayService_ResolveCredentialGrant_FullMethodName = "/monitoring.AgentGatewayService/ResolveCredentialGrant"
 )
 
 // AgentGatewayServiceClient is the client API for AgentGatewayService service.
@@ -245,6 +246,8 @@ type AgentGatewayServiceClient interface {
 	StreamStatus(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[GatewayStatusChunk, GatewayStatusResponse], error)
 	// ControlStream establishes a bidirectional control channel for commands and push-config.
 	ControlStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse], error)
+	// ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
+	ResolveCredentialGrant(ctx context.Context, in *CredentialBrokerResolveRequest, opts ...grpc.CallOption) (*CredentialBrokerResolveResponse, error)
 }
 
 type agentGatewayServiceClient struct {
@@ -330,6 +333,16 @@ func (c *agentGatewayServiceClient) ControlStream(ctx context.Context, opts ...g
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentGatewayService_ControlStreamClient = grpc.BidiStreamingClient[ControlStreamRequest, ControlStreamResponse]
 
+func (c *agentGatewayServiceClient) ResolveCredentialGrant(ctx context.Context, in *CredentialBrokerResolveRequest, opts ...grpc.CallOption) (*CredentialBrokerResolveResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CredentialBrokerResolveResponse)
+	err := c.cc.Invoke(ctx, AgentGatewayService_ResolveCredentialGrant_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentGatewayServiceServer is the server API for AgentGatewayService service.
 // All implementations must embed UnimplementedAgentGatewayServiceServer
 // for forward compatibility.
@@ -351,6 +364,8 @@ type AgentGatewayServiceServer interface {
 	StreamStatus(grpc.ClientStreamingServer[GatewayStatusChunk, GatewayStatusResponse]) error
 	// ControlStream establishes a bidirectional control channel for commands and push-config.
 	ControlStream(grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error
+	// ResolveCredentialGrant resolves a scoped broker grant for agent-owned execution.
+	ResolveCredentialGrant(context.Context, *CredentialBrokerResolveRequest) (*CredentialBrokerResolveResponse, error)
 	mustEmbedUnimplementedAgentGatewayServiceServer()
 }
 
@@ -378,6 +393,9 @@ func (UnimplementedAgentGatewayServiceServer) StreamStatus(grpc.ClientStreamingS
 }
 func (UnimplementedAgentGatewayServiceServer) ControlStream(grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ControlStream not implemented")
+}
+func (UnimplementedAgentGatewayServiceServer) ResolveCredentialGrant(context.Context, *CredentialBrokerResolveRequest) (*CredentialBrokerResolveResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveCredentialGrant not implemented")
 }
 func (UnimplementedAgentGatewayServiceServer) mustEmbedUnimplementedAgentGatewayServiceServer() {}
 func (UnimplementedAgentGatewayServiceServer) testEmbeddedByValue()                             {}
@@ -479,6 +497,24 @@ func _AgentGatewayService_ControlStream_Handler(srv interface{}, stream grpc.Ser
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AgentGatewayService_ControlStreamServer = grpc.BidiStreamingServer[ControlStreamRequest, ControlStreamResponse]
 
+func _AgentGatewayService_ResolveCredentialGrant_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CredentialBrokerResolveRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentGatewayServiceServer).ResolveCredentialGrant(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentGatewayService_ResolveCredentialGrant_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentGatewayServiceServer).ResolveCredentialGrant(ctx, req.(*CredentialBrokerResolveRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentGatewayService_ServiceDesc is the grpc.ServiceDesc for AgentGatewayService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -497,6 +533,10 @@ var AgentGatewayService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PushStatus",
 			Handler:    _AgentGatewayService_PushStatus_Handler,
+		},
+		{
+			MethodName: "ResolveCredentialGrant",
+			Handler:    _AgentGatewayService_ResolveCredentialGrant_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -140,6 +140,34 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessStreamControllerTest do
     refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
   end
 
+  test "router rejects cross-origin browser websocket upgrades", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+
+    conn =
+      conn
+      |> Plug.Conn.put_req_header("connection", "Upgrade")
+      |> Plug.Conn.put_req_header("upgrade", "websocket")
+      |> Plug.Conn.put_req_header("origin", "http://evil.example")
+      |> get(~p"/v1/remote-access/sessions/#{session_id}/stream")
+
+    assert conn.status == 403
+    refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
+  end
+
+  test "router allows same-origin browser websocket upgrades through to auth", %{conn: conn} do
+    session_id = Ecto.UUID.generate()
+
+    conn =
+      conn
+      |> Plug.Conn.put_req_header("connection", "Upgrade")
+      |> Plug.Conn.put_req_header("upgrade", "websocket")
+      |> Plug.Conn.put_req_header("origin", "http://www.example.com")
+      |> get(~p"/v1/remote-access/sessions/#{session_id}/stream")
+
+    assert redirected_to(conn) == ~p"/users/log-in"
+    refute_receive {:websock_upgrade, _handler, _handler_opts, _adapter_opts}
+  end
+
   defp remote_access_session(session_id, overrides) do
     defaults = %{
       id: session_id,

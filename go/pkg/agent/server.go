@@ -278,9 +278,10 @@ func (s *Server) initPluginManager(ctx context.Context) {
 
 	cacheDir := filepath.Join(s.configDir, "plugins")
 	s.pluginManager = NewPluginManager(ctx, PluginManagerConfig{
-		CacheDir:      cacheDir,
-		LocalStoreDir: s.configDir,
-		Logger:        s.logger,
+		CacheDir:         cacheDir,
+		LocalStoreDir:    s.configDir,
+		Logger:           s.logger,
+		CredentialBroker: s.credentialBroker,
 	})
 }
 

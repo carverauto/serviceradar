@@ -17,17 +17,15 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu24
+    runs-on: serviceradar-signing
     enable-openid-connect: true
+    environment: release
     env:
       BUILDBUDDY_ORG_API_KEY: ${{ secrets.BUILDBUDDY_ORG_API_KEY }}
       OCI_REGISTRY: registry.carverauto.dev
       OCI_PROJECT: serviceradar
       OCI_USERNAME: ${{ secrets.HARBOR_ROBOT_USERNAME }}
       OCI_TOKEN: ${{ secrets.HARBOR_ROBOT_SECRET }}
-      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-      COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
       COSIGN_KEYLESS: ${{ secrets.COSIGN_KEYLESS }}
       SIGSTORE_FULCIO_URL: ${{ secrets.SIGSTORE_FULCIO_URL }}
       SIGSTORE_REKOR_URL: ${{ secrets.SIGSTORE_REKOR_URL }}
@@ -130,38 +128,6 @@ jobs:
           chmod +x ./buildbuddy_setup_docker_auth.sh
           ./buildbuddy_setup_docker_auth.sh
 
-      - name: Prepare OpenBao env for cosign signing
-        env:
-          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
-          OPENBAO_K8S_ROLE: forgejo-runner
-          COSIGN_KEY_REF: hashivault://cosign-release
-        run: |
-          set -euo pipefail
-
-          sa_token_file="/var/run/secrets/kubernetes.io/serviceaccount/token"
-          if [[ -f "${sa_token_file}" ]]; then
-            vault_token="$(
-              curl -fsSL \
-                -H 'Content-Type: application/json' \
-                -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"$(tr -d '\n' < "${sa_token_file}")\"}" \
-                "${OPENBAO_ADDR}/v1/auth/kubernetes/login" \
-                | jq -er '.auth.client_token'
-            )"
-
-            {
-              echo "VAULT_ADDR=${OPENBAO_ADDR}"
-              echo "VAULT_TOKEN=${vault_token}"
-              echo "COSIGN_KEY_REF=${COSIGN_KEY_REF}"
-            } >> "${GITHUB_ENV}"
-
-            echo "Authenticated to OpenBao via in-job Kubernetes service account token."
-          elif [[ -n "${VAULT_TOKEN:-}" && -n "${VAULT_ADDR:-}" && -n "${COSIGN_KEY_REF:-}" ]]; then
-            echo "Using runner-provided OpenBao signing environment."
-          else
-            echo "No Kubernetes service account token and no runner-provided Vault signing env; cannot sign OCI images." >&2
-            exit 1
-          fi
-
       - name: Derive managed agent release public key
         env:
           SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
@@ -188,6 +154,10 @@ jobs:
       - name: Publish images
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
+          OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
+          OPENBAO_K8S_ROLE: forgejo-signing-runner
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
+          COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
           cmd=(bazel run --config=remote -c opt --stamp //:push)
@@ -204,8 +174,10 @@ jobs:
           if [[ -n "${EXTRA_TAG}" ]]; then
             verify_tags+=("${EXTRA_TAG}")
           fi
+          source ./scripts/ci/prepare-openbao-cosign-env.sh
           ./scripts/sign-oci-publish.sh
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
+          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
       - name: Summarize pushed tags
         env:

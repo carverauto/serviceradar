@@ -77,35 +77,58 @@ const (
 )
 
 var (
-	errPluginWasmUnavailable              = errors.New("plugin wasm unavailable")
-	errEntrypointNotFound                 = errors.New("entrypoint not found")
-	errDownloadFailed                     = errors.New("download failed")
-	errDownloadTooLarge                   = errors.New("download too large")
-	errContentHashMismatch                = errors.New("content hash mismatch")
-	errInvalidPath                        = errors.New("invalid path")
-	errPluginAssignmentNotFound           = errors.New("plugin assignment not found")
-	errPluginAdmissionDenied              = errors.New("admission denied: max concurrent reached")
-	errPluginActionResultMissing          = errors.New("no result submitted")
-	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
-	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
-	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
-	errStreamingPluginConsoleNotOpened    = errors.New("streaming plugin did not open a Proxmox console session")
+	errPluginWasmUnavailable                = errors.New("plugin wasm unavailable")
+	errEntrypointNotFound                   = errors.New("entrypoint not found")
+	errDownloadFailed                       = errors.New("download failed")
+	errDownloadTooLarge                     = errors.New("download too large")
+	errContentHashMismatch                  = errors.New("content hash mismatch")
+	errInvalidPath                          = errors.New("invalid path")
+	errPluginAssignmentNotFound             = errors.New("plugin assignment not found")
+	errPluginAdmissionDenied                = errors.New("admission denied: max concurrent reached")
+	errPluginActionResultMissing            = errors.New("no result submitted")
+	errStreamingPluginAssignmentNotFound    = errors.New("streaming plugin assignment not found")
+	errStreamingPluginAdmissionDenied       = errors.New("streaming plugin admission denied: max concurrent reached")
+	errStreamingPluginMediaSessionMissing   = errors.New("streaming plugin did not open a camera media session")
+	errStreamingPluginConsoleNotOpened      = errors.New("streaming plugin did not open a Proxmox console session")
+	errCredentialBrokerResolverUnavailable  = errors.New("credential broker resolver unavailable")
+	errCredentialBrokerMaterialUnavailable  = errors.New("credential broker material unavailable")
+	errCredentialBrokerInjectionUnsupported = errors.New("credential broker injection unsupported")
+	errCredentialBrokerInsecureTLSDenied    = errors.New("credential broker injection denied for insecure TLS request")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
 type PluginManagerConfig struct {
-	CacheDir      string
-	LocalStoreDir string
-	Logger        logger.Logger
-	HTTPClient    *http.Client
+	CacheDir         string
+	LocalStoreDir    string
+	Logger           logger.Logger
+	HTTPClient       *http.Client
+	CredentialBroker CredentialBrokerResolver
+}
+
+// CredentialBrokerResolver resolves a validated broker grant for agent-owned
+// operations. It must not return material to the Wasm module.
+type CredentialBrokerResolver interface {
+	ResolveCredentialGrant(context.Context, credentialBrokerGrant) (CredentialBrokerMaterial, error)
+}
+
+// CredentialBrokerMaterial is memory-only credential material returned to the
+// agent host function after policy validation.
+type CredentialBrokerMaterial struct {
+	Value          string
+	Fields         map[string]string
+	LeaseExpiresAt time.Time
 }
 
 // PluginManager manages Wasm plugin assignments and execution.
 type PluginManager struct {
-	logger        logger.Logger
-	cacheDir      string
-	localStoreDir string
-	httpClient    *http.Client
+	logger           logger.Logger
+	cacheDir         string
+	localStoreDir    string
+	httpClient       *http.Client
+	credentialBroker CredentialBrokerResolver
+	credentialCache  map[string]credentialBrokerCacheEntry
+	credentialNow    func() time.Time
+	credentialMu     sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -137,6 +160,11 @@ type assignmentState struct {
 	firstSeen   time.Time
 	ready       bool
 	contentHash string
+}
+
+type credentialBrokerCacheEntry struct {
+	material  CredentialBrokerMaterial
+	expiresAt time.Time
 }
 
 // PluginResult captures a raw plugin result payload.
@@ -313,18 +341,32 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 	}
 
 	return &PluginManager{
-		logger:        cfg.Logger,
-		cacheDir:      cacheDir,
-		localStoreDir: localStoreDir,
-		httpClient:    client,
-		ctx:           rootCtx,
-		cancel:        cancel,
-		runners:       make(map[string]*pluginRunner),
-		streams:       make(map[string]*pluginAssignment),
-		results:       make(chan PluginResult, 1024),
-		states:        make(map[string]*assignmentState),
-		stateNow:      time.Now,
+		logger:           cfg.Logger,
+		cacheDir:         cacheDir,
+		localStoreDir:    localStoreDir,
+		httpClient:       client,
+		credentialBroker: cfg.CredentialBroker,
+		credentialCache:  make(map[string]credentialBrokerCacheEntry),
+		credentialNow:    time.Now,
+		ctx:              rootCtx,
+		cancel:           cancel,
+		runners:          make(map[string]*pluginRunner),
+		streams:          make(map[string]*pluginAssignment),
+		results:          make(chan PluginResult, 1024),
+		states:           make(map[string]*assignmentState),
+		stateNow:         time.Now,
 	}
+}
+
+// SetCredentialBroker installs the trusted host-side credential resolver.
+func (m *PluginManager) SetCredentialBroker(resolver CredentialBrokerResolver) {
+	if m == nil {
+		return
+	}
+
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+	m.credentialBroker = resolver
 }
 
 // ApplyConfig applies plugin assignments from config, replacing existing runners.
@@ -1028,7 +1070,13 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 		return nil, err
 	}
 
-	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON)
+	credentialGrants, err := pluginActionCredentialGrants(invocationPayload)
+	if err != nil {
+		m.recordExecution(false)
+		return nil, err
+	}
+
+	result, err := m.executeActionWithWasm(runCtx, assignment, wasm, configJSON, credentialGrants)
 	m.recordExecution(err == nil)
 	return result, err
 }
@@ -1492,6 +1540,7 @@ func (m *PluginManager) executeActionWithWasm(
 	assignment *pluginAssignment,
 	wasm []byte,
 	configJSON []byte,
+	credentialGrants []credentialBrokerGrant,
 ) ([]byte, error) {
 	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
 	runtimeCfg := wazero.NewRuntimeConfig()
@@ -1507,6 +1556,7 @@ func (m *PluginManager) executeActionWithWasm(
 	exec := newPluginExecution(m, assignment)
 	exec.mode = pluginExecutionModeAction
 	exec.configJSON = configJSON
+	exec.credentialGrants = credentialGrants
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
 		return nil, err
 	}
@@ -1883,18 +1933,19 @@ func safeJoin(base, target string) (string, error) {
 }
 
 type pluginExecution struct {
-	manager       *PluginManager
-	assignment    *pluginAssignment
-	mode          pluginExecutionMode
-	configJSON    []byte
-	actionResult  []byte
-	mediaBridge   *pluginCameraMediaBridge
-	consoleBridge *pluginProxmoxConsoleBridge
-	mu            sync.Mutex
-	conns         map[uint32]net.Conn
-	wsConns       map[uint32]*websocket.Conn
-	nextHandle    uint32
-	submitted     bool
+	manager          *PluginManager
+	assignment       *pluginAssignment
+	mode             pluginExecutionMode
+	configJSON       []byte
+	actionResult     []byte
+	mediaBridge      *pluginCameraMediaBridge
+	consoleBridge    *pluginProxmoxConsoleBridge
+	credentialGrants []credentialBrokerGrant
+	mu               sync.Mutex
+	conns            map[uint32]net.Conn
+	wsConns          map[uint32]*websocket.Conn
+	nextHandle       uint32
+	submitted        bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
@@ -2212,6 +2263,12 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		method = http.MethodGet
 	}
 
+	grant, err := e.credentialBrokerGrantForHTTP(method, reqURL)
+	if err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
+	}
+
 	body, err := decodeBody(payload)
 	if err != nil {
 		return pluginErrInvalid
@@ -2235,6 +2292,11 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 			continue
 		}
 		httpReq.Header.Set(key, value)
+	}
+
+	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
 	}
 
 	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
@@ -2294,6 +2356,194 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	return int32(len(responseBytes))
 }
 
+func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *url.URL) (*credentialBrokerGrant, error) {
+	if e == nil || e.mode != pluginExecutionModeAction || len(e.credentialGrants) == 0 {
+		return nil, nil
+	}
+
+	now := time.Now()
+	if e.manager != nil {
+		now = e.manager.credentialNowTime()
+	}
+
+	return pluginActionGrantForHTTPRequest(e.credentialGrants, method, reqURL, now)
+}
+
+func (e *pluginExecution) applyCredentialBrokerInjection(
+	ctx context.Context,
+	req *http.Request,
+	grant *credentialBrokerGrant,
+	insecureSkipVerify bool,
+) error {
+	if grant == nil || len(grant.Inject) == 0 {
+		return nil
+	}
+	if insecureSkipVerify && !credentialBrokerGrantAllowsInsecureTLS(*grant) {
+		return errCredentialBrokerInsecureTLSDenied
+	}
+	if e == nil || e.manager == nil || e.manager.credentialBrokerResolver() == nil {
+		return errCredentialBrokerResolverUnavailable
+	}
+
+	material, err := e.manager.resolveCredentialBrokerMaterial(ctx, *grant)
+	if err != nil {
+		return err
+	}
+
+	return applyCredentialBrokerHTTPInjection(req, *grant, material)
+}
+
+func credentialBrokerGrantAllowsInsecureTLS(grant credentialBrokerGrant) bool {
+	return strings.EqualFold(strings.TrimSpace(grant.Inject["allow_insecure_tls"]), "true")
+}
+
+func (m *PluginManager) resolveCredentialBrokerMaterial(
+	ctx context.Context,
+	grant credentialBrokerGrant,
+) (CredentialBrokerMaterial, error) {
+	resolver := m.credentialBrokerResolver()
+	if resolver == nil {
+		return CredentialBrokerMaterial{}, errCredentialBrokerResolverUnavailable
+	}
+
+	key, ttl := m.credentialBrokerCacheDecision(grant)
+	if key == "" || ttl <= 0 {
+		return resolver.ResolveCredentialGrant(ctx, grant)
+	}
+
+	now := m.credentialNowTime()
+	if material, ok := m.getCachedCredentialBrokerMaterial(key, now); ok {
+		return material, nil
+	}
+
+	material, err := resolver.ResolveCredentialGrant(ctx, grant)
+	if err != nil {
+		return CredentialBrokerMaterial{}, err
+	}
+
+	expiresAt := now.Add(ttl)
+	if !material.LeaseExpiresAt.IsZero() {
+		if !now.Before(material.LeaseExpiresAt) {
+			return CredentialBrokerMaterial{}, errCredentialBrokerGrantExpired
+		}
+		if material.LeaseExpiresAt.Before(expiresAt) {
+			expiresAt = material.LeaseExpiresAt
+		}
+	}
+
+	m.putCachedCredentialBrokerMaterial(key, material, expiresAt)
+	return material, nil
+}
+
+func (m *PluginManager) credentialBrokerCacheDecision(grant credentialBrokerGrant) (string, time.Duration) {
+	mode := strings.ToLower(strings.TrimSpace(grant.Cache.Mode))
+	if mode == "" || mode == "no_cache" || mode == "none" || mode == "disabled" {
+		return "", 0
+	}
+	if mode != "memory" && mode != "memory_only" && mode != "memory_ttl" {
+		return "", 0
+	}
+
+	ttlSeconds := grant.Cache.TTLSeconds
+	if ttlSeconds <= 0 || ttlSeconds > 300 {
+		ttlSeconds = 300
+	}
+	if grant.TTLSeconds > 0 && grant.TTLSeconds < ttlSeconds {
+		ttlSeconds = grant.TTLSeconds
+	}
+
+	now := m.credentialNowTime()
+	if expiresAt, ok := parseCredentialBrokerExpiresAt(grant.ExpiresAt); ok {
+		remaining := expiresAt.Sub(now)
+		if remaining <= 0 {
+			return "", 0
+		}
+		if remaining < time.Duration(ttlSeconds)*time.Second {
+			ttlSeconds = int(remaining / time.Second)
+			if ttlSeconds <= 0 {
+				return "", 0
+			}
+		}
+	}
+
+	key := strings.TrimSpace(grant.GrantID)
+	if key == "" {
+		key = strings.TrimSpace(grant.CredentialSecretRef)
+	}
+	if key == "" {
+		return "", 0
+	}
+
+	return key, time.Duration(ttlSeconds) * time.Second
+}
+
+func (m *PluginManager) credentialBrokerResolver() CredentialBrokerResolver {
+	if m == nil {
+		return nil
+	}
+
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+
+	return m.credentialBroker
+}
+
+func (m *PluginManager) getCachedCredentialBrokerMaterial(
+	key string,
+	now time.Time,
+) (CredentialBrokerMaterial, bool) {
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+
+	entry, ok := m.credentialCache[key]
+	if !ok || !now.Before(entry.expiresAt) {
+		delete(m.credentialCache, key)
+		return CredentialBrokerMaterial{}, false
+	}
+
+	return cloneCredentialBrokerMaterial(entry.material), true
+}
+
+func (m *PluginManager) putCachedCredentialBrokerMaterial(
+	key string,
+	material CredentialBrokerMaterial,
+	expiresAt time.Time,
+) {
+	m.credentialMu.Lock()
+	defer m.credentialMu.Unlock()
+
+	m.credentialCache[key] = credentialBrokerCacheEntry{
+		material:  cloneCredentialBrokerMaterial(material),
+		expiresAt: expiresAt,
+	}
+}
+
+func (m *PluginManager) credentialNowTime() time.Time {
+	if m != nil && m.credentialNow != nil {
+		return m.credentialNow()
+	}
+	return time.Now()
+}
+
+func cloneCredentialBrokerMaterial(material CredentialBrokerMaterial) CredentialBrokerMaterial {
+	clone := CredentialBrokerMaterial{Value: material.Value, LeaseExpiresAt: material.LeaseExpiresAt}
+	if material.Fields != nil {
+		clone.Fields = make(map[string]string, len(material.Fields))
+		for key, value := range material.Fields {
+			clone.Fields[key] = value
+		}
+	}
+	return clone
+}
+
+func parseCredentialBrokerExpiresAt(raw string) (time.Time, bool) {
+	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return time.Time{}, false
+	}
+	return expiresAt, true
+}
+
 func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, method string, reason string) {
 	if e == nil || e.manager == nil || err == nil || reqURL == nil {
 		return
@@ -2308,6 +2558,22 @@ func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, m
 		Str("host", reqURL.Hostname()).
 		Str("reason", reason).
 		Msg("Plugin host HTTP request failed")
+}
+
+func (e *pluginExecution) logPluginHostHTTPDenied(err error, reqURL *url.URL, method string) {
+	if e == nil || e.manager == nil || err == nil || reqURL == nil {
+		return
+	}
+
+	e.manager.logger.Warn().
+		Err(err).
+		Str("assignment_id", e.assignment.AssignmentID).
+		Str("plugin_id", e.assignment.PluginID).
+		Str("method", method).
+		Str("scheme", reqURL.Scheme).
+		Str("host", reqURL.Hostname()).
+		Str("path", reqURL.EscapedPath()).
+		Msg("Plugin host HTTP request denied by credential broker grant policy")
 }
 
 func decodeBody(payload httpRequestPayload) ([]byte, error) {
@@ -3148,6 +3414,255 @@ func buildActionPluginConfig(baseConfig []byte, invocationPayload json.RawMessag
 
 	config["plugin_config_base64"] = base64.StdEncoding.EncodeToString(baseConfig)
 	return json.Marshal(config)
+}
+
+func pluginActionCredentialGrants(invocationPayload json.RawMessage) ([]credentialBrokerGrant, error) {
+	if len(bytes.TrimSpace(invocationPayload)) == 0 {
+		return nil, nil
+	}
+
+	var payload struct {
+		CredentialBroker  *credentialBrokerGrant  `json:"credential_broker"`
+		CredentialBrokers []credentialBrokerGrant `json:"credential_brokers"`
+	}
+	if err := json.Unmarshal(invocationPayload, &payload); err != nil {
+		return nil, fmt.Errorf("decode action credential grants: %w", err)
+	}
+
+	grants := make([]credentialBrokerGrant, 0, len(payload.CredentialBrokers)+1)
+	if payload.CredentialBroker != nil {
+		grants = append(grants, *payload.CredentialBroker)
+	}
+	grants = append(grants, payload.CredentialBrokers...)
+	if len(grants) == 0 {
+		return nil, nil
+	}
+
+	normalized := make([]credentialBrokerGrant, 0, len(grants))
+	seen := make(map[string]struct{}, len(grants))
+	for _, grant := range grants {
+		key := strings.TrimSpace(grant.GrantID)
+		if key == "" {
+			key = strings.TrimSpace(grant.CredentialSecretRef)
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		normalized = append(normalized, grant)
+	}
+
+	return normalized, nil
+}
+
+func pluginActionGrantForHTTPRequest(
+	grants []credentialBrokerGrant,
+	method string,
+	reqURL *url.URL,
+	now time.Time,
+) (*credentialBrokerGrant, error) {
+	if len(grants) == 0 {
+		return nil, nil
+	}
+	if reqURL == nil || reqURL.Host == "" {
+		return nil, errInvalidCredentialBrokerGrant
+	}
+
+	lastErr := errCredentialBrokerGrantDenied
+	for i := range grants {
+		grant := &grants[i]
+		if err := validatePluginActionCredentialGrantEnvelope(*grant, now); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := validatePluginActionGrantAllow(grant.Allow, method, reqURL); err != nil {
+			lastErr = err
+			continue
+		}
+		return grant, nil
+	}
+
+	return nil, lastErr
+}
+
+func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, now time.Time) error {
+	if strings.TrimSpace(grant.CredentialSecretRef) == "" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if grant.Schema != "" && grant.Schema != "serviceradar.edge_credential_broker_grant.v1" {
+		return errInvalidCredentialBrokerGrant
+	}
+	if grant.TTLSeconds < 0 {
+		return errInvalidCredentialBrokerGrant
+	}
+	if strings.TrimSpace(grant.ExpiresAt) == "" {
+		return nil
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, strings.TrimSpace(grant.ExpiresAt))
+	if err != nil {
+		return errInvalidCredentialBrokerGrant
+	}
+	if !now.Before(expiresAt) {
+		return errCredentialBrokerGrantExpired
+	}
+
+	return nil
+}
+
+func validatePluginActionGrantAllow(allow credentialBrokerACL, method string, reqURL *url.URL) error {
+	if len(allow.Hosts) == 0 {
+		return errCredentialBrokerGrantDenied
+	}
+
+	if len(allow.Methods) > 0 && !stringInFoldedList(method, allow.Methods) {
+		return errCredentialBrokerGrantDenied
+	}
+
+	requestedPath := reqURL.EscapedPath()
+	if requestedPath == "" {
+		requestedPath = "/"
+	}
+	if len(allow.Paths) > 0 && !credentialBrokerPathAllowed(allow.Paths, requestedPath) {
+		return errCredentialBrokerGrantDenied
+	}
+
+	if len(allow.Hosts) > 0 {
+		host := reqURL.Hostname()
+		if !stringInFoldedList(host, allow.Hosts) && !stringInFoldedList(reqURL.Host, allow.Hosts) {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+
+	if len(allow.Ports) > 0 {
+		port := portForURL(reqURL)
+		if port == 0 || !intInList(port, allow.Ports) {
+			return errCredentialBrokerGrantDenied
+		}
+	}
+
+	return nil
+}
+
+func credentialBrokerPathAllowed(patterns []string, requested string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSpace(pattern)
+		switch {
+		case pattern == "":
+			continue
+		case pattern == requested:
+			return true
+		case strings.HasSuffix(pattern, "*") && strings.HasPrefix(requested, strings.TrimSuffix(pattern, "*")):
+			return true
+		case strings.HasSuffix(pattern, "/") && strings.HasPrefix(requested, pattern):
+			return true
+		}
+	}
+
+	return false
+}
+
+func applyCredentialBrokerHTTPInjection(
+	req *http.Request,
+	grant credentialBrokerGrant,
+	material CredentialBrokerMaterial,
+) error {
+	if req == nil {
+		return errCredentialBrokerInjectionUnsupported
+	}
+
+	injectType := strings.ToLower(strings.TrimSpace(grant.Inject["type"]))
+	if injectType == "" {
+		return nil
+	}
+
+	switch injectType {
+	case "http_header", "header":
+		return applyCredentialBrokerHeaderInjection(req, grant, material)
+	case "bearer_token":
+		inject := map[string]string{
+			"type":   "http_header",
+			"name":   firstNonEmptyString(grant.Inject["name"], "Authorization"),
+			"scheme": firstNonEmptyString(grant.Inject["scheme"], "Bearer"),
+		}
+		grant.Inject = inject
+		return applyCredentialBrokerHeaderInjection(req, grant, material)
+	case "basic_auth", "http_basic_auth":
+		username := credentialMaterialFieldValue(material, "username", "user")
+		password := credentialMaterialFieldValue(material, "password")
+		if strings.TrimSpace(username) == "" || password == "" {
+			return errCredentialBrokerMaterialUnavailable
+		}
+		req.SetBasicAuth(username, password)
+		return nil
+	case "query", "query_param", "http_query":
+		name := strings.TrimSpace(grant.Inject["name"])
+		value := credentialMaterialValue(material, "value", name)
+		if name == "" || value == "" {
+			return errCredentialBrokerMaterialUnavailable
+		}
+		query := req.URL.Query()
+		query.Set(name, value)
+		req.URL.RawQuery = query.Encode()
+		return nil
+	default:
+		return errCredentialBrokerInjectionUnsupported
+	}
+}
+
+func applyCredentialBrokerHeaderInjection(
+	req *http.Request,
+	grant credentialBrokerGrant,
+	material CredentialBrokerMaterial,
+) error {
+	name := strings.TrimSpace(grant.Inject["name"])
+	if name == "" {
+		return errCredentialBrokerMaterialUnavailable
+	}
+
+	value := credentialMaterialValue(material, "value", name)
+	if value == "" {
+		return errCredentialBrokerMaterialUnavailable
+	}
+
+	if scheme := strings.TrimSpace(grant.Inject["scheme"]); scheme != "" {
+		value = scheme + " " + value
+	}
+
+	req.Header.Set(name, value)
+	return nil
+}
+
+func credentialMaterialValue(material CredentialBrokerMaterial, keys ...string) string {
+	for _, key := range keys {
+		if material.Fields == nil {
+			continue
+		}
+		for _, candidate := range []string{key, strings.ToLower(key), strings.ToUpper(key)} {
+			if value := strings.TrimSpace(material.Fields[candidate]); value != "" {
+				return value
+			}
+		}
+	}
+
+	return strings.TrimSpace(material.Value)
+}
+
+func credentialMaterialFieldValue(material CredentialBrokerMaterial, keys ...string) string {
+	for _, key := range keys {
+		if material.Fields == nil {
+			continue
+		}
+		for _, candidate := range []string{key, strings.ToLower(key), strings.ToUpper(key)} {
+			if value := strings.TrimSpace(material.Fields[candidate]); value != "" {
+				return value
+			}
+		}
+	}
+
+	return ""
 }
 
 func readMemory(mod api.Module, ptr, size uint32) ([]byte, bool) {

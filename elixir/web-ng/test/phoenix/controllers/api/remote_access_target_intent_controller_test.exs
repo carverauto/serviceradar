@@ -67,7 +67,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessTargetIntentControllerTest do
     test "creates a registered application target intent", %{conn: conn} do
       target_id = Ecto.UUID.generate()
       approval_id = Ecto.UUID.generate()
-      Application.put_env(:serviceradar_web_ng, :remote_access_session_manager_open_result, open_result(:app, target_id))
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        open_result(:app, target_id)
+      )
 
       conn =
         post(conn, ~p"/api/remote-access/app-sessions", %{
@@ -113,7 +118,12 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessTargetIntentControllerTest do
 
     test "creates a registered TCP target intent", %{conn: conn} do
       target_id = Ecto.UUID.generate()
-      Application.put_env(:serviceradar_web_ng, :remote_access_session_manager_open_result, open_result(:tcp, target_id))
+
+      Application.put_env(
+        :serviceradar_web_ng,
+        :remote_access_session_manager_open_result,
+        open_result(:tcp, target_id)
+      )
 
       conn = post(conn, ~p"/api/remote-access/tcp-sessions", %{"target_id" => target_id})
 

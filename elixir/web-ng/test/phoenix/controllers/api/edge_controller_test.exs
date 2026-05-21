@@ -14,8 +14,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
 
   defmodule BrokenEdgeBundleGenerator do
     @moduledoc false
-    def create_tarball(_package, _bundle_pem, _join_token, _opts),
-      do: {:error, %{secret: "edge-bundle-secret"}}
+    def create_tarball(_package, _bundle_pem, _join_token, _opts), do: {:error, %{secret: "edge-bundle-secret"}}
   end
 
   setup %{conn: conn} do
@@ -318,8 +317,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
 
       conn =
         post(build_conn(), ~p"/api/admin/edge-packages/#{created.package.id}/download", %{
-          "onboarding_token" =>
-            signed_download_token(created.package.id, created.download_token, "edge-b")
+          "onboarding_token" => signed_download_token(created.package.id, created.download_token, "edge-b")
         })
 
       assert json_response(conn, 401)["error"] == "onboarding token invalid"

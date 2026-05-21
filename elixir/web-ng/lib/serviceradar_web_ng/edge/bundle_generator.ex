@@ -282,8 +282,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     Jason.encode!(value)
   end
 
-  defp encode_yaml_value(value)
-       when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) do
+  defp encode_yaml_value(value) when is_integer(value) or is_float(value) or is_boolean(value) or is_nil(value) do
     Jason.encode!(value)
   end
 
@@ -532,26 +531,15 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   # Kubernetes manifest generation
 
-  defp generate_kubernetes_files(
-         package_dir,
-         package,
-         cert_pem,
-         key_pem,
-         ca_chain_pem,
-         join_token,
-         opts
-       ) do
+  defp generate_kubernetes_files(package_dir, package, cert_pem, key_pem, ca_chain_pem, join_token, opts) do
     namespace = Keyword.get(opts, :namespace, "serviceradar")
     image_tag = Keyword.get(opts, :image_tag, "latest")
 
     [
       {"#{package_dir}/kubernetes/namespace.yaml", generate_k8s_namespace(namespace)},
-      {"#{package_dir}/kubernetes/secret.yaml",
-       generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
-      {"#{package_dir}/kubernetes/configmap.yaml",
-       generate_k8s_configmap(package, join_token, namespace, opts)},
-      {"#{package_dir}/kubernetes/deployment.yaml",
-       generate_k8s_deployment(package, namespace, image_tag)},
+      {"#{package_dir}/kubernetes/secret.yaml", generate_k8s_secret(package, cert_pem, key_pem, ca_chain_pem, namespace)},
+      {"#{package_dir}/kubernetes/configmap.yaml", generate_k8s_configmap(package, join_token, namespace, opts)},
+      {"#{package_dir}/kubernetes/deployment.yaml", generate_k8s_deployment(package, namespace, image_tag)},
       {"#{package_dir}/kubernetes/kustomization.yaml", generate_k8s_kustomization()}
     ]
   end

@@ -10,9 +10,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   use Ash.Resource,
     domain: ServiceRadar.Credentials,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshCloak, AshPaperTrail.Resource],
+    extensions: [AshCloak, AshStateMachine, AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Credentials.Changes.WriteSecretLifecycleEvent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
@@ -24,18 +25,45 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :credential_kind,
     :username,
     :public_fingerprint,
+    :source_type,
+    :secret_provider_id,
+    :external_secret_ref,
+    :external_secret_version,
+    :external_secret_fields,
+    :resolution_location,
+    :cache_policy,
+    :cache_ttl_seconds,
     :last_rotated_at,
     :next_rotation_due_at,
+    :last_resolved_at,
+    :last_resolution_status,
+    :last_resolution_message,
     :metadata
   ]
 
-  @public_read_fields [:id, :inserted_at, :updated_at | @fields]
+  @rotation_read_fields [
+    :rotation_state,
+    :rotation_started_at,
+    :last_rotation_failed_at,
+    :last_rotation_failure_message
+  ]
+
+  @public_read_fields [:id, :inserted_at, :updated_at | @fields] ++ @rotation_read_fields
   @secret_read_fields [
     :id,
     :provider,
     :credential_kind,
     :username,
     :metadata,
+    :source_type,
+    :secret_provider_id,
+    :external_secret_ref,
+    :external_secret_version,
+    :external_secret_fields,
+    :resolution_location,
+    :cache_policy,
+    :cache_ttl_seconds,
+    :rotation_state,
     :encrypted_secret_payload
   ]
 
@@ -48,6 +76,25 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   cloak do
     vault(ServiceRadar.Vault)
     attributes([:secret_payload])
+  end
+
+  state_machine do
+    initial_states [:active]
+    default_initial_state :active
+    state_attribute :rotation_state
+
+    transitions do
+      transition :mark_rotation_due, from: [:active, :rotation_failed], to: :rotation_due
+      transition :start_rotation, from: [:active, :rotation_due, :rotation_failed], to: :rotating
+      transition :complete_rotation, from: :rotating, to: :active
+      transition :fail_rotation, from: :rotating, to: :rotation_failed
+
+      transition :disable_rotation,
+        from: [:active, :rotation_due, :rotating, :rotation_failed],
+        to: :disabled
+
+      transition :enable_rotation, from: :disabled, to: :active
+    end
   end
 
   paper_trail do
@@ -67,6 +114,12 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
     define :update_secret, action: :update
+    define :mark_rotation_due, action: :mark_rotation_due
+    define :start_rotation, action: :start_rotation
+    define :complete_rotation, action: :complete_rotation
+    define :fail_rotation, action: :fail_rotation
+    define :disable_rotation, action: :disable_rotation
+    define :enable_rotation, action: :enable_rotation
   end
 
   actions do
@@ -100,6 +153,50 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :update do
       accept [:secret_payload | @fields]
+    end
+
+    update :mark_rotation_due do
+      accept [:next_rotation_due_at]
+      change transition_state(:rotation_due)
+      change {WriteSecretLifecycleEvent, action: :mark_rotation_due}
+    end
+
+    update :start_rotation do
+      accept [:metadata]
+      change transition_state(:rotating)
+      change set_attribute(:rotation_started_at, &DateTime.utc_now/0)
+      change {WriteSecretLifecycleEvent, action: :start_rotation}
+    end
+
+    update :complete_rotation do
+      accept [:secret_payload, :public_fingerprint, :next_rotation_due_at, :metadata]
+      change transition_state(:active)
+      change set_attribute(:last_rotated_at, &DateTime.utc_now/0)
+      change set_attribute(:rotation_started_at, nil)
+      change set_attribute(:last_rotation_failed_at, nil)
+      change set_attribute(:last_rotation_failure_message, nil)
+      change {WriteSecretLifecycleEvent, action: :complete_rotation}
+    end
+
+    update :fail_rotation do
+      argument :message, :string, allow_nil?: false
+      change transition_state(:rotation_failed)
+      change set_attribute(:rotation_started_at, nil)
+      change set_attribute(:last_rotation_failed_at, &DateTime.utc_now/0)
+      change set_attribute(:last_rotation_failure_message, arg(:message))
+      change {WriteSecretLifecycleEvent, action: :fail_rotation}
+    end
+
+    update :disable_rotation do
+      accept []
+      change transition_state(:disabled)
+      change {WriteSecretLifecycleEvent, action: :disable_rotation}
+    end
+
+    update :enable_rotation do
+      accept []
+      change transition_state(:active)
+      change {WriteSecretLifecycleEvent, action: :enable_rotation}
     end
   end
 
@@ -156,6 +253,91 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       description "Optional public key, certificate, or token fingerprint"
     end
 
+    attribute :source_type, :atom do
+      allow_nil? false
+      public? true
+      default :internal_encrypted
+      constraints one_of: [:internal_encrypted, :external_reference]
+
+      description "Whether the credential is stored internally or resolved from an external provider"
+    end
+
+    attribute :secret_provider_id, :uuid do
+      allow_nil? true
+      public? true
+      description "External secret provider used when source_type is external_reference"
+    end
+
+    attribute :external_secret_ref, :string do
+      allow_nil? true
+      public? true
+      description "Provider-specific object, item, path, or secret identifier"
+    end
+
+    attribute :external_secret_version, :string do
+      allow_nil? true
+      public? true
+      description "Optional provider-specific version selector"
+    end
+
+    attribute :external_secret_fields, :map do
+      allow_nil? false
+      public? true
+      default %{}
+      description "Provider field mapping for structured external secrets"
+    end
+
+    attribute :resolution_location, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:control_plane, :agent, :hybrid]
+      description "Preferred broker location for resolving the external reference"
+    end
+
+    attribute :cache_policy, :atom do
+      allow_nil? false
+      public? true
+      default :no_cache
+      constraints one_of: [:no_cache, :memory_ttl, :encrypted_ttl]
+    end
+
+    attribute :cache_ttl_seconds, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1
+    end
+
+    attribute :rotation_state, :atom do
+      allow_nil? false
+      public? true
+      default :active
+
+      constraints one_of: [
+                    :active,
+                    :rotation_due,
+                    :rotating,
+                    :rotation_failed,
+                    :disabled
+                  ]
+
+      description "First-class credential rotation lifecycle state"
+    end
+
+    attribute :rotation_started_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :last_rotation_failed_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :last_rotation_failure_message, :string do
+      allow_nil? true
+      public? true
+    end
+
     attribute :last_rotated_at, :utc_datetime_usec do
       allow_nil? true
       public? true
@@ -166,6 +348,22 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       allow_nil? true
       public? true
       description "Operator-facing rotation due date for this credential"
+    end
+
+    attribute :last_resolved_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :last_resolution_status, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:success, :failed, :denied, :cache_hit]
+    end
+
+    attribute :last_resolution_message, :string do
+      allow_nil? true
+      public? true
     end
 
     attribute :secret_payload, :string do
@@ -183,6 +381,16 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :secret_provider, ServiceRadar.Credentials.CredentialSecretProvider do
+      allow_nil? true
+      public? true
+      source_attribute :secret_provider_id
+      destination_attribute :id
+      define_attribute? false
+    end
   end
 
   calculations do

@@ -32,6 +32,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.Changes.PublishSyncLog
 
+  require Logger
+
   @source_fields [
     :name,
     :endpoint,
@@ -48,7 +50,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     :network_blacklist,
     :queries,
     :custom_fields,
-    :settings
+    :settings,
+    :credential_secret_id
   ]
   @source_create_fields [:source_type | @source_fields]
 
@@ -467,6 +470,12 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description "Encrypted credentials JSON"
     end
 
+    attribute :credential_secret_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Optional NetworkCredentialSecret used by the credential broker"
+    end
+
     # Sync tracking
     attribute :last_sync_at, :utc_datetime do
       public? true
@@ -563,6 +572,14 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   end
 
   relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      source_attribute :credential_secret_id
+      destination_attribute :id
+      define_attribute? false
+    end
+
     has_many :update_runs, ServiceRadar.Integrations.IntegrationUpdateRun do
       destination_attribute :integration_source_id
       public? true
@@ -571,18 +588,13 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   calculations do
     calculate :credentials, :map, fn records, _opts ->
-      # Decrypt and parse credentials JSON
+      # Public reads must not resolve broker-backed external references. Runtime
+      # sync paths that need plaintext credentials must use a scoped broker grant.
       Enum.map(records, fn record ->
-        case record.credentials_encrypted do
-          nil -> nil
-          "" -> %{}
-          %Ash.NotLoaded{} -> nil
-          json when is_binary(json) -> Jason.decode!(json)
-          _ -> nil
-        end
+        legacy_credentials(record)
       end)
     end do
-      load [:credentials_encrypted]
+      load [:credentials_encrypted, :credential_secret_id]
     end
 
     calculate :poll_interval_display,
@@ -669,6 +681,16 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
   defp encrypt_credentials(changeset, credentials) do
     AshCloak.encrypt_and_set(changeset, :credentials_encrypted, Jason.encode!(credentials))
+  end
+
+  defp legacy_credentials(record) do
+    case record.credentials_encrypted do
+      nil -> nil
+      "" -> %{}
+      %Ash.NotLoaded{} -> nil
+      json when is_binary(json) -> Jason.decode!(json)
+      _ -> nil
+    end
   end
 
   @doc false

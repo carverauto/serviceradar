@@ -242,7 +242,10 @@ defmodule ServiceRadarWebNG.RemoteDesktopWebRTC do
   defp turn_url?(_url), do: false
 
   defp has_turn_credentials?(server) do
-    is_binary(server[:username]) && server[:username] != "" && is_binary(server[:credential]) && server[:credential] != ""
+    is_binary(server[:username]) &&
+      server[:username] != "" &&
+      is_binary(server[:credential]) &&
+      server[:credential] != ""
   end
 
   defp time_bound_turn_username?(username) when is_binary(username) do

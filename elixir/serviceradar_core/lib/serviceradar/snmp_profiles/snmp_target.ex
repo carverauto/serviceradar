@@ -64,7 +64,8 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
     :username,
     :security_level,
     :auth_protocol,
-    :priv_protocol
+    :priv_protocol,
+    :credential_secret_id
   ]
 
   postgres do

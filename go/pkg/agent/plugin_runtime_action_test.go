@@ -1,7 +1,11 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +24,8 @@ const (
 	sampleNorthboundFixtureAssignmentID = "sample-northbound-action"
 	sampleNorthboundFixturePluginID     = "sample-northbound-nms"
 	sampleNorthboundFixtureObjectKey    = "sample_northbound.wasm"
+	resolvedToken                       = "resolved-token"
+	testCredentialAPIURL                = "https://api.example.com/api/v1/devices"
 )
 
 func TestPluginManagerRunActionWithFixtureWasm(t *testing.T) {
@@ -162,6 +168,427 @@ func TestPluginManagerRunActionWithSampleNorthboundWasm(t *testing.T) {
 	}
 }
 
+func TestPluginActionCredentialGrantsParseAndDedupe(t *testing.T) {
+	t.Parallel()
+
+	grants, err := pluginActionCredentialGrants(json.RawMessage(`{
+		"credential_broker": {
+			"schema": "serviceradar.edge_credential_broker_grant.v1",
+			"grant_id": "grant-1",
+			"credential_secret_ref": "credentialref:network-credential-secret:secret-1"
+		},
+		"credential_brokers": [{
+			"schema": "serviceradar.edge_credential_broker_grant.v1",
+			"grant_id": "grant-1",
+			"credential_secret_ref": "credentialref:network-credential-secret:secret-1"
+		}, {
+			"schema": "serviceradar.edge_credential_broker_grant.v1",
+			"grant_id": "grant-2",
+			"credential_secret_ref": "credentialref:network-credential-secret:secret-2"
+		}]
+	}`))
+	if err != nil {
+		t.Fatalf("pluginActionCredentialGrants returned error: %v", err)
+	}
+	if len(grants) != 2 {
+		t.Fatalf("grants len = %d, want 2: %#v", len(grants), grants)
+	}
+	if grants[0].GrantID != "grant-1" || grants[1].GrantID != "grant-2" {
+		t.Fatalf("unexpected grant order: %#v", grants)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantAllowsScopedRequest(t *testing.T) {
+	t.Parallel()
+
+	reqURL := mustParseURL(t, "https://api.example.com:8443/api/v1/devices")
+	grants := []credentialBrokerGrant{{
+		Schema:              "serviceradar.edge_credential_broker_grant.v1",
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Allow: credentialBrokerACL{
+			Methods: []string{"GET", "POST"},
+			Paths:   []string{"/api/v1/"},
+			Hosts:   []string{"api.example.com"},
+			Ports:   []int{8443},
+		},
+		ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}}
+
+	if _, err := pluginActionGrantForHTTPRequest(grants, "POST", reqURL, time.Now()); err != nil {
+		t.Fatalf("pluginActionGrantForHTTPRequest returned error: %v", err)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantDeniesMismatchedRequest(t *testing.T) {
+	t.Parallel()
+
+	baseGrant := credentialBrokerGrant{
+		Schema:              "serviceradar.edge_credential_broker_grant.v1",
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Allow: credentialBrokerACL{
+			Methods: []string{"POST"},
+			Paths:   []string{"/api/v1/"},
+			Hosts:   []string{"api.example.com"},
+			Ports:   []int{443},
+		},
+		ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		url    string
+	}{
+		{name: "method", method: "GET", url: "https://api.example.com/api/v1/devices"},
+		{name: "path", method: "POST", url: "https://api.example.com/admin"},
+		{name: "host", method: "POST", url: "https://other.example.com/api/v1/devices"},
+		{name: "port", method: "POST", url: "https://api.example.com:8443/api/v1/devices"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := pluginActionGrantForHTTPRequest(
+				[]credentialBrokerGrant{baseGrant},
+				tc.method,
+				mustParseURL(t, tc.url),
+				time.Now(),
+			)
+			if !errors.Is(err, errCredentialBrokerGrantDenied) {
+				t.Fatalf("expected grant denied error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestValidatePluginActionHTTPGrantRejectsExpiredGrant(t *testing.T) {
+	t.Parallel()
+
+	_, err := pluginActionGrantForHTTPRequest(
+		[]credentialBrokerGrant{{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+			Allow:               credentialBrokerACL{Methods: []string{"GET"}},
+			ExpiresAt:           time.Now().Add(-time.Minute).Format(time.RFC3339),
+		}},
+		"GET",
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+		time.Now(),
+	)
+	if !errors.Is(err, errCredentialBrokerGrantExpired) {
+		t.Fatalf("expected grant expired error, got %v", err)
+	}
+}
+
+func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t)
+	grant := credentialBrokerGrant{
+		Inject: map[string]string{
+			"type":   "http_header",
+			"name":   "Authorization",
+			"scheme": "Bearer",
+		},
+	}
+
+	err := applyCredentialBrokerHTTPInjection(req, grant, CredentialBrokerMaterial{Value: resolvedToken})
+	if err != nil {
+		t.Fatalf("applyCredentialBrokerHTTPInjection returned error: %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+resolvedToken {
+		t.Fatalf("Authorization header = %q, want bearer token", got)
+	}
+}
+
+func TestPluginExecutionCredentialInjectionRequiresResolver(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t)
+	exec := &pluginExecution{
+		manager: NewPluginManager(t.Context(), PluginManagerConfig{}),
+	}
+
+	err := exec.applyCredentialBrokerInjection(t.Context(), req, &credentialBrokerGrant{
+		Inject: map[string]string{"type": "bearer_token"},
+	}, false)
+	if !errors.Is(err, errCredentialBrokerResolverUnavailable) {
+		t.Fatalf("expected resolver unavailable error, got %v", err)
+	}
+}
+
+func TestPluginExecutionCredentialInjectionUsesResolverWithoutPluginSecret(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t)
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Fields: map[string]string{"value": resolvedToken}},
+	}
+	exec := &pluginExecution{
+		manager: NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver}),
+	}
+	grant := &credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Inject: map[string]string{
+			"type": "bearer_token",
+		},
+	}
+
+	err := exec.applyCredentialBrokerInjection(t.Context(), req, grant, false)
+	if err != nil {
+		t.Fatalf("applyCredentialBrokerInjection returned error: %v", err)
+	}
+	if resolver.grantID != "grant-1" {
+		t.Fatalf("resolver grant id = %q, want grant-1", resolver.grantID)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer "+resolvedToken {
+		t.Fatalf("Authorization header = %q, want resolved token", got)
+	}
+}
+
+func TestValidatePluginActionHTTPGrantDeniesEmptyHostACL(t *testing.T) {
+	t.Parallel()
+
+	_, err := pluginActionGrantForHTTPRequest(
+		[]credentialBrokerGrant{{
+			Schema:              "serviceradar.edge_credential_broker_grant.v1",
+			GrantID:             "grant-1",
+			CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+			Allow: credentialBrokerACL{
+				Methods: []string{"GET"},
+				Paths:   []string{"/api/v1/"},
+			},
+			ExpiresAt: time.Now().Add(time.Minute).Format(time.RFC3339),
+		}},
+		"GET",
+		mustParseURL(t, "https://api.example.com/api/v1/devices"),
+		time.Now(),
+	)
+	if !errors.Is(err, errCredentialBrokerGrantDenied) {
+		t.Fatalf("expected grant denied error, got %v", err)
+	}
+}
+
+func TestPluginExecutionCredentialInjectionDeniesInsecureTLSByDefault(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t)
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Fields: map[string]string{"value": resolvedToken}},
+	}
+	exec := &pluginExecution{
+		manager: NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver}),
+	}
+	grant := &credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Inject:              map[string]string{"type": "bearer_token"},
+	}
+
+	err := exec.applyCredentialBrokerInjection(t.Context(), req, grant, true)
+	if !errors.Is(err, errCredentialBrokerInsecureTLSDenied) {
+		t.Fatalf("expected insecure TLS denial, got %v", err)
+	}
+	if resolver.calls != 0 {
+		t.Fatalf("resolver calls = %d, want 0", resolver.calls)
+	}
+}
+
+func TestCredentialBrokerBasicAuthRequiresExplicitFields(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t)
+	grant := credentialBrokerGrant{
+		Inject: map[string]string{"type": "basic_auth"},
+	}
+	material := CredentialBrokerMaterial{Value: "shared-secret"}
+
+	if err := applyCredentialBrokerHTTPInjection(req, grant, material); !errors.Is(err, errCredentialBrokerMaterialUnavailable) {
+		t.Fatalf("expected material unavailable error, got %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "" {
+		t.Fatalf("Authorization header = %q, want empty", got)
+	}
+}
+
+func TestCredentialBrokerBasicAuthUsesUsernamePasswordFields(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t)
+	grant := credentialBrokerGrant{
+		Inject: map[string]string{"type": "basic_auth"},
+	}
+	material := CredentialBrokerMaterial{
+		Fields: map[string]string{"username": "svc-user", "password": "svc-password"},
+	}
+
+	if err := applyCredentialBrokerHTTPInjection(req, grant, material); err != nil {
+		t.Fatalf("applyCredentialBrokerHTTPInjection returned error: %v", err)
+	}
+	username, password, ok := req.BasicAuth()
+	if !ok || username != "svc-user" || password != "svc-password" {
+		t.Fatalf("basic auth = %q/%q ok=%v, want svc-user/svc-password true", username, password, ok)
+	}
+}
+
+func TestCredentialBrokerResolutionRejectsExpiredProviderLease(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{
+			Value:          "expired-token",
+			LeaseExpiresAt: now.Add(-time.Second),
+		},
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	manager.credentialNow = func() time.Time { return now }
+
+	grant := credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Cache: credentialBrokerCachePolicy{
+			Mode:       "memory_ttl",
+			TTLSeconds: 60,
+		},
+		ExpiresAt: now.Add(time.Minute).Format(time.RFC3339),
+	}
+
+	if _, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant); !errors.Is(err, errCredentialBrokerGrantExpired) {
+		t.Fatalf("expected expired grant error, got %v", err)
+	}
+}
+
+func TestCredentialBrokerResolutionDefaultsNoCache(t *testing.T) {
+	t.Parallel()
+
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Value: resolvedToken},
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	grant := credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+	}
+
+	if _, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant); err != nil {
+		t.Fatalf("first resolve returned error: %v", err)
+	}
+	if _, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant); err != nil {
+		t.Fatalf("second resolve returned error: %v", err)
+	}
+	if resolver.calls != 2 {
+		t.Fatalf("resolver calls = %d, want 2 for default no_cache", resolver.calls)
+	}
+}
+
+func TestCredentialBrokerResolutionMemoryCacheExpires(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Value: resolvedToken},
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	manager.credentialNow = func() time.Time { return now }
+
+	grant := credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Cache: credentialBrokerCachePolicy{
+			Mode:       "memory",
+			TTLSeconds: 30,
+		},
+		ExpiresAt: now.Add(time.Minute).Format(time.RFC3339),
+	}
+
+	first, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("first resolve returned error: %v", err)
+	}
+	if first.Value != resolvedToken {
+		t.Fatalf("first material = %q, want resolved-token", first.Value)
+	}
+
+	resolver.material = CredentialBrokerMaterial{Value: "rotated-token"}
+	second, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("second resolve returned error: %v", err)
+	}
+	if second.Value != resolvedToken {
+		t.Fatalf("second material = %q, want cached resolved-token", second.Value)
+	}
+	if resolver.calls != 1 {
+		t.Fatalf("resolver calls = %d, want 1 while cache is valid", resolver.calls)
+	}
+
+	now = now.Add(31 * time.Second)
+	third, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("third resolve returned error: %v", err)
+	}
+	if third.Value != "rotated-token" {
+		t.Fatalf("third material = %q, want rotated-token after expiry", third.Value)
+	}
+	if resolver.calls != 2 {
+		t.Fatalf("resolver calls = %d, want 2 after cache expiry", resolver.calls)
+	}
+}
+
+func TestCredentialBrokerResolutionMemoryCacheCappedByProviderLease(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 5, 21, 12, 0, 0, 0, time.UTC)
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{
+			Value:          resolvedToken,
+			LeaseExpiresAt: now.Add(10 * time.Second),
+		},
+	}
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+	manager.credentialNow = func() time.Time { return now }
+
+	grant := credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Cache: credentialBrokerCachePolicy{
+			Mode:       "memory",
+			TTLSeconds: 60,
+		},
+		ExpiresAt: now.Add(time.Minute).Format(time.RFC3339),
+	}
+
+	first, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("first resolve returned error: %v", err)
+	}
+	if first.Value != resolvedToken {
+		t.Fatalf("first material = %q, want resolved-token", first.Value)
+	}
+
+	resolver.material = CredentialBrokerMaterial{
+		Value:          "rotated-token",
+		LeaseExpiresAt: now.Add(time.Minute),
+	}
+	now = now.Add(11 * time.Second)
+
+	second, err := manager.resolveCredentialBrokerMaterial(t.Context(), grant)
+	if err != nil {
+		t.Fatalf("second resolve returned error: %v", err)
+	}
+	if second.Value != "rotated-token" {
+		t.Fatalf("second material = %q, want rotated-token after provider lease expiry", second.Value)
+	}
+	if resolver.calls != 2 {
+		t.Fatalf("resolver calls = %d, want 2 after provider lease expiry", resolver.calls)
+	}
+}
+
 func newActionFixtureManager(t *testing.T, objectKey string, cfg *proto.PluginAssignmentConfig) *PluginManager {
 	t.Helper()
 
@@ -211,6 +638,48 @@ func runFixtureAction(t *testing.T, manager *PluginManager, payload json.RawMess
 	}
 
 	return decoded
+}
+
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse url %q: %v", raw, err)
+	}
+
+	return parsed
+}
+
+func httptestRequest(t *testing.T) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, testCredentialAPIURL, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	return req
+}
+
+type fakeCredentialBrokerResolver struct {
+	grantID  string
+	material CredentialBrokerMaterial
+	err      error
+	calls    int
+}
+
+func (f *fakeCredentialBrokerResolver) ResolveCredentialGrant(
+	_ context.Context,
+	grant credentialBrokerGrant,
+) (CredentialBrokerMaterial, error) {
+	f.calls++
+	f.grantID = grant.GrantID
+	if f.err != nil {
+		return CredentialBrokerMaterial{}, f.err
+	}
+
+	return f.material, nil
 }
 
 func firstTargetResult(t *testing.T, decoded map[string]interface{}) map[string]interface{} {

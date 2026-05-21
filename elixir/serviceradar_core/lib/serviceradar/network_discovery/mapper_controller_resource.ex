@@ -33,6 +33,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperControllerResource do
        [public?: false, sensitive?: true, description: secret_description]},
       {:insecure_skip_verify, :boolean,
        [allow_nil?: false, default: false, description: insecure_description]},
+      {:credential_secret_id, :uuid,
+       [
+         allow_nil?: true,
+         public?: true,
+         description: "Optional NetworkCredentialSecret resolved by the credential broker"
+       ]},
       {:mapper_job_id, :uuid, [allow_nil?: false, description: "Parent mapper job ID"]}
     ]
 
@@ -101,6 +107,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperControllerResource do
           public? true
           define_attribute? false
           source_attribute :mapper_job_id
+          destination_attribute :id
+        end
+
+        belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+          allow_nil? true
+          public? true
+          define_attribute? false
+          source_attribute :credential_secret_id
           destination_attribute :id
         end
       end

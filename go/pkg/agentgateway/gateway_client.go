@@ -735,6 +735,28 @@ func (g *GatewayClient) ControlStream(ctx context.Context) (grpc.BidiStreamingCl
 	return stream, nil
 }
 
+// ResolveCredentialGrant resolves a scoped credential broker grant through the agent-gateway.
+func (g *GatewayClient) ResolveCredentialGrant(
+	ctx context.Context,
+	req *proto.CredentialBrokerResolveRequest,
+) (*proto.CredentialBrokerResolveResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	resp, err := client.ResolveCredentialGrant(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("resolve credential grant: %w", err)
+	}
+
+	return resp, nil
+}
+
 // OpenRelaySession reserves an authenticated camera media ingress session.
 func (g *GatewayClient) OpenRelaySession(ctx context.Context, req *proto.OpenRelaySessionRequest) (*proto.OpenRelaySessionResponse, error) {
 	g.mu.RLock()

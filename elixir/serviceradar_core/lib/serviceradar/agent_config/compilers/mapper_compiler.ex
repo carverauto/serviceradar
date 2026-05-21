@@ -10,6 +10,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperSeed
@@ -42,8 +43,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     device_uid = opts[:device_uid]
 
     jobs = load_jobs(partition, agent_id, actor)
-    mikrotik_controllers = load_mikrotik_controllers(jobs)
-    unifi_controllers = load_unifi_controllers(jobs)
+    mikrotik_controllers = load_mikrotik_controllers(jobs, actor)
+    unifi_controllers = load_unifi_controllers(jobs, actor)
     credentials = resolve_credentials(device_uid, actor)
     proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
 
@@ -74,40 +75,120 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     |> Ash.read!()
   end
 
-  defp load_mikrotik_controllers(jobs) do
+  defp load_mikrotik_controllers(jobs, actor) do
     jobs
     |> Enum.flat_map(fn job ->
       job.mikrotik_controllers || []
     end)
-    |> Enum.map(&compile_mikrotik_controller/1)
+    |> Enum.map(&compile_mikrotik_controller(&1, actor))
   end
 
-  defp compile_mikrotik_controller(controller) do
+  defp compile_mikrotik_controller(controller, actor) do
     %{
       "base_url" => controller.base_url,
       "username" => controller.username,
-      "password" => string_or_empty(controller.password),
+      "password" =>
+        mapper_controller_secret(controller, :password, actor, ["password", "value", "secret"]),
       "name" => controller.name,
       "insecure_skip_verify" => controller.insecure_skip_verify
     }
   end
 
-  defp load_unifi_controllers(jobs) do
+  defp load_unifi_controllers(jobs, actor) do
     jobs
     |> Enum.flat_map(fn job ->
       job.unifi_controllers || []
     end)
-    |> Enum.map(&compile_unifi_controller/1)
+    |> Enum.map(&compile_unifi_controller(&1, actor))
   end
 
-  defp compile_unifi_controller(controller) do
+  defp compile_unifi_controller(controller, actor) do
     %{
       "base_url" => controller.base_url,
-      "api_key" => string_or_empty(controller.api_key),
+      "api_key" =>
+        mapper_controller_secret(controller, :api_key, actor, [
+          "api_key",
+          "token",
+          "value",
+          "secret"
+        ]),
       "name" => controller.name,
       "insecure_skip_verify" => controller.insecure_skip_verify
     }
   end
+
+  defp mapper_controller_secret(controller, legacy_field, actor, payload_keys) do
+    case Map.get(controller, :credential_secret_id) do
+      secret_id when is_binary(secret_id) and secret_id != "" ->
+        resolve_mapper_controller_secret(controller, secret_id, actor, payload_keys)
+
+      _ ->
+        string_or_empty(Map.get(controller, legacy_field))
+    end
+  end
+
+  defp resolve_mapper_controller_secret(controller, secret_id, actor, payload_keys) do
+    broker_opts =
+      [
+        actor: actor,
+        audit?: true,
+        consumer_kind: :mapper,
+        consumer_id: mapper_controller_consumer_id(controller),
+        purpose: "mapper_discovery",
+        target_kind: :mapper_controller,
+        target_id: mapper_controller_consumer_id(controller),
+        resolution_location: :control_plane
+      ]
+
+    case SecretBroker.resolve_network_credential_secret(secret_id, broker_opts) do
+      {:ok, %{value: payload}} ->
+        payload_secret_value(payload, payload_keys)
+
+      {:error, reason} ->
+        Logger.warning(
+          "MapperCompiler: failed to resolve mapper controller broker credential #{secret_id} - #{inspect(reason)}"
+        )
+
+        ""
+    end
+  end
+
+  defp mapper_controller_consumer_id(%MapperMikrotikController{id: id}),
+    do: "mapper_mikrotik_controller:#{id}"
+
+  defp mapper_controller_consumer_id(%MapperUnifiController{id: id}),
+    do: "mapper_unifi_controller:#{id}"
+
+  defp mapper_controller_consumer_id(%{id: id}), do: "mapper_controller:#{id}"
+
+  defp payload_secret_value(payload, payload_keys) when is_binary(payload) do
+    trimmed = String.trim(payload)
+
+    case Jason.decode(trimmed) do
+      {:ok, decoded} when is_map(decoded) ->
+        decoded
+        |> first_payload_value(payload_keys)
+        |> string_or_empty()
+
+      _ ->
+        trimmed
+    end
+  end
+
+  defp payload_secret_value(_payload, _payload_keys), do: ""
+
+  defp first_payload_value(payload, payload_keys) do
+    Enum.find_value(payload_keys, fn key ->
+      Map.get(payload, key) || Map.get(payload, known_payload_atom_key(key))
+    end)
+  end
+
+  defp known_payload_atom_key("api_key"), do: :api_key
+  defp known_payload_atom_key("password"), do: :password
+  defp known_payload_atom_key("token"), do: :token
+  defp known_payload_atom_key("value"), do: :value
+  defp known_payload_atom_key("secret"), do: :secret
+  defp known_payload_atom_key(_key), do: nil
 
   defp compile_job(job, credentials, proxmox_candidate_probe?) do
     mikrotik_controllers = job.mikrotik_controllers || []

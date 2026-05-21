@@ -90,8 +90,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
                transport: "webrtc_desktop_media"
              )
 
-    assert_receive {:offer_provider_add_viewer, "desktop-manager-viewer-1", "viewer-1",
-                    %{pid: pid}, opts}
+    assert_receive {:offer_provider_add_viewer, "desktop-manager-viewer-1", "viewer-1", %{pid: pid}, opts}
 
     assert pid == self()
     assert opts[:transport] == "webrtc_desktop_media"
@@ -146,9 +145,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
              MediaSessionManager.fetch_session("desktop-manager-viewer-1", server: server)
 
     assert :ok =
-             MediaSessionManager.remove_webrtc_viewer("desktop-manager-viewer-1", "viewer-1",
-               server: server
-             )
+             MediaSessionManager.remove_webrtc_viewer("desktop-manager-viewer-1", "viewer-1", server: server)
 
     assert %{viewer_count: 0} =
              MediaSessionManager.fetch_session("desktop-manager-viewer-1", server: server)
@@ -256,9 +253,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
 
     start_supervised!(
       {MediaSessionManager,
-       name: server,
-       control_forwarder: ControlForwarderStub,
-       control_forwarder_opts: [route: "route-1"]}
+       name: server, control_forwarder: ControlForwarderStub, control_forwarder_opts: [route: "route-1"]}
     )
 
     assert :ok =
@@ -271,8 +266,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
                transport: "webrtc_desktop_media"
              )
 
-    assert_receive {:offer_provider_add_viewer, "desktop-manager-control-1", "viewer-1",
-                    %{pid: pid}, _opts}
+    assert_receive {:offer_provider_add_viewer, "desktop-manager-control-1", "viewer-1", %{pid: pid}, _opts}
 
     assert pid == self()
 
@@ -304,7 +298,9 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
              MediaSessionManager.apply_browser_control(
                "desktop-manager-control-1",
                "viewer-1",
-               frame, server: server)
+               frame,
+               server: server
+             )
 
     assert_receive {:control_forwarder_frame, session, "viewer-1", ^frame, [route: "route-1"]}
     assert session.session_id == "desktop-manager-control-1"
@@ -325,9 +321,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
       {:error, :route_unavailable}
     )
 
-    start_supervised!(
-      {MediaSessionManager, name: server, control_forwarder: ControlForwarderStub}
-    )
+    start_supervised!({MediaSessionManager, name: server, control_forwarder: ControlForwarderStub})
 
     assert :ok =
              MediaSessionManager.add_webrtc_viewer(
@@ -341,8 +335,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
                transport: "webrtc_desktop_media"
              )
 
-    assert_receive {:offer_provider_add_viewer, "desktop-manager-control-forward-reject-1",
-                    "viewer-1", %{pid: pid}, _opts}
+    assert_receive {:offer_provider_add_viewer, "desktop-manager-control-forward-reject-1", "viewer-1", %{pid: pid},
+                    _opts}
 
     assert pid == self()
 
@@ -450,6 +444,5 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.MediaSessionManagerTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core_elx, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core_elx, key, value)
 
-  defp unique_server_name,
-    do: :"remote_desktop_media_manager_test_#{System.unique_integer([:positive])}"
+  defp unique_server_name, do: :"remote_desktop_media_manager_test_#{System.unique_integer([:positive])}"
 end

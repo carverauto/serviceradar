@@ -97,7 +97,7 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   @impl true
   def handle_continue(:start_peer_connection, state) do
     with :ok <- Signaling.register_element(state.signaling),
-         {:ok, pc} <- state.peer_connection_module.start_link(controlling_process: self(), ice_servers: state.ice_servers),
+         {:ok, pc} <- start_peer_connection(state),
          {:ok, media_channel} <- create_data_channel(state.peer_connection_module, pc, @media_channel),
          {:ok, control_channel} <- create_data_channel(state.peer_connection_module, pc, @control_channel),
          {:ok, offer} <- state.peer_connection_module.create_offer(pc),
@@ -197,6 +197,13 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.DataChannelProvider do
   def terminate(_reason, state) do
     _ = state.peer_connection_module.close(state.peer_connection)
     :ok
+  end
+
+  defp start_peer_connection(state) do
+    state.peer_connection_module.start_link(
+      controlling_process: self(),
+      ice_servers: state.ice_servers
+    )
   end
 
   defp create_data_channel(peer_connection, pc, label) do

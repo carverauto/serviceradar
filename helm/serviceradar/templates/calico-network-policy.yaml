@@ -6,7 +6,9 @@
 {{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
 {{- $allowDefaultNs := default false $egress.allowDefaultNamespace -}}
 {{- $allowSameNs := default false $egress.allowSameNamespace -}}
+{{- $egressAllowedNamespaces := default (list) $egress.allowedNamespaces -}}
 {{- $allowedCIDRs := default (list) $egress.allowedCIDRs -}}
+{{- $hasEgressNamespaces := gt (len $egressAllowedNamespaces) 0 -}}
 {{- $hasCIDRs := gt (len $allowedCIDRs) 0 -}}
 {{- $allowedCIDRsV4 := list -}}
 {{- $allowedCIDRsV6 := list -}}
@@ -109,6 +111,13 @@ spec:
     - action: Allow
       destination:
         namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" .Release.Namespace | quote }}
+{{- end }}
+{{- if $hasEgressNamespaces }}
+{{- range $namespace := $egressAllowedNamespaces }}
+    - action: Allow
+      destination:
+        namespaceSelector: {{ printf "kubernetes.io/metadata.name == '%s'" $namespace | quote }}
+{{- end }}
 {{- end }}
 {{- if $hasCIDRsV4 }}
     - action: Allow

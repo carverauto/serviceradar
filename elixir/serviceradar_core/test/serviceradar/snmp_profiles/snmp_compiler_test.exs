@@ -10,6 +10,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Repo
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
@@ -293,6 +294,165 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert v3_auth["auth_password"] == "authpass123"
       assert v3_auth["priv_protocol"] == "AES-256"
       assert v3_auth["priv_password"] == "privpass456"
+    end
+
+    @tag :integration
+    test "returns target credentials from network credential broker secret" do
+      actor = SystemActor.system(:test)
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "SNMP Community #{System.unique_integer([:positive])}",
+            provider: "snmp",
+            credential_kind: :opaque,
+            secret_payload: "broker-public"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Brokered SNMP #{System.unique_integer([:positive])}",
+            poll_interval: 30,
+            timeout: 10,
+            retries: 2,
+            is_default: false,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "Brokered Router",
+            host: "192.168.1.50",
+            port: 161,
+            version: :v2c,
+            credential_secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_target_id: target.id,
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
+
+      assert config["enabled"] == true
+      assert [%{"name" => "Brokered Router", "community" => "broker-public"}] = config["targets"]
+    end
+
+    @tag :integration
+    test "does not compile external secret references into plaintext SNMP target config" do
+      actor = SystemActor.system(:test)
+      unique_id = System.unique_integer([:positive])
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "External SNMP Community #{unique_id}",
+            provider: "snmp",
+            credential_kind: :opaque,
+            source_type: :external_reference,
+            external_secret_ref: "secret/data/snmp/#{unique_id}",
+            metadata: %{"stub_secret_value" => "external-public-#{unique_id}"},
+            resolution_location: :agent
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "External Brokered SNMP #{unique_id}",
+            poll_interval: 30,
+            timeout: 10,
+            retries: 2,
+            is_default: false,
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      {:ok, target} =
+        SNMPTarget
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_profile_id: profile.id,
+            name: "External Brokered Router #{unique_id}",
+            host: "192.0.2.50",
+            port: 161,
+            version: :v2c,
+            credential_secret_id: secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _oid} =
+        SNMPOIDConfig
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            snmp_target_id: target.id,
+            oid: ".1.3.6.1.2.1.1.5.0",
+            name: "sysName",
+            data_type: :string
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
+
+      refute inspect(config) =~ "external-public-#{unique_id}"
+      assert config["targets"] == []
+
+      refute Enum.any?(
+               config["targets"],
+               &(&1["name"] == "External Brokered Router #{unique_id}")
+             )
     end
   end
 

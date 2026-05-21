@@ -353,29 +353,30 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.WebRTCSignalingManager do
       ) do
     case fetch_session_by_signaling(state, signaling_pid) do
       {:ok, session} ->
-        case extract_sdp(answer_data) do
-          answer_sdp when is_binary(answer_sdp) ->
-            case WebRTCSignalPolicy.validate_answer_sdp(answer_sdp) do
-              :ok ->
-                updated =
-                  session
-                  |> refresh_session(state.session_ttl_ms)
-                  |> Map.put(:signaling_state, "answer_applied")
-                  |> Map.put(:answer_sdp, answer_sdp)
-
-                {:noreply, put_session(state, updated)}
-
-              {:error, reason} ->
-                emit_signal_rejection(:sdp_answer, session, reason)
-                {:noreply, state}
-            end
-
-          _other ->
-            emit_signal_rejection(:sdp_answer, session, :invalid_sdp)
-            {:noreply, state}
-        end
+        apply_remote_answer_signal(state, session, answer_data)
 
       :error ->
+        {:noreply, state}
+    end
+  end
+
+  defp apply_remote_answer_signal(state, session, answer_data) do
+    with answer_sdp when is_binary(answer_sdp) <- extract_sdp(answer_data),
+         :ok <- WebRTCSignalPolicy.validate_answer_sdp(answer_sdp) do
+      updated =
+        session
+        |> refresh_session(state.session_ttl_ms)
+        |> Map.put(:signaling_state, "answer_applied")
+        |> Map.put(:answer_sdp, answer_sdp)
+
+      {:noreply, put_session(state, updated)}
+    else
+      {:error, reason} ->
+        emit_signal_rejection(:sdp_answer, session, reason)
+        {:noreply, state}
+
+      _other ->
+        emit_signal_rejection(:sdp_answer, session, :invalid_sdp)
         {:noreply, state}
     end
   end

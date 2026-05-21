@@ -18,9 +18,8 @@ defmodule ServiceRadarCoreElx.RemoteDesktop.RemoteAccessBrokerControlForwarder d
     broker_module = Keyword.get(opts, :broker_module, RemoteAccessBroker)
 
     with {:ok, session_id} <- session_id(session),
-         {:ok, broker, _metadata} <- broker_registry.lookup(session_id),
-         :ok <- broker_module.send_desktop_control(broker, frame) do
-      :ok
+         {:ok, broker, _metadata} <- broker_registry.lookup(session_id) do
+      broker_module.send_desktop_control(broker, frame)
     end
   end
 

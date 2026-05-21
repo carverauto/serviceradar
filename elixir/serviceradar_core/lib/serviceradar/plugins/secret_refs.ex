@@ -3,9 +3,9 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   Helpers for storing plugin secret-reference params without echoing raw secrets.
   """
 
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins.MapUtils
-  alias ServiceRadar.Vault
 
   @secret_prefix "secretref:"
   @network_credential_prefix "credentialref:network-credential-secret:"
@@ -228,8 +228,12 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   defp resolve_network_credential_ref(ref, field) do
     with {:ok, secret_id} <- network_credential_ref_id(ref),
-         {:ok, secret} <- load_network_credential_secret(secret_id),
-         {:ok, payload} <- decrypt_network_credential_secret(secret),
+         {:ok, %{secret: secret, value: payload}} <-
+           SecretBroker.resolve_network_credential_secret(secret_id,
+             allow_external_resolution?: false,
+             consumer_kind: :plugin,
+             resolution_location: :agent
+           ),
          true <- payload != "" do
       {:ok, format_network_credential_payload(secret, payload)}
     else
@@ -237,33 +241,6 @@ defmodule ServiceRadar.Plugins.SecretRefs do
       _ -> {:error, "#{field} referenced network credential has no secret payload"}
     end
   end
-
-  defp decrypt_network_credential_secret(secret) do
-    case Map.get(secret, :secret_payload) do
-      payload when is_binary(payload) and payload != "" ->
-        {:ok, payload}
-
-      _ ->
-        decrypt_ash_cloak_secret_payload(Map.get(secret, :encrypted_secret_payload))
-    end
-  end
-
-  defp decrypt_ash_cloak_secret_payload(encrypted)
-       when is_binary(encrypted) and encrypted != "" do
-    with {:ok, decoded} <- Base.decode64(encrypted),
-         decrypted = Vault.decrypt!(decoded),
-         payload when is_binary(payload) <- Ash.Helpers.non_executable_binary_to_term(decrypted),
-         true <- payload != "" do
-      {:ok, payload}
-    else
-      _ -> {:error, "referenced network credential has no secret payload"}
-    end
-  rescue
-    _ -> {:error, "referenced network credential has no secret payload"}
-  end
-
-  defp decrypt_ash_cloak_secret_payload(_),
-    do: {:error, "referenced network credential has no secret payload"}
 
   defp format_network_credential_payload(secret, payload) do
     if proxmox_api_token_secret?(secret) do
@@ -330,12 +307,6 @@ defmodule ServiceRadar.Plugins.SecretRefs do
           nil
       end
     )
-  end
-
-  defp load_network_credential_secret(secret_id) do
-    actor = ServiceRadar.Actors.SystemActor.system(:plugin_secret_ref_resolution)
-
-    ServiceRadar.Credentials.NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor)
   end
 
   defp classify_secret_update(nil, existing_ref, _existing_material)

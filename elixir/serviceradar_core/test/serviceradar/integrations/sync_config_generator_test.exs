@@ -8,6 +8,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -63,6 +64,45 @@ defmodule ServiceRadar.Integrations.SyncConfigGeneratorTest do
     assert credentials["api_key"] == "api-key"
     assert credentials["api_secret"] == "api-secret"
     assert credentials["secret_key"] == "api-secret"
+  end
+
+  test "armis sync config resolves structured credentials through broker reference" do
+    suffix = System.unique_integer([:positive])
+    agent = create_agent!("agent-armis-broker-#{suffix}")
+
+    {:ok, secret} =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "armis-broker-secret-#{suffix}",
+          provider: "armis",
+          credential_kind: :opaque,
+          secret_payload:
+            Jason.encode!(%{"api_key" => "broker-key", "api_secret" => "broker-secret"})
+        },
+        actor: system_actor()
+      )
+      |> Ash.create(actor: system_actor())
+
+    source =
+      create_source!(
+        agent.uid,
+        "source-armis-broker-#{suffix}",
+        nil,
+        %{credential_secret_id: secret.id}
+      )
+
+    assert {:ok, payload} = SyncConfigGenerator.get_config_if_changed(agent.uid, "")
+
+    credentials =
+      payload.config_json
+      |> Jason.decode!()
+      |> get_in(["sources", source.name, "credentials"])
+
+    assert credentials["api_key"] == "broker-key"
+    assert credentials["api_secret"] == "broker-secret"
+    assert credentials["secret_key"] == "broker-secret"
   end
 
   test "armis sync config emits discovery cadence without poll or sweep cadence" do
