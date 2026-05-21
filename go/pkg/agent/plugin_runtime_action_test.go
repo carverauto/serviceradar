@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -281,6 +283,73 @@ func TestValidatePluginActionHTTPGrantRejectsExpiredGrant(t *testing.T) {
 	}
 }
 
+func TestApplyCredentialBrokerHTTPInjectionSetsBearerHeader(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	grant := credentialBrokerGrant{
+		Inject: map[string]string{
+			"type":   "http_header",
+			"name":   "Authorization",
+			"scheme": "Bearer",
+		},
+	}
+
+	err := applyCredentialBrokerHTTPInjection(req, grant, CredentialBrokerMaterial{Value: "resolved-token"})
+	if err != nil {
+		t.Fatalf("applyCredentialBrokerHTTPInjection returned error: %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer resolved-token" {
+		t.Fatalf("Authorization header = %q, want bearer token", got)
+	}
+}
+
+func TestPluginExecutionCredentialInjectionRequiresResolver(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	exec := &pluginExecution{
+		manager: NewPluginManager(t.Context(), PluginManagerConfig{}),
+	}
+
+	err := exec.applyCredentialBrokerInjection(t.Context(), req, &credentialBrokerGrant{
+		Inject: map[string]string{"type": "bearer_token"},
+	})
+	if !errors.Is(err, errCredentialBrokerResolverUnavailable) {
+		t.Fatalf("expected resolver unavailable error, got %v", err)
+	}
+}
+
+func TestPluginExecutionCredentialInjectionUsesResolverWithoutPluginSecret(t *testing.T) {
+	t.Parallel()
+
+	req := httptestRequest(t, "GET", "https://api.example.com/api/v1/devices")
+	resolver := &fakeCredentialBrokerResolver{
+		material: CredentialBrokerMaterial{Fields: map[string]string{"value": "resolved-token"}},
+	}
+	exec := &pluginExecution{
+		manager: NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver}),
+	}
+	grant := &credentialBrokerGrant{
+		GrantID:             "grant-1",
+		CredentialSecretRef: "credentialref:network-credential-secret:secret-1",
+		Inject: map[string]string{
+			"type": "bearer_token",
+		},
+	}
+
+	err := exec.applyCredentialBrokerInjection(t.Context(), req, grant)
+	if err != nil {
+		t.Fatalf("applyCredentialBrokerInjection returned error: %v", err)
+	}
+	if resolver.grantID != "grant-1" {
+		t.Fatalf("resolver grant id = %q, want grant-1", resolver.grantID)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer resolved-token" {
+		t.Fatalf("Authorization header = %q, want resolved token", got)
+	}
+}
+
 func newActionFixtureManager(t *testing.T, objectKey string, cfg *proto.PluginAssignmentConfig) *PluginManager {
 	t.Helper()
 
@@ -341,6 +410,35 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	}
 
 	return parsed
+}
+
+func httptestRequest(t *testing.T, method, rawURL string) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequest(method, rawURL, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+
+	return req
+}
+
+type fakeCredentialBrokerResolver struct {
+	grantID  string
+	material CredentialBrokerMaterial
+	err      error
+}
+
+func (f *fakeCredentialBrokerResolver) ResolveCredentialGrant(
+	_ context.Context,
+	grant credentialBrokerGrant,
+) (CredentialBrokerMaterial, error) {
+	f.grantID = grant.GrantID
+	if f.err != nil {
+		return CredentialBrokerMaterial{}, f.err
+	}
+
+	return f.material, nil
 }
 
 func firstTargetResult(t *testing.T, decoded map[string]interface{}) map[string]interface{} {

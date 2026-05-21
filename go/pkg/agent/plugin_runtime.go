@@ -77,35 +77,53 @@ const (
 )
 
 var (
-	errPluginWasmUnavailable              = errors.New("plugin wasm unavailable")
-	errEntrypointNotFound                 = errors.New("entrypoint not found")
-	errDownloadFailed                     = errors.New("download failed")
-	errDownloadTooLarge                   = errors.New("download too large")
-	errContentHashMismatch                = errors.New("content hash mismatch")
-	errInvalidPath                        = errors.New("invalid path")
-	errPluginAssignmentNotFound           = errors.New("plugin assignment not found")
-	errPluginAdmissionDenied              = errors.New("admission denied: max concurrent reached")
-	errPluginActionResultMissing          = errors.New("no result submitted")
-	errStreamingPluginAssignmentNotFound  = errors.New("streaming plugin assignment not found")
-	errStreamingPluginAdmissionDenied     = errors.New("streaming plugin admission denied: max concurrent reached")
-	errStreamingPluginMediaSessionMissing = errors.New("streaming plugin did not open a camera media session")
-	errStreamingPluginConsoleNotOpened    = errors.New("streaming plugin did not open a Proxmox console session")
+	errPluginWasmUnavailable                = errors.New("plugin wasm unavailable")
+	errEntrypointNotFound                   = errors.New("entrypoint not found")
+	errDownloadFailed                       = errors.New("download failed")
+	errDownloadTooLarge                     = errors.New("download too large")
+	errContentHashMismatch                  = errors.New("content hash mismatch")
+	errInvalidPath                          = errors.New("invalid path")
+	errPluginAssignmentNotFound             = errors.New("plugin assignment not found")
+	errPluginAdmissionDenied                = errors.New("admission denied: max concurrent reached")
+	errPluginActionResultMissing            = errors.New("no result submitted")
+	errStreamingPluginAssignmentNotFound    = errors.New("streaming plugin assignment not found")
+	errStreamingPluginAdmissionDenied       = errors.New("streaming plugin admission denied: max concurrent reached")
+	errStreamingPluginMediaSessionMissing   = errors.New("streaming plugin did not open a camera media session")
+	errStreamingPluginConsoleNotOpened      = errors.New("streaming plugin did not open a Proxmox console session")
+	errCredentialBrokerResolverUnavailable  = errors.New("credential broker resolver unavailable")
+	errCredentialBrokerMaterialUnavailable  = errors.New("credential broker material unavailable")
+	errCredentialBrokerInjectionUnsupported = errors.New("credential broker injection unsupported")
 )
 
 // PluginManagerConfig configures the Wasm plugin manager.
 type PluginManagerConfig struct {
-	CacheDir      string
-	LocalStoreDir string
-	Logger        logger.Logger
-	HTTPClient    *http.Client
+	CacheDir         string
+	LocalStoreDir    string
+	Logger           logger.Logger
+	HTTPClient       *http.Client
+	CredentialBroker CredentialBrokerResolver
+}
+
+// CredentialBrokerResolver resolves a validated broker grant for agent-owned
+// operations. It must not return material to the Wasm module.
+type CredentialBrokerResolver interface {
+	ResolveCredentialGrant(context.Context, credentialBrokerGrant) (CredentialBrokerMaterial, error)
+}
+
+// CredentialBrokerMaterial is memory-only credential material returned to the
+// agent host function after policy validation.
+type CredentialBrokerMaterial struct {
+	Value  string
+	Fields map[string]string
 }
 
 // PluginManager manages Wasm plugin assignments and execution.
 type PluginManager struct {
-	logger        logger.Logger
-	cacheDir      string
-	localStoreDir string
-	httpClient    *http.Client
+	logger           logger.Logger
+	cacheDir         string
+	localStoreDir    string
+	httpClient       *http.Client
+	credentialBroker CredentialBrokerResolver
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -312,17 +330,18 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 	}
 
 	return &PluginManager{
-		logger:        cfg.Logger,
-		cacheDir:      cacheDir,
-		localStoreDir: localStoreDir,
-		httpClient:    client,
-		ctx:           rootCtx,
-		cancel:        cancel,
-		runners:       make(map[string]*pluginRunner),
-		streams:       make(map[string]*pluginAssignment),
-		results:       make(chan PluginResult, 1024),
-		states:        make(map[string]*assignmentState),
-		stateNow:      time.Now,
+		logger:           cfg.Logger,
+		cacheDir:         cacheDir,
+		localStoreDir:    localStoreDir,
+		httpClient:       client,
+		credentialBroker: cfg.CredentialBroker,
+		ctx:              rootCtx,
+		cancel:           cancel,
+		runners:          make(map[string]*pluginRunner),
+		streams:          make(map[string]*pluginAssignment),
+		results:          make(chan PluginResult, 1024),
+		states:           make(map[string]*assignmentState),
+		stateNow:         time.Now,
 	}
 }
 
@@ -2208,7 +2227,8 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		method = http.MethodGet
 	}
 
-	if err := e.validateCredentialBrokerGrantForHTTP(method, reqURL); err != nil {
+	grant, err := e.credentialBrokerGrantForHTTP(method, reqURL)
+	if err != nil {
 		e.logPluginHostHTTPDenied(err, reqURL, method)
 		return pluginErrDenied
 	}
@@ -2236,6 +2256,11 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 			continue
 		}
 		httpReq.Header.Set(key, value)
+	}
+
+	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant); err != nil {
+		e.logPluginHostHTTPDenied(err, reqURL, method)
+		return pluginErrDenied
 	}
 
 	resp, err := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout).Do(httpReq)
@@ -2295,12 +2320,32 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	return int32(len(responseBytes))
 }
 
-func (e *pluginExecution) validateCredentialBrokerGrantForHTTP(method string, reqURL *url.URL) error {
+func (e *pluginExecution) credentialBrokerGrantForHTTP(method string, reqURL *url.URL) (*credentialBrokerGrant, error) {
 	if e == nil || e.mode != pluginExecutionModeAction || len(e.credentialGrants) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	return validatePluginActionHTTPGrant(e.credentialGrants, method, reqURL, time.Now())
+	return pluginActionGrantForHTTPRequest(e.credentialGrants, method, reqURL, time.Now())
+}
+
+func (e *pluginExecution) applyCredentialBrokerInjection(
+	ctx context.Context,
+	req *http.Request,
+	grant *credentialBrokerGrant,
+) error {
+	if grant == nil || len(grant.Inject) == 0 {
+		return nil
+	}
+	if e == nil || e.manager == nil || e.manager.credentialBroker == nil {
+		return errCredentialBrokerResolverUnavailable
+	}
+
+	material, err := e.manager.credentialBroker.ResolveCredentialGrant(ctx, *grant)
+	if err != nil {
+		return err
+	}
+
+	return applyCredentialBrokerHTTPInjection(req, *grant, material)
 }
 
 func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, method string, reason string) {
@@ -3222,16 +3267,27 @@ func validatePluginActionHTTPGrant(
 	reqURL *url.URL,
 	now time.Time,
 ) error {
+	_, err := pluginActionGrantForHTTPRequest(grants, method, reqURL, now)
+	return err
+}
+
+func pluginActionGrantForHTTPRequest(
+	grants []credentialBrokerGrant,
+	method string,
+	reqURL *url.URL,
+	now time.Time,
+) (*credentialBrokerGrant, error) {
 	if len(grants) == 0 {
-		return nil
+		return nil, nil
 	}
 	if reqURL == nil || reqURL.Host == "" {
-		return errInvalidCredentialBrokerGrant
+		return nil, errInvalidCredentialBrokerGrant
 	}
 
 	lastErr := errCredentialBrokerGrantDenied
-	for _, grant := range grants {
-		if err := validatePluginActionCredentialGrantEnvelope(grant, now); err != nil {
+	for i := range grants {
+		grant := &grants[i]
+		if err := validatePluginActionCredentialGrantEnvelope(*grant, now); err != nil {
 			lastErr = err
 			continue
 		}
@@ -3239,10 +3295,10 @@ func validatePluginActionHTTPGrant(
 			lastErr = err
 			continue
 		}
-		return nil
+		return grant, nil
 	}
 
-	return lastErr
+	return nil, lastErr
 }
 
 func validatePluginActionCredentialGrantEnvelope(grant credentialBrokerGrant, now time.Time) error {
@@ -3316,6 +3372,92 @@ func credentialBrokerPathAllowed(patterns []string, requested string) bool {
 	}
 
 	return false
+}
+
+func applyCredentialBrokerHTTPInjection(
+	req *http.Request,
+	grant credentialBrokerGrant,
+	material CredentialBrokerMaterial,
+) error {
+	if req == nil {
+		return errCredentialBrokerInjectionUnsupported
+	}
+
+	injectType := strings.ToLower(strings.TrimSpace(grant.Inject["type"]))
+	if injectType == "" {
+		return nil
+	}
+
+	switch injectType {
+	case "http_header", "header":
+		return applyCredentialBrokerHeaderInjection(req, grant, material)
+	case "bearer_token":
+		inject := map[string]string{
+			"type":   "http_header",
+			"name":   firstNonEmptyString(grant.Inject["name"], "Authorization"),
+			"scheme": firstNonEmptyString(grant.Inject["scheme"], "Bearer"),
+		}
+		grant.Inject = inject
+		return applyCredentialBrokerHeaderInjection(req, grant, material)
+	case "basic_auth", "http_basic_auth":
+		username := credentialMaterialValue(material, "username", "user")
+		password := credentialMaterialValue(material, "password", "value", "secret")
+		if strings.TrimSpace(username) == "" || password == "" {
+			return errCredentialBrokerMaterialUnavailable
+		}
+		req.SetBasicAuth(username, password)
+		return nil
+	case "query", "query_param", "http_query":
+		name := strings.TrimSpace(grant.Inject["name"])
+		value := credentialMaterialValue(material, "value", name)
+		if name == "" || value == "" {
+			return errCredentialBrokerMaterialUnavailable
+		}
+		query := req.URL.Query()
+		query.Set(name, value)
+		req.URL.RawQuery = query.Encode()
+		return nil
+	default:
+		return errCredentialBrokerInjectionUnsupported
+	}
+}
+
+func applyCredentialBrokerHeaderInjection(
+	req *http.Request,
+	grant credentialBrokerGrant,
+	material CredentialBrokerMaterial,
+) error {
+	name := strings.TrimSpace(grant.Inject["name"])
+	if name == "" {
+		return errCredentialBrokerMaterialUnavailable
+	}
+
+	value := credentialMaterialValue(material, "value", name)
+	if value == "" {
+		return errCredentialBrokerMaterialUnavailable
+	}
+
+	if scheme := strings.TrimSpace(grant.Inject["scheme"]); scheme != "" {
+		value = scheme + " " + value
+	}
+
+	req.Header.Set(name, value)
+	return nil
+}
+
+func credentialMaterialValue(material CredentialBrokerMaterial, keys ...string) string {
+	for _, key := range keys {
+		if material.Fields == nil {
+			continue
+		}
+		for _, candidate := range []string{key, strings.ToLower(key), strings.ToUpper(key)} {
+			if value := strings.TrimSpace(material.Fields[candidate]); value != "" {
+				return value
+			}
+		}
+	}
+
+	return strings.TrimSpace(material.Value)
 }
 
 func readMemory(mod api.Module, ptr, size uint32) ([]byte, bool) {

@@ -14,6 +14,7 @@
 
 ## 3. Consumer Integration
 - [ ] 3.1 Update plugin assignment materialization and Go agent host-function paths to use broker grants instead of plaintext params.
+- [x] 3.1.1 Add an agent-owned credential broker resolver interface and broker-grant-driven HTTP injection for northbound action host functions.
 - [ ] 3.2 Update mapper/discovery credential resolution to call the broker and stop direct row decryption in compilers/tools.
 - [ ] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
 - [ ] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.
