@@ -9,6 +9,14 @@ Wasm plugins SHALL NOT be allowed to retrieve plaintext credentials directly fro
 - **THEN** the agent MAY use the grant to inject credentials into the agent-owned operation
 - **AND** the plugin SHALL NOT receive the plaintext credential
 
+#### Scenario: Northbound plugin action requires an API credential
+- **GIVEN** a northbound Wasm action descriptor declares a credential requirement
+- **AND** the action invocation selects a concrete network credential secret or external secret reference
+- **WHEN** ServiceRadar dispatches the `plugin.run_action` command to an agent
+- **THEN** ServiceRadar SHALL create a scoped credential broker grant for the invocation, phase, actor, agent, and target
+- **AND** the command payload SHALL include only broker grant metadata, not plaintext credentials
+- **AND** missing required invocation-selected credentials SHALL fail closed before dispatch
+
 #### Scenario: Plugin tries direct provider access
 - **GIVEN** a plugin has HTTP capability
 - **WHEN** it attempts to call a secret provider endpoint directly outside its approved target allowlist
@@ -23,4 +31,3 @@ Plugin result ingestion SHALL reject or redact credential material and external 
 - **WHEN** ingestion processes the result
 - **THEN** the sensitive value SHALL be redacted or the result SHALL be rejected according to policy
 - **AND** an audit or diagnostic event SHALL identify the plugin assignment without storing the secret value
-

@@ -16,6 +16,7 @@
 - [ ] 3.2 Update mapper/discovery credential resolution to call the broker and stop direct row decryption in compilers/tools.
 - [ ] 3.3 Update SNMP/profile, remote access, and northbound integration credential paths to use the broker interface where practical.
 - [ ] 3.4 Update ad-hoc device task execution/run-task flows so API call-out credentials are broker grants with actor/device/task/target scope.
+- [x] 3.4.1 Issue persisted credential broker grants for northbound `plugin.run_action` launch/poll dispatches using descriptor/provider credential requirements and invocation-selected credential references.
 - [ ] 3.5 Add compatibility tests proving internal encrypted credentials still work.
 
 ## 4. UI and API

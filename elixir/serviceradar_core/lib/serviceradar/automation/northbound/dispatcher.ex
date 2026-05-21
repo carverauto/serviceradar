@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   alias ServiceRadar.Automation.Ansible.RunLauncher
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
+  alias ServiceRadar.Automation.Northbound.CredentialGrants
   alias ServiceRadar.Automation.Northbound.TargetPayloadContract
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.Crypto
@@ -252,8 +253,9 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   defp preferred_agent_ids(_invocation), do: []
 
   defp dispatch_to_assignment(invocation, assignment, opts, actor) do
-    with {:ok, target_payloads} <- prepare_callback_targets(invocation, actor) do
-      payload = build_payload(invocation, assignment, target_payloads)
+    with {:ok, target_payloads} <- prepare_callback_targets(invocation, actor),
+         {:ok, credential_grants} <- CredentialGrants.prepare_launch(invocation, assignment, opts) do
+      payload = build_payload(invocation, assignment, target_payloads, credential_grants)
       ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
       command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
 
@@ -264,47 +266,52 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
         ttl_seconds: ttl_seconds,
         source: :automation,
         actor: actor,
-        context: %{
-          northbound_invocation_id: invocation.id,
-          northbound_descriptor_id: invocation.descriptor_id,
-          northbound_provider_id: invocation.provider_id,
-          plugin_assignment_id: assignment.id,
-          plugin_package_id: assignment.plugin_package_id,
-          action_id: invocation.action_id
-        }
+        context:
+          Map.merge(credential_grants.context, %{
+            northbound_invocation_id: invocation.id,
+            northbound_descriptor_id: invocation.descriptor_id,
+            northbound_provider_id: invocation.provider_id,
+            plugin_assignment_id: assignment.id,
+            plugin_package_id: assignment.plugin_package_id,
+            action_id: invocation.action_id
+          })
       )
     end
   end
 
   defp dispatch_poll_to_assignment(invocation, target, assignment, opts, actor) do
-    payload = build_poll_payload(invocation, target, assignment)
-    ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
-    command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
+    with {:ok, credential_grants} <-
+           CredentialGrants.prepare_poll(invocation, target, assignment, opts) do
+      payload = build_poll_payload(invocation, target, assignment, credential_grants)
+      ttl_seconds = invocation.descriptor.timeout_seconds || assignment.timeout_seconds || 60
+      command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)
 
-    command_bus.dispatch(
-      assignment.agent_uid,
-      @command_type,
-      payload,
-      ttl_seconds: ttl_seconds,
-      source: :automation,
-      actor: actor,
-      context: %{
-        northbound_invocation_id: invocation.id,
-        northbound_invocation_target_id: target.id,
-        northbound_descriptor_id: invocation.descriptor_id,
-        northbound_provider_id: invocation.provider_id,
-        plugin_assignment_id: assignment.id,
-        plugin_package_id: assignment.plugin_package_id,
-        action_id: invocation.action_id,
-        action_phase: "poll"
-      }
-    )
+      command_bus.dispatch(
+        assignment.agent_uid,
+        @command_type,
+        payload,
+        ttl_seconds: ttl_seconds,
+        source: :automation,
+        actor: actor,
+        context:
+          Map.merge(credential_grants.context, %{
+            northbound_invocation_id: invocation.id,
+            northbound_invocation_target_id: target.id,
+            northbound_descriptor_id: invocation.descriptor_id,
+            northbound_provider_id: invocation.provider_id,
+            plugin_assignment_id: assignment.id,
+            plugin_package_id: assignment.plugin_package_id,
+            action_id: invocation.action_id,
+            action_phase: "poll"
+          })
+      )
+    end
   end
 
-  defp build_payload(invocation, assignment, target_payloads) do
+  defp build_payload(invocation, assignment, target_payloads, credential_grants) do
     target_payloads = TargetPayloadContract.apply(invocation.descriptor, target_payloads)
 
-    %{
+    base_payload = %{
       "schema" => "serviceradar.northbound_action_invocation.v1",
       "phase" => "launch",
       "invocation_id" => invocation.id,
@@ -322,15 +329,17 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "requested_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       "metadata" => Map.put(invocation.metadata || %{}, "dispatch_agent_id", assignment.agent_uid)
     }
+
+    merge_credential_grants(base_payload, credential_grants)
   end
 
-  defp build_poll_payload(invocation, target, assignment) do
+  defp build_poll_payload(invocation, target, assignment, credential_grants) do
     target_payloads =
       TargetPayloadContract.apply(invocation.descriptor, [
         target_snapshot_with_callback(target, nil)
       ])
 
-    %{
+    base_payload = %{
       "schema" => "serviceradar.northbound_action_invocation.v1",
       "phase" => "poll",
       "invocation_id" => invocation.id,
@@ -360,6 +369,19 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
           "invocation_target_id" => target.id
         })
     }
+
+    merge_credential_grants(base_payload, credential_grants)
+  end
+
+  defp merge_credential_grants(payload, %{payload_fields: fields, context: context}) do
+    credential_metadata =
+      context
+      |> normalize_map()
+      |> Map.take(["credential_broker_grant_ids"])
+
+    payload
+    |> Map.merge(fields || %{})
+    |> Map.update!("metadata", &Map.merge(&1 || %{}, credential_metadata))
   end
 
   defp prepare_callback_targets(invocation, actor) do
