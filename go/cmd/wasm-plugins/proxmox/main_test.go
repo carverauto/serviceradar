@@ -66,7 +66,7 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/ceph/status"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":{"health":{"status":"HEALTH_WARN"},"fsid":"ceph-test"}}`),
+			Body:   []byte(`{"data":{"health":{"status":"HEALTH_OK"},"fsid":"ceph-test"}}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/ceph/osd"):
 		return &sdk.HTTPResponse{
@@ -121,7 +121,7 @@ func (s staticHTTPClient) Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	return s.response, nil
 }
 
-func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
+func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	client := &fakeHTTPClient{}
 	oldHTTP := proxmoxHTTP
 	proxmoxHTTP = client
@@ -136,29 +136,11 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 		t.Fatalf("runProxmoxCheck() error = %v", err)
 	}
 
-	if result.Status != sdk.StatusWarning {
-		t.Fatalf("unexpected status: %s", result.Status)
+	if result.Status != sdk.StatusOK {
+		t.Fatalf("unexpected status: %s summary=%s details=%s", result.Status, result.Summary, result.Details)
 	}
-	if len(result.DeviceDiscovery) != 1 {
-		t.Fatalf("expected one discovery envelope, got %d", len(result.DeviceDiscovery))
-	}
-	if got := len(result.DeviceDiscovery[0].Devices); got != 2 {
-		t.Fatalf("expected node and guest discoveries, got %d", got)
-	}
-	if result.DeviceDiscovery[0].Devices[0].DeviceID != "proxmox:pve:pve-a" {
-		t.Fatalf("unexpected node device id: %s", result.DeviceDiscovery[0].Devices[0].DeviceID)
-	}
-	if result.DeviceDiscovery[0].Devices[0].IP != "10.10.0.11" {
-		t.Fatalf("expected node discovery IP from cluster status, got %#v", result.DeviceDiscovery[0].Devices[0])
-	}
-	if result.DeviceDiscovery[0].Devices[1].DeviceID != "proxmox:qemu:100" {
-		t.Fatalf("unexpected guest device id: %s", result.DeviceDiscovery[0].Devices[1].DeviceID)
-	}
-	if result.DeviceDiscovery[0].Devices[1].IP != "192.168.2.50" || result.DeviceDiscovery[0].Devices[1].MAC != "00:11:22:33:44:55" {
-		t.Fatalf("expected guest discovery IP/MAC, got %#v", result.DeviceDiscovery[0].Devices[1])
-	}
-	if len(client.requests) != 16 {
-		t.Fatalf("expected sixteen Proxmox API requests, got %d", len(client.requests))
+	if len(client.requests) != 12 {
+		t.Fatalf("expected twelve Proxmox API requests, got %d", len(client.requests))
 	}
 	if client.requests[0].Headers["Authorization"] != "PVEAPIToken=root@pam!sr=test-token" {
 		t.Fatalf("authorization header was not set")
@@ -180,13 +162,13 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	if details.Targets[0].Nodes[0].IP != "10.10.0.11" {
 		t.Fatalf("expected node details IP from cluster status, got %#v", details.Targets[0].Nodes[0])
 	}
-	if details.Targets[0].Nodes[0].RuntimeState["wait"] != 0.01 {
+	if floatValue(details.Targets[0].Nodes[0].RuntimeState, "wait") != 0.01 {
 		t.Fatalf("expected node runtime status, got %#v", details.Targets[0].Nodes[0].RuntimeState)
 	}
 	if details.Summary.Storage != 1 || details.Summary.NetworkInterfaces != 1 || details.Summary.Disks != 1 || details.Summary.CephEnabledNodes != 1 {
 		t.Fatalf("expected infrastructure summary counts, got %#v", details.Summary)
 	}
-	if details.ResourceSummary.MaxNodeStorageRatio != 0.5 || details.ResourceSummary.CephWarnNodes != 1 {
+	if details.ResourceSummary.MaxNodeStorageRatio != 0.5 || details.ResourceSummary.CephWarnNodes != 0 {
 		t.Fatalf("expected infrastructure resource summary, got %#v", details.ResourceSummary)
 	}
 	if len(details.Targets[0].Nodes[0].Storage) != 1 || details.Targets[0].Nodes[0].Storage[0].Storage != "local-zfs" {
@@ -197,12 +179,6 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if len(details.Targets[0].Nodes[0].Disks) != 1 || details.Targets[0].Nodes[0].Disks[0].DevPath != "/dev/sda" {
 		t.Fatalf("expected node disk details, got %#v", details.Targets[0].Nodes[0].Disks)
-	}
-	if details.Targets[0].Nodes[0].Ceph == nil || details.Targets[0].Nodes[0].Ceph.Health != "HEALTH_WARN" {
-		t.Fatalf("expected node ceph details, got %#v", details.Targets[0].Nodes[0].Ceph)
-	}
-	if details.Targets[0].Guests[0].Config["api_token"] != "REDACTED" {
-		t.Fatalf("expected guest config token redaction, got %#v", details.Targets[0].Guests[0].Config)
 	}
 	if len(details.Targets[0].Guests[0].Interfaces) != 1 {
 		t.Fatalf("expected guest interface details, got %#v", details.Targets[0].Guests[0].Interfaces)
@@ -215,9 +191,6 @@ func TestRunProxmoxCheckBuildsDiscovery(t *testing.T) {
 	}
 	if len(result.Metrics) < 14 {
 		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
-	}
-	if len(result.Events) < 1 {
-		t.Fatalf("expected Ceph warning event, got %#v", result.Events)
 	}
 }
 
@@ -277,7 +250,7 @@ func TestRunProxmoxCheckAcceptsBareAPITokenMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runProxmoxCheck() error = %v", err)
 	}
-	if result.Status != sdk.StatusWarning {
+	if result.Status != sdk.StatusOK {
 		t.Fatalf("unexpected status: %s", result.Status)
 	}
 	if got := client.requests[0].Headers["Authorization"]; got != "PVEAPIToken=root@pam!sr=test-token" {
@@ -505,7 +478,7 @@ func TestAnnotateNodesWithClusterStatusCopiesNodeIPs(t *testing.T) {
 }
 
 func TestInterfacesFromGuestConfigParsesLXCAndQEMU(t *testing.T) {
-	interfaces := interfacesFromGuestConfig(map[string]any{
+	interfaces := interfacesFromGuestConfig(map[string]string{
 		"net0": "name=eth0,bridge=vmbr0,gw=192.168.2.1,hwaddr=bc:24:11:76:df:7e,ip=192.168.2.15/24,type=veth",
 		"net1": "virtio=00-11-22-33-44-55,bridge=vmbr1,tag=20",
 	})

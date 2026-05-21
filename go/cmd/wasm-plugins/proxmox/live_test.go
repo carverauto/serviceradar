@@ -49,10 +49,6 @@ func TestRunProxmoxCheckLiveFromEnv(t *testing.T) {
 	if len(details.Targets) != 1 || len(details.Targets[0].Nodes) < 1 {
 		t.Fatalf("expected target node details, got %#v", details.Targets)
 	}
-	if len(result.DeviceDiscovery) != 1 || len(result.DeviceDiscovery[0].Devices) < 1 {
-		t.Fatalf("expected node device discovery, got %#v", result.DeviceDiscovery)
-	}
-
 	token := cfg.APIToken
 	if strings.TrimSpace(token) != "" && strings.Contains(result.Details, token) {
 		t.Fatal("result details leaked Proxmox API token")

@@ -56,26 +56,25 @@ type Target struct {
 }
 
 type configJSON struct {
-	BaseURL            string          `json:"base_url"`
-	APIToken           string          `json:"api_token"`
-	APITokenSecretRef  string          `json:"api_token_secret_ref"`
-	CredentialBroker   json.RawMessage `json:"credential_broker,omitempty"`
-	Targets            []Target        `json:"targets"`
-	TimeoutMS          int             `json:"timeout_ms"`
-	MaxResponseBytes   int             `json:"max_response_bytes"`
-	IncludeGuests      *bool           `json:"include_guests"`
-	InsecureSkipVerify bool            `json:"insecure_skip_verify"`
-	AutoDiscovery      bool            `json:"auto_discovery_enabled"`
+	BaseURL            string   `json:"base_url"`
+	APIToken           string   `json:"api_token"`
+	APITokenSecretRef  string   `json:"api_token_secret_ref"`
+	Targets            []Target `json:"targets"`
+	TimeoutMS          int      `json:"timeout_ms"`
+	MaxResponseBytes   int      `json:"max_response_bytes"`
+	IncludeGuests      *bool    `json:"include_guests"`
+	InsecureSkipVerify bool     `json:"insecure_skip_verify"`
+	AutoDiscovery      bool     `json:"auto_discovery_enabled"`
 }
 
 type pluginInputsJSON struct {
-	Schema        string          `json:"schema"`
-	PolicyID      string          `json:"policy_id"`
-	PolicyVersion int             `json:"policy_version"`
-	AgentID       string          `json:"agent_id"`
-	GeneratedAt   string          `json:"generated_at"`
-	Template      json.RawMessage `json:"template,omitempty"`
-	Inputs        []pluginInput   `json:"inputs"`
+	Schema        string        `json:"schema"`
+	PolicyID      string        `json:"policy_id"`
+	PolicyVersion int           `json:"policy_version"`
+	AgentID       string        `json:"agent_id"`
+	GeneratedAt   string        `json:"generated_at"`
+	Template      *configJSON   `json:"template,omitempty"`
+	Inputs        []pluginInput `json:"inputs"`
 }
 
 type pluginInput struct {
@@ -138,6 +137,26 @@ type resourceSummary struct {
 	ResourceBottleneck    int     `json:"resource_bottleneck_events,omitempty"`
 }
 
+type pluginResult struct {
+	Status        sdk.Status        `json:"status"`
+	Summary       string            `json:"summary"`
+	Details       string            `json:"details,omitempty"`
+	Metrics       []pluginMetric    `json:"metrics,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	ObservedAt    string            `json:"observed_at,omitempty"`
+	SchemaVersion int               `json:"schema_version,omitempty"`
+}
+
+type pluginMetric struct {
+	Name  string   `json:"name"`
+	Value float64  `json:"value"`
+	Unit  string   `json:"unit,omitempty"`
+	Warn  *float64 `json:"warn,omitempty"`
+	Crit  *float64 `json:"crit,omitempty"`
+	Min   *float64 `json:"min,omitempty"`
+	Max   *float64 `json:"max,omitempty"`
+}
+
 type proxmoxInventory struct {
 	Version  *proxmoxVersion      `json:"version,omitempty"`
 	Cluster  []proxmoxClusterNode `json:"cluster,omitempty"`
@@ -163,8 +182,8 @@ type proxmoxClusterStatusResponse struct {
 	Data []proxmoxClusterNode `json:"data"`
 }
 
-type proxmoxMapResponse struct {
-	Data map[string]any `json:"data"`
+type proxmoxNodeStatusResponse struct {
+	Data proxmoxNodeStatus `json:"data"`
 }
 
 type proxmoxStorageResponse struct {
@@ -179,8 +198,8 @@ type proxmoxDiskResponse struct {
 	Data []proxmoxDisk `json:"data"`
 }
 
-type proxmoxMapListResponse struct {
-	Data []map[string]any `json:"data"`
+type proxmoxStringMapResponse struct {
+	Data map[string]string `json:"data"`
 }
 
 type proxmoxGuestAgentNetworkResponse struct {
@@ -207,7 +226,6 @@ type proxmoxGuestAgentInterface struct {
 	Name            string                       `json:"name"`
 	HardwareAddress string                       `json:"hardware-address"`
 	IPAddresses     []proxmoxGuestAgentIPAddress `json:"ip-addresses"`
-	Statistics      map[string]any               `json:"statistics,omitempty"`
 }
 
 type proxmoxGuestAgentIPAddress struct {
@@ -217,12 +235,11 @@ type proxmoxGuestAgentIPAddress struct {
 }
 
 type proxmoxGuestFilesystem struct {
-	Name       string           `json:"name,omitempty"`
-	Mountpoint string           `json:"mountpoint,omitempty"`
-	Type       string           `json:"type,omitempty"`
-	TotalBytes float64          `json:"total-bytes,omitempty"`
-	UsedBytes  float64          `json:"used-bytes,omitempty"`
-	Disk       []map[string]any `json:"disk,omitempty"`
+	Name       string  `json:"name,omitempty"`
+	Mountpoint string  `json:"mountpoint,omitempty"`
+	Type       string  `json:"type,omitempty"`
+	TotalBytes float64 `json:"total-bytes,omitempty"`
+	UsedBytes  float64 `json:"used-bytes,omitempty"`
 }
 
 type proxmoxLXCInterface struct {
@@ -260,42 +277,37 @@ type proxmoxNode struct {
 	Mem          float64                   `json:"mem"`
 	MaxMem       float64                   `json:"maxmem"`
 	Uptime       float64                   `json:"uptime"`
-	RuntimeState map[string]any            `json:"runtime_status,omitempty"`
+	RuntimeState proxmoxNodeStatus         `json:"runtime_status,omitempty"`
 	Storage      []proxmoxStorage          `json:"storage,omitempty"`
 	Network      []proxmoxNetworkInterface `json:"network,omitempty"`
 	Disks        []proxmoxDisk             `json:"disks,omitempty"`
 	Ceph         *proxmoxCeph              `json:"ceph,omitempty"`
 }
 
+type proxmoxNodeStatus struct {
+	Wait float64 `json:"wait,omitempty"`
+}
+
 type proxmoxStorage struct {
 	Storage string  `json:"storage"`
 	Type    string  `json:"type,omitempty"`
 	Content string  `json:"content,omitempty"`
-	Active  any     `json:"active,omitempty"`
-	Enabled any     `json:"enabled,omitempty"`
-	Shared  any     `json:"shared,omitempty"`
 	Used    float64 `json:"used,omitempty"`
 	Avail   float64 `json:"avail,omitempty"`
 	Total   float64 `json:"total,omitempty"`
 }
 
 type proxmoxNetworkInterface struct {
-	Iface           string   `json:"iface"`
-	Type            string   `json:"type,omitempty"`
-	Active          any      `json:"active,omitempty"`
-	Exists          any      `json:"exists,omitempty"`
-	Autostart       any      `json:"autostart,omitempty"`
-	Method          string   `json:"method,omitempty"`
-	Method6         string   `json:"method6,omitempty"`
-	Address         string   `json:"address,omitempty"`
-	Netmask         string   `json:"netmask,omitempty"`
-	Gateway         string   `json:"gateway,omitempty"`
-	CIDR            string   `json:"cidr,omitempty"`
-	BridgePorts     string   `json:"bridge-ports,omitempty"`
-	BridgeVlanAware any      `json:"bridge-vlan-aware,omitempty"`
-	VLANID          any      `json:"vlan-id,omitempty"`
-	Priority        any      `json:"priority,omitempty"`
-	Families        []string `json:"families,omitempty"`
+	Iface       string   `json:"iface"`
+	Type        string   `json:"type,omitempty"`
+	Method      string   `json:"method,omitempty"`
+	Method6     string   `json:"method6,omitempty"`
+	Address     string   `json:"address,omitempty"`
+	Netmask     string   `json:"netmask,omitempty"`
+	Gateway     string   `json:"gateway,omitempty"`
+	CIDR        string   `json:"cidr,omitempty"`
+	BridgePorts string   `json:"bridge-ports,omitempty"`
+	Families    []string `json:"families,omitempty"`
 }
 
 type proxmoxDisk struct {
@@ -307,15 +319,20 @@ type proxmoxDisk struct {
 	Used    string  `json:"used,omitempty"`
 	Health  string  `json:"health,omitempty"`
 	Size    float64 `json:"size,omitempty"`
-	Wearout any     `json:"wearout,omitempty"`
 }
 
 type proxmoxCeph struct {
-	Health string           `json:"health,omitempty"`
-	Status map[string]any   `json:"status,omitempty"`
-	OSDs   []map[string]any `json:"osds,omitempty"`
-	Pools  []map[string]any `json:"pools,omitempty"`
-	FS     []map[string]any `json:"filesystems,omitempty"`
+	Health string `json:"health,omitempty"`
+}
+
+type proxmoxCephStatusResponse struct {
+	Data proxmoxCephStatus `json:"data"`
+}
+
+type proxmoxCephStatus struct {
+	Health        string `json:"health,omitempty"`
+	Status        string `json:"status,omitempty"`
+	OverallStatus string `json:"overall_status,omitempty"`
 }
 
 type proxmoxResource struct {
@@ -336,22 +353,21 @@ type proxmoxResource struct {
 
 type proxmoxGuest struct {
 	proxmoxResource
-	RuntimeStatus map[string]any                 `json:"runtime_status,omitempty"`
-	Config        map[string]any                 `json:"config,omitempty"`
-	Interfaces    []proxmoxGuestNetworkInterface `json:"interfaces,omitempty"`
-	Filesystems   []proxmoxGuestFilesystem       `json:"filesystems,omitempty"`
+	Config      map[string]string              `json:"config,omitempty"`
+	Interfaces  []proxmoxGuestNetworkInterface `json:"interfaces,omitempty"`
+	Filesystems []proxmoxGuestFilesystem       `json:"filesystems,omitempty"`
 }
 
 type proxmoxGuestNetworkInterface struct {
-	Name        string         `json:"name,omitempty"`
-	ConfigKey   string         `json:"config_key,omitempty"`
-	Model       string         `json:"model,omitempty"`
-	MACAddress  string         `json:"mac_address,omitempty"`
-	IPAddresses []string       `json:"ip_addresses,omitempty"`
-	Bridge      string         `json:"bridge,omitempty"`
-	VLANID      int            `json:"vlan_id,omitempty"`
-	Source      string         `json:"source,omitempty"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	ConfigKey   string            `json:"config_key,omitempty"`
+	Model       string            `json:"model,omitempty"`
+	MACAddress  string            `json:"mac_address,omitempty"`
+	IPAddresses []string          `json:"ip_addresses,omitempty"`
+	Bridge      string            `json:"bridge,omitempty"`
+	VLANID      int               `json:"vlan_id,omitempty"`
+	Source      string            `json:"source,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
 type proxmoxDetails struct {
@@ -375,33 +391,32 @@ type proxmoxTarget struct {
 
 //export run_check
 func run_check() {
-	primeTinyGoJSON()
+	cfg, err := loadConfig()
+	if err != nil {
+		_ = submitPluginResult(newPluginResult(sdk.StatusUnknown, "Proxmox configuration could not be loaded"))
+		return
+	}
+	applyRuntimeConfigLimits(&cfg)
 
-	_ = sdk.Execute(func() (*sdk.Result, error) {
-		cfg, err := loadConfig()
-		if err != nil {
-			return sdk.Unknown("Proxmox configuration could not be loaded"), nil
-		}
+	result, err := runProxmoxCheck(cfg)
+	if err != nil {
+		_ = submitPluginResult(newPluginResult(sdk.StatusCritical, sanitizeError(err)))
+		return
+	}
 
-		result, err := runProxmoxCheck(cfg)
-		if err != nil {
-			return sdk.Critical(sanitizeError(err)), nil
-		}
-
-		return result, nil
-	})
+	_ = submitPluginResult(result)
 }
 
 func loadConfig() (Config, error) {
-	var raw json.RawMessage
-	if err := sdk.LoadConfig(&raw); err != nil {
+	raw, err := loadConfigBytes()
+	if err != nil {
 		return defaultConfig(), err
 	}
 	if len(raw) == 0 {
 		return defaultConfig(), nil
 	}
 
-	return configFromJSON(raw)
+	return configFromRawConfig(string(raw)), nil
 }
 
 func configFromJSON(raw json.RawMessage) (Config, error) {
@@ -430,20 +445,50 @@ func configFromMap(raw map[string]any) (Config, error) {
 	return cfg, nil
 }
 
+func configFromRawConfig(raw string) Config {
+	cfg := defaultConfig()
+	cfg.BaseURL = jsonStringValue(raw, "base_url")
+	cfg.APIToken = jsonStringValue(raw, "api_token")
+	cfg.APITokenSecretRef = jsonStringValue(raw, "api_token_secret_ref")
+	cfg.TimeoutMS = jsonIntValue(raw, "timeout_ms")
+	cfg.MaxResponseBytes = jsonIntValue(raw, "max_response_bytes")
+	if value, ok := jsonBoolValue(raw, "include_guests"); ok {
+		cfg.IncludeGuests = &value
+	}
+	if value, ok := jsonBoolValue(raw, "insecure_skip_verify"); ok {
+		cfg.InsecureSkipVerify = value
+	}
+	if value, ok := jsonBoolValue(raw, "auto_discovery_enabled"); ok {
+		cfg.AutoDiscovery = value
+	}
+
+	if strings.Contains(raw, sdk.PluginInputsSchemaV1) {
+		cfg.Targets = targetsFromRawPluginInputItems(raw, cfg)
+		if len(cfg.Targets) > 0 {
+			cfg.BaseURL = ""
+		}
+	}
+
+	return cfg
+}
+
 func configFromPluginInputsJSON(raw json.RawMessage) (Config, error) {
 	var payload pluginInputsJSON
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return defaultConfig(), err
 	}
+
+	return configFromPluginInputsPayload(payload)
+}
+
+func configFromPluginInputsPayload(payload pluginInputsJSON) (Config, error) {
 	if err := validatePluginInputsJSON(payload); err != nil {
 		return defaultConfig(), err
 	}
 
 	cfg := defaultConfig()
-	if len(payload.Template) > 0 {
-		if err := applyConfigJSON(payload.Template, &cfg); err != nil {
-			return defaultConfig(), err
-		}
+	if payload.Template != nil {
+		applyConfigStruct(*payload.Template, &cfg)
 	}
 
 	generatedTargets := targetsFromPluginInputsJSON(payload, cfg)
@@ -479,7 +524,7 @@ func configFromPluginInputs(raw map[string]any) (Config, error) {
 	return cfg, nil
 }
 
-func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
+func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	cfg.applyDefaults()
 	applyHTTPClientLimits(cfg)
 
@@ -494,9 +539,6 @@ func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 		Targets: make([]proxmoxTarget, 0, len(targets)),
 		Errors:  map[string]string{},
 	}
-	discovery := sdk.NewDeviceDiscovery(discoverySource)
-	discovery.ObservedAt = now.Format(time.RFC3339Nano)
-	discovery.CollectionID = "proxmox-" + strconv.FormatInt(now.Unix(), 10)
 
 	for _, target := range targets {
 		inventory, err := fetchTargetInventory(cfg, target)
@@ -526,8 +568,6 @@ func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 		details.Summary.CephEnabledNodes += inventory.Summary.CephEnabledNodes
 		details.Summary.Bottleneck += inventory.Summary.ResourceBottleneck
 		details.ResourceSummary = mergeResourceSummary(details.ResourceSummary, inventory.Summary)
-		addNodeDiscoveries(discovery, target, inventory.Nodes)
-		addGuestDiscoveries(discovery, inventory.Guests)
 	}
 
 	if details.Summary.Targets == 0 {
@@ -538,7 +578,7 @@ func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 		details.Errors = nil
 	}
 
-	body, err := json.Marshal(details)
+	body, err := marshalProxmoxDetails(details)
 	if err != nil {
 		return nil, fmt.Errorf("encode details: %w", err)
 	}
@@ -559,11 +599,9 @@ func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 		summary += fmt.Sprintf(", %d resource bottleneck(s)", details.Summary.Bottleneck)
 	}
 
-	result := sdk.NewResult().
-		WithStatus(status).
-		WithSummary(summary).
-		WithDetails(string(body)).
-		WithObservedAt(now)
+	result := newPluginResult(status, summary)
+	result.Details = string(body)
+	result.ObservedAt = now.Format(time.RFC3339Nano)
 	result.AddMetric("proxmox_targets", float64(details.Summary.Targets), "count", nil)
 	result.AddMetric("proxmox_nodes", float64(details.Summary.Nodes), "count", nil)
 	result.AddMetric("proxmox_guests", float64(details.Summary.Guests), "count", nil)
@@ -582,15 +620,144 @@ func runProxmoxCheck(cfg Config) (*sdk.Result, error) {
 	result.AddMetric("proxmox_guest_cpu_ratio_max", details.ResourceSummary.MaxGuestCPURatio, "ratio", sdk.Thresholds(0.80, 0.90))
 	result.AddMetric("proxmox_guest_mem_ratio_max", details.ResourceSummary.MaxGuestMemRatio, "ratio", sdk.Thresholds(0.80, 0.90))
 	result.AddMetric("proxmox_guest_disk_ratio_max", details.ResourceSummary.MaxGuestDiskRatio, "ratio", sdk.Thresholds(0.80, 0.90))
-	emitResourceEvents(result, details)
 	result.AddLabel("plugin_id", pluginID)
-	result.WithDeviceDiscovery(*discovery)
 
 	return result, nil
 }
 
 func defaultConfig() Config {
 	return Config{TimeoutMS: defaultTimeoutMS}
+}
+
+func newPluginResult(status sdk.Status, summary string) *pluginResult {
+	if status == "" {
+		status = sdk.StatusUnknown
+	}
+	if strings.TrimSpace(summary) == "" {
+		summary = string(status)
+	}
+
+	return &pluginResult{
+		Status:        status,
+		Summary:       summary,
+		SchemaVersion: 1,
+		ObservedAt:    time.Now().UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func (r *pluginResult) AddMetric(name string, value float64, unit string, thresholds *sdk.ThresholdSpec) {
+	if r == nil || strings.TrimSpace(name) == "" {
+		return
+	}
+
+	metric := pluginMetric{Name: name, Value: value, Unit: unit}
+	if thresholds != nil {
+		metric.Warn = thresholds.Warn
+		metric.Crit = thresholds.Crit
+		metric.Min = thresholds.Min
+		metric.Max = thresholds.Max
+	}
+	r.Metrics = append(r.Metrics, metric)
+}
+
+func (r *pluginResult) AddLabel(key, value string) {
+	if r == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	if r.Labels == nil {
+		r.Labels = map[string]string{}
+	}
+	r.Labels[key] = value
+}
+
+func submitPluginResult(result *pluginResult) error {
+	if result == nil {
+		result = newPluginResult(sdk.StatusUnknown, "")
+	}
+	if result.SchemaVersion == 0 {
+		result.SchemaVersion = 1
+	}
+	if result.ObservedAt == "" {
+		result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+
+	return sdk.SubmitResult(result.JSON())
+}
+
+func (r *pluginResult) JSON() []byte {
+	var b strings.Builder
+	b.WriteString(`{"status":`)
+	b.WriteString(strconv.Quote(string(r.Status)))
+	b.WriteString(`,"summary":`)
+	b.WriteString(strconv.Quote(r.Summary))
+	if r.Details != "" {
+		b.WriteString(`,"details":`)
+		b.WriteString(strconv.Quote(r.Details))
+	}
+	if len(r.Metrics) > 0 {
+		b.WriteString(`,"metrics":[`)
+		for i, metric := range r.Metrics {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			appendMetricJSON(&b, metric)
+		}
+		b.WriteByte(']')
+	}
+	if len(r.Labels) > 0 {
+		b.WriteString(`,"labels":{`)
+		keys := make([]string, 0, len(r.Labels))
+		for key := range r.Labels {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for i, key := range keys {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			b.WriteString(strconv.Quote(key))
+			b.WriteByte(':')
+			b.WriteString(strconv.Quote(r.Labels[key]))
+		}
+		b.WriteByte('}')
+	}
+	if r.ObservedAt != "" {
+		b.WriteString(`,"observed_at":`)
+		b.WriteString(strconv.Quote(r.ObservedAt))
+	}
+	if r.SchemaVersion > 0 {
+		b.WriteString(`,"schema_version":`)
+		b.WriteString(strconv.Itoa(r.SchemaVersion))
+	}
+	b.WriteByte('}')
+
+	return []byte(b.String())
+}
+
+func appendMetricJSON(b *strings.Builder, metric pluginMetric) {
+	b.WriteString(`{"name":`)
+	b.WriteString(strconv.Quote(metric.Name))
+	b.WriteString(`,"value":`)
+	b.WriteString(strconv.FormatFloat(metric.Value, 'f', -1, 64))
+	if metric.Unit != "" {
+		b.WriteString(`,"unit":`)
+		b.WriteString(strconv.Quote(metric.Unit))
+	}
+	appendOptionalFloat(b, "warn", metric.Warn)
+	appendOptionalFloat(b, "crit", metric.Crit)
+	appendOptionalFloat(b, "min", metric.Min)
+	appendOptionalFloat(b, "max", metric.Max)
+	b.WriteByte('}')
+}
+
+func appendOptionalFloat(b *strings.Builder, key string, value *float64) {
+	if value == nil {
+		return
+	}
+	b.WriteByte(',')
+	b.WriteString(strconv.Quote(key))
+	b.WriteByte(':')
+	b.WriteString(strconv.FormatFloat(*value, 'f', -1, 64))
 }
 
 func applyConfigMap(raw map[string]any, cfg *Config) error {
@@ -611,6 +778,12 @@ func applyConfigJSON(raw json.RawMessage, cfg *Config) error {
 		return err
 	}
 
+	applyConfigStruct(decoded, cfg)
+
+	return nil
+}
+
+func applyConfigStruct(decoded configJSON, cfg *Config) {
 	cfg.BaseURL = decoded.BaseURL
 	cfg.APIToken = decoded.APIToken
 	cfg.APITokenSecretRef = decoded.APITokenSecretRef
@@ -620,8 +793,6 @@ func applyConfigJSON(raw json.RawMessage, cfg *Config) error {
 	cfg.IncludeGuests = decoded.IncludeGuests
 	cfg.InsecureSkipVerify = decoded.InsecureSkipVerify
 	cfg.AutoDiscovery = decoded.AutoDiscovery
-
-	return nil
 }
 
 func fetchTargetInventory(cfg Config, target Target) (proxmoxInventory, error) {
@@ -715,7 +886,7 @@ func enrichNodes(cfg Config, target Target, token string, nodes []proxmoxNode, w
 		if err != nil {
 			warnings["node:"+node.Node+":status"] = sanitizeError(err)
 		} else {
-			node.RuntimeState = sanitizeMap(status)
+			node.RuntimeState = status
 		}
 
 		storage, err := fetchNodeStorage(cfg, target, token, node.Node)
@@ -811,11 +982,11 @@ func normalizedNodeIP(value string) string {
 	return value
 }
 
-func fetchNodeStatus(cfg Config, target Target, token, node string) (map[string]any, error) {
-	var envelope proxmoxMapResponse
+func fetchNodeStatus(cfg Config, target Target, token, node string) (proxmoxNodeStatus, error) {
+	var envelope proxmoxNodeStatusResponse
 	path := "/api2/json/nodes/" + url.PathEscape(node) + "/status"
 	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
-		return nil, fmt.Errorf("fetch node status: %w", err)
+		return proxmoxNodeStatus{}, fmt.Errorf("fetch node status: %w", err)
 	}
 
 	return envelope.Data, nil
@@ -859,37 +1030,16 @@ func fetchNodeCeph(cfg Config, target Target, token, node string) (proxmoxCeph, 
 
 	ceph := proxmoxCeph{
 		Health: cephHealth(status),
-		Status: sanitizeMap(status),
-	}
-
-	if osds, err := fetchNodeCephList(cfg, target, token, node, "osd"); err == nil {
-		ceph.OSDs = sanitizeMapList(osds)
-	}
-	if pools, err := fetchNodeCephList(cfg, target, token, node, "pool"); err == nil {
-		ceph.Pools = sanitizeMapList(pools)
-	}
-	if filesystems, err := fetchNodeCephList(cfg, target, token, node, "fs"); err == nil {
-		ceph.FS = sanitizeMapList(filesystems)
 	}
 
 	return ceph, nil
 }
 
-func fetchNodeCephStatus(cfg Config, target Target, token, node string) (map[string]any, error) {
-	var envelope proxmoxMapResponse
+func fetchNodeCephStatus(cfg Config, target Target, token, node string) (proxmoxCephStatus, error) {
+	var envelope proxmoxCephStatusResponse
 	path := "/api2/json/nodes/" + url.PathEscape(node) + "/ceph/status"
 	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
-		return nil, fmt.Errorf("fetch node ceph status: %w", err)
-	}
-
-	return envelope.Data, nil
-}
-
-func fetchNodeCephList(cfg Config, target Target, token, node, family string) ([]map[string]any, error) {
-	var envelope proxmoxMapListResponse
-	path := fmt.Sprintf("/api2/json/nodes/%s/ceph/%s", url.PathEscape(node), family)
-	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
-		return nil, fmt.Errorf("fetch node ceph %s: %w", family, err)
+		return proxmoxCephStatus{}, fmt.Errorf("fetch node ceph status: %w", err)
 	}
 
 	return envelope.Data, nil
@@ -905,18 +1055,11 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 			continue
 		}
 
-		status, err := fetchGuestStatus(cfg, target, token, resource.Node, kind, resource.VMID)
-		if err != nil {
-			warnings[fmt.Sprintf("guest:%s:%d:status", kind, resource.VMID)] = sanitizeError(err)
-		} else {
-			guest.RuntimeStatus = sanitizeMap(status)
-		}
-
 		config, err := fetchGuestConfig(cfg, target, token, resource.Node, kind, resource.VMID)
 		if err != nil {
 			warnings[fmt.Sprintf("guest:%s:%d:config", kind, resource.VMID)] = sanitizeError(err)
 		} else {
-			guest.Config = sanitizeMap(config)
+			guest.Config = sanitizeStringMap(config)
 			guest.Interfaces = mergeGuestInterfaces(guest.Interfaces, interfacesFromGuestConfig(guest.Config))
 		}
 
@@ -955,18 +1098,8 @@ func enrichGuests(cfg Config, target Target, token string, guests []proxmoxResou
 	return out
 }
 
-func fetchGuestStatus(cfg Config, target Target, token, node, kind string, vmid int) (map[string]any, error) {
-	var envelope proxmoxMapResponse
-	path := fmt.Sprintf("/api2/json/nodes/%s/%s/%d/status/current", url.PathEscape(node), kind, vmid)
-	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
-		return nil, fmt.Errorf("fetch guest status: %w", err)
-	}
-
-	return envelope.Data, nil
-}
-
-func fetchGuestConfig(cfg Config, target Target, token, node, kind string, vmid int) (map[string]any, error) {
-	var envelope proxmoxMapResponse
+func fetchGuestConfig(cfg Config, target Target, token, node, kind string, vmid int) (map[string]string, error) {
+	var envelope proxmoxStringMapResponse
 	path := fmt.Sprintf("/api2/json/nodes/%s/%s/%d/config", url.PathEscape(node), kind, vmid)
 	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
 		return nil, fmt.Errorf("fetch guest config: %w", err)
@@ -1005,7 +1138,7 @@ func fetchLXCInterfaces(cfg Config, target Target, token, node string, vmid int)
 	return envelope.Data, nil
 }
 
-func interfacesFromGuestConfig(config map[string]any) []proxmoxGuestNetworkInterface {
+func interfacesFromGuestConfig(config map[string]string) []proxmoxGuestNetworkInterface {
 	if len(config) == 0 {
 		return nil
 	}
@@ -1020,8 +1153,8 @@ func interfacesFromGuestConfig(config map[string]any) []proxmoxGuestNetworkInter
 
 	out := make([]proxmoxGuestNetworkInterface, 0, len(keys))
 	for _, key := range keys {
-		raw, ok := config[key].(string)
-		if !ok || strings.TrimSpace(raw) == "" {
+		raw := config[key]
+		if strings.TrimSpace(raw) == "" {
 			continue
 		}
 
@@ -1054,7 +1187,7 @@ func interfaceFromGuestConfigValue(configKey, raw string) proxmoxGuestNetworkInt
 		Name:      firstNonEmpty(values["name"], configKey),
 		Bridge:    values["bridge"],
 		Source:    "config",
-		Metadata:  map[string]any{"config": raw},
+		Metadata:  map[string]string{"config": raw},
 	}
 
 	if vlanID := parsePositiveInt(firstNonEmpty(values["tag"], values["vlan-id"], values["vlan_id"])); vlanID > 0 {
@@ -1114,7 +1247,6 @@ func interfacesFromGuestAgent(agentInterfaces []proxmoxGuestAgentInterface) []pr
 			Name:       agentIface.Name,
 			MACAddress: normalizeMACForOutput(agentIface.HardwareAddress),
 			Source:     "guest_agent",
-			Metadata:   sanitizeMap(agentIface.Statistics),
 		}
 
 		for _, address := range agentIface.IPAddresses {
@@ -1261,14 +1393,14 @@ func mergeSource(left, right string) string {
 	}
 }
 
-func mergeMetadata(left, right map[string]any) map[string]any {
+func mergeMetadata(left, right map[string]string) map[string]string {
 	if len(left) == 0 {
 		return right
 	}
 	if len(right) == 0 {
 		return left
 	}
-	merged := make(map[string]any, len(left)+len(right))
+	merged := make(map[string]string, len(left)+len(right))
 	for key, value := range left {
 		merged[key] = value
 	}
@@ -1280,7 +1412,7 @@ func mergeMetadata(left, right map[string]any) map[string]any {
 	return merged
 }
 
-func getJSON(cfg Config, target Target, token, path string, out any) error {
+func getJSON[T any](cfg Config, target Target, token, path string, out *T) error {
 	resp, err := proxmoxHTTP.Do(sdk.HTTPRequest{
 		Method:             http.MethodGet,
 		URL:                strings.TrimRight(target.BaseURL, "/") + path,
@@ -1294,11 +1426,319 @@ func getJSON(cfg Config, target Target, token, path string, out any) error {
 	if resp.Status < 200 || resp.Status >= 300 {
 		return fmt.Errorf("HTTP %d%s", resp.Status, responseBodySuffix(resp.Body))
 	}
-	if err := json.Unmarshal(resp.Body, out); err != nil {
+	if err := decodeProxmoxJSON(resp.Body, out); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 
 	return nil
+}
+
+func decodeProxmoxJSON[T any](body []byte, out *T) error {
+	raw := string(body)
+
+	switch typed := any(out).(type) {
+	case *proxmoxVersionResponse:
+		data := jsonDataObject(raw)
+		typed.Data = proxmoxVersion{
+			Version: jsonStringValue(data, "version"),
+			Release: jsonStringValue(data, "release"),
+			RepoID:  jsonStringValue(data, "repoid"),
+		}
+	case *proxmoxNodesResponse:
+		typed.Data = parseProxmoxNodes(jsonDataArray(raw))
+	case *proxmoxResourcesResponse:
+		typed.Data = parseProxmoxResources(jsonDataArray(raw))
+	case *proxmoxClusterStatusResponse:
+		typed.Data = parseProxmoxClusterNodes(jsonDataArray(raw))
+	case *proxmoxNodeStatusResponse:
+		data := jsonDataObject(raw)
+		typed.Data = proxmoxNodeStatus{Wait: jsonFloatValue(data, "wait")}
+	case *proxmoxStorageResponse:
+		typed.Data = parseProxmoxStorage(jsonDataArray(raw))
+	case *proxmoxNetworkResponse:
+		typed.Data = parseProxmoxNetwork(jsonDataArray(raw))
+	case *proxmoxDiskResponse:
+		typed.Data = parseProxmoxDisks(jsonDataArray(raw))
+	case *proxmoxCephStatusResponse:
+		data := jsonDataObject(raw)
+		health := jsonStringValue(data, "health")
+		if healthObject := jsonObjectValue(data, "health"); healthObject != "" {
+			health = firstNonEmpty(jsonStringValue(healthObject, "status"), health)
+		}
+		typed.Data = proxmoxCephStatus{
+			Health:        health,
+			Status:        jsonStringValue(data, "status"),
+			OverallStatus: jsonStringValue(data, "overall_status"),
+		}
+	case *proxmoxStringMapResponse:
+		typed.Data = jsonObjectStringMap(jsonDataObject(raw))
+	case *proxmoxGuestAgentNetworkResponse:
+		typed.Data.Result = parseGuestAgentInterfaces(jsonArrayValue(jsonDataObject(raw), "result"))
+	case *proxmoxGuestAgentFSInfoResponse:
+		typed.Data.Result = parseGuestFilesystems(jsonArrayValue(jsonDataObject(raw), "result"))
+	case *proxmoxLXCInterfacesResponse:
+		typed.Data = parseLXCInterfaces(jsonDataArray(raw))
+	default:
+		return fmt.Errorf("unsupported proxmox response type")
+	}
+
+	return nil
+}
+
+func jsonDataArray(raw string) string {
+	return jsonArrayValue(raw, "data")
+}
+
+func jsonDataObject(raw string) string {
+	return jsonObjectValue(raw, "data")
+}
+
+func jsonArrayValue(raw string, key string) string {
+	start, end, ok := jsonValueSpan(raw, key)
+	if !ok || start >= end || raw[start] != '[' {
+		return ""
+	}
+
+	return raw[start:end]
+}
+
+func jsonObjectValue(raw string, key string) string {
+	start, end, ok := jsonValueSpan(raw, key)
+	if !ok || start >= end || raw[start] != '{' {
+		return ""
+	}
+
+	return raw[start:end]
+}
+
+func parseProxmoxNodes(array string) []proxmoxNode {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxNode, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxNode{
+			Node:   jsonStringValue(item, "node"),
+			Status: jsonStringValue(item, "status"),
+			IP:     jsonStringValue(item, "ip"),
+			CPU:    jsonFloatValue(item, "cpu"),
+			MaxCPU: jsonFloatValue(item, "maxcpu"),
+			Mem:    jsonFloatValue(item, "mem"),
+			MaxMem: jsonFloatValue(item, "maxmem"),
+			Uptime: jsonFloatValue(item, "uptime"),
+		})
+	}
+
+	return out
+}
+
+func parseProxmoxResources(array string) []proxmoxResource {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxResource, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxResource{
+			ID:      jsonStringValue(item, "id"),
+			Node:    jsonStringValue(item, "node"),
+			Name:    jsonStringValue(item, "name"),
+			Type:    jsonStringValue(item, "type"),
+			Status:  jsonStringValue(item, "status"),
+			VMID:    jsonIntValue(item, "vmid"),
+			CPU:     jsonFloatValue(item, "cpu"),
+			MaxCPU:  jsonFloatValue(item, "maxcpu"),
+			Mem:     jsonFloatValue(item, "mem"),
+			MaxMem:  jsonFloatValue(item, "maxmem"),
+			Disk:    jsonFloatValue(item, "disk"),
+			MaxDisk: jsonFloatValue(item, "maxdisk"),
+			Uptime:  jsonFloatValue(item, "uptime"),
+		})
+	}
+
+	return out
+}
+
+func parseProxmoxClusterNodes(array string) []proxmoxClusterNode {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxClusterNode, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxClusterNode{
+			ID:      jsonStringValue(item, "id"),
+			Name:    jsonStringValue(item, "name"),
+			Type:    jsonStringValue(item, "type"),
+			NodeID:  jsonIntValue(item, "nodeid"),
+			Nodes:   jsonIntValue(item, "nodes"),
+			Quorate: jsonIntValue(item, "quorate"),
+			IP:      jsonStringValue(item, "ip"),
+			Local:   jsonIntValue(item, "local"),
+			Online:  jsonIntValue(item, "online"),
+		})
+	}
+
+	return out
+}
+
+func parseProxmoxStorage(array string) []proxmoxStorage {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxStorage, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxStorage{
+			Storage: jsonStringValue(item, "storage"),
+			Type:    jsonStringValue(item, "type"),
+			Content: jsonStringValue(item, "content"),
+			Used:    jsonFloatValue(item, "used"),
+			Avail:   jsonFloatValue(item, "avail"),
+			Total:   jsonFloatValue(item, "total"),
+		})
+	}
+
+	return out
+}
+
+func parseProxmoxNetwork(array string) []proxmoxNetworkInterface {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxNetworkInterface, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxNetworkInterface{
+			Iface:       jsonStringValue(item, "iface"),
+			Type:        jsonStringValue(item, "type"),
+			Method:      jsonStringValue(item, "method"),
+			Method6:     jsonStringValue(item, "method6"),
+			Address:     jsonStringValue(item, "address"),
+			Netmask:     jsonStringValue(item, "netmask"),
+			Gateway:     jsonStringValue(item, "gateway"),
+			CIDR:        jsonStringValue(item, "cidr"),
+			BridgePorts: jsonStringValue(item, "bridge-ports"),
+			Families:    jsonStringArrayValue(item, "families"),
+		})
+	}
+
+	return out
+}
+
+func parseProxmoxDisks(array string) []proxmoxDisk {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxDisk, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxDisk{
+			DevPath: jsonStringValue(item, "devpath"),
+			ByID:    jsonStringValue(item, "by_id_link"),
+			Type:    jsonStringValue(item, "type"),
+			Model:   jsonStringValue(item, "model"),
+			Vendor:  jsonStringValue(item, "vendor"),
+			Used:    jsonStringValue(item, "used"),
+			Health:  jsonStringValue(item, "health"),
+			Size:    jsonFloatValue(item, "size"),
+		})
+	}
+
+	return out
+}
+
+func parseGuestAgentInterfaces(array string) []proxmoxGuestAgentInterface {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxGuestAgentInterface, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxGuestAgentInterface{
+			Name:            jsonStringValue(item, "name"),
+			HardwareAddress: jsonStringValue(item, "hardware-address"),
+			IPAddresses:     parseGuestAgentIPAddresses(jsonArrayValue(item, "ip-addresses")),
+		})
+	}
+
+	return out
+}
+
+func parseGuestAgentIPAddresses(array string) []proxmoxGuestAgentIPAddress {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxGuestAgentIPAddress, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxGuestAgentIPAddress{
+			IPAddress:     jsonStringValue(item, "ip-address"),
+			IPAddressType: jsonStringValue(item, "ip-address-type"),
+			Prefix:        jsonIntValue(item, "prefix"),
+		})
+	}
+
+	return out
+}
+
+func parseGuestFilesystems(array string) []proxmoxGuestFilesystem {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxGuestFilesystem, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxGuestFilesystem{
+			Name:       jsonStringValue(item, "name"),
+			Mountpoint: jsonStringValue(item, "mountpoint"),
+			Type:       jsonStringValue(item, "type"),
+			TotalBytes: jsonFloatValue(item, "total-bytes"),
+			UsedBytes:  jsonFloatValue(item, "used-bytes"),
+		})
+	}
+
+	return out
+}
+
+func parseLXCInterfaces(array string) []proxmoxLXCInterface {
+	items := rawJSONObjectList(array)
+	out := make([]proxmoxLXCInterface, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxLXCInterface{
+			Name:       jsonStringValue(item, "name"),
+			Hardware:   jsonStringValue(item, "hardware"),
+			MACAddress: jsonStringValue(item, "hwaddr"),
+			Inet:       jsonStringValue(item, "inet"),
+			Inet6:      jsonStringValue(item, "inet6"),
+		})
+	}
+
+	return out
+}
+
+func jsonObjectStringMap(object string) map[string]string {
+	object = strings.TrimSpace(object)
+	if len(object) < 2 || object[0] != '{' {
+		return nil
+	}
+	out := map[string]string{}
+	for i := 1; i < len(object)-1; {
+		i = skipJSONWhitespace(object, i)
+		if i >= len(object)-1 || object[i] == '}' {
+			break
+		}
+		if object[i] != '"' {
+			i++
+			continue
+		}
+		keyEnd := jsonStringEnd(object, i)
+		if keyEnd < 0 {
+			break
+		}
+		key, err := strconv.Unquote(object[i : keyEnd+1])
+		if err != nil {
+			break
+		}
+		colon := skipJSONWhitespace(object, keyEnd+1)
+		if colon >= len(object) || object[colon] != ':' {
+			i = keyEnd + 1
+			continue
+		}
+		valueStart := skipJSONWhitespace(object, colon+1)
+		valueEnd := jsonValueEnd(object, valueStart)
+		if valueEnd < 0 {
+			break
+		}
+		value := strings.TrimSpace(object[valueStart:valueEnd])
+		if strings.HasPrefix(value, `"`) {
+			if unquoted, err := strconv.Unquote(value); err == nil {
+				out[key] = unquoted
+			}
+		} else if value != "null" && value != "" && !strings.HasPrefix(value, "{") && !strings.HasPrefix(value, "[") {
+			out[key] = strings.Trim(value, ` "`)
+		}
+		i = valueEnd + 1
+	}
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 func responseBodySuffix(body []byte) string {
@@ -1336,18 +1776,6 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 			Labels: map[string]string{
 				"provider": "proxmox",
 				"role":     "pve",
-			},
-			Metadata: map[string]any{
-				"proxmox": map[string]any{
-					"kind":    "node",
-					"node":    node.Node,
-					"ip":      node.IP,
-					"cpu":     node.CPU,
-					"max_cpu": node.MaxCPU,
-					"mem":     node.Mem,
-					"max_mem": node.MaxMem,
-					"uptime":  node.Uptime,
-				},
 			},
 		})
 	}
@@ -1401,22 +1829,6 @@ func addGuestDiscoveries(discovery *sdk.DeviceDiscovery, guests []proxmoxGuest) 
 			Labels: map[string]string{
 				"provider": "proxmox",
 				"role":     kind,
-			},
-			Metadata: map[string]any{
-				"proxmox": map[string]any{
-					"kind":       kind,
-					"node":       guest.Node,
-					"vmid":       guest.VMID,
-					"id":         guest.ID,
-					"cpu":        guest.CPU,
-					"max_cpu":    guest.MaxCPU,
-					"mem":        guest.Mem,
-					"max_mem":    guest.MaxMem,
-					"disk":       guest.Disk,
-					"max_disk":   guest.MaxDisk,
-					"uptime":     guest.Uptime,
-					"interfaces": guest.Interfaces,
-				},
 			},
 		})
 	}
@@ -1475,6 +1887,12 @@ func looksLikePluginInputs(raw map[string]any) bool {
 	}
 
 	return false
+}
+
+func looksLikePluginInputsPayload(payload pluginInputsJSON) bool {
+	return strings.TrimSpace(payload.Schema) == sdk.PluginInputsSchemaV1 ||
+		len(payload.Inputs) > 0 ||
+		strings.TrimSpace(payload.PolicyID) != ""
 }
 
 func looksLikePluginInputsJSON(raw json.RawMessage) bool {
@@ -1726,6 +2144,397 @@ func stringValue(mapValue map[string]any, key string) string {
 	}
 
 	return ""
+}
+
+func targetsFromRawPluginInputItems(raw string, cfg Config) []Target {
+	items := rawJSONObjectList(rawItemsArray(raw))
+	targets := make([]Target, 0, len(items))
+
+	for _, item := range items {
+		target := targetFromRawPluginInputItem(item, cfg)
+		if strings.TrimSpace(target.BaseURL) != "" {
+			targets = append(targets, target)
+		}
+	}
+
+	return dedupeTargets(targets)
+}
+
+func targetFromRawPluginInputItem(item string, cfg Config) Target {
+	hostname := firstNonEmpty(jsonStringValue(item, "hostname"), jsonStringValue(item, "name"))
+
+	return Target{
+		BaseURL:  rawItemBaseURL(item, cfg),
+		APIToken: cfg.APIToken,
+		DeviceID: firstNonEmpty(
+			jsonStringValue(item, "uid"),
+			jsonStringValue(item, "device_uid"),
+			jsonStringValue(item, "device_id"),
+		),
+		Hostname: hostname,
+		Partition: firstNonEmpty(
+			jsonStringValue(item, "partition"),
+			jsonStringValue(item, "site"),
+		),
+	}
+}
+
+func rawItemBaseURL(item string, cfg Config) string {
+	direct := firstNonEmpty(
+		jsonStringValue(item, "base_url"),
+		jsonStringValue(item, "proxmox_base_url"),
+		jsonStringValue(item, "endpoint"),
+		jsonStringValue(item, "management_url"),
+	)
+	if direct != "" {
+		return normalizeBaseURL(direct)
+	}
+
+	host := firstNonEmpty(
+		jsonStringValue(item, "ip"),
+		jsonStringValue(item, "device_ip"),
+		jsonStringValue(item, "hostname"),
+		jsonStringValue(item, "name"),
+	)
+	if host != "" {
+		return normalizeBaseURL(host)
+	}
+
+	return normalizeBaseURL(cfg.BaseURL)
+}
+
+func rawItemsArray(raw string) string {
+	start, end, ok := jsonValueSpan(raw, "items")
+	if !ok || start >= end || raw[start] != '[' {
+		return ""
+	}
+
+	return raw[start:end]
+}
+
+func rawJSONObjectList(raw string) []string {
+	out := []string{}
+	start := -1
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := range raw {
+		ch := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{':
+			if depth == 0 {
+				start = i
+			}
+			depth++
+		case '}':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 && start >= 0 {
+				out = append(out, raw[start:i+1])
+				start = -1
+			}
+		}
+	}
+
+	return out
+}
+
+func jsonStringValue(raw string, key string) string {
+	start, end, ok := jsonValueSpan(raw, key)
+	if !ok || start >= end {
+		return ""
+	}
+	value := strings.TrimSpace(raw[start:end])
+	if value == "" || value == "null" {
+		return ""
+	}
+	if strings.HasPrefix(value, `"`) {
+		unquoted, err := strconv.Unquote(value)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(unquoted)
+	}
+
+	return strings.Trim(value, ` "`)
+}
+
+func jsonIntValue(raw string, key string) int {
+	start, end, ok := jsonValueSpan(raw, key)
+	if !ok || start >= end {
+		return 0
+	}
+	value := strings.TrimSpace(raw[start:end])
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0
+	}
+
+	return parsed
+}
+
+func jsonFloatValue(raw string, key string) float64 {
+	start, end, ok := jsonValueSpan(raw, key)
+	if !ok || start >= end {
+		return 0
+	}
+	value := strings.TrimSpace(raw[start:end])
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0
+	}
+
+	return parsed
+}
+
+func jsonStringArrayValue(raw string, key string) []string {
+	array := jsonArrayValue(raw, key)
+	if array == "" {
+		return nil
+	}
+	values := make([]string, 0)
+	for i := 1; i < len(array)-1; {
+		i = skipJSONWhitespace(array, i)
+		if i >= len(array)-1 || array[i] == ']' {
+			break
+		}
+		if array[i] == '"' {
+			end := jsonStringEnd(array, i)
+			if end < 0 {
+				break
+			}
+			if value, err := strconv.Unquote(array[i : end+1]); err == nil {
+				values = append(values, value)
+			}
+			i = end + 1
+		} else {
+			end := jsonValueEnd(array, i)
+			if end < 0 {
+				break
+			}
+			value := strings.TrimSpace(array[i:end])
+			if value != "" && value != "null" {
+				values = append(values, strings.Trim(value, ` "`))
+			}
+			i = end
+		}
+		for i < len(array) && array[i] != ',' && array[i] != ']' {
+			i++
+		}
+		if i < len(array) && array[i] == ',' {
+			i++
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+
+	return values
+}
+
+func jsonBoolValue(raw string, key string) (bool, bool) {
+	start, end, ok := jsonValueSpan(raw, key)
+	if !ok || start >= end {
+		return false, false
+	}
+	switch strings.TrimSpace(raw[start:end]) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
+func jsonValueSpan(raw string, key string) (int, int, bool) {
+	colon, ok := jsonKeyColon(raw, key)
+	if !ok {
+		return 0, 0, false
+	}
+	start := skipJSONWhitespace(raw, colon+1)
+	if start >= len(raw) {
+		return 0, 0, false
+	}
+
+	switch raw[start] {
+	case '"':
+		end := jsonStringEnd(raw, start)
+		if end < 0 {
+			return 0, 0, false
+		}
+		return start, end + 1, true
+	case '{', '[':
+		end := jsonCompositeEnd(raw, start)
+		if end < 0 {
+			return 0, 0, false
+		}
+		return start, end + 1, true
+	default:
+		end := start
+		for end < len(raw) && raw[end] != ',' && raw[end] != '}' && raw[end] != ']' {
+			end++
+		}
+		return start, end, true
+	}
+}
+
+func jsonKeyColon(raw string, key string) (int, bool) {
+	inString := false
+	escaped := false
+	stringStart := -1
+
+	for i := range raw {
+		ch := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+				if stringStart >= 0 {
+					quoted := raw[stringStart : i+1]
+					unquoted, err := strconv.Unquote(quoted)
+					if err == nil && unquoted == key {
+						next := skipJSONWhitespace(raw, i+1)
+						if next < len(raw) && raw[next] == ':' {
+							return next, true
+						}
+					}
+				}
+			}
+			continue
+		}
+		if ch == '"' {
+			inString = true
+			stringStart = i
+		}
+	}
+
+	return 0, false
+}
+
+func jsonStringEnd(raw string, start int) int {
+	escaped := false
+	for i := start + 1; i < len(raw); i++ {
+		if escaped {
+			escaped = false
+			continue
+		}
+		switch raw[i] {
+		case '\\':
+			escaped = true
+		case '"':
+			return i
+		}
+	}
+
+	return -1
+}
+
+func jsonValueEnd(raw string, start int) int {
+	if start >= len(raw) {
+		return -1
+	}
+	switch raw[start] {
+	case '"':
+		end := jsonStringEnd(raw, start)
+		if end < 0 {
+			return -1
+		}
+		return end + 1
+	case '{', '[':
+		end := jsonCompositeEnd(raw, start)
+		if end < 0 {
+			return -1
+		}
+		return end + 1
+	default:
+		end := start
+		for end < len(raw) && raw[end] != ',' && raw[end] != '}' && raw[end] != ']' {
+			end++
+		}
+		return end
+	}
+}
+
+func jsonCompositeEnd(raw string, start int) int {
+	open := raw[start]
+	close := byte('}')
+	if open == '[' {
+		close = ']'
+	}
+
+	depth := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(raw); i++ {
+		ch := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
+func skipJSONWhitespace(raw string, start int) int {
+	for start < len(raw) {
+		switch raw[start] {
+		case ' ', '\n', '\r', '\t':
+			start++
+		default:
+			return start
+		}
+	}
+
+	return start
 }
 
 func (target Target) safeName() string {
@@ -2104,33 +2913,11 @@ func countGuests(guests []proxmoxGuest, guestType string) int {
 }
 
 func (ceph proxmoxCeph) empty() bool {
-	return ceph.Health == "" && len(ceph.Status) == 0 && len(ceph.OSDs) == 0 && len(ceph.Pools) == 0 && len(ceph.FS) == 0
+	return ceph.Health == ""
 }
 
-func cephHealth(status map[string]any) string {
-	if status == nil {
-		return ""
-	}
-	if health := stringAny(status["health"]); health != "" {
-		return health
-	}
-	if health, ok := status["health"].(map[string]any); ok {
-		return firstNonEmpty(
-			stringAny(health["status"]),
-			stringAny(health["overall_status"]),
-		)
-	}
-	if health, ok := status["health"].(map[any]any); ok {
-		return firstNonEmpty(
-			stringAny(health["status"]),
-			stringAny(health["overall_status"]),
-		)
-	}
-
-	return firstNonEmpty(
-		stringAny(status["overall_status"]),
-		stringAny(status["status"]),
-	)
+func cephHealth(status proxmoxCephStatus) string {
+	return firstNonEmpty(status.Health, status.OverallStatus, status.Status)
 }
 
 func cephHealthClass(health string) string {
@@ -2166,22 +2953,10 @@ func maxFloat(a, b float64) float64 {
 	return a
 }
 
-func floatValue(values map[string]any, key string) float64 {
-	if values == nil {
-		return 0
-	}
-	switch value := values[key].(type) {
-	case float64:
-		return value
-	case float32:
-		return float64(value)
-	case int:
-		return float64(value)
-	case int64:
-		return float64(value)
-	case json.Number:
-		parsed, _ := value.Float64()
-		return parsed
+func floatValue(values proxmoxNodeStatus, key string) float64 {
+	switch key {
+	case "wait":
+		return values.Wait
 	default:
 		return 0
 	}
@@ -2204,6 +2979,23 @@ func nilIfEmpty(values map[string]string) map[string]string {
 	}
 
 	return values
+}
+
+func sanitizeStringMap(raw map[string]string) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	sanitized := make(map[string]string, len(raw))
+	for key, value := range raw {
+		if sensitiveKey(key) {
+			sanitized[key] = "REDACTED"
+			continue
+		}
+		sanitized[key] = sanitizeSecretString(value)
+	}
+
+	return sanitized
 }
 
 func sanitizeMap(raw map[string]any) map[string]any {
@@ -2329,23 +3121,6 @@ func redactPVEAPITokenMaterial(value string) string {
 
 	next:
 	}
-}
-
-func primeTinyGoJSON() {
-	var cfg Config
-	var inputs sdk.PluginInputsPayload
-	var version proxmoxVersionResponse
-	var nodes proxmoxNodesResponse
-	var resources proxmoxResourcesResponse
-	var cluster proxmoxClusterStatusResponse
-	var data proxmoxMapResponse
-	_ = json.Unmarshal([]byte(`{"targets":[]}`), &cfg)
-	_ = json.Unmarshal([]byte(`{"schema":"serviceradar.plugin_inputs.v1","inputs":[]}`), &inputs)
-	_ = json.Unmarshal([]byte(`{"data":{}}`), &version)
-	_ = json.Unmarshal([]byte(`{"data":[]}`), &cluster)
-	_ = json.Unmarshal([]byte(`{"data":[]}`), &nodes)
-	_ = json.Unmarshal([]byte(`{"data":[]}`), &resources)
-	_ = json.Unmarshal([]byte(`{"data":{}}`), &data)
 }
 
 func main() {}
