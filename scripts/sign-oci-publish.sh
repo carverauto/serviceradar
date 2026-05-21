@@ -36,6 +36,9 @@ IMAGE_METADATA_DIR="${BAZEL_BIN}/docker/images"
 export COSIGN_DOCKER_MEDIA_TYPES="${COSIGN_DOCKER_MEDIA_TYPES:-1}"
 COSIGN_REFERRERS_MODE="${COSIGN_REFERRERS_MODE:-oci-1-1}"
 COSIGN_TLOG_UPLOAD="${COSIGN_TLOG_UPLOAD:-true}"
+if [[ "${COSIGN_REFERRERS_MODE}" == "oci-1-1" ]]; then
+  export COSIGN_EXPERIMENTAL="${COSIGN_EXPERIMENTAL:-1}"
+fi
 
 if [[ ! -d "${IMAGE_METADATA_DIR}" ]]; then
   echo "error: bazel image metadata directory not found: ${IMAGE_METADATA_DIR}" >&2
