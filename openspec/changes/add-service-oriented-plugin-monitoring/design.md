@@ -16,6 +16,7 @@ This change ties those pieces together around a service-oriented monitoring mode
 - Scale target selection with tags, SRQL, bulk import, and searchable modal pickers.
 - Keep runtime target, credential, and allowlist material derived from trusted control-plane state.
 - Normalize check results into service state, events, and alerts without plugin-specific glue.
+- Provide first-class SLI/SLO monitoring for operator-facing service reliability, including error budgets and burn-rate alerts.
 - Keep Go and Rust SDK capabilities aligned.
 - Build new service availability dashboards using the dashboard SDK, not bespoke LiveView-only dashboards.
 
@@ -33,6 +34,9 @@ Introduce these concepts:
 - `CheckCapabilityDescriptor`: plugin-declared capability such as `http.url.availability`, `postgres.availability`, `tcp.connect`, `tls.certificate_expiry`, or built-in `icmp.availability`.
 - `MonitoringBinding`: a policy that binds a descriptor to a target set, schedule, selected vantage point/agent scope, credential strategy, threshold profile, result-to-event behavior, and alert promotion policy.
 - `CheckInstance`: materialized runtime identity for a descriptor/target/vantage point combination. It owns stable service/check IDs so result history and alerts do not churn when assignments are recompiled.
+- `ServiceLevelIndicator`: a named reliability measurement derived from check state, metrics, events, or SRQL. Examples: availability ratio, successful check ratio, latency percentile, TLS validity, database connection success.
+- `ServiceLevelObjective`: an operator-defined objective over an SLI, target set, window, and threshold. Examples: 99.9% monthly availability for `service_group:noc-critical`, p95 HTTP latency under 500 ms for public URLs, or 99% successful database connection checks for tagged database services.
+- `ErrorBudgetState`: current budget consumption and burn-rate state for each SLO/window so dashboards and alerts can show budget remaining, burn rate, and time to exhaustion.
 
 This keeps the device inventory focused on physical/logical assets while letting URLs, databases, and application endpoints become first-class monitoring targets when they are not good device records.
 
@@ -93,6 +97,16 @@ Plugin results become target-scoped:
 
 Ingestion updates latest check state and service availability rollups. State transitions and configured result policies create OCSF events. Alert rules evaluate events and service state using the existing observability rule model, including grouping, cooldown, dedupe, and re-notify behavior.
 
+## SLI/SLO Monitoring
+SLOs are reliability policies over the normalized service monitoring model, not a separate monitoring island:
+
+1. Built-in SLI types cover availability ratio, success ratio, latency percentile, and freshness/staleness using `LatestCheckState`, check history, event state, and metric rollups.
+2. Custom SLI definitions may use approved SRQL query templates, with target scope and allowed entities controlled by the SLO resource rather than arbitrary browser-supplied queries.
+3. SLOs can target explicit services, service groups, service tags, device-associated services, or SRQL-backed service sets.
+4. Evaluators persist SLO evaluation state, error-budget remaining, burn rate, and last evaluation metadata.
+5. SLO burn-rate and budget-exhaustion transitions create informational/warning/critical OCSF events and can promote to alerts through the same stateful alert engine as check events.
+6. SLO dashboards show both current service health and reliability trend so NOC operators can distinguish "currently down" from "budget is burning too fast."
+
 ## UI Shape
 Primary workflows:
 
@@ -102,6 +116,7 @@ Primary workflows:
 - Monitoring policies: choose plugin capability, select target set, choose vantage point/agent scope, credentials, thresholds, and event/alert behavior.
 - Target picker: searchable modal for devices/services with filters and preview counts. No free-form device IDs in default flows.
 - Dashboards: service availability dashboard driven by SRQL, with filters for tags, service group, plugin capability, agent/vantage point, and severity.
+- SLOs: define SLOs from service groups/tags/SRQL, choose an SLI type, target percentage or threshold, window, burn-rate policy, owner, and alert policy.
 
 ## Dashboard SDK Usage
 Any new service availability dashboard should be authored as a dashboard package using the dashboard SDK. If `~/src/serviceradar-sdk-dashboard` is not present in a developer workspace, implementation should first confirm the correct SDK repository/path before creating a bespoke dashboard.
@@ -113,6 +128,9 @@ The dashboard package should query SRQL entities such as:
 - `in:service_events`
 - `in:alerts`
 - `rollup_stats:availability`
+- `in:slos`
+- `in:slo_evaluations`
+- `rollup_stats:slo_error_budget`
 
 ## Migration Plan
 1. Preserve existing plugin assignments and static plugin config behavior.
@@ -139,5 +157,5 @@ Keep implementation PRs stackable:
 5. Credential integration and database availability check.
 6. UI for service inventory, target pickers, bulk import, and device monitoring tab.
 7. Event/alert promotion wiring and rule UI.
-8. Dashboard SDK package for service availability/NOC view.
+8. Dashboard SDK package for service availability, SLO, and NOC views.
 9. Migration, docs, and demo fixtures.

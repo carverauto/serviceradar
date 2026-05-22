@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Plugins do
   defdelegate update_plugin(plugin_id, attrs, opts \\ []), to: Registry, as: :update
 
   defdelegate list_packages(filters \\ %{}, opts \\ []), to: Packages, as: :list
+  defdelegate list_check_descriptors(filters \\ %{}, opts \\ []), to: Packages
   defdelegate get_package(id, opts \\ []), to: Packages, as: :get
   defdelegate create_package(attrs, opts \\ []), to: Packages, as: :create
   defdelegate approve_package(id, attrs, opts \\ []), to: Packages, as: :approve

@@ -35,3 +35,20 @@ SRQL SHALL expose associated device context for services that are linked to cano
 - **THEN** SRQL SHALL return services whose associated device matches that tag
 - **AND** standalone services SHALL be excluded unless explicitly selected by service tags or groups
 
+### Requirement: SRQL exposes SLI, SLO, compliance, and error-budget entities
+SRQL SHALL expose SLI definitions, SLO objectives, SLO evaluations, compliance windows, and error-budget/burn-rate rollups as queryable entities.
+
+#### Scenario: Query noncompliant SLOs by owner
+- **GIVEN** SLO evaluation state exists for several service groups
+- **WHEN** a client queries `in:slos owner:payments compliance:noncompliant`
+- **THEN** SRQL SHALL return matching SLO records with current compliance, goal, period, budget remaining, and burn-rate fields
+
+#### Scenario: Dashboard queries SLO error-budget rollup
+- **GIVEN** SLO budget evaluations exist over a rolling 30-day period
+- **WHEN** a dashboard queries `in:slo_evaluations rollup_stats:slo_error_budget`
+- **THEN** SRQL SHALL return budget consumed, budget remaining, burn rate, and projected exhaustion fields for the selected SLO set
+
+#### Scenario: Join SLOs to monitored services
+- **GIVEN** an SLO targets a service group
+- **WHEN** a client queries affected services for that SLO
+- **THEN** SRQL SHALL return the monitored services and latest check state contributing to the current SLO evaluation

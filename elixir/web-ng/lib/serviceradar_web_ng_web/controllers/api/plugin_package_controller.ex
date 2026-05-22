@@ -29,6 +29,14 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
     end
   end
 
+  def check_descriptors(conn, params) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
+      scope = get_scope(conn)
+      json(conn, Plugins.list_check_descriptors(params, scope: scope))
+    end
+  end
+
   def show(conn, %{"id" => id}) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "plugins.view") do
@@ -286,6 +294,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       runtime: package.runtime,
       outputs: package.outputs,
       manifest: package.manifest,
+      check_descriptors: package.check_descriptors,
       config_schema: package.config_schema,
       display_contract: package.display_contract,
       wasm_object_key: package.wasm_object_key,

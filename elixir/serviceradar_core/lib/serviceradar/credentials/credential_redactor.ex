@@ -60,6 +60,10 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
       true ->
         Enum.any?(
           [
+            "authorization",
+            "bearer",
+            "client_secret",
+            "cookie",
             "password",
             "passwd",
             "passphrase",
@@ -69,6 +73,7 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
             "provider_auth",
             "external_secret_ref",
             "api_token",
+            "token",
             "private_key",
             "credential_material"
           ],

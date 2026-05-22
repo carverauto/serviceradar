@@ -87,6 +87,127 @@ defmodule ServiceRadar.Plugins.ManifestTest do
            )
   end
 
+  test "check descriptors parse and normalize" do
+    manifest =
+      Map.put(@valid_manifest, "check_descriptors", [
+        %{
+          "descriptor_id" => "http.url.availability",
+          "version" => "1.0.0",
+          "label" => "HTTP URL availability",
+          "description" => "Checks a URL from an agent vantage point",
+          "target_kinds" => ["service"],
+          "service_kinds" => ["http", "https"],
+          "protocols" => ["http", "https"],
+          "required_target_fields" => ["endpoint_url"],
+          "optional_target_fields" => ["host", "path", "port"],
+          "required_capabilities" => ["http_request", "submit_result"],
+          "credential_requirements" => %{"mode" => "optional", "purpose" => "http_auth"},
+          "schedule_bounds" => %{
+            "min_interval_seconds" => 30,
+            "default_interval_seconds" => 60
+          },
+          "timeout_bounds" => %{"min_seconds" => 1, "max_seconds" => 30},
+          "threshold_schema" => %{
+            "type" => "object",
+            "properties" => %{"warning_ms" => %{"type" => "integer"}}
+          },
+          "allowlist_policy" => %{"derive_from_target" => true},
+          "display_contract_ref" => "http-url-status",
+          "result_schema_version" => "serviceradar.target_check_result.v1"
+        }
+      ])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [descriptor] = parsed.check_descriptors
+    assert descriptor.descriptor_id == "http.url.availability"
+    assert descriptor.version == "1.0.0"
+    assert descriptor.target_kinds == ["service"]
+    assert descriptor.required_target_fields == ["endpoint_url"]
+    assert descriptor.required_capabilities == ["http_request", "submit_result"]
+    assert descriptor.credential_requirements == %{"mode" => "optional", "purpose" => "http_auth"}
+  end
+
+  test "check descriptor catalog stores string-keyed package metadata" do
+    manifest =
+      Map.put(@valid_manifest, "check_descriptors", [
+        %{
+          "descriptor_id" => "http.url.availability",
+          "version" => "1.0.0",
+          "label" => "HTTP URL availability",
+          "target_kinds" => ["service"],
+          "required_capabilities" => ["http_request"]
+        }
+      ])
+
+    assert {:ok, catalog} = Manifest.check_descriptor_catalog(manifest)
+    assert %{"schema_version" => 1, "items" => [descriptor]} = catalog
+    assert descriptor["descriptor_id"] == "http.url.availability"
+    assert descriptor["version"] == "1.0.0"
+    assert descriptor["required_capabilities"] == ["http_request"]
+  end
+
+  test "check descriptors reject capabilities not declared in the manifest" do
+    manifest =
+      Map.put(@valid_manifest, "check_descriptors", [
+        %{
+          "descriptor_id" => "http.url.availability",
+          "version" => "1.0.0",
+          "label" => "HTTP URL availability",
+          "target_kinds" => ["service"],
+          "required_capabilities" => ["http_request", "tcp_connect"]
+        }
+      ])
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(
+             errors,
+             &String.contains?(&1, "required_capabilities are not declared")
+           )
+  end
+
+  test "check descriptors require versioned unique descriptor identities" do
+    descriptor = %{
+      "descriptor_id" => "http.url.availability",
+      "version" => "1.0.0",
+      "label" => "HTTP URL availability",
+      "target_kinds" => ["service"],
+      "required_capabilities" => ["http_request"]
+    }
+
+    manifest = Map.put(@valid_manifest, "check_descriptors", [descriptor, descriptor])
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(
+             errors,
+             &String.contains?(
+               &1,
+               "duplicate descriptor/version: http.url.availability@1.0.0"
+             )
+           )
+  end
+
+  test "check descriptors reject provider-owned UI code" do
+    manifest =
+      Map.put(@valid_manifest, "check_descriptors", [
+        %{
+          "descriptor_id" => "bad.descriptor",
+          "version" => "1.0.0",
+          "label" => "Bad Descriptor",
+          "target_kinds" => ["service"],
+          "react" => "RemoteComponent"
+        }
+      ])
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(
+             errors,
+             &String.contains?(&1, "check_descriptors[1].react is not allowed")
+           )
+  end
+
   test "missing required fields return errors" do
     assert {:error, errors} = Manifest.from_map(%{})
     assert "missing required field: id" in errors

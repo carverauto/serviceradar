@@ -40,6 +40,9 @@ defmodule ServiceRadar.Security.AuditHistory do
     ServiceRadar.Monitoring.ServiceGroupMembership,
     ServiceRadar.Monitoring.MonitoringBinding,
     ServiceRadar.Monitoring.CheckInstance,
+    ServiceRadar.Monitoring.ServiceLevelIndicator,
+    ServiceRadar.Monitoring.ServiceLevelObjective,
+    ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluation,
     ServiceRadar.Monitoring.MonitoredServiceImportBatch,
     ServiceRadar.Security.AuthLockout
   ]

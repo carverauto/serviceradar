@@ -1,6 +1,6 @@
 defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
   @moduledoc """
-  Prevents manual plugin assignments from duplicating policy-owned assignments.
+  Prevents manual plugin assignments from duplicating server-owned assignments.
   """
 
   use Ash.Resource.Validation
@@ -37,7 +37,7 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(
         agent_uid == ^agent_uid and plugin_package_id == ^plugin_package_id and
-          source == :policy and enabled == true
+          source in [:policy, :monitoring_binding] and enabled == true
       )
       |> Ash.Query.limit(1)
       |> Ash.read_one(actor: actor)
@@ -45,7 +45,7 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
         {:ok, %PluginAssignment{}} ->
           {:error,
            field: :plugin_package_id,
-           message: "plugin is already assigned to this agent by policy"}
+           message: "plugin is already assigned to this agent by policy or monitoring binding"}
 
         {:ok, nil} ->
           :ok

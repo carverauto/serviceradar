@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
+  require Ash.Query
+
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
   @manifest %{
     "id" => "unifi-protect-camera",
@@ -367,6 +369,64 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
              |> Ash.create()
 
     assert new_assignment.plugin_package_id == approved_new.id
+  end
+
+  test "approved check descriptor catalog lists assignable descriptors" do
+    plugin_id = "http-descriptor-catalog-#{System.unique_integer([:positive])}"
+    _plugin = create_plugin(plugin_id)
+
+    descriptor = %{
+      "descriptor_id" => "http.url.availability",
+      "version" => "1.0.0",
+      "label" => "HTTP URL availability",
+      "target_kinds" => ["service"],
+      "service_kinds" => ["http", "https"],
+      "protocols" => ["http", "https"],
+      "required_target_fields" => ["endpoint_url"],
+      "required_capabilities" => ["http_request", "submit_result"]
+    }
+
+    manifest =
+      Map.merge(@manifest, %{
+        "id" => plugin_id,
+        "capabilities" => ["get_config", "http_request", "submit_result"],
+        "check_descriptors" => [descriptor]
+      })
+
+    package =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "HTTP Descriptor Catalog",
+          version: "0.1.0",
+          entrypoint: "run_check",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: manifest,
+          config_schema: %{},
+          signature: %{},
+          source_type: :github,
+          source_commit: "test-#{plugin_id}-descriptor-catalog"
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+    assert [%{"descriptor_id" => "http.url.availability"}] = package.check_descriptors["items"]
+    assert {:ok, approved} = Packages.approve(package.id, %{}, actor: system_actor())
+
+    assert [row] =
+             Packages.list_check_descriptors(%{
+               "plugin_id" => plugin_id,
+               "target_kind" => "service",
+               "service_kind" => "http"
+             })
+
+    assert row["descriptor_id"] == "http.url.availability"
+    assert row["plugin_package_id"] == approved.id
+    assert row["plugin_id"] == plugin_id
+    assert row["package_version"] == "0.1.0"
   end
 
   def first_party_release(tag \\ "v1.0.1") do

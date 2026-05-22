@@ -102,6 +102,85 @@ The system SHALL let operators define how check status changes create events and
 - **THEN** the system SHALL create or update one alert for the check instance
 - **AND** cooldown and re-notify behavior SHALL prevent duplicate alert storms
 
+### Requirement: Service-level indicators define service performance measurements
+The system SHALL provide first-class service-level indicators (SLIs) that measure service performance from check state, check metrics, events, rollups, or approved SRQL-backed indicator queries.
+
+#### Scenario: Availability SLI from check state
+- **GIVEN** HTTP service checks report OK, WARNING, CRITICAL, and UNKNOWN states
+- **WHEN** an operator defines an availability SLI for a service group
+- **THEN** the SLI SHALL measure the ratio of good observations to eligible observations
+- **AND** OK observations SHALL count as good while CRITICAL observations SHALL count as bad
+
+#### Scenario: Latency SLI from check metrics
+- **GIVEN** HTTP checks report response time metrics
+- **WHEN** an operator defines a latency SLI with threshold `300 ms`
+- **THEN** the SLI SHALL classify observations below the threshold as good
+- **AND** observations at or above the threshold SHALL count against the SLI
+
+#### Scenario: Custom SRQL-backed SLI
+- **GIVEN** a service has domain-specific metrics not covered by built-in SLI types
+- **WHEN** an authorized operator creates a custom SLI from an approved SRQL query template
+- **THEN** the SLI SHALL persist the query template, target scope, numerator definition, denominator definition, and validation metadata
+- **AND** it SHALL NOT execute arbitrary browser-supplied SRQL at evaluation time
+
+### Requirement: SLOs define desired service performance over compliance periods
+The system SHALL provide service-level objectives (SLOs) that bind one SLI to a target service set, performance goal, compliance period, and evaluation policy.
+
+#### Scenario: Rolling availability SLO
+- **GIVEN** a `public-web` service group has an availability SLI
+- **WHEN** an operator creates a rolling 30-day SLO with goal `99.9%`
+- **THEN** the system SHALL evaluate compliance over the last 30 days
+- **AND** the SLO SHALL be compliant only when the measured SLI is greater than or equal to `99.9%`
+
+#### Scenario: Calendar weekly latency SLO
+- **GIVEN** an API service group has a latency SLI
+- **WHEN** an operator creates a calendar-week SLO requiring `95%` of observations below `300 ms`
+- **THEN** the system SHALL reset the compliance window on calendar week boundaries
+- **AND** it SHALL retain period score, goal, and compliance status for reporting
+
+#### Scenario: SLO goal cannot be perfect
+- **GIVEN** an operator enters `100%` as an SLO goal
+- **WHEN** the SLO is validated
+- **THEN** the system SHALL reject the goal or require an explicit lower target
+- **AND** it SHALL explain that a 100% SLO has no error budget
+
+### Requirement: Request-based and windows-based SLOs
+The system SHALL support request-based SLOs and windows-based SLOs so operators can choose whether good service is measured by atomic observations or by good measurement intervals.
+
+#### Scenario: Request-based success ratio
+- **GIVEN** an SLO measures database connection success over a rolling 7-day period
+- **WHEN** 9,900 of 10,000 eligible checks succeed
+- **THEN** the request-based compliance SHALL be `99%`
+- **AND** the SLO SHALL compare that ratio to the configured goal
+
+#### Scenario: Windows-based latency SLO
+- **GIVEN** an SLO requires p95 latency below `100 ms` for `99%` of 10-minute windows
+- **WHEN** the evaluator processes a rolling 30-day period
+- **THEN** each 10-minute window SHALL be classified as good or bad
+- **AND** compliance SHALL be the ratio of good windows to all eligible windows
+
+### Requirement: Error budgets and burn rate are first-class SLO state
+The system SHALL compute and persist error-budget and burn-rate state for each SLO and compliance window.
+
+#### Scenario: Error budget for request-based SLO
+- **GIVEN** an SLO goal is `85%` over a 7-day rolling period
+- **AND** the period has `60,480` eligible observations
+- **WHEN** the evaluator computes error budget
+- **THEN** the total allowed bad observations SHALL be `(1 - 0.85) * 60,480`
+- **AND** the remaining budget SHALL subtract actual bad observations from that allowance
+
+#### Scenario: Rolling window budget can recover
+- **GIVEN** a rolling 30-day SLO includes a prior incident
+- **WHEN** the bad observations age out of the rolling window
+- **THEN** the remaining error budget MAY increase
+- **AND** the compliance state SHALL reflect only the current rolling window
+
+#### Scenario: Burn rate forecasts budget exhaustion
+- **GIVEN** an SLO has a remaining error budget and recent bad observations
+- **WHEN** the evaluator computes short-window and long-window burn rates
+- **THEN** it SHALL persist current burn rates, projected time to exhaustion, and severity classification
+- **AND** those values SHALL be available to dashboards and alert policy evaluation
+
 ### Requirement: Existing static plugin assignments remain compatible
 The system SHALL preserve existing manually configured plugin assignments while making service-oriented monitoring bindings the default path for check-style plugins.
 

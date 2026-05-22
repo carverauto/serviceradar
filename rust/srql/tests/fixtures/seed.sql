@@ -610,6 +610,285 @@ SELECT base.now_ts - INTERVAL '10 minutes',
 FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
+),
+service_rows AS (
+    INSERT INTO monitored_services (
+        id,
+        service_key,
+        display_name,
+        service_kind,
+        protocol,
+        endpoint_url,
+        host,
+        port,
+        path,
+        device_uid,
+        status,
+        source,
+        tags,
+        metadata,
+        inserted_at,
+        updated_at
+    )
+    SELECT
+        '20000000-0000-0000-0000-000000000001'::uuid,
+        'https://app.example.test/health',
+        'Example App',
+        'http',
+        'https',
+        'https://app.example.test/health',
+        'app.example.test',
+        443,
+        '/health',
+        'device-alpha',
+        'active',
+        'manual',
+        '{"role":"public-web","noc":"primary"}'::jsonb,
+        '{"owner":"noc"}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '3 minutes'
+    FROM base
+    UNION ALL
+    SELECT
+        '20000000-0000-0000-0000-000000000002'::uuid,
+        'postgres://db.example.test:5432/inventory',
+        'Inventory DB',
+        'database',
+        'postgres',
+        NULL,
+        'db.example.test',
+        5432,
+        NULL,
+        'device-beta',
+        'active',
+        'manual',
+        '{"role":"database","noc":"primary"}'::jsonb,
+        '{"database_name":"inventory"}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    RETURNING id
+),
+group_rows AS (
+    INSERT INTO service_groups (
+        id,
+        name,
+        slug,
+        selection_mode,
+        status,
+        tags,
+        metadata,
+        inserted_at,
+        updated_at
+    )
+    SELECT
+        '21000000-0000-0000-0000-000000000001'::uuid,
+        'NOC Primary Services',
+        'noc-primary',
+        'explicit',
+        'active',
+        '{"noc":"primary"}'::jsonb,
+        '{}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    RETURNING id
+),
+membership_rows AS (
+    INSERT INTO service_group_memberships (
+        id,
+        service_group_id,
+        monitored_service_id,
+        source,
+        metadata,
+        inserted_at,
+        updated_at
+    )
+    SELECT
+        '22000000-0000-0000-0000-000000000001'::uuid,
+        '21000000-0000-0000-0000-000000000001'::uuid,
+        '20000000-0000-0000-0000-000000000001'::uuid,
+        'explicit',
+        '{}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    UNION ALL
+    SELECT
+        '22000000-0000-0000-0000-000000000002'::uuid,
+        '21000000-0000-0000-0000-000000000001'::uuid,
+        '20000000-0000-0000-0000-000000000002'::uuid,
+        'explicit',
+        '{}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    RETURNING id
+),
+binding_rows AS (
+    INSERT INTO monitoring_bindings (
+        id,
+        name,
+        descriptor_id,
+        descriptor_version,
+        capability_kind,
+        target_set_type,
+        service_group_id,
+        interval_seconds,
+        timeout_seconds,
+        status,
+        event_policy,
+        alert_policy,
+        metadata,
+        inserted_at,
+        updated_at
+    )
+    SELECT
+        '23000000-0000-0000-0000-000000000001'::uuid,
+        'HTTP availability',
+        'http.availability',
+        '1.0.0',
+        'plugin',
+        'service_group',
+        '21000000-0000-0000-0000-000000000001'::uuid,
+        60,
+        5,
+        'active',
+        '{"emit_on":["status_change"]}'::jsonb,
+        '{"promote_after_failures":2}'::jsonb,
+        '{}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    RETURNING id
+),
+check_rows AS (
+    INSERT INTO check_instances (
+        id,
+        check_key,
+        monitoring_binding_id,
+        monitored_service_id,
+        device_uid,
+        descriptor_id,
+        descriptor_version,
+        capability_kind,
+        vantage_kind,
+        vantage_id,
+        agent_id,
+        target_snapshot,
+        status,
+        last_materialized_at,
+        metadata,
+        inserted_at,
+        updated_at
+    )
+    SELECT
+        '24000000-0000-0000-0000-000000000001'::uuid,
+        'binding:23000000-0000-0000-0000-000000000001:service:20000000-0000-0000-0000-000000000001',
+        '23000000-0000-0000-0000-000000000001'::uuid,
+        '20000000-0000-0000-0000-000000000001'::uuid,
+        'device-alpha',
+        'http.availability',
+        '1.0.0',
+        'plugin',
+        'agent',
+        'agent-1',
+        'agent-1',
+        '{"url":"https://app.example.test/health"}'::jsonb,
+        'active',
+        base.now_ts - INTERVAL '3 minutes',
+        '{}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    UNION ALL
+    SELECT
+        '24000000-0000-0000-0000-000000000002'::uuid,
+        'binding:23000000-0000-0000-0000-000000000001:service:20000000-0000-0000-0000-000000000002',
+        '23000000-0000-0000-0000-000000000001'::uuid,
+        '20000000-0000-0000-0000-000000000002'::uuid,
+        'device-beta',
+        'postgres.availability',
+        '1.0.0',
+        'plugin',
+        'agent',
+        'agent-1',
+        'agent-1',
+        '{"host":"db.example.test","port":5432}'::jsonb,
+        'active',
+        base.now_ts - INTERVAL '2 minutes',
+        '{}'::jsonb,
+        base.now_ts - INTERVAL '1 day',
+        base.now_ts - INTERVAL '2 minutes'
+    FROM base
+    RETURNING id
+)
+INSERT INTO latest_check_states (
+    id,
+    check_instance_id,
+    monitored_service_id,
+    monitoring_binding_id,
+    device_uid,
+    agent_id,
+    vantage_kind,
+    vantage_id,
+    status,
+    previous_status,
+    status_changed_at,
+    last_observed_at,
+    response_time_ms,
+    summary,
+    details,
+    metrics,
+    consecutive_failures,
+    inserted_at,
+    updated_at
+)
+SELECT
+    '25000000-0000-0000-0000-000000000001'::uuid,
+    '24000000-0000-0000-0000-000000000001'::uuid,
+    '20000000-0000-0000-0000-000000000001'::uuid,
+    '23000000-0000-0000-0000-000000000001'::uuid,
+    'device-alpha',
+    'agent-1',
+    'agent',
+    'agent-1',
+    'ok',
+    'warning',
+    base.now_ts - INTERVAL '3 minutes',
+    base.now_ts - INTERVAL '1 minute',
+    42,
+    'HTTP 200',
+    '{"status_code":200}'::jsonb,
+    '{"latency_ms":42}'::jsonb,
+    0,
+    base.now_ts - INTERVAL '1 day',
+    base.now_ts - INTERVAL '1 minute'
+FROM base
+UNION ALL
+SELECT
+    '25000000-0000-0000-0000-000000000002'::uuid,
+    '24000000-0000-0000-0000-000000000002'::uuid,
+    '20000000-0000-0000-0000-000000000002'::uuid,
+    '23000000-0000-0000-0000-000000000001'::uuid,
+    'device-beta',
+    'agent-1',
+    'agent',
+    'agent-1',
+    'critical',
+    'ok',
+    base.now_ts - INTERVAL '2 minutes',
+    base.now_ts - INTERVAL '30 seconds',
+    1000,
+    'connection refused',
+    '{"error":"connection refused"}'::jsonb,
+    '{}'::jsonb,
+    2,
+    base.now_ts - INTERVAL '1 day',
+    base.now_ts - INTERVAL '30 seconds'
+FROM base;
+WITH base AS (
+    SELECT NOW() AS now_ts
 )
 INSERT INTO cpu_metrics (
         timestamp,

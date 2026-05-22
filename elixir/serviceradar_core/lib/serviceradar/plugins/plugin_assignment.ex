@@ -113,7 +113,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       allow_nil? false
       public? true
       default :manual
-      constraints one_of: [:manual, :policy]
+      constraints one_of: [:manual, :policy, :monitoring_binding]
     end
 
     attribute :source_key, :string do

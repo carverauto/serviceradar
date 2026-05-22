@@ -18,3 +18,16 @@ Service availability dashboards SHALL expose filters for service tags, service g
 - **THEN** visuals SHALL update from SRQL results for services associated with those devices
 - **AND** standalone services SHALL remain available through service tag or service group filters
 
+### Requirement: SLO dashboards expose compliance and error-budget health
+First-party NOC dashboards SHALL show SLO compliance, error-budget remaining, burn rate, and projected time to exhaustion using dashboard SDK packages.
+
+#### Scenario: NOC operator reviews SLO burn rate
+- **GIVEN** one SLO is currently compliant but burning budget too quickly
+- **WHEN** the NOC dashboard loads
+- **THEN** it SHALL show current compliance, budget remaining, short-window burn rate, long-window burn rate, and projected exhaustion time
+- **AND** the visual state SHALL distinguish current service outage from fast budget burn
+
+#### Scenario: Filter dashboard by SLO owner
+- **GIVEN** SLOs have owner/team metadata
+- **WHEN** an operator filters the dashboard to team `payments`
+- **THEN** the dashboard SHALL show only services, checks, SLOs, and alerts associated with that team

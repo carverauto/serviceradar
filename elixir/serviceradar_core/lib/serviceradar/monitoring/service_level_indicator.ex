@@ -1,6 +1,6 @@
-defmodule ServiceRadar.Monitoring.ServiceGroup do
+defmodule ServiceRadar.Monitoring.ServiceLevelIndicator do
   @moduledoc """
-  Operator-defined service target set.
+  Definition of a service-level indicator used by service SLOs.
   """
 
   use Ash.Resource,
@@ -15,31 +15,48 @@ defmodule ServiceRadar.Monitoring.ServiceGroup do
   @services_create_check {ActorHasPermission, permission: "services.create"}
   @services_update_check {ActorHasPermission, permission: "services.update"}
 
-  @fields [:name, :slug, :description, :selection_mode, :srql_query, :tags, :metadata]
+  @fields [
+    :sli_key,
+    :name,
+    :description,
+    :sli_type,
+    :source_type,
+    :measurement_kind,
+    :good_statuses,
+    :metric_name,
+    :threshold_operator,
+    :threshold_value,
+    :threshold_unit,
+    :query_template,
+    :numerator_query,
+    :denominator_query,
+    :window_config,
+    :metadata
+  ]
 
   postgres do
-    table "service_groups"
+    table "service_level_indicators"
     repo ServiceRadar.Repo
     schema "platform"
 
-    identity_index_names unique_slug: "service_groups_slug_idx"
+    identity_index_names unique_sli_key: "service_level_indicators_sli_key_idx"
   end
 
   state_machine do
-    initial_states [:active]
-    default_initial_state :active
+    initial_states [:draft]
+    default_initial_state :draft
     state_attribute :status
 
     transitions do
-      transition :activate, from: [:disabled], to: :active
+      transition :activate, from: [:draft, :disabled], to: :active
       transition :disable, from: [:active], to: :disabled
-      transition :archive, from: [:active, :disabled], to: :archived
+      transition :archive, from: [:draft, :active, :disabled], to: :archived
     end
   end
 
   paper_trail do
     primary_key_type :uuid_v7
-    table_name "service_group_versions"
+    table_name "service_level_indicator_versions"
     mixin {ServiceRadar.Monitoring.PaperTrailMixin, :mixin, []}
     change_tracking_mode :changes_only
     store_action_name? true
@@ -50,10 +67,10 @@ defmodule ServiceRadar.Monitoring.ServiceGroup do
 
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
-    define :get_by_slug, action: :by_slug, args: [:slug]
+    define :get_by_sli_key, action: :by_sli_key, args: [:sli_key]
     define :list_active, action: :active
-    define :create_group, action: :create
-    define :update_group, action: :update
+    define :create_indicator, action: :create
+    define :update_indicator, action: :update
   end
 
   actions do
@@ -65,10 +82,10 @@ defmodule ServiceRadar.Monitoring.ServiceGroup do
       filter expr(id == ^arg(:id))
     end
 
-    read :by_slug do
-      argument :slug, :string, allow_nil?: false
+    read :by_sli_key do
+      argument :sli_key, :string, allow_nil?: false
       get? true
-      filter expr(slug == ^arg(:slug))
+      filter expr(sli_key == ^arg(:sli_key))
     end
 
     read :active do
@@ -80,7 +97,7 @@ defmodule ServiceRadar.Monitoring.ServiceGroup do
     end
 
     update :update do
-      accept List.delete(@fields, :slug)
+      accept List.delete(@fields, :sli_key)
     end
 
     update :activate do
@@ -111,30 +128,62 @@ defmodule ServiceRadar.Monitoring.ServiceGroup do
   attributes do
     uuid_v7_primary_key :id
 
+    attribute :sli_key, :string, allow_nil?: false, public?: true
     attribute :name, :string, allow_nil?: false, public?: true
-    attribute :slug, :string, allow_nil?: false, public?: true
     attribute :description, :string, allow_nil?: true, public?: true
 
-    attribute :selection_mode, :atom do
+    attribute :sli_type, :atom do
       allow_nil? false
       public? true
-      default :explicit
-      constraints one_of: [:explicit, :srql, :tag, :import_batch, :mixed]
+      constraints one_of: [:availability, :success_ratio, :latency, :freshness, :custom_srql]
     end
 
-    attribute :srql_query, :string, allow_nil?: true, public?: true
+    attribute :source_type, :atom do
+      allow_nil? false
+      public? true
+      default :check_state
+      constraints one_of: [:check_state, :check_metric, :event, :rollup, :srql]
+    end
+
+    attribute :measurement_kind, :atom do
+      allow_nil? false
+      public? true
+      default :request
+      constraints one_of: [:request, :window]
+    end
+
+    attribute :good_statuses, {:array, :atom} do
+      allow_nil? false
+      public? true
+      default [:ok]
+      constraints items: [one_of: [:ok, :warning, :unknown, :critical]]
+    end
+
+    attribute :metric_name, :string, allow_nil?: true, public?: true
+
+    attribute :threshold_operator, :atom do
+      allow_nil? true
+      public? true
+      constraints one_of: [:lt, :lte, :gt, :gte, :eq, :neq]
+    end
+
+    attribute :threshold_value, :decimal, allow_nil?: true, public?: true
+    attribute :threshold_unit, :string, allow_nil?: true, public?: true
+    attribute :query_template, :string, allow_nil?: true, public?: true
+    attribute :numerator_query, :string, allow_nil?: true, public?: true
+    attribute :denominator_query, :string, allow_nil?: true, public?: true
+
+    attribute :window_config, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
 
     attribute :status, :atom do
       allow_nil? false
       public? true
-      default :active
-      constraints one_of: [:active, :disabled, :archived]
-    end
-
-    attribute :tags, :map do
-      allow_nil? false
-      public? true
-      default %{}
+      default :draft
+      constraints one_of: [:draft, :active, :disabled, :archived]
     end
 
     attribute :metadata, :map do
@@ -148,23 +197,13 @@ defmodule ServiceRadar.Monitoring.ServiceGroup do
   end
 
   relationships do
-    has_many :memberships, ServiceRadar.Monitoring.ServiceGroupMembership do
-      destination_attribute :service_group_id
-      public? true
-    end
-
-    has_many :monitoring_bindings, ServiceRadar.Monitoring.MonitoringBinding do
-      destination_attribute :service_group_id
-      public? true
-    end
-
     has_many :service_level_objectives, ServiceRadar.Monitoring.ServiceLevelObjective do
-      destination_attribute :service_group_id
+      destination_attribute :sli_id
       public? true
     end
   end
 
   identities do
-    identity :unique_slug, [:slug]
+    identity :unique_sli_key, [:sli_key]
   end
 end

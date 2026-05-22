@@ -377,6 +377,173 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::MonitoredServices => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("service_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "display_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Label),
+                ),
+                col("service_kind", ColumnType::Text, None),
+                col("protocol", ColumnType::Text, None),
+                col("endpoint_url", ColumnType::Text, None),
+                col("host", ColumnType::Text, None),
+                col("port", ColumnType::Int, None),
+                col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("status", ColumnType::Text, None),
+                col("tags", ColumnType::Jsonb, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ServiceCheckInstances => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("check_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "monitored_service_id",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("service_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "service_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Label),
+                ),
+                col("descriptor_id", ColumnType::Text, None),
+                col("capability_kind", ColumnType::Text, None),
+                col("agent_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("vantage_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("status", ColumnType::Text, None),
+                col("target_snapshot", ColumnType::Jsonb, None),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ServiceGroups => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("slug", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("selection_mode", ColumnType::Text, None),
+                col("srql_query", ColumnType::Text, None),
+                col("status", ColumnType::Text, None),
+                col("tags", ColumnType::Jsonb, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ServiceGroupMemberships => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "service_group_id",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col(
+                    "monitored_service_id",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("group_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("group_slug", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("service_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "service_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Label),
+                ),
+                col("source", ColumnType::Text, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ServiceAvailability => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "check_instance_id",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col(
+                    "monitored_service_id",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("service_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "service_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Label),
+                ),
+                col("descriptor_id", ColumnType::Text, None),
+                col("agent_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("vantage_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("status", ColumnType::Text, Some(ColumnSemantic::Series)),
+                col(
+                    "response_time_ms",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("summary", ColumnType::Text, None),
+                col("details", ColumnType::Jsonb, None),
+                col(
+                    "last_observed_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Interfaces => VizMeta {
             columns: vec![
                 col(

@@ -16,6 +16,9 @@ defmodule ServiceRadar.Monitoring do
   - `ServiceRadar.Monitoring.MonitoringBinding` - Desired check descriptor bindings
   - `ServiceRadar.Monitoring.CheckInstance` - Materialized executable checks
   - `ServiceRadar.Monitoring.LatestCheckState` - Current check state cache
+  - `ServiceRadar.Monitoring.ServiceLevelIndicator` - SLI definitions
+  - `ServiceRadar.Monitoring.ServiceLevelObjective` - SLO definitions
+  - `ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluation` - SLO compliance and budget state
   - `ServiceRadar.Monitoring.MonitoredServiceImportBatch` - Bulk import lifecycle records
   - `ServiceRadar.Monitoring.PollingSchedule` - Polling schedule coordination
   - `ServiceRadar.Monitoring.PollJob` - Individual poll job executions (state machine)
@@ -55,6 +58,9 @@ defmodule ServiceRadar.Monitoring do
     resource ServiceRadar.Monitoring.MonitoringBinding
     resource ServiceRadar.Monitoring.CheckInstance
     resource ServiceRadar.Monitoring.LatestCheckState
+    resource ServiceRadar.Monitoring.ServiceLevelIndicator
+    resource ServiceRadar.Monitoring.ServiceLevelObjective
+    resource ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluation
     resource ServiceRadar.Monitoring.MonitoredServiceImportBatch
     resource ServiceRadar.Monitoring.PollingSchedule
     resource ServiceRadar.Monitoring.PollJob
