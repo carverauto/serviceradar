@@ -159,7 +159,7 @@ FROM platform.authored_dashboards d"#,
         sql.push_str(&where_clauses.join(" AND "));
     }
 
-    sql.push_str("\n");
+    sql.push('\n');
     sql.push_str(&order_clause(&plan.order));
     sql.push_str("\nLIMIT ? OFFSET ?");
     binds.push(BindValue::Int(plan.limit));
