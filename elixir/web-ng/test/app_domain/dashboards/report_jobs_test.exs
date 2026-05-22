@@ -146,6 +146,39 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert schedule.last_error == nil
   end
 
+  test "delivery worker sanitizes email subject and caps rendered panels", %{scope: scope, dashboard: dashboard} do
+    {:ok, dashboard} =
+      Dashboards.update_authored_dashboard(scope, dashboard, %{
+        title: "Report Jobs\r\nBcc: attacker@example.com"
+      })
+
+    Enum.each(1..24, fn index ->
+      assert {:ok, _panel} =
+               Dashboards.create_authored_panel(scope, %{
+                 dashboard_id: dashboard.id,
+                 title: "Extra panel #{index}",
+                 srql_query: "services status",
+                 visual_type: :table,
+                 position: index
+               })
+    end)
+
+    schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
+    delivery = delivery_fixture(schedule, dashboard, recipients: ["noc@example.com"])
+
+    assert :ok = ReportDeliveryWorker.perform(%Oban.Job{args: %{"delivery_id" => delivery.id}})
+
+    assert_email_sent(
+      to: [{"", "noc@example.com"}],
+      subject: "ServiceRadar dashboard report: Report Jobs Bcc: attacker@example.com"
+    )
+
+    delivery = get_delivery!(delivery.id)
+    assert delivery.status == :sent
+    assert delivery.rendered_metadata["panel_count"] == 20
+    assert delivery.rendered_metadata["total_panel_count"] == 25
+  end
+
   test "delivery worker records failures on delivery errors", %{scope: scope, dashboard: dashboard} do
     schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
     delivery = delivery_fixture(schedule, dashboard, recipients: [])

@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
        socket
        |> assign(:page_title, "Outbound Mail")
        |> assign(:current_path, "/settings/mail")
-       |> assign(:settings, settings)
+       |> assign(:settings, socket_settings(settings))
        |> assign(:mail_form, settings_to_form(settings))
        |> assign(:credential_options, credential_options(scope))
        |> assign(:test_result, nil)}
@@ -46,23 +46,14 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
     scope = socket.assigns.current_scope
     attrs = params_to_attrs(params)
 
-    result =
-      case socket.assigns.settings do
-        %OutboundMailSettings{} = settings ->
-          OutboundMailSettings.update_settings(settings, attrs, scope: scope)
-
-        _ ->
-          OutboundMailSettings.create(attrs, scope: scope)
-      end
-
-    case result do
+    case save_settings(scope, socket.assigns.settings, attrs) do
       {:ok, %OutboundMailSettings{} = settings} ->
         reloaded = load_settings(scope)
 
         {:noreply,
          socket
          |> put_flash(:info, "Outbound mail settings saved")
-         |> assign(:settings, reloaded || settings)
+         |> assign(:settings, socket_settings(reloaded || settings))
          |> assign(:mail_form, settings_to_form(reloaded || settings))
          |> assign(:test_result, nil)}
 
@@ -72,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
   end
 
   def handle_event("test_config", _params, socket) do
-    case socket.assigns.settings do
+    case load_settings(socket.assigns.current_scope) do
       %OutboundMailSettings{enabled: true} = settings ->
         case OutboundMail.config(settings) do
           {:ok, config} ->
@@ -224,6 +215,31 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
     end
   end
 
+  defp save_settings(scope, %OutboundMailSettings{} = settings, attrs) do
+    OutboundMailSettings.update_settings(settings, attrs, scope: scope)
+  end
+
+  defp save_settings(scope, _settings, attrs) do
+    case OutboundMailSettings.create(attrs, scope: scope) do
+      {:ok, settings} ->
+        {:ok, settings}
+
+      {:error, create_error} ->
+        case load_settings(scope) do
+          %OutboundMailSettings{} = settings -> OutboundMailSettings.update_settings(settings, attrs, scope: scope)
+          _ -> {:error, create_error}
+        end
+    end
+  end
+
+  defp socket_settings(%OutboundMailSettings{} = settings) do
+    settings
+    |> Map.put(:password, nil)
+    |> Map.put(:api_key, nil)
+  end
+
+  defp socket_settings(settings), do: settings
+
   defp credential_options(scope) do
     if RBAC.can?(scope, "settings.credentials.manage") do
       NetworkCredentialSecret
@@ -263,7 +279,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MailLive do
         "ssl" => bool_string(settings.ssl),
         "retries" => int_string(settings.retries || 1),
         "provider_options_json" => Jason.encode!(settings.provider_options || %{}, pretty: true)
-      }, as: :mail)
+      },
+      as: :mail
+    )
   end
 
   defp default_form do

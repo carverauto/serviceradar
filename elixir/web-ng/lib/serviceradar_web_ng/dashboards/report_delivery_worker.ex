@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
   require Logger
 
   @preview_limit 100
+  @max_report_panels 20
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"delivery_id" => delivery_id}}) when is_binary(delivery_id) do
@@ -76,11 +77,17 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
 
   defp render_delivery(actor, delivery) do
     dashboard = delivery.dashboard
-    panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
+    system_scope = %{user: actor, permissions: nil, identity_claims: %{}}
+
+    panels =
+      dashboard.panels
+      |> Kernel.||([])
+      |> Enum.sort_by(&{&1.position, &1.inserted_at})
+      |> Enum.take(@max_report_panels)
 
     panel_results =
       Enum.map(panels, fn panel ->
-        {panel, Dashboards.preview_authored_query(actor, panel.srql_query, limit: @preview_limit)}
+        {panel, Dashboards.preview_authored_query(system_scope, panel.srql_query, limit: @preview_limit)}
       end)
 
     {:ok,
@@ -91,6 +98,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
        html: render_html(dashboard, panel_results),
        metadata: %{
          panel_count: length(panels),
+         total_panel_count: length(dashboard.panels || []),
          row_count: total_row_count(panel_results)
        }
      }}
@@ -101,7 +109,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       new()
       |> to(delivery.recipients)
       |> from(mailer_from())
-      |> subject("ServiceRadar dashboard report: #{rendered.dashboard.title}")
+      |> subject(report_subject(rendered.dashboard.title))
       |> text_body(rendered.text)
       |> html_body(rendered.html)
 
@@ -246,6 +254,17 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
 
   defp mailer_from do
     OutboundMail.from_tuple()
+  end
+
+  defp report_subject(title) do
+    title =
+      title
+      |> to_string()
+      |> String.replace(~r/[\r\n]+/, " ")
+      |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, "")
+      |> String.trim()
+
+    "ServiceRadar dashboard report: #{title}"
   end
 
   defp message_id(%{id: id}) when is_binary(id), do: id
