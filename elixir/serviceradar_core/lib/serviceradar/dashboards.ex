@@ -1,9 +1,12 @@
 defmodule ServiceRadar.Dashboards do
   @moduledoc """
-  Dashboard package and dashboard instance management.
+  Dashboard package, dashboard instance, and authored dashboard management.
 
   Dashboard packages are browser-side WASM renderers with JSON manifests. They
   are separate from agent-executed plugins and are hosted by web-ng.
+
+  Authored dashboards are saved SRQL dashboards rendered by web-ng-owned
+  visualization components.
   """
 
   use Ash.Domain,
@@ -14,7 +17,11 @@ defmodule ServiceRadar.Dashboards do
   end
 
   resources do
-    resource ServiceRadar.Dashboards.DashboardPackage
-    resource ServiceRadar.Dashboards.DashboardInstance
+    resource(ServiceRadar.Dashboards.DashboardPackage)
+    resource(ServiceRadar.Dashboards.DashboardInstance)
+    resource(ServiceRadar.Dashboards.AuthoredDashboard)
+    resource(ServiceRadar.Dashboards.DashboardPanel)
+    resource(ServiceRadar.Dashboards.DashboardReportSchedule)
+    resource(ServiceRadar.Dashboards.DashboardReportDelivery)
   end
 end
