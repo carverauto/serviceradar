@@ -39,6 +39,6 @@
 
 ## 6. Validation
 - [x] 6.1 Run focused Ash/resource tests for dashboard resources and report jobs.
-- [ ] 6.2 Run focused LiveView tests for creator, editor, saved dashboard display, and report schedule workflows.
+- [x] 6.2 Run focused LiveView tests for creator, editor, saved dashboard display, and report schedule workflows.
 - [x] 6.3 Run `mix format` and relevant web-ng quality checks.
 - [x] 6.4 Run `openspec validate add-dashboard-creator --strict`.

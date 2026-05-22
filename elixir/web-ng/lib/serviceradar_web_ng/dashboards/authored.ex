@@ -227,10 +227,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec delete_panel(term(), DashboardPanel.t()) :: :ok | {:error, term()}
   def delete_panel(scope, %DashboardPanel{} = panel) do
-    case destroy(panel, scope) do
-      {:ok, _} -> :ok
-      {:error, error} -> {:error, error}
-    end
+    destroy_result(destroy(panel, scope))
   end
 
   @spec list_report_schedules(term(), String.t()) :: [DashboardReportSchedule.t()]
@@ -282,10 +279,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec delete_report_schedule(term(), DashboardReportSchedule.t()) :: :ok | {:error, term()}
   def delete_report_schedule(scope, %DashboardReportSchedule{} = schedule) do
-    case destroy(schedule, scope) do
-      {:ok, _} -> :ok
-      {:error, error} -> {:error, error}
-    end
+    destroy_result(destroy(schedule, scope))
   end
 
   def delete_report_schedule(_scope, _schedule), do: {:error, :invalid_attributes}
@@ -481,10 +475,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec revoke_access_grant(term(), DashboardAccessGrant.t()) :: :ok | {:error, term()}
   def revoke_access_grant(scope, %DashboardAccessGrant{} = grant) do
-    case destroy(grant, scope) do
-      {:ok, _} -> :ok
-      {:error, error} -> {:error, error}
-    end
+    destroy_result(destroy(grant, scope))
   end
 
   @spec list_user_groups(term()) :: [UserGroup.t()]
@@ -667,6 +658,10 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp destroy(record, nil), do: Ash.destroy(record)
   defp destroy(record, scope), do: Ash.destroy(record, scope: scope)
+
+  defp destroy_result(:ok), do: :ok
+  defp destroy_result({:ok, _record}), do: :ok
+  defp destroy_result({:error, error}), do: {:error, error}
 
   defp maybe_set_owner(changeset, scope) do
     case owner_id(scope) do

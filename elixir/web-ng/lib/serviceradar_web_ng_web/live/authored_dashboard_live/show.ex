@@ -521,6 +521,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                     <.input
                       field={@user_grant_form[:access]}
                       type="select"
+                      id="user_grant_access"
                       label="Access"
                       options={access_select_options()}
                     />
@@ -546,6 +547,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                     <.input
                       field={@group_grant_form[:access]}
                       type="select"
+                      id="group_grant_access"
                       label="Access"
                       options={access_select_options()}
                     />
