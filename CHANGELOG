@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.78
+
+Dashboard creator foundation and agent plugin runtime hardening.
+
+## Whats New
+
+**1.2.78**
+- Added the dashboard creator foundation, including shared user groups, dashboard ownership/access controls, favorites, dashboard discovery, SRQL-backed dashboard definitions, and system mail configuration for dashboard email workflows.
+- Refactored the agent plugin runtime into focused files by responsibility, making the manager, assignment parsing, wazero execution, host I/O, media bridge, action credentials, and memory helpers easier to review and maintain.
+- Hardened plugin execution by making wazero runtimes interruptible on context cancellation and ensuring failed plugin calls always release host connections and connection counters.
+- Added a shared wazero compilation cache for plugin executions to reduce repeated compile cost across scheduled checks, actions, and streaming plugins.
+
 # ServiceRadar v1.2.77
 
 Plugin status read model and Proxmox inventory recovery.
