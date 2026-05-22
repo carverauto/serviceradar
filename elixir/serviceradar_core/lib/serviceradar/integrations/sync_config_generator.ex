@@ -6,6 +6,7 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
 
   require Ash.Query
@@ -54,18 +55,44 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:sync_config_generator)
 
-    # Include sources assigned to this specific agent OR sources with no agent (auto-assign)
+    include_unassigned? = agent_id == auto_assigned_agent_id(actor)
+
+    # Include sources assigned to this specific agent. Unassigned sources are
+    # auto-assigned to a single stable connected agent so embedded sync runtimes
+    # do not all run the same external integration.
     # Load credentials_encrypted first (so AshCloak can decrypt it), then the credentials calculation
     query =
       IntegrationSource
       |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(enabled == true and (agent_id == ^agent_id or is_nil(agent_id)))
+      |> filter_sources_for_agent(agent_id, include_unassigned?)
       |> Ash.Query.load([:credentials_encrypted, :credentials])
       |> Ash.Query.sort(name: :asc)
 
     case Ash.read(query, actor: actor) do
       {:ok, sources} -> {:ok, sources}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp filter_sources_for_agent(query, agent_id, true) do
+    Ash.Query.filter(query, enabled == true and (agent_id == ^agent_id or is_nil(agent_id)))
+  end
+
+  defp filter_sources_for_agent(query, agent_id, false) do
+    Ash.Query.filter(query, enabled == true and agent_id == ^agent_id)
+  end
+
+  defp auto_assigned_agent_id(actor) do
+    case Agent.list_connected(actor: actor) do
+      {:ok, agents} ->
+        agents
+        |> Enum.map(& &1.uid)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.sort()
+        |> List.first()
+
+      {:error, _reason} ->
+        nil
     end
   end
 

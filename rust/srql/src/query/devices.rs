@@ -6,11 +6,10 @@ use crate::{
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
         agent_id as col_agent_id, availability_source_agent_id as col_availability_source_agent_id,
-        deleted_at as col_deleted_at, device_type as col_device_type,
-        first_seen_time as col_first_seen_time, gateway_id as col_gateway_id,
-        hostname as col_hostname, ip as col_ip, is_available as col_is_available,
-        last_seen_time as col_last_seen_time, model as col_model, ocsf_devices,
-        risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
+        deleted_at as col_deleted_at, first_seen_time as col_first_seen_time,
+        gateway_id as col_gateway_id, hostname as col_hostname, ip as col_ip,
+        is_available as col_is_available, last_seen_time as col_last_seen_time, model as col_model,
+        ocsf_devices, risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
         vendor_name as col_vendor_name,
     },
     time::TimeRange,
@@ -57,8 +56,7 @@ impl DeviceGroupField {
 
     fn column(&self) -> &'static str {
         match self {
-            // Note: Diesel schema uses "device_type" but actual SQL column is "type"
-            Self::Type => "COALESCE(type, 'Unknown')",
+            Self::Type => "COALESCE(NULLIF(trim(type), ''), 'Unknown')",
             Self::VendorName => "COALESCE(vendor_name, 'Unknown')",
             Self::RiskLevel => "COALESCE(risk_level, 'Unknown')",
             Self::IsAvailable => "COALESCE(is_available, false)",
@@ -542,7 +540,7 @@ fn build_grouped_stats_filter_clause(
         "unavailable_from_agent" => {
             build_grouped_agent_availability_clause(filter, false, &mut binds)?
         }
-        "type" | "device_type" => build_grouped_text_clause("device_type", filter, &mut binds)?,
+        "type" | "device_type" => build_grouped_device_type_clause(filter, &mut binds)?,
         "type_id" => {
             let type_id: i64 =
                 filter.value.as_scalar()?.parse().map_err(|_| {
@@ -702,6 +700,31 @@ fn build_grouped_text_clause(
     }
 }
 
+fn build_grouped_device_type_clause(
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    let column = "COALESCE(NULLIF(trim(type), ''), 'Unknown')";
+
+    match filter.op {
+        FilterOp::Eq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{column} = ?"))
+        }
+        FilterOp::NotEq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{column} <> ?"))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "device_type filter only supports equality".into(),
+        )),
+    }
+}
+
 fn build_grouped_agent_availability_clause(
     filter: &Filter,
     available: bool,
@@ -837,13 +860,7 @@ fn apply_filter<'a>(mut query: DeviceQuery<'a>, filter: &Filter) -> Result<Devic
         }
         // OCSF device type (string name like "Server", "Router", etc.)
         "type" | "device_type" => {
-            query = apply_eq_filter!(
-                query,
-                filter,
-                col_device_type,
-                filter.value.as_scalar()?.to_string(),
-                "device_type filter only supports equality"
-            )?;
+            query = apply_device_type_filter(query, filter)?;
         }
         // OCSF device type_id (numeric enum)
         "type_id" => {
@@ -1029,6 +1046,24 @@ fn apply_active_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<De
         )),
         _ => Err(ServiceError::InvalidRequest(
             "is_active only supports equality".into(),
+        )),
+    }
+}
+
+fn apply_device_type_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+) -> Result<DeviceQuery<'a>> {
+    let value = filter.value.as_scalar()?.to_string();
+    let expr = "COALESCE(NULLIF(trim(\"ocsf_devices\".\"type\"), ''), 'Unknown')";
+
+    match filter.op {
+        FilterOp::Eq => Ok(query.filter(sql::<Bool>(&format!("{expr} = ")).bind::<Text, _>(value))),
+        FilterOp::NotEq => {
+            Ok(query.filter(sql::<Bool>(&format!("{expr} <> ")).bind::<Text, _>(value)))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "device_type filter only supports equality".into(),
         )),
     }
 }

@@ -349,6 +349,87 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.metadata["armis_category"] == "Mobile Device"
   end
 
+  test "replaces placeholder type with integration metadata alias", %{actor: actor} do
+    ip = unique_ip()
+    existing_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: existing_uid,
+        ip: ip,
+        hostname: "legacy-unknown-camera",
+        type: "Unknown",
+        type_id: 0,
+        metadata: %{"type" => "Unknown"}
+      })
+      |> Ash.create(actor: actor)
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "legacy-unknown-camera",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => "armis-camera-#{System.unique_integer([:positive])}",
+        "integration_type" => "armis",
+        "type" => "Unknown",
+        "armis_type" => "IP Cameras",
+        "armis_category" => "Cameras",
+        "brand" => "Axis Communications"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.uid == existing_uid
+    assert device.type == "IP Cameras"
+    assert device.type_id == 99
+    assert device.vendor_name == "Axis Communications"
+    assert device.metadata["type"] == "IP Cameras"
+    assert device.metadata["device_type"] == "IP Cameras"
+  end
+
+  test "promotes common integration aliases into canonical inventory fields", %{actor: actor} do
+    cases = [
+      {"netbox", %{"netbox_device_type" => "Firewall", "manufacturer" => "Palo Alto Networks"},
+       "Firewall", 9, "Palo Alto Networks", "Firewall"},
+      {"ansible", %{"ansible_device_type" => "Server", "vendor" => "Dell"}, "Server", 1, "Dell",
+       "Server"},
+      {"proxmox", %{"proxmox_type" => "virtual_machine", "model_name" => "qemu"}, "Virtual", 6,
+       nil, "virtual_machine"}
+    ]
+
+    for {source, metadata, expected_type, expected_type_id, expected_vendor,
+         expected_metadata_type} <-
+          cases do
+      ip = unique_ip()
+
+      update = %{
+        "ip" => ip,
+        "hostname" => "#{source}-alias-#{System.unique_integer([:positive])}",
+        "source" => source,
+        "metadata" =>
+          Map.merge(metadata, %{
+            "integration_id" => "#{source}-#{System.unique_integer([:positive])}",
+            "integration_type" => source
+          })
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      device = fetch_device_by_ip!(actor, ip)
+      assert device.type == expected_type
+      assert device.type_id == expected_type_id
+      assert device.metadata["type"] == expected_metadata_type
+      assert device.metadata["device_type"] == expected_metadata_type
+
+      if expected_vendor do
+        assert device.vendor_name == expected_vendor
+      end
+    end
+  end
+
   test "does not re-enable devices manually marked unmanaged", %{actor: actor} do
     ip = unique_ip()
 

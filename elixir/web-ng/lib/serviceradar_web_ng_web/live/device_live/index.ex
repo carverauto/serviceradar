@@ -2180,7 +2180,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     other_count = items |> Enum.drop(1) |> Enum.reduce(0, fn %{count: c}, acc -> acc + c end)
 
     top_item_link =
-      if top_item && top_item.name != "Unknown" do
+      if top_item do
         breakdown_item_path(assigns.filter_field, top_item.name)
       end
 
@@ -2198,7 +2198,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           <.icon name={@icon} class="size-5 text-info" />
         </div>
         <div class="flex-1 min-w-0">
-          <!-- Clickable top item (when not "Unknown") -->
           <.link
             :if={@top_item && @top_item_link}
             navigate={@top_item_link}
@@ -2220,24 +2219,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               </span>
             </div>
           </.link>
-          <!-- Non-clickable top item (for "Unknown" values) -->
-          <div :if={@top_item && @top_item_link == nil}>
-            <div class="flex items-baseline gap-1">
-              <span
-                class="text-lg font-bold text-base-content truncate max-w-[8rem]"
-                title={@top_item.name}
-              >
-                {@top_item.name}
-              </span>
-              <span class="text-sm text-base-content/60">({@top_item.count})</span>
-            </div>
-            <div class="text-xs text-base-content/60">
-              {@title}
-              <span :if={@other_count > 0} class="text-base-content/40">
-                · +{@item_count - 1} more
-              </span>
-            </div>
-          </div>
           <div :if={@top_item == nil} class="text-sm text-base-content/40">{@empty_text}</div>
         </div>
         <button
@@ -2307,20 +2288,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
             No matches.
           </div>
           <%= for item <- @items do %>
-            <%= if item.name == "Unknown" do %>
-              <div class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm text-base-content/50">
-                <span class="min-w-0 flex-1 truncate">{item.name}</span>
-                <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
-              </div>
-            <% else %>
-              <.link
-                navigate={breakdown_item_path(@filter_field, item.name)}
-                class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm hover:bg-base-200/60"
-              >
-                <span class="min-w-0 flex-1 truncate">{item.name}</span>
-                <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
-              </.link>
-            <% end %>
+            <.link
+              navigate={breakdown_item_path(@filter_field, item.name)}
+              class="flex items-center justify-between gap-3 border-b border-base-200 px-3 py-2 last:border-b-0 text-sm hover:bg-base-200/60"
+            >
+              <span class="min-w-0 flex-1 truncate">{item.name}</span>
+              <span class="badge badge-sm badge-ghost shrink-0">{item.count}</span>
+            </.link>
           <% end %>
         </div>
       </div>
