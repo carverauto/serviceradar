@@ -239,7 +239,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert sql =~ "'availability_source_agent_id', $1::text"
   end
 
-  test "execute_batches authenticates with raw Armis token, batches requests, and aggregates counts" do
+  test "execute_batches authenticates with bearer token, batches requests, and aggregates counts" do
     source = %{
       id: "source-1",
       northbound_enabled: true,
@@ -303,11 +303,40 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
                      body2}
 
-    assert headers1["Authorization"] == "token-abc"
+    assert headers1["Authorization"] == "Bearer token-abc"
     assert headers1["Content-Type"] == "application/json"
     assert headers1["Accept"] == "application/json"
     assert length(body1) == 2
     assert length(body2) == 1
+  end
+
+  test "execute_batches preserves tokens that already include an auth scheme" do
+    parent = self()
+
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_secret" => "secret"}
+    }
+
+    token_fetcher = fn _source -> {:ok, "Bearer token-abc"} end
+
+    request = fn _path, _method, headers, _body, _opts ->
+      send(parent, {:headers, headers})
+      {:ok, %{status: 200, body: %{"success" => true}}}
+    end
+
+    assert {:ok, _result} =
+             ArmisNorthboundRunner.execute_batches(
+               source,
+               [%{armis_device_id: "1", is_available: true}],
+               token_fetcher: token_fetcher,
+               request: request
+             )
+
+    assert_received {:headers, %{"Authorization" => "Bearer token-abc"}}
   end
 
   test "execute_batches fails before token request when secret key is unavailable" do
@@ -375,7 +404,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     assert_receive {:fake_armis_bulk_request, request}, 1_000
     assert request.path == "/api/v1/devices/custom-properties/_bulk/"
-    assert request.headers["authorization"] == "fake-token-test"
+    assert request.headers["authorization"] == "Bearer fake-token-test"
     assert request.headers["content-type"] =~ "application/json"
 
     assert request.body == [
@@ -945,7 +974,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
       102 -> nil
       103 -> "executing"
       104 -> "completed"
-      105 -> %{state: "executing", attempted_at: ~U[2026-04-14 03:20:00Z]}
+      105 -> %{state: "executing", attempted_at: ~N[2026-04-14 03:20:00]}
     end
 
     assert :ok =

@@ -194,7 +194,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
 
   defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds) do
     worker_name = inspect(worker)
-    cutoff = DateTime.add(now, -cutoff_seconds, :second)
+
+    cutoff =
+      now
+      |> add_seconds(-cutoff_seconds)
+      |> to_naive_datetime()
+
     prefix = support_module().prefix()
 
     Oban.Job
@@ -220,6 +225,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
       where(scoped_query, [j], fragment("? ->> ? = ?", j.args, ^key, ^value))
     end)
   end
+
+  defp add_seconds(%DateTime{} = datetime, seconds), do: DateTime.add(datetime, seconds, :second)
+
+  defp add_seconds(%NaiveDateTime{} = datetime, seconds),
+    do: NaiveDateTime.add(datetime, seconds, :second)
+
+  defp to_naive_datetime(%DateTime{} = datetime), do: DateTime.to_naive(datetime)
+  defp to_naive_datetime(%NaiveDateTime{} = datetime), do: datetime
 
   defp source_module do
     Application.get_env(:serviceradar_core, :armis_northbound_source_module, IntegrationSource)

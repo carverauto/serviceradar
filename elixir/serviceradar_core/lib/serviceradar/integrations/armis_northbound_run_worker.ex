@@ -119,9 +119,25 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
   end
 
   defp schedule_opts(opts) do
-    case Keyword.get(opts, :schedule_in, 0) do
-      seconds when is_integer(seconds) and seconds > 0 -> [schedule_in: seconds]
-      _ -> []
+    []
+    |> maybe_replace_scheduled_conflict(Keyword.get(opts, :manual?, false))
+    |> maybe_schedule_in(Keyword.get(opts, :schedule_in, 0))
+  end
+
+  defp maybe_replace_scheduled_conflict(opts, true) do
+    Keyword.put(opts, :replace,
+      scheduled: [:args, :scheduled_at],
+      available: [:args],
+      retryable: [:args, :scheduled_at]
+    )
+  end
+
+  defp maybe_replace_scheduled_conflict(opts, _manual?), do: opts
+
+  defp maybe_schedule_in(opts, schedule_in) do
+    case schedule_in do
+      seconds when is_integer(seconds) and seconds > 0 -> Keyword.put(opts, :schedule_in, seconds)
+      _ -> opts
     end
   end
 

@@ -1119,7 +1119,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     DateTime.diff(now, attempted_at, :second) >= cutoff_seconds
   end
 
+  defp stale_oban_attempt?(%{attempted_at: %NaiveDateTime{} = attempted_at}, now, cutoff_seconds) do
+    NaiveDateTime.diff(to_naive_datetime(now), attempted_at, :second) >= cutoff_seconds
+  end
+
   defp stale_oban_attempt?(_job, _now, _cutoff_seconds), do: false
+
+  defp to_naive_datetime(%DateTime{} = datetime), do: DateTime.to_naive(datetime)
+  defp to_naive_datetime(%NaiveDateTime{} = datetime), do: datetime
 
   defp fetch_oban_job_state(nil), do: nil
 
@@ -1219,7 +1226,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp authorization_header(token) when is_binary(token) do
-    String.trim(token)
+    token = String.trim(token)
+
+    if Regex.match?(~r/^[A-Za-z]+\s+\S+/, token) do
+      token
+    else
+      "Bearer #{token}"
+    end
   end
 
   defp request_options(source) do
