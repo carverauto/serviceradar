@@ -12,9 +12,14 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       system_actor: 0
     ]
 
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
+
+  require Ash.Query
 
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
   @manifest_yaml """
@@ -299,6 +304,113 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "agent-stale-plugin"
   end
 
+  test "removes an assignment without crashing when delete returns success", %{conn: conn, actor: actor} do
+    gateway = gateway_fixture(%{id: "plugin-delete-gw", component_id: "plugin-delete-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-delete-plugin", name: "Agent Delete Plugin"})
+    package = create_approved_package_version!(actor, "live-delete-plugin", "1.0.0")
+    assignment = create_assignment!(actor, agent.uid, package.id)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Agent Delete Plugin"
+
+    html =
+      lv
+      |> element("button[phx-click='delete_assignment'][phx-value-id='#{assignment.id}']")
+      |> render_click()
+
+    assert html =~ "Assignment removed"
+    assert {:error, :not_found} = Assignments.get(assignment.id)
+  end
+
+  test "shows and runs latest-version assignment upgrade", %{conn: conn, actor: actor} do
+    gateway = gateway_fixture(%{id: "plugin-upgrade-gw", component_id: "plugin-upgrade-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-upgrade-plugin", name: "Agent Upgrade Plugin"})
+    plugin_id = "live-upgrade-plugin-#{System.unique_integer([:positive])}"
+    old_package = create_approved_package_version!(actor, plugin_id, "1.0.0")
+    new_package = create_approved_package_version!(actor, plugin_id, "1.1.0")
+    assignment = create_assignment!(actor, agent.uid, old_package.id)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{new_package.id}")
+
+    assert html =~ "version 1.0.0"
+    assert html =~ "latest 1.1.0"
+
+    html =
+      lv
+      |> element("button[phx-click='upgrade_assignment'][phx-value-id='#{assignment.id}']")
+      |> render_click()
+
+    assert html =~ "Assignment upgraded"
+    assert upgraded_assignment!(actor, assignment.id).plugin_package_id == new_package.id
+  end
+
+  test "upgrades an assignment to a selected approved version", %{conn: conn, actor: actor} do
+    gateway = gateway_fixture(%{id: "plugin-version-gw", component_id: "plugin-version-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-version-plugin", name: "Agent Version Plugin"})
+    plugin_id = "live-version-plugin-#{System.unique_integer([:positive])}"
+    old_package = create_approved_package_version!(actor, plugin_id, "1.0.0")
+    middle_package = create_approved_package_version!(actor, plugin_id, "1.1.0")
+    latest_package = create_approved_package_version!(actor, plugin_id, "1.2.0")
+    assignment = create_assignment!(actor, agent.uid, old_package.id)
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{latest_package.id}")
+
+    assert html =~ "1.1.0"
+    assert html =~ "1.2.0"
+
+    html =
+      lv
+      |> form("form[phx-submit='upgrade_assignment'][phx-value-id='#{assignment.id}']", %{
+        "assignment_upgrade" => %{"target_package_id" => middle_package.id}
+      })
+      |> render_submit()
+
+    assert html =~ "Assignment upgraded"
+    assert upgraded_assignment!(actor, assignment.id).plugin_package_id == middle_package.id
+  end
+
+  test "policy-owned assignments show policy messaging instead of upgrade controls", %{conn: conn, actor: actor} do
+    gateway = gateway_fixture(%{id: "plugin-policy-gw", component_id: "plugin-policy-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-policy-plugin", name: "Agent Policy Plugin"})
+    plugin_id = "live-policy-plugin-#{System.unique_integer([:positive])}"
+    old_package = create_approved_package_version!(actor, plugin_id, "1.0.0")
+    new_package = create_approved_package_version!(actor, plugin_id, "1.1.0")
+    create_assignment!(actor, agent.uid, old_package.id, source: :policy)
+
+    {:ok, _lv, html} = live(conn, ~p"/admin/plugins/#{new_package.id}")
+
+    assert html =~ "managed by policy"
+    refute html =~ "phx-value-target-package-id=\"#{new_package.id}\""
+  end
+
+  test "stale duplicate-create failures show upgrade guidance", %{conn: conn, actor: actor} do
+    gateway = gateway_fixture(%{id: "plugin-duplicate-gw", component_id: "plugin-duplicate-component"})
+    agent = agent_fixture(gateway, %{uid: "agent-duplicate-plugin", name: "Agent Duplicate Plugin"})
+    package = create_approved_package_version!(actor, "live-duplicate-plugin", "1.0.0")
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    _assignment = create_assignment!(actor, agent.uid, package.id)
+
+    html =
+      lv
+      |> form("form[phx-submit='create_assignment']", %{
+        "assignment" => %{
+          "agent_uid" => agent.uid,
+          "interval_seconds" => "60",
+          "timeout_seconds" => "10",
+          "params" => "{}",
+          "permissions_override" => "{}",
+          "resources_override" => "{}"
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "already has this plugin enabled"
+    assert html =~ "upgrade or version selector"
+  end
+
   test "shows first-party package provenance", %{conn: conn, actor: actor} do
     assert {:ok, %{failed: []}} =
              Packages.sync_first_party_plugins(
@@ -466,6 +578,106 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
         payload
     end
   end
+
+  defp create_approved_package_version!(actor, plugin_id, version) do
+    ensure_plugin!(actor, plugin_id)
+
+    assert package =
+             PluginPackage
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 plugin_id: plugin_id,
+                 name: "Live #{plugin_id}",
+                 version: version,
+                 entrypoint: "run_check",
+                 runtime: "wasi-preview1",
+                 outputs: "serviceradar.plugin_result.v1",
+                 manifest: package_manifest(plugin_id, version),
+                 config_schema: %{},
+                 display_contract: %{},
+                 signature: %{},
+                 source_type: :github,
+                 source_repo_url: @repo_url,
+                 source_commit: "test-#{plugin_id}-#{version}",
+                 content_hash: "sha256:#{plugin_id}-#{version}"
+               },
+               actor: actor
+             )
+             |> Ash.create!()
+
+    assert {:ok, approved} = Packages.approve(package.id, %{}, actor: actor)
+    approved
+  end
+
+  defp ensure_plugin!(actor, plugin_id) do
+    existing =
+      Plugin
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(plugin_id == ^plugin_id)
+      |> Ash.read_one!(actor: actor)
+
+    existing ||
+      Plugin
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Live #{plugin_id}",
+          description: "LiveView test plugin"
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+  end
+
+  defp package_manifest(plugin_id, version) do
+    %{
+      "id" => plugin_id,
+      "name" => "Live #{plugin_id}",
+      "version" => version,
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "outputs" => "serviceradar.plugin_result.v1",
+      "capabilities" => ["get_config"],
+      "resources" => %{"requested_cpu_ms" => 1000, "requested_memory_mb" => 64}
+    }
+  end
+
+  defp create_assignment!(actor, agent_uid, package_id, opts \\ []) do
+    source = Keyword.get(opts, :source, :manual)
+
+    assert {:ok, assignment} =
+             Assignments.create(
+               %{
+                 agent_uid: agent_uid,
+                 plugin_package_id: package_id,
+                 source: source,
+                 source_key: source_key(source),
+                 policy_id: policy_id(source),
+                 enabled: true,
+                 interval_seconds: 60,
+                 timeout_seconds: 10,
+                 params: %{},
+                 permissions_override: %{},
+                 resources_override: %{}
+               },
+               actor: actor
+             )
+
+    assignment
+  end
+
+  defp upgraded_assignment!(actor, assignment_id) do
+    assert {:ok, assignment} = Assignments.get(assignment_id, actor: actor)
+    assignment
+  end
+
+  defp source_key(:policy), do: "policy:#{System.unique_integer([:positive])}"
+  defp source_key(_source), do: nil
+
+  defp policy_id(:policy), do: "policy-#{System.unique_integer([:positive])}"
+  defp policy_id(_source), do: nil
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)

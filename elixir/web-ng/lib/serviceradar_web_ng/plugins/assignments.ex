@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       |> Ash.Query.for_read(:read)
       |> maybe_filter_agent_uid(filters)
       |> maybe_filter_package_id(filters)
+      |> maybe_filter_plugin_id(filters)
       |> Ash.Query.limit(limit)
       |> Ash.Query.sort(inserted_at: :desc)
 
@@ -94,12 +95,42 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource_with_opts(ash_opts)
+      |> maybe_deactivate_replaced_assignment(assignment)
       |> maybe_sync_assignment_service_state()
       |> maybe_redact_assignment()
     end
   end
 
   def update(_id, _attrs, _opts), do: {:error, :invalid_attributes}
+
+  @spec upgrade(String.t(), String.t(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
+  def upgrade(id, target_package_id, opts \\ [])
+
+  def upgrade(id, target_package_id, opts) when is_binary(id) and is_binary(target_package_id) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
+
+    upgrade_attrs = opts |> Keyword.get(:attrs, %{}) |> drop_nil_values()
+
+    with {:ok, assignment} <- get_raw(id, scope: scope),
+         :ok <- ensure_manual_assignment(assignment),
+         {:ok, target_package} <- Packages.get(target_package_id, scope: scope),
+         :ok <- ensure_assignable_package(assignment, target_package) do
+      schema = target_package.config_schema || %{}
+
+      attrs = upgrade_attributes(assignment, target_package.id, schema, upgrade_attrs)
+
+      assignment
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.Changeset.set_context(%{config_schema: schema})
+      |> update_resource_with_opts(ash_opts)
+      |> maybe_sync_assignment_service_state()
+      |> maybe_redact_assignment()
+    end
+  end
+
+  def upgrade(_id, _target_package_id, _opts), do: {:error, :invalid_attributes}
 
   @spec delete(String.t(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
   def delete(id, opts \\ [])
@@ -118,7 +149,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       case result do
         :ok ->
           ServiceStateRegistry.deactivate_for_assignment(assignment)
-          :ok
+          {:ok, assignment}
 
         {:ok, _assignment} = ok ->
           ServiceStateRegistry.deactivate_for_assignment(assignment)
@@ -222,6 +253,16 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     end
   end
 
+  defp maybe_filter_plugin_id(query, filters) do
+    plugin_id = Map.get(filters, :plugin_id) || Map.get(filters, "plugin_id")
+
+    if is_binary(plugin_id) and plugin_id != "" do
+      Ash.Query.filter(query, plugin_id == ^plugin_id)
+    else
+      query
+    end
+  end
+
   defp normalize_limit(nil), do: @default_limit
   defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, @max_limit)
 
@@ -250,6 +291,30 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     end
   end
 
+  defp upgrade_attributes(assignment, target_package_id, schema, attrs) do
+    params = Map.get(attrs, :params) || Map.get(attrs, "params") || assignment.params || %{}
+
+    %{
+      plugin_package_id: target_package_id,
+      params: SecretRefs.prepare_params_for_storage(schema, params, assignment.params || %{})
+    }
+    |> maybe_copy_upgrade_attr(attrs, :enabled)
+    |> maybe_copy_upgrade_attr(attrs, :interval_seconds)
+    |> maybe_copy_upgrade_attr(attrs, :timeout_seconds)
+    |> maybe_copy_upgrade_attr(attrs, :permissions_override)
+    |> maybe_copy_upgrade_attr(attrs, :resources_override)
+  end
+
+  defp maybe_copy_upgrade_attr(update_attrs, source_attrs, field) do
+    string_field = Atom.to_string(field)
+
+    cond do
+      Map.has_key?(source_attrs, field) -> Map.put(update_attrs, field, Map.fetch!(source_attrs, field))
+      Map.has_key?(source_attrs, string_field) -> Map.put(update_attrs, field, Map.fetch!(source_attrs, string_field))
+      true -> update_attrs
+    end
+  end
+
   defp maybe_redact_assignment({:ok, %PluginAssignment{} = assignment}), do: {:ok, redact_assignment(assignment)}
 
   defp maybe_redact_assignment({:ok, nil}), do: {:ok, nil}
@@ -267,8 +332,38 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   defp maybe_sync_assignment_service_state(other), do: other
 
+  defp maybe_deactivate_replaced_assignment(
+         {:ok, %PluginAssignment{plugin_package_id: package_id}} = ok,
+         %PluginAssignment{plugin_package_id: old_package_id} = old_assignment
+       )
+       when package_id != old_package_id do
+    ServiceStateRegistry.deactivate_for_assignment(old_assignment)
+    ok
+  end
+
+  defp maybe_deactivate_replaced_assignment(result, _old_assignment), do: result
+
   defp redact_assignment(%PluginAssignment{} = assignment) do
     %{assignment | params: SecretRefs.public_params(assignment.params || %{})}
+  end
+
+  defp ensure_manual_assignment(%PluginAssignment{source: :policy}), do: {:error, :policy_owned_assignment}
+  defp ensure_manual_assignment(%PluginAssignment{}), do: :ok
+
+  defp ensure_assignable_package(%PluginAssignment{} = assignment, target_package) do
+    cond do
+      target_package.status != :approved ->
+        {:error, :target_package_not_approved}
+
+      target_package.plugin_id != assignment.plugin_id ->
+        {:error, :plugin_id_mismatch}
+
+      target_package.id == assignment.plugin_package_id ->
+        {:error, :already_on_target_version}
+
+      true ->
+        :ok
+    end
   end
 
   defp fetch_config_schema(attrs, scope) do
