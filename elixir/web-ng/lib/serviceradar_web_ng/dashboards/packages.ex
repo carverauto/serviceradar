@@ -262,6 +262,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
     DashboardInstance
     |> Ash.Query.for_read(:enabled)
+    |> Ash.Query.load(:dashboard_package)
     |> Ash.Query.sort(is_default: :desc, inserted_at: :desc)
     |> read(scope)
   end

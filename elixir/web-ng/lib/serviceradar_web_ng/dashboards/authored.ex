@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   alias ServiceRadar.Dashboards.DashboardPanel
   alias ServiceRadar.Dashboards.DashboardReportDelivery
   alias ServiceRadar.Dashboards.DashboardReportSchedule
+  alias ServiceRadar.Dashboards.DashboardUserPreference
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
@@ -19,6 +20,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @max_limit 200
   @preview_limit 100
   @default_timezone "UTC"
+  @max_panel_refresh_interval_seconds 86_400
+  @max_schedule_recipients 50
 
   @visuals [
     %{
@@ -78,6 +81,48 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
     read!(query, scope)
   end
+
+  @spec list_dashboard_preferences(term()) :: [DashboardUserPreference.t()]
+  def list_dashboard_preferences(scope) do
+    case owner_id(scope) do
+      user_id when is_binary(user_id) ->
+        DashboardUserPreference
+        |> Ash.Query.for_read(:for_user, %{user_id: user_id})
+        |> Ash.Query.sort(is_default: :desc, favorite: :desc, updated_at: :desc)
+        |> read!(scope)
+
+      _ ->
+        []
+    end
+  end
+
+  @spec set_dashboard_favorite(term(), atom(), String.t(), boolean()) ::
+          {:ok, DashboardUserPreference.t()} | {:error, term()}
+  def set_dashboard_favorite(scope, target_type, target_id, favorite?)
+      when target_type in [:authored, :package] and is_binary(target_id) and is_boolean(favorite?) do
+    attrs = preference_attrs(scope, target_type, target_id, %{favorite: favorite?})
+
+    DashboardUserPreference
+    |> Ash.Changeset.for_create(:upsert, attrs)
+    |> create(scope)
+  end
+
+  def set_dashboard_favorite(_scope, _target_type, _target_id, _favorite?), do: {:error, :invalid_attributes}
+
+  @spec set_default_dashboard(term(), atom(), String.t()) ::
+          {:ok, DashboardUserPreference.t()} | {:error, term()}
+  def set_default_dashboard(scope, target_type, target_id)
+      when target_type in [:authored, :package] and is_binary(target_id) do
+    with :ok <- clear_default_dashboard(scope) do
+      attrs = preference_attrs(scope, target_type, target_id, %{favorite: true, is_default: true})
+
+      DashboardUserPreference
+      |> Ash.Changeset.for_create(:upsert, attrs)
+      |> create(scope)
+    end
+  end
+
+  def set_default_dashboard(_scope, _target_type, _target_id), do: {:error, :invalid_attributes}
 
   @spec get_dashboard(term(), String.t(), keyword()) ::
           {:ok, AuthoredDashboard.t()} | {:error, :not_found} | {:error, term()}
@@ -156,9 +201,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec create_panel(term(), map()) :: {:ok, DashboardPanel.t()} | {:error, term()}
   def create_panel(scope, attrs) when is_map(attrs) do
-    DashboardPanel
-    |> Ash.Changeset.for_create(:create, panel_attrs(attrs))
-    |> create(scope)
+    attrs = panel_attrs(attrs)
+
+    with {:ok, attrs} <- validate_panel_attrs(scope, attrs) do
+      DashboardPanel
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> create(scope)
+    end
   end
 
   def create_panel(_scope, _attrs), do: {:error, :invalid_attributes}
@@ -166,9 +215,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @spec update_panel(term(), DashboardPanel.t(), map()) ::
           {:ok, DashboardPanel.t()} | {:error, term()}
   def update_panel(scope, %DashboardPanel{} = panel, attrs) when is_map(attrs) do
-    panel
-    |> Ash.Changeset.for_update(:update, panel_attrs(attrs))
-    |> update(scope)
+    attrs =
+      panel
+      |> existing_panel_attrs()
+      |> Map.merge(panel_attrs(attrs))
+
+    with {:ok, attrs} <- validate_panel_attrs(scope, attrs) do
+      panel
+      |> Ash.Changeset.for_update(:update, Map.delete(attrs, :dashboard_id))
+      |> update(scope)
+    end
   end
 
   def update_panel(_scope, _panel, _attrs), do: {:error, :invalid_attributes}
@@ -193,14 +249,15 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @spec create_report_schedule(term(), map()) ::
           {:ok, DashboardReportSchedule.t()} | {:error, term()}
   def create_report_schedule(scope, attrs) when is_map(attrs) do
-    attrs =
-      attrs
-      |> schedule_attrs()
-      |> maybe_put_next_due_at()
+    attrs = schedule_attrs(attrs)
 
-    DashboardReportSchedule
-    |> Ash.Changeset.for_create(:create, attrs)
-    |> create(scope)
+    with {:ok, attrs} <- validate_schedule_attrs(attrs) do
+      attrs = maybe_put_next_due_at(attrs)
+
+      DashboardReportSchedule
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> create(scope)
+    end
   end
 
   def create_report_schedule(_scope, _attrs), do: {:error, :invalid_attributes}
@@ -209,16 +266,159 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
           {:ok, DashboardReportSchedule.t()} | {:error, term()}
   def update_report_schedule(scope, %DashboardReportSchedule{} = schedule, attrs) when is_map(attrs) do
     attrs =
-      attrs
-      |> schedule_attrs()
-      |> maybe_put_next_due_at()
+      schedule
+      |> existing_schedule_attrs()
+      |> Map.merge(schedule_attrs(attrs))
 
-    schedule
-    |> Ash.Changeset.for_update(:update, attrs)
-    |> update(scope)
+    with {:ok, attrs} <- validate_schedule_attrs(attrs) do
+      attrs =
+        attrs
+        |> Map.delete(:dashboard_id)
+        |> maybe_put_next_due_at()
+
+      schedule
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> update(scope)
+    end
   end
 
   def update_report_schedule(_scope, _schedule, _attrs), do: {:error, :invalid_attributes}
+
+  defp validate_panel_attrs(scope, attrs) do
+    srql_query = Map.get(attrs, :srql_query)
+    visual_type = Map.get(attrs, :visual_type, :table)
+
+    with :ok <- validate_visual_type(visual_type),
+         :ok <- validate_panel_refresh_interval(Map.get(attrs, :refresh_interval_seconds, 0)),
+         :ok <- validate_map_attr(attrs, :visual_config),
+         :ok <- validate_map_attr(attrs, :layout),
+         {:ok, preview} <- preview_query(scope, srql_query),
+         :ok <- validate_visual_compatibility(visual_type, preview.compatible_visuals) do
+      field_metadata =
+        attrs
+        |> Map.get(:field_metadata, %{})
+        |> Map.merge(%{
+          fields: preview.fields,
+          compatible_visuals: preview.compatible_visuals,
+          validated_at: DateTime.to_iso8601(DateTime.utc_now())
+        })
+
+      {:ok, Map.put(attrs, :field_metadata, field_metadata)}
+    end
+  end
+
+  defp validate_visual_type(type) when type in [:table, :stat, :line, :area, :bar, :category, :status_list] do
+    :ok
+  end
+
+  defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
+
+  defp validate_visual_compatibility(:table, _compatible), do: :ok
+
+  defp validate_visual_compatibility(type, compatible) do
+    if type in compatible do
+      :ok
+    else
+      {:error, {:incompatible_visual_type, type, compatible}}
+    end
+  end
+
+  defp validate_panel_refresh_interval(value)
+       when is_integer(value) and value >= 0 and value <= @max_panel_refresh_interval_seconds do
+    :ok
+  end
+
+  defp validate_panel_refresh_interval(value) do
+    {:error, {:invalid_refresh_interval_seconds, value, 0, @max_panel_refresh_interval_seconds}}
+  end
+
+  defp validate_map_attr(attrs, key) do
+    case Map.get(attrs, key, %{}) do
+      value when is_map(value) -> :ok
+      value -> {:error, {:invalid_map_attribute, key, value}}
+    end
+  end
+
+  defp validate_schedule_attrs(attrs) do
+    with :ok <- validate_recipients(Map.get(attrs, :recipients, [])),
+         :ok <- validate_cron(Map.get(attrs, :cron)),
+         :ok <- validate_timezone(Map.get(attrs, :timezone, @default_timezone)) do
+      {:ok, attrs}
+    end
+  end
+
+  defp validate_recipients(recipients) when is_list(recipients) do
+    cond do
+      recipients == [] ->
+        {:error, :report_schedule_recipients_required}
+
+      length(recipients) > @max_schedule_recipients ->
+        {:error, {:too_many_report_recipients, length(recipients), @max_schedule_recipients}}
+
+      invalid = Enum.find(recipients, &(not valid_email?(&1))) ->
+        {:error, {:invalid_report_recipient, invalid}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_recipients(value), do: {:error, {:invalid_report_recipients, value}}
+
+  defp validate_cron(cron) when is_binary(cron) do
+    case Expression.parse(cron) do
+      {:ok, _expr} -> :ok
+      _ -> {:error, {:invalid_report_cron, cron}}
+    end
+  end
+
+  defp validate_cron(value), do: {:error, {:invalid_report_cron, value}}
+
+  defp validate_timezone(timezone) when timezone in ["UTC", "Etc/UTC"], do: :ok
+
+  defp validate_timezone(timezone) when is_binary(timezone) do
+    case DateTime.shift_zone(DateTime.utc_now(), normalize_timezone(timezone)) do
+      {:ok, _datetime} -> :ok
+      _ -> {:error, {:invalid_report_timezone, timezone}}
+    end
+  end
+
+  defp validate_timezone(value), do: {:error, {:invalid_report_timezone, value}}
+
+  defp valid_email?(value) when is_binary(value) do
+    value =~ ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  end
+
+  defp valid_email?(_value), do: false
+
+  defp existing_panel_attrs(%DashboardPanel{} = panel) do
+    %{
+      dashboard_id: panel.dashboard_id,
+      title: panel.title,
+      srql_query: panel.srql_query,
+      visual_type: panel.visual_type,
+      visual_config: panel.visual_config || %{},
+      field_metadata: panel.field_metadata || %{},
+      layout: panel.layout || %{},
+      refresh_interval_seconds: panel.refresh_interval_seconds || 0,
+      position: panel.position || 0,
+      metadata: panel.metadata || %{}
+    }
+  end
+
+  defp existing_schedule_attrs(%DashboardReportSchedule{} = schedule) do
+    %{
+      dashboard_id: schedule.dashboard_id,
+      name: schedule.name,
+      enabled: schedule.enabled,
+      recipients: schedule.recipients || [],
+      cron: schedule.cron,
+      timezone: schedule.timezone || @default_timezone,
+      format: schedule.format || :html,
+      next_due_at: schedule.next_due_at,
+      metadata: schedule.metadata || %{}
+    }
+  end
 
   @spec list_report_deliveries(term(), String.t()) :: [DashboardReportDelivery.t()]
   def list_report_deliveries(scope, dashboard_id) when is_binary(dashboard_id) do
@@ -461,6 +661,30 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp destroy(record, nil), do: Ash.destroy(record)
   defp destroy(record, scope), do: Ash.destroy(record, scope: scope)
+
+  defp clear_default_dashboard(scope) do
+    scope
+    |> list_dashboard_preferences()
+    |> Enum.filter(& &1.is_default)
+    |> Enum.reduce_while(:ok, fn preference, :ok ->
+      case preference
+           |> Ash.Changeset.for_update(:clear_default, %{})
+           |> update(scope) do
+        {:ok, _preference} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp preference_attrs(scope, target_type, target_id, attrs) do
+    attrs
+    |> Map.put(:user_id, owner_id(scope))
+    |> Map.put(:target_type, target_type)
+    |> Map.put(:target_id, target_id)
+    |> Map.put_new(:favorite, false)
+    |> Map.put_new(:is_default, false)
+    |> Map.put_new(:metadata, %{})
+  end
 
   defp maybe_filter_status(query, []), do: query
   defp maybe_filter_status(query, statuses), do: Ash.Query.filter(query, status in ^statuses)
@@ -817,6 +1041,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp owner_id(%{user: %{id: id}}), do: id
   defp owner_id(_scope), do: nil
 
+  defp normalize_timezone(value) when value in ["UTC", "Etc/UTC"], do: "Etc/UTC"
   defp normalize_timezone(value) when is_binary(value) and value != "", do: value
   defp normalize_timezone(_value), do: @default_timezone
 

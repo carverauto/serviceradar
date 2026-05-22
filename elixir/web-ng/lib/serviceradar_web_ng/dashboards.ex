@@ -33,6 +33,9 @@ defmodule ServiceRadarWebNG.Dashboards do
     as: :update_dashboard
 
   defdelegate archive_authored_dashboard(scope, dashboard), to: Authored, as: :archive_dashboard
+  defdelegate list_dashboard_preferences(scope), to: Authored
+  defdelegate set_dashboard_favorite(scope, target_type, target_id, favorite?), to: Authored
+  defdelegate set_default_dashboard(scope, target_type, target_id), to: Authored
   defdelegate list_authored_panels(scope, dashboard_id), to: Authored, as: :list_panels
   defdelegate create_authored_panel(scope, attrs), to: Authored, as: :create_panel
   defdelegate update_authored_panel(scope, panel, attrs), to: Authored, as: :update_panel
@@ -77,4 +80,5 @@ defmodule ServiceRadarWebNG.Dashboards do
     as: :preview_query
 
   defdelegate authored_visual_options(), to: Authored, as: :visual_options
+  defdelegate enabled_package_instances(opts \\ []), to: Packages, as: :enabled_instances
 end

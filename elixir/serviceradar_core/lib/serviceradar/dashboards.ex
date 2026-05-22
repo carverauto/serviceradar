@@ -24,5 +24,6 @@ defmodule ServiceRadar.Dashboards do
     resource(ServiceRadar.Dashboards.DashboardReportSchedule)
     resource(ServiceRadar.Dashboards.DashboardReportDelivery)
     resource(ServiceRadar.Dashboards.DashboardAccessGrant)
+    resource(ServiceRadar.Dashboards.DashboardUserPreference)
   end
 end

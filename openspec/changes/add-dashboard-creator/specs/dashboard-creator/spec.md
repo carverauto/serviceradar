@@ -102,6 +102,26 @@ The web UI SHALL provide an Analytics dashboard workspace where users can list, 
 - **THEN** the settings surface SHALL let them manage SRQL panel definitions, visualization choices, report schedules, and dashboard access grants
 - **AND** these controls SHALL NOT be embedded in the global RBAC policy editor.
 
+### Requirement: Dashboard discovery hub and preferences
+The system SHALL provide a user-facing `/dashboards` hub where authenticated users can find authored dashboards they own, authored dashboards shared with them, and enabled dashboard package routes.
+
+#### Scenario: User finds accessible dashboards
+- **GIVEN** a user owns dashboards and has access to shared dashboards or dashboard packages
+- **WHEN** they open `/dashboards`
+- **THEN** the UI SHALL list accessible dashboards with clear type labels and stable links.
+
+#### Scenario: User favorites a dashboard
+- **GIVEN** a dashboard appears in the dashboard hub
+- **WHEN** the user marks it as a favorite
+- **THEN** the system SHALL persist the favorite as a per-user preference
+- **AND** the dashboard SHALL appear in the user's favorites section.
+
+#### Scenario: User or system default dashboard is available
+- **GIVEN** a user has selected a default dashboard
+- **WHEN** they open `/dashboards`
+- **THEN** the hub SHALL expose an open-default action for that dashboard.
+- **AND** when no user default exists, the system SHALL prefer the package route `service-availability-noc` if it is enabled.
+
 ### Requirement: Dashboard report schedules
 The system SHALL let authorized users configure scheduled email reports for authored dashboards using persisted report schedules.
 

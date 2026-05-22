@@ -8,8 +8,8 @@
 ## 2. SRQL Preview and Visual Compatibility
 - [x] 2.1 Build a bounded SRQL preview/introspection context that applies preview limits and returns rows plus field metadata.
 - [x] 2.2 Implement a visual registry that declares required field shapes and validates panel visual configs.
-- [ ] 2.3 Add backend validation so saved panels have valid SRQL, compatible visual config, and bounded refresh/report settings.
-- [ ] 2.4 Add tests for query preview success, invalid SRQL, unsupported visual mappings, and table fallback.
+- [x] 2.3 Add backend validation so saved panels have valid SRQL, compatible visual config, and bounded refresh/report settings.
+- [x] 2.4 Add tests for query preview success, invalid SRQL, unsupported visual mappings, and table fallback.
 - [x] 2.5 Add `in:dashboards` SRQL entity support for searching authored dashboards and panel SRQL query text.
 
 ## 3. Dashboard Creator UI
@@ -19,6 +19,7 @@
 - [x] 3.4 Add saved dashboard show route at `/dashboard/:dashboard_id` without changing `/dashboard` or `/dashboards/:route_slug`.
 - [x] 3.5 Add share/copy-link affordances and clear owner/visibility labels.
 - [x] 3.6 Add dashboard-local settings for SRQL panels, visualization choices, schedules, and user/user-group access grants.
+- [x] 3.7 Add `/dashboards` discovery hub with user favorites, per-user default selection, and system fallback to `/dashboards/service-availability-noc`.
 
 ## 4. Scheduled Reports
 - [x] 4.1 Add a dashboard report schedule form with recipients, timezone, cadence/cron, enabled state, and next-run preview.

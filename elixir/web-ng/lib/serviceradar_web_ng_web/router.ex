@@ -706,6 +706,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/analytics", AuthoredDashboardLive.Index, :index)
       live("/dashboard", DashboardLive.Index, :index)
       live("/dashboard/:dashboard_id", AuthoredDashboardLive.Show, :show)
+      live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)

@@ -56,8 +56,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateOutboundMailSettings do
            )
 
     execute("""
-    INSERT INTO platform.outbound_mail_settings (id)
-    VALUES (gen_random_uuid())
+    INSERT INTO platform.outbound_mail_settings (id, inserted_at, updated_at)
+    VALUES (gen_random_uuid(), now(), now())
     ON CONFLICT DO NOTHING
     """)
   end
