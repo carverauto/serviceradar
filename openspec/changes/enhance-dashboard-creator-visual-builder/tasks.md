@@ -12,7 +12,7 @@
 ## 3. Datasets and Output Binding
 - [x] 3.1 Add named dashboard datasets or an equivalent compatible model for multiple SRQL queries per dashboard.
 - [ ] 3.2 Extend preview/introspection to expose stable field IDs, object/JSON paths, sample values, and aggregate compatibility hints.
-- [ ] 3.3 Add data binding validation for value, label, time, group, boolean/status, JSON path, and aggregation mappings.
+- [x] 3.3 Add data binding validation for value, label, time, group, boolean/status, JSON path, and aggregation mappings.
 - [x] 3.4 Migrate existing panel queries to dataset-backed default bindings.
 
 ## 4. Rich Visualization Registry

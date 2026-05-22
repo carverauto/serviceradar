@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
+
   require Ash.Query
 
   @dashboard_ref_min 1_000_000
@@ -128,8 +129,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> create(scope)
   end
 
-  def set_dashboard_favorite(_scope, _target_type, _target_id, _favorite?),
-    do: {:error, :invalid_attributes}
+  def set_dashboard_favorite(_scope, _target_type, _target_id, _favorite?), do: {:error, :invalid_attributes}
 
   @spec set_default_dashboard(term(), atom(), String.t()) ::
           {:ok, DashboardUserPreference.t()} | {:error, term()}
@@ -341,8 +341,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec update_report_schedule(term(), DashboardReportSchedule.t(), map()) ::
           {:ok, DashboardReportSchedule.t()} | {:error, term()}
-  def update_report_schedule(scope, %DashboardReportSchedule{} = schedule, attrs)
-      when is_map(attrs) do
+  def update_report_schedule(scope, %DashboardReportSchedule{} = schedule, attrs) when is_map(attrs) do
     attrs =
       schedule
       |> existing_schedule_attrs()
@@ -381,7 +380,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
          :ok <- validate_map_attr(attrs, :display_config),
          :ok <- validate_map_attr(attrs, :layout),
          {:ok, preview} <- preview_query(scope, srql_query),
-         :ok <- validate_visual_compatibility(visual_type, preview.compatible_visuals) do
+         :ok <- validate_visual_compatibility(visual_type, preview.compatible_visuals),
+         :ok <- validate_data_binding(visual_type, Map.get(attrs, :data_binding, %{}), preview.fields),
+         :ok <- validate_display_config(Map.get(attrs, :display_config, %{}), preview.fields) do
       field_metadata =
         attrs
         |> Map.get(:field_metadata, %{})
@@ -396,17 +397,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   defp validate_visual_type(type)
-       when type in [
-              :table,
-              :stat,
-              :gauge,
-              :availability,
-              :line,
-              :area,
-              :bar,
-              :category,
-              :status_list
-            ] do
+       when type in [:table, :stat, :gauge, :availability, :line, :area, :bar, :category, :status_list] do
     :ok
   end
 
@@ -415,8 +406,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp validate_visual_compatibility(:table, _compatible), do: :ok
   defp validate_visual_compatibility(:availability, _compatible), do: :ok
 
-  defp validate_visual_compatibility(:gauge, compatible),
-    do: validate_visual_compatibility(:stat, compatible)
+  defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
   defp validate_visual_compatibility(type, compatible) do
     if type in compatible do
@@ -425,6 +415,79 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       {:error, {:incompatible_visual_type, type, compatible}}
     end
   end
+
+  defp validate_data_binding(:availability, binding, fields) when is_map(binding) do
+    with :ok <- validate_required_binding(binding, fields, "numerator_field"),
+         :ok <- validate_required_binding(binding, fields, "denominator_field") do
+      validate_optional_bindings(binding, fields)
+    end
+  end
+
+  defp validate_data_binding(_visual_type, binding, fields) when is_map(binding) do
+    validate_optional_bindings(binding, fields)
+  end
+
+  defp validate_data_binding(_visual_type, binding, _fields), do: {:error, {:invalid_data_binding, binding}}
+
+  defp validate_required_binding(binding, fields, key) do
+    case Map.get(binding, key) do
+      value when is_binary(value) and value != "" ->
+        validate_field_name(fields, value, {:missing_binding_field, key, value})
+
+      _ ->
+        {:error, {:required_binding_field, key}}
+    end
+  end
+
+  defp validate_optional_bindings(binding, fields) do
+    binding
+    |> Enum.filter(fn {key, value} ->
+      String.ends_with?(to_string(key), "_field") and is_binary(value) and value != ""
+    end)
+    |> Enum.reduce_while(:ok, fn {key, value}, :ok ->
+      case validate_field_name(fields, value, {:missing_binding_field, to_string(key), value}) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_display_config(config, fields) when is_map(config) do
+    config
+    |> Map.get("table_columns", [])
+    |> validate_table_columns(fields)
+  end
+
+  defp validate_display_config(config, _fields), do: {:error, {:invalid_display_config, config}}
+
+  defp validate_table_columns([], _fields), do: :ok
+  defp validate_table_columns(nil, _fields), do: :ok
+
+  defp validate_table_columns(columns, fields) when is_list(columns) do
+    Enum.reduce_while(columns, :ok, fn
+      %{} = column, :ok ->
+        field = Map.get(column, "field") || Map.get(column, :field)
+
+        case validate_field_name(fields, field, {:missing_table_column_field, field}) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      column, :ok ->
+        {:halt, {:error, {:invalid_table_column, column}}}
+    end)
+  end
+
+  defp validate_table_columns(columns, _fields), do: {:error, {:invalid_table_columns, columns}}
+
+  defp validate_field_name(_fields, nil, _reason), do: :ok
+  defp validate_field_name(_fields, "", _reason), do: :ok
+
+  defp validate_field_name(fields, field, reason) when is_binary(field) do
+    if Enum.any?(fields, &(&1.name == field)), do: :ok, else: {:error, reason}
+  end
+
+  defp validate_field_name(_fields, field, _reason), do: {:error, {:invalid_field_reference, field}}
 
   defp validate_panel_refresh_interval(value)
        when is_integer(value) and value >= 0 and value <= @max_panel_refresh_interval_seconds do
@@ -785,12 +848,10 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp validate_dashboard_attrs(attrs) do
     slug = Map.get(attrs, :slug)
 
-    cond do
-      is_binary(slug) and MapSet.member?(@reserved_dashboard_slugs, slug) ->
-        {:error, {:reserved_dashboard_slug, slug}}
-
-      true ->
-        {:ok, attrs}
+    if is_binary(slug) and MapSet.member?(@reserved_dashboard_slugs, slug) do
+      {:error, {:reserved_dashboard_slug, slug}}
+    else
+      {:ok, attrs}
     end
   end
 
