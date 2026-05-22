@@ -60,6 +60,30 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
     Process.delete(:test_pid)
   end
 
+  test "enqueue_now bumps an existing scheduled conflict to run immediately" do
+    Process.put(:test_pid, self())
+
+    with_support(fn ->
+      Process.put(:support_available, true)
+
+      assert {:ok, %Ecto.Changeset{} = job} =
+               ArmisNorthboundRunWorker.enqueue_now("source-123")
+
+      assert job.changes.args == %{"integration_source_id" => "source-123", "manual" => true}
+
+      assert job.changes.replace == [
+               scheduled: [:args, :scheduled_at],
+               available: [:args],
+               retryable: [:args, :scheduled_at]
+             ]
+
+      assert_received {:safe_insert, ^job}
+    end)
+  after
+    Process.delete(:support_available)
+    Process.delete(:test_pid)
+  end
+
   test "perform delegates to configured source module and runner" do
     source_id = Ecto.UUID.generate()
     Process.put(:test_pid, self())
