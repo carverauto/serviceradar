@@ -490,6 +490,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
         %{
           "host_ip" => "10.0.0.1",
           "available" => false,
+          "sweep_modes" => ["tcp"],
           "port_results" => [
             %{"port" => 22, "available" => false, "response_time" => 0}
           ]
@@ -499,9 +500,26 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       {[record], stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
 
       assert record.status == :unavailable
-      assert record.sweep_modes_results["icmp"] == "no_response"
+      refute Map.has_key?(record.sweep_modes_results, "icmp")
       assert record.sweep_modes_results["tcp"] == "no_response"
       assert stats.hosts_failed == 1
+    end
+
+    test "legacy TCP fields do not invent an ICMP failure" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "10.0.0.1",
+          "available" => false,
+          "tcp_ports_open" => []
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.sweep_modes_results["tcp"] == "no_response"
+      refute Map.has_key?(record.sweep_modes_results, "icmp")
     end
 
     test "sweep_modes_results reflects actual ICMP and TCP status" do
@@ -562,7 +580,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.status == :available
       assert record.response_time_ms == 6
       assert record.sweep_modes_results["icmp"] == "success"
-      assert record.sweep_modes_results["tcp"] == "no_response"
+      refute Map.has_key?(record.sweep_modes_results, "tcp")
     end
 
     test "sweep_modes_results infers legacy ICMP success from host response time" do
@@ -582,7 +600,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record.status == :available
       assert record.response_time_ms == 7
       assert record.sweep_modes_results["icmp"] == "success"
-      assert record.sweep_modes_results["tcp"] == "no_response"
+      refute Map.has_key?(record.sweep_modes_results, "tcp")
     end
   end
 end

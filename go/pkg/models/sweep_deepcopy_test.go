@@ -19,12 +19,19 @@ func TestDeepCopyHostResult_NoAliasing(t *testing.T) {
 		PortMap:      map[int]*PortResult{80: pr80, 443: pr443},
 		ICMPStatus:   icmp,
 		ResponseTime: 11 * time.Millisecond,
+		SweepModes:   []SweepMode{ModeTCP, ModeICMP},
 	}
 
 	dst := DeepCopyHostResult(src)
 
 	if dst.Host != src.Host || dst.Available != src.Available || !dst.FirstSeen.Equal(src.FirstSeen) || !dst.LastSeen.Equal(src.LastSeen) || dst.ResponseTime != src.ResponseTime {
 		t.Fatalf("expected scalar fields to match")
+	}
+	if len(dst.SweepModes) != len(src.SweepModes) {
+		t.Fatalf("expected SweepModes to be copied")
+	}
+	if len(dst.SweepModes) > 0 && &dst.SweepModes[0] == &src.SweepModes[0] {
+		t.Fatalf("expected SweepModes slice not to alias")
 	}
 
 	if dst.ICMPStatus == nil || src.ICMPStatus == nil {
@@ -65,6 +72,7 @@ func TestDeepCopyHostResult_NoAliasing(t *testing.T) {
 	dst.PortResults[0].Available = false
 	dst.PortMap[80].Service = "changed"
 	dst.ICMPStatus.PacketLoss = 50
+	dst.SweepModes[0] = ModeTCPConnect
 
 	if src.PortResults[0].Available == dst.PortResults[0].Available {
 		t.Fatalf("expected PortResults mutation not to affect source")
@@ -74,5 +82,8 @@ func TestDeepCopyHostResult_NoAliasing(t *testing.T) {
 	}
 	if src.ICMPStatus.PacketLoss == dst.ICMPStatus.PacketLoss {
 		t.Fatalf("expected ICMPStatus mutation not to affect source")
+	}
+	if src.SweepModes[0] == dst.SweepModes[0] {
+		t.Fatalf("expected SweepModes mutation not to affect source")
 	}
 }
