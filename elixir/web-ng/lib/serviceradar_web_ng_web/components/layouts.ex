@@ -291,6 +291,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_app(assigns) do
     nav_items = [
       %{href: "/dashboard", label: "Dashboard", icon: "hero-home"},
+      %{href: "/dashboards", label: "Dashboards", icon: "hero-squares-2x2"},
       %{href: "/devices", label: "Devices", icon: "hero-server-stack"},
       %{href: "/services", label: "Services", icon: "hero-bolt"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},

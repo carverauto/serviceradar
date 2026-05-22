@@ -10,8 +10,9 @@ defmodule ServiceRadar.Integrations do
   use Ash.Domain
 
   resources do
-    resource ServiceRadar.Integrations.IntegrationSource
-    resource ServiceRadar.Integrations.IntegrationUpdateRun
-    resource ServiceRadar.Integrations.MapboxSettings
+    resource(ServiceRadar.Integrations.IntegrationSource)
+    resource(ServiceRadar.Integrations.IntegrationUpdateRun)
+    resource(ServiceRadar.Integrations.MapboxSettings)
+    resource(ServiceRadar.Integrations.OutboundMailSettings)
   end
 end

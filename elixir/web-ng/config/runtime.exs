@@ -455,7 +455,10 @@ god_view_runtime_graph_auto_refresh_default =
 
 god_view_runtime_graph_auto_refresh =
   case to_bool.(
-         System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH", god_view_runtime_graph_auto_refresh_default)
+         System.get_env(
+           "SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH",
+           god_view_runtime_graph_auto_refresh_default
+         )
        ) do
     nil -> config_env() != :test
     value -> value
@@ -607,14 +610,18 @@ config :serviceradar_web_ng,
 config :serviceradar_web_ng,
   remote_access_tcp_enabled: remote_access_tcp_enabled
 
-if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
+if is_map(remote_access_ssh_certificate_policy) and
+     map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,
     remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
 end
 
 if remote_access_ssh_ca_signer_enabled do
   signer_command =
-    System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND", "serviceradar-sshca-signer")
+    System.get_env(
+      "SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND",
+      "serviceradar-sshca-signer"
+    )
 
   signer_ca_key_id = System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID")
 
@@ -994,26 +1001,50 @@ if config_env() != :test do
       _ -> Oban.Notifiers.Postgres
     end
 
+  dashboard_reports_enabled =
+    "SERVICERADAR_DASHBOARD_REPORTS_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  dashboard_report_scanner_cron =
+    System.get_env("SERVICERADAR_DASHBOARD_REPORT_SCANNER_CRON", "* * * * *")
+
+  dashboard_report_scanner_limit =
+    parse_queue_limit.("SERVICERADAR_DASHBOARD_REPORT_SCANNER_LIMIT", 100)
+
+  web_crontab = []
+
+  web_crontab =
+    if object_store_retention_enabled do
+      web_crontab ++
+        [
+          {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker, args: %{"enabled" => true},
+           queue: :web_maintenance}
+        ]
+    else
+      web_crontab
+    end
+
+  web_crontab =
+    if dashboard_reports_enabled do
+      web_crontab ++
+        [
+          {dashboard_report_scanner_cron, ServiceRadarWebNG.Dashboards.ReportScannerWorker,
+           args: %{"enabled" => true, "limit" => dashboard_report_scanner_limit}, queue: :web_maintenance}
+        ]
+    else
+      web_crontab
+    end
+
+  oban_plugins = [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
+
   oban_plugins =
-    then(
-      [
-        {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
-      ],
-      fn plugins ->
-        if object_store_retention_enabled do
-          plugins ++
-            [
-              {Oban.Plugins.Cron,
-               crontab: [
-                 {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
-                  args: %{"enabled" => true}, queue: :web_maintenance}
-               ]}
-            ]
-        else
-          plugins
-        end
-      end
-    )
+    if web_crontab == [] do
+      oban_plugins
+    else
+      oban_plugins ++ [{Oban.Plugins.Cron, crontab: web_crontab}]
+    end
 
   # web-ng does not run the global core-elx job schedules. It only schedules
   # web-owned cleanup work when explicitly enabled.
@@ -1058,6 +1089,11 @@ if config_env() != :test do
   config :serviceradar_core, :log_promotion_consumer_enabled, false
   config :serviceradar_core, :oban_enabled, oban_enabled
   config :serviceradar_core, :start_ash_oban_scheduler, false
+
+  config :serviceradar_web_ng, :dashboard_reports,
+    enabled?: dashboard_reports_enabled,
+    scanner_cron: dashboard_report_scanner_cron,
+    scanner_limit: dashboard_report_scanner_limit
 end
 
 # Phoenix React NG production configuration

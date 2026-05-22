@@ -40,6 +40,7 @@ pub enum Entity {
     VirtualizationStorageSystems,
     Logs,
     Services,
+    Dashboards,
     Gateways,
     OtelMetrics,
     RperfMetrics,
@@ -457,6 +458,9 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
+        "dashboards" | "dashboard" | "authored_dashboards" | "authored_dashboard" => {
+            Ok(Entity::Dashboards)
+        }
         "gateways" | "gateway" => Ok(Entity::Gateways),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
         "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
@@ -998,6 +1002,14 @@ mod tests {
         for (raw, expected) in cases {
             let ast = parse(&format!("in:{raw} provider:proxmox limit:1")).unwrap();
             assert_eq!(ast.entity, expected, "entity alias {raw}");
+        }
+    }
+
+    #[test]
+    fn parses_dashboard_entity_aliases() {
+        for raw in ["dashboards", "dashboard", "authored_dashboards"] {
+            let ast = parse(&format!("in:{raw} status:active limit:10")).unwrap();
+            assert_eq!(ast.entity, Entity::Dashboards, "entity alias {raw}");
         }
     }
 
