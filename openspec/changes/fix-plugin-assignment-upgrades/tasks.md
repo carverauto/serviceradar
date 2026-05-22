@@ -25,5 +25,5 @@
 ## 5. Tests and Validation
 - [x] 5.1 Add focused Ash/context tests for assignment upgrade success and validation failures.
 - [x] 5.2 Add LiveView tests for delete, latest upgrade, specific-version upgrade, policy-owned assignment messaging, and duplicate-create guidance.
-- [ ] 5.3 Run `mix test` or focused test files for the changed web-ng/core modules.
+- [x] 5.3 Run `mix test` or focused test files for the changed web-ng/core modules.
 - [x] 5.4 Run `mix format` for touched Elixir files.

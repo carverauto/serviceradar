@@ -320,7 +320,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       |> render_click()
 
     assert html =~ "Assignment removed"
-    refute html =~ "Agent Delete Plugin"
+    assert {:error, :not_found} = Assignments.get(assignment.id)
   end
 
   test "shows and runs latest-version assignment upgrade", %{conn: conn, actor: actor} do
@@ -362,7 +362,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     html =
       lv
       |> form("form[phx-submit='upgrade_assignment'][phx-value-id='#{assignment.id}']", %{
-        "id" => assignment.id,
         "assignment_upgrade" => %{"target_package_id" => middle_package.id}
       })
       |> render_submit()

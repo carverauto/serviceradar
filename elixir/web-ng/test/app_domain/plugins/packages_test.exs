@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
+  require Ash.Query
+
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
   @manifest %{
     "id" => "unifi-protect-camera",

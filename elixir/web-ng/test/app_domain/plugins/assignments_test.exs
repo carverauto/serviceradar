@@ -15,7 +15,11 @@ defmodule ServiceRadarWebNG.Plugins.AssignmentsTest do
     "version" => "1.0.0",
     "entrypoint" => "run_check",
     "outputs" => "serviceradar.plugin_result.v1",
-    "capabilities" => ["get_config"]
+    "capabilities" => ["get_config"],
+    "resources" => %{
+      "requested_cpu_ms" => 1000,
+      "requested_memory_mb" => 64
+    }
   }
 
   test "delete normalizes bare Ash destroy success into ok tuple" do
