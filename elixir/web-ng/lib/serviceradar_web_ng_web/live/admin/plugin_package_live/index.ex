@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:show_details_modal, true)
         |> assign(:review_form, build_review_form(package))
         |> assign(:assignment_form, default_assignment_form())
-        |> assign(:assignments, list_assignments(package.id, scope))
+        |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
         |> assign(:versions, list_versions(package.plugin_id, scope))
         |> assign(:upload_errors, [])
         |> assign_package_urls(package, scope)
@@ -635,7 +635,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, _assignment} ->
         {:noreply,
          socket
-         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> put_flash(:info, "Assignment removed")}
 
       {:error, error} ->
@@ -742,6 +742,17 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       nil ->
         create_assignment(socket, scope, attrs)
 
+      %{source: :policy} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "This agent already has this plugin assigned by policy. Change the policy to move versions."
+         )}
+
+      %{plugin_package_id: package_id} = assignment when package_id != attrs.plugin_package_id ->
+        upgrade_assignment(socket, scope, assignment, attrs)
+
       assignment ->
         update_assignment(socket, scope, assignment, attrs)
     end
@@ -752,7 +763,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, _assignment} ->
         {:noreply,
          socket
-         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment created")}
@@ -773,7 +784,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, _assignment} ->
         {:noreply,
          socket
-         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:assignment_form, default_assignment_form())
          |> assign(:show_details_modal, false)
          |> put_flash(:info, "Assignment updated")}
@@ -785,6 +796,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  defp upgrade_assignment(socket, scope, assignment, attrs) do
+    case Assignments.upgrade(assignment.id, attrs.plugin_package_id, scope: scope, attrs: attrs) do
+      {:ok, _assignment} ->
+        {:noreply,
+         socket
+         |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
+         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:show_details_modal, false)
+         |> put_flash(:info, "Assignment upgraded")}
+
+      {:error, error} ->
+        Logger.error("Plugin assignment upgrade failed for #{assignment.id}: #{inspect(error)}")
+
+        {:noreply, put_flash(socket, :error, "Failed to upgrade assignment: #{format_error(error)}")}
+    end
+  end
+
   defp upgrade_assignment(socket, id, target_package_id) when is_binary(target_package_id) and target_package_id != "" do
     scope = socket.assigns.current_scope
 
@@ -793,7 +821,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> assign(:packages, list_packages(current_filters(socket), scope))
-         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:assignments, list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope))
          |> assign(:versions, list_versions(socket.assigns.selected_package.plugin_id, scope))
          |> put_flash(:info, "Assignment upgraded")}
 
@@ -1683,7 +1711,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                             phx-value-id={assignment.id}
                             class="flex items-center gap-1"
                           >
-                            <input type="hidden" name="id" value={assignment.id} />
                             <select
                               name="assignment_upgrade[target_package_id]"
                               class="select select-bordered select-xs"
@@ -1970,6 +1997,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp list_assignments(package_id, scope) do
     Assignments.list(%{"plugin_package_id" => package_id}, scope: scope)
+  end
+
+  defp list_plugin_assignments(plugin_id, scope) do
+    Assignments.list(%{"plugin_id" => plugin_id}, scope: scope)
   end
 
   defp list_versions(plugin_id, scope) do

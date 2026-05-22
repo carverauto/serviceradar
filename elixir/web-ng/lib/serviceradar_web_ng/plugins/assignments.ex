@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       |> Ash.Query.for_read(:read)
       |> maybe_filter_agent_uid(filters)
       |> maybe_filter_package_id(filters)
+      |> maybe_filter_plugin_id(filters)
       |> Ash.Query.limit(limit)
       |> Ash.Query.sort(inserted_at: :desc)
 
@@ -109,16 +110,15 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     actor = Keyword.get(opts, :actor)
     ash_opts = ash_opts(scope, actor)
 
+    upgrade_attrs = opts |> Keyword.get(:attrs, %{}) |> drop_nil_values()
+
     with {:ok, assignment} <- get_raw(id, scope: scope),
          :ok <- ensure_manual_assignment(assignment),
          {:ok, target_package} <- Packages.get(target_package_id, scope: scope),
          :ok <- ensure_assignable_package(assignment, target_package) do
       schema = target_package.config_schema || %{}
 
-      attrs = %{
-        plugin_package_id: target_package.id,
-        params: SecretRefs.prepare_params_for_storage(schema, assignment.params || %{}, assignment.params || %{})
-      }
+      attrs = upgrade_attributes(assignment, target_package.id, schema, upgrade_attrs)
 
       assignment
       |> Ash.Changeset.for_update(:update, attrs)
@@ -252,6 +252,16 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
     end
   end
 
+  defp maybe_filter_plugin_id(query, filters) do
+    plugin_id = Map.get(filters, :plugin_id) || Map.get(filters, "plugin_id")
+
+    if is_binary(plugin_id) and plugin_id != "" do
+      Ash.Query.filter(query, plugin_id == ^plugin_id)
+    else
+      query
+    end
+  end
+
   defp normalize_limit(nil), do: @default_limit
   defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, @max_limit)
 
@@ -277,6 +287,30 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       Map.put(attrs, :params, SecretRefs.prepare_params_for_storage(schema, params, existing_params))
     else
       attrs
+    end
+  end
+
+  defp upgrade_attributes(assignment, target_package_id, schema, attrs) do
+    params = Map.get(attrs, :params) || Map.get(attrs, "params") || assignment.params || %{}
+
+    %{
+      plugin_package_id: target_package_id,
+      params: SecretRefs.prepare_params_for_storage(schema, params, assignment.params || %{})
+    }
+    |> maybe_copy_upgrade_attr(attrs, :enabled)
+    |> maybe_copy_upgrade_attr(attrs, :interval_seconds)
+    |> maybe_copy_upgrade_attr(attrs, :timeout_seconds)
+    |> maybe_copy_upgrade_attr(attrs, :permissions_override)
+    |> maybe_copy_upgrade_attr(attrs, :resources_override)
+  end
+
+  defp maybe_copy_upgrade_attr(update_attrs, source_attrs, field) do
+    string_field = Atom.to_string(field)
+
+    cond do
+      Map.has_key?(source_attrs, field) -> Map.put(update_attrs, field, Map.fetch!(source_attrs, field))
+      Map.has_key?(source_attrs, string_field) -> Map.put(update_attrs, field, Map.fetch!(source_attrs, string_field))
+      true -> update_attrs
     end
   end
 

@@ -19,6 +19,8 @@ Plugin package versions are separate rows, while agent assignments point at one 
   - Why: The operation has domain constraints: target package must be approved, logical plugin IDs must match, params must validate against the target schema, and policy-owned assignments need different handling.
 - Decision: Treat "latest" as the newest approved package version using existing package ordering first, then tighten to semver ordering if current helpers are ambiguous.
   - Why: The UI already lists versions; this change should align with existing package semantics unless tests expose incorrect ordering.
+- Decision: Allow multiple approved package versions for the same logical plugin.
+  - Why: The safety invariant is one enabled assignment per agent/plugin, not one approved package globally. Operators need older approved versions available for explicit rollback or selected-version upgrades.
 
 ## Risks / Trade-offs
 - Risk: Target package config schema can require new fields.
@@ -27,10 +29,11 @@ Plugin package versions are separate rows, while agent assignments point at one 
   - Mitigation: block manual upgrades for policy-owned rows and point users to the policy surface.
 - Risk: Existing delete callers depend on `:ok`.
   - Mitigation: document and test the chosen return shape, or handle both return shapes at call sites.
+- Risk: Multiple approved package versions can make implicit package selection ambiguous.
+  - Mitigation: assignment materialization and "latest" selection use semver ordering first, then import/approval/insert timestamps as tie breakers.
 
 ## Migration Plan
-No data migration is expected. Existing assignments keep their current package IDs until an operator or policy explicitly upgrades them.
+Drop the partial unique index that allowed only one approved package per plugin. Existing assignments keep their current package IDs until an operator or policy explicitly upgrades them.
 
 ## Open Questions
-- Should non-semver versions be sorted lexically or by package approval/import time for "latest"?
 - Should compatible defaults from the target package schema be merged during upgrade when params omit newly optional fields?

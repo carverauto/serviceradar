@@ -293,8 +293,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
   end
 
-  test "approve revokes previously approved versions for the same plugin" do
-    plugin_id = "single-approved-package-#{System.unique_integer([:positive])}"
+  test "approve keeps previously approved versions available for assignment upgrades" do
+    plugin_id = "multi-approved-package-#{System.unique_integer([:positive])}"
     _plugin = create_plugin(plugin_id)
     old_package = create_package(plugin_id, "1.0.0")
     new_package = create_package(plugin_id, "1.0.1")
@@ -311,13 +311,13 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
       |> Ash.Query.filter(id == ^old_package.id)
       |> Ash.read_one!(actor: system_actor())
 
-    assert reloaded_old.status == :revoked
-    assert reloaded_old.denied_reason == "superseded by approved package #{new_package.id}"
+    assert reloaded_old.status == :approved
+    assert reloaded_old.denied_reason in [nil, ""]
   end
 
-  test "approve disables assignments for superseded package versions" do
-    plugin_id = "single-enabled-package-assignment-#{System.unique_integer([:positive])}"
-    agent_uid = "agent-single-enabled-package-assignment-#{System.unique_integer([:positive])}"
+  test "approve does not disable existing assignments for older approved package versions" do
+    plugin_id = "multi-enabled-package-assignment-#{System.unique_integer([:positive])}"
+    agent_uid = "agent-multi-enabled-package-assignment-#{System.unique_integer([:positive])}"
     _plugin = create_plugin(plugin_id)
     old_package = create_package(plugin_id, "1.0.0")
     new_package = create_package(plugin_id, "1.0.1")
@@ -348,9 +348,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
       |> Ash.Query.filter(id == ^assignment.id)
       |> Ash.read_one!(actor: system_actor())
 
-    assert reloaded_assignment.enabled == false
+    assert reloaded_assignment.enabled == true
 
-    assert {:ok, new_assignment} =
+    assert {:error, error} =
              PluginAssignment
              |> Ash.Changeset.for_create(
                :create,
@@ -366,7 +366,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
              )
              |> Ash.create()
 
-    assert new_assignment.plugin_package_id == approved_new.id
+    assert Exception.message(error) =~ "plugin is already enabled for this agent"
   end
 
   def first_party_release(tag \\ "v1.0.1") do
