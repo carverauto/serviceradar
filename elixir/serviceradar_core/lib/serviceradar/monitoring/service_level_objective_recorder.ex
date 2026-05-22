@@ -19,6 +19,7 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
 
   @event_family "slo_evaluation"
   @log_name "monitoring.slo.evaluation"
+  @default_budget_warning_basis_points 2_500
 
   @doc """
   Evaluate observations for an SLO, persist the result, and optionally emit an event.
@@ -147,6 +148,8 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
   end
 
   defp event_metadata(slo, evaluation) do
+    previous_compliance_state = value(slo, :last_compliance_state)
+
     %{
       "event_family" => @event_family,
       "service_level_objective_id" => stringify(evaluation.slo_id),
@@ -157,6 +160,9 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
       "evaluation_id" => stringify(evaluation.id),
       "evaluation_key" => evaluation.evaluation_key,
       "compliance_state" => stringify(evaluation.compliance_state),
+      "previous_compliance_state" => stringify(previous_compliance_state),
+      "compliance_transition" =>
+        compliance_transition(previous_compliance_state, evaluation.compliance_state),
       "severity" => stringify(evaluation.severity),
       "goal_basis_points" => evaluation.goal_basis_points,
       "compliance_basis_points" => evaluation.compliance_basis_points,
@@ -170,8 +176,11 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
       "error_budget_consumed" => evaluation.error_budget_consumed,
       "error_budget_remaining" => evaluation.error_budget_remaining,
       "budget_remaining_basis_points" => evaluation.budget_remaining_basis_points,
+      "error_budget_state" => error_budget_state(slo, evaluation),
       "burn_rate_short" => stringify(evaluation.burn_rate_short),
       "burn_rate_long" => stringify(evaluation.burn_rate_long),
+      "burn_rate_state" => burn_rate_state(slo, evaluation),
+      "projected_exhaustion_at" => iso8601(evaluation.projected_exhaustion_at),
       "period_started_at" => iso8601(evaluation.period_started_at),
       "period_ended_at" => iso8601(evaluation.period_ended_at),
       "evaluated_at" => iso8601(evaluation.evaluated_at)
@@ -182,6 +191,107 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
     name = value(slo, :name) || value(slo, :slo_key) || evaluation.slo_id
     "SLO #{name} evaluated as #{evaluation.compliance_state}"
   end
+
+  defp compliance_transition(nil, current), do: "initial_to_#{stringify(current)}"
+
+  defp compliance_transition(previous, current) do
+    previous = stringify(previous)
+    current = stringify(current)
+
+    if previous == current do
+      "unchanged"
+    else
+      "#{previous}_to_#{current}"
+    end
+  end
+
+  defp error_budget_state(_slo, %{error_budget_total: 0}), do: "unknown"
+
+  defp error_budget_state(_slo, %{error_budget_remaining: remaining}) when remaining < 0,
+    do: "exhausted"
+
+  defp error_budget_state(slo, evaluation) do
+    warning_threshold =
+      slo
+      |> value(:alert_policy, %{})
+      |> map_value(
+        :warn_budget_remaining_below_basis_points,
+        @default_budget_warning_basis_points
+      )
+      |> to_integer(@default_budget_warning_basis_points)
+
+    if evaluation.budget_remaining_basis_points <= warning_threshold do
+      "at_risk"
+    else
+      "healthy"
+    end
+  end
+
+  defp burn_rate_state(slo, evaluation) do
+    burn_rate = max_decimal(evaluation.burn_rate_short, evaluation.burn_rate_long)
+    policy = value(slo, :burn_rate_policy, %{})
+
+    critical_threshold =
+      first_decimal(policy, [
+        :critical_threshold,
+        :short_window_threshold,
+        :burn_rate_threshold
+      ])
+
+    warning_threshold =
+      first_decimal(policy, [
+        :warning_threshold,
+        :short_window_warning_threshold
+      ])
+
+    cond do
+      is_nil(burn_rate) ->
+        "unknown"
+
+      threshold_crossed?(burn_rate, critical_threshold) ->
+        "critical"
+
+      threshold_crossed?(burn_rate, warning_threshold) ->
+        "warning"
+
+      true ->
+        "normal"
+    end
+  end
+
+  defp max_decimal(nil, nil), do: nil
+  defp max_decimal(%Decimal{} = left, nil), do: left
+  defp max_decimal(nil, %Decimal{} = right), do: right
+
+  defp max_decimal(%Decimal{} = left, %Decimal{} = right) do
+    if Decimal.compare(left, right) == :lt, do: right, else: left
+  end
+
+  defp first_decimal(policy, keys) do
+    Enum.find_value(keys, fn key ->
+      case decimal_value(map_value(policy, key, nil)) do
+        nil -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp threshold_crossed?(_burn_rate, nil), do: false
+  defp threshold_crossed?(burn_rate, threshold), do: Decimal.compare(burn_rate, threshold) != :lt
+
+  defp decimal_value(%Decimal{} = value), do: value
+
+  defp decimal_value(value) when is_integer(value), do: Decimal.new(value)
+
+  defp decimal_value(value) when is_float(value), do: value |> Float.to_string() |> Decimal.new()
+
+  defp decimal_value(value) when is_binary(value) do
+    Decimal.new(value)
+  rescue
+    Decimal.Error -> nil
+  end
+
+  defp decimal_value(_value), do: nil
 
   defp severity_id(:critical), do: OCSF.severity_critical()
   defp severity_id("critical"), do: OCSF.severity_critical()
@@ -231,8 +341,28 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp iso8601(_value), do: nil
 
-  defp value(map, key) when is_map(map), do: Map.get(map, key) || Map.get(map, to_string(key))
-  defp value(struct, key), do: Map.get(struct, key)
+  defp value(map, key, default \\ nil)
+
+  defp value(map, key, default) when is_map(map),
+    do: Map.get(map, key, Map.get(map, to_string(key), default))
+
+  defp value(_struct, _key, default), do: default
+
+  defp map_value(map, key, default) when is_map(map),
+    do: Map.get(map, key, Map.get(map, to_string(key), default))
+
+  defp map_value(_map, _key, default), do: default
+
+  defp to_integer(value, _default) when is_integer(value), do: value
+
+  defp to_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _other -> default
+    end
+  end
+
+  defp to_integer(_value, default), do: default
 
   defp stringify(nil), do: nil
   defp stringify(value) when is_binary(value), do: value

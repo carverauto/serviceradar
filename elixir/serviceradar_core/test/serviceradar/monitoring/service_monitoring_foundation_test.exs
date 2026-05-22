@@ -416,6 +416,7 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
                  target_query: "in:services tag:recorder",
                  slo_kind: :request_based,
                  goal_basis_points: 9_900,
+                 burn_rate_policy: %{"short_window_threshold" => "1.0"},
                  alert_policy: %{"warn_budget_remaining_below_basis_points" => 2_500}
                },
                actor: actor
@@ -473,12 +474,29 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
     assert updated_slo.last_budget_remaining_basis_points == -10_000
     assert updated_slo.last_evaluated_at == ~U[2026-05-21 00:05:00Z]
 
-    assert %{rows: [[event_family, slo_id, severity, status]]} =
+    assert %{
+             rows: [
+               [
+                 event_family,
+                 slo_id,
+                 compliance_transition,
+                 error_budget_state,
+                 burn_rate_state,
+                 projected_exhaustion_at,
+                 severity,
+                 status
+               ]
+             ]
+           } =
              Repo.query!(
                """
                SELECT
                  unmapped ->> 'event_family',
                  unmapped ->> 'service_level_objective_id',
+                 unmapped ->> 'compliance_transition',
+                 unmapped ->> 'error_budget_state',
+                 unmapped ->> 'burn_rate_state',
+                 unmapped ->> 'projected_exhaustion_at',
                  severity,
                  status
                FROM platform.ocsf_events
@@ -489,6 +507,10 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
 
     assert event_family == "slo_evaluation"
     assert slo_id == to_string(slo.id)
+    assert compliance_transition == "initial_to_noncompliant"
+    assert error_budget_state == "exhausted"
+    assert burn_rate_state == "critical"
+    assert projected_exhaustion_at == nil
     assert severity == "Critical"
     assert status == "Failure"
     assert ["pending", "critical"] = eventually(fn -> latest_alert(alert_title) end)
