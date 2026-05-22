@@ -95,6 +95,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.Changeset.set_context(%{config_schema: schema})
       |> update_resource_with_opts(ash_opts)
+      |> maybe_deactivate_replaced_assignment(assignment)
       |> maybe_sync_assignment_service_state()
       |> maybe_redact_assignment()
     end
@@ -330,6 +331,17 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
   end
 
   defp maybe_sync_assignment_service_state(other), do: other
+
+  defp maybe_deactivate_replaced_assignment(
+         {:ok, %PluginAssignment{plugin_package_id: package_id}} = ok,
+         %PluginAssignment{plugin_package_id: old_package_id} = old_assignment
+       )
+       when package_id != old_package_id do
+    ServiceStateRegistry.deactivate_for_assignment(old_assignment)
+    ok
+  end
+
+  defp maybe_deactivate_replaced_assignment(result, _old_assignment), do: result
 
   defp redact_assignment(%PluginAssignment{} = assignment) do
     %{assignment | params: SecretRefs.public_params(assignment.params || %{})}
