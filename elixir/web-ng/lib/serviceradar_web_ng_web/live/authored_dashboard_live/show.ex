@@ -289,6 +289,40 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
+  def handle_event("toggle_report_schedule", %{"id" => id}, socket) do
+    schedule = Enum.find(socket.assigns.dashboard.report_schedules || [], &(&1.id == id))
+
+    attrs =
+      case schedule do
+        %{enabled: true} -> %{enabled: false}
+        %{enabled: false} -> %{enabled: true}
+        _ -> %{}
+      end
+
+    with :ok <- authorize_report_schedule(socket),
+         {:ok, schedule} <- require_record(schedule),
+         {:ok, _schedule} <-
+           Dashboards.update_authored_report_schedule(socket.assigns.current_scope, schedule, attrs) do
+      {:noreply, socket |> put_flash(:info, "Report schedule updated") |> reload_report_schedules()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Schedule update failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("delete_report_schedule", %{"id" => id}, socket) do
+    schedule = Enum.find(socket.assigns.dashboard.report_schedules || [], &(&1.id == id))
+
+    with :ok <- authorize_report_schedule(socket),
+         {:ok, schedule} <- require_record(schedule),
+         :ok <- Dashboards.delete_authored_report_schedule(socket.assigns.current_scope, schedule) do
+      {:noreply, socket |> put_flash(:info, "Report schedule deleted") |> reload_report_schedules()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Schedule delete failed: #{format_error(reason)}")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -524,7 +558,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             </section>
 
             <section
-              :if={@can_schedule_reports?}
+              :if={can_schedule_dashboard?(@dashboard, assigns)}
               class="rounded-lg border border-base-300"
             >
               <div class="border-b border-base-300 px-3 py-2">
@@ -554,10 +588,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                           {schedule.cron} · {schedule.timezone}
                         </div>
                       </div>
-                      <span class="badge badge-outline">
-                        {schedule.last_status ||
-                          if(schedule.enabled, do: "enabled", else: "disabled")}
-                      </span>
+                      <div class="flex items-center gap-2">
+                        <span class="badge badge-outline">
+                          {schedule.last_status ||
+                            if(schedule.enabled, do: "enabled", else: "disabled")}
+                        </span>
+                        <button
+                          type="button"
+                          class="btn btn-xs btn-ghost"
+                          phx-click="toggle_report_schedule"
+                          phx-value-id={schedule.id}
+                        >
+                          <.icon
+                            name={if(schedule.enabled, do: "hero-pause", else: "hero-play")}
+                            class="size-4"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-xs btn-ghost text-error"
+                          phx-click="delete_report_schedule"
+                          phx-value-id={schedule.id}
+                        >
+                          <.icon name="hero-trash" class="size-4" />
+                        </button>
+                      </div>
                     </div>
                     <p class="mt-2 text-xs text-base-content/55">
                       Next due: {format_value(schedule.next_due_at)}
@@ -875,7 +930,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp dashboard_settings_available?(dashboard, assigns) do
     can_manage_dashboard?(dashboard, assigns) or can_share_dashboard?(dashboard, assigns) or
-      Map.get(assigns, :can_schedule_reports?, false)
+      can_schedule_dashboard?(dashboard, assigns)
   end
 
   defp can_manage_dashboard?(nil, _assigns), do: false
@@ -887,7 +942,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp can_share_dashboard?(nil, _assigns), do: false
 
   defp can_share_dashboard?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) or Map.get(assigns, :can_share?, false)
+    can_manage_dashboard?(dashboard, assigns) and Map.get(assigns, :can_share?, false)
+  end
+
+  defp can_schedule_dashboard?(nil, _assigns), do: false
+
+  defp can_schedule_dashboard?(dashboard, assigns) do
+    can_manage_dashboard?(dashboard, assigns) and Map.get(assigns, :can_schedule_reports?, false)
   end
 
   defp dashboard_owner?(%{owner_id: owner_id}, %{user: %{id: user_id}})
@@ -913,7 +974,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp authorize_report_schedule(socket) do
-    if socket.assigns.can_schedule_reports?, do: :ok, else: {:error, :forbidden}
+    if can_schedule_dashboard?(socket.assigns.dashboard, socket.assigns), do: :ok, else: {:error, :forbidden}
   end
 
   defp panel_attrs(params) do

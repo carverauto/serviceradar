@@ -12,6 +12,8 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget
+  alias ServiceRadar.Dashboards.Validations.ReportScheduleFields
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
@@ -76,10 +78,12 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
 
     create :create do
       accept(@fields)
+      validate(ReportScheduleFields)
     end
 
     update :update do
       accept(@fields -- [:dashboard_id])
+      validate(ReportScheduleFields)
     end
 
     update :enable do
@@ -102,6 +106,7 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
       change(set_attribute(:last_due_at, arg(:due_at)))
       change(set_attribute(:last_status, :queued))
       change(set_attribute(:last_error, nil))
+      validate(ServiceRadar.Dashboards.Validations.NextDueAdvances)
     end
 
     update :record_delivery do
@@ -128,7 +133,10 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
       authorize_if(ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild)
     end
 
-    action_type_with_permission([:create, :update, :destroy], @schedule_check)
+    policy action([:create, :update, :enable, :disable, :destroy]) do
+      forbid_unless(@schedule_check)
+      authorize_if(ActorCanEditDashboardTarget)
+    end
   end
 
   attributes do

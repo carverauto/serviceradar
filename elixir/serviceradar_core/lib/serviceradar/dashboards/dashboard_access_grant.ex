@@ -9,6 +9,7 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardChild
+  alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -54,14 +55,18 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     end
 
     create :create do
-      accept(@fields)
+      accept(@fields -- [:subject_type, :subject_group_id])
+      change(set_attribute(:subject_type, :user))
+      validate(fn changeset, _context -> validate_subject(changeset, :user) end)
       upsert?(true)
       upsert_identity(:unique_user_grant)
       upsert_fields([:access, :granted_by_id, :metadata, :updated_at])
     end
 
     create :create_group do
-      accept(@fields)
+      accept(@fields -- [:subject_type, :subject_user_id])
+      change(set_attribute(:subject_type, :group))
+      validate(fn changeset, _context -> validate_subject(changeset, :group) end)
       upsert?(true)
       upsert_identity(:unique_group_grant)
       upsert_fields([:access, :granted_by_id, :metadata, :updated_at])
@@ -84,8 +89,8 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     end
 
     policy action_type([:create, :update, :destroy]) do
-      authorize_if(@share_check)
-      authorize_if(ActorCanEditDashboardChild)
+      forbid_unless(@share_check)
+      authorize_if(ActorCanEditDashboardTarget)
     end
   end
 
@@ -171,5 +176,25 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     identity(:unique_group_grant, [:dashboard_id, :subject_type, :subject_group_id],
       where: expr(subject_type == :group and not is_nil(subject_group_id))
     )
+  end
+
+  defp validate_subject(changeset, :user) do
+    user_id = Ash.Changeset.get_attribute(changeset, :subject_user_id)
+
+    if user_id do
+      :ok
+    else
+      {:error, field: :subject_user_id, message: "is required for user grants"}
+    end
+  end
+
+  defp validate_subject(changeset, :group) do
+    group_id = Ash.Changeset.get_attribute(changeset, :subject_group_id)
+
+    if group_id do
+      :ok
+    else
+      {:error, field: :subject_group_id, message: "is required for group grants"}
+    end
   end
 end

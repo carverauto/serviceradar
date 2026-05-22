@@ -134,7 +134,7 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
       allow_nil?(false)
       public?(true)
       default(0)
-      constraints(min: 0)
+      constraints(min: 0, max: 86_400)
     end
 
     attribute :position, :integer do

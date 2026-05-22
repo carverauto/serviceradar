@@ -52,21 +52,24 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   @impl true
   def handle_event("toggle_favorite", %{"type" => type, "id" => id, "favorite" => favorite}, socket) do
     scope = socket.assigns.current_scope
-    target_type = target_type(type)
     favorite? = favorite != "true"
 
-    case Dashboards.set_dashboard_favorite(scope, target_type, id, favorite?) do
-      {:ok, _preference} -> {:noreply, reload(socket)}
-      {:error, reason} -> {:noreply, put_flash(socket, :error, "Favorite update failed: #{inspect(reason)}")}
+    with {:ok, target_type} <- target_type(type),
+         {:ok, _preference} <- Dashboards.set_dashboard_favorite(scope, target_type, id, favorite?) do
+      {:noreply, reload(socket)}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Favorite update failed: #{format_error(reason)}")}
     end
   end
 
   def handle_event("set_default", %{"type" => type, "id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    case Dashboards.set_default_dashboard(scope, target_type(type), id) do
-      {:ok, _preference} -> {:noreply, reload(socket)}
-      {:error, reason} -> {:noreply, put_flash(socket, :error, "Default update failed: #{inspect(reason)}")}
+    with {:ok, target_type} <- target_type(type),
+         {:ok, _preference} <- Dashboards.set_default_dashboard(scope, target_type, id) do
+      {:noreply, reload(socket)}
+    else
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Default update failed: #{format_error(reason)}")}
     end
   end
 
@@ -259,8 +262,13 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
 
   defp sort_key(item), do: {not item.default?, not item.favorite?, item.title}
 
-  defp target_type("authored"), do: :authored
-  defp target_type("package"), do: :package
+  defp target_type("authored"), do: {:ok, :authored}
+  defp target_type("package"), do: {:ok, :package}
+  defp target_type(_type), do: {:error, :invalid_dashboard_type}
+
+  defp format_error(:invalid_dashboard_type), do: "Unknown dashboard type"
+  defp format_error(%Ash.Error.Forbidden{}), do: "Not authorized"
+  defp format_error(_reason), do: "Unable to update dashboard preference"
 
   defp reload(socket) do
     scope = socket.assigns.current_scope

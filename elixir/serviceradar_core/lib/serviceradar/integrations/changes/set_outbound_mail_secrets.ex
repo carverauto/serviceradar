@@ -5,53 +5,54 @@ defmodule ServiceRadar.Integrations.Changes.SetOutboundMailSecrets do
 
   use Ash.Resource.Change
 
-  alias ServiceRadar.Vault
-
   @impl true
   def change(changeset, _opts, _context) do
-    case encrypted_payload(changeset) do
-      {:ok, payload} ->
-        Enum.reduce(payload, changeset, fn {field, value}, acc ->
-          Ash.Changeset.change_attribute(acc, field, value)
-        end)
-
-      {:error, {field, message}} ->
-        Ash.Changeset.add_error(changeset, field: field, message: message)
-    end
+    changeset
+    |> maybe_clear_secret(:password, :encrypted_password)
+    |> maybe_clear_secret(:api_key, :encrypted_api_key)
+    |> maybe_set_secret(:password)
+    |> maybe_set_secret(:api_key)
   end
 
   @impl true
   def atomic(changeset, _opts, _context) do
-    case encrypted_payload(changeset) do
-      {:ok, payload} ->
-        {:atomic, payload}
-
-      {:error, {field, message}} ->
-        {:error, Ash.Error.Changes.InvalidAttribute.exception(field: field, message: message)}
-    end
+    {:atomic,
+     %{}
+     |> maybe_put_clear(changeset, :password, :encrypted_password)
+     |> maybe_put_clear(changeset, :api_key, :encrypted_api_key)
+     |> maybe_put_encrypted(changeset, :password, :encrypted_password)
+     |> maybe_put_encrypted(changeset, :api_key, :encrypted_api_key)}
   end
 
-  defp encrypted_payload(changeset) do
-    with {:ok, payload} <- encrypt_secret(changeset, :password, :encrypted_password, %{}) do
-      encrypt_secret(changeset, :api_key, :encrypted_api_key, payload)
-    end
-  end
-
-  defp encrypt_secret(changeset, arg, encrypted_attr, payload) do
+  defp maybe_clear_secret(changeset, arg, encrypted_attr) do
     clear_arg = :"clear_#{arg}"
 
-    cond do
-      Ash.Changeset.get_argument(changeset, clear_arg) ->
-        {:ok, Map.put(payload, encrypted_attr, nil)}
+    if Ash.Changeset.get_argument(changeset, clear_arg) do
+      Ash.Changeset.force_change_attribute(changeset, encrypted_attr, nil)
+    else
+      changeset
+    end
+  end
 
-      value = normalized_secret(Ash.Changeset.get_argument(changeset, arg)) ->
-        case Vault.encrypt(value) do
-          {:ok, encrypted} -> {:ok, Map.put(payload, encrypted_attr, encrypted)}
-          {:error, _reason} -> {:error, {arg, "Failed to encrypt credential"}}
-        end
+  defp maybe_set_secret(changeset, arg) do
+    case normalized_secret(Ash.Changeset.get_argument(changeset, arg)) do
+      nil -> changeset
+      value -> AshCloak.encrypt_and_set(changeset, arg, value)
+    end
+  end
 
-      true ->
-        {:ok, payload}
+  defp maybe_put_clear(payload, changeset, arg, encrypted_attr) do
+    if Ash.Changeset.get_argument(changeset, :"clear_#{arg}") do
+      Map.put(payload, encrypted_attr, nil)
+    else
+      payload
+    end
+  end
+
+  defp maybe_put_encrypted(payload, changeset, arg, encrypted_attr) do
+    case normalized_secret(Ash.Changeset.get_argument(changeset, arg)) do
+      nil -> payload
+      value -> Map.put(payload, encrypted_attr, AshCloak.do_encrypt(changeset.resource, value))
     end
   end
 

@@ -12,8 +12,6 @@ defmodule ServiceRadar.Dashboards.DashboardReportDelivery do
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
   @view_all_check {ActorHasPermission, permission: "analytics.dashboards.view_all"}
-  @schedule_check {ActorHasPermission, permission: "analytics.reports.schedule"}
-
   @fields [
     :schedule_id,
     :dashboard_id,
@@ -75,14 +73,7 @@ defmodule ServiceRadar.Dashboards.DashboardReportDelivery do
       upsert?(true)
       upsert_identity(:unique_schedule_due)
 
-      upsert_fields([
-        :dashboard_id,
-        :status,
-        :recipients,
-        :recipient_count,
-        :rendered_metadata,
-        :updated_at
-      ])
+      upsert_fields([:updated_at])
     end
 
     update :mark_running do
@@ -118,7 +109,8 @@ defmodule ServiceRadar.Dashboards.DashboardReportDelivery do
       authorize_if(ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild)
     end
 
-    action_type_with_permission([:create, :update, :destroy], @schedule_check)
+    # Delivery rows and state transitions are internal scanner/worker state.
+    # The system_bypass above authorizes those paths; users can only read them.
   end
 
   attributes do

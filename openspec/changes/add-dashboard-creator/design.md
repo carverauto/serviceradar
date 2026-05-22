@@ -46,6 +46,9 @@ The existing `/dashboard` route remains the main operations dashboard. Saved aut
 
 The existing `/dashboards/:route_slug` package-host route stays unchanged.
 
+Authored dashboards support both UUID lookup and user-editable slugs immediately.
+Slugs are optional, unique when present, and do not replace the canonical UUID.
+
 ### Decision: Keep visualization rendering in web-ng
 The creator uses a fixed visual registry in web-ng. Initial visual families:
 
@@ -84,6 +87,17 @@ A report delivery evaluates the dashboard panels with report-safe SRQL limits an
 
 PDF/export can be added later behind the same delivery model if needed.
 
+Report recipients may be arbitrary external email addresses in this iteration.
+That is intentionally gated by both the global `analytics.reports.schedule`
+permission and per-dashboard edit access, because a schedule can exfiltrate the
+dashboard's SRQL result snapshot outside ServiceRadar.
+
+### Decision: Public dashboards use the dashboard create permission
+The first iteration does not add a narrower publishing permission. Users with
+`analytics.dashboards.create` can create public dashboards, while edit/share and
+report-schedule operations still require the relevant global permission plus
+per-dashboard ownership or edit-grant access.
+
 ## Risks / Trade-Offs
 - Visual inference can be wrong for ambiguous fields. Mitigation: users can override visual type and field mappings, and table fallback is always available.
 - Report execution can become expensive. Mitigation: enforce panel/report limits, capture failures, and run deliveries through a bounded Oban queue.
@@ -91,6 +105,5 @@ PDF/export can be added later behind the same delivery model if needed.
 - Email rendering may lag interactive visuals. Mitigation: start with robust HTML/tabular summaries and use chart snapshots only where deterministic.
 
 ## Open Questions
-- Should dashboard IDs be UUID-only at first, or support user-editable slugs immediately?
-- Which roles can create public dashboards: operators only, or a narrower dashboard publishing permission?
-- Should reports support arbitrary recipient emails, or only ServiceRadar users/groups in the first iteration?
+- Should public dashboard creation later get a narrower publishing permission?
+- Should report recipients later be restricted to ServiceRadar users/groups or verified domains?

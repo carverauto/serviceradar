@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardReportDelivery
   alias ServiceRadar.Dashboards.DashboardReportSchedule
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Dashboards.Authored
   alias ServiceRadarWebNG.Dashboards.ReportDeliveryWorker
@@ -77,10 +78,21 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
     due_at = schedule.next_due_at || DateTime.utc_now()
     next_due_at = next_due_at(schedule, due_at)
 
-    with {:ok, delivery} <- create_delivery(actor, schedule, due_at),
-         {:ok, _job} <- insert_delivery_job(delivery),
-         {:ok, _schedule} <- record_due_enqueue(actor, schedule, due_at, next_due_at) do
-      {:ok, delivery}
+    case Repo.transaction(fn ->
+           with {:ok, delivery, delivery_notifications} <- create_delivery(actor, schedule, due_at),
+                {:ok, _schedule, schedule_notifications} <- record_due_enqueue(actor, schedule, due_at, next_due_at),
+                {:ok, _job} <- ensure_delivery_job(delivery) do
+             {delivery, delivery_notifications ++ schedule_notifications}
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {delivery, notifications}} ->
+        Ash.Notifier.notify(notifications)
+        {:ok, delivery}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -97,7 +109,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
 
     DashboardReportDelivery
     |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-    |> Ash.create(actor: actor)
+    |> Ash.create(actor: actor, return_notifications?: true)
   end
 
   defp record_due_enqueue(actor, schedule, due_at, next_due_at) do
@@ -107,10 +119,14 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
       %{due_at: due_at, next_due_at: next_due_at},
       actor: actor
     )
-    |> Ash.update(actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
   end
 
-  defp insert_delivery_job(delivery) do
+  defp ensure_delivery_job(%{status: status}) when status in [:sent, "sent"] do
+    {:ok, :already_sent}
+  end
+
+  defp ensure_delivery_job(delivery) do
     %{"delivery_id" => delivery.id}
     |> ReportDeliveryWorker.new()
     |> ObanSupport.safe_insert()

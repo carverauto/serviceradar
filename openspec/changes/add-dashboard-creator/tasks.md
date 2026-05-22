@@ -26,7 +26,7 @@
 - [x] 4.2 Add one periodic scheduler job that finds due enabled schedules and enqueues per-due delivery jobs.
 - [x] 4.3 Add an idempotent delivery worker that renders a bounded dashboard snapshot and sends email through existing mailer infrastructure.
 - [x] 4.4 Persist delivery history with success/failure status, retry metadata, and operator-visible errors.
-- [ ] 4.5 Add tests covering due schedule scan, duplicate prevention, successful delivery, failure recording, and disabled schedules.
+- [x] 4.5 Add tests covering due schedule scan, duplicate prevention, successful delivery, failure recording, and disabled schedules.
 - [x] 4.6 Add deployment outbound mail settings with adapter selection and encrypted-local or credential-broker-backed secrets.
 - [x] 4.7 Add an admin Settings UI for outbound mail configuration.
 - [x] 4.8 Route dashboard report delivery through the shared outbound mail runtime.
@@ -38,7 +38,7 @@
 - [x] 5.4 Ensure dashboard package management remains under Settings -> Dashboards and does not mix with authored dashboard CRUD.
 
 ## 6. Validation
-- [ ] 6.1 Run focused Ash/resource tests for dashboard resources and report jobs.
+- [x] 6.1 Run focused Ash/resource tests for dashboard resources and report jobs.
 - [ ] 6.2 Run focused LiveView tests for creator, editor, saved dashboard display, and report schedule workflows.
 - [x] 6.3 Run `mix format` and relevant web-ng quality checks.
 - [x] 6.4 Run `openspec validate add-dashboard-creator --strict`.

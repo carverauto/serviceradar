@@ -12,6 +12,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.AshContext
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
@@ -74,7 +75,14 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     end
 
     create :create do
-      accept(@fields)
+      accept(@fields -- [:owner_id])
+
+      change(fn changeset, context ->
+        case actor_uuid(context) do
+          nil -> changeset
+          owner_id -> Ash.Changeset.change_attribute(changeset, :owner_id, owner_id)
+        end
+      end)
     end
 
     update :update do
@@ -209,5 +217,14 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
 
   identities do
     identity(:unique_slug, [:slug], where: expr(not is_nil(slug)))
+  end
+
+  defp actor_uuid(context) do
+    with %{id: actor_id} <- AshContext.actor(context),
+         {:ok, uuid} <- Ecto.UUID.cast(actor_id) do
+      uuid
+    else
+      _ -> nil
+    end
   end
 end

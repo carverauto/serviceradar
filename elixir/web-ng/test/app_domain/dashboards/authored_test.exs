@@ -169,4 +169,44 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert stored.favorite
     assert stored.is_default
   end
+
+  test "dashboard ownership is bound to the creating user", %{scope: scope} do
+    other_user = admin_user_fixture()
+
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Owned #{System.unique_integer([:positive])}",
+               owner_id: other_user.id
+             })
+
+    assert dashboard.owner_id == scope.user.id
+    refute dashboard.owner_id == other_user.id
+  end
+
+  test "sharing requires edit access to the target dashboard", %{dashboard: dashboard} do
+    actor = admin_user_fixture()
+    recipient = admin_user_fixture()
+    actor_scope = Scope.for_user(actor)
+
+    assert {:error, _reason} =
+             Dashboards.grant_authored_dashboard_to_user(actor_scope, %{
+               dashboard_id: dashboard.id,
+               user_id: recipient.id,
+               access: :edit
+             })
+  end
+
+  test "report scheduling requires edit access to the target dashboard", %{dashboard: dashboard} do
+    actor = admin_user_fixture()
+    actor_scope = Scope.for_user(actor)
+
+    assert {:error, _reason} =
+             Dashboards.create_authored_report_schedule(actor_scope, %{
+               dashboard_id: dashboard.id,
+               name: "Unauthorized",
+               recipients: ["noc@example.com"],
+               cron: "0 8 * * *",
+               timezone: "UTC"
+             })
+  end
 end

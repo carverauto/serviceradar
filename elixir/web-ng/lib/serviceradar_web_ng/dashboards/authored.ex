@@ -160,13 +160,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec create_dashboard(term(), map()) :: {:ok, AuthoredDashboard.t()} | {:error, term()}
   def create_dashboard(scope, attrs) when is_map(attrs) do
-    attrs =
-      attrs
-      |> dashboard_attrs()
-      |> Map.put_new(:owner_id, owner_id(scope))
-
     AuthoredDashboard
-    |> Ash.Changeset.for_create(:create, attrs)
+    |> Ash.Changeset.for_create(:create, dashboard_attrs(attrs))
+    |> maybe_set_owner(scope)
     |> create(scope)
   end
 
@@ -283,6 +279,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   def update_report_schedule(_scope, _schedule, _attrs), do: {:error, :invalid_attributes}
+
+  @spec delete_report_schedule(term(), DashboardReportSchedule.t()) :: :ok | {:error, term()}
+  def delete_report_schedule(scope, %DashboardReportSchedule{} = schedule) do
+    case destroy(schedule, scope) do
+      {:ok, _} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  def delete_report_schedule(_scope, _schedule), do: {:error, :invalid_attributes}
 
   defp validate_panel_attrs(scope, attrs) do
     srql_query = Map.get(attrs, :srql_query)
@@ -662,6 +668,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp destroy(record, nil), do: Ash.destroy(record)
   defp destroy(record, scope), do: Ash.destroy(record, scope: scope)
 
+  defp maybe_set_owner(changeset, scope) do
+    case owner_id(scope) do
+      user_id when is_binary(user_id) -> Ash.Changeset.force_change_attribute(changeset, :owner_id, user_id)
+      _ -> changeset
+    end
+  end
+
   defp clear_default_dashboard(scope) do
     scope
     |> list_dashboard_preferences()
@@ -694,7 +707,6 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> put_if_present(:title, fetch_string(attrs, [:title, "title"]))
     |> put_if_present(:description, fetch_string(attrs, [:description, "description"]))
     |> put_if_present(:slug, fetch_slug(attrs))
-    |> put_if_present(:owner_id, fetch_value(attrs, [:owner_id, "owner_id"]))
     |> put_if_present(
       :visibility,
       normalize_existing_atom(fetch_value(attrs, [:visibility, "visibility"]), [
@@ -997,7 +1009,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp fetch_recipients(_map), do: nil
 
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      if Map.has_key?(map, key) do
+        {:halt, Map.get(map, key)}
+      else
+        {:cont, nil}
+      end
+    end)
   end
 
   defp put_if_present(map, _key, nil), do: map

@@ -123,19 +123,19 @@ fn build_dashboard_query(plan: &QueryPlan) -> Result<DashboardSql> {
     'metadata', d.metadata,
     'panel_count', (
         SELECT count(*)::bigint
-        FROM authored_dashboard_panels p
+        FROM platform.authored_dashboard_panels p
         WHERE p.dashboard_id = d.id
     ),
     'report_schedule_count', (
         SELECT count(*)::bigint
-        FROM dashboard_report_schedules s
+        FROM platform.dashboard_report_schedules s
         WHERE s.dashboard_id = d.id
     ),
     'archived_at', d.archived_at,
     'inserted_at', d.inserted_at,
     'updated_at', d.updated_at
 ) AS payload
-FROM authored_dashboards d"#,
+FROM platform.authored_dashboards d"#,
     );
 
     let mut binds = Vec::new();
@@ -173,8 +173,8 @@ fn filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
         "id" | "dashboard_id" => uuid_filter("d.id", filter),
         "owner_id" => uuid_filter("d.owner_id", filter),
         "title" => text_filter("d.title", filter),
-        "description" => text_filter("d.description", filter),
-        "slug" => text_filter("d.slug", filter),
+        "description" => text_filter("COALESCE(d.description, '')", filter),
+        "slug" => text_filter("COALESCE(d.slug, '')", filter),
         "visibility" => text_filter("d.visibility", filter),
         "status" => text_filter("d.status", filter),
         "default_time_range" | "time_range" => text_filter("d.default_time_range", filter),
@@ -222,14 +222,14 @@ fn search_filter(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
         FilterOp::Eq | FilterOp::Like => {
             let value = text_scalar(filter)?;
             Ok((
-                "(d.title ILIKE ? OR d.description ILIKE ? OR d.slug ILIKE ? OR EXISTS (SELECT 1 FROM authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?))".to_string(),
+                "(d.title ILIKE ? OR COALESCE(d.description, '') ILIKE ? OR COALESCE(d.slug, '') ILIKE ? OR EXISTS (SELECT 1 FROM platform.authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?))".to_string(),
                 vec![value.clone(), value.clone(), value.clone(), value],
             ))
         }
         FilterOp::NotEq | FilterOp::NotLike => {
             let value = text_scalar(filter)?;
             Ok((
-                "(d.title NOT ILIKE ? AND COALESCE(d.description, '') NOT ILIKE ? AND COALESCE(d.slug, '') NOT ILIKE ? AND NOT EXISTS (SELECT 1 FROM authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?))".to_string(),
+                "(d.title NOT ILIKE ? AND COALESCE(d.description, '') NOT ILIKE ? AND COALESCE(d.slug, '') NOT ILIKE ? AND NOT EXISTS (SELECT 1 FROM platform.authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?))".to_string(),
                 vec![value.clone(), value.clone(), value.clone(), value],
             ))
         }
@@ -252,12 +252,12 @@ fn panel_query_filter(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
 
     if operator == "ILIKE" {
         Ok((
-            "EXISTS (SELECT 1 FROM authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?)".to_string(),
+            "EXISTS (SELECT 1 FROM platform.authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?)".to_string(),
             vec![value],
         ))
     } else {
         Ok((
-            "NOT EXISTS (SELECT 1 FROM authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?)".to_string(),
+            "NOT EXISTS (SELECT 1 FROM platform.authored_dashboard_panels p WHERE p.dashboard_id = d.id AND p.srql_query ILIKE ?)".to_string(),
             vec![value],
         ))
     }
@@ -369,8 +369,11 @@ mod tests {
 
         let (sql, params) = to_sql_and_params(&plan).expect("dashboard SQL should translate");
 
-        assert!(sql.contains("FROM authored_dashboards d"), "{sql}");
-        assert!(sql.contains("authored_dashboard_panels p"), "{sql}");
+        assert!(sql.contains("FROM platform.authored_dashboards d"), "{sql}");
+        assert!(
+            sql.contains("platform.authored_dashboard_panels p"),
+            "{sql}"
+        );
         assert!(sql.contains("d.title ILIKE"), "{sql}");
         assert!(sql.contains("d.status ="), "{sql}");
         assert!(sql.contains("ORDER BY d.updated_at DESC"), "{sql}");
