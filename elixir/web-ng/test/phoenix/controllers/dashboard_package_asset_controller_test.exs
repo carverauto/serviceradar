@@ -4,23 +4,25 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetControllerTest do
   import ServiceRadarWebNG.AshTestHelpers, only: [admin_user_fixture: 0]
 
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.Dashboards.FirstPartyPackages
   alias ServiceRadarWebNG.Plugins.Storage
 
   @renderer "export function mountDashboard() {}"
 
   setup %{conn: conn} do
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
-    tmp = Path.join(System.tmp_dir!(), "sr-dashboard-asset-test-#{System.unique_integer([:positive])}")
+    store_name = :"sr_dashboard_asset_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = ServiceRadarWebNG.PluginStorageTestClient.start_link(store_name)
     user = admin_user_fixture()
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: ServiceRadarWebNG.PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
     on_exit(fn ->
-      File.rm_rf(tmp)
       restore_env(:plugin_storage, original_storage)
     end)
 
@@ -62,6 +64,16 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetControllerTest do
     conn = get(conn, ~p"/dashboard-packages/#{package.id}/renderer")
 
     assert response(conn, 404) == "dashboard renderer not found"
+  end
+
+  test "serves first-party renderer artifacts from bundled product assets", %{conn: conn} do
+    {:ok, %{package: package}} = FirstPartyPackages.ensure_service_availability_noc()
+
+    conn = get(conn, ~p"/dashboard-packages/#{package.id}/renderer")
+
+    assert response(conn, 200) =~ "mountDashboard"
+    assert ["text/javascript" <> _] = get_resp_header(conn, "content-type")
+    assert get_resp_header(conn, "etag") == [~s("#{package.content_hash}")]
   end
 
   defp import_package(dashboard_id, opts \\ []) do

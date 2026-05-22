@@ -1,13 +1,19 @@
 ## ADDED Requirements
 
 ### Requirement: Service availability dashboards use dashboard SDK packages
-New first-party service availability dashboards SHALL be built as dashboard SDK packages rather than bespoke one-off dashboard surfaces.
+New first-party service availability dashboards SHALL be built as dashboard SDK packages rather than bespoke one-off dashboard surfaces, and SHALL be available by default in fresh ServiceRadar deployments.
 
 #### Scenario: NOC dashboard package queries SRQL
 - **GIVEN** the service monitoring model is enabled
 - **WHEN** the first-party service availability dashboard is built
 - **THEN** it SHALL be packaged through the dashboard SDK workflow
 - **AND** it SHALL query SRQL for services, check instances, alerts, and availability rollups
+
+#### Scenario: Fresh deployment includes the NOC dashboard
+- **GIVEN** ServiceRadar starts with dashboard package storage tables available
+- **WHEN** the web application bootstraps first-party dashboards
+- **THEN** the Service Availability NOC package SHALL be imported from bundled product artifacts
+- **AND** it SHALL be enabled at `/dashboards/service-availability-noc` without requiring an administrator import or enable action
 
 ### Requirement: Dashboard filters align with service monitoring tags and groups
 Service availability dashboards SHALL expose filters for service tags, service groups, plugin capability, device tags, and agent/vantage point.

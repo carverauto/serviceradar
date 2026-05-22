@@ -200,6 +200,12 @@ ServiceRadar ships the first-party package source under
 Dashboard SDK and emits a verified `dist/manifest.json` plus `dist/renderer.js`
 artifact for product import or release packaging.
 
+The web application also bundles those built artifacts under
+`elixir/web-ng/priv/dashboard-packages/service-availability-noc` and seeds the
+dashboard package plus an enabled `/dashboards/service-availability-noc` route
+on startup. Fresh deployments do not require an administrator to import or
+enable this core product dashboard.
+
 High-signal frames:
 
 ```srql

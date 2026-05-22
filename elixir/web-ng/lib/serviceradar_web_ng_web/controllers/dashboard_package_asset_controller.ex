@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
 
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.Dashboards.FirstPartyPackages
   alias ServiceRadarWebNG.Plugins.Storage
 
   def show(conn, %{"id" => id}) do
@@ -10,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
 
     with {:ok, %DashboardPackage{} = package} <- Dashboards.get_package(id, scope: scope),
          :ok <- ensure_renderer_available(package),
-         {:ok, blob} <- Storage.fetch_blob(package.wasm_object_key) do
+         {:ok, blob} <- fetch_renderer_blob(package) do
       send_renderer_blob(conn, blob, package)
     else
       _ ->
@@ -30,6 +31,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
   end
 
   defp ensure_renderer_available(_package), do: {:error, :not_available}
+
+  defp fetch_renderer_blob(%DashboardPackage{source_type: :first_party} = package) do
+    FirstPartyPackages.fetch_renderer(package)
+  end
+
+  defp fetch_renderer_blob(%DashboardPackage{} = package) do
+    Storage.fetch_blob(package.wasm_object_key)
+  end
 
   defp send_renderer_blob(conn, {:binary, payload}, %DashboardPackage{} = package) do
     conn
