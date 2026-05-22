@@ -195,6 +195,11 @@ First-party service availability and SLO dashboards should be authored as
 dashboard SDK packages. The dashboard should be SRQL-driven and filter by tags,
 service group, descriptor, agent or vantage point, status, severity, and owner.
 
+ServiceRadar ships the first-party package source under
+`dashboard-packages/service-availability-noc`. The package is built with the
+Dashboard SDK and emits a verified `dist/manifest.json` plus `dist/renderer.js`
+artifact for product import or release packaging.
+
 High-signal frames:
 
 ```srql
