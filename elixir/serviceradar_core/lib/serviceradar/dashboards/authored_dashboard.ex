@@ -106,7 +106,12 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     end
 
     action_with_permission(:create, @create_check)
-    action_with_permission([:update, :restore], @edit_check)
+
+    policy action([:update, :restore]) do
+      authorize_if(@edit_check)
+      authorize_if(ServiceRadar.Dashboards.Checks.ActorCanEditDashboard)
+    end
+
     action_with_permission([:archive, :destroy], @delete_check)
   end
 

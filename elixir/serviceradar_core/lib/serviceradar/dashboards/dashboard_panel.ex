@@ -81,7 +81,10 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
       authorize_if(ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild)
     end
 
-    action_type_with_permission([:create, :update, :destroy], @edit_check)
+    policy action_type([:create, :update, :destroy]) do
+      authorize_if(@edit_check)
+      authorize_if(ServiceRadar.Dashboards.Checks.ActorCanEditDashboardChild)
+    end
   end
 
   attributes do

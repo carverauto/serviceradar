@@ -8,6 +8,8 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardChild
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_all_check {ActorHasPermission, permission: "analytics.dashboards.view_all"}
@@ -78,9 +80,13 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     policy action_type(:read) do
       authorize_if(@view_all_check)
       authorize_if(@share_check)
+      authorize_if(ActorCanEditDashboardChild)
     end
 
-    action_type_with_permission([:create, :update, :destroy], @share_check)
+    policy action_type([:create, :update, :destroy]) do
+      authorize_if(@share_check)
+      authorize_if(ActorCanEditDashboardChild)
+    end
   end
 
   attributes do
@@ -135,7 +141,7 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
       source_attribute(:dashboard_id)
     end
 
-    belongs_to :subject_user, ServiceRadar.Identity.User do
+    belongs_to :subject_user, User do
       attribute_writable?(true)
       public?(true)
       define_attribute?(false)
@@ -149,7 +155,7 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
       source_attribute(:subject_group_id)
     end
 
-    belongs_to :granted_by, ServiceRadar.Identity.User do
+    belongs_to :granted_by, User do
       attribute_writable?(true)
       public?(true)
       define_attribute?(false)
