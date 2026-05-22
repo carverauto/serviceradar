@@ -17,8 +17,6 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   """
   use Phoenix.Component
 
-  import Phoenix.ReactServer.Helper
-
   @doc """
   Renders the GoRules JDM editor for Zen rule definitions.
 
@@ -211,19 +209,9 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_access_terminal(assigns) do
     assigns =
-      assigns
-      |> assign(:props, %{
+      assign(assigns, :props, %{
         sessionId: assigns.session_id,
         ticket: assigns.ticket,
-        websocketPath: assigns.websocket_path,
-        title: assigns.title,
-        subtitle: assigns.subtitle,
-        streamLabel: assigns.stream_label,
-        closeLabel: assigns.close_label
-      })
-      |> assign(:render_props, %{
-        sessionId: assigns.session_id,
-        ticket: "",
         websocketPath: assigns.websocket_path,
         title: assigns.title,
         subtitle: assigns.subtitle,
@@ -239,11 +227,10 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessTerminal"
       data-props={Jason.encode!(@props)}
     >
-      {react_component(%{
-        component: "RemoteAccessTerminal",
-        props: @render_props,
-        static: false
-      })}
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading remote access...</span>
+      </div>
     </div>
     """
   end
@@ -258,17 +245,9 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_console_terminal(assigns) do
     assigns =
-      assigns
-      |> assign(:props, %{
+      assign(assigns, :props, %{
         sessionId: assigns.session_id,
         ticket: assigns.ticket,
-        websocketPath: assigns.websocket_path,
-        title: assigns.title,
-        subtitle: assigns.subtitle
-      })
-      |> assign(:render_props, %{
-        sessionId: assigns.session_id,
-        ticket: "",
         websocketPath: assigns.websocket_path,
         title: assigns.title,
         subtitle: assigns.subtitle
@@ -282,11 +261,10 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteConsoleTerminal"
       data-props={Jason.encode!(@props)}
     >
-      {react_component(%{
-        component: "RemoteConsoleTerminal",
-        props: @render_props,
-        static: false
-      })}
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading console...</span>
+      </div>
     </div>
     """
   end
