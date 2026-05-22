@@ -13,6 +13,7 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
   alias ServiceRadar.Monitoring.ServiceLevelIndicator
   alias ServiceRadar.Monitoring.ServiceLevelObjective
   alias ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluation
+  alias ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder
   alias ServiceRadar.Monitoring.ServiceMonitoringBackfill
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Plugins.Plugin
@@ -387,6 +388,76 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
       )
 
     assert {:error, _reason} = result
+  end
+
+  test "SLO recorder persists evaluations, refreshes summaries, and emits events", %{
+    actor: actor,
+    unique: unique
+  } do
+    assert {:ok, sli} =
+             ServiceLevelIndicator.create_indicator(
+               %{
+                 sli_key: "recorder-availability-#{unique}",
+                 name: "Recorder Availability #{unique}",
+                 sli_type: :availability
+               },
+               actor: actor
+             )
+
+    assert {:ok, slo} =
+             ServiceLevelObjective.create_objective(
+               %{
+                 slo_key: "recorder-slo-#{unique}",
+                 name: "Recorder SLO #{unique}",
+                 sli_id: sli.id,
+                 target_set_type: :service_srql,
+                 target_query: "in:services tag:recorder",
+                 slo_kind: :request_based,
+                 goal_basis_points: 9_900,
+                 alert_policy: %{"warn_budget_remaining_below_basis_points" => 2_500}
+               },
+               actor: actor
+             )
+
+    assert {:ok, evaluation} =
+             ServiceLevelObjectiveRecorder.evaluate_and_record(
+               slo,
+               %{
+                 period_started_at: ~U[2026-05-01 00:00:00Z],
+                 period_ended_at: ~U[2026-05-21 00:00:00Z],
+                 evaluated_at: ~U[2026-05-21 00:05:00Z],
+                 eligible_events: 1_000,
+                 good_events: 980
+               },
+               actor: actor
+             )
+
+    assert evaluation.compliance_state == :noncompliant
+    assert evaluation.event_id
+
+    assert {:ok, updated_slo} = ServiceLevelObjective.get_by_id(slo.id, actor: actor)
+    assert updated_slo.last_compliance_state == :noncompliant
+    assert updated_slo.last_budget_remaining_basis_points == -10_000
+    assert updated_slo.last_evaluated_at == ~U[2026-05-21 00:05:00Z]
+
+    assert %{rows: [[event_family, slo_id, severity, status]]} =
+             Repo.query!(
+               """
+               SELECT
+                 unmapped ->> 'event_family',
+                 unmapped ->> 'service_level_objective_id',
+                 severity,
+                 status
+               FROM platform.ocsf_events
+               WHERE id = $1::uuid
+               """,
+               [Ecto.UUID.dump!(evaluation.event_id)]
+             )
+
+    assert event_family == "slo_evaluation"
+    assert slo_id == to_string(slo.id)
+    assert severity == "Critical"
+    assert status == "Failure"
   end
 
   test "active bindings compile into check instances and descriptor-aware plugin assignments", %{

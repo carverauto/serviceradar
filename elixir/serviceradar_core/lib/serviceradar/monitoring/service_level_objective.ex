@@ -14,6 +14,7 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjective do
   @services_view_check {ActorHasPermission, permission: "services.view"}
   @services_create_check {ActorHasPermission, permission: "services.create"}
   @services_update_check {ActorHasPermission, permission: "services.update"}
+  @services_run_check {ActorHasPermission, permission: "services.run"}
 
   @fields [
     :slo_key,
@@ -140,7 +141,7 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjective do
     action_type_with_permission(:read, @services_view_check)
     action_type_with_permission(:create, @services_create_check)
     action_with_permission([:update, :activate, :disable, :archive], @services_update_check)
-    action_with_permission(:record_evaluation_summary, @services_update_check)
+    action_with_permission(:record_evaluation_summary, @services_run_check)
   end
 
   attributes do
