@@ -14,6 +14,7 @@ Operators need a workflow closer to Checkmk, Zabbix, Nagios, and WhatsUp Gold: s
 - Reuse unified credential management for network-wide credential rules and per-device or per-service credential overrides.
 - Update the plugin configuration UI to prefer searchable selectors and bulk workflows over free-form device/service text fields.
 - Add service availability dashboards built with the dashboard SDK and driven by SRQL queries over tags, services, checks, and plugin capability metadata.
+- Add first-class SLI/SLO definitions for service availability, latency, success ratio, and custom SRQL-backed indicators, including error-budget and burn-rate monitoring.
 - Define check-result normalization so status changes can create events, and event/rule state can promote to alerts with dedupe, cooldown, severity, and ownership metadata.
 - Update Go and Rust plugin SDKs in parity so plugin authors can declare check descriptors, consume normalized target contexts, request brokered credentials, and emit target-scoped results.
 
@@ -36,6 +37,7 @@ Operators need a workflow closer to Checkmk, Zabbix, Nagios, and WhatsUp Gold: s
   - `add-per-agent-availability` provides per-agent availability state semantics that service checks should align with.
 - Affected code:
   - Ash resources and migrations for services, service groups, monitoring bindings, check instances, result state, and escalation policy links.
+  - Ash resources and migrations for SLI definitions, SLO objectives, evaluation windows, error-budget state, and burn-rate state.
   - Plugin package import/approval, assignment materialization, agent config, and plugin result ingestion.
   - Go agent plugin runtime and target-batched execution.
   - Go SDK at `~/src/serviceradar-sdk-go` and Rust SDK at `~/src/serviceradar-sdk-rust`.

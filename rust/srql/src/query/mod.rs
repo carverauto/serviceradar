@@ -141,6 +141,7 @@ mod logs;
 mod memory_metrics;
 mod otel_metrics;
 mod process_metrics;
+mod service_monitoring;
 mod services;
 mod timeseries_metrics;
 mod trace_summaries;
@@ -250,6 +251,16 @@ impl QueryEngine {
                 Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
                 Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
                 Entity::Services => services::execute(&mut conn, &plan).await?,
+                Entity::MonitoredServices
+                | Entity::ServiceCheckInstances
+                | Entity::ServiceGroups
+                | Entity::ServiceGroupMemberships
+                | Entity::ServiceAvailability
+                | Entity::ServiceLevelIndicators
+                | Entity::ServiceLevelObjectives
+                | Entity::ServiceLevelObjectiveEvaluations => {
+                    service_monitoring::execute(&mut conn, &plan).await?
+                }
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
                 Entity::Traces => traces::execute(&mut conn, &plan).await?,
                 Entity::Alerts => alerts::execute(&mut conn, &plan).await?,
@@ -794,6 +805,16 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
             Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
             Entity::Services => services::to_sql_and_params(&plan)?,
+            Entity::MonitoredServices
+            | Entity::ServiceCheckInstances
+            | Entity::ServiceGroups
+            | Entity::ServiceGroupMemberships
+            | Entity::ServiceAvailability
+            | Entity::ServiceLevelIndicators
+            | Entity::ServiceLevelObjectives
+            | Entity::ServiceLevelObjectiveEvaluations => {
+                service_monitoring::to_sql_and_params(&plan)?
+            }
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
             Entity::Alerts => alerts::to_sql_and_params(&plan)?,
@@ -1475,6 +1496,122 @@ mod tests {
             "inventory summary should not truncate facet buckets, got: {sql}"
         );
         assert!(params.is_empty(), "rollup summary should not bind params");
+    }
+
+    #[test]
+    fn monitored_services_query_supports_tags_and_sorting() {
+        let query = "in:monitored_services tag.role:public-web sort:updated_at:desc";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::MonitoredServices));
+        let (sql, params) =
+            service_monitoring::to_sql_and_params(&plan).expect("should build service SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("from monitored_services t"),
+            "expected monitored_services table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("t.tags ->> 'role'"),
+            "expected tag filter in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("order by t.updated_at desc nulls last"),
+            "expected updated_at sort in SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 3, "tag filter plus limit/offset should bind");
+    }
+
+    #[test]
+    fn service_availability_rollup_supports_group_filter() {
+        let group_id = "21000000-0000-0000-0000-000000000001";
+        let query = format!(
+            "in:service_availability rollup_stats:availability service_group_id:{group_id}"
+        );
+        let plan = plan_for(&query);
+
+        assert!(matches!(plan.entity, Entity::ServiceAvailability));
+        let (sql, params) = service_monitoring::to_sql_and_params(&plan)
+            .expect("should build service availability rollup SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("jsonb_build_object"),
+            "expected json rollup payload in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("availability_pct"),
+            "expected availability_pct in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("b.service_group_id::text"),
+            "expected service group filter in SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "rollup filter should bind only group id");
+    }
+
+    #[test]
+    fn slo_query_supports_owner_and_compliance_filters() {
+        let query = "in:slos owner:noc compliance:noncompliant sort:evaluated_at:desc";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::ServiceLevelObjectives));
+        let (sql, params) =
+            service_monitoring::to_sql_and_params(&plan).expect("should build SLO SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("from service_level_objectives t"),
+            "expected SLO table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("service_level_objective_evaluations e"),
+            "expected latest evaluation lateral join in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("coalesce(latest.compliance_state, t.last_compliance_state)"),
+            "expected current compliance filter in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains(
+                "order by coalesce(latest.evaluated_at, t.last_evaluated_at) desc nulls last"
+            ),
+            "expected evaluated_at sort in SQL, got: {sql}"
+        );
+        assert_eq!(
+            params.len(),
+            4,
+            "owner, compliance, limit, and offset should bind"
+        );
+    }
+
+    #[test]
+    fn slo_error_budget_rollup_builds_budget_summary() {
+        let query = "in:slo_evaluations rollup_stats:slo_error_budget severity:(warning,critical)";
+        let plan = plan_for(query);
+
+        assert!(matches!(
+            plan.entity,
+            Entity::ServiceLevelObjectiveEvaluations
+        ));
+        let (sql, params) = service_monitoring::to_sql_and_params(&plan)
+            .expect("should build SLO error-budget rollup SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("from service_level_objective_evaluations t"),
+            "expected SLO evaluation table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("error_budget_remaining"),
+            "expected budget fields in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("next_projected_exhaustion_at"),
+            "expected projected exhaustion rollup in SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "severity list should be the only bind");
     }
 
     #[test]

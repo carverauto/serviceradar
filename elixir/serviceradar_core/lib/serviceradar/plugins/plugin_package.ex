@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Plugins.Changes.SyncCheckDescriptors
   alias ServiceRadar.Plugins.Validations.Manifest
 
   @package_fields [
@@ -22,6 +23,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :runtime,
     :outputs,
     :manifest,
+    :check_descriptors,
     :config_schema,
     :display_contract,
     :wasm_object_key,
@@ -91,12 +93,14 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       accept @package_create_fields
 
       validate Manifest
+      change SyncCheckDescriptors
     end
 
     update :update do
       accept @package_fields
 
       validate Manifest
+      change SyncCheckDescriptors
     end
 
     update :approve do
@@ -183,6 +187,13 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :check_descriptors, :map do
+      allow_nil? false
+      public? true
+      default %{"schema_version" => 1, "items" => []}
+      description "Normalized check descriptor catalog derived from manifest.check_descriptors"
     end
 
     attribute :config_schema, :map do

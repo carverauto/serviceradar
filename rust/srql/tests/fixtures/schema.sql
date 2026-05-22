@@ -172,6 +172,12 @@ CREATE TABLE logs (
 );
 
 DROP TABLE IF EXISTS service_status;
+DROP TABLE IF EXISTS latest_check_states;
+DROP TABLE IF EXISTS check_instances;
+DROP TABLE IF EXISTS monitoring_bindings;
+DROP TABLE IF EXISTS service_group_memberships;
+DROP TABLE IF EXISTS service_groups;
+DROP TABLE IF EXISTS monitored_services;
 CREATE TABLE service_status (
     timestamp    TIMESTAMPTZ NOT NULL,
     gateway_id    TEXT        NOT NULL,
@@ -185,6 +191,126 @@ CREATE TABLE service_status (
     partition    TEXT,
     created_at   TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (timestamp, gateway_id, service_name)
+);
+
+CREATE TABLE monitored_services (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_key   TEXT        NOT NULL UNIQUE,
+    display_name  TEXT        NOT NULL,
+    description   TEXT,
+    service_kind  TEXT        NOT NULL,
+    protocol      TEXT,
+    endpoint_url  TEXT,
+    host          TEXT,
+    port          BIGINT,
+    path          TEXT,
+    device_uid    TEXT,
+    database_name TEXT,
+    owner         TEXT,
+    status        TEXT        NOT NULL DEFAULT 'active',
+    source        TEXT        NOT NULL DEFAULT 'manual',
+    tags          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    metadata      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE service_groups (
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name           TEXT        NOT NULL,
+    slug           TEXT        NOT NULL UNIQUE,
+    description    TEXT,
+    selection_mode TEXT        NOT NULL DEFAULT 'explicit',
+    srql_query     TEXT,
+    status         TEXT        NOT NULL DEFAULT 'active',
+    tags           JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE service_group_memberships (
+    id                   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_group_id     UUID        NOT NULL REFERENCES service_groups(id) ON DELETE CASCADE,
+    monitored_service_id UUID        NOT NULL REFERENCES monitored_services(id) ON DELETE CASCADE,
+    source               TEXT        NOT NULL DEFAULT 'explicit',
+    metadata             JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (service_group_id, monitored_service_id)
+);
+
+CREATE TABLE monitoring_bindings (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name                TEXT        NOT NULL,
+    descriptor_id       TEXT        NOT NULL,
+    descriptor_version  TEXT        NOT NULL DEFAULT '1.0.0',
+    capability_kind     TEXT        NOT NULL DEFAULT 'plugin',
+    plugin_package_id   UUID,
+    target_set_type     TEXT        NOT NULL,
+    service_group_id    UUID        REFERENCES service_groups(id) ON DELETE SET NULL,
+    target_query        TEXT,
+    target_filters      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    agent_scope_type    TEXT        NOT NULL DEFAULT 'any',
+    agent_scope_value   TEXT,
+    interval_seconds    BIGINT      NOT NULL DEFAULT 60,
+    timeout_seconds     BIGINT      NOT NULL DEFAULT 10,
+    credential_policy   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    threshold_policy    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    event_policy        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    alert_policy        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    status              TEXT        NOT NULL DEFAULT 'active',
+    metadata            JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE check_instances (
+    id                         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    check_key                  TEXT        NOT NULL UNIQUE,
+    monitoring_binding_id      UUID        REFERENCES monitoring_bindings(id) ON DELETE SET NULL,
+    monitored_service_id       UUID        REFERENCES monitored_services(id) ON DELETE SET NULL,
+    device_uid                 TEXT,
+    descriptor_id              TEXT        NOT NULL,
+    descriptor_version         TEXT        NOT NULL DEFAULT '1.0.0',
+    capability_kind            TEXT        NOT NULL DEFAULT 'plugin',
+    plugin_package_id          UUID,
+    vantage_kind               TEXT        NOT NULL DEFAULT 'agent',
+    vantage_id                 TEXT,
+    agent_id                   TEXT,
+    target_snapshot            JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    credential_policy_snapshot JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    event_policy_snapshot      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    status                     TEXT        NOT NULL DEFAULT 'active',
+    last_materialized_at       TIMESTAMPTZ,
+    metadata                   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE latest_check_states (
+    id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    check_instance_id     UUID        NOT NULL REFERENCES check_instances(id) ON DELETE CASCADE,
+    monitored_service_id  UUID        REFERENCES monitored_services(id) ON DELETE SET NULL,
+    monitoring_binding_id UUID        REFERENCES monitoring_bindings(id) ON DELETE SET NULL,
+    device_uid            TEXT,
+    agent_id              TEXT,
+    vantage_kind          TEXT        NOT NULL DEFAULT 'agent',
+    vantage_id            TEXT,
+    status                TEXT        NOT NULL DEFAULT 'unknown',
+    previous_status       TEXT,
+    status_changed_at     TIMESTAMPTZ,
+    last_observed_at      TIMESTAMPTZ NOT NULL,
+    response_time_ms      BIGINT,
+    summary               TEXT,
+    details               JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    metrics               JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    consecutive_failures  BIGINT      NOT NULL DEFAULT 0,
+    event_emitted_at      TIMESTAMPTZ,
+    alert_id              UUID,
+    inserted_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (check_instance_id)
 );
 
 DROP TABLE IF EXISTS discovered_interfaces;

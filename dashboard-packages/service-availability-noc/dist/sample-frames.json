@@ -1,0 +1,172 @@
+[
+  {
+    "id": "availability_rollup",
+    "query": "in:service_availability tag.noc:primary rollup_stats:availability",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "total": 400,
+        "ok": 365,
+        "warning": 24,
+        "critical": 8,
+        "unknown": 3,
+        "available": 389,
+        "unavailable": 11,
+        "availability_pct": 97.25
+      }
+    ]
+  },
+  {
+    "id": "attention_services",
+    "query": "in:service_availability tag.noc:primary status:(critical,unknown,warning) sort:last_observed_at:desc limit:50",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "25000000-0000-0000-0000-000000000037",
+        "service_name": "Demo URL 037",
+        "service_key": "https://demo-url-037.example.test/health",
+        "service_kind": "http",
+        "descriptor_id": "http.url.availability",
+        "status": "critical",
+        "response_time_ms": 821,
+        "summary": "Synthetic critical state",
+        "last_observed_at": "2026-05-21T22:42:00Z"
+      },
+      {
+        "uid": "25000000-0000-0000-0000-000000000074",
+        "service_name": "Demo URL 074",
+        "service_key": "https://demo-url-074.example.test/health",
+        "service_kind": "http",
+        "descriptor_id": "http.url.availability",
+        "status": "critical",
+        "response_time_ms": 794,
+        "summary": "Synthetic critical state",
+        "last_observed_at": "2026-05-21T22:41:00Z"
+      },
+      {
+        "uid": "25000000-0000-0000-0000-000000000219",
+        "service_name": "Demo Database 019",
+        "service_key": "postgres://demo-db-019.example.test:5432/app",
+        "service_kind": "database",
+        "descriptor_id": "postgres.availability",
+        "status": "warning",
+        "response_time_ms": 1042,
+        "summary": "Synthetic warning state",
+        "last_observed_at": "2026-05-21T22:40:00Z"
+      },
+      {
+        "uid": "25000000-0000-0000-0000-000000000296",
+        "service_name": "Demo Database 096",
+        "service_key": "postgres://demo-db-096.example.test:5432/app",
+        "service_kind": "database",
+        "descriptor_id": "postgres.availability",
+        "status": "unknown",
+        "response_time_ms": null,
+        "summary": "No recent check result",
+        "last_observed_at": "2026-05-21T22:31:00Z"
+      }
+    ]
+  },
+  {
+    "id": "service_inventory",
+    "query": "in:monitored_services tag.noc:primary sort:display_name:asc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "32000000-0000-0000-0000-000000000001",
+        "display_name": "Demo URL 001",
+        "service_key": "https://demo-url-001.example.test/health",
+        "service_kind": "http",
+        "protocol": "https",
+        "host": "demo-url-001.example.test",
+        "port": 443,
+        "status": "active"
+      },
+      {
+        "uid": "32000000-0000-0000-0000-000000000002",
+        "display_name": "Demo URL 002",
+        "service_key": "https://demo-url-002.example.test/health",
+        "service_kind": "http",
+        "protocol": "https",
+        "host": "demo-url-002.example.test",
+        "port": 443,
+        "status": "active"
+      },
+      {
+        "uid": "32100000-0000-0000-0000-000000000001",
+        "display_name": "Demo Database 001",
+        "service_key": "postgres://demo-db-001.example.test:5432/app",
+        "service_kind": "database",
+        "protocol": "postgres",
+        "host": "demo-db-001.example.test",
+        "port": 5432,
+        "status": "active"
+      },
+      {
+        "uid": "32100000-0000-0000-0000-000000000002",
+        "display_name": "Demo Database 002",
+        "service_key": "postgres://demo-db-002.example.test:5432/app",
+        "service_kind": "database",
+        "protocol": "postgres",
+        "host": "demo-db-002.example.test",
+        "port": 5432,
+        "status": "active"
+      }
+    ]
+  },
+  {
+    "id": "slo_evaluations",
+    "query": "in:slo_evaluations severity:(warning,critical) sort:evaluated_at:desc limit:25",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "39000000-0000-0000-0000-000000000001",
+        "slo_key": "demo-url-99-9-rolling-30d",
+        "slo_name": "Demo URL 99.9% rolling 30 day availability",
+        "owner": "noc",
+        "compliance_state": "at_risk",
+        "severity": "warning",
+        "budget_remaining_basis_points": 2100,
+        "burn_rate_short": 4.25,
+        "projected_exhaustion_at": "2026-05-22T07:45:00Z",
+        "evaluated_at": "2026-05-21T22:45:00Z"
+      },
+      {
+        "uid": "39000000-0000-0000-0000-000000000002",
+        "slo_key": "demo-db-99-calendar-week",
+        "slo_name": "Demo database 99% calendar week availability",
+        "owner": "database-ops",
+        "compliance_state": "noncompliant",
+        "severity": "critical",
+        "budget_remaining_basis_points": -800,
+        "burn_rate_short": 7.5,
+        "projected_exhaustion_at": null,
+        "evaluated_at": "2026-05-21T22:45:00Z"
+      }
+    ]
+  },
+  {
+    "id": "slo_budget_rollup",
+    "query": "in:slo_evaluations rollup_stats:slo_error_budget",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "total": 2,
+        "critical": 1,
+        "warning": 1,
+        "error_budget_total": 30,
+        "error_budget_consumed": 58,
+        "error_budget_remaining": -28,
+        "avg_budget_remaining_basis_points": 650,
+        "max_burn_rate_short": 7.5,
+        "max_burn_rate_long": 3.1,
+        "next_projected_exhaustion_at": "2026-05-22T07:45:00Z"
+      }
+    ]
+  }
+]

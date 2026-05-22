@@ -102,6 +102,7 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
         {type: 'doc', id: 'cli-reference', label: 'ServiceRadar CLI'},
+        {type: 'doc', id: 'service-monitoring', label: 'Service Monitoring'},
         {type: 'doc', id: 'configuration-system', label: 'Configuration & KV Store'},
         {type: 'doc', id: 'database-bootstrap', label: 'Database Bootstrap'},
         {type: 'doc', id: 'cnpg-monitoring', label: 'CNPG Monitoring'},

@@ -4,13 +4,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   and timeseries_metrics.
   """
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.EventIngestor
   alias ServiceRadar.Camera.InventoryIngestor
+  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
+  alias ServiceRadar.Monitoring.CheckInstance
+  alias ServiceRadar.Monitoring.CheckStateEventWriter
+  alias ServiceRadar.Monitoring.LatestCheckState
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
@@ -20,6 +25,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Observability.TimeseriesSeriesKey
   alias ServiceRadar.WifiMap.BatchIngestor
 
+  require Ash.Query
   require Logger
 
   @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
@@ -43,21 +49,39 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
     with :ok <- insert_status(status_row, actor),
          :ok <- upsert_current_state(status_row),
-         :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
+         :ok <- insert_metrics(payload, status, observed_at, created_at, actor),
+         :ok <-
+           upsert_target_check_state(
+             payload,
+             status,
+             observed_at,
+             summary,
+             status_label,
+             available,
+             actor
+           ) do
       ingest_registered_handlers(payload, status, observed_at, actor)
     end
   rescue
     e ->
-      Logger.error("Plugin result ingest failed: #{inspect(e)}")
+      Logger.error("Plugin result ingest failed: #{inspect(CredentialRedactor.redact(e))}")
       {:error, e}
   end
 
   def ingest(payload, status) when is_list(payload) do
     payload
-    |> Enum.find(&is_map/1)
+    |> Enum.filter(&is_map/1)
     |> case do
-      nil -> {:error, :invalid_payload}
-      entry -> ingest(entry, status)
+      [] ->
+        {:error, :invalid_payload}
+
+      entries ->
+        Enum.reduce_while(entries, :ok, fn entry, :ok ->
+          case ingest(entry, status) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
     end
   end
 
@@ -154,7 +178,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       service_type: service_type,
       available: available,
       message: summary,
-      details: FieldParser.encode_json(payload),
+      details: FieldParser.encode_json(CredentialRedactor.redact(payload)),
       partition: partition,
       created_at: created_at
     }
@@ -190,6 +214,219 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       end
     end
   end
+
+  defp upsert_target_check_state(
+         payload,
+         status,
+         observed_at,
+         summary,
+         status_label,
+         available,
+         actor
+       ) do
+    case target_check_instance_id(payload) do
+      nil ->
+        :ok
+
+      check_instance_id ->
+        with {:ok, check_instance} <- load_check_instance(check_instance_id, actor),
+             {:ok, previous_state} <- load_previous_check_state(check_instance.id, actor),
+             {:ok, state} <-
+               LatestCheckState.record_state(
+                 target_check_state_attrs(
+                   check_instance,
+                   previous_state,
+                   payload,
+                   status,
+                   observed_at,
+                   summary,
+                   status_label,
+                   available
+                 ),
+                 actor: actor
+               ),
+             :ok <-
+               CheckStateEventWriter.maybe_write(check_instance, previous_state, state,
+                 actor: actor
+               ) do
+          :ok
+        else
+          {:error, :check_instance_not_found} ->
+            Logger.warning(
+              "Plugin result referenced unknown check_instance_id=#{check_instance_id}"
+            )
+
+            :ok
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+    end
+  end
+
+  defp load_check_instance(check_instance_id, actor) do
+    case CheckInstance.get_by_id(check_instance_id, actor: actor) do
+      {:ok, %CheckInstance{} = check_instance} -> {:ok, check_instance}
+      {:ok, nil} -> {:error, :check_instance_not_found}
+      {:error, %NotFound{}} -> {:error, :check_instance_not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_previous_check_state(check_instance_id, actor) do
+    LatestCheckState
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(check_instance_id == ^check_instance_id)
+    |> Ash.Query.limit(1)
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %LatestCheckState{} = state} -> {:ok, state}
+      {:ok, nil} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp target_check_state_attrs(
+         %CheckInstance{} = check_instance,
+         previous_state,
+         payload,
+         status,
+         observed_at,
+         summary,
+         status_label,
+         available
+       ) do
+    state = check_status(status_label, available)
+    previous_status = previous_state && previous_state.status
+
+    %{
+      check_instance_id: check_instance.id,
+      monitored_service_id: check_instance.monitored_service_id,
+      monitoring_binding_id: check_instance.monitoring_binding_id,
+      device_uid: check_instance.device_uid,
+      agent_id: check_instance.agent_id,
+      vantage_kind: check_instance.vantage_kind,
+      vantage_id: check_instance.vantage_id || status[:agent_id],
+      status: state,
+      previous_status: previous_status,
+      status_changed_at: status_changed_at(previous_state, previous_status, state, observed_at),
+      last_observed_at: observed_at,
+      response_time_ms: response_time_ms(payload, status),
+      summary: summary,
+      details: target_check_details(payload, status),
+      metrics: target_check_metrics(payload),
+      consecutive_failures: consecutive_failures(previous_state, state)
+    }
+  end
+
+  defp target_check_instance_id(payload) do
+    payload
+    |> fetch_string(["check_instance_id", "checkInstanceId"])
+    |> normalize_identifier()
+    |> case do
+      nil ->
+        payload
+        |> fetch_value(["labels", "label"])
+        |> case do
+          labels when is_map(labels) ->
+            labels
+            |> fetch_string(["check_instance_id", "checkInstanceId"])
+            |> normalize_identifier()
+
+          _ ->
+            nil
+        end
+
+      value ->
+        value
+    end
+  end
+
+  defp check_status(status_label, available) do
+    case status_label && String.upcase(to_string(status_label)) do
+      "OK" -> :ok
+      "WARNING" -> :warning
+      "CRITICAL" -> :critical
+      "UNKNOWN" -> :unknown
+      _ when available == true -> :ok
+      _ when available == false -> :critical
+      _ -> :unknown
+    end
+  end
+
+  defp status_changed_at(nil, _previous_status, _state, observed_at), do: observed_at
+
+  defp status_changed_at(_previous_state, previous_status, state, observed_at)
+       when previous_status != state,
+       do: observed_at
+
+  defp status_changed_at(previous_state, _previous_status, _state, _observed_at),
+    do: previous_state.status_changed_at || previous_state.last_observed_at
+
+  defp response_time_ms(payload, status) do
+    payload
+    |> fetch_value([
+      "response_time_ms",
+      "responseTimeMs",
+      "duration_ms",
+      "durationMs",
+      "latency_ms",
+      "latencyMs"
+    ])
+    |> parse_integer()
+    |> case do
+      nil -> parse_integer(status[:response_time])
+      value -> value
+    end
+  end
+
+  defp target_check_details(payload, status) do
+    %{
+      "payload" => CredentialRedactor.redact(payload),
+      "assignment_id" => label_value(payload, "assignment_id"),
+      "plugin_id" => label_value(payload, "plugin_id"),
+      "agent_id" => status[:agent_id],
+      "gateway_id" => status[:gateway_id],
+      "partition" => status[:partition]
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Map.new()
+  end
+
+  defp target_check_metrics(payload) do
+    case fetch_value(payload, ["metrics"]) do
+      metrics when is_list(metrics) -> %{"items" => CredentialRedactor.redact(metrics)}
+      metrics when is_map(metrics) -> CredentialRedactor.redact(metrics)
+      _ -> %{}
+    end
+  end
+
+  defp label_value(payload, key) do
+    payload
+    |> fetch_value(["labels", "label"])
+    |> case do
+      labels when is_map(labels) -> fetch_string(labels, [key])
+      _ -> nil
+    end
+  end
+
+  defp normalize_identifier(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      "nil" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_identifier(_value), do: nil
+
+  defp consecutive_failures(_previous_state, :ok), do: 0
+
+  defp consecutive_failures(%LatestCheckState{consecutive_failures: count}, _state)
+       when is_integer(count) and count >= 0,
+       do: count + 1
+
+  defp consecutive_failures(_previous_state, _state), do: 1
 
   defp evaluate_metric_alerts(rows) do
     case StatefulAlertEngine.evaluate_metrics(rows) do
@@ -284,6 +521,19 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       _ -> nil
     end
   end
+
+  defp parse_integer(nil), do: nil
+  defp parse_integer(value) when is_integer(value), do: value
+  defp parse_integer(value) when is_float(value), do: round(value)
+
+  defp parse_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_integer(_value), do: nil
 
   defp parse_metric_value(nil), do: :error
   defp parse_metric_value(value) when is_number(value), do: {:ok, value / 1}

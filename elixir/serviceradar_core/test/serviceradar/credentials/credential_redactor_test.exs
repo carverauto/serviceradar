@@ -12,6 +12,9 @@ defmodule ServiceRadar.Credentials.CredentialRedactorTest do
       "credential_grant_ref" => "credentialref:network-credential-grant:opaque.sig",
       "external_secret_ref" => "secret-server/folder/prod-password",
       "api_token" => "PVEAPIToken=root@pam!sr=secret",
+      "authorization" => "Bearer super-secret",
+      "cookie" => "session=super-secret",
+      "download_token" => "one-time-secret",
       "secret_payload" => Jason.encode!(%{"private_key" => private_key_fixture()}),
       "nested" => [
         %{"passphrase" => "key-passphrase"},
@@ -27,6 +30,9 @@ defmodule ServiceRadar.Credentials.CredentialRedactorTest do
     assert redacted["credential_grant_ref"] == "credentialref:network-credential-grant:opaque.sig"
     assert redacted["external_secret_ref"] == "REDACTED"
     assert redacted["api_token"] == "REDACTED"
+    assert redacted["authorization"] == "REDACTED"
+    assert redacted["cookie"] == "REDACTED"
+    assert redacted["download_token"] == "REDACTED"
     assert redacted["secret_payload"] == "REDACTED"
     assert Enum.at(redacted["nested"], 0)["passphrase"] == "REDACTED"
     assert Enum.at(redacted["nested"], 1)["notes"] == "safe"

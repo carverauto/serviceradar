@@ -198,19 +198,19 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "services.view",
           label: "View services",
-          description: "View service checks and status",
+          description: "View monitored services, service checks, and status",
           default_roles: @all_roles
         },
         %{
           key: "services.create",
           label: "Create services",
-          description: "Create service checks",
+          description: "Create monitored services, service groups, bindings, and service checks",
           default_roles: @operator_roles
         },
         %{
           key: "services.update",
           label: "Update services",
-          description: "Update service checks",
+          description: "Update monitored services, service groups, bindings, and service checks",
           default_roles: @operator_roles
         },
         %{
@@ -222,7 +222,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "services.run",
           label: "Run services",
-          description: "Trigger service checks and runs",
+          description: "Trigger service checks, binding reconciliation, and check-state updates",
           default_roles: @operator_roles
         }
       ]

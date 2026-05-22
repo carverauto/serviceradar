@@ -1,0 +1,18 @@
+{
+  "name": "@carverauto/serviceradar-dashboard-service-availability-noc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "First-party ServiceRadar service availability, SLO, and NOC dashboard package.",
+  "scripts": {
+    "validate": "serviceradar-cli dashboard validate",
+    "build": "serviceradar-cli dashboard build",
+    "dev": "serviceradar-cli dashboard dev --open"
+  },
+  "dependencies": {
+    "@carverauto/serviceradar-dashboard-sdk": "^0.1.4",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {}
+}

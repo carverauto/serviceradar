@@ -37,6 +37,24 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     read(query, scope)
   end
 
+  @spec list_check_descriptors(map(), keyword()) :: [map()]
+  def list_check_descriptors(filters \\ %{}, opts \\ []) do
+    scope = Keyword.get(opts, :scope)
+    limit = normalize_limit(Map.get(filters, :limit) || Map.get(filters, "limit"))
+
+    query =
+      PluginPackage
+      |> Ash.Query.for_read(:approved)
+      |> maybe_filter_plugin_id(filters)
+      |> Ash.Query.limit(limit)
+      |> Ash.Query.sort(plugin_id: :asc, version: :desc)
+
+    query
+    |> read(scope)
+    |> Enum.flat_map(&package_check_descriptor_rows/1)
+    |> Enum.filter(&descriptor_matches_filters?(&1, filters))
+  end
+
   @spec get(String.t(), keyword()) ::
           {:ok, PluginPackage.t()} | {:error, :not_found} | {:error, term()}
   def get(id, opts \\ [])
@@ -670,6 +688,131 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: nil
+
+  defp package_check_descriptor_rows(%PluginPackage{} = package) do
+    package
+    |> descriptor_catalog_items()
+    |> Enum.filter(&descriptor_assignable?(&1, package))
+    |> Enum.map(&decorate_descriptor(&1, package))
+  end
+
+  defp descriptor_catalog_items(%PluginPackage{check_descriptors: %{"items" => items}}) when is_list(items), do: items
+
+  defp descriptor_catalog_items(%PluginPackage{check_descriptors: %{items: items}}) when is_list(items), do: items
+
+  defp descriptor_catalog_items(_package), do: []
+
+  defp descriptor_assignable?(descriptor, %PluginPackage{} = package) do
+    required = descriptor |> descriptor_list("required_capabilities") |> MapSet.new()
+    approved = package |> effective_package_capabilities() |> MapSet.new()
+
+    MapSet.subset?(required, approved)
+  end
+
+  defp effective_package_capabilities(%PluginPackage{approved_capabilities: capabilities})
+       when is_list(capabilities) and capabilities != [], do: capabilities
+
+  defp effective_package_capabilities(%PluginPackage{manifest: manifest}) when is_map(manifest) do
+    manifest
+    |> raw_value("capabilities")
+    |> case do
+      capabilities when is_list(capabilities) -> capabilities
+      _ -> []
+    end
+  end
+
+  defp effective_package_capabilities(_package), do: []
+
+  defp decorate_descriptor(descriptor, %PluginPackage{} = package) do
+    descriptor
+    |> normalize_descriptor_map()
+    |> Map.merge(%{
+      "plugin_package_id" => package.id,
+      "plugin_id" => package.plugin_id,
+      "plugin_name" => package.name,
+      "package_version" => package.version,
+      "package_status" => Atom.to_string(package.status),
+      "approved_capabilities" => effective_package_capabilities(package)
+    })
+  end
+
+  defp descriptor_matches_filters?(descriptor, filters) do
+    descriptor_id = Map.get(filters, :descriptor_id) || Map.get(filters, "descriptor_id")
+    target_kinds = string_filter_list(Map.get(filters, :target_kind) || Map.get(filters, "target_kind"))
+    service_kinds = string_filter_list(Map.get(filters, :service_kind) || Map.get(filters, "service_kind"))
+    protocols = string_filter_list(Map.get(filters, :protocol) || Map.get(filters, "protocol"))
+
+    exact_string_match?(descriptor, "descriptor_id", descriptor_id) and
+      list_intersects?(descriptor_list(descriptor, "target_kinds"), target_kinds) and
+      list_intersects?(descriptor_list(descriptor, "service_kinds"), service_kinds) and
+      list_intersects?(descriptor_list(descriptor, "protocols"), protocols)
+  end
+
+  defp exact_string_match?(_descriptor, _key, nil), do: true
+  defp exact_string_match?(_descriptor, _key, ""), do: true
+
+  defp exact_string_match?(descriptor, key, value) when is_binary(value) do
+    raw_value(descriptor, key) == String.trim(value)
+  end
+
+  defp exact_string_match?(_descriptor, _key, _value), do: true
+
+  defp list_intersects?(_values, []), do: true
+
+  defp list_intersects?(values, filters) do
+    set = MapSet.new(values)
+    Enum.any?(filters, &MapSet.member?(set, &1))
+  end
+
+  defp descriptor_list(descriptor, key) when is_map(descriptor) do
+    case raw_value(descriptor, key) do
+      values when is_list(values) ->
+        values
+        |> Enum.filter(&is_binary/1)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      _ ->
+        []
+    end
+  end
+
+  defp descriptor_list(_descriptor, _key), do: []
+
+  defp normalize_descriptor_map(descriptor) when is_map(descriptor) do
+    Map.new(descriptor, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp string_filter_list(nil), do: []
+  defp string_filter_list(""), do: []
+
+  defp string_filter_list(value) when is_binary(value) do
+    value
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp string_filter_list(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp string_filter_list(_value), do: []
+
+  defp raw_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, known_descriptor_key(key))
+  end
+
+  defp known_descriptor_key("capabilities"), do: :capabilities
+  defp known_descriptor_key("descriptor_id"), do: :descriptor_id
+  defp known_descriptor_key("target_kinds"), do: :target_kinds
+  defp known_descriptor_key("service_kinds"), do: :service_kinds
+  defp known_descriptor_key("protocols"), do: :protocols
+  defp known_descriptor_key("required_capabilities"), do: :required_capabilities
+  defp known_descriptor_key(_key), do: nil
 
   defp maybe_filter_plugin_id(query, filters) do
     plugin_id = Map.get(filters, :plugin_id) || Map.get(filters, "plugin_id")

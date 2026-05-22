@@ -196,6 +196,9 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         "get" => op("List plugin packages", "Plugin Packages", response: "AnyArray"),
         "post" => op("Create plugin package", "Plugin Packages", body: "AnyObject", response: "AnyObject")
       },
+      "/api/admin/plugin-packages/check-descriptors" => %{
+        "get" => op("List plugin check descriptors", "Plugin Packages", response: "AnyArray")
+      },
       "/api/admin/plugin-packages/{id}" => %{
         "get" => op("Get plugin package", "Plugin Packages", params: [:id], response: "AnyObject")
       },

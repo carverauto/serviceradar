@@ -27,6 +27,61 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:monitored_services service_kind:http tag.role:public-web",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(
+                    body["results"][0]["service_key"],
+                    "https://app.example.test/health"
+                );
+                assert_eq!(body["results"][0]["display_name"], "Example App");
+            })),
+        },
+        TestCase {
+            query: "in:service_checks descriptor_id:http.availability",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["service_name"], "Example App");
+                assert_eq!(body["results"][0]["capability_kind"], "plugin");
+            })),
+        },
+        TestCase {
+            query: "in:service_groups slug:noc-primary",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["name"], "NOC Primary Services");
+                assert_eq!(body["results"][0]["selection_mode"], "explicit");
+            })),
+        },
+        TestCase {
+            query: "in:service_group_memberships slug:noc-primary sort:service_name:asc",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let results = body["results"].as_array().unwrap();
+                assert_eq!(results[0]["service_name"], "Example App");
+                assert_eq!(results[1]["service_name"], "Inventory DB");
+            })),
+        },
+        TestCase {
+            query: "in:service_availability status:critical",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["service_name"], "Inventory DB");
+                assert_eq!(body["results"][0]["summary"], "connection refused");
+            })),
+        },
+        TestCase {
+            query: "in:service_availability rollup_stats:availability",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let rollup = &body["results"][0];
+                assert_eq!(rollup["total"].as_i64(), Some(2));
+                assert_eq!(rollup["available"].as_i64(), Some(1));
+                assert_eq!(rollup["unavailable"].as_i64(), Some(1));
+                assert_eq!(rollup["availability_pct"].as_f64(), Some(50.0));
+            })),
+        },
+        TestCase {
             query: "in:cpu_metrics usage_percent:>88.1 usage_percent:<88.3",
             expected_count: 1,
             validator: Some(Box::new(|body| {

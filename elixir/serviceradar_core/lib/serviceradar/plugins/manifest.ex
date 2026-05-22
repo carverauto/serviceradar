@@ -23,6 +23,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     :resources,
     :outputs,
     :actions,
+    :check_descriptors,
     :source,
     :schema_version,
     :display_contract
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Plugins.Manifest do
           resources: map(),
           outputs: String.t(),
           actions: [map()],
+          check_descriptors: [map()],
           source: map(),
           schema_version: pos_integer() | nil,
           display_contract: map()
@@ -121,6 +123,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     {permissions, errors} = validate_permissions(fetch(map, :permissions), errors)
     {actions, errors} = validate_actions(fetch(map, :actions), errors)
 
+    {check_descriptors, errors} =
+      validate_check_descriptors(fetch(map, :check_descriptors), capabilities, errors)
+
     runtime = fetch(map, :runtime)
     errors = validate_runtime(runtime, errors)
 
@@ -147,6 +152,7 @@ defmodule ServiceRadar.Plugins.Manifest do
          resources: resources,
          outputs: outputs,
          actions: actions,
+         check_descriptors: check_descriptors,
          source: source,
          schema_version: schema_version,
          display_contract: display_contract
@@ -157,6 +163,26 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   def from_map(_), do: {:error, ["manifest must be a map"]}
+
+  @doc """
+  Build the normalized check descriptor catalog persisted with plugin packages.
+  """
+  @spec check_descriptor_catalog(map() | t()) :: {:ok, map()} | {:error, [String.t()]}
+  def check_descriptor_catalog(%__MODULE__{} = manifest) do
+    {:ok,
+     %{
+       "schema_version" => 1,
+       "items" => Enum.map(manifest.check_descriptors || [], &stringify_keys/1)
+     }}
+  end
+
+  def check_descriptor_catalog(manifest) when is_map(manifest) do
+    with {:ok, parsed} <- from_map(manifest) do
+      check_descriptor_catalog(parsed)
+    end
+  end
+
+  def check_descriptor_catalog(_manifest), do: {:error, ["manifest must be a map"]}
 
   @doc """
   Validate an optional JSON config schema bundled with the plugin.
@@ -422,6 +448,246 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp validate_action(_action, index), do: {:error, ["actions[#{index}] must be a map"]}
 
+  defp validate_check_descriptors(nil, _capabilities, errors), do: {[], errors}
+
+  defp validate_check_descriptors(descriptors, capabilities, errors) when is_list(descriptors) do
+    descriptors
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {descriptor, index}, {acc, errors} ->
+      case validate_check_descriptor(descriptor, index, capabilities) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, descriptor_errors} -> {acc, descriptor_errors ++ errors}
+      end
+    end)
+    |> then(fn {descriptors, errors} ->
+      descriptors = Enum.reverse(descriptors)
+      {descriptors, duplicate_descriptor_errors(descriptors) ++ errors}
+    end)
+  end
+
+  defp validate_check_descriptors(_descriptors, _capabilities, errors),
+    do: {[], ["check_descriptors must be a list" | errors]}
+
+  defp validate_check_descriptor(descriptor, index, manifest_capabilities)
+       when is_map(descriptor) do
+    descriptor = normalize_map(descriptor) || %{}
+    errors = forbidden_descriptor_ui_contract_errors(descriptor, index)
+
+    {descriptor_id, errors} =
+      required_descriptor_string(descriptor, :descriptor_id, index, errors)
+
+    {version, errors} = required_descriptor_string(descriptor, :version, index, errors)
+    errors = validate_descriptor_id(descriptor_id, index, errors)
+    errors = validate_descriptor_version(version, index, errors)
+    {label, errors} = required_descriptor_string(descriptor, :label, index, errors)
+    {description, errors} = optional_descriptor_string(descriptor, :description, errors)
+    {target_kinds, errors} = required_descriptor_target_kinds(descriptor, index, errors)
+
+    {service_kinds, errors} =
+      optional_descriptor_string_list(descriptor, :service_kinds, index, errors)
+
+    {protocols, errors} = optional_descriptor_string_list(descriptor, :protocols, index, errors)
+
+    {required_target_fields, errors} =
+      optional_descriptor_string_list(descriptor, :required_target_fields, index, errors)
+
+    {optional_target_fields, errors} =
+      optional_descriptor_string_list(descriptor, :optional_target_fields, index, errors)
+
+    {required_capabilities, errors} =
+      optional_descriptor_string_list(descriptor, :required_capabilities, index, errors)
+
+    errors =
+      validate_descriptor_capabilities(
+        required_capabilities,
+        manifest_capabilities,
+        index,
+        errors
+      )
+
+    {credential_requirements, errors} =
+      optional_descriptor_map(descriptor, :credential_requirements, index, errors)
+
+    {schedule_bounds, errors} =
+      optional_descriptor_map(descriptor, :schedule_bounds, index, errors)
+
+    {timeout_bounds, errors} = optional_descriptor_map(descriptor, :timeout_bounds, index, errors)
+
+    {threshold_schema, errors} =
+      optional_descriptor_map(descriptor, :threshold_schema, index, errors)
+
+    {allowlist_policy, errors} =
+      optional_descriptor_map(descriptor, :allowlist_policy, index, errors)
+
+    {display_contract_ref, errors} =
+      optional_descriptor_string(descriptor, :display_contract_ref, errors)
+
+    {result_schema_version, errors} =
+      optional_descriptor_string(descriptor, :result_schema_version, errors)
+
+    if errors == [] do
+      {:ok,
+       %{
+         descriptor_id: descriptor_id,
+         version: version,
+         label: label,
+         description: description,
+         target_kinds: target_kinds,
+         service_kinds: service_kinds,
+         protocols: protocols,
+         required_target_fields: required_target_fields,
+         optional_target_fields: optional_target_fields,
+         required_capabilities: required_capabilities,
+         credential_requirements: credential_requirements,
+         schedule_bounds: schedule_bounds,
+         timeout_bounds: timeout_bounds,
+         threshold_schema: threshold_schema,
+         allowlist_policy: allowlist_policy,
+         display_contract_ref: display_contract_ref,
+         result_schema_version: result_schema_version || "serviceradar.target_check_result.v1"
+       }}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_check_descriptor(_descriptor, index, _manifest_capabilities),
+    do: {:error, ["check_descriptors[#{index}] must be a map"]}
+
+  defp validate_descriptor_id(nil, _index, errors), do: errors
+
+  defp validate_descriptor_id(descriptor_id, index, errors) do
+    if Regex.match?(~r/^[a-z0-9][a-z0-9_.:-]*$/, descriptor_id) do
+      errors
+    else
+      [
+        "check_descriptors[#{index}].descriptor_id must use lowercase letters, numbers, '.', '_', ':', or '-'"
+        | errors
+      ]
+    end
+  end
+
+  defp validate_descriptor_version(nil, _index, errors), do: errors
+
+  defp validate_descriptor_version(version, index, errors) do
+    case Version.parse(version) do
+      {:ok, _} -> errors
+      :error -> ["check_descriptors[#{index}].version must be a valid semver string" | errors]
+    end
+  end
+
+  defp validate_descriptor_capabilities(
+         required_capabilities,
+         manifest_capabilities,
+         index,
+         errors
+       ) do
+    missing =
+      required_capabilities
+      |> Enum.uniq()
+      |> Enum.reject(&(&1 in manifest_capabilities))
+
+    if missing == [] do
+      errors
+    else
+      [
+        "check_descriptors[#{index}].required_capabilities are not declared by manifest capabilities: #{Enum.join(missing, ", ")}"
+        | errors
+      ]
+    end
+  end
+
+  defp duplicate_descriptor_errors(descriptors) do
+    descriptors
+    |> Enum.map(&{&1.descriptor_id, &1.version})
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_identity, count} -> count > 1 end)
+    |> Enum.map(fn {{descriptor_id, version}, _count} ->
+      "check_descriptors contains duplicate descriptor/version: #{descriptor_id}@#{version}"
+    end)
+  end
+
+  defp forbidden_descriptor_ui_contract_errors(descriptor, index) do
+    forbidden = ~w(html raw_html javascript js component component_ref live_view react ui_code)
+
+    descriptor
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in forbidden))
+    |> Enum.map(
+      &"check_descriptors[#{index}].#{&1} is not allowed; descriptors may not ship provider-owned UI code"
+    )
+  end
+
+  defp required_descriptor_string(descriptor, key, index, errors) do
+    case normalize_string(fetch(descriptor, key)) do
+      nil -> {nil, ["check_descriptors[#{index}].#{key} must be a non-empty string" | errors]}
+      "" -> {nil, ["check_descriptors[#{index}].#{key} must be a non-empty string" | errors]}
+      value -> {value, errors}
+    end
+  end
+
+  defp optional_descriptor_string(descriptor, key, errors) do
+    case normalize_string(fetch(descriptor, key)) do
+      "" -> {nil, errors}
+      value -> {value, errors}
+    end
+  end
+
+  defp required_descriptor_target_kinds(descriptor, index, errors) do
+    {target_kinds, errors} =
+      optional_descriptor_string_list(descriptor, :target_kinds, index, errors)
+
+    invalid = Enum.reject(target_kinds, &(&1 in ["device", "service"]))
+
+    cond do
+      target_kinds == [] ->
+        {[],
+         [
+           "check_descriptors[#{index}].target_kinds must include device, service, or both"
+           | errors
+         ]}
+
+      invalid != [] ->
+        {target_kinds,
+         [
+           "check_descriptors[#{index}].target_kinds contains unsupported target kinds: #{Enum.join(invalid, ", ")}"
+           | errors
+         ]}
+
+      true ->
+        {target_kinds, errors}
+    end
+  end
+
+  defp optional_descriptor_string_list(descriptor, key, index, errors) do
+    case fetch(descriptor, key) do
+      nil ->
+        {[], errors}
+
+      list when is_list(list) ->
+        values = normalize_string_list(list)
+
+        if length(values) == length(list) do
+          {values, errors}
+        else
+          {values,
+           ["check_descriptors[#{index}].#{key} must be a list of non-empty strings" | errors]}
+        end
+
+      _ ->
+        {[], ["check_descriptors[#{index}].#{key} must be a list of strings" | errors]}
+    end
+  end
+
+  defp optional_descriptor_map(descriptor, key, index, errors) do
+    case fetch(descriptor, key) do
+      nil -> {%{}, errors}
+      value when is_map(value) -> {normalize_map(value) || %{}, errors}
+      _ -> {%{}, ["check_descriptors[#{index}].#{key} must be a map" | errors]}
+    end
+  end
+
   defp forbidden_ui_contract_errors(action, index) do
     forbidden = ~w(html raw_html javascript js component component_ref live_view react ui_code)
 
@@ -608,6 +874,13 @@ defmodule ServiceRadar.Plugins.Manifest do
   end
 
   defp normalize_int(_), do: nil
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), stringify_keys(value)} end)
+  end
+
+  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
+  defp stringify_keys(value), do: value
 
   defp required_list_field(
          map,

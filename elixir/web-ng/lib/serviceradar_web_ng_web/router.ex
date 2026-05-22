@@ -463,6 +463,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Plugin packages
     get("/plugin-packages", PluginPackageController, :index)
     post("/plugin-packages", PluginPackageController, :create)
+    get("/plugin-packages/check-descriptors", PluginPackageController, :check_descriptors)
     get("/plugin-packages/:id", PluginPackageController, :show)
     post("/plugin-packages/:id/upload-url", PluginPackageController, :upload_url)
     post("/plugin-packages/:id/download-url", PluginPackageController, :download_url)

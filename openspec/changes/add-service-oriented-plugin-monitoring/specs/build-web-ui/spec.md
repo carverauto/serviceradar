@@ -37,3 +37,23 @@ The monitoring binding form SHALL let operators configure result-to-event and ev
 - **THEN** the saved binding SHALL include event emission and alert promotion policy
 - **AND** check results SHALL use that policy after assignment materialization
 
+### Requirement: SLO workflows guide operators through SLI, goal, period, and budget policy
+The web UI SHALL provide first-class SLO workflows that help operators define SLIs, SLO goals, compliance periods, error-budget policies, burn-rate thresholds, owners, and alert behavior.
+
+#### Scenario: Create request-based SLO
+- **GIVEN** a service group has HTTP availability checks
+- **WHEN** an authorized operator creates a request-based availability SLO
+- **THEN** the UI SHALL let them choose the service group, availability SLI, goal percentage, rolling or calendar compliance period, owner, and alert policy
+- **AND** it SHALL preview how the error budget is calculated
+
+#### Scenario: Create windows-based latency SLO
+- **GIVEN** HTTP checks report response-time metrics
+- **WHEN** an operator creates a windows-based latency SLO
+- **THEN** the UI SHALL let them choose the metric, latency threshold, measurement window size, compliance period, and target percentage
+- **AND** it SHALL explain that each window is counted as good or bad
+
+#### Scenario: Reject perfect SLO goal
+- **GIVEN** an operator enters `100%` for an SLO goal
+- **WHEN** validation runs
+- **THEN** the UI SHALL prevent saving
+- **AND** it SHALL explain that 100% leaves no error budget
