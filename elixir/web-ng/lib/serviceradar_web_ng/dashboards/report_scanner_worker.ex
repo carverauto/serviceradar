@@ -35,9 +35,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
 
   @spec enqueue_now(keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(opts \\ []) do
-    args =
-      %{"enabled" => true, "manual" => true}
-      |> maybe_put("limit", Keyword.get(opts, :limit))
+    args = maybe_put(%{"enabled" => true, "manual" => true}, "limit", Keyword.get(opts, :limit))
 
     args
     |> new()
@@ -57,9 +55,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportScannerWorker do
             end
           end)
 
-        Logger.info(
-          "Dashboard report scanner completed: queued=#{summary.queued} failed=#{summary.failed}"
-        )
+        Logger.info("Dashboard report scanner completed: queued=#{summary.queued} failed=#{summary.failed}")
 
         :ok
 

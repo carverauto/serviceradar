@@ -634,11 +634,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
-  defp selected_visual(value, compatible) when is_atom(value),
-    do: selected_visual(Atom.to_string(value), compatible)
+  defp selected_visual(value, compatible) when is_atom(value), do: selected_visual(Atom.to_string(value), compatible)
 
-  defp selected_visual(_value, compatible),
-    do: compatible |> List.first(:table) |> Atom.to_string()
+  defp selected_visual(_value, compatible), do: compatible |> List.first(:table) |> Atom.to_string()
 
   defp required(value, field) do
     case optional(value) do
@@ -657,8 +655,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   defp can_manage?(scope), do: RBAC.can?(scope, "analytics.dashboards.create")
   defp can_manage_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.manage")
 
-  defp can_view_share_principals?(scope),
-    do: RBAC.can?(scope, "analytics.share_principals.view")
+  defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
 
   defp normalize_visibility(value) when value in ~w(private shared public), do: value
   defp normalize_visibility(_value), do: "private"
@@ -683,8 +680,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     Enum.filter(memberships, &(&1.group_id == group_id))
   end
 
-  defp membership_count(memberships, group_id),
-    do: memberships |> memberships_for(group_id) |> length()
+  defp membership_count(memberships, group_id), do: memberships |> memberships_for(group_id) |> length()
 
   defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
     "#{name} <#{email}>"

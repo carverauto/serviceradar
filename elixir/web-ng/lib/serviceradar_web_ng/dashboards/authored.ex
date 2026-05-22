@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   Context for user-authored SRQL dashboards.
   """
 
+  alias Oban.Cron.Expression
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardAccessGrant
   alias ServiceRadar.Dashboards.DashboardPanel
@@ -206,8 +207,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec update_report_schedule(term(), DashboardReportSchedule.t(), map()) ::
           {:ok, DashboardReportSchedule.t()} | {:error, term()}
-  def update_report_schedule(scope, %DashboardReportSchedule{} = schedule, attrs)
-      when is_map(attrs) do
+  def update_report_schedule(scope, %DashboardReportSchedule{} = schedule, attrs) when is_map(attrs) do
     attrs =
       attrs
       |> schedule_attrs()
@@ -587,9 +587,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   def next_due_at(cron, timezone \\ @default_timezone, after_time \\ DateTime.utc_now())
 
   def next_due_at(cron, timezone, %DateTime{} = after_time) when is_binary(cron) do
-    with {:ok, expr} <- Oban.Cron.Expression.parse(cron),
+    with {:ok, expr} <- Expression.parse(cron),
          {:ok, base} <- DateTime.shift_zone(after_time, normalize_timezone(timezone)) do
-      Oban.Cron.Expression.next_at(expr, base)
+      Expression.next_at(expr, base)
     else
       _ -> nil
     end

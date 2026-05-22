@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       :mark_sent,
       %{
         message_id: message_id(metadata),
-        rendered_metadata: Map.merge(rendered.metadata, %{mailer_metadata: stringify(metadata)})
+        rendered_metadata: Map.put(rendered.metadata, :mailer_metadata, stringify(metadata))
       },
       actor: actor
     )
@@ -144,9 +144,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       if delivery.schedule do
         _ =
           delivery.schedule
-          |> Ash.Changeset.for_update(:record_failure, %{last_error: inspect(reason)},
-            actor: actor
-          )
+          |> Ash.Changeset.for_update(:record_failure, %{last_error: inspect(reason)}, actor: actor)
           |> Ash.update(actor: actor)
       end
     end
@@ -260,8 +258,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
   defp message_id(%{"message_id" => id}) when is_binary(id), do: id
   defp message_id(_metadata), do: nil
 
-  defp stringify(map) when is_map(map),
-    do: Map.new(map, fn {key, value} -> {to_string(key), inspect(value)} end)
+  defp stringify(map) when is_map(map), do: Map.new(map, fn {key, value} -> {to_string(key), inspect(value)} end)
 
   defp stringify(value), do: %{"value" => inspect(value)}
 

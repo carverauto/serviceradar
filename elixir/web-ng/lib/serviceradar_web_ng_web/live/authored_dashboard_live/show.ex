@@ -43,9 +43,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       if connected?(socket) do
         start_async(socket, {:load_dashboard, dashboard_id}, fn ->
           with {:ok, %AuthoredDashboard{} = dashboard} <-
-                 Dashboards.get_authored_dashboard(scope, dashboard_id,
-                   load: [:panels, :report_schedules]
-                 ) do
+                 Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
             panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
 
             results =
@@ -70,11 +68,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   @impl true
-  def handle_async(
-        {:load_dashboard, _dashboard_id},
-        {:ok, {:ok, dashboard, panels, results, access}},
-        socket
-      ) do
+  def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:ok, dashboard, panels, results, access}}, socket) do
     dashboard = Map.put(dashboard, :panels, panels)
 
     {:noreply,
@@ -496,8 +490,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns)
-       when type in [:bar, "bar", :category, "category"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:bar, "bar", :category, "category"] do
     assigns = assign(assigns, :bars, bars(assigns.rows, assigns.fields))
 
     ~H"""
@@ -514,8 +507,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns)
-       when type in [:line, "line", :area, "area"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:line, "line", :area, "area"] do
     assigns = assign(assigns, :points, sparkline_points(assigns.rows, assigns.fields))
 
     ~H"""
@@ -653,8 +645,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp can_schedule_reports?(scope), do: RBAC.can?(scope, "analytics.reports.schedule")
   defp can_view_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.view")
 
-  defp can_view_share_principals?(scope),
-    do: RBAC.can?(scope, "analytics.share_principals.view")
+  defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
 
   defp authorize_share(socket) do
     if socket.assigns.can_share?, do: :ok, else: {:error, :forbidden}
