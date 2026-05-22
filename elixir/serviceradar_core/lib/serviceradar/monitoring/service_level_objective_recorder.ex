@@ -13,6 +13,9 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluation
   alias ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluator
+  alias ServiceRadar.Observability.StatefulAlertEngine
+
+  require Logger
 
   @event_family "slo_evaluation"
   @log_name "monitoring.slo.evaluation"
@@ -59,10 +62,41 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder do
                actor: actor,
                domain: Monitoring
              ) do
+        maybe_evaluate_stateful_rules(event)
         attach_event(evaluation, event, actor)
       end
     else
       {:ok, evaluation}
+    end
+  end
+
+  defp maybe_evaluate_stateful_rules(event) do
+    case Task.start(fn -> evaluate_stateful_rules(event) end) do
+      {:ok, _pid} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation task failed to start for SLO event",
+          event_id: Map.get(event, :id),
+          reason: inspect(reason)
+        )
+
+        :ok
+    end
+  end
+
+  defp evaluate_stateful_rules(event) do
+    case StatefulAlertEngine.evaluate_events([event]) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Stateful alert evaluation failed for SLO event",
+          event_id: Map.get(event, :id),
+          reason: inspect(reason)
+        )
+
+        :ok
     end
   end
 

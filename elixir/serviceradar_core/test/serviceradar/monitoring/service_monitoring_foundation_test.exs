@@ -16,9 +16,11 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
   alias ServiceRadar.Monitoring.ServiceLevelObjectiveRecorder
   alias ServiceRadar.Monitoring.ServiceMonitoringBackfill
   alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.AuditHistory
   alias ServiceRadar.TestSupport
@@ -419,6 +421,37 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
                actor: actor
              )
 
+    alert_title = "Recorder SLO Alert #{unique}"
+
+    assert {:ok, _rule} =
+             StatefulAlertRule
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 name: "recorder-slo-alert-#{unique}",
+                 enabled: true,
+                 signal: :event,
+                 match: %{
+                   "attribute_equals" => %{
+                     "event_family" => "slo_evaluation",
+                     "compliance_state" => "noncompliant"
+                   }
+                 },
+                 group_by: ["service_level_objective_id"],
+                 threshold: 1,
+                 window_seconds: 300,
+                 bucket_seconds: 60,
+                 cooldown_seconds: 300,
+                 renotify_seconds: 3600,
+                 event: %{"log_name" => "alert.slo.budget"},
+                 alert: %{"title" => alert_title, "severity" => "critical"}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    reset_engine()
+
     assert {:ok, evaluation} =
              ServiceLevelObjectiveRecorder.evaluate_and_record(
                slo,
@@ -458,6 +491,7 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
     assert slo_id == to_string(slo.id)
     assert severity == "Critical"
     assert status == "Failure"
+    assert ["pending", "critical"] = eventually(fn -> latest_alert(alert_title) end)
   end
 
   test "active bindings compile into check instances and descriptor-aware plugin assignments", %{
@@ -701,6 +735,37 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
                actor: actor
              )
 
+    alert_title = "HTTP Check Alert #{unique}"
+
+    assert {:ok, _rule} =
+             StatefulAlertRule
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 name: "http-check-alert-#{unique}",
+                 enabled: true,
+                 signal: :event,
+                 match: %{
+                   "attribute_equals" => %{
+                     "event_family" => "check_state_transition",
+                     "status" => "critical"
+                   }
+                 },
+                 group_by: ["check_instance_id"],
+                 threshold: 1,
+                 window_seconds: 300,
+                 bucket_seconds: 60,
+                 cooldown_seconds: 300,
+                 renotify_seconds: 3600,
+                 event: %{"log_name" => "alert.check_state"},
+                 alert: %{"title" => alert_title, "severity" => "critical"}
+               },
+               actor: actor
+             )
+             |> Ash.create()
+
+    reset_engine()
+
     first_observed_at = ~U[2026-05-21 17:40:00Z]
 
     assert :ok =
@@ -760,6 +825,8 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
     assert [
              ["initial", "critical", "Critical", "Failure"]
            ] = check_state_events(check_instance.id)
+
+    assert ["pending", "critical"] = eventually(fn -> latest_alert(alert_title) end)
 
     second_observed_at = ~U[2026-05-21 17:41:00Z]
 
@@ -973,6 +1040,39 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
     count
   end
 
+  defp latest_alert(title) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT status, severity
+        FROM platform.alerts
+        WHERE title = $1
+        ORDER BY triggered_at DESC
+        LIMIT 1
+        """,
+        [title]
+      )
+
+    case rows do
+      [[status, severity]] -> [status, severity]
+      [] -> nil
+    end
+  end
+
+  defp eventually(fun, attempts \\ 200)
+  defp eventually(fun, 0), do: fun.()
+
+  defp eventually(fun, attempts) do
+    case fun.() do
+      nil ->
+        Process.sleep(100)
+        eventually(fun, attempts - 1)
+
+      result ->
+        result
+    end
+  end
+
   defp check_state_events(check_instance_id) do
     %{rows: rows} =
       Repo.query!(
@@ -991,5 +1091,17 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
       )
 
     rows
+  end
+
+  defp reset_engine do
+    case ProcessRegistry.lookup(:stateful_alert_engine) do
+      [{pid, _}] ->
+        _ = ProcessRegistry.terminate_child(pid)
+        Process.sleep(25)
+        :ok
+
+      _ ->
+        :ok
+    end
   end
 end
