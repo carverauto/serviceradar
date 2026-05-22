@@ -303,7 +303,8 @@ nats_tls_config =
       cacertfile: Path.join(cert_dir, "root.pem"),
       certfile: Path.join(cert_dir, "core.pem"),
       keyfile: Path.join(cert_dir, "core-key.pem"),
-      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+      server_name_indication:
+        "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
     ]
   else
     false
@@ -455,7 +456,10 @@ god_view_runtime_graph_auto_refresh_default =
 
 god_view_runtime_graph_auto_refresh =
   case to_bool.(
-         System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH", god_view_runtime_graph_auto_refresh_default)
+         System.get_env(
+           "SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH",
+           god_view_runtime_graph_auto_refresh_default
+         )
        ) do
     nil -> config_env() != :test
     value -> value
@@ -468,7 +472,9 @@ camera_relay_browser_stream_timeout_ms =
   end
 
 remote_access_browser_key_remember_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
@@ -498,19 +504,25 @@ remote_access_tcp_enabled =
   end
 
 remote_access_ssh_host_key_skip_verify_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
 
 remote_access_target_host_override_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
 
 remote_access_target_port_override_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
@@ -607,14 +619,18 @@ config :serviceradar_web_ng,
 config :serviceradar_web_ng,
   remote_access_tcp_enabled: remote_access_tcp_enabled
 
-if is_map(remote_access_ssh_certificate_policy) and map_size(remote_access_ssh_certificate_policy) > 0 do
+if is_map(remote_access_ssh_certificate_policy) and
+     map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,
     remote_access_ssh_certificate_policy: remote_access_ssh_certificate_policy
 end
 
 if remote_access_ssh_ca_signer_enabled do
   signer_command =
-    System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND", "serviceradar-sshca-signer")
+    System.get_env(
+      "SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_COMMAND",
+      "serviceradar-sshca-signer"
+    )
 
   signer_ca_key_id = System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID")
 
@@ -623,7 +639,8 @@ if remote_access_ssh_ca_signer_enabled do
     args: remote_access_ssh_ca_signer_args,
     ca_key_id: signer_ca_key_id
 
-  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates, signer: RemoteAccessSSHCACommandSigner
+  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates,
+    signer: RemoteAccessSSHCACommandSigner
 end
 
 if plugin_storage_overrides != [] do
@@ -994,26 +1011,56 @@ if config_env() != :test do
       _ -> Oban.Notifiers.Postgres
     end
 
+  dashboard_reports_enabled =
+    "SERVICERADAR_DASHBOARD_REPORTS_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  dashboard_report_scanner_cron =
+    System.get_env("SERVICERADAR_DASHBOARD_REPORT_SCANNER_CRON", "* * * * *")
+
+  dashboard_report_scanner_limit =
+    parse_queue_limit.("SERVICERADAR_DASHBOARD_REPORT_SCANNER_LIMIT", 100)
+
+  config :serviceradar_web_ng, :dashboard_reports,
+    enabled?: dashboard_reports_enabled,
+    scanner_cron: dashboard_report_scanner_cron,
+    scanner_limit: dashboard_report_scanner_limit
+
+  web_crontab = []
+
+  web_crontab =
+    if object_store_retention_enabled do
+      web_crontab ++
+        [
+          {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
+           args: %{"enabled" => true}, queue: :web_maintenance}
+        ]
+    else
+      web_crontab
+    end
+
+  web_crontab =
+    if dashboard_reports_enabled do
+      web_crontab ++
+        [
+          {dashboard_report_scanner_cron, ServiceRadarWebNG.Dashboards.ReportScannerWorker,
+           args: %{"enabled" => true, "limit" => dashboard_report_scanner_limit},
+           queue: :web_maintenance}
+        ]
+    else
+      web_crontab
+    end
+
+  oban_plugins = [{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}]
+
   oban_plugins =
-    then(
-      [
-        {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7}
-      ],
-      fn plugins ->
-        if object_store_retention_enabled do
-          plugins ++
-            [
-              {Oban.Plugins.Cron,
-               crontab: [
-                 {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
-                  args: %{"enabled" => true}, queue: :web_maintenance}
-               ]}
-            ]
-        else
-          plugins
-        end
-      end
-    )
+    if web_crontab == [] do
+      oban_plugins
+    else
+      oban_plugins ++ [{Oban.Plugins.Cron, crontab: web_crontab}]
+    end
 
   # web-ng does not run the global core-elx job schedules. It only schedules
   # web-owned cleanup work when explicitly enabled.
@@ -1202,7 +1249,8 @@ if config_env() == :prod do
         adbc_params =
           %{
             "sslmode" => adbc_ssl_mode,
-            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
+            "options" =>
+              "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
           }
           |> then(fn params ->
             if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
@@ -1494,7 +1542,8 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do

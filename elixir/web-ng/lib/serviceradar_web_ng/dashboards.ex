@@ -42,6 +42,10 @@ defmodule ServiceRadarWebNG.Dashboards do
     to: Authored,
     as: :create_report_schedule
 
+  defdelegate list_authored_report_schedules(scope, dashboard_id),
+    to: Authored,
+    as: :list_report_schedules
+
   defdelegate update_authored_report_schedule(scope, schedule, attrs),
     to: Authored,
     as: :update_report_schedule

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:users, [])
       |> assign(:panel_results, %{})
       |> assign(:can_share?, can_share?(socket.assigns.current_scope))
+      |> assign(:can_schedule_reports?, can_schedule_reports?(socket.assigns.current_scope))
       |> assign(:can_view_groups?, can_view_groups?(socket.assigns.current_scope))
       |> assign(
         :can_view_share_principals?,
@@ -25,8 +26,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       )
       |> assign(:user_grant_params, default_user_grant_params())
       |> assign(:group_grant_params, default_group_grant_params())
+      |> assign(:report_schedule_params, default_report_schedule_params())
       |> assign(:loading?, connected?(socket))
       |> assign_grant_forms()
+      |> assign_report_schedule_form()
 
     {:ok, socket}
   end
@@ -182,6 +185,43 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
+  def handle_event("validate_report_schedule", %{"schedule" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(
+       :report_schedule_params,
+       merge_params(socket.assigns.report_schedule_params, params)
+     )
+     |> assign_report_schedule_form()}
+  end
+
+  def handle_event("create_report_schedule", %{"schedule" => params}, socket) do
+    params = merge_params(socket.assigns.report_schedule_params, params)
+
+    attrs =
+      params
+      |> Map.put("dashboard_id", socket.assigns.dashboard.id)
+      |> Map.put("recipients", recipients(params["recipients"]))
+
+    with :ok <- authorize_report_schedule(socket),
+         {:ok, _schedule} <-
+           Dashboards.create_authored_report_schedule(socket.assigns.current_scope, attrs) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Report schedule created")
+       |> assign(:report_schedule_params, default_report_schedule_params())
+       |> reload_report_schedules()
+       |> assign_report_schedule_form()}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:report_schedule_params, params)
+         |> assign_report_schedule_form()
+         |> put_flash(:error, "Schedule create failed: #{format_error(reason)}")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -331,6 +371,69 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             result={Map.get(@panel_results, panel.id)}
           />
         </section>
+
+        <section
+          :if={@dashboard and @can_schedule_reports?}
+          class="rounded-lg border border-base-300 bg-base-100"
+        >
+          <div class="border-b border-base-300 px-4 py-3">
+            <h2 class="text-sm font-semibold">Email Reports</h2>
+            <p class="text-xs text-base-content/55">
+              One scanner job picks up due schedules and enqueues delivery attempts.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
+            <div class="space-y-3">
+              <div
+                :if={(@dashboard.report_schedules || []) == []}
+                class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+              >
+                No report schedules yet.
+              </div>
+
+              <div
+                :for={schedule <- @dashboard.report_schedules || []}
+                class="rounded-lg border border-base-300 p-3"
+              >
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div class="text-sm font-medium">{schedule.name}</div>
+                    <div class="mt-1 font-mono text-xs text-base-content/55">
+                      {schedule.cron} · {schedule.timezone}
+                    </div>
+                  </div>
+                  <span class="badge badge-outline">
+                    {schedule.last_status || if(schedule.enabled, do: "enabled", else: "disabled")}
+                  </span>
+                </div>
+                <p class="mt-2 text-xs text-base-content/55">
+                  Next due: {format_value(schedule.next_due_at)}
+                </p>
+              </div>
+            </div>
+
+            <.form
+              for={@report_schedule_form}
+              as={:schedule}
+              phx-change="validate_report_schedule"
+              phx-submit="create_report_schedule"
+              class="space-y-3"
+            >
+              <.input field={@report_schedule_form[:name]} type="text" label="Name" />
+              <.input field={@report_schedule_form[:cron]} type="text" label="Cron" />
+              <.input field={@report_schedule_form[:timezone]} type="text" label="Timezone" />
+              <.input
+                field={@report_schedule_form[:recipients]}
+                type="textarea"
+                label="Recipients"
+              />
+              <button type="submit" class="btn btn-sm btn-primary">
+                <.icon name="hero-envelope" class="size-4" /> Schedule Report
+              </button>
+            </.form>
+          </div>
+        </section>
       </div>
     </Layouts.app>
     """
@@ -468,10 +571,27 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     %{"subject_group_id" => "", "access" => "view"}
   end
 
+  defp default_report_schedule_params do
+    %{
+      "name" => "Daily dashboard report",
+      "cron" => "0 8 * * *",
+      "timezone" => "UTC",
+      "recipients" => ""
+    }
+  end
+
   defp assign_grant_forms(socket) do
     socket
     |> assign(:user_grant_form, to_form(socket.assigns.user_grant_params, as: :grant))
     |> assign(:group_grant_form, to_form(socket.assigns.group_grant_params, as: :grant))
+  end
+
+  defp assign_report_schedule_form(socket) do
+    assign(
+      socket,
+      :report_schedule_form,
+      to_form(socket.assigns.report_schedule_params, as: :schedule)
+    )
   end
 
   defp load_access_controls(scope, dashboard_id, assigns) do
@@ -514,6 +634,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp reload_access_controls(socket), do: socket
 
+  defp reload_report_schedules(%{assigns: %{dashboard: %{id: dashboard_id} = dashboard}} = socket) do
+    schedules =
+      Dashboards.list_authored_report_schedules(socket.assigns.current_scope, dashboard_id)
+
+    assign(socket, :dashboard, Map.put(dashboard, :report_schedules, schedules))
+  end
+
+  defp reload_report_schedules(socket), do: socket
+
   defp access_assigns(assigns) do
     Map.take(assigns, [:can_share?, :can_view_groups?, :can_view_share_principals?])
   end
@@ -521,6 +650,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
 
   defp can_share?(scope), do: RBAC.can?(scope, "analytics.dashboards.share")
+  defp can_schedule_reports?(scope), do: RBAC.can?(scope, "analytics.reports.schedule")
   defp can_view_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.view")
 
   defp can_view_share_principals?(scope),
@@ -530,8 +660,23 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     if socket.assigns.can_share?, do: :ok, else: {:error, :forbidden}
   end
 
+  defp authorize_report_schedule(socket) do
+    if socket.assigns.can_schedule_reports?, do: :ok, else: {:error, :forbidden}
+  end
+
   defp require_record(nil), do: {:error, :not_found}
   defp require_record(record), do: {:ok, record}
+
+  defp recipients(value) when is_binary(value) do
+    value
+    |> String.split([",", "\n"], trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp recipients(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
+  defp recipients(_value), do: []
 
   defp access_select_options, do: [{"View", "view"}, {"Edit", "edit"}]
 
