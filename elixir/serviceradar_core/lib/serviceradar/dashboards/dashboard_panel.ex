@@ -11,7 +11,8 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
-  @manage_check {ActorHasPermission, permission: "analytics.manage_queries"}
+  @view_all_check {ActorHasPermission, permission: "analytics.dashboards.view_all"}
+  @edit_check {ActorHasPermission, permission: "analytics.dashboards.edit"}
 
   @fields [
     :dashboard_id,
@@ -73,8 +74,14 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_type_with_permission(:read, @view_check)
-    action_type_with_permission([:create, :update, :destroy], @manage_check)
+
+    policy action_type(:read) do
+      forbid_unless(@view_check)
+      authorize_if(@view_all_check)
+      authorize_if(ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild)
+    end
+
+    action_type_with_permission([:create, :update, :destroy], @edit_check)
   end
 
   attributes do

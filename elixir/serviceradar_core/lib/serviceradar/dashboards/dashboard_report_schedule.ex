@@ -15,7 +15,8 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
-  @manage_check {ActorHasPermission, permission: "analytics.manage_queries"}
+  @view_all_check {ActorHasPermission, permission: "analytics.dashboards.view_all"}
+  @schedule_check {ActorHasPermission, permission: "analytics.reports.schedule"}
 
   @fields [
     :dashboard_id,
@@ -120,8 +121,14 @@ defmodule ServiceRadar.Dashboards.DashboardReportSchedule do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_type_with_permission(:read, @view_check)
-    action_type_with_permission([:create, :update, :destroy], @manage_check)
+
+    policy action_type(:read) do
+      forbid_unless(@view_check)
+      authorize_if(@view_all_check)
+      authorize_if(ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild)
+    end
+
+    action_type_with_permission([:create, :update, :destroy], @schedule_check)
   end
 
   attributes do

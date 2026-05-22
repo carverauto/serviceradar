@@ -28,6 +28,66 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Manage analytics queries",
           description: "Create and manage saved analytics queries",
           default_roles: @operator_roles
+        },
+        %{
+          key: "analytics.dashboards.create",
+          label: "Create dashboards",
+          description: "Create authored SRQL dashboards",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "analytics.dashboards.edit",
+          label: "Edit dashboards",
+          description: "Edit authored dashboard definitions and panels",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "analytics.dashboards.delete",
+          label: "Delete dashboards",
+          description: "Archive or delete authored dashboards",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "analytics.dashboards.share",
+          label: "Share dashboards",
+          description: "Grant authored dashboard access to users and groups",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "analytics.dashboards.view_all",
+          label: "View all dashboards",
+          description: "View authored dashboards regardless of owner or sharing grants",
+          default_roles: @admin_roles
+        },
+        %{
+          key: "analytics.reports.schedule",
+          label: "Schedule dashboard reports",
+          description: "Create and manage scheduled email reports for authored dashboards",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "analytics.share_principals.view",
+          label: "View dashboard share principals",
+          description: "Browse users and groups when sharing dashboards",
+          default_roles: @operator_roles
+        }
+      ]
+    },
+    %{
+      section: "identity_groups",
+      label: "User Groups",
+      permissions: [
+        %{
+          key: "identity.user_groups.view",
+          label: "View user groups",
+          description: "View reusable user groups and memberships",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "identity.user_groups.manage",
+          label: "Manage user groups",
+          description: "Create and manage reusable user groups and memberships",
+          default_roles: @admin_roles
         }
       ]
     },

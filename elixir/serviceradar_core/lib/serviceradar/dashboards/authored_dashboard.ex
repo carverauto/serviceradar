@@ -15,7 +15,10 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
-  @manage_check {ActorHasPermission, permission: "analytics.manage_queries"}
+  @view_all_check {ActorHasPermission, permission: "analytics.dashboards.view_all"}
+  @create_check {ActorHasPermission, permission: "analytics.dashboards.create"}
+  @edit_check {ActorHasPermission, permission: "analytics.dashboards.edit"}
+  @delete_check {ActorHasPermission, permission: "analytics.dashboards.delete"}
 
   @fields [
     :title,
@@ -95,8 +98,16 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_type_with_permission(:read, @view_check)
-    action_type_with_permission([:create, :update, :destroy], @manage_check)
+
+    policy action_type(:read) do
+      forbid_unless(@view_check)
+      authorize_if(@view_all_check)
+      authorize_if(ServiceRadar.Dashboards.Checks.ActorCanAccessDashboard)
+    end
+
+    action_with_permission(:create, @create_check)
+    action_with_permission([:update, :restore], @edit_check)
+    action_with_permission([:archive, :destroy], @delete_check)
   end
 
   attributes do
@@ -124,7 +135,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
       allow_nil?(false)
       public?(true)
       default(:private)
-      constraints(one_of: [:private, :shared])
+      constraints(one_of: [:private, :shared, :public])
     end
 
     attribute :status, :atom do
@@ -183,6 +194,10 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     end
 
     has_many :report_deliveries, ServiceRadar.Dashboards.DashboardReportDelivery do
+      destination_attribute(:dashboard_id)
+    end
+
+    has_many :access_grants, ServiceRadar.Dashboards.DashboardAccessGrant do
       destination_attribute(:dashboard_id)
     end
   end

@@ -3,6 +3,7 @@
 - [ ] 1.2 Add Ash resources/actions for authored dashboards with create, update, archive/delete, read, list, and ownership/visibility fields.
 - [ ] 1.3 Add Ash resources/actions for dashboard panels with SRQL query text, visual type, visual config, layout, and refresh metadata.
 - [ ] 1.4 Add Ash resources/actions for report schedules and delivery history with due-time tracking and idempotent state transitions.
+- [ ] 1.5 Add reusable Identity user groups/memberships and dashboard access grants for private/shared/public dashboard visibility.
 
 ## 2. SRQL Preview and Visual Compatibility
 - [ ] 2.1 Build a bounded SRQL preview/introspection context that applies preview limits and returns rows plus field metadata.
@@ -26,8 +27,9 @@
 
 ## 5. Permissions and Navigation
 - [ ] 5.1 Add permissions for viewing, creating, editing, deleting, sharing, and scheduling authored dashboards.
-- [ ] 5.2 Decide and implement Analytics navigation placement without polluting the existing settings/sidebar structure.
-- [ ] 5.3 Ensure dashboard package management remains under Settings -> Dashboards and does not mix with authored dashboard CRUD.
+- [ ] 5.2 Add permissions for managing reusable user groups and viewing share principals.
+- [ ] 5.3 Decide and implement Analytics navigation placement without polluting the existing settings/sidebar structure.
+- [ ] 5.4 Ensure dashboard package management remains under Settings -> Dashboards and does not mix with authored dashboard CRUD.
 
 ## 6. Validation
 - [ ] 6.1 Run focused Ash/resource tests for dashboard resources and report jobs.

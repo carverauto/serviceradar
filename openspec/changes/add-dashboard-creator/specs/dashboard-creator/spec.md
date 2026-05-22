@@ -133,3 +133,28 @@ The system SHALL authorize authored dashboard view, edit, delete, sharing, and r
 - **GIVEN** a dashboard exists but the current user is not authorized to view it
 - **WHEN** they open `/dashboard/:dashboard_id`
 - **THEN** the system SHALL deny access without revealing editable dashboard details.
+
+#### Scenario: Private dashboard is owner-only by default
+- **GIVEN** a user creates a dashboard with private visibility
+- **WHEN** another user without global dashboard visibility opens the dashboard URL
+- **THEN** the system SHALL deny access
+- **AND** the dashboard SHALL NOT appear in that user's dashboard library.
+
+#### Scenario: Shared dashboard is visible through grants
+- **GIVEN** a dashboard has a user or user-group access grant
+- **WHEN** a granted user opens the dashboard URL
+- **THEN** the system SHALL render the dashboard according to the grant access level.
+
+### Requirement: Reusable user groups for sharing
+The system SHALL provide reusable identity user groups that can be used for dashboard sharing and future feature access grants.
+
+#### Scenario: Authorized user manages a reusable user group
+- **GIVEN** a user has user-group management permission
+- **WHEN** they create a group and assign users
+- **THEN** the system SHALL persist the group and memberships in the Identity domain
+- **AND** dashboards SHALL reference that group through access grants rather than dashboard-specific group tables.
+
+#### Scenario: Unauthorized user cannot browse share principals
+- **GIVEN** a user lacks permission to view share principals
+- **WHEN** they open dashboard sharing controls
+- **THEN** user and group pickers SHALL be unavailable.

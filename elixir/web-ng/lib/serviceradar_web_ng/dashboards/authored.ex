@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @default_limit 50
   @max_limit 200
   @preview_limit 100
+  @default_timezone "UTC"
 
   @visuals [
     %{
@@ -55,7 +56,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @spec list_dashboards(term(), map()) :: [AuthoredDashboard.t()]
   def list_dashboards(scope, filters \\ %{}) do
     limit = normalize_limit(fetch_value(filters, [:limit, "limit"]))
-    statuses = normalize_existing_atoms(fetch_value(filters, [:status, "status"]), [:draft, :active, :archived])
+
+    statuses =
+      normalize_existing_atoms(fetch_value(filters, [:status, "status"]), [
+        :draft,
+        :active,
+        :archived
+      ])
 
     query =
       AuthoredDashboard
@@ -125,7 +132,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   def update_dashboard(_scope, _dashboard, _attrs), do: {:error, :invalid_attributes}
 
-  @spec archive_dashboard(term(), AuthoredDashboard.t()) :: {:ok, AuthoredDashboard.t()} | {:error, term()}
+  @spec archive_dashboard(term(), AuthoredDashboard.t()) ::
+          {:ok, AuthoredDashboard.t()} | {:error, term()}
   def archive_dashboard(scope, %AuthoredDashboard{} = dashboard) do
     dashboard
     |> Ash.Changeset.for_update(:archive, %{})
@@ -150,7 +158,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   def create_panel(_scope, _attrs), do: {:error, :invalid_attributes}
 
-  @spec update_panel(term(), DashboardPanel.t(), map()) :: {:ok, DashboardPanel.t()} | {:error, term()}
+  @spec update_panel(term(), DashboardPanel.t(), map()) ::
+          {:ok, DashboardPanel.t()} | {:error, term()}
   def update_panel(scope, %DashboardPanel{} = panel, attrs) when is_map(attrs) do
     panel
     |> Ash.Changeset.for_update(:update, panel_attrs(attrs))
@@ -175,6 +184,37 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   def list_report_schedules(_scope, _dashboard_id), do: []
+
+  @spec create_report_schedule(term(), map()) ::
+          {:ok, DashboardReportSchedule.t()} | {:error, term()}
+  def create_report_schedule(scope, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> schedule_attrs()
+      |> maybe_put_next_due_at()
+
+    DashboardReportSchedule
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> create(scope)
+  end
+
+  def create_report_schedule(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec update_report_schedule(term(), DashboardReportSchedule.t(), map()) ::
+          {:ok, DashboardReportSchedule.t()} | {:error, term()}
+  def update_report_schedule(scope, %DashboardReportSchedule{} = schedule, attrs)
+      when is_map(attrs) do
+    attrs =
+      attrs
+      |> schedule_attrs()
+      |> maybe_put_next_due_at()
+
+    schedule
+    |> Ash.Changeset.for_update(:update, attrs)
+    |> update(scope)
+  end
+
+  def update_report_schedule(_scope, _schedule, _attrs), do: {:error, :invalid_attributes}
 
   @spec list_report_deliveries(term(), String.t()) :: [DashboardReportDelivery.t()]
   def list_report_deliveries(scope, dashboard_id) when is_binary(dashboard_id) do
@@ -241,10 +281,19 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
     [:table]
     |> maybe_add_visual(:stat, stat_compatible?(rows, fields))
-    |> maybe_add_visual(:line, MapSet.member?(field_types, :datetime) and MapSet.member?(field_types, :number))
-    |> maybe_add_visual(:area, MapSet.member?(field_types, :datetime) and MapSet.member?(field_types, :number))
+    |> maybe_add_visual(
+      :line,
+      MapSet.member?(field_types, :datetime) and MapSet.member?(field_types, :number)
+    )
+    |> maybe_add_visual(
+      :area,
+      MapSet.member?(field_types, :datetime) and MapSet.member?(field_types, :number)
+    )
     |> maybe_add_visual(:bar, MapSet.member?(field_types, :number) and not Enum.empty?(fields))
-    |> maybe_add_visual(:category, MapSet.member?(field_types, :string) and MapSet.member?(field_types, :number))
+    |> maybe_add_visual(
+      :category,
+      MapSet.member?(field_types, :string) and MapSet.member?(field_types, :number)
+    )
     |> maybe_add_visual(:status_list, status_compatible?(fields))
   end
 
@@ -308,13 +357,24 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> put_if_present(:owner_id, fetch_value(attrs, [:owner_id, "owner_id"]))
     |> put_if_present(
       :visibility,
-      normalize_existing_atom(fetch_value(attrs, [:visibility, "visibility"]), [:private, :shared])
+      normalize_existing_atom(fetch_value(attrs, [:visibility, "visibility"]), [
+        :private,
+        :shared,
+        :public
+      ])
     )
     |> put_if_present(
       :status,
-      normalize_existing_atom(fetch_value(attrs, [:status, "status"]), [:draft, :active, :archived])
+      normalize_existing_atom(fetch_value(attrs, [:status, "status"]), [
+        :draft,
+        :active,
+        :archived
+      ])
     )
-    |> put_if_present(:default_time_range, fetch_string(attrs, [:default_time_range, "default_time_range"]))
+    |> put_if_present(
+      :default_time_range,
+      fetch_string(attrs, [:default_time_range, "default_time_range"])
+    )
     |> put_if_present(:layout, fetch_map(attrs, [:layout, "layout"]))
     |> put_if_present(:variables, fetch_map(attrs, [:variables, "variables"]))
     |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
@@ -339,6 +399,49 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> put_if_present(:position, fetch_integer(attrs, [:position, "position"]))
     |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
   end
+
+  defp schedule_attrs(attrs) do
+    %{}
+    |> put_if_present(:dashboard_id, fetch_value(attrs, [:dashboard_id, "dashboard_id"]))
+    |> put_if_present(:name, fetch_string(attrs, [:name, "name"]))
+    |> put_if_present(:enabled, fetch_boolean(attrs, [:enabled, "enabled"]))
+    |> put_if_present(:recipients, fetch_recipients(attrs))
+    |> put_if_present(:cron, fetch_string(attrs, [:cron, "cron"]))
+    |> put_if_present(:timezone, fetch_string(attrs, [:timezone, "timezone"]))
+    |> put_if_present(
+      :format,
+      normalize_existing_atom(fetch_value(attrs, [:format, "format"]), [:html])
+    )
+    |> put_if_present(:next_due_at, fetch_datetime(attrs, [:next_due_at, "next_due_at"]))
+    |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
+  end
+
+  defp maybe_put_next_due_at(%{next_due_at: %DateTime{}} = attrs), do: attrs
+
+  defp maybe_put_next_due_at(%{cron: cron} = attrs) when is_binary(cron) do
+    timezone = Map.get(attrs, :timezone) || @default_timezone
+
+    case next_due_at(cron, timezone, DateTime.utc_now()) do
+      %DateTime{} = next_due_at -> Map.put(attrs, :next_due_at, next_due_at)
+      _ -> attrs
+    end
+  end
+
+  defp maybe_put_next_due_at(attrs), do: attrs
+
+  @spec next_due_at(String.t(), String.t(), DateTime.t()) :: DateTime.t() | nil
+  def next_due_at(cron, timezone \\ @default_timezone, after_time \\ DateTime.utc_now())
+
+  def next_due_at(cron, timezone, %DateTime{} = after_time) when is_binary(cron) do
+    with {:ok, expr} <- Oban.Cron.Expression.parse(cron),
+         {:ok, base} <- DateTime.shift_zone(after_time, normalize_timezone(timezone)) do
+      Oban.Cron.Expression.next_at(expr, base)
+    else
+      _ -> nil
+    end
+  end
+
+  def next_due_at(_cron, _timezone, _after_time), do: nil
 
   defp normalize_rows(results) when is_list(results) do
     Enum.map(results, fn
@@ -380,7 +483,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp number?(value) when is_binary(value) do
     value = String.trim(value)
-    value != "" and (match?({_number, ""}, Float.parse(value)) or match?({_number, ""}, Integer.parse(value)))
+
+    value != "" and
+      (match?({_number, ""}, Float.parse(value)) or match?({_number, ""}, Integer.parse(value)))
   end
 
   defp number?(_value), do: false
@@ -465,6 +570,54 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp fetch_integer(_map, _keys), do: nil
 
+  defp fetch_boolean(map, keys) when is_map(map) do
+    case fetch_value(map, keys) do
+      value when is_boolean(value) -> value
+      value when is_binary(value) -> String.downcase(String.trim(value)) in ~w(true 1 yes on)
+      _ -> nil
+    end
+  end
+
+  defp fetch_boolean(_map, _keys), do: nil
+
+  defp fetch_datetime(map, keys) when is_map(map) do
+    case fetch_value(map, keys) do
+      %DateTime{} = value ->
+        value
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, dt, _offset} -> dt
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp fetch_datetime(_map, _keys), do: nil
+
+  defp fetch_recipients(map) when is_map(map) do
+    case fetch_value(map, [:recipients, "recipients"]) do
+      values when is_list(values) ->
+        values
+        |> Enum.map(&normalize_string/1)
+        |> Enum.reject(&is_nil/1)
+
+      value when is_binary(value) ->
+        value
+        |> String.split([",", "\n"], trim: true)
+        |> Enum.map(&normalize_string/1)
+        |> Enum.reject(&is_nil/1)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp fetch_recipients(_map), do: nil
+
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, fn key -> Map.get(map, key) end)
   end
@@ -509,6 +662,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp owner_id(%{user: %{id: id}}), do: id
   defp owner_id(_scope), do: nil
+
+  defp normalize_timezone(value) when is_binary(value) and value != "", do: value
+  defp normalize_timezone(_value), do: @default_timezone
 
   defp present?(value), do: value not in [nil, ""]
 

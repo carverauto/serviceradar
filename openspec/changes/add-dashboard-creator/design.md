@@ -32,6 +32,12 @@ Add new resources under `ServiceRadar.Dashboards` rather than overloading `Dashb
 - `DashboardPanel`: dashboard ID, title, SRQL query, visual type, visual config, layout position, refresh policy.
 - `DashboardReportSchedule`: dashboard ID, recipients, cron/hourly schedule, timezone, enabled flag, next due time, last delivery state.
 - `DashboardReportDelivery`: schedule ID, due time, status, rendered metadata, delivery error, message ID.
+- `DashboardAccessGrant`: dashboard ID, subject user/group, and view/edit access.
+
+Reusable user groups belong in `ServiceRadar.Identity` as generic `UserGroup`
+and `UserGroupMembership` resources. Dashboards consume those groups through
+access grants, but the groups are not dashboard-specific so future features can
+use the same group model.
 
 Why: package dashboards are versioned trusted renderer artifacts. Authored dashboards are editable database definitions rendered by core UI components. Mixing them would create confusing lifecycle and security semantics.
 
@@ -86,5 +92,5 @@ PDF/export can be added later behind the same delivery model if needed.
 
 ## Open Questions
 - Should dashboard IDs be UUID-only at first, or support user-editable slugs immediately?
-- Which roles can create shared dashboards: operators only, or all authenticated users with personal-only visibility?
+- Which roles can create public dashboards: operators only, or a narrower dashboard publishing permission?
 - Should reports support arbitrary recipient emails, or only ServiceRadar users/groups in the first iteration?
