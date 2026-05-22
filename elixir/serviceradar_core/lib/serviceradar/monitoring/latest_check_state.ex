@@ -68,6 +68,10 @@ defmodule ServiceRadar.Monitoring.LatestCheckState do
       upsert_fields List.delete(@fields, :check_instance_id) ++ [:updated_at]
       accept @fields
     end
+
+    update :mark_event_emitted do
+      accept [:event_emitted_at]
+    end
   end
 
   policies do
@@ -75,7 +79,7 @@ defmodule ServiceRadar.Monitoring.LatestCheckState do
 
     system_bypass()
     action_type_with_permission(:read, @services_view_check)
-    action_with_permission(:record, @services_run_check)
+    action_with_permission([:record, :mark_event_emitted], @services_run_check)
   end
 
   attributes do

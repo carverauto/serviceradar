@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Monitoring.CheckInstance
+  alias ServiceRadar.Monitoring.CheckStateEventWriter
   alias ServiceRadar.Monitoring.LatestCheckState
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry
@@ -230,7 +231,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       check_instance_id ->
         with {:ok, check_instance} <- load_check_instance(check_instance_id, actor),
              {:ok, previous_state} <- load_previous_check_state(check_instance.id, actor),
-             {:ok, _state} <-
+             {:ok, state} <-
                LatestCheckState.record_state(
                  target_check_state_attrs(
                    check_instance,
@@ -242,6 +243,10 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
                    status_label,
                    available
                  ),
+                 actor: actor
+               ),
+             :ok <-
+               CheckStateEventWriter.maybe_write(check_instance, previous_state, state,
                  actor: actor
                ) do
           :ok

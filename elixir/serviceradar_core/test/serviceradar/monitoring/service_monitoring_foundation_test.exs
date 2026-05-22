@@ -737,6 +737,7 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
     assert critical_state.summary == "HTTP timeout"
     assert critical_state.metrics["http.status_code"] == 504
     assert critical_state.metrics["password"] == "REDACTED"
+    assert critical_state.event_emitted_at
     assert get_in(critical_state.details, ["payload", "api_token"]) == "REDACTED"
     assert get_in(critical_state.details, ["payload", "headers", "authorization"]) == "REDACTED"
     refute inspect(critical_state.details) =~ "plain-api-token"
@@ -755,6 +756,10 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
 
     refute status_details =~ "plain-api-token"
     refute status_details =~ "plain-token"
+
+    assert [
+             ["initial", "critical", "Critical", "Failure"]
+           ] = check_state_events(check_instance.id)
 
     second_observed_at = ~U[2026-05-21 17:41:00Z]
 
@@ -787,7 +792,13 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
     assert ok_state.previous_status == :critical
     assert ok_state.consecutive_failures == 0
     assert ok_state.response_time_ms == 32
+    assert ok_state.event_emitted_at
     assert DateTime.compare(ok_state.status_changed_at, second_observed_at) == :eq
+
+    assert Enum.any?(check_state_events(check_instance.id), fn
+             ["recovery", "ok", "Informational", "Success"] -> true
+             _event -> false
+           end)
   end
 
   test "backfill materializes legacy service checks and service identities idempotently", %{
@@ -960,5 +971,25 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
       )
 
     count
+  end
+
+  defp check_state_events(check_instance_id) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT
+          unmapped ->> 'transition',
+          unmapped ->> 'status',
+          severity,
+          status
+        FROM platform.ocsf_events
+        WHERE unmapped ->> 'event_family' = 'check_state_transition'
+          AND unmapped ->> 'check_instance_id' = $1
+        ORDER BY time ASC
+        """,
+        [to_string(check_instance_id)]
+      )
+
+    rows
   end
 end

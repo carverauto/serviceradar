@@ -32,7 +32,7 @@
 - [ ] 5.6 Add SLI/SLO creation and detail workflows with request/window SLI type, compliance period, goal, error-budget, burn-rate, owner, and alert policy controls.
 
 ## 6. Events, Alerts, and Dashboards
-- [ ] 6.1 Normalize check state transitions into OCSF events according to binding policy.
+- [x] 6.1 Normalize check state transitions into OCSF events according to binding policy.
 - [ ] 6.2 Wire event-to-alert promotion using existing stateful rule/cooldown behavior.
 - [ ] 6.3 Evaluate request-based and windows-based SLO compliance, error budgets, burn rates, and budget exhaustion state.
 - [ ] 6.4 Normalize SLO compliance, budget, and burn-rate transitions into informational/warning/critical OCSF events.
@@ -42,7 +42,7 @@
 
 ## 7. Validation
 - [x] 7.1 Run `openspec validate add-service-oriented-plugin-monitoring --strict`.
-- [ ] 7.2 Add focused unit/integration tests for compiler behavior, credential scoping, target chunking, result ingestion, and SRQL.
+- [x] 7.2 Add focused unit/integration tests for compiler behavior, credential scoping, target chunking, result ingestion, and SRQL.
 - [ ] 7.3 Add focused unit/integration tests for request-based SLOs, windows-based SLOs, rolling/calendar compliance periods, error budgets, and burn-rate transitions.
 - [ ] 7.4 Add LiveView/browser coverage for picker, bulk import, device monitoring, service inventory, and SLO workflows.
 - [ ] 7.5 Run applicable Elixir, Go, Rust, and dashboard SDK tests before implementation PRs are merged.
