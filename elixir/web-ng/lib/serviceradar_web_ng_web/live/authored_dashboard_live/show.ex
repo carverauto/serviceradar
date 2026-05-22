@@ -48,9 +48,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       if connected?(socket) do
         start_async(socket, {:load_dashboard, dashboard_id}, fn ->
           with {:ok, %AuthoredDashboard{} = dashboard} <-
-                 Dashboards.get_authored_dashboard(scope, dashboard_id,
-                   load: [:panels, :report_schedules]
-                 ) do
+                 Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
             panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
 
             results =
@@ -75,11 +73,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   @impl true
-  def handle_async(
-        {:load_dashboard, _dashboard_id},
-        {:ok, {:ok, dashboard, panels, results, access}},
-        socket
-      ) do
+  def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:ok, dashboard, panels, results, access}}, socket) do
     dashboard = Map.put(dashboard, :panels, panels)
 
     {:noreply,
@@ -323,8 +317,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
              schedule,
              attrs
            ) do
-      {:noreply,
-       socket |> put_flash(:info, "Report schedule updated") |> reload_report_schedules()}
+      {:noreply, socket |> put_flash(:info, "Report schedule updated") |> reload_report_schedules()}
     else
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Schedule update failed: #{format_error(reason)}")}
@@ -337,8 +330,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     with :ok <- authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
          :ok <- Dashboards.delete_authored_report_schedule(socket.assigns.current_scope, schedule) do
-      {:noreply,
-       socket |> put_flash(:info, "Report schedule deleted") |> reload_report_schedules()}
+      {:noreply, socket |> put_flash(:info, "Report schedule deleted") |> reload_report_schedules()}
     else
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Schedule delete failed: #{format_error(reason)}")}
@@ -772,7 +764,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     ~H"""
     <div class="flex min-h-32 items-center">
       <div>
-        <div class="text-4xl font-semibold tracking-normal">{@value}<span class="text-xl">{@unit}</span></div>
+        <div class="text-4xl font-semibold tracking-normal">
+          {@value}<span class="text-xl">{@unit}</span>
+        </div>
         <div class="mt-2 text-sm text-base-content/55">{@label}</div>
       </div>
     </div>
@@ -803,8 +797,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns)
-       when type in [:bar, "bar", :category, "category"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:bar, "bar", :category, "category"] do
     assigns = assign(assigns, :bars, bars(assigns.rows, assigns.fields))
 
     ~H"""
@@ -821,8 +814,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns)
-       when type in [:line, "line", :area, "area"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:line, "line", :area, "area"] do
     assigns = assign(assigns, :points, sparkline_points(assigns.rows, assigns.fields))
 
     ~H"""
@@ -991,10 +983,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     results =
       Map.new(panels, fn panel ->
-        {panel.id,
-         Dashboards.preview_authored_query(socket.assigns.current_scope, panel.srql_query,
-           limit: 250
-         )}
+        {panel.id, Dashboards.preview_authored_query(socket.assigns.current_scope, panel.srql_query, limit: 250)}
       end)
 
     socket
@@ -1165,6 +1154,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     ~H"""
     <%= case @cell do %>
+      <% {:status, text, tone} -> %>
+        <span class={["badge badge-sm", status_badge_class(tone)]} title={text}>
+          <.icon name={status_icon(tone)} class="size-3" /> {text}
+        </span>
       <% {:boolean, true} -> %>
         <span class="badge badge-sm badge-success" title="true">
           <.icon name="hero-check" class="size-3" /> true
@@ -1173,12 +1166,35 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         <span class="badge badge-sm badge-error badge-outline" title="false">
           <.icon name="hero-x-mark" class="size-3" /> false
         </span>
+      <% {:sparkline, points, title} -> %>
+        <svg
+          viewBox="0 0 100 24"
+          preserveAspectRatio="none"
+          class="h-6 w-28 text-primary"
+          role="img"
+          aria-label="sparkline"
+        >
+          <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
+        </svg>
+        <span class="sr-only">{title}</span>
       <% {:json, summary, title} -> %>
         <span class="font-mono text-[11px]" title={title}>{summary}</span>
       <% {:text, text, title} -> %>
         <span title={title}>{text}</span>
     <% end %>
     """
+  end
+
+  defp table_cell_value(value, renderer) when renderer in ["status", "status_icon", "icon"] do
+    text = format_value(value)
+    {:status, text, status_tone(value)}
+  end
+
+  defp table_cell_value(value, "sparkline") do
+    case table_sparkline_points(value) do
+      "" -> {:text, format_value(value), format_value(value)}
+      points -> {:sparkline, points, format_value(value)}
+    end
   end
 
   defp table_cell_value(value, "boolean_icon") when is_boolean(value), do: {:boolean, value}
@@ -1206,8 +1222,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp default_renderer(%{type: :boolean}), do: "boolean_icon"
 
-  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample),
-    do: "json_summary"
+  defp default_renderer(%{name: name}) when name in ["status", "state", "health", "availability"], do: "status"
+
+  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample), do: "json_summary"
 
   defp default_renderer(_field), do: "text"
 
@@ -1392,6 +1409,62 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         end)
     end
   end
+
+  defp table_sparkline_points(values) when is_list(values) do
+    values =
+      values
+      |> Enum.map(&numeric/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(40)
+
+    case values do
+      [] ->
+        ""
+
+      [_single] ->
+        "0,12 100,12"
+
+      values ->
+        min_value = Enum.min(values)
+        max_value = Enum.max(values)
+        spread = max(max_value - min_value, 1.0)
+        last_index = max(length(values) - 1, 1)
+
+        values
+        |> Enum.with_index()
+        |> Enum.map_join(" ", fn {value, index} ->
+          x = index / last_index * 100
+          y = 24 - (value - min_value) / spread * 20 - 2
+          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
+        end)
+    end
+  end
+
+  defp table_sparkline_points(_value), do: ""
+
+  defp status_tone(value) do
+    value =
+      value
+      |> format_value()
+      |> String.downcase()
+
+    cond do
+      value in ["ok", "up", "true", "healthy", "online", "available", "ready", "success"] -> :success
+      value in ["warn", "warning", "degraded", "partial"] -> :warning
+      value in ["fail", "failed", "false", "down", "critical", "error", "offline", "unavailable"] -> :error
+      true -> :neutral
+    end
+  end
+
+  defp status_badge_class(:success), do: "badge-success"
+  defp status_badge_class(:warning), do: "badge-warning"
+  defp status_badge_class(:error), do: "badge-error"
+  defp status_badge_class(_tone), do: "badge-outline"
+
+  defp status_icon(:success), do: "hero-check-circle"
+  defp status_icon(:warning), do: "hero-exclamation-triangle"
+  defp status_icon(:error), do: "hero-x-circle"
+  defp status_icon(_tone), do: "hero-question-mark-circle"
 
   defp first_numeric_field(fields), do: first_field_of_type(fields, :number)
   defp first_string_field(fields), do: first_field_of_type(fields, :string)

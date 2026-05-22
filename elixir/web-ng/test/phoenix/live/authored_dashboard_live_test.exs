@@ -20,6 +20,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
        }}
     end
 
+    def query("rich" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "service" => "core",
+             "enabled" => true,
+             "status" => "down",
+             "details" => %{"owner" => "noc", "region" => "iah"},
+             "trend" => [1, 3, 2, 5]
+           }
+         ]
+       }}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -88,6 +103,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     html = render_async(view, 5_000)
 
     assert html =~ "Dashboard Library"
+    assert has_element?(view, ".sr-ops-page-title", "Dashboards")
+    assert has_element?(view, "#srql-query-bar input[name='q'][value='in:dashboards limit:100']")
+    assert has_element?(view, "a[href='/dashboards'][aria-current='page']")
     assert html =~ dashboard.title
 
     view
@@ -185,6 +203,36 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert render(view) =~ "No report schedules yet."
   end
 
+  test "saved dashboard table renders status boolean JSON and sparkline cells", %{
+    conn: conn,
+    scope: scope
+  } do
+    {dashboard, _panel} =
+      dashboard_with_panel!(scope,
+        title: "Rich Table LiveView",
+        srql_query: "rich services",
+        display_config: %{
+          "table_columns" => [
+            %{"field" => "service", "label" => "Service"},
+            %{"field" => "status", "label" => "Status", "renderer" => "status"},
+            %{"field" => "enabled", "label" => "Enabled", "renderer" => "boolean_icon"},
+            %{"field" => "details", "label" => "Owner", "path" => "owner", "renderer" => "text"},
+            %{"field" => "trend", "label" => "Trend", "renderer" => "sparkline"}
+          ]
+        }
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    html = render_async(view, 5_000)
+
+    assert html =~ "badge-error"
+    assert html =~ "down"
+    assert html =~ "badge-success"
+    assert html =~ "noc"
+    assert html =~ "aria-label=\"sparkline\""
+    refute html =~ "{&quot;owner&quot;"
+  end
+
   defp dashboard_with_panel!(scope, attrs) do
     title = Keyword.fetch!(attrs, :title)
 
@@ -200,8 +248,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       Dashboards.create_authored_panel(scope, %{
         dashboard_id: dashboard.id,
         title: "Service Series",
-        srql_query: "series services",
-        visual_type: :table
+        srql_query: Keyword.get(attrs, :srql_query, "series services"),
+        visual_type: Keyword.get(attrs, :visual_type, :table),
+        display_config: Keyword.get(attrs, :display_config, %{})
       })
 
     {dashboard, panel}

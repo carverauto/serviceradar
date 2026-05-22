@@ -38,6 +38,21 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
        }}
     end
 
+    def query("rich" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "service" => "core",
+             "enabled" => true,
+             "status" => "ok",
+             "details" => %{"owner" => "noc", "region" => "iah"},
+             "trend" => [1, 4, 2, 8]
+           }
+         ]
+       }}
+    end
+
     def query("availability" <> _rest, _opts) do
       {:ok, %{"results" => [%{"ok" => 9, "total" => 10, "site" => "ZZA"}]}}
     end
@@ -69,11 +84,28 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
 
     assert preview.row_count == 2
     assert Enum.map(preview.fields, & &1.name) == ["service", "status", "timestamp", "value"]
+    assert Enum.map(preview.fields, & &1.id) == ["service", "status", "timestamp", "value"]
+
+    value_field = Enum.find(preview.fields, &(&1.name == "value"))
+    assert value_field.sample == 10
+    assert value_field.aggregate_compatible
+    assert "avg" in value_field.compatible_aggregations
+
     assert :table in preview.compatible_visuals
     assert :line in preview.compatible_visuals
     assert :bar in preview.compatible_visuals
     assert :category in preview.compatible_visuals
     assert :status_list in preview.compatible_visuals
+  end
+
+  test "preview exposes JSON paths from sample object values", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "rich services")
+
+    details = Enum.find(preview.fields, &(&1.name == "details"))
+
+    assert details.type == :object
+    assert details.json_paths == ["owner", "region"]
+    refute details.aggregate_compatible
   end
 
   test "invalid SRQL is rejected before panel creation", %{scope: scope, dashboard: dashboard} do
@@ -140,6 +172,28 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
 
     assert panel.data_binding["value_field"] == "value"
+  end
+
+  test "visual configs must reference fields returned by preview", %{scope: scope, dashboard: dashboard} do
+    assert {:error, {:missing_visual_config_field, "value_field", "missing"}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Bad visual config",
+               srql_query: "series services",
+               visual_type: :table,
+               visual_config: %{"value_field" => "missing"}
+             })
+
+    assert {:ok, panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Good visual config",
+               srql_query: "series services",
+               visual_type: :table,
+               visual_config: %{"value_field" => "value", "thresholds" => [%{"field" => "status"}]}
+             })
+
+    assert panel.visual_config["value_field"] == "value"
   end
 
   test "availability visuals require numerator and denominator bindings", %{scope: scope, dashboard: dashboard} do

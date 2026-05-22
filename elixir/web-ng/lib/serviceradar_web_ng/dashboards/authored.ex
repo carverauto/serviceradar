@@ -382,7 +382,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
          {:ok, preview} <- preview_query(scope, srql_query),
          :ok <- validate_visual_compatibility(visual_type, preview.compatible_visuals),
          :ok <- validate_data_binding(visual_type, Map.get(attrs, :data_binding, %{}), preview.fields),
-         :ok <- validate_display_config(Map.get(attrs, :display_config, %{}), preview.fields) do
+         :ok <- validate_display_config(Map.get(attrs, :display_config, %{}), preview.fields),
+         :ok <- validate_visual_config(Map.get(attrs, :visual_config, %{}), preview.fields) do
       field_metadata =
         attrs
         |> Map.get(:field_metadata, %{})
@@ -459,6 +460,48 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   defp validate_display_config(config, _fields), do: {:error, {:invalid_display_config, config}}
+
+  defp validate_visual_config(config, fields) when is_map(config) do
+    config
+    |> visual_config_field_refs()
+    |> Enum.reduce_while(:ok, fn {key, field}, :ok ->
+      case validate_field_name(fields, field, {:missing_visual_config_field, key, field}) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_visual_config(config, _fields), do: {:error, {:invalid_visual_config, config}}
+
+  defp visual_config_field_refs(config) do
+    top_level =
+      config
+      |> Enum.filter(fn {key, value} ->
+        String.ends_with?(to_string(key), "_field") and is_binary(value) and value != ""
+      end)
+      |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+
+    threshold_refs =
+      config
+      |> Map.get("thresholds", [])
+      |> case do
+        thresholds when is_list(thresholds) ->
+          thresholds
+          |> Enum.filter(&is_map/1)
+          |> Enum.flat_map(fn threshold ->
+            case Map.get(threshold, "field") || Map.get(threshold, :field) do
+              field when is_binary(field) and field != "" -> [{"thresholds.field", field}]
+              _ -> []
+            end
+          end)
+
+        _ ->
+          []
+      end
+
+    top_level ++ threshold_refs
+  end
 
   defp validate_table_columns([], _fields), do: :ok
   defp validate_table_columns(nil, _fields), do: :ok
@@ -794,16 +837,58 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> Enum.sort()
     |> Enum.map(fn name ->
       values = values_for(rows, name)
+      type = infer_type(values)
 
       %{
+        id: name,
         name: name,
-        type: infer_type(values),
-        sample: Enum.find(values, &present?/1)
+        type: type,
+        sample: Enum.find(values, &present?/1),
+        json_paths: json_paths(values),
+        aggregate_compatible: type == :number,
+        compatible_aggregations: compatible_aggregations(type)
       }
     end)
   end
 
   def infer_fields(_rows), do: []
+
+  defp json_paths(values) do
+    values
+    |> Enum.find(&is_map/1)
+    |> case do
+      nil ->
+        []
+
+      value ->
+        value
+        |> flatten_json_paths()
+        |> Enum.uniq()
+        |> Enum.sort()
+    end
+  end
+
+  defp flatten_json_paths(value, prefix \\ "")
+
+  defp flatten_json_paths(value, prefix) when is_map(value) do
+    Enum.flat_map(value, fn {key, nested} ->
+      path =
+        [prefix, to_string(key)]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join(".")
+
+      case nested do
+        nested when is_map(nested) -> [path | flatten_json_paths(nested, path)]
+        _ -> [path]
+      end
+    end)
+  end
+
+  defp flatten_json_paths(_value, _prefix), do: []
+
+  defp compatible_aggregations(:number), do: ["avg", "min", "max", "sum", "count"]
+  defp compatible_aggregations(:boolean), do: ["count"]
+  defp compatible_aggregations(_type), do: []
 
   defp read!(query, nil), do: Ash.read!(query)
   defp read!(query, scope), do: Ash.read!(query, scope: scope)
@@ -859,7 +944,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     value = String.trim(value)
 
     cond do
-      match?({:ok, _}, Ecto.UUID.cast(value)) ->
+      canonical_uuid?(value) ->
         {:id, value}
 
       Regex.match?(~r/^\d{7}$/, value) ->
@@ -869,6 +954,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       true ->
         {:slug, slugify(value)}
     end
+  end
+
+  defp canonical_uuid?(value) when is_binary(value) do
+    Regex.match?(
+      ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+      value
+    )
   end
 
   defp clear_default_dashboard(scope) do
@@ -1055,6 +1147,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       Enum.any?(values, &datetime?/1) -> :datetime
       Enum.any?(values, &number?/1) -> :number
       Enum.any?(values, &boolean?/1) -> :boolean
+      Enum.any?(values, &is_map/1) -> :object
+      Enum.any?(values, &is_list/1) -> :list
       true -> :string
     end
   end

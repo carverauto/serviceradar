@@ -165,6 +165,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
+                  href={~p"/dashboards"}
+                  label="Dashboards"
+                  icon="hero-squares-2x2"
+                  active={@current_path && String.starts_with?(@current_path, "/dashboards")}
+                />
+              </li>
+              <li>
+                <.sidebar_link
                   href={~p"/devices"}
                   label="Devices"
                   icon="hero-server"
@@ -439,8 +447,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp user_initials(_), do: "?"
 
-  defp profile_title(%{user: %{email: email}}) when is_binary(email) and email != "",
-    do: "Profile: #{email}"
+  defp profile_title(%{user: %{email: email}}) when is_binary(email) and email != "", do: "Profile: #{email}"
 
   defp profile_title(_), do: "Profile"
 

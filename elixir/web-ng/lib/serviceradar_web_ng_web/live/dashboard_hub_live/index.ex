@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       |> assign(:preferences, %{})
       |> assign(:default_item, nil)
       |> assign(:system_default_missing?, false)
+      |> assign(:system_default_slug, @system_default_slug)
       |> assign(:srql, dashboard_srql(@default_query, @current_path))
 
     {:ok, socket}

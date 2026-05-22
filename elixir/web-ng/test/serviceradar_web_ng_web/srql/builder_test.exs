@@ -94,4 +94,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert query =~ "in:wifi_radius_groups"
     assert query =~ "all_server_groups:(aaa-primary,aaa-backup)"
   end
+
+  test "dashboard discovery queries round trip through the shared builder" do
+    query = "in:dashboards title:%NOC% type:authored sort:updated_at:desc limit:20"
+
+    assert {:ok, state} = Builder.parse(query)
+    assert state["entity"] == "dashboards"
+
+    assert Enum.any?(state["filters"], fn filter ->
+             filter["field"] == "title" and filter["op"] == "contains" and filter["value"] == "NOC"
+           end)
+
+    assert Enum.any?(state["filters"], fn filter ->
+             filter["field"] == "type" and filter["op"] == "equals" and filter["value"] == "authored"
+           end)
+
+    rebuilt = Builder.build(state)
+    assert rebuilt =~ "in:dashboards"
+    assert rebuilt =~ "title:%NOC%"
+    assert rebuilt =~ "type:authored"
+    assert rebuilt =~ "sort:updated_at:desc"
+    assert rebuilt =~ "limit:20"
+  end
 end
