@@ -36,8 +36,20 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     end
   end
 
+  code_interface do
+    define(:list, action: :read)
+    define(:create_user_grant, action: :create)
+    define(:create_group_grant, action: :create_group)
+    define(:update_grant, action: :update)
+  end
+
   actions do
     defaults([:read, :destroy])
+
+    read :for_dashboard do
+      argument(:dashboard_id, :uuid, allow_nil?: false)
+      filter(expr(dashboard_id == ^arg(:dashboard_id)))
+    end
 
     create :create do
       accept(@fields)

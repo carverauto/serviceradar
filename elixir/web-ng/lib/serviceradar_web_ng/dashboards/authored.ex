@@ -4,9 +4,12 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   """
 
   alias ServiceRadar.Dashboards.AuthoredDashboard
+  alias ServiceRadar.Dashboards.DashboardAccessGrant
   alias ServiceRadar.Dashboards.DashboardPanel
   alias ServiceRadar.Dashboards.DashboardReportDelivery
   alias ServiceRadar.Dashboards.DashboardReportSchedule
+  alias ServiceRadar.Identity.UserGroup
+  alias ServiceRadar.Identity.UserGroupMembership
 
   require Ash.Query
 
@@ -226,6 +229,88 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   def list_report_deliveries(_scope, _dashboard_id), do: []
 
+  @spec list_access_grants(term(), String.t()) :: [DashboardAccessGrant.t()]
+  def list_access_grants(scope, dashboard_id) when is_binary(dashboard_id) do
+    DashboardAccessGrant
+    |> Ash.Query.for_read(:for_dashboard, %{dashboard_id: dashboard_id})
+    |> Ash.Query.load([:subject_user, :subject_group])
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> read!(scope)
+  end
+
+  def list_access_grants(_scope, _dashboard_id), do: []
+
+  @spec grant_dashboard_to_user(term(), map()) ::
+          {:ok, DashboardAccessGrant.t()} | {:error, term()}
+  def grant_dashboard_to_user(scope, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> access_grant_attrs()
+      |> Map.put(:subject_type, :user)
+      |> Map.put_new(:granted_by_id, owner_id(scope))
+
+    DashboardAccessGrant
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> create(scope)
+  end
+
+  def grant_dashboard_to_user(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec grant_dashboard_to_group(term(), map()) ::
+          {:ok, DashboardAccessGrant.t()} | {:error, term()}
+  def grant_dashboard_to_group(scope, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> access_grant_attrs()
+      |> Map.put(:subject_type, :group)
+      |> Map.put_new(:granted_by_id, owner_id(scope))
+
+    DashboardAccessGrant
+    |> Ash.Changeset.for_create(:create_group, attrs)
+    |> create(scope)
+  end
+
+  def grant_dashboard_to_group(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec revoke_access_grant(term(), DashboardAccessGrant.t()) :: :ok | {:error, term()}
+  def revoke_access_grant(scope, %DashboardAccessGrant{} = grant) do
+    case destroy(grant, scope) do
+      {:ok, _} -> :ok
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  @spec list_user_groups(term()) :: [UserGroup.t()]
+  def list_user_groups(scope) do
+    UserGroup
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.sort(name: :asc)
+    |> read!(scope)
+  end
+
+  @spec create_user_group(term(), map()) :: {:ok, UserGroup.t()} | {:error, term()}
+  def create_user_group(scope, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> user_group_attrs()
+      |> Map.put_new(:owner_id, owner_id(scope))
+
+    UserGroup
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> create(scope)
+  end
+
+  def create_user_group(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec add_user_group_member(term(), map()) :: {:ok, UserGroupMembership.t()} | {:error, term()}
+  def add_user_group_member(scope, attrs) when is_map(attrs) do
+    UserGroupMembership
+    |> Ash.Changeset.for_create(:create, user_group_membership_attrs(attrs))
+    |> create(scope)
+  end
+
+  def add_user_group_member(_scope, _attrs), do: {:error, :invalid_attributes}
+
   @spec visual_options() :: [map()]
   def visual_options, do: @visuals
 
@@ -413,6 +498,44 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       normalize_existing_atom(fetch_value(attrs, [:format, "format"]), [:html])
     )
     |> put_if_present(:next_due_at, fetch_datetime(attrs, [:next_due_at, "next_due_at"]))
+    |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
+  end
+
+  defp access_grant_attrs(attrs) do
+    %{}
+    |> put_if_present(:dashboard_id, fetch_value(attrs, [:dashboard_id, "dashboard_id"]))
+    |> put_if_present(
+      :subject_user_id,
+      fetch_value(attrs, [:subject_user_id, "subject_user_id", :user_id, "user_id"])
+    )
+    |> put_if_present(
+      :subject_group_id,
+      fetch_value(attrs, [:subject_group_id, "subject_group_id", :group_id, "group_id"])
+    )
+    |> put_if_present(
+      :access,
+      normalize_existing_atom(fetch_value(attrs, [:access, "access"]), [:view, :edit])
+    )
+    |> put_if_present(:granted_by_id, fetch_value(attrs, [:granted_by_id, "granted_by_id"]))
+    |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
+  end
+
+  defp user_group_attrs(attrs) do
+    %{}
+    |> put_if_present(:name, fetch_string(attrs, [:name, "name"]))
+    |> put_if_present(:description, fetch_string(attrs, [:description, "description"]))
+    |> put_if_present(:owner_id, fetch_value(attrs, [:owner_id, "owner_id"]))
+    |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
+  end
+
+  defp user_group_membership_attrs(attrs) do
+    %{}
+    |> put_if_present(:group_id, fetch_value(attrs, [:group_id, "group_id"]))
+    |> put_if_present(:user_id, fetch_value(attrs, [:user_id, "user_id"]))
+    |> put_if_present(
+      :role,
+      normalize_existing_atom(fetch_value(attrs, [:role, "role"]), [:member, :manager])
+    )
     |> put_if_present(:metadata, fetch_map(attrs, [:metadata, "metadata"]))
   end
 

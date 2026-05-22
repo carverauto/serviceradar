@@ -46,6 +46,26 @@ defmodule ServiceRadarWebNG.Dashboards do
     to: Authored,
     as: :update_report_schedule
 
+  defdelegate list_authored_access_grants(scope, dashboard_id),
+    to: Authored,
+    as: :list_access_grants
+
+  defdelegate grant_authored_dashboard_to_user(scope, attrs),
+    to: Authored,
+    as: :grant_dashboard_to_user
+
+  defdelegate grant_authored_dashboard_to_group(scope, attrs),
+    to: Authored,
+    as: :grant_dashboard_to_group
+
+  defdelegate revoke_authored_access_grant(scope, grant),
+    to: Authored,
+    as: :revoke_access_grant
+
+  defdelegate list_user_groups(scope), to: Authored
+  defdelegate create_user_group(scope, attrs), to: Authored
+  defdelegate add_user_group_member(scope, attrs), to: Authored
+
   defdelegate preview_authored_query(scope, srql_query, opts \\ []),
     to: Authored,
     as: :preview_query
