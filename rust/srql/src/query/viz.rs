@@ -544,6 +544,100 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::ServiceLevelIndicators => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("sli_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("sli_type", ColumnType::Text, None),
+                col("source_type", ColumnType::Text, None),
+                col("measurement_kind", ColumnType::Text, None),
+                col("status", ColumnType::Text, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ServiceLevelObjectives => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("slo_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("owner", ColumnType::Text, None),
+                col("sli_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("sli_type", ColumnType::Text, None),
+                col(
+                    "service_group_id",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("compliance_state", ColumnType::Text, None),
+                col(
+                    "budget_remaining_basis_points",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("burn_rate_short", ColumnType::Float, None),
+                col("burn_rate_long", ColumnType::Float, None),
+                col("projected_exhaustion_at", ColumnType::Timestamptz, None),
+                col("status", ColumnType::Text, None),
+                col(
+                    "evaluated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ServiceLevelObjectiveEvaluations => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("evaluation_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("slo_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("slo_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("slo_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("owner", ColumnType::Text, None),
+                col(
+                    "compliance_state",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Series),
+                ),
+                col("severity", ColumnType::Text, None),
+                col(
+                    "budget_remaining_basis_points",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("burn_rate_short", ColumnType::Float, None),
+                col("burn_rate_long", ColumnType::Float, None),
+                col("projected_exhaustion_at", ColumnType::Timestamptz, None),
+                col(
+                    "evaluated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Interfaces => VizMeta {
             columns: vec![
                 col(

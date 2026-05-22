@@ -38,7 +38,7 @@
 - [x] 6.4 Normalize SLO compliance, budget, and burn-rate transitions into informational/warning/critical OCSF events.
 - [x] 6.5 Wire SLO burn-rate and budget-exhaustion event-to-alert promotion using existing stateful rule/cooldown behavior.
 - [ ] 6.6 Build a service availability/SLO/NOC dashboard package with the dashboard SDK and SRQL-driven filters.
-- [ ] 6.7 Add demo data and documentation showing 200 URL checks, 200 database checks, device-tag-driven service monitoring, and SLO/error-budget workflows.
+- [x] 6.7 Add demo data and documentation showing 200 URL checks, 200 database checks, device-tag-driven service monitoring, and SLO/error-budget workflows.
 
 ## 7. Validation
 - [x] 7.1 Run `openspec validate add-service-oriented-plugin-monitoring --strict`.

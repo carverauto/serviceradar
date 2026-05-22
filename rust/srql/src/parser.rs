@@ -45,6 +45,9 @@ pub enum Entity {
     ServiceGroups,
     ServiceGroupMemberships,
     ServiceAvailability,
+    ServiceLevelIndicators,
+    ServiceLevelObjectives,
+    ServiceLevelObjectiveEvaluations,
     Gateways,
     OtelMetrics,
     RperfMetrics,
@@ -475,6 +478,16 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "service_availability" | "latest_check_states" | "latest_check_state" => {
             Ok(Entity::ServiceAvailability)
         }
+        "slis" | "sli" | "service_level_indicators" | "service_level_indicator" => {
+            Ok(Entity::ServiceLevelIndicators)
+        }
+        "slos" | "slo" | "service_level_objectives" | "service_level_objective" => {
+            Ok(Entity::ServiceLevelObjectives)
+        }
+        "slo_evaluations"
+        | "slo_evaluation"
+        | "service_level_objective_evaluations"
+        | "service_level_objective_evaluation" => Ok(Entity::ServiceLevelObjectiveEvaluations),
         "gateways" | "gateway" => Ok(Entity::Gateways),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
         "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),

@@ -255,7 +255,10 @@ impl QueryEngine {
                 | Entity::ServiceCheckInstances
                 | Entity::ServiceGroups
                 | Entity::ServiceGroupMemberships
-                | Entity::ServiceAvailability => {
+                | Entity::ServiceAvailability
+                | Entity::ServiceLevelIndicators
+                | Entity::ServiceLevelObjectives
+                | Entity::ServiceLevelObjectiveEvaluations => {
                     service_monitoring::execute(&mut conn, &plan).await?
                 }
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
@@ -806,7 +809,12 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::ServiceCheckInstances
             | Entity::ServiceGroups
             | Entity::ServiceGroupMemberships
-            | Entity::ServiceAvailability => service_monitoring::to_sql_and_params(&plan)?,
+            | Entity::ServiceAvailability
+            | Entity::ServiceLevelIndicators
+            | Entity::ServiceLevelObjectives
+            | Entity::ServiceLevelObjectiveEvaluations => {
+                service_monitoring::to_sql_and_params(&plan)?
+            }
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
             Entity::Alerts => alerts::to_sql_and_params(&plan)?,
@@ -1541,6 +1549,69 @@ mod tests {
             "expected service group filter in SQL, got: {sql}"
         );
         assert_eq!(params.len(), 1, "rollup filter should bind only group id");
+    }
+
+    #[test]
+    fn slo_query_supports_owner_and_compliance_filters() {
+        let query = "in:slos owner:noc compliance:noncompliant sort:evaluated_at:desc";
+        let plan = plan_for(query);
+
+        assert!(matches!(plan.entity, Entity::ServiceLevelObjectives));
+        let (sql, params) =
+            service_monitoring::to_sql_and_params(&plan).expect("should build SLO SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("from service_level_objectives t"),
+            "expected SLO table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("service_level_objective_evaluations e"),
+            "expected latest evaluation lateral join in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("coalesce(latest.compliance_state, t.last_compliance_state)"),
+            "expected current compliance filter in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains(
+                "order by coalesce(latest.evaluated_at, t.last_evaluated_at) desc nulls last"
+            ),
+            "expected evaluated_at sort in SQL, got: {sql}"
+        );
+        assert_eq!(
+            params.len(),
+            4,
+            "owner, compliance, limit, and offset should bind"
+        );
+    }
+
+    #[test]
+    fn slo_error_budget_rollup_builds_budget_summary() {
+        let query = "in:slo_evaluations rollup_stats:slo_error_budget severity:(warning,critical)";
+        let plan = plan_for(query);
+
+        assert!(matches!(
+            plan.entity,
+            Entity::ServiceLevelObjectiveEvaluations
+        ));
+        let (sql, params) = service_monitoring::to_sql_and_params(&plan)
+            .expect("should build SLO error-budget rollup SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("from service_level_objective_evaluations t"),
+            "expected SLO evaluation table in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("error_budget_remaining"),
+            "expected budget fields in SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("next_projected_exhaustion_at"),
+            "expected projected exhaustion rollup in SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "severity list should be the only bind");
     }
 
     #[test]

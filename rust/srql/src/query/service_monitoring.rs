@@ -90,6 +90,9 @@ fn is_service_monitoring_entity(entity: &Entity) -> bool {
             | Entity::ServiceGroups
             | Entity::ServiceGroupMemberships
             | Entity::ServiceAvailability
+            | Entity::ServiceLevelIndicators
+            | Entity::ServiceLevelObjectives
+            | Entity::ServiceLevelObjectiveEvaluations
     )
 }
 
@@ -130,6 +133,27 @@ fn entity_spec(entity: &Entity) -> Result<EntitySpec> {
             default_order: "t.last_observed_at DESC NULLS LAST, t.updated_at DESC NULLS LAST",
             time_column: Some("t.last_observed_at"),
         }),
+        Entity::ServiceLevelIndicators => Ok(EntitySpec {
+            table: "service_level_indicators",
+            joins: "",
+            payload_extra: "jsonb_build_object('uid', t.id::text)",
+            default_order: "t.updated_at DESC NULLS LAST, t.name ASC",
+            time_column: Some("t.updated_at"),
+        }),
+        Entity::ServiceLevelObjectives => Ok(EntitySpec {
+            table: "service_level_objectives",
+            joins: "LEFT JOIN service_level_indicators sli ON sli.id = t.sli_id LEFT JOIN service_groups g ON g.id = t.service_group_id LEFT JOIN LATERAL (SELECT e.compliance_state, e.budget_remaining_basis_points, e.burn_rate_short, e.burn_rate_long, e.projected_exhaustion_at, e.severity, e.evaluated_at FROM service_level_objective_evaluations e WHERE e.slo_id = t.id ORDER BY e.evaluated_at DESC NULLS LAST LIMIT 1) latest ON TRUE",
+            payload_extra: "jsonb_strip_nulls(jsonb_build_object('uid', t.id::text, 'sli_key', sli.sli_key, 'sli_name', sli.name, 'sli_type', sli.sli_type, 'service_group_name', g.name, 'service_group_slug', g.slug, 'compliance_state', COALESCE(latest.compliance_state, t.last_compliance_state), 'budget_remaining_basis_points', COALESCE(latest.budget_remaining_basis_points, t.last_budget_remaining_basis_points), 'burn_rate_short', latest.burn_rate_short, 'burn_rate_long', COALESCE(latest.burn_rate_long, t.last_burn_rate), 'projected_exhaustion_at', latest.projected_exhaustion_at, 'severity', latest.severity, 'evaluated_at', COALESCE(latest.evaluated_at, t.last_evaluated_at)))",
+            default_order: "t.updated_at DESC NULLS LAST, t.name ASC",
+            time_column: Some("t.updated_at"),
+        }),
+        Entity::ServiceLevelObjectiveEvaluations => Ok(EntitySpec {
+            table: "service_level_objective_evaluations",
+            joins: "LEFT JOIN service_level_objectives slo ON slo.id = t.slo_id LEFT JOIN service_level_indicators sli ON sli.id = slo.sli_id LEFT JOIN service_groups g ON g.id = slo.service_group_id",
+            payload_extra: "jsonb_strip_nulls(jsonb_build_object('uid', t.id::text, 'slo_key', slo.slo_key, 'slo_name', slo.name, 'owner', slo.owner, 'sli_key', sli.sli_key, 'sli_type', sli.sli_type, 'service_group_id', slo.service_group_id, 'service_group_name', g.name, 'service_group_slug', g.slug))",
+            default_order: "t.evaluated_at DESC NULLS LAST, t.updated_at DESC NULLS LAST",
+            time_column: Some("t.evaluated_at"),
+        }),
         _ => Err(ServiceError::InvalidRequest(
             "unsupported service monitoring entity".into(),
         )),
@@ -137,6 +161,18 @@ fn entity_spec(entity: &Entity) -> Result<EntitySpec> {
 }
 
 fn build_rollup_sql(plan: &QueryPlan, rollup: &str) -> Result<(String, Vec<BindParam>)> {
+    if matches!(plan.entity, Entity::ServiceLevelObjectiveEvaluations) {
+        if rollup.eq_ignore_ascii_case("slo_error_budget")
+            || rollup.eq_ignore_ascii_case("error_budget")
+        {
+            return build_slo_error_budget_rollup_sql(plan);
+        }
+
+        return Err(ServiceError::InvalidRequest(format!(
+            "unsupported slo_evaluations rollup_stats type: '{rollup}' (supported: slo_error_budget)"
+        )));
+    }
+
     if !matches!(plan.entity, Entity::ServiceAvailability) {
         return Err(ServiceError::InvalidRequest(
             "service monitoring rollup_stats is supported for in:service_availability".into(),
@@ -163,6 +199,35 @@ fn build_rollup_sql(plan: &QueryPlan, rollup: &str) -> Result<(String, Vec<BindP
           'available', count(*) FILTER (WHERE t.status IN ('ok', 'warning')),
           'unavailable', count(*) FILTER (WHERE t.status IN ('critical', 'unknown')),
           'availability_pct', CASE WHEN count(*) = 0 THEN 0.0 ELSE round((count(*) FILTER (WHERE t.status IN ('ok', 'warning'))::numeric / count(*)::numeric) * 100.0, 2)::float END
+        ) AS payload
+        FROM {table} t {joins}{where_sql}",
+        table = spec.table,
+        joins = spec.joins,
+    );
+
+    Ok((sql, params))
+}
+
+fn build_slo_error_budget_rollup_sql(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    let spec = entity_spec(&plan.entity)?;
+    let mut params = Vec::new();
+    let where_sql = where_sql(plan, spec, &mut params)?;
+
+    let sql = format!(
+        "SELECT jsonb_build_object(
+          'total', count(*),
+          'compliant', count(*) FILTER (WHERE t.compliance_state = 'compliant'),
+          'at_risk', count(*) FILTER (WHERE t.compliance_state = 'at_risk'),
+          'noncompliant', count(*) FILTER (WHERE t.compliance_state = 'noncompliant'),
+          'critical', count(*) FILTER (WHERE t.severity = 'critical'),
+          'warning', count(*) FILTER (WHERE t.severity = 'warning'),
+          'error_budget_total', COALESCE(sum(t.error_budget_total), 0),
+          'error_budget_consumed', COALESCE(sum(t.error_budget_consumed), 0),
+          'error_budget_remaining', COALESCE(sum(t.error_budget_remaining), 0),
+          'avg_budget_remaining_basis_points', COALESCE(round(avg(t.budget_remaining_basis_points)::numeric, 2)::float, 0.0),
+          'max_burn_rate_short', COALESCE(max(t.burn_rate_short), 0),
+          'max_burn_rate_long', COALESCE(max(t.burn_rate_long), 0),
+          'next_projected_exhaustion_at', min(t.projected_exhaustion_at)
         ) AS payload
         FROM {table} t {joins}{where_sql}",
         table = spec.table,
@@ -208,7 +273,31 @@ fn filter_predicate(
 
     match field.as_str() {
         "id" | "uid" => text_filter(filter, "t.id::text", params),
-        "status" => text_filter(filter, "t.status", params),
+        "status" => match entity {
+            Entity::MonitoredServices
+            | Entity::ServiceCheckInstances
+            | Entity::ServiceGroups
+            | Entity::ServiceAvailability
+            | Entity::ServiceLevelIndicators
+            | Entity::ServiceLevelObjectives => text_filter(filter, "t.status", params),
+            _ => unsupported_field(entity, &field),
+        },
+        "compliance" | "compliance_state" => match entity {
+            Entity::ServiceLevelObjectives => text_filter(
+                filter,
+                "COALESCE(latest.compliance_state, t.last_compliance_state)",
+                params,
+            ),
+            Entity::ServiceLevelObjectiveEvaluations => {
+                text_filter(filter, "t.compliance_state", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "severity" => match entity {
+            Entity::ServiceLevelObjectiveEvaluations => text_filter(filter, "t.severity", params),
+            Entity::ServiceLevelObjectives => text_filter(filter, "latest.severity", params),
+            _ => unsupported_field(entity, &field),
+        },
         "source" => text_filter(filter, "t.source", params),
         "created_at" | "inserted_at" => timestamp_filter(filter, "t.inserted_at", params),
         "updated_at" => timestamp_filter(filter, "t.updated_at", params),
@@ -296,6 +385,10 @@ fn filter_predicate(
             Entity::ServiceCheckInstances | Entity::ServiceAvailability => {
                 text_filter(filter, "b.service_group_id::text", params)
             }
+            Entity::ServiceLevelObjectives => text_filter(filter, "t.service_group_id::text", params),
+            Entity::ServiceLevelObjectiveEvaluations => {
+                text_filter(filter, "slo.service_group_id::text", params)
+            }
             _ => unsupported_field(entity, &field),
         },
         "monitored_service_id" | "service_id" => match entity {
@@ -318,6 +411,79 @@ fn filter_predicate(
         },
         "response_time_ms" => match entity {
             Entity::ServiceAvailability => int_filter(filter, "t.response_time_ms", params),
+            _ => unsupported_field(entity, &field),
+        },
+        "sli_key" => match entity {
+            Entity::ServiceLevelIndicators => text_filter(filter, "t.sli_key", params),
+            Entity::ServiceLevelObjectives | Entity::ServiceLevelObjectiveEvaluations => {
+                text_filter(filter, "sli.sli_key", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "slo_key" => match entity {
+            Entity::ServiceLevelObjectives => text_filter(filter, "t.slo_key", params),
+            Entity::ServiceLevelObjectiveEvaluations => text_filter(filter, "slo.slo_key", params),
+            _ => unsupported_field(entity, &field),
+        },
+        "sli_type" => match entity {
+            Entity::ServiceLevelIndicators => text_filter(filter, "t.sli_type", params),
+            Entity::ServiceLevelObjectives | Entity::ServiceLevelObjectiveEvaluations => {
+                text_filter(filter, "sli.sli_type", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "slo_kind" => match entity {
+            Entity::ServiceLevelObjectives => text_filter(filter, "t.slo_kind", params),
+            Entity::ServiceLevelObjectiveEvaluations => text_filter(filter, "slo.slo_kind", params),
+            _ => unsupported_field(entity, &field),
+        },
+        "owner" => match entity {
+            Entity::ServiceLevelObjectives => text_filter(filter, "t.owner", params),
+            Entity::ServiceLevelObjectiveEvaluations => text_filter(filter, "slo.owner", params),
+            _ => unsupported_field(entity, &field),
+        },
+        "goal_basis_points" | "goal" => match entity {
+            Entity::ServiceLevelObjectives | Entity::ServiceLevelObjectiveEvaluations => {
+                int_filter(filter, "t.goal_basis_points", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "budget_remaining_basis_points" | "budget_remaining" => match entity {
+            Entity::ServiceLevelObjectives => int_filter(
+                filter,
+                "COALESCE(latest.budget_remaining_basis_points, t.last_budget_remaining_basis_points)",
+                params,
+            ),
+            Entity::ServiceLevelObjectiveEvaluations => {
+                int_filter(filter, "t.budget_remaining_basis_points", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "burn_rate" | "burn_rate_short" => match entity {
+            Entity::ServiceLevelObjectives => {
+                decimal_filter(filter, "COALESCE(latest.burn_rate_short, t.last_burn_rate)", params)
+            }
+            Entity::ServiceLevelObjectiveEvaluations => {
+                decimal_filter(filter, "t.burn_rate_short", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "burn_rate_long" => match entity {
+            Entity::ServiceLevelObjectives => {
+                decimal_filter(filter, "COALESCE(latest.burn_rate_long, t.last_burn_rate)", params)
+            }
+            Entity::ServiceLevelObjectiveEvaluations => {
+                decimal_filter(filter, "t.burn_rate_long", params)
+            }
+            _ => unsupported_field(entity, &field),
+        },
+        "evaluated_at" => match entity {
+            Entity::ServiceLevelObjectives => timestamp_filter(
+                filter,
+                "COALESCE(latest.evaluated_at, t.last_evaluated_at)",
+                params,
+            ),
+            Entity::ServiceLevelObjectiveEvaluations => timestamp_filter(filter, "t.evaluated_at", params),
             _ => unsupported_field(entity, &field),
         },
         other => unsupported_field(entity, other),
@@ -413,6 +579,28 @@ fn int_filter(filter: &Filter, column: &str, params: &mut Vec<BindParam>) -> Res
     }
 }
 
+fn decimal_filter(filter: &Filter, column: &str, params: &mut Vec<BindParam>) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq
+        | FilterOp::NotEq
+        | FilterOp::Gt
+        | FilterOp::Gte
+        | FilterOp::Lt
+        | FilterOp::Lte => {
+            let value = parse_f64(filter.value.as_scalar()?)?;
+            let placeholder = push_param(params, BindParam::Float(value));
+            Ok(format!(
+                "{column} {} {placeholder}",
+                numeric_operator(filter.op.clone())?
+            ))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for decimal filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
 fn timestamp_filter(filter: &Filter, column: &str, params: &mut Vec<BindParam>) -> Result<String> {
     let value = filter.value.as_scalar()?.to_string();
     let placeholder = push_param(params, BindParam::Timestamptz(value));
@@ -479,6 +667,8 @@ fn order_column(entity: &Entity, field: &str) -> Result<&'static str> {
             Entity::ServiceCheckInstances
             | Entity::ServiceGroupMemberships
             | Entity::ServiceAvailability => Ok("s.display_name"),
+            Entity::ServiceLevelIndicators | Entity::ServiceLevelObjectives => Ok("t.name"),
+            Entity::ServiceLevelObjectiveEvaluations => Ok("slo.name"),
             _ => unsupported_order_field(entity, &normalized),
         },
         "service_kind" | "kind" => match entity {
@@ -511,6 +701,30 @@ fn order_column(entity: &Entity, field: &str) -> Result<&'static str> {
             Entity::ServiceAvailability => Ok("t.response_time_ms"),
             _ => unsupported_order_field(entity, &normalized),
         },
+        "evaluated_at" => match entity {
+            Entity::ServiceLevelObjectives => Ok("COALESCE(latest.evaluated_at, t.last_evaluated_at)"),
+            Entity::ServiceLevelObjectiveEvaluations => Ok("t.evaluated_at"),
+            _ => unsupported_order_field(entity, &normalized),
+        },
+        "compliance" | "compliance_state" => match entity {
+            Entity::ServiceLevelObjectives => {
+                Ok("COALESCE(latest.compliance_state, t.last_compliance_state)")
+            }
+            Entity::ServiceLevelObjectiveEvaluations => Ok("t.compliance_state"),
+            _ => unsupported_order_field(entity, &normalized),
+        },
+        "severity" => match entity {
+            Entity::ServiceLevelObjectives => Ok("latest.severity"),
+            Entity::ServiceLevelObjectiveEvaluations => Ok("t.severity"),
+            _ => unsupported_order_field(entity, &normalized),
+        },
+        "budget_remaining_basis_points" | "budget_remaining" => match entity {
+            Entity::ServiceLevelObjectives => Ok(
+                "COALESCE(latest.budget_remaining_basis_points, t.last_budget_remaining_basis_points)",
+            ),
+            Entity::ServiceLevelObjectiveEvaluations => Ok("t.budget_remaining_basis_points"),
+            _ => unsupported_order_field(entity, &normalized),
+        },
         other => unsupported_order_field(entity, other),
     }
 }
@@ -536,6 +750,9 @@ fn entity_name(entity: &Entity) -> &'static str {
         Entity::ServiceGroups => "service_groups",
         Entity::ServiceGroupMemberships => "service_group_memberships",
         Entity::ServiceAvailability => "service_availability",
+        Entity::ServiceLevelIndicators => "slis",
+        Entity::ServiceLevelObjectives => "slos",
+        Entity::ServiceLevelObjectiveEvaluations => "slo_evaluations",
         _ => "service_monitoring",
     }
 }
@@ -563,6 +780,11 @@ fn push_param(params: &mut Vec<BindParam>, param: BindParam) -> String {
 fn parse_i64(raw: &str) -> Result<i64> {
     raw.parse::<i64>()
         .map_err(|_| ServiceError::InvalidRequest(format!("expected integer value, got '{raw}'")))
+}
+
+fn parse_f64(raw: &str) -> Result<f64> {
+    raw.parse::<f64>()
+        .map_err(|_| ServiceError::InvalidRequest(format!("expected decimal value, got '{raw}'")))
 }
 
 fn parse_i64_list(value: &FilterValue) -> Result<Vec<i64>> {
