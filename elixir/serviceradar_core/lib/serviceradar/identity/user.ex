@@ -42,6 +42,7 @@ defmodule ServiceRadar.Identity.User do
   @password_manage_permission Constants.password_manage_permission()
   @auth_manage_check {ActorHasPermission, permission: @auth_manage_permission}
   @password_manage_check {ActorHasPermission, permission: @password_manage_permission}
+  @share_principals_check {ActorHasPermission, permission: "analytics.share_principals.view"}
   @user_admin_fields [:email, :display_name, :role, :role_profile_id]
   @user_profile_fields [:email, :display_name]
   @display_name_fields [:display_name]
@@ -326,6 +327,8 @@ defmodule ServiceRadar.Identity.User do
     # - Users can read themselves
     policy action_type(:read) do
       authorize_if @auth_manage_check
+
+      authorize_if @share_principals_check
 
       authorize_if expr(id == ^actor(:id))
     end

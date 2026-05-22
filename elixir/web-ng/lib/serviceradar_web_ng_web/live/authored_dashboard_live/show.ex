@@ -4,27 +4,45 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.RBAC
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok,
-     socket
-     |> assign(:page_title, "Dashboard")
-     |> assign(:current_path, nil)
-     |> assign(:dashboard, nil)
-     |> assign(:panel_results, %{})
-     |> assign(:loading?, connected?(socket))}
+    socket =
+      socket
+      |> assign(:page_title, "Dashboard")
+      |> assign(:current_path, nil)
+      |> assign(:dashboard, nil)
+      |> assign(:access_grants, [])
+      |> assign(:user_groups, [])
+      |> assign(:users, [])
+      |> assign(:panel_results, %{})
+      |> assign(:can_share?, can_share?(socket.assigns.current_scope))
+      |> assign(:can_view_groups?, can_view_groups?(socket.assigns.current_scope))
+      |> assign(
+        :can_view_share_principals?,
+        can_view_share_principals?(socket.assigns.current_scope)
+      )
+      |> assign(:user_grant_params, default_user_grant_params())
+      |> assign(:group_grant_params, default_group_grant_params())
+      |> assign(:loading?, connected?(socket))
+      |> assign_grant_forms()
+
+    {:ok, socket}
   end
 
   @impl true
   def handle_params(%{"dashboard_id" => dashboard_id}, _uri, socket) do
     scope = socket.assigns.current_scope
+    access_assigns = access_assigns(socket.assigns)
 
     socket =
       if connected?(socket) do
         start_async(socket, {:load_dashboard, dashboard_id}, fn ->
           with {:ok, %AuthoredDashboard{} = dashboard} <-
-                 Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
+                 Dashboards.get_authored_dashboard(scope, dashboard_id,
+                   load: [:panels, :report_schedules]
+                 ) do
             panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
 
             results =
@@ -32,7 +50,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                 {panel.id, Dashboards.preview_authored_query(scope, panel.srql_query, limit: 250)}
               end)
 
-            {:ok, dashboard, panels, results}
+            access = load_access_controls(scope, dashboard.id, access_assigns)
+
+            {:ok, dashboard, panels, results, access}
           end
         end)
       else
@@ -47,15 +67,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   @impl true
-  def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:ok, dashboard, panels, results}}, socket) do
+  def handle_async(
+        {:load_dashboard, _dashboard_id},
+        {:ok, {:ok, dashboard, panels, results, access}},
+        socket
+      ) do
     dashboard = Map.put(dashboard, :panels, panels)
 
     {:noreply,
      socket
      |> assign(:dashboard, dashboard)
      |> assign(:panel_results, results)
+     |> assign(access)
      |> assign(:page_title, dashboard.title)
-     |> assign(:loading?, false)}
+     |> assign(:loading?, false)
+     |> assign_grant_forms()}
   end
 
   def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:error, :not_found}}, socket) do
@@ -78,6 +104,82 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      socket
      |> assign(:loading?, false)
      |> put_flash(:error, "Could not load dashboard: #{format_error(reason)}")}
+  end
+
+  @impl true
+  def handle_event("validate_user_grant", %{"grant" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:user_grant_params, merge_params(socket.assigns.user_grant_params, params))
+     |> assign_grant_forms()}
+  end
+
+  def handle_event("validate_group_grant", %{"grant" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:group_grant_params, merge_params(socket.assigns.group_grant_params, params))
+     |> assign_grant_forms()}
+  end
+
+  def handle_event("grant_user", %{"grant" => params}, socket) do
+    params = merge_params(socket.assigns.user_grant_params, params)
+
+    with :ok <- authorize_share(socket),
+         {:ok, _grant} <-
+           Dashboards.grant_authored_dashboard_to_user(
+             socket.assigns.current_scope,
+             Map.put(params, "dashboard_id", socket.assigns.dashboard.id)
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "User access updated")
+       |> assign(:user_grant_params, default_user_grant_params())
+       |> reload_access_controls()}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:user_grant_params, params)
+         |> assign_grant_forms()
+         |> put_flash(:error, "User grant failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("grant_group", %{"grant" => params}, socket) do
+    params = merge_params(socket.assigns.group_grant_params, params)
+
+    with :ok <- authorize_share(socket),
+         {:ok, _grant} <-
+           Dashboards.grant_authored_dashboard_to_group(
+             socket.assigns.current_scope,
+             Map.put(params, "dashboard_id", socket.assigns.dashboard.id)
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Group access updated")
+       |> assign(:group_grant_params, default_group_grant_params())
+       |> reload_access_controls()}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:group_grant_params, params)
+         |> assign_grant_forms()
+         |> put_flash(:error, "Group grant failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("revoke_grant", %{"id" => id}, socket) do
+    grant = Enum.find(socket.assigns.access_grants, &(&1.id == id))
+
+    with :ok <- authorize_share(socket),
+         {:ok, grant} <- require_record(grant),
+         :ok <- Dashboards.revoke_authored_access_grant(socket.assigns.current_scope, grant) do
+      {:noreply, socket |> put_flash(:info, "Access revoked") |> reload_access_controls()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Revoke failed: #{format_error(reason)}")}
+    end
   end
 
   @impl true
@@ -105,6 +207,104 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           <.link navigate={~p"/analytics"} class="btn btn-sm">
             <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
           </.link>
+        </section>
+
+        <section
+          :if={@dashboard and @can_share?}
+          class="rounded-lg border border-base-300 bg-base-100"
+        >
+          <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 class="text-sm font-semibold">Sharing</h2>
+              <p class="text-xs text-base-content/55">
+                Visibility is {@dashboard.visibility}; explicit grants can add users or reusable groups.
+              </p>
+            </div>
+            <span class="badge badge-outline">{length(@access_grants)} grants</span>
+          </div>
+
+          <div class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
+            <div class="space-y-3">
+              <div
+                :if={@access_grants == []}
+                class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+              >
+                No explicit sharing grants yet.
+              </div>
+
+              <div
+                :for={grant <- @access_grants}
+                class="flex flex-col gap-3 rounded-lg border border-base-300 p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div class="text-sm font-medium">{grant_label(grant)}</div>
+                  <div class="mt-1 flex flex-wrap gap-2">
+                    <span class="badge badge-sm">{grant.subject_type}</span>
+                    <span class="badge badge-sm badge-outline">{grant.access}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-xs btn-error btn-outline"
+                  phx-click="revoke_grant"
+                  phx-value-id={grant.id}
+                >
+                  <.icon name="hero-trash" class="size-4" /> Revoke
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              <.form
+                for={@user_grant_form}
+                as={:grant}
+                phx-change="validate_user_grant"
+                phx-submit="grant_user"
+                class="space-y-3"
+              >
+                <.input
+                  field={@user_grant_form[:subject_user_id]}
+                  type="select"
+                  label="User"
+                  options={user_select_options(@users)}
+                />
+                <.input
+                  field={@user_grant_form[:access]}
+                  type="select"
+                  label="Access"
+                  options={access_select_options()}
+                />
+                <button type="submit" class="btn btn-sm" disabled={@users == []}>
+                  <.icon name="hero-user-plus" class="size-4" /> Grant User
+                </button>
+              </.form>
+
+              <.form
+                :if={@can_view_groups?}
+                for={@group_grant_form}
+                as={:grant}
+                phx-change="validate_group_grant"
+                phx-submit="grant_group"
+                class="space-y-3 border-t border-base-300 pt-4"
+              >
+                <.input
+                  field={@group_grant_form[:subject_group_id]}
+                  type="select"
+                  label="Group"
+                  options={group_select_options(@user_groups)}
+                />
+                <.input
+                  field={@group_grant_form[:access]}
+                  type="select"
+                  label="Access"
+                  options={access_select_options()}
+                />
+                <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
+                  <.icon name="hero-user-group" class="size-4" /> Grant Group
+                </button>
+              </.form>
+            </div>
+          </div>
         </section>
 
         <div
@@ -193,7 +393,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:bar, "bar", :category, "category"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns)
+       when type in [:bar, "bar", :category, "category"] do
     assigns = assign(assigns, :bars, bars(assigns.rows, assigns.fields))
 
     ~H"""
@@ -210,7 +411,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:line, "line", :area, "area"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns)
+       when type in [:line, "line", :area, "area"] do
     assigns = assign(assigns, :points, sparkline_points(assigns.rows, assigns.fields))
 
     ~H"""
@@ -257,6 +459,106 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     </div>
     """
   end
+
+  defp default_user_grant_params do
+    %{"subject_user_id" => "", "access" => "view"}
+  end
+
+  defp default_group_grant_params do
+    %{"subject_group_id" => "", "access" => "view"}
+  end
+
+  defp assign_grant_forms(socket) do
+    socket
+    |> assign(:user_grant_form, to_form(socket.assigns.user_grant_params, as: :grant))
+    |> assign(:group_grant_form, to_form(socket.assigns.group_grant_params, as: :grant))
+  end
+
+  defp load_access_controls(scope, dashboard_id, assigns) do
+    access_grants =
+      if assigns.can_share? do
+        Dashboards.list_authored_access_grants(scope, dashboard_id)
+      else
+        []
+      end
+
+    user_groups =
+      if assigns.can_view_groups? do
+        Dashboards.list_user_groups(scope)
+      else
+        []
+      end
+
+    users =
+      if assigns.can_view_share_principals? do
+        Dashboards.list_share_principals(scope)
+      else
+        []
+      end
+
+    %{access_grants: access_grants, user_groups: user_groups, users: users}
+  end
+
+  defp reload_access_controls(%{assigns: %{dashboard: %{id: dashboard_id}}} = socket) do
+    access =
+      load_access_controls(
+        socket.assigns.current_scope,
+        dashboard_id,
+        access_assigns(socket.assigns)
+      )
+
+    socket
+    |> assign(access)
+    |> assign_grant_forms()
+  end
+
+  defp reload_access_controls(socket), do: socket
+
+  defp access_assigns(assigns) do
+    Map.take(assigns, [:can_share?, :can_view_groups?, :can_view_share_principals?])
+  end
+
+  defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
+
+  defp can_share?(scope), do: RBAC.can?(scope, "analytics.dashboards.share")
+  defp can_view_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.view")
+
+  defp can_view_share_principals?(scope),
+    do: RBAC.can?(scope, "analytics.share_principals.view")
+
+  defp authorize_share(socket) do
+    if socket.assigns.can_share?, do: :ok, else: {:error, :forbidden}
+  end
+
+  defp require_record(nil), do: {:error, :not_found}
+  defp require_record(record), do: {:ok, record}
+
+  defp access_select_options, do: [{"View", "view"}, {"Edit", "edit"}]
+
+  defp group_select_options(groups) do
+    Enum.map(groups, &{&1.name, &1.id})
+  end
+
+  defp user_select_options(users) do
+    Enum.map(users, &{user_label(&1), &1.id})
+  end
+
+  defp grant_label(%{subject_type: :user, subject_user: user}), do: user_label(user)
+  defp grant_label(%{subject_type: "user", subject_user: user}), do: user_label(user)
+  defp grant_label(%{subject_type: :group, subject_group: group}), do: group_label(group)
+  defp grant_label(%{subject_type: "group", subject_group: group}), do: group_label(group)
+  defp grant_label(_grant), do: "Unknown principal"
+
+  defp group_label(%{name: name}) when is_binary(name) and name != "", do: name
+  defp group_label(_group), do: "Unknown group"
+
+  defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
+    "#{name} <#{email}>"
+  end
+
+  defp user_label(%{email: %Ash.CiString{} = email}), do: to_string(email)
+  defp user_label(%{email: email}) when is_binary(email), do: email
+  defp user_label(_user), do: "Unknown user"
 
   defp empty_rows(assigns) do
     ~H"""
@@ -358,6 +660,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp format_value(nil), do: ""
   defp format_value(value), do: inspect(value)
 
+  defp format_error(:forbidden), do: "Not authorized to share dashboards"
+  defp format_error(:not_found), do: "Record not found"
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 end

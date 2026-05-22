@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   alias ServiceRadar.Dashboards.DashboardPanel
   alias ServiceRadar.Dashboards.DashboardReportDelivery
   alias ServiceRadar.Dashboards.DashboardReportSchedule
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
 
@@ -288,6 +289,26 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> read!(scope)
   end
 
+  @spec list_user_group_memberships(term(), String.t() | nil) :: [UserGroupMembership.t()]
+  def list_user_group_memberships(scope, group_id \\ nil)
+
+  def list_user_group_memberships(scope, group_id) when is_binary(group_id) do
+    UserGroupMembership
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(group_id == ^group_id)
+    |> Ash.Query.load([:user, :group])
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> read!(scope)
+  end
+
+  def list_user_group_memberships(scope, _group_id) do
+    UserGroupMembership
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.load([:user, :group])
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> read!(scope)
+  end
+
   @spec create_user_group(term(), map()) :: {:ok, UserGroup.t()} | {:error, term()}
   def create_user_group(scope, attrs) when is_map(attrs) do
     attrs =
@@ -310,6 +331,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   def add_user_group_member(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec list_share_principals(term()) :: [User.t()]
+  def list_share_principals(scope) do
+    User
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(status == :active)
+    |> Ash.Query.limit(500)
+    |> Ash.Query.sort(email: :asc)
+    |> read!(scope)
+  end
 
   @spec visual_options() :: [map()]
   def visual_options, do: @visuals

@@ -63,8 +63,10 @@ defmodule ServiceRadarWebNG.Dashboards do
     as: :revoke_access_grant
 
   defdelegate list_user_groups(scope), to: Authored
+  defdelegate list_user_group_memberships(scope, group_id \\ nil), to: Authored
   defdelegate create_user_group(scope, attrs), to: Authored
   defdelegate add_user_group_member(scope, attrs), to: Authored
+  defdelegate list_share_principals(scope), to: Authored
 
   defdelegate preview_authored_query(scope, srql_query, opts \\ []),
     to: Authored,
