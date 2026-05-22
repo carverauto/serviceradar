@@ -101,6 +101,36 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   def update(_id, _attrs, _opts), do: {:error, :invalid_attributes}
 
+  @spec upgrade(String.t(), String.t(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
+  def upgrade(id, target_package_id, opts \\ [])
+
+  def upgrade(id, target_package_id, opts) when is_binary(id) and is_binary(target_package_id) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    ash_opts = ash_opts(scope, actor)
+
+    with {:ok, assignment} <- get_raw(id, scope: scope),
+         :ok <- ensure_manual_assignment(assignment),
+         {:ok, target_package} <- Packages.get(target_package_id, scope: scope),
+         :ok <- ensure_assignable_package(assignment, target_package) do
+      schema = target_package.config_schema || %{}
+
+      attrs = %{
+        plugin_package_id: target_package.id,
+        params: SecretRefs.prepare_params_for_storage(schema, assignment.params || %{}, assignment.params || %{})
+      }
+
+      assignment
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.Changeset.set_context(%{config_schema: schema})
+      |> update_resource_with_opts(ash_opts)
+      |> maybe_sync_assignment_service_state()
+      |> maybe_redact_assignment()
+    end
+  end
+
+  def upgrade(_id, _target_package_id, _opts), do: {:error, :invalid_attributes}
+
   @spec delete(String.t(), keyword()) :: {:ok, PluginAssignment.t()} | {:error, term()}
   def delete(id, opts \\ [])
 
@@ -118,7 +148,7 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
       case result do
         :ok ->
           ServiceStateRegistry.deactivate_for_assignment(assignment)
-          :ok
+          {:ok, assignment}
 
         {:ok, _assignment} = ok ->
           ServiceStateRegistry.deactivate_for_assignment(assignment)
@@ -269,6 +299,25 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
   defp redact_assignment(%PluginAssignment{} = assignment) do
     %{assignment | params: SecretRefs.public_params(assignment.params || %{})}
+  end
+
+  defp ensure_manual_assignment(%PluginAssignment{source: :policy}), do: {:error, :policy_owned_assignment}
+  defp ensure_manual_assignment(%PluginAssignment{}), do: :ok
+
+  defp ensure_assignable_package(%PluginAssignment{} = assignment, target_package) do
+    cond do
+      target_package.status != :approved ->
+        {:error, :target_package_not_approved}
+
+      target_package.plugin_id != assignment.plugin_id ->
+        {:error, :plugin_id_mismatch}
+
+      target_package.id == assignment.plugin_package_id ->
+        {:error, :already_on_target_version}
+
+      true ->
+        :ok
+    end
   end
 
   defp fetch_config_schema(attrs, scope) do

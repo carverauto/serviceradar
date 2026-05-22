@@ -644,6 +644,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  def handle_event("upgrade_assignment", %{"id" => _id}, %{assigns: %{can_assign_plugins: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to assign plugins.")}
+  end
+
+  def handle_event("upgrade_assignment", %{"id" => id, "target-package-id" => target_package_id}, socket) do
+    upgrade_assignment(socket, id, target_package_id)
+  end
+
+  def handle_event("upgrade_assignment", %{"id" => id, "assignment_upgrade" => params}, socket) do
+    upgrade_assignment(socket, id, Map.get(params, "target_package_id"))
+  end
+
   def handle_event("restage_package", _params, %{assigns: %{can_approve_plugins: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to approve plugin packages.")}
   end
@@ -705,6 +717,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       |> Enum.reduce([], fn assignment, errors ->
         case Assignments.delete(assignment.id, scope: scope) do
           {:ok, _} -> errors
+          :ok -> errors
           {:error, error} -> [format_error(error) | errors]
         end
       end)
@@ -746,7 +759,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
       {:error, error} ->
         Logger.error("Plugin assignment creation failed: #{inspect(error)}")
-        {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
+        {:noreply, put_flash(socket, :error, assignment_create_error_message(error))}
     end
   end
 
@@ -770,6 +783,28 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
         {:noreply, put_flash(socket, :error, "Failed to update assignment: #{format_error(error)}")}
     end
+  end
+
+  defp upgrade_assignment(socket, id, target_package_id) when is_binary(target_package_id) and target_package_id != "" do
+    scope = socket.assigns.current_scope
+
+    case Assignments.upgrade(id, target_package_id, scope: scope) do
+      {:ok, _assignment} ->
+        {:noreply,
+         socket
+         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign(:assignments, list_assignments(socket.assigns.selected_package.id, scope))
+         |> assign(:versions, list_versions(socket.assigns.selected_package.plugin_id, scope))
+         |> put_flash(:info, "Assignment upgraded")}
+
+      {:error, error} ->
+        Logger.error("Plugin assignment upgrade failed for #{id}: #{inspect(error)}")
+        {:noreply, put_flash(socket, :error, "Failed to upgrade assignment: #{format_error(error)}")}
+    end
+  end
+
+  defp upgrade_assignment(socket, _id, _target_package_id) do
+    {:noreply, put_flash(socket, :error, "Select a plugin version to upgrade to.")}
   end
 
   @sobelow_skip ["Traversal.FileModule"]
@@ -1602,6 +1637,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <% else %>
               <div class="space-y-2">
                 <%= for assignment <- @assignments do %>
+                  <% current_package = package_for_assignment(assignment, @versions) %>
+                  <% upgrade_target = latest_upgrade_target(assignment, @versions) %>
+                  <% approved_targets = approved_upgrade_targets(assignment, @versions) %>
                   <div class="flex items-center justify-between rounded-lg border border-base-200/70 bg-base-100/60 p-2 text-xs">
                     <div>
                       <div class="font-medium flex items-center gap-2">
@@ -1609,20 +1647,65 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         <%= if assignment.enabled == false do %>
                           <.ui_badge size="xs" variant="ghost">disabled</.ui_badge>
                         <% end %>
+                        <%= if assignment.source == :policy do %>
+                          <.ui_badge size="xs" variant="ghost">policy</.ui_badge>
+                        <% end %>
                       </div>
                       <div class="text-base-content/60">
                         every {assignment.interval_seconds}s, timeout {assignment.timeout_seconds}s
                       </div>
+                      <div class="text-base-content/60">
+                        version {package_version(current_package)}
+                        <%= if upgrade_target do %>
+                          <span>-> latest {upgrade_target.version}</span>
+                        <% end %>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      class="btn btn-ghost btn-xs"
-                      phx-click="delete_assignment"
-                      phx-value-id={assignment.id}
-                      data-confirm="Remove this assignment?"
-                    >
-                      Remove
-                    </button>
+                    <div class="flex items-center gap-2">
+                      <%= if assignment.source == :policy do %>
+                        <span class="text-[11px] text-base-content/50">managed by policy</span>
+                      <% else %>
+                        <%= if upgrade_target do %>
+                          <button
+                            type="button"
+                            class="btn btn-primary btn-xs"
+                            phx-click="upgrade_assignment"
+                            phx-value-id={assignment.id}
+                            phx-value-target-package-id={upgrade_target.id}
+                            data-confirm={"Upgrade this assignment to #{upgrade_target.version}?"}
+                          >
+                            Upgrade
+                          </button>
+                        <% end %>
+                        <%= if approved_targets != [] do %>
+                          <form
+                            phx-submit="upgrade_assignment"
+                            phx-value-id={assignment.id}
+                            class="flex items-center gap-1"
+                          >
+                            <input type="hidden" name="id" value={assignment.id} />
+                            <select
+                              name="assignment_upgrade[target_package_id]"
+                              class="select select-bordered select-xs"
+                            >
+                              <%= for target <- approved_targets do %>
+                                <option value={target.id}>{target.version}</option>
+                              <% end %>
+                            </select>
+                            <button type="submit" class="btn btn-ghost btn-xs">Set</button>
+                          </form>
+                        <% end %>
+                      <% end %>
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-xs"
+                        phx-click="delete_assignment"
+                        phx-value-id={assignment.id}
+                        data-confirm="Remove this assignment?"
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 <% end %>
               </div>
@@ -2850,6 +2933,41 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> format_datetime()
   end
 
+  defp package_for_assignment(assignment, versions) do
+    Enum.find(versions, &(&1.id == assignment.plugin_package_id))
+  end
+
+  defp package_version(nil), do: "unknown"
+  defp package_version(package), do: package.version || "unknown"
+
+  defp latest_upgrade_target(assignment, versions) do
+    assignment
+    |> approved_upgrade_targets(versions)
+    |> List.last()
+  end
+
+  defp approved_upgrade_targets(assignment, versions) do
+    versions
+    |> Enum.filter(&approved_upgrade_target?(&1, assignment))
+    |> Enum.sort(&version_before_or_equal?/2)
+  end
+
+  defp approved_upgrade_target?(package, assignment) do
+    package.status == :approved and
+      package.plugin_id == assignment.plugin_id and
+      package.id != assignment.plugin_package_id
+  end
+
+  defp version_before_or_equal?(left, right) do
+    case {Version.parse(left.version || ""), Version.parse(right.version || "")} do
+      {{:ok, left_version}, {:ok, right_version}} ->
+        Version.compare(left_version, right_version) != :gt
+
+      _ ->
+        (left.version || "") <= (right.version || "")
+    end
+  end
+
   defp get_actor(socket) do
     case socket.assigns.current_scope.user do
       nil -> "system"
@@ -2857,7 +2975,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
+  defp assignment_create_error_message(error) do
+    message = format_error(error)
+
+    if String.contains?(message, "plugin is already enabled for this agent") or
+         String.contains?(message, "plugin is already assigned to this agent by policy") do
+      "This agent already has this plugin enabled. Use the existing assignment's upgrade or version selector instead."
+    else
+      "Failed to assign: #{message}"
+    end
+  end
+
   defp format_error(error) when is_binary(error), do: error
+  defp format_error(:policy_owned_assignment), do: "assignment is managed by policy"
+  defp format_error(:target_package_not_approved), do: "target plugin version is not approved"
+  defp format_error(:plugin_id_mismatch), do: "target package is for a different plugin"
+  defp format_error(:already_on_target_version), do: "assignment is already on that version"
   defp format_error(error) when is_atom(error), do: Atom.to_string(error)
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(error), do: inspect(error)
