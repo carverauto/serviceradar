@@ -183,6 +183,33 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     refute dashboard.owner_id == other_user.id
   end
 
+  test "dashboards get human route references and optional slugs", %{scope: scope} do
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Routed #{System.unique_integer([:positive])}",
+               slug: "ZZA Availability"
+             })
+
+    assert dashboard.dashboard_ref in 1_000_000..9_999_999
+    assert dashboard.slug == "zza-availability"
+
+    assert {:ok, by_ref} =
+             Dashboards.get_authored_dashboard(scope, Integer.to_string(dashboard.dashboard_ref), load: [])
+
+    assert by_ref.id == dashboard.id
+
+    assert {:ok, by_slug} = Dashboards.get_authored_dashboard(scope, "zza-availability", load: [])
+    assert by_slug.id == dashboard.id
+  end
+
+  test "reserved dashboard slugs are rejected", %{scope: scope} do
+    assert {:error, {:reserved_dashboard_slug, "service-availability-noc"}} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Bad slug",
+               slug: "service-availability-noc"
+             })
+  end
+
   test "sharing requires edit access to the target dashboard", %{dashboard: dashboard} do
     actor = admin_user_fixture()
     recipient = admin_user_fixture()

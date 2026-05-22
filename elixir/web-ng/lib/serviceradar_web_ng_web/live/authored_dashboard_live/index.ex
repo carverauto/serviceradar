@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @current_path "/analytics"
   @default_query ~s|in:services time:last_1h sort:timestamp:desc limit:25|
@@ -26,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       |> assign(:preview, nil)
       |> assign(:selected_visuals, [:table])
       |> assign(:visual_options, Dashboards.authored_visual_options())
+      |> assign_dashboard_builder(default_dashboard_params()["srql_query"])
       |> assign(:visibility_options, @visibility_options)
       |> assign(:can_manage?, can_manage?(scope))
       |> assign(:can_manage_groups?, can_manage_groups?(scope))
@@ -89,6 +92,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
      socket
      |> assign(:dashboard_params, params)
      |> assign(:preview, nil)
+     |> assign_dashboard_builder(params["srql_query"])
      |> assign_form()}
   end
 
@@ -116,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       {:noreply,
        socket
        |> put_flash(:info, "Saved dashboard")
-       |> push_navigate(to: ~p"/dashboard/#{dashboard.id}")}
+       |> push_navigate(to: ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")}
     else
       {:error, reason} ->
         {:noreply,
@@ -202,6 +206,62 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, assign(socket, :dashboard_builder_open?, !socket.assigns.dashboard_builder_open?)}
+  end
+
+  def handle_event("srql_builder_change", %{"builder" => params}, socket) do
+    builder = SRQLBuilder.update(socket.assigns.dashboard_builder, params)
+    query = SRQLBuilder.build(builder)
+
+    dashboard_params =
+      socket.assigns.dashboard_params
+      |> Map.put("srql_query", query)
+      |> Map.put("builder_state", builder)
+
+    {:noreply,
+     socket
+     |> assign(:dashboard_builder, builder)
+     |> assign(:dashboard_builder_supported?, true)
+     |> assign(:dashboard_builder_sync?, true)
+     |> assign(:dashboard_params, dashboard_params)
+     |> assign(:preview, nil)
+     |> assign_form()}
+  end
+
+  def handle_event("srql_builder_add_filter", _params, socket) do
+    builder = socket.assigns.dashboard_builder
+    filters = Map.get(builder, "filters", []) || []
+    entity = Map.get(builder, "entity", "services")
+    field = default_builder_filter_field(entity)
+
+    next = %{"field" => field, "op" => "contains", "value" => ""}
+    update_dashboard_builder(socket, Map.put(builder, "filters", filters ++ [next]))
+  end
+
+  def handle_event("srql_builder_remove_filter", %{"idx" => idx}, socket) do
+    builder = socket.assigns.dashboard_builder
+    index = parse_int(idx, -1)
+
+    filters =
+      builder
+      |> Map.get("filters", [])
+      |> Enum.with_index()
+      |> Enum.reject(fn {_filter, i} -> i == index end)
+      |> Enum.map(fn {filter, _i} -> filter end)
+
+    update_dashboard_builder(socket, Map.put(builder, "filters", filters))
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    update_dashboard_builder(socket, socket.assigns.dashboard_builder)
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    query = SRQLBuilder.build(socket.assigns.dashboard_builder)
+    preview_query(socket, Map.put(socket.assigns.dashboard_params, "srql_query", query))
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -250,7 +310,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                 <div class="min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <.link
-                      navigate={~p"/dashboard/#{dashboard.id}"}
+                      navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"}
                       class="font-medium hover:text-primary"
                     >
                       {dashboard.title}
@@ -262,11 +322,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                     {dashboard.description || "No description"}
                   </p>
                   <p class="mt-1 font-mono text-xs text-base-content/45">
-                    /dashboard/{dashboard.id}
+                    /dashboard/{Dashboards.authored_dashboard_route_ref(dashboard)}
                   </p>
                 </div>
                 <div class="flex shrink-0 gap-2">
-                  <.link navigate={~p"/dashboard/#{dashboard.id}"} class="btn btn-xs">
+                  <.link
+                    navigate={~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}"}
+                    class="btn btn-xs"
+                  >
                     <.icon name="hero-arrow-top-right-on-square" class="size-4" /> Open
                   </.link>
                   <button
@@ -308,6 +371,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
               />
               <.input field={@dashboard_form[:panel_title]} type="text" label="Panel title" />
               <.input field={@dashboard_form[:srql_query]} type="textarea" label="SRQL query" />
+              <button type="button" class="btn btn-sm btn-ghost" phx-click="srql_builder_toggle">
+                <.icon name="hero-adjustments-horizontal" class="size-4" /> Query Builder
+              </button>
               <.input
                 field={@dashboard_form[:visual_type]}
                 type="select"
@@ -324,6 +390,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                 </button>
               </div>
             </.form>
+
+            <div :if={@dashboard_builder_open?} class="border-t border-base-300 p-4">
+              <.srql_query_builder
+                supported={@dashboard_builder_supported?}
+                sync={@dashboard_builder_sync?}
+                builder={@dashboard_builder}
+              />
+            </div>
 
             <div class="border-t border-base-300 p-4">
               <.preview_result preview={@preview} visual_options={@visual_options} />
@@ -541,8 +615,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
        },
        %{
          title: panel_title,
+         dataset_key: "primary",
          srql_query: query,
+         builder_state: params["builder_state"] || %{},
          visual_type: visual,
+         data_binding: default_data_binding(preview, visual),
+         display_config: %{
+           "label" => panel_title,
+           "unit" => default_unit(visual),
+           "table_columns" => default_table_columns(preview.fields)
+         },
          field_metadata: %{
            fields: preview.fields,
            compatible_visuals: preview.compatible_visuals
@@ -578,6 +660,135 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     socket
     |> assign(:group_form, to_form(socket.assigns.group_params, as: :group))
     |> assign(:membership_form, to_form(socket.assigns.membership_params, as: :membership))
+  end
+
+  defp assign_dashboard_builder(socket, query) do
+    {supported?, sync?, builder} = dashboard_builder(query)
+
+    socket
+    |> assign(:dashboard_builder, builder)
+    |> assign(:dashboard_builder_supported?, supported?)
+    |> assign(:dashboard_builder_sync?, sync?)
+    |> assign(:dashboard_builder_open?, false)
+  end
+
+  defp dashboard_builder(query) do
+    case SRQLBuilder.parse(query || "") do
+      {:ok, builder} -> {true, true, builder}
+      {:error, _reason} -> {false, false, SRQLBuilder.default_state("services", 25)}
+    end
+  end
+
+  defp update_dashboard_builder(socket, builder) do
+    builder = SRQLBuilder.update(builder, %{})
+    query = SRQLBuilder.build(builder)
+
+    dashboard_params =
+      socket.assigns.dashboard_params
+      |> Map.put("srql_query", query)
+      |> Map.put("builder_state", builder)
+
+    {:noreply,
+     socket
+     |> assign(:dashboard_builder, builder)
+     |> assign(:dashboard_builder_supported?, true)
+     |> assign(:dashboard_builder_sync?, true)
+     |> assign(:dashboard_params, dashboard_params)
+     |> assign(:preview, nil)
+     |> assign_form()}
+  end
+
+  defp default_builder_filter_field(entity) do
+    Catalog.entity(entity).default_filter_field || ""
+  end
+
+  defp default_data_binding(preview, visual) do
+    fields = preview.fields || []
+    numeric = first_field_of_type(fields, :number)
+    string = first_field_of_type(fields, :string)
+    datetime = first_field_of_type(fields, :datetime)
+
+    status =
+      Enum.find_value(fields, fn field ->
+        if field.name in ~w(status state health severity), do: field.name
+      end)
+
+    case visual do
+      "availability" ->
+        %{
+          "dataset" => "primary",
+          "numerator_field" => field_named(fields, "ok") || numeric,
+          "denominator_field" => field_named(fields, "total"),
+          "label_field" => string
+        }
+
+      "line" ->
+        %{
+          "dataset" => "primary",
+          "time_field" => datetime,
+          "value_field" => numeric,
+          "label_field" => string
+        }
+
+      "area" ->
+        %{
+          "dataset" => "primary",
+          "time_field" => datetime,
+          "value_field" => numeric,
+          "label_field" => string
+        }
+
+      "bar" ->
+        %{"dataset" => "primary", "label_field" => string, "value_field" => numeric}
+
+      "category" ->
+        %{"dataset" => "primary", "label_field" => string, "value_field" => numeric}
+
+      "status_list" ->
+        %{"dataset" => "primary", "label_field" => string, "status_field" => status}
+
+      _ ->
+        %{"dataset" => "primary", "value_field" => numeric, "label_field" => string}
+    end
+  end
+
+  defp default_table_columns(fields) do
+    Enum.map(fields || [], fn field ->
+      %{
+        "field" => field.name,
+        "label" => humanize_field(field.name),
+        "renderer" => default_renderer(field),
+        "visible" => true
+      }
+    end)
+  end
+
+  defp default_renderer(%{type: :boolean}), do: "boolean_icon"
+  defp default_renderer(%{type: :datetime}), do: "time"
+  defp default_renderer(%{type: :number}), do: "number"
+
+  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample),
+    do: "json_summary"
+
+  defp default_renderer(_field), do: "text"
+
+  defp default_unit("availability"), do: "%"
+  defp default_unit("gauge"), do: "%"
+  defp default_unit(_visual), do: ""
+
+  defp first_field_of_type(fields, type) do
+    Enum.find_value(fields, fn field -> if field.type == type, do: field.name end)
+  end
+
+  defp field_named(fields, name) do
+    Enum.find_value(fields, fn field -> if field.name == name, do: field.name end)
+  end
+
+  defp humanize_field(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
   end
 
   defp load_access_controls(scope, assigns) do
@@ -634,9 +845,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
-  defp selected_visual(value, compatible) when is_atom(value), do: selected_visual(Atom.to_string(value), compatible)
+  defp selected_visual(value, compatible) when is_atom(value),
+    do: selected_visual(Atom.to_string(value), compatible)
 
-  defp selected_visual(_value, compatible), do: compatible |> List.first(:table) |> Atom.to_string()
+  defp selected_visual(_value, compatible),
+    do: compatible |> List.first(:table) |> Atom.to_string()
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> int
+      _ -> default
+    end
+  end
+
+  defp parse_int(value, _default) when is_integer(value), do: value
+  defp parse_int(_value, default), do: default
 
   defp required(value, field) do
     case optional(value) do
@@ -680,7 +903,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     Enum.filter(memberships, &(&1.group_id == group_id))
   end
 
-  defp membership_count(memberships, group_id), do: memberships |> memberships_for(group_id) |> length()
+  defp membership_count(memberships, group_id),
+    do: memberships |> memberships_for(group_id) |> length()
 
   defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
     "#{name} <#{email}>"

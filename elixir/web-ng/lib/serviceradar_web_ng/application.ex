@@ -32,9 +32,11 @@ defmodule ServiceRadarWebNG.Application do
       |> Kernel.++(web_runtime().web_children())
       |> maybe_add_grpc_supervisor()
       |> maybe_add_first_party_plugin_sync_scheduler()
+      |> maybe_add_first_party_dashboard_seeder()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
-        {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
+        {DNSCluster,
+         query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
       ])
       |> maybe_add_local_mailer_storage()
 
@@ -114,12 +116,22 @@ defmodule ServiceRadarWebNG.Application do
     end
   end
 
+  defp maybe_add_first_party_dashboard_seeder(children) do
+    if Application.get_env(:serviceradar_core, :seeders_enabled, true) do
+      children ++ [ServiceRadarWebNG.Dashboards.FirstPartyPackages]
+    else
+      children
+    end
+  end
+
   defp field_survey_adbc_children do
     case Application.get_env(:serviceradar_web_ng, :field_survey_adbc_uri) do
       uri when is_binary(uri) and uri != "" ->
         [
           {Adbc.Database,
-           driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
+           driver: :postgresql,
+           uri: uri,
+           process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
         ]
 
       _ ->

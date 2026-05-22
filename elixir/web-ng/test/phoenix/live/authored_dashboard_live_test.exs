@@ -73,8 +73,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       |> Dashboards.list_authored_dashboards(%{status: [:active], limit: 100})
       |> Enum.filter(&(&1.title == title))
 
-    assert_redirect(view, ~p"/dashboard/#{dashboard.id}")
+    assert_redirect(view, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
     assert dashboard.owner_id == user.id
+    assert dashboard.dashboard_ref in 1_000_000..9_999_999
   end
 
   test "dashboard library lists authored dashboards and updates favorite/default preferences", %{
@@ -119,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
   } do
     {dashboard, panel} = dashboard_with_panel!(scope, title: "Settings LiveView")
 
-    {:ok, view, _html} = live(conn, ~p"/dashboard/#{dashboard.id}")
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
     html = render_async(view, 5_000)
 
     assert html =~ dashboard.title

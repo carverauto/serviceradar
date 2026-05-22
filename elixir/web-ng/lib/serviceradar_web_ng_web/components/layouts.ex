@@ -54,7 +54,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     signed_in? = is_map(current_scope) and not is_nil(Map.get(current_scope, :user))
     current_path = assigns[:current_path] || Map.get(assigns.srql, :page_path)
     page_title = assigns[:page_title] || operations_page_title(current_path)
-    assigns = assign(assigns, signed_in?: signed_in?, current_path: current_path, page_title: page_title)
+
+    assigns =
+      assign(assigns, signed_in?: signed_in?, current_path: current_path, page_title: page_title)
 
     cond do
       assigns.shell == :operations -> operations_app(assigns)
@@ -437,7 +439,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp user_initials(_), do: "?"
 
-  defp profile_title(%{user: %{email: email}}) when is_binary(email) and email != "", do: "Profile: #{email}"
+  defp profile_title(%{user: %{email: email}}) when is_binary(email) and email != "",
+    do: "Profile: #{email}"
+
   defp profile_title(_), do: "Profile"
 
   defp format_role(role) when is_atom(role) do
@@ -473,6 +477,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp ops_nav_active?(_, _), do: false
 
   defp operations_page_title("/dashboard"), do: "Unified Operations Dashboard"
+  defp operations_page_title("/dashboards"), do: "Dashboards"
   defp operations_page_title("/cameras"), do: "Camera Multiview"
   defp operations_page_title("/topology"), do: "Topology"
   defp operations_page_title("/events"), do: "Events"
@@ -484,6 +489,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title(path) when is_binary(path) do
     cond do
       String.starts_with?(path, "/cameras/") -> "Camera Feed"
+      String.starts_with?(path, "/dashboards") -> "Dashboards"
       String.starts_with?(path, "/devices") -> "Devices"
       String.starts_with?(path, "/services") -> "Services"
       String.starts_with?(path, "/diagnostics") -> "Diagnostics"

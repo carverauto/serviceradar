@@ -16,9 +16,13 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
 
   @fields [
     :dashboard_id,
+    :dataset_key,
     :title,
     :srql_query,
+    :builder_state,
     :visual_type,
+    :data_binding,
+    :display_config,
     :visual_config,
     :field_metadata,
     :layout,
@@ -95,6 +99,13 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
       public?(true)
     end
 
+    attribute :dataset_key, :string do
+      allow_nil?(false)
+      public?(true)
+      default("primary")
+      description("Named dashboard dataset consumed by this panel.")
+    end
+
     attribute :title, :string do
       allow_nil?(false)
       public?(true)
@@ -105,11 +116,45 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
       public?(true)
     end
 
+    attribute :builder_state, :map do
+      allow_nil?(false)
+      public?(true)
+      default(%{})
+      description("Persisted SRQL builder state when the query can be represented visually.")
+    end
+
     attribute :visual_type, :atom do
       allow_nil?(false)
       public?(true)
       default(:table)
-      constraints(one_of: [:table, :stat, :line, :area, :bar, :category, :status_list])
+
+      constraints(
+        one_of: [
+          :table,
+          :stat,
+          :gauge,
+          :availability,
+          :line,
+          :area,
+          :bar,
+          :category,
+          :status_list
+        ]
+      )
+    end
+
+    attribute :data_binding, :map do
+      allow_nil?(false)
+      public?(true)
+      default(%{})
+      description("Explicit dataset field, JSON path, label, grouping, and aggregation bindings.")
+    end
+
+    attribute :display_config, :map do
+      allow_nil?(false)
+      public?(true)
+      default(%{})
+      description("Labels, captions, units, thresholds, legends, and renderer choices.")
     end
 
     attribute :visual_config, :map do

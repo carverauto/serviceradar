@@ -26,7 +26,8 @@ defmodule ServiceRadarWebNG.SRQL do
       "limit" => Map.get(opts, :limit),
       "cursor" => Map.get(opts, :cursor),
       "direction" => Map.get(opts, :direction),
-      "mode" => Map.get(opts, :mode)
+      "mode" => Map.get(opts, :mode),
+      "scope" => Map.get(opts, :scope)
     })
   end
 
@@ -54,26 +55,49 @@ defmodule ServiceRadarWebNG.SRQL do
   def query_request(%{} = request) do
     case normalize_request(request) do
       {:ok, query, limit, cursor, direction, mode} ->
-        execute_query(query, limit, cursor, direction, mode)
+        execute_query(
+          query,
+          limit,
+          cursor,
+          direction,
+          mode,
+          Map.get(request, "scope") || Map.get(request, :scope)
+        )
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp execute_query(query, limit, cursor, direction, mode) do
+  defp execute_query(query, limit, cursor, direction, mode, scope) do
     entity = extract_entity(query)
     start_time = System.monotonic_time()
 
     result =
-      with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-        execute_translation(Map.put(translation, "_query", query))
+      if entity == "dashboards" do
+        {:ok,
+         %{
+           "results" => dashboard_search_rows(scope, query, limit),
+           "pagination" => %{"next_cursor" => nil, "previous_cursor" => nil},
+           "viz" => nil,
+           "error" => nil
+         }}
+      else
+        with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
+          execute_translation(Map.put(translation, "_query", query))
+        end
       end
 
     status = if match?({:ok, _}, result), do: :ok, else: :error
     emit_telemetry(entity, start_time, status)
 
     result
+  end
+
+  defp dashboard_search_rows(scope, query, limit) do
+    [ServiceRadarWebNG, Dashboards]
+    |> Module.concat()
+    |> apply(:search_dashboard_rows, [scope, query, [limit: limit]])
   end
 
   defp emit_telemetry(entity, start_time, status) do
