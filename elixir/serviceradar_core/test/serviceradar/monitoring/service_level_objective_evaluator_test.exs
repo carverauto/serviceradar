@@ -35,6 +35,70 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluatorTest do
     assert Decimal.eq?(evaluation.burn_rate_short, Decimal.new("0.604056"))
   end
 
+  test "rolling compliance period is derived when explicit bounds are omitted" do
+    slo = %{
+      id: @slo_id,
+      slo_kind: :request_based,
+      goal_basis_points: 9_900,
+      compliance_period_type: :rolling,
+      rolling_period_days: 7
+    }
+
+    assert {:ok, evaluation} =
+             ServiceLevelObjectiveEvaluator.evaluate(slo, %{
+               evaluated_at: ~U[2026-05-21 13:15:30Z],
+               eligible_events: 10_000,
+               good_events: 9_950
+             })
+
+    assert evaluation.period_started_at == ~U[2026-05-14 13:15:30Z]
+    assert evaluation.period_ended_at == ~U[2026-05-21 13:15:30Z]
+    assert evaluation.compliance_state == :compliant
+  end
+
+  test "calendar compliance period is derived from calendar boundaries" do
+    slo = %{
+      id: @slo_id,
+      slo_kind: :window_based,
+      goal_basis_points: 9_900,
+      compliance_period_type: :calendar,
+      calendar_period: :week
+    }
+
+    assert {:ok, evaluation} =
+             ServiceLevelObjectiveEvaluator.evaluate(slo, %{
+               evaluated_at: ~U[2026-05-21 13:15:30Z],
+               total_windows: 1_008,
+               good_windows: 1_000
+             })
+
+    assert evaluation.period_started_at == ~U[2026-05-18 00:00:00Z]
+    assert evaluation.period_ended_at == ~U[2026-05-25 00:00:00Z]
+    assert evaluation.compliance_basis_points == 9_920
+  end
+
+  test "projected exhaustion is calculated from observed budget consumption rate" do
+    slo = %{
+      id: @slo_id,
+      slo_kind: :request_based,
+      goal_basis_points: 9_000,
+      compliance_period_type: :rolling,
+      rolling_period_days: 1
+    }
+
+    assert {:ok, evaluation} =
+             ServiceLevelObjectiveEvaluator.evaluate(slo, %{
+               evaluated_at: ~U[2026-05-21 12:00:00Z],
+               eligible_events: 1_000,
+               good_events: 950
+             })
+
+    assert evaluation.error_budget_total == 100
+    assert evaluation.error_budget_consumed == 50
+    assert evaluation.error_budget_remaining == 50
+    assert evaluation.projected_exhaustion_at == ~U[2026-05-22 12:00:00Z]
+  end
+
   test "request-based SLO evaluation marks budget exhaustion noncompliant" do
     slo = %{id: @slo_id, slo_kind: :request_based, goal_basis_points: 9_990}
 
@@ -90,6 +154,18 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluatorTest do
              ServiceLevelObjectiveEvaluator.evaluate(slo, %{
                period_started_at: @period_started_at,
                period_ended_at: @period_ended_at,
+               evaluated_at: @evaluated_at,
+               eligible_events: 100,
+               good_events: 99
+             })
+  end
+
+  test "partial explicit period bounds fail closed" do
+    slo = %{id: @slo_id, slo_kind: :request_based, goal_basis_points: 9_900}
+
+    assert {:error, :incomplete_period_bounds} =
+             ServiceLevelObjectiveEvaluator.evaluate(slo, %{
+               period_started_at: @period_started_at,
                evaluated_at: @evaluated_at,
                eligible_events: 100,
                good_events: 99

@@ -46,6 +46,7 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluator do
          good_windows: 0,
          bad_windows: 0
        })
+       |> maybe_projected_exhaustion()
        |> merge_optional(attrs)}
     else
       {:error, reason} -> {:error, reason}
@@ -82,6 +83,7 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluator do
          good_windows: good_windows,
          bad_windows: bad_windows
        })
+       |> maybe_projected_exhaustion()
        |> merge_optional(attrs)}
     else
       {:error, reason} -> {:error, reason}
@@ -90,9 +92,8 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluator do
   end
 
   defp base_attrs(slo, attrs) do
-    with {:ok, period_started_at} <- required(attrs, :period_started_at),
-         {:ok, period_ended_at} <- required(attrs, :period_ended_at),
-         {:ok, evaluated_at} <- required(attrs, :evaluated_at),
+    with {:ok, evaluated_at} <- required_datetime(attrs, :evaluated_at),
+         {:ok, period_started_at, period_ended_at} <- period_bounds(slo, attrs, evaluated_at),
          {:ok, slo_id} <- required_slo_id(slo),
          {:ok, goal_basis_points} <- goal_basis_points(slo) do
       {:ok,
@@ -224,12 +225,145 @@ defmodule ServiceRadar.Monitoring.ServiceLevelObjectiveEvaluator do
     end)
   end
 
+  defp maybe_projected_exhaustion(%{projected_exhaustion_at: %DateTime{}} = evaluation),
+    do: evaluation
+
+  defp maybe_projected_exhaustion(
+         %{
+           period_started_at: %DateTime{} = period_started_at,
+           evaluated_at: %DateTime{} = evaluated_at,
+           error_budget_consumed: consumed,
+           error_budget_remaining: remaining
+         } = evaluation
+       )
+       when is_integer(consumed) and consumed > 0 and is_integer(remaining) and remaining > 0 do
+    elapsed_seconds = DateTime.diff(evaluated_at, period_started_at, :second)
+
+    if elapsed_seconds > 0 do
+      seconds_until_exhaustion = div(elapsed_seconds * remaining, consumed)
+      exhaustion_at = DateTime.add(evaluated_at, seconds_until_exhaustion, :second)
+      Map.put(evaluation, :projected_exhaustion_at, exhaustion_at)
+    else
+      evaluation
+    end
+  end
+
+  defp maybe_projected_exhaustion(evaluation), do: evaluation
+
   defp required(attrs, key) do
     case Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key)) do
       nil -> {:error, :"missing_#{key}"}
       value -> {:ok, value}
     end
   end
+
+  defp optional(attrs, key), do: Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+
+  defp required_datetime(attrs, key) do
+    case required(attrs, key) do
+      {:ok, %DateTime{} = datetime} -> {:ok, truncate_datetime(datetime)}
+      {:ok, _value} -> {:error, :"invalid_#{key}"}
+      error -> error
+    end
+  end
+
+  defp period_bounds(slo, attrs, evaluated_at) do
+    case {optional(attrs, :period_started_at), optional(attrs, :period_ended_at)} do
+      {%DateTime{} = period_started_at, %DateTime{} = period_ended_at} ->
+        validate_period_bounds(
+          truncate_datetime(period_started_at),
+          truncate_datetime(period_ended_at)
+        )
+
+      {nil, nil} ->
+        derive_period_bounds(slo, evaluated_at)
+
+      _partial ->
+        {:error, :incomplete_period_bounds}
+    end
+  end
+
+  defp validate_period_bounds(period_started_at, period_ended_at) do
+    if DateTime.before?(period_started_at, period_ended_at) do
+      {:ok, period_started_at, period_ended_at}
+    else
+      {:error, :invalid_period_bounds}
+    end
+  end
+
+  defp derive_period_bounds(slo, %DateTime{} = evaluated_at) do
+    case value(slo, :compliance_period_type, :rolling) do
+      :calendar -> calendar_period_bounds(slo, evaluated_at)
+      "calendar" -> calendar_period_bounds(slo, evaluated_at)
+      _rolling -> rolling_period_bounds(slo, evaluated_at)
+    end
+  end
+
+  defp rolling_period_bounds(slo, evaluated_at) do
+    days =
+      slo
+      |> value(:rolling_period_days, 30)
+      |> to_integer(30)
+      |> min(30)
+      |> max(1)
+
+    period_ended_at = truncate_datetime(evaluated_at)
+    period_started_at = DateTime.add(period_ended_at, -days * 86_400, :second)
+
+    {:ok, period_started_at, period_ended_at}
+  end
+
+  defp calendar_period_bounds(slo, evaluated_at) do
+    evaluated_date = DateTime.to_date(evaluated_at)
+
+    period_start_date =
+      calendar_period_start_date(value(slo, :calendar_period, :week), evaluated_date)
+
+    period_end_date =
+      calendar_period_end_date(value(slo, :calendar_period, :week), period_start_date)
+
+    {:ok, utc_midnight(period_start_date), utc_midnight(period_end_date)}
+  end
+
+  defp calendar_period_start_date(period, date) when period in [:day, "day"], do: date
+
+  defp calendar_period_start_date(period, date) when period in [:week, "week"] do
+    Date.add(date, -(Date.day_of_week(date) - 1))
+  end
+
+  defp calendar_period_start_date(period, %{year: year, month: month})
+       when period in [:month, "month"],
+       do: Date.new!(year, month, 1)
+
+  defp calendar_period_start_date(period, %{year: year, month: month})
+       when period in [:quarter, "quarter"] do
+    quarter_start_month = div(month - 1, 3) * 3 + 1
+    Date.new!(year, quarter_start_month, 1)
+  end
+
+  defp calendar_period_start_date(_period, date), do: calendar_period_start_date(:week, date)
+
+  defp calendar_period_end_date(period, start_date) when period in [:day, "day"],
+    do: Date.add(start_date, 1)
+
+  defp calendar_period_end_date(period, start_date) when period in [:week, "week"],
+    do: Date.add(start_date, 7)
+
+  defp calendar_period_end_date(period, start_date) when period in [:month, "month"],
+    do: add_months(start_date, 1)
+
+  defp calendar_period_end_date(period, start_date) when period in [:quarter, "quarter"],
+    do: add_months(start_date, 3)
+
+  defp calendar_period_end_date(_period, start_date),
+    do: calendar_period_end_date(:week, start_date)
+
+  defp add_months(%Date{year: year, month: month}, months) do
+    month_index = year * 12 + (month - 1) + months
+    Date.new!(div(month_index, 12), rem(month_index, 12) + 1, 1)
+  end
+
+  defp utc_midnight(date), do: DateTime.new!(date, ~T[00:00:00], "Etc/UTC")
 
   defp required_slo_id(slo) do
     case value(slo, :id) do
