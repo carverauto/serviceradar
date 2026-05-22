@@ -269,6 +269,7 @@ func (p *BaseProcessor) cleanupHostBatch(hosts []*models.HostResult) {
 
 		host.ICMPStatus = nil
 		host.ResponseTime = 0
+		host.SweepModes = nil
 		p.hostResultPool.Put(host)
 	}
 }
@@ -289,6 +290,7 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 	// Update host timestamps
 	host.LastSeen = now
+	p.markSweepMode(host, result.Target.Mode)
 
 	// Propagate timestamps back to the result so stores have accurate
 	// first/last seen values.
@@ -307,6 +309,16 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	}
 
 	return nil
+}
+
+func (*BaseProcessor) markSweepMode(host *models.HostResult, mode models.SweepMode) {
+	for _, existing := range host.SweepModes {
+		if existing == mode {
+			return
+		}
+	}
+
+	host.SweepModes = append(host.SweepModes, mode)
 }
 
 func (p *BaseProcessor) processTCPResult(shard *ProcessorShard, host *models.HostResult, result *models.Result) {
@@ -632,6 +644,7 @@ func (*BaseProcessor) initializeHostResult(host *models.HostResult, hostAddr str
 	host.Available = false
 	host.ICMPStatus = nil
 	host.ResponseTime = 0
+	host.SweepModes = host.SweepModes[:0]
 
 	// Initialize or clear PortResults
 	if host.PortResults == nil {

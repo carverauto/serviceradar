@@ -81,6 +81,30 @@ func TestBaseProcessor_Cleanup(t *testing.T) {
 	assert.Empty(t, portCountsAfter, "Expected portCounts to be empty after cleanup")
 }
 
+func TestBaseProcessor_TracksAttemptedSweepModes(t *testing.T) {
+	processor := NewBaseProcessor(&models.Config{Ports: []int{445}}, logger.NewTestLogger())
+	defer processor.cleanup()
+
+	result := &models.Result{
+		Target: models.Target{
+			Host: "192.0.2.10",
+			Port: 445,
+			Mode: models.ModeTCP,
+		},
+		Available: false,
+	}
+
+	require.NoError(t, processor.Process(result))
+
+	hosts := processor.GetHostMap()
+	host := hosts["192.0.2.10"]
+	require.NotNil(t, host)
+
+	assert.Equal(t, []models.SweepMode{models.ModeTCP}, host.SweepModes)
+	assert.Nil(t, host.ICMPStatus)
+	assert.Empty(t, host.PortResults)
+}
+
 func TestBaseProcessor_MemoryManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping memory management tests in short mode - they require more time than 3s timeout")

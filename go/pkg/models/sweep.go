@@ -147,6 +147,7 @@ type HostResult struct {
 	PortMap      map[int]*PortResult `json:"-"` // O(1) port lookup, excluded from JSON
 	ICMPStatus   *ICMPStatus         `json:"icmp_status,omitempty"`
 	ResponseTime time.Duration       `json:"response_time"`
+	SweepModes   []SweepMode         `json:"sweep_modes,omitempty"`
 }
 
 // ICMPStatus represents ICMP ping results.
@@ -177,6 +178,10 @@ func DeepCopyHostResult(src *HostResult) HostResult {
 		FirstSeen:    src.FirstSeen,
 		LastSeen:     src.LastSeen,
 		ResponseTime: src.ResponseTime,
+	}
+
+	if src.SweepModes != nil {
+		dst.SweepModes = append([]SweepMode(nil), src.SweepModes...)
 	}
 
 	copiedPortResults := make(map[*PortResult]*PortResult)

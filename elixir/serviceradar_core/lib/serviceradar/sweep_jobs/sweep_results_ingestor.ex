@@ -728,20 +728,86 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp build_modes_results(result) do
+    modes =
+      case requested_sweep_modes(result) do
+        [] -> observed_sweep_modes(result)
+        requested -> requested
+      end
+
+    Enum.reduce(modes, %{}, fn mode, acc ->
+      {key, status} = sweep_mode_result(result, mode)
+      Map.put(acc, key, status)
+    end)
+  end
+
+  defp requested_sweep_modes(result) do
+    result
+    |> sweep_modes()
+    |> Enum.map(&normalize_sweep_mode/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp sweep_modes(result) do
+    case result["sweep_modes"] || result["sweepModes"] do
+      modes when is_list(modes) -> modes
+      _ -> []
+    end
+  end
+
+  defp normalize_sweep_mode(mode) when mode in ["icmp", :icmp], do: "icmp"
+
+  defp normalize_sweep_mode(mode) when mode in ["tcp", :tcp, "tcp_connect", :tcp_connect],
+    do: "tcp"
+
+  defp normalize_sweep_mode(_mode), do: nil
+
+  defp observed_sweep_modes(result) do
+    []
+    |> maybe_observed_mode("icmp", icmp_observed?(result))
+    |> maybe_observed_mode("tcp", tcp_observed?(result))
+  end
+
+  defp maybe_observed_mode(modes, mode, true), do: modes ++ [mode]
+  defp maybe_observed_mode(modes, _mode, false), do: modes
+
+  defp icmp_observed?(result) do
+    is_map(result_icmp_status(result)) or Map.has_key?(result, "icmp_available") or
+      Map.has_key?(result, "icmpAvailable") or legacy_icmp_success?(result)
+  end
+
+  defp tcp_observed?(result) do
+    case port_results(result) do
+      ports when is_list(ports) and ports != [] ->
+        true
+
+      _ ->
+        has_tcp_open_ports_field?(result) or open_ports(result) != []
+    end
+  end
+
+  defp has_tcp_open_ports_field?(result) do
+    Map.has_key?(result, "tcp_ports_open") or Map.has_key?(result, "tcpPortsOpen")
+  end
+
+  defp sweep_mode_result(result, "icmp") do
     icmp_status = result_icmp_status(result)
 
-    icmp =
+    status =
       cond do
         icmp_available?(result) -> "success"
         is_map(icmp_status) -> "failed"
-        result["icmp_available"] == true -> "success"
         legacy_icmp_success?(result) -> "success"
         true -> "no_response"
       end
 
-    tcp = if Enum.empty?(open_ports(result)), do: "no_response", else: "success"
+    {"icmp", status}
+  end
 
-    %{"icmp" => icmp, "tcp" => tcp}
+  defp sweep_mode_result(result, "tcp") do
+    status = if Enum.empty?(open_ports(result)), do: "no_response", else: "success"
+
+    {"tcp", status}
   end
 
   defp legacy_icmp_success?(result) do

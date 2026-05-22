@@ -198,9 +198,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # Build schedule
     schedule = compile_schedule(group)
 
-    # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    {targets, device_targets} = compile_targets(group, actor)
-
     # Merge ports from profile and group overrides
     ports = merge_ports(profile, group)
 
@@ -209,6 +206,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
     # Guard against TCP modes without ports
     {ports, modes} = enforce_tcp_ports(ports, modes, group)
+
+    # Build targets from static CIDRs/IPs and device targets from SRQL rows.
+    {targets, device_targets} = compile_targets(group, actor, modes)
 
     # Build settings from profile with overrides
     settings = compile_settings(profile, group)
@@ -248,7 +248,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_targets(group, actor) do
+  defp compile_targets(group, actor, modes) do
     # Start with static targets
     static_targets = group.static_targets || []
 
@@ -258,32 +258,32 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       case group.target_query do
         nil -> []
         "" -> []
-        query -> get_device_targets_from_query(query, group, actor)
+        query -> get_device_targets_from_query(query, group, actor, modes)
       end
 
     {Enum.uniq(static_targets), device_targets}
   end
 
-  defp get_device_targets_from_query(query, group, _actor) when is_binary(query) do
+  defp get_device_targets_from_query(query, group, _actor, modes) when is_binary(query) do
     query = normalize_target_query(query)
 
     query
-    |> fetch_srql_device_targets(nil, %{}, group)
+    |> fetch_srql_device_targets(nil, %{}, group, modes)
     |> Map.values()
     |> Enum.sort_by(& &1["network"])
   rescue
     _ -> []
   end
 
-  defp get_device_targets_from_query(_query, _group, _actor), do: []
+  defp get_device_targets_from_query(_query, _group, _actor, _modes), do: []
 
   defp normalize_target_query(query) do
     SRQLQuery.ensure_target(query, :devices)
   end
 
-  defp fetch_srql_device_targets(_query, _cursor, acc, _group) when is_nil(acc), do: %{}
+  defp fetch_srql_device_targets(_query, _cursor, acc, _group, _modes) when is_nil(acc), do: %{}
 
-  defp fetch_srql_device_targets(query, cursor, acc, group) do
+  defp fetch_srql_device_targets(query, cursor, acc, group, modes) do
     case SRQLRunner.query_page(query,
            limit: srql_page_limit(),
            cursor: cursor,
@@ -291,10 +291,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
            text_param_decoder: &decode_cidr_text_param/1
          ) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} ->
-        acc = add_device_targets(acc, rows, group)
+        acc = add_device_targets(acc, rows, group, modes)
 
         if is_binary(next_cursor) do
-          fetch_srql_device_targets(query, next_cursor, acc, group)
+          fetch_srql_device_targets(query, next_cursor, acc, group, modes)
         else
           acc
         end
@@ -309,16 +309,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     Application.get_env(:serviceradar_core, :sweep_srql_page_limit, @srql_page_limit_default)
   end
 
-  defp add_device_targets(acc, rows, group) when is_list(rows) do
-    Enum.reduce(rows, acc, &put_device_target_from_row(&1, &2, group))
+  defp add_device_targets(acc, rows, group, modes) when is_list(rows) do
+    Enum.reduce(rows, acc, &put_device_target_from_row(&1, &2, group, modes))
   end
 
-  defp put_device_target_from_row(row, targets, group) when is_map(row) do
+  defp put_device_target_from_row(row, targets, group, modes) when is_map(row) do
     case Map.get(row, "ip") do
       value when is_binary(value) ->
         case normalize_device_ip_target(value) do
-          nil -> targets
-          target -> Map.put_new(targets, target, device_target_from_row(row, target, group))
+          nil ->
+            targets
+
+          target ->
+            Map.put_new(targets, target, device_target_from_row(row, target, group, modes))
         end
 
       _ ->
@@ -326,9 +329,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp put_device_target_from_row(_row, targets, _group), do: targets
+  defp put_device_target_from_row(_row, targets, _group, _modes), do: targets
 
-  defp device_target_from_row(row, target, group) do
+  defp device_target_from_row(row, target, group, modes) do
     metadata =
       %{
         "sweep_group_id" => group.id,
@@ -340,6 +343,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
     %{
       "network" => target,
+      "sweep_modes" => modes,
       "query_label" => group.name,
       "source" => "srql",
       "metadata" => metadata
@@ -421,14 +425,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp merge_modes(nil, group), do: group.sweep_modes || ["icmp", "tcp"]
+  defp merge_modes(nil, group), do: normalize_modes_override(group.sweep_modes, ["icmp", "tcp"])
 
   defp merge_modes(profile, group) do
-    case group.sweep_modes do
-      nil -> profile.sweep_modes || ["icmp", "tcp"]
-      modes -> modes
-    end
+    normalize_modes_override(group.sweep_modes, profile.sweep_modes || ["icmp", "tcp"])
   end
+
+  defp normalize_modes_override(nil, inherited), do: inherited
+  defp normalize_modes_override([], inherited), do: inherited
+  defp normalize_modes_override(modes, _inherited), do: modes
 
   defp compile_settings(profile, group) do
     base_settings =
