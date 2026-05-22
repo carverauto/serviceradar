@@ -126,6 +126,7 @@ mod agents;
 mod alerts;
 mod bmp_events;
 mod cpu_metrics;
+mod dashboards;
 mod device_graph;
 mod device_updates;
 mod devices;
@@ -250,6 +251,7 @@ impl QueryEngine {
                 Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
                 Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
                 Entity::Services => services::execute(&mut conn, &plan).await?,
+                Entity::Dashboards => dashboards::execute(&mut conn, &plan).await?,
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
                 Entity::Traces => traces::execute(&mut conn, &plan).await?,
                 Entity::Alerts => alerts::execute(&mut conn, &plan).await?,
@@ -794,6 +796,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
             Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
             Entity::Services => services::to_sql_and_params(&plan)?,
+            Entity::Dashboards => dashboards::to_sql_and_params(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
             Entity::Alerts => alerts::to_sql_and_params(&plan)?,
@@ -1173,6 +1176,15 @@ mod tests {
             QueryRequest {
                 query: "in:gateways is_healthy:true status:ready sort:agent_count:desc".to_string(),
                 limit: Some(10),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query:
+                    "in:dashboards status:active srql_query:%cpu_metrics% sort:updated_at:desc"
+                        .to_string(),
+                limit: Some(25),
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,

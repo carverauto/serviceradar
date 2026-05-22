@@ -377,6 +377,48 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::Dashboards => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("title", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("description", ColumnType::Text, None),
+                col("slug", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("owner_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("visibility", ColumnType::Text, None),
+                col("status", ColumnType::Text, None),
+                col("default_time_range", ColumnType::Text, None),
+                col("panel_count", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col(
+                    "report_schedule_count",
+                    ColumnType::Int,
+                    Some(ColumnSemantic::Value),
+                ),
+                col("layout", ColumnType::Jsonb, None),
+                col("variables", ColumnType::Jsonb, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col(
+                    "inserted_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col(
+                    "archived_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Interfaces => VizMeta {
             columns: vec![
                 col(

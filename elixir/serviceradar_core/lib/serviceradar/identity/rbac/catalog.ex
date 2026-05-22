@@ -406,6 +406,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "settings.mail.manage",
+          label: "Manage outbound mail",
+          description: "Configure deployment-level outbound mail providers and credentials",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.credentials.manage",
           label: "Manage network credentials",
           description: "Manage encrypted credentials and edge-scoped credential rules",

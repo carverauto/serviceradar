@@ -50,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         cluster_tab(path, current_scope),
         discovery_tab(path, current_scope),
         network_tab(path, current_scope),
+        mail_tab(path, current_scope),
         events_tab(path, current_scope),
         dashboards_tab(path, current_scope),
         edge_ops_tab(path, current_scope),
@@ -103,6 +104,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       navigate: ~p"/settings/flows",
       active: network_active?(path),
       show: can_networks_tab?(current_scope)
+    }
+  end
+
+  defp mail_tab(path, current_scope) do
+    %{
+      label: "Mail",
+      navigate: ~p"/settings/mail",
+      active: String.starts_with?(path, "/settings/mail"),
+      show: RBAC.can?(current_scope, "settings.mail.manage")
     }
   end
 

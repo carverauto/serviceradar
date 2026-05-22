@@ -10,6 +10,7 @@
 - [ ] 2.2 Implement a visual registry that declares required field shapes and validates panel visual configs.
 - [ ] 2.3 Add backend validation so saved panels have valid SRQL, compatible visual config, and bounded refresh/report settings.
 - [ ] 2.4 Add tests for query preview success, invalid SRQL, unsupported visual mappings, and table fallback.
+- [ ] 2.5 Add `in:dashboards` SRQL entity support for searching authored dashboards and panel SRQL query text.
 
 ## 3. Dashboard Creator UI
 - [ ] 3.1 Add an Analytics dashboards workspace for listing saved dashboards and creating a new dashboard.
@@ -17,6 +18,7 @@
 - [ ] 3.3 Add layout editing for multiple panels with stable ordering and responsive rendering.
 - [ ] 3.4 Add saved dashboard show route at `/dashboard/:dashboard_id` without changing `/dashboard` or `/dashboards/:route_slug`.
 - [ ] 3.5 Add share/copy-link affordances and clear owner/visibility labels.
+- [ ] 3.6 Add dashboard-local settings for SRQL panels, visualization choices, schedules, and user/user-group access grants.
 
 ## 4. Scheduled Reports
 - [ ] 4.1 Add a dashboard report schedule form with recipients, timezone, cadence/cron, enabled state, and next-run preview.
@@ -24,6 +26,9 @@
 - [ ] 4.3 Add an idempotent delivery worker that renders a bounded dashboard snapshot and sends email through existing mailer infrastructure.
 - [ ] 4.4 Persist delivery history with success/failure status, retry metadata, and operator-visible errors.
 - [ ] 4.5 Add tests covering due schedule scan, duplicate prevention, successful delivery, failure recording, and disabled schedules.
+- [ ] 4.6 Add deployment outbound mail settings with adapter selection and encrypted-local or credential-broker-backed secrets.
+- [ ] 4.7 Add an admin Settings UI for outbound mail configuration.
+- [ ] 4.8 Route dashboard report delivery through the shared outbound mail runtime.
 
 ## 5. Permissions and Navigation
 - [ ] 5.1 Add permissions for viewing, creating, editing, deleting, sharing, and scheduling authored dashboards.

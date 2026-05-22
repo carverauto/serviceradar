@@ -17,8 +17,8 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardReportDelivery
+  alias ServiceRadar.OutboundMail
   alias ServiceRadarWebNG.Dashboards
-  alias ServiceRadarWebNG.Mailer
 
   require Ash.Query
   require Logger
@@ -105,7 +105,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       |> text_body(rendered.text)
       |> html_body(rendered.html)
 
-    case Mailer.deliver(email) do
+    case OutboundMail.deliver(email) do
       {:ok, metadata} -> {:ok, metadata || %{}}
       {:error, reason} -> {:error, reason}
     end
@@ -245,11 +245,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
   defp system_actor, do: SystemActor.system(:dashboard_report_delivery)
 
   defp mailer_from do
-    mailer_config = Application.get_env(:serviceradar_web_ng, Mailer, [])
-    from_name = Keyword.get(mailer_config, :from_name, "ServiceRadar")
-    from_email = Keyword.get(mailer_config, :from_email, "contact@example.com")
-
-    {from_name, from_email}
+    OutboundMail.from_tuple()
   end
 
   defp message_id(%{id: id}) when is_binary(id), do: id

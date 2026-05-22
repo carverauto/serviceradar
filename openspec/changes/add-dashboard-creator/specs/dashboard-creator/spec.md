@@ -15,6 +15,24 @@ The system SHALL let authorized users create saved dashboards composed of one or
 - **THEN** the authored dashboard SHALL NOT create or mutate a `DashboardPackage`
 - **AND** the package-host route `/dashboards/:route_slug` SHALL continue to load package dashboards.
 
+### Requirement: SRQL-searchable dashboards
+The system SHALL expose authored dashboards as a first-class SRQL entity so users can search saved dashboard definitions with `in:dashboards`.
+
+#### Scenario: User searches dashboard definitions
+- **GIVEN** authored dashboards exist
+- **WHEN** a user runs `in:dashboards title:%health% status:active`
+- **THEN** SRQL SHALL return matching dashboard metadata rows including ID, title, slug, owner, visibility, status, timestamps, panel count, and report schedule count.
+
+#### Scenario: User searches panel query text
+- **GIVEN** an authored dashboard contains a panel with an SRQL query
+- **WHEN** a user runs `in:dashboards srql_query:%cpu_metrics%`
+- **THEN** SRQL SHALL return dashboards with at least one matching panel query.
+
+#### Scenario: Dashboard entity preserves limits and ordering
+- **GIVEN** a user runs `in:dashboards sort:updated_at:desc limit:25`
+- **WHEN** SRQL translates the query
+- **THEN** the generated query SHALL apply the requested limit and stable ordering.
+
 ### Requirement: Bounded SRQL preview and field inference
 The system SHALL provide a bounded SRQL preview for dashboard authoring that executes the query with enforced limits and returns field metadata used to configure compatible visuals.
 
@@ -78,6 +96,12 @@ The web UI SHALL provide an Analytics dashboard workspace where users can list, 
 - **THEN** the dashboard SHALL preserve the new layout
 - **AND** the saved dashboard route SHALL render panels in that layout.
 
+#### Scenario: Dashboard-local settings manage definition and sharing
+- **GIVEN** a user owns a dashboard or has dashboard edit permission
+- **WHEN** they open the saved dashboard and choose Settings
+- **THEN** the settings surface SHALL let them manage SRQL panel definitions, visualization choices, report schedules, and dashboard access grants
+- **AND** these controls SHALL NOT be embedded in the global RBAC policy editor.
+
 ### Requirement: Dashboard report schedules
 The system SHALL let authorized users configure scheduled email reports for authored dashboards using persisted report schedules.
 
@@ -91,6 +115,21 @@ The system SHALL let authorized users configure scheduled email reports for auth
 - **GIVEN** a report schedule is disabled
 - **WHEN** the scheduler scans for due reports
 - **THEN** it SHALL NOT enqueue a delivery for the disabled schedule.
+
+### Requirement: Deployment outbound mail settings
+The system SHALL provide an admin settings surface for configuring reusable outbound mail delivery used by dashboard reports and future system email.
+
+#### Scenario: Admin configures outbound mail
+- **GIVEN** an admin has `settings.mail.manage`
+- **WHEN** they open Settings and save an outbound mail adapter configuration
+- **THEN** the system SHALL persist the adapter, sender, provider options, and non-secret fields
+- **AND** secret values SHALL be stored either as local encrypted credentials or as references to the credential secret broker.
+
+#### Scenario: Dashboard report uses shared mail settings
+- **GIVEN** outbound mail settings are enabled
+- **WHEN** a dashboard report delivery job sends email
+- **THEN** the delivery SHALL resolve current settings and credentials at execution time
+- **AND** the mail configuration SHALL be reusable by non-dashboard system email.
 
 ### Requirement: Bounded report scheduling jobs
 The system SHALL use one periodic scanner job to find due dashboard report schedules and enqueue idempotent per-due delivery jobs, rather than registering one persistent cron/AshOban job per report schedule.

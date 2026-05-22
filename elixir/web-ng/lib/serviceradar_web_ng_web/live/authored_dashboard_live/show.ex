@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:user_groups, [])
       |> assign(:users, [])
       |> assign(:panel_results, %{})
+      |> assign(:settings_open?, false)
+      |> assign(:can_edit?, can_edit?(socket.assigns.current_scope))
       |> assign(:can_share?, can_share?(socket.assigns.current_scope))
       |> assign(:can_schedule_reports?, can_schedule_reports?(socket.assigns.current_scope))
       |> assign(:can_view_groups?, can_view_groups?(socket.assigns.current_scope))
@@ -109,6 +111,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      socket
      |> assign(:user_grant_params, merge_params(socket.assigns.user_grant_params, params))
      |> assign_grant_forms()}
+  end
+
+  def handle_event("open_settings", _params, socket) do
+    if dashboard_settings_available?(socket.assigns.dashboard, socket.assigns) do
+      {:noreply, assign(socket, :settings_open?, true)}
+    else
+      {:noreply, put_flash(socket, :error, "Not authorized to manage dashboard settings")}
+    end
+  end
+
+  def handle_event("close_settings", _params, socket) do
+    {:noreply, assign(socket, :settings_open?, false)}
   end
 
   def handle_event("validate_group_grant", %{"grant" => params}, socket) do
@@ -238,106 +252,221 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                 else: "Loading saved SRQL panels."}
             </p>
           </div>
-          <.link navigate={~p"/analytics"} class="btn btn-sm">
-            <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
-          </.link>
+          <div class="flex flex-wrap gap-2">
+            <button
+              :if={dashboard_settings_available?(@dashboard, assigns)}
+              type="button"
+              class="btn btn-sm btn-primary"
+              phx-click="open_settings"
+            >
+              <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+            </button>
+            <.link navigate={~p"/analytics"} class="btn btn-sm">
+              <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
+            </.link>
+          </div>
         </section>
 
         <section
-          :if={@dashboard and @can_share?}
+          :if={@settings_open? and dashboard_settings_available?(@dashboard, assigns)}
           class="rounded-lg border border-base-300 bg-base-100"
         >
           <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 class="text-sm font-semibold">Sharing</h2>
+              <h2 class="text-sm font-semibold">Dashboard Settings</h2>
               <p class="text-xs text-base-content/55">
-                Visibility is {@dashboard.visibility}; explicit grants can add users or reusable groups.
+                Manage SRQL panels, visual choices, email schedules, and dashboard-specific sharing.
               </p>
             </div>
-            <span class="badge badge-outline">{length(@access_grants)} grants</span>
+            <button type="button" class="btn btn-xs btn-ghost" phx-click="close_settings">
+              <.icon name="hero-x-mark" class="size-4" /> Close
+            </button>
           </div>
 
-          <div class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
-            <div class="space-y-3">
-              <div
-                :if={@access_grants == []}
-                class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
-              >
-                No explicit sharing grants yet.
+          <div class="space-y-6 p-4">
+            <section class="rounded-lg border border-base-300">
+              <div class="border-b border-base-300 px-3 py-2">
+                <h3 class="text-sm font-semibold">Panels</h3>
+                <p class="text-xs text-base-content/55">
+                  SRQL queries and visualizations that make up this dashboard.
+                </p>
               </div>
-
-              <div
-                :for={grant <- @access_grants}
-                class="flex flex-col gap-3 rounded-lg border border-base-300 p-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <div class="text-sm font-medium">{grant_label(grant)}</div>
-                  <div class="mt-1 flex flex-wrap gap-2">
-                    <span class="badge badge-sm">{grant.subject_type}</span>
-                    <span class="badge badge-sm badge-outline">{grant.access}</span>
+              <div class="divide-y divide-base-200">
+                <div
+                  :for={panel <- @dashboard.panels || []}
+                  class="grid grid-cols-1 gap-3 p-3 lg:grid-cols-[1fr_auto]"
+                >
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-sm font-medium">{panel.title}</span>
+                      <span class="badge badge-sm badge-outline">{panel.visual_type}</span>
+                    </div>
+                    <p class="mt-1 truncate font-mono text-xs text-base-content/55">
+                      {panel.srql_query}
+                    </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-error btn-outline"
-                  phx-click="revoke_grant"
-                  phx-value-id={grant.id}
-                >
-                  <.icon name="hero-trash" class="size-4" /> Revoke
-                </button>
               </div>
-            </div>
+            </section>
 
-            <div class="space-y-4">
-              <.form
-                for={@user_grant_form}
-                as={:grant}
-                phx-change="validate_user_grant"
-                phx-submit="grant_user"
-                class="space-y-3"
-              >
-                <.input
-                  field={@user_grant_form[:subject_user_id]}
-                  type="select"
-                  label="User"
-                  options={user_select_options(@users)}
-                />
-                <.input
-                  field={@user_grant_form[:access]}
-                  type="select"
-                  label="Access"
-                  options={access_select_options()}
-                />
-                <button type="submit" class="btn btn-sm" disabled={@users == []}>
-                  <.icon name="hero-user-plus" class="size-4" /> Grant User
-                </button>
-              </.form>
+            <section :if={@can_share?} class="rounded-lg border border-base-300">
+              <div class="flex flex-col gap-2 border-b border-base-300 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 class="text-sm font-semibold">Sharing</h3>
+                  <p class="text-xs text-base-content/55">
+                    Visibility is {@dashboard.visibility}; explicit grants add users or reusable groups.
+                  </p>
+                </div>
+                <span class="badge badge-outline">{length(@access_grants)} grants</span>
+              </div>
 
-              <.form
-                :if={@can_view_groups?}
-                for={@group_grant_form}
-                as={:grant}
-                phx-change="validate_group_grant"
-                phx-submit="grant_group"
-                class="space-y-3 border-t border-base-300 pt-4"
-              >
-                <.input
-                  field={@group_grant_form[:subject_group_id]}
-                  type="select"
-                  label="Group"
-                  options={group_select_options(@user_groups)}
-                />
-                <.input
-                  field={@group_grant_form[:access]}
-                  type="select"
-                  label="Access"
-                  options={access_select_options()}
-                />
-                <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
-                  <.icon name="hero-user-group" class="size-4" /> Grant Group
-                </button>
-              </.form>
-            </div>
+              <div class="grid grid-cols-1 gap-6 p-3 lg:grid-cols-[1fr_360px]">
+                <div class="space-y-3">
+                  <div
+                    :if={@access_grants == []}
+                    class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+                  >
+                    No explicit sharing grants yet.
+                  </div>
+
+                  <div
+                    :for={grant <- @access_grants}
+                    class="flex flex-col gap-3 rounded-lg border border-base-300 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <div class="text-sm font-medium">{grant_label(grant)}</div>
+                      <div class="mt-1 flex flex-wrap gap-2">
+                        <span class="badge badge-sm">{grant.subject_type}</span>
+                        <span class="badge badge-sm badge-outline">{grant.access}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-error btn-outline"
+                      phx-click="revoke_grant"
+                      phx-value-id={grant.id}
+                    >
+                      <.icon name="hero-trash" class="size-4" /> Revoke
+                    </button>
+                  </div>
+                </div>
+
+                <div class="space-y-4">
+                  <.form
+                    for={@user_grant_form}
+                    as={:grant}
+                    phx-change="validate_user_grant"
+                    phx-submit="grant_user"
+                    class="space-y-3"
+                  >
+                    <.input
+                      field={@user_grant_form[:subject_user_id]}
+                      type="select"
+                      label="User"
+                      options={user_select_options(@users)}
+                    />
+                    <.input
+                      field={@user_grant_form[:access]}
+                      type="select"
+                      label="Access"
+                      options={access_select_options()}
+                    />
+                    <button type="submit" class="btn btn-sm" disabled={@users == []}>
+                      <.icon name="hero-user-plus" class="size-4" /> Grant User
+                    </button>
+                  </.form>
+
+                  <.form
+                    :if={@can_view_groups?}
+                    for={@group_grant_form}
+                    as={:grant}
+                    phx-change="validate_group_grant"
+                    phx-submit="grant_group"
+                    class="space-y-3 border-t border-base-300 pt-4"
+                  >
+                    <.input
+                      field={@group_grant_form[:subject_group_id]}
+                      type="select"
+                      label="Group"
+                      options={group_select_options(@user_groups)}
+                    />
+                    <.input
+                      field={@group_grant_form[:access]}
+                      type="select"
+                      label="Access"
+                      options={access_select_options()}
+                    />
+                    <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
+                      <.icon name="hero-user-group" class="size-4" /> Grant Group
+                    </button>
+                  </.form>
+                </div>
+              </div>
+            </section>
+
+            <section
+              :if={@can_schedule_reports?}
+              class="rounded-lg border border-base-300"
+            >
+              <div class="border-b border-base-300 px-3 py-2">
+                <h3 class="text-sm font-semibold">Email Reports</h3>
+                <p class="text-xs text-base-content/55">
+                  One scanner job picks up due schedules and enqueues delivery attempts.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 gap-6 p-3 lg:grid-cols-[1fr_360px]">
+                <div class="space-y-3">
+                  <div
+                    :if={(@dashboard.report_schedules || []) == []}
+                    class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
+                  >
+                    No report schedules yet.
+                  </div>
+
+                  <div
+                    :for={schedule <- @dashboard.report_schedules || []}
+                    class="rounded-lg border border-base-300 p-3"
+                  >
+                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div class="text-sm font-medium">{schedule.name}</div>
+                        <div class="mt-1 font-mono text-xs text-base-content/55">
+                          {schedule.cron} · {schedule.timezone}
+                        </div>
+                      </div>
+                      <span class="badge badge-outline">
+                        {schedule.last_status ||
+                          if(schedule.enabled, do: "enabled", else: "disabled")}
+                      </span>
+                    </div>
+                    <p class="mt-2 text-xs text-base-content/55">
+                      Next due: {format_value(schedule.next_due_at)}
+                    </p>
+                  </div>
+                </div>
+
+                <.form
+                  for={@report_schedule_form}
+                  as={:schedule}
+                  phx-change="validate_report_schedule"
+                  phx-submit="create_report_schedule"
+                  class="space-y-3"
+                >
+                  <.input field={@report_schedule_form[:name]} type="text" label="Name" />
+                  <.input field={@report_schedule_form[:cron]} type="text" label="Cron" />
+                  <.input field={@report_schedule_form[:timezone]} type="text" label="Timezone" />
+                  <.input
+                    field={@report_schedule_form[:recipients]}
+                    type="textarea"
+                    label="Recipients"
+                  />
+                  <button type="submit" class="btn btn-sm btn-primary">
+                    <.icon name="hero-envelope" class="size-4" /> Schedule Report
+                  </button>
+                </.form>
+              </div>
+            </section>
           </div>
         </section>
 
@@ -364,69 +493,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             panel={panel}
             result={Map.get(@panel_results, panel.id)}
           />
-        </section>
-
-        <section
-          :if={@dashboard and @can_schedule_reports?}
-          class="rounded-lg border border-base-300 bg-base-100"
-        >
-          <div class="border-b border-base-300 px-4 py-3">
-            <h2 class="text-sm font-semibold">Email Reports</h2>
-            <p class="text-xs text-base-content/55">
-              One scanner job picks up due schedules and enqueues delivery attempts.
-            </p>
-          </div>
-
-          <div class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
-            <div class="space-y-3">
-              <div
-                :if={(@dashboard.report_schedules || []) == []}
-                class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
-              >
-                No report schedules yet.
-              </div>
-
-              <div
-                :for={schedule <- @dashboard.report_schedules || []}
-                class="rounded-lg border border-base-300 p-3"
-              >
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div class="text-sm font-medium">{schedule.name}</div>
-                    <div class="mt-1 font-mono text-xs text-base-content/55">
-                      {schedule.cron} · {schedule.timezone}
-                    </div>
-                  </div>
-                  <span class="badge badge-outline">
-                    {schedule.last_status || if(schedule.enabled, do: "enabled", else: "disabled")}
-                  </span>
-                </div>
-                <p class="mt-2 text-xs text-base-content/55">
-                  Next due: {format_value(schedule.next_due_at)}
-                </p>
-              </div>
-            </div>
-
-            <.form
-              for={@report_schedule_form}
-              as={:schedule}
-              phx-change="validate_report_schedule"
-              phx-submit="create_report_schedule"
-              class="space-y-3"
-            >
-              <.input field={@report_schedule_form[:name]} type="text" label="Name" />
-              <.input field={@report_schedule_form[:cron]} type="text" label="Cron" />
-              <.input field={@report_schedule_form[:timezone]} type="text" label="Timezone" />
-              <.input
-                field={@report_schedule_form[:recipients]}
-                type="textarea"
-                label="Recipients"
-              />
-              <button type="submit" class="btn btn-sm btn-primary">
-                <.icon name="hero-envelope" class="size-4" /> Schedule Report
-              </button>
-            </.form>
-          </div>
         </section>
       </div>
     </Layouts.app>
@@ -641,6 +707,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
 
+  defp dashboard_settings_available?(nil, _assigns), do: false
+
+  defp dashboard_settings_available?(dashboard, assigns) do
+    dashboard_owner?(dashboard, assigns.current_scope) or assigns.can_edit? or assigns.can_share? or
+      assigns.can_schedule_reports?
+  end
+
+  defp dashboard_owner?(%{owner_id: owner_id}, %{user: %{id: user_id}})
+       when not is_nil(owner_id) and not is_nil(user_id) do
+    to_string(owner_id) == to_string(user_id)
+  end
+
+  defp dashboard_owner?(_dashboard, _scope), do: false
+
+  defp can_edit?(scope), do: RBAC.can?(scope, "analytics.dashboards.edit")
   defp can_share?(scope), do: RBAC.can?(scope, "analytics.dashboards.share")
   defp can_schedule_reports?(scope), do: RBAC.can?(scope, "analytics.reports.schedule")
   defp can_view_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.view")
