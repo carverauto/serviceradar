@@ -23,8 +23,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
   alias ServiceRadar.Identity.CliSession
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadarWebNG.Auth.CliSessions, as: CliSessionsContext
+  alias ServiceRadarWebNGWeb.SettingsComponents
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
+  on_mount({ServiceRadarWebNGWeb.UserAuth, :require_authenticated})
 
   @perm_read_own "cli.session.read_own"
   @perm_read_any "cli.session.read_any"
@@ -79,7 +80,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
         {:noreply, put_flash(socket, :error, "Session no longer present.")}
 
       {:error, :forbidden} ->
-        {:noreply, put_flash(socket, :error, "Your role does not allow revoking this CLI session.")}
+        {:noreply,
+         put_flash(socket, :error, "Your role does not allow revoking this CLI session.")}
     end
   end
 
@@ -92,7 +94,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
       current_path={@current_path}
       page_title={@page_title}
     >
-      <div class="mx-auto w-full max-w-5xl p-6 space-y-6">
+      <SettingsComponents.settings_shell current_path={@current_path}>
+        <SettingsComponents.settings_nav current_path={@current_path} current_scope={@current_scope} />
+        <SettingsComponents.auth_nav current_path={@current_path} current_scope={@current_scope} />
+
         <header>
           <h1 class="text-2xl font-semibold text-base-content">CLI Sessions</h1>
           <p class="text-sm text-base-content/70">
@@ -163,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
             </table>
           </div>
         <% end %>
-      </div>
+      </SettingsComponents.settings_shell>
     </Layouts.app>
     """
   end

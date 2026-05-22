@@ -201,12 +201,24 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp auth_tab(path, current_scope) do
     %{
       label: "Auth",
-      navigate: ~p"/settings/auth/users",
+      navigate: auth_tab_href(current_scope),
       active:
         String.starts_with?(path, "/settings/authentication") or
-          String.starts_with?(path, "/settings/auth/"),
+          String.starts_with?(path, "/settings/auth/") or
+          path in ["/settings/api-credentials", "/settings/cli-auth", "/settings/cli-sessions"],
       show: show_auth_tab?(current_scope)
     }
+  end
+
+  defp auth_tab_href(current_scope) do
+    cond do
+      RBAC.can?(current_scope, "settings.auth.manage") -> ~p"/settings/auth/users"
+      RBAC.can?(current_scope, "settings.rbac.manage") -> ~p"/settings/auth/rbac"
+      RBAC.can?(current_scope, "cli.policy.manage") -> ~p"/settings/cli-auth"
+      can_view_cli_sessions?(current_scope) -> ~p"/settings/cli-sessions"
+      current_scope_has_user?(current_scope) -> ~p"/settings/api-credentials"
+      true -> ~p"/settings/auth/users"
+    end
   end
 
   # Auth section sub-navigation
@@ -230,6 +242,8 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
     can_auth = RBAC.can?(current_scope, "settings.auth.manage")
     can_rbac = RBAC.can?(current_scope, "settings.rbac.manage")
+    can_cli_policy = RBAC.can?(current_scope, "cli.policy.manage")
+    can_cli_sessions = can_view_cli_sessions?(current_scope)
 
     tabs =
       Enum.filter(
@@ -251,6 +265,24 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             navigate: ~p"/settings/authentication",
             active: String.starts_with?(path, "/settings/authentication"),
             show: can_auth
+          },
+          %{
+            label: "API Credentials",
+            navigate: ~p"/settings/api-credentials",
+            active: path == "/settings/api-credentials",
+            show: current_scope_has_user?(current_scope)
+          },
+          %{
+            label: "CLI Auth",
+            navigate: ~p"/settings/cli-auth",
+            active: path == "/settings/cli-auth",
+            show: can_cli_policy
+          },
+          %{
+            label: "CLI Sessions",
+            navigate: ~p"/settings/cli-sessions",
+            active: path == "/settings/cli-sessions",
+            show: can_cli_sessions
           }
         ],
         &Map.get(&1, :show, true)
@@ -260,10 +292,22 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   defp show_auth_tab?(%{user: user} = scope) when not is_nil(user) do
-    RBAC.can?(scope, "settings.auth.manage") or RBAC.can?(scope, "settings.rbac.manage")
+    RBAC.can?(scope, "settings.auth.manage") or
+      RBAC.can?(scope, "settings.rbac.manage") or
+      RBAC.can?(scope, "cli.policy.manage") or
+      can_view_cli_sessions?(scope) or
+      current_scope_has_user?(scope)
   end
 
   defp show_auth_tab?(_), do: false
+
+  defp current_scope_has_user?(%{user: user}) when not is_nil(user), do: true
+  defp current_scope_has_user?(_), do: false
+
+  defp can_view_cli_sessions?(current_scope) do
+    RBAC.can?(current_scope, "cli.session.read_own") or
+      RBAC.can?(current_scope, "cli.session.read_any")
+  end
 
   # Network section sub-navigation
   attr(:current_path, :string, required: true)
@@ -543,7 +587,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           %{
             label: "Plugins",
             navigate: ~p"/settings/agents/plugins",
-            active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
+            active:
+              String.starts_with?(path, "/settings/agents/plugins") or
+                String.starts_with?(path, "/admin/plugins"),
             show: can_plugins
           }
         ],
@@ -612,7 +658,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         %{
           label: "Plugins",
           href: ~p"/settings/agents/plugins",
-          active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
+          active:
+            String.starts_with?(path, "/settings/agents/plugins") or
+              String.starts_with?(path, "/admin/plugins"),
           show: can_plugins
         }
       ],

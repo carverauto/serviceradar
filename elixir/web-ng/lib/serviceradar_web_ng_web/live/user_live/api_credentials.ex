@@ -12,8 +12,9 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadarWebNGWeb.SettingsComponents
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
+  on_mount({ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode})
 
   @impl true
   def render(assigns) do
@@ -24,7 +25,16 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       current_path="/settings/api-credentials"
       page_title="Settings"
     >
-      <div class="mx-auto w-full max-w-4xl p-6 space-y-6">
+      <SettingsComponents.settings_shell current_path="/settings/api-credentials">
+        <SettingsComponents.settings_nav
+          current_path="/settings/api-credentials"
+          current_scope={@current_scope}
+        />
+        <SettingsComponents.auth_nav
+          current_path="/settings/api-credentials"
+          current_scope={@current_scope}
+        />
+
         <div class="flex justify-between items-center">
           <div>
             <h1 class="text-2xl font-semibold text-base-content">API Credentials</h1>
@@ -273,7 +283,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
             </div>
           </div>
         </.ui_panel>
-      </div>
+      </SettingsComponents.settings_shell>
     </Layouts.app>
     """
   end

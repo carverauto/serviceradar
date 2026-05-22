@@ -17,8 +17,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadarWebNGWeb.SettingsComponents
 
-  on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
+  on_mount({ServiceRadarWebNGWeb.UserAuth, :require_authenticated})
 
   @policy_permission "cli.policy.manage"
 
@@ -56,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       cli_allowed_scopes: parse_scopes(params["cli_allowed_scopes"])
     }
 
-    case AuthorizationSettings.update_settings(socket.assigns.settings, attrs, actor: actor) do
+    case save_settings(socket.assigns.settings, attrs, actor) do
       {:ok, updated} ->
         {:noreply,
          socket
@@ -78,7 +79,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
       current_path={@current_path}
       page_title={@page_title}
     >
-      <div class="mx-auto w-full max-w-2xl p-6 space-y-6">
+      <SettingsComponents.settings_shell current_path={@current_path}>
+        <SettingsComponents.settings_nav current_path={@current_path} current_scope={@current_scope} />
+        <SettingsComponents.auth_nav current_path={@current_path} current_scope={@current_scope} />
+
         <header>
           <h1 class="text-2xl font-semibold text-base-content">CLI authentication</h1>
           <p class="text-sm text-base-content/70">
@@ -148,12 +152,20 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
             <button type="submit" class="btn btn-primary">Save</button>
           </div>
         </form>
-      </div>
+      </SettingsComponents.settings_shell>
     </Layouts.app>
     """
   end
 
   ## Helpers
+
+  defp save_settings(%AuthorizationSettings{} = settings, attrs, actor) do
+    AuthorizationSettings.update_settings(settings, attrs, actor: actor)
+  end
+
+  defp save_settings(_missing_settings, attrs, actor) do
+    AuthorizationSettings.create_settings(attrs, actor: actor)
+  end
 
   defp load_settings(socket) do
     actor = SystemActor.system(:cli_auth_policy)
