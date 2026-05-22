@@ -33,6 +33,71 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     classification_confidence
     classification_reason
   )
+  @unknown_inventory_values ~w(unknown n/a na none null unspecified)
+  @device_type_aliases [
+    "type",
+    :type,
+    "device_type",
+    :device_type,
+    "deviceType",
+    :deviceType,
+    "type_name",
+    :type_name,
+    "deviceTypeName",
+    :deviceTypeName,
+    "armis_type",
+    :armis_type,
+    "netbox_device_type",
+    :netbox_device_type,
+    "netbox_role",
+    :netbox_role,
+    "ansible_device_type",
+    :ansible_device_type,
+    "proxmox_type",
+    :proxmox_type,
+    "proxmox_node_type",
+    :proxmox_node_type,
+    "vm_type",
+    :vm_type,
+    "device_role",
+    :device_role,
+    "deviceRole",
+    :deviceRole,
+    "role",
+    :role,
+    "category",
+    :category,
+    "armis_category",
+    :armis_category
+  ]
+  @vendor_aliases [
+    "vendor_name",
+    :vendor_name,
+    "vendor",
+    :vendor,
+    "manufacturer",
+    :manufacturer,
+    "brand",
+    :brand,
+    "make",
+    :make,
+    "vendorName",
+    :vendorName
+  ]
+  @model_aliases [
+    "model",
+    :model,
+    "device_model",
+    :device_model,
+    "model_name",
+    :model_name,
+    "modelName",
+    :modelName,
+    "product",
+    :product,
+    "product_name",
+    :product_name
+  ]
   @vendor_tokens [
     {"cisco", "Cisco"},
     {"juniper", "Juniper"},
@@ -1119,6 +1184,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       update
       |> get_map(["metadata", :metadata])
       |> merge_top_level_inventory_metadata(update)
+      |> merge_canonical_inventory_metadata()
       |> merge_sync_meta_metadata(sync_meta)
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
       |> merge_boundary_names_metadata()
@@ -1237,6 +1303,20 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp merge_top_level_inventory_metadata(_metadata, _update), do: %{}
+
+  defp merge_canonical_inventory_metadata(metadata) when is_map(metadata) do
+    device_type = first_meaningful_string(metadata, @device_type_aliases)
+    vendor_name = first_meaningful_string(metadata, @vendor_aliases)
+    model = first_meaningful_string(metadata, @model_aliases)
+
+    metadata
+    |> maybe_put_preferred("type", device_type)
+    |> maybe_put_preferred("device_type", device_type)
+    |> maybe_put_preferred("vendor_name", vendor_name)
+    |> maybe_put_preferred("model", model)
+  end
+
+  defp merge_canonical_inventory_metadata(_metadata), do: %{}
 
   defp merge_boundary_names_metadata(metadata) when is_map(metadata) do
     cond do
@@ -1384,6 +1464,48 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
+  defp first_meaningful_string(map, keys) when is_map(map) do
+    Enum.find_value(keys, fn key ->
+      map
+      |> map_get_any([key])
+      |> meaningful_string()
+    end)
+  end
+
+  defp first_meaningful_string(_map, _keys), do: nil
+
+  defp meaningful_string(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      value == "" -> nil
+      String.downcase(value) in @unknown_inventory_values -> nil
+      true -> value
+    end
+  end
+
+  defp meaningful_string(nil), do: nil
+
+  defp meaningful_string(value) when is_atom(value) and not is_boolean(value),
+    do: value |> Atom.to_string() |> meaningful_string()
+
+  defp meaningful_string(value) when is_integer(value),
+    do: value |> Integer.to_string() |> meaningful_string()
+
+  defp meaningful_string(value) when is_float(value),
+    do: value |> Float.to_string() |> meaningful_string()
+
+  defp meaningful_string(_value), do: nil
+
+  defp maybe_put_preferred(metadata, _key, nil), do: metadata
+
+  defp maybe_put_preferred(metadata, key, value) do
+    case metadata |> Map.get(key) |> meaningful_string() do
+      nil -> Map.put(metadata, key, value)
+      _existing -> metadata
+    end
+  end
+
   defp map_get_int_string_any(map, keys) do
     case map_get_any(map, keys) do
       value when is_integer(value) ->
@@ -1401,15 +1523,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     metadata = update.metadata || %{}
     ruled_vendor = Map.get(classification, :vendor_name)
 
-    explicit =
-      get_string(metadata, [
-        "vendor_name",
-        "vendor",
-        "manufacturer",
-        "brand",
-        "make",
-        "vendorName"
-      ])
+    explicit = first_meaningful_string(metadata, @vendor_aliases)
 
     cond do
       explicit not in [nil, ""] ->
@@ -1432,7 +1546,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp infer_model(update, classification) do
     metadata = update.metadata || %{}
-    explicit = get_string(metadata, ["model", "device_model", "model_name"])
+    explicit = first_meaningful_string(metadata, @model_aliases)
     ruled_model = Map.get(classification, :model)
 
     cond do
@@ -1670,16 +1784,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp infer_explicit_type(metadata) do
-    explicit =
-      get_string(metadata, [
-        "type",
-        "device_type",
-        "deviceType",
-        "type_name",
-        "category",
-        "armis_type",
-        "armis_category"
-      ])
+    explicit = first_meaningful_string(metadata, @device_type_aliases)
 
     if explicit in [nil, ""] do
       nil
@@ -1696,9 +1801,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       |> String.trim("_")
 
     cond do
-      normalized in ["unknown"] ->
-        {"Unknown", 0}
-
       normalized in ["server", "server_system"] ->
         {"Server", 1}
 
@@ -1732,7 +1834,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       normalized in ["hypervisor", "virtualization_host", "virtualization host"] ->
         {"Hypervisor", 99}
 
-      normalized in ["virtual", "vm", "virtual_machine", "virtual machine", "lxc", "container"] ->
+      normalized in ["virtual", "vm", "virtual_machine", "virtual_guest", "lxc", "container"] ->
         {"Virtual", 6}
 
       normalized in ["iot", "io_t", "internet_of_things"] ->

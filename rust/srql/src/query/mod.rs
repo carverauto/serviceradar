@@ -1478,6 +1478,49 @@ mod tests {
     }
 
     #[test]
+    fn devices_type_unknown_filter_matches_normalized_type_bucket() {
+        let query = r#"in:devices type:"Unknown""#;
+        let plan = plan_for(query);
+
+        let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("coalesce(nullif(trim(\"ocsf_devices\".\"type\"), ''), 'unknown')"),
+            "expected normalized type expression in SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 3, "expected type, limit, and offset params");
+        assert!(
+            matches!(params.first(), Some(BindParam::Text(value)) if value == "Unknown"),
+            "expected Unknown type bind, got: {params:?}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_type_filter_uses_normalized_type_column() {
+        let query = r#"in:devices type:"Unknown" stats:"count() as count by type""#;
+        let plan = plan_for(query);
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("coalesce(nullif(trim(type), ''), 'unknown') = $1"),
+            "expected normalized type filter in grouped SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("group by coalesce(nullif(trim(type), ''), 'unknown')"),
+            "expected grouped stats to use normalized type bucket, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "expected one type filter param");
+        assert!(
+            matches!(params.first(), Some(BindParam::Text(value)) if value == "Unknown"),
+            "expected Unknown type bind, got: {params:?}"
+        );
+    }
+
+    #[test]
     fn devices_stats_group_by_vendor() {
         let query = "in:devices stats:count() as count by vendor_name";
         let plan = plan_for(query);
