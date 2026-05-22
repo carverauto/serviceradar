@@ -435,7 +435,8 @@ defmodule ServiceRadar.Monitoring.ServiceMonitoringFoundationTest do
                  match: %{
                    "attribute_equals" => %{
                      "event_family" => "slo_evaluation",
-                     "compliance_state" => "noncompliant"
+                     "error_budget_state" => "exhausted",
+                     "burn_rate_state" => "critical"
                    }
                  },
                  group_by: ["service_level_objective_id"],
