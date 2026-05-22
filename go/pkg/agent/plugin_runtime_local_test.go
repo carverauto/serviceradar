@@ -87,6 +87,51 @@ func TestPluginHTTPClientHonorsRequestTimeoutOverManagerDefault(t *testing.T) {
 	}
 }
 
+func TestExecuteWithWasmHonorsContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	// (module (func (export "run_check") (loop br 0)))
+	infiniteLoopWasm := []byte{
+		0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+		0x01, 0x04, 0x01, 0x60, 0x00, 0x00,
+		0x03, 0x02, 0x01, 0x00,
+		0x07, 0x0d, 0x01, 0x09, 'r', 'u', 'n', '_', 'c', 'h', 'e', 'c', 'k', 0x00, 0x00,
+		0x0a, 0x09, 0x01, 0x07, 0x00, 0x03, 0x40, 0x0c, 0x00, 0x0b, 0x0b,
+	}
+
+	manager := NewPluginManager(context.Background(), PluginManagerConfig{
+		Logger: logger.NewTestLogger(),
+	})
+
+	assignment := &pluginAssignment{
+		AssignmentID: "infinite-loop",
+		PluginID:     "infinite-loop",
+		Name:         "infinite-loop",
+		Entrypoint:   "run_check",
+		Runtime:      "wasi-preview1",
+		Capabilities: map[string]bool{},
+		Timeout:      20 * time.Millisecond,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), assignment.Timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- manager.executeWithWasm(ctx, assignment, infiniteLoopWasm)
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("expected context cancellation error")
+		}
+		manager.Stop()
+	case <-time.After(2 * time.Second):
+		t.Fatalf("wasm execution did not stop after context cancellation")
+	}
+}
+
 func TestExecuteWithWasmHarness(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping: WASM execution is too slow for short mode")

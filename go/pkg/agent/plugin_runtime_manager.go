@@ -30,8 +30,11 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/tetratelabs/wazero"
 )
 
+// maxSummaryLen limits error summary length to avoid exceeding message size limits.
+// Stack traces from WASM panics can be very long; truncate to keep payloads manageable.
 const maxSummaryLen = 2048
 
 func buildPluginErrorResult(assignment *pluginAssignment, summary string) PluginResult {
@@ -93,6 +96,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		cacheDir:         cacheDir,
 		localStoreDir:    localStoreDir,
 		httpClient:       client,
+		compilationCache: wazero.NewCompilationCache(),
 		credentialBroker: cfg.CredentialBroker,
 		credentialCache:  make(map[string]credentialBrokerCacheEntry),
 		credentialNow:    time.Now,
@@ -511,6 +515,12 @@ func (m *PluginManager) Stop() {
 	for _, runner := range prev {
 		runner.stop()
 	}
+
+	m.cacheCloseOnce.Do(func() {
+		if m.compilationCache != nil {
+			_ = m.compilationCache.Close(context.Background())
+		}
+	})
 }
 
 // StreamingAssignments returns the currently admitted camera streaming plugin assignments.

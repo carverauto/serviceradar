@@ -35,18 +35,14 @@ import (
 )
 
 func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginAssignment, wasm []byte) error {
-	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
-	runtimeCfg := wazero.NewRuntimeConfig()
-	if memPages > 0 {
-		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
-	}
-
-	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
+	runtime := wazero.NewRuntimeWithConfig(ctx, m.newRuntimeConfig(assignment.Resources.RequestedMemoryMB))
 	defer func() {
 		_ = runtime.Close(ctx)
 	}()
 
 	exec := newPluginExecution(m, assignment)
+	defer exec.closeAll()
+
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
 		return err
 	}
@@ -108,8 +104,6 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 		m.enqueueResult(buildPluginErrorResult(assignment, "no result submitted"))
 	}
 
-	exec.closeAll()
-
 	return nil
 }
 
@@ -120,18 +114,14 @@ func (m *PluginManager) executeActionWithWasm(
 	configJSON []byte,
 	credentialGrants []credentialBrokerGrant,
 ) ([]byte, error) {
-	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
-	runtimeCfg := wazero.NewRuntimeConfig()
-	if memPages > 0 {
-		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
-	}
-
-	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
+	runtime := wazero.NewRuntimeWithConfig(ctx, m.newRuntimeConfig(assignment.Resources.RequestedMemoryMB))
 	defer func() {
 		_ = runtime.Close(ctx)
 	}()
 
 	exec := newPluginExecution(m, assignment)
+	defer exec.closeAll()
+
 	exec.mode = pluginExecutionModeAction
 	exec.configJSON = configJSON
 	exec.credentialGrants = credentialGrants
@@ -180,8 +170,6 @@ func (m *PluginManager) executeActionWithWasm(
 		}
 	}
 
-	exec.closeAll()
-
 	if !exec.hasSubmitted() {
 		return nil, errPluginActionResultMissing
 	}
@@ -196,18 +184,14 @@ func (m *PluginManager) executeStreamingWithWasm(
 	configJSON []byte,
 	bridge *pluginCameraMediaBridge,
 ) error {
-	memPages := memoryPages(assignment.Resources.RequestedMemoryMB)
-	runtimeCfg := wazero.NewRuntimeConfig()
-	if memPages > 0 {
-		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
-	}
-
-	runtime := wazero.NewRuntimeWithConfig(ctx, runtimeCfg)
+	runtime := wazero.NewRuntimeWithConfig(ctx, m.newRuntimeConfig(assignment.Resources.RequestedMemoryMB))
 	defer func() {
 		_ = runtime.Close(ctx)
 	}()
 
 	exec := newPluginExecution(m, assignment)
+	defer exec.closeAll()
+
 	exec.mode = pluginExecutionModeStreaming
 	exec.configJSON = configJSON
 	exec.mediaBridge = bridge
@@ -256,8 +240,20 @@ func (m *PluginManager) executeStreamingWithWasm(
 		}
 	}
 
-	exec.closeAll()
 	return nil
+}
+
+func (m *PluginManager) newRuntimeConfig(requestedMemoryMB int) wazero.RuntimeConfig {
+	runtimeCfg := wazero.NewRuntimeConfig().WithCloseOnContextDone(true)
+	if m != nil && m.compilationCache != nil {
+		runtimeCfg = runtimeCfg.WithCompilationCache(m.compilationCache)
+	}
+
+	if memPages := memoryPages(requestedMemoryMB); memPages > 0 {
+		runtimeCfg = runtimeCfg.WithMemoryLimitPages(memPages)
+	}
+
+	return runtimeCfg
 }
 
 func isExitCodeZero(err error) bool {

@@ -58,9 +58,6 @@ type pluginCameraRelayStream struct {
 	err       error
 }
 
-// maxSummaryLen limits error summary length to avoid exceeding message size limits.
-// Stack traces from WASM panics can be very long; truncate to keep payloads manageable.
-
 type pluginCameraMediaBridge struct {
 	mu            sync.Mutex
 	stream        *pluginCameraRelayStream

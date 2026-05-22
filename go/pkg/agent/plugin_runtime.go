@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/tetratelabs/wazero"
 )
 
 const (
@@ -102,6 +103,7 @@ type PluginManager struct {
 	cacheDir         string
 	localStoreDir    string
 	httpClient       *http.Client
+	compilationCache wazero.CompilationCache
 	credentialBroker CredentialBrokerResolver
 	credentialCache  map[string]credentialBrokerCacheEntry
 	credentialNow    func() time.Time
@@ -129,6 +131,7 @@ type PluginManager struct {
 
 	configMu        sync.Mutex
 	lastConfigSHA   string
+	cacheCloseOnce  sync.Once
 	streamExecutor  func(context.Context, *pluginAssignment, []byte, []byte, *pluginCameraMediaBridge) error
 	consoleExecutor func(context.Context, *pluginAssignment, []byte, []byte, *pluginProxmoxConsoleBridge) error
 }
