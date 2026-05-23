@@ -7,6 +7,8 @@ defmodule ServiceRadar.Repo.Migrations.EnforceSingleEnabledPluginAssignment do
       add_if_not_exists :plugin_id, :text
     end
 
+    # serviceradar:allow-startup-maintenance - schema-critical bounded normalization before
+    # plugin_id becomes required and the enabled-assignment uniqueness index is created.
     execute("""
     UPDATE platform.plugin_assignments AS assignment
     SET plugin_id = package.plugin_id,
