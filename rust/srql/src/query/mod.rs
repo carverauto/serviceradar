@@ -126,6 +126,7 @@ mod agents;
 mod alerts;
 mod bmp_events;
 mod cpu_metrics;
+mod dashboard_service_views;
 mod dashboards;
 mod device_graph;
 mod device_updates;
@@ -251,6 +252,11 @@ impl QueryEngine {
                 Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
                 Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
                 Entity::Services => services::execute(&mut conn, &plan).await?,
+                Entity::ServiceAvailability
+                | Entity::MonitoredServices
+                | Entity::SloEvaluations => {
+                    dashboard_service_views::execute(&mut conn, &plan).await?
+                }
                 Entity::Dashboards => dashboards::execute(&mut conn, &plan).await?,
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
                 Entity::Traces => traces::execute(&mut conn, &plan).await?,
@@ -796,6 +802,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
             Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
             Entity::Services => services::to_sql_and_params(&plan)?,
+            Entity::ServiceAvailability | Entity::MonitoredServices | Entity::SloEvaluations => {
+                dashboard_service_views::to_sql_and_params(&plan)?
+            }
             Entity::Dashboards => dashboards::to_sql_and_params(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
@@ -1611,7 +1620,7 @@ mod tests {
             "expected WHERE clause with vendor_name filter in SQL, got: {sql}"
         );
         assert!(
-            lower.contains("group by") && lower.contains("coalesce(type"),
+            lower.contains("group by") && lower.contains("coalesce(nullif(trim(type)"),
             "expected GROUP BY with type column in SQL, got: {sql}"
         );
         assert_eq!(

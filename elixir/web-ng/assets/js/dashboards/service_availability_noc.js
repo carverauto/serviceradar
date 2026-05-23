@@ -1,4 +1,4 @@
-const STATUS_ORDER = ["available", "unavailable", "unknown"]
+const STATUS_ORDER = ["ok", "critical", "warning", "unknown"]
 
 export function mountServiceAvailabilityNoc(element, host, api) {
   const state = {host, api}
@@ -31,20 +31,23 @@ function dashboardHtml(host) {
   const rollup = firstRow(frames.availability_rollup)
   const services = rows(frames.attention_services)
   const inventory = rows(frames.service_inventory)
+  const slos = rows(frames.slo_evaluations)
+  const sloRollup = firstRow(frames.slo_budget_rollup)
   const total = numberValue(rollup.total || inventory.length)
-  const available = numberValue(rollup.available || rollup.ok)
-  const unavailable = numberValue(
-    rollup.unavailable || sum(rollup.critical, rollup.warning, rollup.failed)
-  )
-  const unknown = Math.max(total - available - unavailable, 0)
-  const availabilityPct = availabilityPercent(rollup, available, total)
+  const ok = numberValue(rollup.ok || rollup.available)
+  const critical = numberValue(rollup.critical || rollup.unavailable || rollup.failed)
+  const warning = numberValue(rollup.warning)
+  const unknown = numberValue(rollup.unknown || Math.max(total - ok - critical - warning, 0))
+  const degraded = critical + warning + unknown
+  const availabilityPct = availabilityPercent(rollup, ok, total)
+  const sloRisk = sum(sloRollup.critical, sloRollup.warning)
 
   return `
     <section class="space-y-5">
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        ${metricCard("Availability", percent(availabilityPct), `${number(available)} available / ${number(total)} total`, availabilityStatus(availabilityPct))}
-        ${metricCard("Unavailable", number(unavailable), `${number(services.length)} active incident rows`, unavailable > 0 ? "unavailable" : "available")}
-        ${metricCard("Unknown", number(unknown), "Services without a recent known state", unknown > 0 ? "unknown" : "available")}
+        ${metricCard("Availability", percent(availabilityPct), `${number(ok)} ok / ${number(total)} total`, availabilityStatus(availabilityPct))}
+        ${metricCard("Degraded", number(degraded), `${number(services.length)} active attention rows`, degraded > 0 ? "critical" : "ok")}
+        ${metricCard("SLO Risk", number(sloRisk), `${number(sloRollup.total || slos.length)} evaluated objectives`, sloRisk > 0 ? "warning" : "ok")}
         ${metricCard("Inventory", number(inventory.length || total), "Services in the selected window", "neutral")}
       </div>
 
@@ -68,7 +71,7 @@ function dashboardHtml(host) {
                 </tr>
               </thead>
               <tbody>
-                ${services.length ? services.map(serviceRow).join("") : emptyRow("No unavailable services", 4)}
+                ${services.length ? services.map(serviceRow).join("") : emptyRow("No degraded services", 4)}
               </tbody>
             </table>
           </div>
@@ -78,7 +81,18 @@ function dashboardHtml(host) {
           <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
             <h2 class="text-base font-semibold text-base-content">Status Mix</h2>
             <div class="mt-4 space-y-3">
-              ${STATUS_ORDER.map((status) => statusBar(status, {available, unavailable, unknown}[status], total)).join("")}
+              ${STATUS_ORDER.map((status) => statusBar(status, {ok, critical, warning, unknown}[status], total)).join("")}
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+            <h2 class="text-base font-semibold text-base-content">SLO Pressure</h2>
+            <div class="mt-3 space-y-3">
+              ${
+                slos.length
+                  ? slos.slice(0, 5).map(sloRow).join("")
+                  : `<p class="text-sm text-base-content/60">No SLO pressure returned by the current query.</p>`
+              }
             </div>
           </div>
 
@@ -101,7 +115,7 @@ function dashboardHtml(host) {
 function bindActions(element, api) {
   for (const button of element.querySelectorAll("[data-srql-status]")) {
     button.addEventListener("click", () => {
-      api.setSrqlQuery("in:services time:last_1h sort:timestamp:desc limit:100")
+      api.setSrqlQuery("in:service_availability time:last_1h sort:last_observed_at:desc limit:100")
     })
   }
 }
@@ -137,7 +151,7 @@ function metricCard(title, value, caption, status) {
 function serviceRow(row) {
   const name = row.service_name || row.display_name || row.service || row.service_key || "Unnamed service"
   const observed = row.timestamp || row.last_observed_at || row.observed_at || ""
-  const summary = row.device_id || row.agent_id || row.service_key || row.summary || ""
+  const summary = row.summary || row.service_key || row.agent_id || row.device_id || ""
   const status = normalizeServiceStatus(row)
 
   return `
@@ -155,7 +169,8 @@ function serviceRow(row) {
 
 function inventoryRow(row) {
   const name = row.service_name || row.display_name || row.service || row.service_key || "Unnamed service"
-  const detail = row.device_id || row.agent_id || row.service_key || ""
+  const endpoint = [row.protocol, row.host].filter(Boolean).join("://")
+  const detail = endpoint || row.service_key || row.agent_id || row.device_id || ""
   const status = normalizeServiceStatus(row)
 
   return `
@@ -164,6 +179,28 @@ function inventoryRow(row) {
         <div class="min-w-0">
           <div class="truncate text-sm font-medium text-base-content">${escapeHtml(name)}</div>
           <div class="text-xs text-base-content/60">${escapeHtml(detail)}</div>
+        </div>
+        ${statusBadge(status)}
+      </div>
+    </div>
+  `
+}
+
+function sloRow(row) {
+  const name = row.slo_name || row.slo_key || "Unnamed SLO"
+  const status = normalizeStatus(row.severity || row.compliance_state)
+  const caption = [
+    `budget ${basisPoints(row.budget_remaining_basis_points)}`,
+    `burn ${burnRate(row.burn_rate_short)}`,
+  ].join(" / ")
+
+  return `
+    <div class="rounded-md border border-base-300 p-3">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="truncate text-sm font-medium text-base-content">${escapeHtml(name)}</div>
+          <div class="text-xs text-base-content/60">${escapeHtml(caption)}</div>
+          <div class="text-xs text-base-content/50">${escapeHtml(formatNullableTime(row.projected_exhaustion_at))}</div>
         </div>
         ${statusBadge(status)}
       </div>
@@ -196,11 +233,11 @@ function emptyRow(message, colspan) {
 }
 
 function badgeClass(status) {
-  if (status === "available" || status === "ok" || status === "healthy" || status === "pass") {
+  if (status === "available" || status === "ok" || status === "healthy" || status === "pass" || status === "compliant") {
     return "badge-success"
   }
-  if (status === "warning" || status === "warn") return "badge-warning"
-  if (status === "unavailable" || status === "critical" || status === "fail" || status === "failed") {
+  if (status === "warning" || status === "warn" || status === "at_risk") return "badge-warning"
+  if (status === "unavailable" || status === "critical" || status === "fail" || status === "failed" || status === "noncompliant") {
     return "badge-error"
   }
   return "badge-neutral"
@@ -216,24 +253,24 @@ function statusClass(status) {
 }
 
 function normalizeServiceStatus(row) {
-  if (row?.available === true || row?.is_available === true) return "available"
-  if (row?.available === false || row?.is_available === false) return "unavailable"
   return normalizeStatus(row?.status)
 }
 
 function normalizeStatus(status) {
   const normalized = String(status || "unknown").toLowerCase()
-  if (["true", "up", "ok", "healthy", "pass", "available"].includes(normalized)) return "available"
+  if (["true", "up", "ok", "healthy", "pass", "available", "compliant"].includes(normalized)) return "ok"
   if (["false", "down", "fail", "failed", "critical", "unavailable"].includes(normalized)) {
-    return "unavailable"
+    return "critical"
   }
+  if (normalized === "warn" || normalized === "at_risk") return "warning"
+  if (normalized === "noncompliant") return "critical"
   return normalized
 }
 
 function availabilityStatus(value) {
-  if (value >= 99) return "available"
+  if (value >= 99) return "ok"
   if (value >= 95) return "warning"
-  return "unavailable"
+  return "critical"
 }
 
 function availabilityPercent(rollup, available, total) {
@@ -266,6 +303,23 @@ function latency(value) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return "n/a"
   return `${Math.round(parsed)} ms`
+}
+
+function basisPoints(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return "n/a"
+  return `${parsed > 0 ? "+" : ""}${Math.round(parsed)} bp`
+}
+
+function burnRate(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return "n/a"
+  return `${Math.round(parsed * 100) / 100}x`
+}
+
+function formatNullableTime(value) {
+  if (!value) return "No projected exhaustion"
+  return `Exhausts ${formatTime(value)}`
 }
 
 function formatTime(value) {

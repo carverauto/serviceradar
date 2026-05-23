@@ -688,6 +688,78 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "service_availability",
+      label: "Service Availability",
+      route: "/services",
+      default_time: "last_1h",
+      default_sort_field: "last_observed_at",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "uid",
+        "service_name",
+        "service_key",
+        "service_kind",
+        "descriptor_id",
+        "status",
+        "available",
+        "summary",
+        "gateway_id",
+        "agent_id",
+        "partition"
+      ],
+      boolean_fields: ["available"],
+      downsample: false
+    },
+    %{
+      id: "monitored_services",
+      label: "Monitored Services",
+      route: "/services",
+      default_time: "last_1h",
+      default_sort_field: "display_name",
+      default_sort_dir: "asc",
+      default_filter_field: "display_name",
+      filter_fields: [
+        "uid",
+        "display_name",
+        "service_name",
+        "service_key",
+        "service_kind",
+        "protocol",
+        "host",
+        "status",
+        "available",
+        "gateway_id",
+        "agent_id",
+        "partition"
+      ],
+      boolean_fields: ["available"],
+      downsample: false
+    },
+    %{
+      id: "slo_evaluations",
+      label: "SLO Evaluations",
+      route: "/dashboards",
+      default_time: "last_24h",
+      default_sort_field: "evaluated_at",
+      default_sort_dir: "desc",
+      default_filter_field: "severity",
+      filter_fields: [
+        "uid",
+        "slo_key",
+        "slo_name",
+        "owner",
+        "compliance_state",
+        "severity",
+        "status",
+        "service_key",
+        "service_kind",
+        "partition"
+      ],
+      numeric_fields: ["budget_remaining_basis_points", "burn_rate_short"],
+      downsample: false
+    },
+    %{
       id: "mtr_traces",
       label: "MTR Traces",
       route: "/diagnostics/mtr",

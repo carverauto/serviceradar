@@ -40,6 +40,9 @@ pub enum Entity {
     VirtualizationStorageSystems,
     Logs,
     Services,
+    ServiceAvailability,
+    MonitoredServices,
+    SloEvaluations,
     Dashboards,
     Gateways,
     OtelMetrics,
@@ -458,6 +461,13 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "logs" => Ok(Entity::Logs),
         "services" | "service" => Ok(Entity::Services),
+        "service_availability" | "service_availability_latest" | "availability_services" => {
+            Ok(Entity::ServiceAvailability)
+        }
+        "monitored_services" | "monitored_service" | "service_inventory" => {
+            Ok(Entity::MonitoredServices)
+        }
+        "slo_evaluations" | "slo_evaluation" | "service_slos" | "slo" => Ok(Entity::SloEvaluations),
         "dashboards" | "dashboard" | "authored_dashboards" | "authored_dashboard" => {
             Ok(Entity::Dashboards)
         }
@@ -1010,6 +1020,22 @@ mod tests {
         for raw in ["dashboards", "dashboard", "authored_dashboards"] {
             let ast = parse(&format!("in:{raw} status:active limit:10")).unwrap();
             assert_eq!(ast.entity, Entity::Dashboards, "entity alias {raw}");
+        }
+    }
+
+    #[test]
+    fn parses_dashboard_service_view_entities() {
+        let cases = [
+            ("service_availability", Entity::ServiceAvailability),
+            ("monitored_services", Entity::MonitoredServices),
+            ("service_inventory", Entity::MonitoredServices),
+            ("slo_evaluations", Entity::SloEvaluations),
+            ("service_slos", Entity::SloEvaluations),
+        ];
+
+        for (raw, expected) in cases {
+            let ast = parse(&format!("in:{raw} status:ok limit:10")).unwrap();
+            assert_eq!(ast.entity, expected, "entity alias {raw}");
         }
     }
 

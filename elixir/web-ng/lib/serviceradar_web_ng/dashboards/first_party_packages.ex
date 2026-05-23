@@ -28,6 +28,14 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   @first_party_object_key "first-party://built-in/service-availability-noc"
   @seed_delay_ms 5_000
   @retry_delay_ms 30_000
+  @supported_first_party_frame_entities ~w(
+    service_availability
+    monitored_services
+    slo_evaluations
+    services
+    devices
+    dashboards
+  )
 
   @type seed_result :: %{
           package: DashboardPackage.t(),
@@ -88,6 +96,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
 
     with {:ok, manifest_json} <- read_package(opts),
          {:ok, manifest} <- Manifest.from_json(manifest_json),
+         :ok <- validate_first_party_manifest(manifest),
          {:ok, attrs} <- package_attrs(manifest, opts),
          {:ok, package} <- upsert_package(attrs, actor),
          {:ok, package} <- ensure_package_enabled(package, actor),
@@ -107,6 +116,36 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
       {:error, reason} -> {:error, {:first_party_dashboard_asset_unavailable, reason}}
     end
   end
+
+  @doc false
+  def validate_first_party_manifest(%Manifest{data_frames: data_frames}) do
+    supported_entities = MapSet.new(@supported_first_party_frame_entities)
+
+    data_frames
+    |> Enum.filter(&Map.get(&1, "required", true))
+    |> Enum.reduce_while(:ok, fn frame, :ok ->
+      case frame_entity(Map.get(frame, "query")) do
+        {:ok, entity} ->
+          if MapSet.member?(supported_entities, entity) do
+            {:cont, :ok}
+          else
+            {:halt, {:error, {:unsupported_first_party_dashboard_frame_entity, frame["id"], entity}}}
+          end
+
+        :error ->
+          {:halt, {:error, {:missing_first_party_dashboard_frame_entity, frame["id"]}}}
+      end
+    end)
+  end
+
+  defp frame_entity(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)in:([a-zA-Z0-9_]+)/, query) do
+      [_, entity] -> {:ok, entity}
+      _ -> :error
+    end
+  end
+
+  defp frame_entity(_), do: :error
 
   defp package_attrs(%Manifest{} = manifest, opts) do
     source_metadata =
