@@ -69,6 +69,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @entities [
     %{
+      id: "dashboards",
+      label: "Dashboards",
+      route: "/dashboards",
+      default_time: "",
+      default_sort_field: "title",
+      default_sort_dir: "asc",
+      default_filter_field: "title",
+      filter_fields: ["title", "description", "slug", "type", "status"],
+      downsample: false
+    },
+    %{
       id: "agents",
       label: "Agents",
       route: "/agents",
@@ -137,7 +148,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["discovery_sources", "tags"],
       # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)
-      stats_fields: ["type", "vendor_name", "risk_level", "is_available", "is_active", "gateway_id"],
+      stats_fields: [
+        "type",
+        "vendor_name",
+        "risk_level",
+        "is_available",
+        "is_active",
+        "gateway_id"
+      ],
       downsample: false
     },
     %{

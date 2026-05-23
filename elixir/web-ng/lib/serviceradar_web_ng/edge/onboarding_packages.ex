@@ -91,8 +91,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec create(map(), keyword()) ::
-          {:ok,
-           %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
+          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
           | {:error, Ash.Error.t()}
   def create(attrs, opts \\ []) do
     opts = build_opts(opts)
@@ -207,8 +206,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   """
   @spec deliver(String.t(), String.t(), keyword()) ::
-          {:ok,
-           %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
+          {:ok, %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     opts = build_opts(opts)
@@ -354,11 +352,9 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     |> admin_or_system_actor?()
   end
 
-  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"],
-    do: true
+  defp admin_or_system_actor?(%{role: role}) when role in [:admin, :system, "admin", "system"], do: true
 
-  defp admin_or_system_actor?(%{"role" => role})
-       when role in [:admin, :system, "admin", "system"], do: true
+  defp admin_or_system_actor?(%{"role" => role}) when role in [:admin, :system, "admin", "system"], do: true
 
   defp admin_or_system_actor?(_actor), do: false
 
@@ -395,8 +391,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
 
   defp normalize_partition_id(nil), do: nil
 
-  defp normalize_partition_id(value) when is_atom(value),
-    do: value |> Atom.to_string() |> normalize_partition_id()
+  defp normalize_partition_id(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_partition_id()
 
   defp normalize_partition_id(_value), do: nil
 

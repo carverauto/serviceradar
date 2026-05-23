@@ -5,12 +5,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Plugins.Storage
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   def show(conn, %{"id" => id}) do
     scope = conn.assigns[:current_scope]
 
     with {:ok, %DashboardPackage{} = package} <- Dashboards.get_package(id, scope: scope),
          :ok <- ensure_renderer_available(package),
-         {:ok, blob} <- Storage.fetch_blob(package.wasm_object_key) do
+         {:ok, blob} <- fetch_renderer_blob(package) do
       send_renderer_blob(conn, blob, package)
     else
       _ ->
@@ -31,6 +33,15 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
 
   defp ensure_renderer_available(_package), do: {:error, :not_available}
 
+  defp fetch_renderer_blob(%DashboardPackage{source_type: :first_party, renderer: %{"kind" => "built_in"}}) do
+    {:error, :built_in_renderer}
+  end
+
+  defp fetch_renderer_blob(%DashboardPackage{} = package) do
+    Storage.fetch_blob(package.wasm_object_key)
+  end
+
+  @sobelow_skip ["XSS.ContentType", "XSS.SendResp"]
   defp send_renderer_blob(conn, {:binary, payload}, %DashboardPackage{} = package) do
     conn
     |> put_resp_content_type(renderer_content_type(package))
@@ -38,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
     |> send_resp(200, payload)
   end
 
+  @sobelow_skip ["Traversal.SendFile", "XSS.ContentType"]
   defp send_renderer_blob(conn, {:file, path}, %DashboardPackage{} = package) do
     conn
     |> put_resp_content_type(renderer_content_type(package))

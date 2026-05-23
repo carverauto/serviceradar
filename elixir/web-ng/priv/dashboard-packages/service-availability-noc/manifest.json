@@ -1,0 +1,78 @@
+{
+  "id": "cloud.serviceradar.service-availability-noc",
+  "name": "Service Availability NOC",
+  "version": "0.1.0",
+  "vendor": "ServiceRadar",
+  "description": "Operator dashboard for service availability, unavailable services, and active service incidents.",
+  "capabilities": [
+    "srql.execute"
+  ],
+  "data_frames": [
+    {
+      "id": "availability_rollup",
+      "query": "in:services time:last_1h rollup_stats:availability",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "total",
+        "available",
+        "unavailable",
+        "availability_pct"
+      ]
+    },
+    {
+      "id": "attention_services",
+      "query": "in:services available:false time:last_1h sort:timestamp:desc limit:50",
+      "encoding": "json_rows",
+      "limit": 50,
+      "required": true,
+      "fields": [
+        "service",
+        "service_name",
+        "device_id",
+        "agent_id",
+        "available",
+        "status",
+        "response_time_ms",
+        "timestamp"
+      ]
+    },
+    {
+      "id": "service_inventory",
+      "query": "in:services time:last_1h sort:timestamp:desc limit:200",
+      "encoding": "json_rows",
+      "limit": 200,
+      "required": true,
+      "fields": [
+        "service",
+        "service_name",
+        "device_id",
+        "agent_id",
+        "available",
+        "status",
+        "response_time_ms",
+        "timestamp"
+      ]
+    }
+  ],
+  "settings_schema": {
+    "type": "object",
+    "properties": {
+      "defaultNocTag": {
+        "type": "string",
+        "title": "Default NOC tag",
+        "default": "primary"
+      }
+    }
+  },
+  "renderer": {
+    "kind": "built_in",
+    "interface_version": "dashboard-built-in-v1",
+    "artifact": "service-availability-noc",
+    "trust": "first_party",
+    "entrypoint": "service_availability_noc",
+    "sha256": "dac4ce5e5677cbff1119930505a6f664b7ed3590070b246aaf30de6ce66ee8af"
+  },
+  "schema_version": 1
+}

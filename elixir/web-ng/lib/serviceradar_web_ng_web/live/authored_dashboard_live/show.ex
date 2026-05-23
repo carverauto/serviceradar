@@ -161,12 +161,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("save_panel", %{"panel" => params}, socket) do
-    panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == socket.assigns.editing_panel_id))
+    panel =
+      Enum.find(
+        socket.assigns.dashboard.panels || [],
+        &(&1.id == socket.assigns.editing_panel_id)
+      )
+
     params = merge_params(socket.assigns.panel_params, params)
 
     with :ok <- authorize_panel_edit(socket),
          {:ok, panel} <- require_record(panel),
-         {:ok, _panel} <- Dashboards.update_authored_panel(socket.assigns.current_scope, panel, panel_attrs(params)) do
+         {:ok, _panel} <-
+           Dashboards.update_authored_panel(
+             socket.assigns.current_scope,
+             panel,
+             panel_attrs(params)
+           ) do
       {:noreply,
        socket
        |> put_flash(:info, "Panel updated")
@@ -302,7 +312,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     with :ok <- authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
          {:ok, _schedule} <-
-           Dashboards.update_authored_report_schedule(socket.assigns.current_scope, schedule, attrs) do
+           Dashboards.update_authored_report_schedule(
+             socket.assigns.current_scope,
+             schedule,
+             attrs
+           ) do
       {:noreply, socket |> put_flash(:info, "Report schedule updated") |> reload_report_schedules()}
     else
       {:error, reason} ->
@@ -420,6 +434,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                     phx-submit="save_panel"
                     class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-200/30 p-3 lg:grid-cols-2"
                   >
+                    <.input field={@panel_form[:dataset_key]} type="text" label="Dataset key" />
                     <.input field={@panel_form[:title]} type="text" label="Title" />
                     <.input
                       field={@panel_form[:visual_type]}
@@ -436,6 +451,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       label="Refresh interval seconds"
                     />
                     <.input field={@panel_form[:position]} type="number" label="Position" />
+                    <div class="lg:col-span-2">
+                      <.input
+                        field={@panel_form[:data_binding_json]}
+                        type="textarea"
+                        label="Data binding JSON"
+                      />
+                    </div>
+                    <div class="lg:col-span-2">
+                      <.input
+                        field={@panel_form[:display_config_json]}
+                        type="textarea"
+                        label="Display config JSON"
+                      />
+                    </div>
                     <div class="lg:col-span-2">
                       <.input
                         field={@panel_form[:visual_config_json]}
@@ -719,14 +748,50 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat"] do
-    value = stat_value(assigns.rows, assigns.fields)
-    assigns = assign(assigns, :value, value)
+    value =
+      bound_value(assigns.rows, assigns.panel, "value_field") ||
+        stat_value(assigns.rows, assigns.fields)
+
+    assigns =
+      assigns
+      |> assign(:value, format_value(value))
+      |> assign(
+        :label,
+        visual_label(assigns.panel, first_numeric_field(assigns.fields) || "value")
+      )
+      |> assign(:unit, display_value(assigns.panel, "unit", ""))
 
     ~H"""
     <div class="flex min-h-32 items-center">
       <div>
-        <div class="text-4xl font-semibold tracking-normal">{@value}</div>
-        <div class="mt-2 text-sm text-base-content/55">{first_numeric_field(@fields) || "value"}</div>
+        <div class="text-4xl font-semibold tracking-normal">
+          {@value}<span class="text-xl">{@unit}</span>
+        </div>
+        <div class="mt-2 text-sm text-base-content/55">{@label}</div>
+      </div>
+    </div>
+    """
+  end
+
+  defp render_visual(%{panel: %{visual_type: type}} = assigns)
+       when type in [:gauge, "gauge", :availability, "availability"] do
+    assigns = assign(assigns, :gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
+
+    ~H"""
+    <div class="flex min-h-44 flex-col justify-center gap-3">
+      <div class="flex items-baseline justify-between gap-3">
+        <div>
+          <div class="text-sm font-medium">{@gauge.label}</div>
+          <div class="mt-1 text-xs text-base-content/55">{@gauge.caption}</div>
+        </div>
+        <div class="text-3xl font-semibold tracking-normal">
+          {@gauge.display}<span class="text-lg">{@gauge.unit}</span>
+        </div>
+      </div>
+      <progress class="progress progress-primary h-4" value={@gauge.percent} max="100"></progress>
+      <div class="flex justify-between text-xs text-base-content/55">
+        <span>{@gauge.numerator_label}: {@gauge.numerator}</span>
+        <span>{@gauge.denominator_label}: {@gauge.denominator}</span>
       </div>
     </div>
     """
@@ -776,18 +841,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp render_visual(assigns) do
+    assigns = assign(assigns, :columns, table_columns(assigns.panel, assigns.fields))
+
     ~H"""
     <div class="overflow-x-auto rounded-lg border border-base-300">
       <table class="table table-sm">
         <thead>
           <tr>
-            <th :for={field <- @fields}>{field.name}</th>
+            <th :for={column <- @columns}>{column.label}</th>
           </tr>
         </thead>
         <tbody>
           <tr :for={row <- Enum.take(@rows, 100)}>
-            <td :for={field <- @fields} class="max-w-64 truncate">
-              {format_value(Map.get(row, field.name))}
+            <td :for={column <- @columns} class="max-w-64 truncate">
+              <.table_cell value={table_value(row, column)} renderer={column.renderer} />
             </td>
           </tr>
         </tbody>
@@ -816,9 +883,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp default_panel_params do
     %{
+      "dataset_key" => "primary",
       "title" => "",
       "srql_query" => "",
       "visual_type" => "table",
+      "data_binding_json" => "{}",
+      "display_config_json" => "{}",
       "visual_config_json" => "{}",
       "layout_json" => "{}",
       "refresh_interval_seconds" => "0",
@@ -828,9 +898,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp panel_to_params(panel) do
     %{
+      "dataset_key" => panel.dataset_key || "primary",
       "title" => panel.title || "",
       "srql_query" => panel.srql_query || "",
       "visual_type" => to_string(panel.visual_type || :table),
+      "data_binding_json" => Jason.encode!(panel.data_binding || %{}, pretty: true),
+      "display_config_json" => Jason.encode!(panel.display_config || %{}, pretty: true),
       "visual_config_json" => Jason.encode!(panel.visual_config || %{}, pretty: true),
       "layout_json" => Jason.encode!(panel.layout || %{}, pretty: true),
       "refresh_interval_seconds" => to_string(panel.refresh_interval_seconds || 0),
@@ -938,7 +1011,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp can_manage_dashboard?(nil, _assigns), do: false
 
   defp can_manage_dashboard?(dashboard, assigns) do
-    dashboard_owner?(dashboard, Map.get(assigns, :current_scope)) or Map.get(assigns, :can_edit?, false)
+    dashboard_owner?(dashboard, Map.get(assigns, :current_scope)) or
+      Map.get(assigns, :can_edit?, false)
   end
 
   defp can_share_dashboard?(nil, _assigns), do: false
@@ -968,22 +1042,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
 
   defp authorize_share(socket) do
-    if can_share_dashboard?(socket.assigns.dashboard, socket.assigns), do: :ok, else: {:error, :forbidden}
+    if can_share_dashboard?(socket.assigns.dashboard, socket.assigns),
+      do: :ok,
+      else: {:error, :forbidden}
   end
 
   defp authorize_panel_edit(socket) do
-    if can_manage_dashboard?(socket.assigns.dashboard, socket.assigns), do: :ok, else: {:error, :forbidden}
+    if can_manage_dashboard?(socket.assigns.dashboard, socket.assigns),
+      do: :ok,
+      else: {:error, :forbidden}
   end
 
   defp authorize_report_schedule(socket) do
-    if can_schedule_dashboard?(socket.assigns.dashboard, socket.assigns), do: :ok, else: {:error, :forbidden}
+    if can_schedule_dashboard?(socket.assigns.dashboard, socket.assigns),
+      do: :ok,
+      else: {:error, :forbidden}
   end
 
   defp panel_attrs(params) do
     %{
+      dataset_key: params["dataset_key"],
       title: params["title"],
       srql_query: params["srql_query"],
       visual_type: params["visual_type"],
+      data_binding: json_map(params["data_binding_json"]),
+      display_config: json_map(params["display_config_json"]),
       visual_config: json_map(params["visual_config_json"]),
       layout: json_map(params["layout_json"]),
       refresh_interval_seconds: integer_value(params["refresh_interval_seconds"], 0),
@@ -1063,12 +1146,214 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
+  attr(:value, :any, default: nil)
+  attr(:renderer, :string, default: "text")
+
+  defp table_cell(assigns) do
+    assigns = assign(assigns, :cell, table_cell_value(assigns.value, assigns.renderer))
+
+    ~H"""
+    <%= case @cell do %>
+      <% {:status, text, tone} -> %>
+        <span class={["badge badge-sm", status_badge_class(tone)]} title={text}>
+          <.icon name={status_icon(tone)} class="size-3" /> {text}
+        </span>
+      <% {:boolean, true} -> %>
+        <span class="badge badge-sm badge-success" title="true">
+          <.icon name="hero-check" class="size-3" /> true
+        </span>
+      <% {:boolean, false} -> %>
+        <span class="badge badge-sm badge-error badge-outline" title="false">
+          <.icon name="hero-x-mark" class="size-3" /> false
+        </span>
+      <% {:sparkline, points, title} -> %>
+        <svg
+          viewBox="0 0 100 24"
+          preserveAspectRatio="none"
+          class="h-6 w-28 text-primary"
+          role="img"
+          aria-label="sparkline"
+        >
+          <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
+        </svg>
+        <span class="sr-only">{title}</span>
+      <% {:json, summary, title} -> %>
+        <span class="font-mono text-[11px]" title={title}>{summary}</span>
+      <% {:text, text, title} -> %>
+        <span title={title}>{text}</span>
+    <% end %>
+    """
+  end
+
+  defp table_cell_value(value, renderer) when renderer in ["status", "status_icon", "icon"] do
+    text = format_value(value)
+    {:status, text, status_tone(value)}
+  end
+
+  defp table_cell_value(value, "sparkline") do
+    case table_sparkline_points(value) do
+      "" -> {:text, format_value(value), format_value(value)}
+      points -> {:sparkline, points, format_value(value)}
+    end
+  end
+
+  defp table_cell_value(value, "boolean_icon") when is_boolean(value), do: {:boolean, value}
+  defp table_cell_value(value, _renderer) when is_boolean(value), do: {:boolean, value}
+
+  defp table_cell_value(value, "json_summary") when is_map(value) or is_list(value) do
+    {:json, json_summary(value), inspect(value)}
+  end
+
+  defp table_cell_value(value, _renderer) when is_map(value) or is_list(value) do
+    {:json, json_summary(value), inspect(value)}
+  end
+
+  defp table_cell_value(value, _renderer) do
+    text = format_value(value)
+    {:text, text, text}
+  end
+
+  defp json_summary(value) when is_map(value) do
+    keys = value |> Map.keys() |> Enum.map(&to_string/1) |> Enum.take(3)
+    "{#{Enum.join(keys, ", ")}}"
+  end
+
+  defp json_summary(value) when is_list(value), do: "[#{length(value)} items]"
+
+  defp default_renderer(%{type: :boolean}), do: "boolean_icon"
+
+  defp default_renderer(%{name: name}) when name in ["status", "state", "health", "availability"], do: "status"
+
+  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample), do: "json_summary"
+
+  defp default_renderer(_field), do: "text"
+
+  defp table_columns(panel, fields) do
+    configured =
+      panel
+      |> Map.get(:display_config, %{})
+      |> Map.get("table_columns", [])
+
+    columns =
+      configured
+      |> Enum.filter(&is_map/1)
+      |> Enum.reject(&(&1["visible"] == false))
+      |> Enum.map(fn column ->
+        %{
+          field: column["field"] || column[:field],
+          path: column["path"] || column[:path],
+          label: column["label"] || humanize_field(column["field"] || column[:field]),
+          renderer: column["renderer"] || "text"
+        }
+      end)
+      |> Enum.reject(&is_nil(&1.field))
+
+    case columns do
+      [] ->
+        Enum.map(fields, fn field ->
+          %{
+            field: field.name,
+            path: nil,
+            label: humanize_field(field.name),
+            renderer: default_renderer(field)
+          }
+        end)
+
+      columns ->
+        columns
+    end
+  end
+
+  defp table_value(row, %{field: field, path: path}) do
+    value = Map.get(row, field)
+
+    case path do
+      path when is_binary(path) and path != "" -> value_at_path(value, path)
+      _ -> value
+    end
+  end
+
+  defp value_at_path(value, path) when is_map(value) and is_binary(path) do
+    path
+    |> String.split(".", trim: true)
+    |> Enum.reduce(value, fn key, acc ->
+      case acc do
+        map when is_map(map) -> Map.get(map, key)
+        _ -> nil
+      end
+    end)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp value_at_path(value, _path), do: value
+
   defp stat_value([row | _], fields) do
     key = first_numeric_field(fields)
-    format_value(if key, do: Map.get(row, key))
+    if key, do: Map.get(row, key)
   end
 
   defp stat_value(_rows, _fields), do: "No data"
+
+  defp bound_value([row | _], panel, key) do
+    field = binding_value(panel, key)
+    if is_binary(field) and field != "", do: Map.get(row, field)
+  end
+
+  defp bound_value(_rows, _panel, _key), do: nil
+
+  defp gauge_data(rows, panel, fields) do
+    binding = panel.data_binding || %{}
+    row = List.first(rows) || %{}
+
+    numerator_field =
+      binding["numerator_field"] || binding["value_field"] || first_numeric_field(fields)
+
+    denominator_field = binding["denominator_field"]
+    numerator = numeric(Map.get(row, numerator_field)) || 0.0
+    denominator = numeric(Map.get(row, denominator_field)) || 100.0
+    percent = if denominator > 0, do: numerator / denominator * 100, else: numerator
+    percent = percent |> max(0.0) |> min(100.0)
+
+    %{
+      label: visual_label(panel, "Gauge"),
+      caption: display_value(panel, "caption", ""),
+      unit: display_value(panel, "unit", "%"),
+      display: :erlang.float_to_binary(percent, decimals: 1),
+      percent: percent,
+      numerator: format_value(numerator),
+      denominator: format_value(denominator),
+      numerator_label: humanize_field(numerator_field || "value"),
+      denominator_label: humanize_field(denominator_field || "total")
+    }
+  end
+
+  defp visual_label(panel, fallback) do
+    display_value(panel, "label", panel.title || fallback)
+  end
+
+  defp display_value(panel, key, fallback) do
+    case panel.display_config || %{} do
+      %{^key => value} when is_binary(value) and value != "" -> value
+      _ -> fallback
+    end
+  end
+
+  defp binding_value(panel, key) do
+    case panel.data_binding || %{} do
+      %{^key => value} when is_binary(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp humanize_field(nil), do: ""
+
+  defp humanize_field(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
 
   defp bars(rows, fields) do
     label_key = first_string_field(fields)
@@ -1125,6 +1410,62 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
+  defp table_sparkline_points(values) when is_list(values) do
+    values =
+      values
+      |> Enum.map(&numeric/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.take(40)
+
+    case values do
+      [] ->
+        ""
+
+      [_single] ->
+        "0,12 100,12"
+
+      values ->
+        min_value = Enum.min(values)
+        max_value = Enum.max(values)
+        spread = max(max_value - min_value, 1.0)
+        last_index = max(length(values) - 1, 1)
+
+        values
+        |> Enum.with_index()
+        |> Enum.map_join(" ", fn {value, index} ->
+          x = index / last_index * 100
+          y = 24 - (value - min_value) / spread * 20 - 2
+          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
+        end)
+    end
+  end
+
+  defp table_sparkline_points(_value), do: ""
+
+  defp status_tone(value) do
+    value =
+      value
+      |> format_value()
+      |> String.downcase()
+
+    cond do
+      value in ["ok", "up", "true", "healthy", "online", "available", "ready", "success"] -> :success
+      value in ["warn", "warning", "degraded", "partial"] -> :warning
+      value in ["fail", "failed", "false", "down", "critical", "error", "offline", "unavailable"] -> :error
+      true -> :neutral
+    end
+  end
+
+  defp status_badge_class(:success), do: "badge-success"
+  defp status_badge_class(:warning), do: "badge-warning"
+  defp status_badge_class(:error), do: "badge-error"
+  defp status_badge_class(_tone), do: "badge-outline"
+
+  defp status_icon(:success), do: "hero-check-circle"
+  defp status_icon(:warning), do: "hero-exclamation-triangle"
+  defp status_icon(:error), do: "hero-x-circle"
+  defp status_icon(_tone), do: "hero-question-mark-circle"
+
   defp first_numeric_field(fields), do: first_field_of_type(fields, :number)
   defp first_string_field(fields), do: first_field_of_type(fields, :string)
 
@@ -1157,6 +1498,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp format_error(:forbidden), do: "Not authorized to share dashboards"
   defp format_error(:not_found), do: "Record not found"
+  defp format_error({:reserved_dashboard_slug, slug}), do: "Dashboard slug #{slug} is reserved"
+
+  defp format_error({:route_ref_dashboard_slug, slug}),
+    do: "Dashboard slug #{slug} conflicts with generated dashboard IDs"
+
+  defp format_error({:invalid_dashboard_slug, slug}),
+    do: "Dashboard slug #{slug} must start with a letter and use only letters, numbers, and dashes"
+
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 end

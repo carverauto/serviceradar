@@ -79,11 +79,25 @@ defmodule ServiceRadar.Dashboards.ManifestTest do
 
     assert {:error, errors} = Manifest.from_map(bad_manifest)
     assert "manifest contains unsupported keys: unexpected" in errors
-    assert "renderer.kind must be one of: browser_wasm (got javascript)" in errors
+    assert "renderer.kind must be one of: browser_wasm, browser_module, built_in (got javascript)" in errors
 
-    assert "renderer.interface_version must be one of: dashboard-wasm-v1 (got dashboard-wasm-v0)" in errors
+    assert "renderer.interface_version must be one of: dashboard-wasm-v1, dashboard-browser-module-v1, dashboard-built-in-v1 (got dashboard-wasm-v0)" in errors
 
     assert "capabilities contain unsupported values: network.fetch" in errors
+  end
+
+  test "allows first-party built-in dashboard renderers" do
+    manifest =
+      valid_manifest()
+      |> put_in(["renderer", "kind"], "built_in")
+      |> put_in(["renderer", "interface_version"], "dashboard-built-in-v1")
+      |> put_in(["renderer", "artifact"], "service-availability-noc")
+      |> put_in(["renderer", "entrypoint"], "service_availability_noc")
+      |> put_in(["renderer", "trust"], "first_party")
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert parsed.renderer["kind"] == "built_in"
+    assert parsed.renderer["trust"] == "first_party"
   end
 
   test "requires unique data frame ids and valid coordinate mappings" do

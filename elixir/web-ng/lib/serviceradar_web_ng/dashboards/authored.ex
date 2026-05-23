@@ -16,6 +16,20 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   require Ash.Query
 
+  @dashboard_ref_min 1_000_000
+  @dashboard_ref_max 9_999_999
+  @dashboard_slug_pattern ~r/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+  @dashboard_route_ref_pattern ~r/^\d{7}$/
+  @reserved_dashboard_slugs MapSet.new([
+                              "new",
+                              "edit",
+                              "settings",
+                              "packages",
+                              "package",
+                              "default",
+                              "search",
+                              "service-availability-noc"
+                            ])
   @default_limit 50
   @max_limit 200
   @preview_limit 100
@@ -33,6 +47,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       type: :stat,
       label: "Stat",
       description: "Single numeric value with an optional label."
+    },
+    %{
+      type: :gauge,
+      label: "Gauge",
+      description: "Bounded value with thresholds, units, and a prominent label."
+    },
+    %{
+      type: :availability,
+      label: "Availability",
+      description: "Availability ratio from explicit numerator and denominator bindings."
     },
     %{
       type: :line,
@@ -131,12 +155,22 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   def get_dashboard(scope, id, opts) when is_binary(id) do
     load = Keyword.get(opts, :load, [:panels, :report_schedules])
 
-    query =
-      AuthoredDashboard
-      |> Ash.Query.for_read(:by_id, %{id: id})
-      |> Ash.Query.load(load)
+    case dashboard_lookup(id) do
+      {:id, uuid} ->
+        AuthoredDashboard
+        |> Ash.Query.for_read(:by_id, %{id: uuid})
+        |> Ash.Query.load(load)
+        |> read_one(scope)
 
-    read_one(query, scope)
+      {:ref, dashboard_ref} ->
+        AuthoredDashboard
+        |> Ash.Query.for_read(:by_ref, %{dashboard_ref: dashboard_ref})
+        |> Ash.Query.load(load)
+        |> read_one(scope)
+
+      {:slug, slug} ->
+        get_dashboard_by_slug(scope, slug, opts)
+    end
   end
 
   def get_dashboard(_scope, _id, _opts), do: {:error, :not_found}
@@ -160,10 +194,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @spec create_dashboard(term(), map()) :: {:ok, AuthoredDashboard.t()} | {:error, term()}
   def create_dashboard(scope, attrs) when is_map(attrs) do
-    AuthoredDashboard
-    |> Ash.Changeset.for_create(:create, dashboard_attrs(attrs))
-    |> maybe_set_owner(scope)
-    |> create(scope)
+    with {:ok, attrs} <- validate_dashboard_attrs(dashboard_attrs(attrs)) do
+      create_dashboard_with_ref(scope, attrs, 0)
+    end
   end
 
   def create_dashboard(_scope, _attrs), do: {:error, :invalid_attributes}
@@ -171,12 +204,65 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   @spec update_dashboard(term(), AuthoredDashboard.t(), map()) ::
           {:ok, AuthoredDashboard.t()} | {:error, term()}
   def update_dashboard(scope, %AuthoredDashboard{} = dashboard, attrs) when is_map(attrs) do
-    dashboard
-    |> Ash.Changeset.for_update(:update, dashboard_attrs(attrs))
-    |> update(scope)
+    with {:ok, attrs} <- validate_dashboard_attrs(dashboard_attrs(attrs)) do
+      dashboard
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> update(scope)
+    end
   end
 
   def update_dashboard(_scope, _dashboard, _attrs), do: {:error, :invalid_attributes}
+
+  defp create_dashboard_with_ref(_scope, _attrs, attempts) when attempts >= 8 do
+    {:error, :dashboard_ref_generation_failed}
+  end
+
+  defp create_dashboard_with_ref(scope, attrs, attempts) do
+    dashboard_ref = generate_dashboard_ref()
+
+    if dashboard_ref_taken?(scope, dashboard_ref) do
+      create_dashboard_with_ref(scope, attrs, attempts + 1)
+    else
+      result =
+        AuthoredDashboard
+        |> Ash.Changeset.for_create(:create, Map.put(attrs, :dashboard_ref, dashboard_ref))
+        |> maybe_set_owner(scope)
+        |> create(scope)
+
+      case result do
+        {:ok, dashboard} -> {:ok, dashboard}
+        {:error, reason} -> maybe_retry_dashboard_ref_conflict(scope, attrs, attempts, reason)
+      end
+    end
+  end
+
+  defp maybe_retry_dashboard_ref_conflict(scope, attrs, attempts, reason) do
+    if unique_dashboard_ref_error?(reason) do
+      create_dashboard_with_ref(scope, attrs, attempts + 1)
+    else
+      {:error, reason}
+    end
+  end
+
+  defp generate_dashboard_ref do
+    @dashboard_ref_min + :rand.uniform(@dashboard_ref_max - @dashboard_ref_min + 1) - 1
+  end
+
+  defp dashboard_ref_taken?(scope, dashboard_ref) do
+    AuthoredDashboard
+    |> Ash.Query.for_read(:by_ref, %{dashboard_ref: dashboard_ref})
+    |> read_one(scope)
+    |> case do
+      {:ok, %AuthoredDashboard{}} -> true
+      _ -> false
+    end
+  end
+
+  defp unique_dashboard_ref_error?(reason) do
+    reason
+    |> inspect()
+    |> String.contains?("authored_dashboards_dashboard_ref")
+  end
 
   @spec archive_dashboard(term(), AuthoredDashboard.t()) ::
           {:ok, AuthoredDashboard.t()} | {:error, term()}
@@ -291,9 +377,15 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     with :ok <- validate_visual_type(visual_type),
          :ok <- validate_panel_refresh_interval(Map.get(attrs, :refresh_interval_seconds, 0)),
          :ok <- validate_map_attr(attrs, :visual_config),
+         :ok <- validate_map_attr(attrs, :builder_state),
+         :ok <- validate_map_attr(attrs, :data_binding),
+         :ok <- validate_map_attr(attrs, :display_config),
          :ok <- validate_map_attr(attrs, :layout),
          {:ok, preview} <- preview_query(scope, srql_query),
-         :ok <- validate_visual_compatibility(visual_type, preview.compatible_visuals) do
+         :ok <- validate_visual_compatibility(visual_type, preview.compatible_visuals),
+         :ok <- validate_data_binding(visual_type, Map.get(attrs, :data_binding, %{}), preview.fields),
+         :ok <- validate_display_config(Map.get(attrs, :display_config, %{}), preview.fields),
+         :ok <- validate_visual_config(Map.get(attrs, :visual_config, %{}), preview.fields) do
       field_metadata =
         attrs
         |> Map.get(:field_metadata, %{})
@@ -307,13 +399,17 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     end
   end
 
-  defp validate_visual_type(type) when type in [:table, :stat, :line, :area, :bar, :category, :status_list] do
+  defp validate_visual_type(type)
+       when type in [:table, :stat, :gauge, :availability, :line, :area, :bar, :category, :status_list] do
     :ok
   end
 
   defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
 
   defp validate_visual_compatibility(:table, _compatible), do: :ok
+  defp validate_visual_compatibility(:availability, _compatible), do: :ok
+
+  defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
   defp validate_visual_compatibility(type, compatible) do
     if type in compatible do
@@ -322,6 +418,121 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       {:error, {:incompatible_visual_type, type, compatible}}
     end
   end
+
+  defp validate_data_binding(:availability, binding, fields) when is_map(binding) do
+    with :ok <- validate_required_binding(binding, fields, "numerator_field"),
+         :ok <- validate_required_binding(binding, fields, "denominator_field") do
+      validate_optional_bindings(binding, fields)
+    end
+  end
+
+  defp validate_data_binding(_visual_type, binding, fields) when is_map(binding) do
+    validate_optional_bindings(binding, fields)
+  end
+
+  defp validate_data_binding(_visual_type, binding, _fields), do: {:error, {:invalid_data_binding, binding}}
+
+  defp validate_required_binding(binding, fields, key) do
+    case Map.get(binding, key) do
+      value when is_binary(value) and value != "" ->
+        validate_field_name(fields, value, {:missing_binding_field, key, value})
+
+      _ ->
+        {:error, {:required_binding_field, key}}
+    end
+  end
+
+  defp validate_optional_bindings(binding, fields) do
+    binding
+    |> Enum.filter(fn {key, value} ->
+      String.ends_with?(to_string(key), "_field") and is_binary(value) and value != ""
+    end)
+    |> Enum.reduce_while(:ok, fn {key, value}, :ok ->
+      case validate_field_name(fields, value, {:missing_binding_field, to_string(key), value}) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_display_config(config, fields) when is_map(config) do
+    config
+    |> Map.get("table_columns", [])
+    |> validate_table_columns(fields)
+  end
+
+  defp validate_display_config(config, _fields), do: {:error, {:invalid_display_config, config}}
+
+  defp validate_visual_config(config, fields) when is_map(config) do
+    config
+    |> visual_config_field_refs()
+    |> Enum.reduce_while(:ok, fn {key, field}, :ok ->
+      case validate_field_name(fields, field, {:missing_visual_config_field, key, field}) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp validate_visual_config(config, _fields), do: {:error, {:invalid_visual_config, config}}
+
+  defp visual_config_field_refs(config) do
+    top_level =
+      config
+      |> Enum.filter(fn {key, value} ->
+        String.ends_with?(to_string(key), "_field") and is_binary(value) and value != ""
+      end)
+      |> Enum.map(fn {key, value} -> {to_string(key), value} end)
+
+    threshold_refs =
+      config
+      |> Map.get("thresholds", [])
+      |> case do
+        thresholds when is_list(thresholds) ->
+          thresholds
+          |> Enum.filter(&is_map/1)
+          |> Enum.flat_map(fn threshold ->
+            case Map.get(threshold, "field") || Map.get(threshold, :field) do
+              field when is_binary(field) and field != "" -> [{"thresholds.field", field}]
+              _ -> []
+            end
+          end)
+
+        _ ->
+          []
+      end
+
+    top_level ++ threshold_refs
+  end
+
+  defp validate_table_columns([], _fields), do: :ok
+  defp validate_table_columns(nil, _fields), do: :ok
+
+  defp validate_table_columns(columns, fields) when is_list(columns) do
+    Enum.reduce_while(columns, :ok, fn
+      %{} = column, :ok ->
+        field = Map.get(column, "field") || Map.get(column, :field)
+
+        case validate_field_name(fields, field, {:missing_table_column_field, field}) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      column, :ok ->
+        {:halt, {:error, {:invalid_table_column, column}}}
+    end)
+  end
+
+  defp validate_table_columns(columns, _fields), do: {:error, {:invalid_table_columns, columns}}
+
+  defp validate_field_name(_fields, nil, _reason), do: :ok
+  defp validate_field_name(_fields, "", _reason), do: :ok
+
+  defp validate_field_name(fields, field, reason) when is_binary(field) do
+    if Enum.any?(fields, &(&1.name == field)), do: :ok, else: {:error, reason}
+  end
+
+  defp validate_field_name(_fields, field, _reason), do: {:error, {:invalid_field_reference, field}}
 
   defp validate_panel_refresh_interval(value)
        when is_integer(value) and value >= 0 and value <= @max_panel_refresh_interval_seconds do
@@ -394,9 +605,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp existing_panel_attrs(%DashboardPanel{} = panel) do
     %{
       dashboard_id: panel.dashboard_id,
+      dataset_key: panel.dataset_key || "primary",
       title: panel.title,
       srql_query: panel.srql_query,
+      builder_state: panel.builder_state || %{},
       visual_type: panel.visual_type,
+      data_binding: panel.data_binding || %{},
+      display_config: panel.display_config || %{},
       visual_config: panel.visual_config || %{},
       field_metadata: panel.field_metadata || %{},
       layout: panel.layout || %{},
@@ -594,6 +809,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
     [:table]
     |> maybe_add_visual(:stat, stat_compatible?(rows, fields))
+    |> maybe_add_visual(:gauge, Enum.any?(fields, fn field -> field.type == :number end))
+    |> maybe_add_visual(:availability, availability_compatible?(fields))
     |> maybe_add_visual(
       :line,
       MapSet.member?(field_types, :datetime) and MapSet.member?(field_types, :number)
@@ -622,16 +839,58 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     |> Enum.sort()
     |> Enum.map(fn name ->
       values = values_for(rows, name)
+      type = infer_type(values)
 
       %{
+        id: name,
         name: name,
-        type: infer_type(values),
-        sample: Enum.find(values, &present?/1)
+        type: type,
+        sample: Enum.find(values, &present?/1),
+        json_paths: json_paths(values),
+        aggregate_compatible: type == :number,
+        compatible_aggregations: compatible_aggregations(type)
       }
     end)
   end
 
   def infer_fields(_rows), do: []
+
+  defp json_paths(values) do
+    values
+    |> Enum.find(&is_map/1)
+    |> case do
+      nil ->
+        []
+
+      value ->
+        value
+        |> flatten_json_paths()
+        |> Enum.uniq()
+        |> Enum.sort()
+    end
+  end
+
+  defp flatten_json_paths(value, prefix \\ "")
+
+  defp flatten_json_paths(value, prefix) when is_map(value) do
+    Enum.flat_map(value, fn {key, nested} ->
+      path =
+        [prefix, to_string(key)]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join(".")
+
+      case nested do
+        nested when is_map(nested) -> [path | flatten_json_paths(nested, path)]
+        _ -> [path]
+      end
+    end)
+  end
+
+  defp flatten_json_paths(_value, _prefix), do: []
+
+  defp compatible_aggregations(:number), do: ["avg", "min", "max", "sum", "count"]
+  defp compatible_aggregations(:boolean), do: ["count"]
+  defp compatible_aggregations(_type), do: []
 
   defp read!(query, nil), do: Ash.read!(query)
   defp read!(query, scope), do: Ash.read!(query, scope: scope)
@@ -665,9 +924,58 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp maybe_set_owner(changeset, scope) do
     case owner_id(scope) do
-      user_id when is_binary(user_id) -> Ash.Changeset.force_change_attribute(changeset, :owner_id, user_id)
-      _ -> changeset
+      user_id when is_binary(user_id) ->
+        Ash.Changeset.force_change_attribute(changeset, :owner_id, user_id)
+
+      _ ->
+        changeset
     end
+  end
+
+  defp validate_dashboard_attrs(attrs) do
+    slug = Map.get(attrs, :slug)
+
+    cond do
+      not is_binary(slug) ->
+        {:ok, attrs}
+
+      MapSet.member?(@reserved_dashboard_slugs, slug) ->
+        {:error, {:reserved_dashboard_slug, slug}}
+
+      route_ref_slug?(slug) ->
+        {:error, {:route_ref_dashboard_slug, slug}}
+
+      not Regex.match?(@dashboard_slug_pattern, slug) ->
+        {:error, {:invalid_dashboard_slug, slug}}
+
+      true ->
+        {:ok, attrs}
+    end
+  end
+
+  defp route_ref_slug?(slug) when is_binary(slug), do: Regex.match?(@dashboard_route_ref_pattern, slug)
+
+  defp dashboard_lookup(value) when is_binary(value) do
+    value = String.trim(value)
+
+    cond do
+      canonical_uuid?(value) ->
+        {:id, value}
+
+      Regex.match?(@dashboard_route_ref_pattern, value) ->
+        {dashboard_ref, ""} = Integer.parse(value)
+        {:ref, dashboard_ref}
+
+      true ->
+        {:slug, slugify(value)}
+    end
+  end
+
+  defp canonical_uuid?(value) when is_binary(value) do
+    Regex.match?(
+      ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+      value
+    )
   end
 
   defp clear_default_dashboard(scope) do
@@ -730,12 +1038,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp panel_attrs(attrs) do
     %{}
     |> put_if_present(:dashboard_id, fetch_value(attrs, [:dashboard_id, "dashboard_id"]))
+    |> put_if_present(:dataset_key, fetch_string(attrs, [:dataset_key, "dataset_key"]))
     |> put_if_present(:title, fetch_string(attrs, [:title, "title"]))
     |> put_if_present(:srql_query, fetch_string(attrs, [:srql_query, "srql_query"]))
+    |> put_if_present(:builder_state, fetch_map(attrs, [:builder_state, "builder_state"]))
     |> put_if_present(
       :visual_type,
       normalize_existing_atom(fetch_value(attrs, [:visual_type, "visual_type"]), visual_types())
     )
+    |> put_if_present(:data_binding, fetch_map(attrs, [:data_binding, "data_binding"]))
+    |> put_if_present(:display_config, fetch_map(attrs, [:display_config, "display_config"]))
     |> put_if_present(:visual_config, fetch_map(attrs, [:visual_config, "visual_config"]))
     |> put_if_present(:field_metadata, fetch_map(attrs, [:field_metadata, "field_metadata"]))
     |> put_if_present(:layout, fetch_map(attrs, [:layout, "layout"]))
@@ -850,6 +1162,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       Enum.any?(values, &datetime?/1) -> :datetime
       Enum.any?(values, &number?/1) -> :number
       Enum.any?(values, &boolean?/1) -> :boolean
+      Enum.any?(values, &is_map/1) -> :object
+      Enum.any?(values, &is_list/1) -> :list
       true -> :string
     end
   end
@@ -890,6 +1204,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     end)
   end
 
+  defp availability_compatible?(fields) do
+    names = MapSet.new(Enum.map(fields, & &1.name))
+
+    MapSet.member?(names, "total") and
+      (MapSet.member?(names, "ok") or MapSet.member?(names, "available"))
+  end
+
   defp maybe_add_visual(visuals, visual, true), do: visuals ++ [visual]
   defp maybe_add_visual(visuals, _visual, _compatible?), do: visuals
 
@@ -905,7 +1226,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp slugify(value) when is_binary(value) do
     value
     |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_-]+/, "-")
+    |> String.replace(~r/[^a-z0-9]+/, "-")
     |> String.trim("-")
     |> case do
       "" -> nil

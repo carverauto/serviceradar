@@ -22,6 +22,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   @delete_check {ActorHasPermission, permission: "analytics.dashboards.delete"}
 
   @fields [
+    :dashboard_ref,
     :title,
     :description,
     :slug,
@@ -48,6 +49,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   code_interface do
     define(:list, action: :read)
     define(:get_by_id, action: :by_id, args: [:id])
+    define(:get_by_ref, action: :by_ref, args: [:dashboard_ref])
     define(:get_by_slug, action: :by_slug, args: [:slug])
     define(:create_dashboard, action: :create)
     define(:update_dashboard, action: :update)
@@ -62,6 +64,12 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
       argument(:id, :uuid, allow_nil?: false)
       get?(true)
       filter(expr(id == ^arg(:id)))
+    end
+
+    read :by_ref do
+      argument(:dashboard_ref, :integer, allow_nil?: false)
+      get?(true)
+      filter(expr(dashboard_ref == ^arg(:dashboard_ref)))
     end
 
     read :by_slug do
@@ -126,6 +134,13 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   attributes do
     uuid_primary_key(:id)
 
+    attribute :dashboard_ref, :integer do
+      allow_nil?(false)
+      public?(true)
+      description("Unique 7-digit dashboard reference used in user-facing routes.")
+      constraints(min: 1_000_000, max: 9_999_999)
+    end
+
     attribute :title, :string do
       allow_nil?(false)
       public?(true)
@@ -137,7 +152,10 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
 
     attribute :slug, :string do
       public?(true)
-      description("Optional stable route alias; dashboards are always addressable by UUID.")
+
+      description(
+        "Optional stable route alias; dashboards are always addressable by numeric reference."
+      )
     end
 
     attribute :owner_id, :uuid do
@@ -216,6 +234,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   end
 
   identities do
+    identity(:unique_dashboard_ref, [:dashboard_ref])
     identity(:unique_slug, [:slug], where: expr(not is_nil(slug)))
   end
 

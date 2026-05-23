@@ -1,0 +1,112 @@
+[
+  {
+    "id": "availability_rollup",
+    "query": "in:services time:last_1h rollup_stats:availability",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "total": 400,
+        "available": 389,
+        "unavailable": 11,
+        "availability_pct": 97.25
+      }
+    ]
+  },
+  {
+    "id": "attention_services",
+    "query": "in:services available:false time:last_1h sort:timestamp:desc limit:50",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "service": "Demo URL 037",
+        "service_name": "Demo URL 037",
+        "device_id": "demo-url-037",
+        "agent_id": "demo-agent",
+        "available": false,
+        "status": "unavailable",
+        "response_time_ms": 821,
+        "timestamp": "2026-05-21T22:42:00Z"
+      },
+      {
+        "service": "Demo URL 074",
+        "service_name": "Demo URL 074",
+        "device_id": "demo-url-074",
+        "agent_id": "demo-agent",
+        "available": false,
+        "status": "unavailable",
+        "response_time_ms": 794,
+        "timestamp": "2026-05-21T22:41:00Z"
+      },
+      {
+        "service": "Demo Database 019",
+        "service_name": "Demo Database 019",
+        "device_id": "demo-db-019",
+        "agent_id": "demo-agent",
+        "available": false,
+        "status": "unavailable",
+        "response_time_ms": 1042,
+        "timestamp": "2026-05-21T22:40:00Z"
+      },
+      {
+        "service": "Demo Database 096",
+        "service_name": "Demo Database 096",
+        "device_id": "demo-db-096",
+        "agent_id": "demo-agent",
+        "available": false,
+        "status": "unavailable",
+        "response_time_ms": null,
+        "timestamp": "2026-05-21T22:31:00Z"
+      }
+    ]
+  },
+  {
+    "id": "service_inventory",
+    "query": "in:services time:last_1h sort:timestamp:desc limit:200",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "service": "Demo URL 001",
+        "service_name": "Demo URL 001",
+        "device_id": "demo-url-001",
+        "agent_id": "demo-agent",
+        "available": true,
+        "status": "available",
+        "response_time_ms": 12,
+        "timestamp": "2026-05-21T22:45:00Z"
+      },
+      {
+        "service": "Demo URL 002",
+        "service_name": "Demo URL 002",
+        "device_id": "demo-url-002",
+        "agent_id": "demo-agent",
+        "available": true,
+        "status": "available",
+        "response_time_ms": 15,
+        "timestamp": "2026-05-21T22:45:00Z"
+      },
+      {
+        "service": "Demo Database 001",
+        "service_name": "Demo Database 001",
+        "device_id": "demo-db-001",
+        "agent_id": "demo-agent",
+        "available": true,
+        "status": "available",
+        "response_time_ms": 22,
+        "timestamp": "2026-05-21T22:45:00Z"
+      },
+      {
+        "service": "Demo Database 002",
+        "service_name": "Demo Database 002",
+        "device_id": "demo-db-002",
+        "agent_id": "demo-agent",
+        "available": true,
+        "status": "available",
+        "response_time_ms": 24,
+        "timestamp": "2026-05-21T22:45:00Z"
+      }
+    ]
+  }
+]

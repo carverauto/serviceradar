@@ -38,6 +38,25 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
        }}
     end
 
+    def query("rich" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "service" => "core",
+             "enabled" => true,
+             "status" => "ok",
+             "details" => %{"owner" => "noc", "region" => "iah"},
+             "trend" => [1, 4, 2, 8]
+           }
+         ]
+       }}
+    end
+
+    def query("availability" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"ok" => 9, "total" => 10, "site" => "ZZA"}]}}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -65,11 +84,28 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
 
     assert preview.row_count == 2
     assert Enum.map(preview.fields, & &1.name) == ["service", "status", "timestamp", "value"]
+    assert Enum.map(preview.fields, & &1.id) == ["service", "status", "timestamp", "value"]
+
+    value_field = Enum.find(preview.fields, &(&1.name == "value"))
+    assert value_field.sample == 10
+    assert value_field.aggregate_compatible
+    assert "avg" in value_field.compatible_aggregations
+
     assert :table in preview.compatible_visuals
     assert :line in preview.compatible_visuals
     assert :bar in preview.compatible_visuals
     assert :category in preview.compatible_visuals
     assert :status_list in preview.compatible_visuals
+  end
+
+  test "preview exposes JSON paths from sample object values", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "rich services")
+
+    details = Enum.find(preview.fields, &(&1.name == "details"))
+
+    assert details.type == :object
+    assert details.json_paths == ["owner", "region"]
+    refute details.aggregate_compatible
   end
 
   test "invalid SRQL is rejected before panel creation", %{scope: scope, dashboard: dashboard} do
@@ -108,6 +144,78 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert panel.visual_type == :table
     assert panel.field_metadata["compatible_visuals"] == ["table"]
     assert panel.field_metadata["fields"] == []
+  end
+
+  test "panel bindings must reference fields returned by preview", %{scope: scope, dashboard: dashboard} do
+    assert {:error, {:missing_binding_field, "value_field", "missing"}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Bad binding",
+               srql_query: "series services",
+               visual_type: :table,
+               data_binding: %{"value_field" => "missing"}
+             })
+
+    assert {:ok, panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Good binding",
+               srql_query: "series services",
+               visual_type: :table,
+               data_binding: %{"value_field" => "value"},
+               display_config: %{
+                 "table_columns" => [
+                   %{"field" => "service", "label" => "Service", "renderer" => "text"},
+                   %{"field" => "status", "label" => "Status", "renderer" => "status"}
+                 ]
+               }
+             })
+
+    assert panel.data_binding["value_field"] == "value"
+  end
+
+  test "visual configs must reference fields returned by preview", %{scope: scope, dashboard: dashboard} do
+    assert {:error, {:missing_visual_config_field, "value_field", "missing"}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Bad visual config",
+               srql_query: "series services",
+               visual_type: :table,
+               visual_config: %{"value_field" => "missing"}
+             })
+
+    assert {:ok, panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Good visual config",
+               srql_query: "series services",
+               visual_type: :table,
+               visual_config: %{"value_field" => "value", "thresholds" => [%{"field" => "status"}]}
+             })
+
+    assert panel.visual_config["value_field"] == "value"
+  end
+
+  test "availability visuals require numerator and denominator bindings", %{scope: scope, dashboard: dashboard} do
+    assert {:error, {:required_binding_field, "denominator_field"}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Missing denominator",
+               srql_query: "availability services",
+               visual_type: :availability,
+               data_binding: %{"numerator_field" => "ok"}
+             })
+
+    assert {:ok, panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Availability",
+               srql_query: "availability services",
+               visual_type: :availability,
+               data_binding: %{"numerator_field" => "ok", "denominator_field" => "total"}
+             })
+
+    assert panel.visual_type == :availability
   end
 
   test "panel refresh interval must stay within the supported bounds", %{
@@ -181,6 +289,82 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
 
     assert dashboard.owner_id == scope.user.id
     refute dashboard.owner_id == other_user.id
+  end
+
+  test "dashboards get human route references and optional slugs", %{scope: scope} do
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Routed #{System.unique_integer([:positive])}",
+               slug: "ZZA Availability"
+             })
+
+    assert dashboard.dashboard_ref in 1_000_000..9_999_999
+    assert dashboard.slug == "zza-availability"
+
+    assert {:ok, by_ref} =
+             Dashboards.get_authored_dashboard(scope, Integer.to_string(dashboard.dashboard_ref), load: [])
+
+    assert by_ref.id == dashboard.id
+
+    assert {:ok, by_slug} = Dashboards.get_authored_dashboard(scope, "zza-availability", load: [])
+    assert by_slug.id == dashboard.id
+  end
+
+  test "reserved dashboard slugs are rejected", %{scope: scope} do
+    assert {:error, {:reserved_dashboard_slug, "service-availability-noc"}} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Bad slug",
+               slug: "service-availability-noc"
+             })
+  end
+
+  test "dashboard slugs must start with text and avoid route refs", %{scope: scope} do
+    assert {:error, {:route_ref_dashboard_slug, "1234567"}} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Numeric slug",
+               slug: "1234567"
+             })
+
+    assert {:error, {:invalid_dashboard_slug, "123-zza"}} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Leading digit slug",
+               slug: "123 ZZA"
+             })
+
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Normalized slug",
+               slug: "ZZA_Availability"
+             })
+
+    assert dashboard.slug == "zza-availability"
+  end
+
+  test "dashboard SRQL discovery returns accessible authored dashboards", %{scope: scope} do
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "ZZA Availability #{System.unique_integer([:positive])}",
+               description: "Airport NOC"
+             })
+
+    assert {:ok, %{"results" => rows}} =
+             ServiceRadarWebNG.SRQL.query("in:dashboards title:%ZZA% limit:20", %{scope: scope})
+
+    assert Enum.any?(rows, &(&1["id"] == dashboard.id and &1["type"] == "authored"))
+  end
+
+  test "dashboard SRQL discovery ignores sort tokens and handles status filters", %{scope: scope} do
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "MSP Availability #{System.unique_integer([:positive])}",
+               description: "Airport NOC",
+               status: :active
+             })
+
+    assert {:ok, %{"results" => rows}} =
+             ServiceRadarWebNG.SRQL.query("in:dashboards status:active sort:title:asc limit:20", %{scope: scope})
+
+    assert Enum.any?(rows, &(&1["id"] == dashboard.id and &1["status"] == "active"))
   end
 
   test "sharing requires edit access to the target dashboard", %{dashboard: dashboard} do
