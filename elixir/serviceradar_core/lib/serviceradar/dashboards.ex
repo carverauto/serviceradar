@@ -17,13 +17,13 @@ defmodule ServiceRadar.Dashboards do
   end
 
   resources do
-    resource(ServiceRadar.Dashboards.DashboardPackage)
-    resource(ServiceRadar.Dashboards.DashboardInstance)
-    resource(ServiceRadar.Dashboards.AuthoredDashboard)
-    resource(ServiceRadar.Dashboards.DashboardPanel)
-    resource(ServiceRadar.Dashboards.DashboardReportSchedule)
-    resource(ServiceRadar.Dashboards.DashboardReportDelivery)
-    resource(ServiceRadar.Dashboards.DashboardAccessGrant)
-    resource(ServiceRadar.Dashboards.DashboardUserPreference)
+    resource ServiceRadar.Dashboards.DashboardPackage
+    resource ServiceRadar.Dashboards.DashboardInstance
+    resource ServiceRadar.Dashboards.AuthoredDashboard
+    resource ServiceRadar.Dashboards.DashboardPanel
+    resource ServiceRadar.Dashboards.DashboardReportSchedule
+    resource ServiceRadar.Dashboards.DashboardReportDelivery
+    resource ServiceRadar.Dashboards.DashboardAccessGrant
+    resource ServiceRadar.Dashboards.DashboardUserPreference
   end
 end

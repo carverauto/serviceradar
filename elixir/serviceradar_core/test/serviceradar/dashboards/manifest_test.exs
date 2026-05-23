@@ -79,6 +79,7 @@ defmodule ServiceRadar.Dashboards.ManifestTest do
 
     assert {:error, errors} = Manifest.from_map(bad_manifest)
     assert "manifest contains unsupported keys: unexpected" in errors
+
     assert "renderer.kind must be one of: browser_wasm, browser_module, built_in (got javascript)" in errors
 
     assert "renderer.interface_version must be one of: dashboard-wasm-v1, dashboard-browser-module-v1, dashboard-built-in-v1 (got dashboard-wasm-v0)" in errors

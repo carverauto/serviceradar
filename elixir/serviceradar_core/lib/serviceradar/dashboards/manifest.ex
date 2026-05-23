@@ -215,18 +215,28 @@ defmodule ServiceRadar.Dashboards.Manifest do
 
   defp validate_renderer(_value, errors), do: {nil, ["renderer must be an object" | errors]}
 
-  defp validate_renderer_interface_pair(%{"kind" => "browser_wasm", "interface_version" => "dashboard-wasm-v1"}, errors),
-    do: errors
+  defp validate_renderer_interface_pair(
+         %{"kind" => "browser_wasm", "interface_version" => "dashboard-wasm-v1"},
+         errors
+       ),
+       do: errors
 
   defp validate_renderer_interface_pair(
          %{"kind" => "browser_module", "interface_version" => "dashboard-browser-module-v1"},
          errors
-       ), do: errors
+       ),
+       do: errors
 
-  defp validate_renderer_interface_pair(%{"kind" => "built_in", "interface_version" => "dashboard-built-in-v1"}, errors),
-    do: errors
+  defp validate_renderer_interface_pair(
+         %{"kind" => "built_in", "interface_version" => "dashboard-built-in-v1"},
+         errors
+       ),
+       do: errors
 
-  defp validate_renderer_interface_pair(%{"kind" => kind, "interface_version" => interface}, errors)
+  defp validate_renderer_interface_pair(
+         %{"kind" => kind, "interface_version" => interface},
+         errors
+       )
        when is_binary(kind) and is_binary(interface) do
     ["renderer.interface_version #{interface} is not valid for renderer.kind #{kind}" | errors]
   end
@@ -242,7 +252,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
         {nil, ["renderer.trust must be trusted for browser_module renderers" | errors]}
 
       value ->
-        {nil, ["renderer.trust must be trusted for browser_module renderers (got #{value})" | errors]}
+        {nil,
+         ["renderer.trust must be trusted for browser_module renderers (got #{value})" | errors]}
     end
   end
 
@@ -251,7 +262,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
     {nil, ["renderer.trust is only supported for browser_module and built_in renderers" | errors]}
   end
 
-  defp validate_renderer_trust(%{"kind" => "built_in", "trust" => trust}, errors) when trust in [nil, "first_party"] do
+  defp validate_renderer_trust(%{"kind" => "built_in", "trust" => trust}, errors)
+       when trust in [nil, "first_party"] do
     {trust, errors}
   end
 
@@ -261,7 +273,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
 
   defp validate_renderer_trust(_renderer, errors), do: {nil, errors}
 
-  defp validate_data_frames(nil, errors), do: {[], ["missing required field: data_frames" | errors]}
+  defp validate_data_frames(nil, errors),
+    do: {[], ["missing required field: data_frames" | errors]}
 
   defp validate_data_frames(value, errors) when is_list(value) and value != [] do
     {frames, errors} =
@@ -360,7 +373,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
     {nil, ["#{path}.coordinates must be an object" | errors]}
   end
 
-  defp validate_capabilities(nil, errors), do: {[], ["missing required field: capabilities" | errors]}
+  defp validate_capabilities(nil, errors),
+    do: {[], ["missing required field: capabilities" | errors]}
 
   defp validate_capabilities(value, errors) when is_list(value) and value != [] do
     capabilities =

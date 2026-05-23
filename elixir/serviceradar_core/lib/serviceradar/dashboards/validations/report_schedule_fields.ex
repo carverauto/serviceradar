@@ -20,12 +20,16 @@ defmodule ServiceRadar.Dashboards.Validations.ReportScheduleFields do
 
   defp validate_recipients(recipients) when is_list(recipients) and recipients != [] do
     case Enum.find(recipients, &(not valid_email?(&1))) do
-      nil -> :ok
-      invalid -> {:error, field: :recipients, message: "contains invalid email #{inspect(invalid)}"}
+      nil ->
+        :ok
+
+      invalid ->
+        {:error, field: :recipients, message: "contains invalid email #{inspect(invalid)}"}
     end
   end
 
-  defp validate_recipients(_recipients), do: {:error, field: :recipients, message: "must include at least one recipient"}
+  defp validate_recipients(_recipients),
+    do: {:error, field: :recipients, message: "must include at least one recipient"}
 
   defp validate_cron(cron) when is_binary(cron) do
     case Expression.parse(cron) do
