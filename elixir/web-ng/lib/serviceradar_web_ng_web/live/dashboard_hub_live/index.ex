@@ -348,7 +348,8 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       description: dashboard.description || "SRQL dashboard",
       href: ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}",
       slug: dashboard.slug,
-      search_text: Enum.join([dashboard.title, dashboard.description, dashboard.slug, "authored"], " "),
+      status: to_string(dashboard.status),
+      search_text: Enum.join([dashboard.title, dashboard.description, dashboard.slug, dashboard.status, "authored"], " "),
       kind_label: "Authored",
       favorite?: favorite?(preference),
       default?: default?(preference),
@@ -367,6 +368,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
       description: package_description(package),
       href: ~p"/dashboards/#{instance.route_slug}",
       slug: instance.route_slug,
+      status: if(instance.enabled, do: "active", else: "disabled"),
       search_text:
         Enum.join(
           [
@@ -374,6 +376,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
             instance.route_slug,
             package_name(package),
             package_description(package),
+            if(instance.enabled, do: "active", else: "disabled"),
             "package"
           ],
           " "
@@ -412,18 +415,29 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   defp dashboard_query_filters(query) when is_binary(query) do
     query
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.reject(&(String.starts_with?(&1, "in:") or String.starts_with?(&1, "limit:")))
-    |> Enum.map(&clean_filter/1)
-    |> Enum.reject(&(&1 == ""))
+    |> Enum.reject(&dashboard_control_token?/1)
+    |> Enum.flat_map(&dashboard_query_filter/1)
   end
 
   defp dashboard_query_filters(_query), do: []
 
-  defp clean_filter("title:" <> value), do: clean_value(value)
-  defp clean_filter("description:" <> value), do: clean_value(value)
-  defp clean_filter("slug:" <> value), do: clean_value(value)
-  defp clean_filter("type:" <> value), do: clean_value(value)
-  defp clean_filter(value), do: clean_value(value)
+  defp dashboard_control_token?(token) do
+    Enum.any?(~w(in: limit: sort: time: stats: rollup_stats: group_by:), &String.starts_with?(token, &1))
+  end
+
+  defp dashboard_query_filter("title:" <> value), do: clean_filter(:title, value)
+  defp dashboard_query_filter("description:" <> value), do: clean_filter(:description, value)
+  defp dashboard_query_filter("slug:" <> value), do: clean_filter(:slug, value)
+  defp dashboard_query_filter("type:" <> value), do: clean_filter(:type, value)
+  defp dashboard_query_filter("status:" <> value), do: clean_filter(:status, value)
+  defp dashboard_query_filter(value), do: clean_filter(:text, value)
+
+  defp clean_filter(field, value) do
+    case clean_value(value) do
+      "" -> []
+      cleaned -> [{field, cleaned}]
+    end
+  end
 
   defp clean_value(value) do
     value
@@ -438,8 +452,23 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   defp dashboard_item_matches?(_item, []), do: true
 
   defp dashboard_item_matches?(item, filters) do
-    haystack = String.downcase(item.search_text || "")
-    Enum.all?(filters, &String.contains?(haystack, &1))
+    Enum.all?(filters, fn
+      {:title, value} -> dashboard_filter_match?(item.title, value)
+      {:description, value} -> dashboard_filter_match?(item.description, value)
+      {:slug, value} -> dashboard_filter_match?(item.slug, value)
+      {:type, value} -> dashboard_filter_match?(item.type, value)
+      {:status, value} -> dashboard_filter_match?(Map.get(item, :status), value)
+      {:text, value} -> dashboard_filter_match?(item.search_text, value)
+    end)
+  end
+
+  defp dashboard_filter_match?(nil, _value), do: false
+
+  defp dashboard_filter_match?(haystack, value) do
+    haystack
+    |> to_string()
+    |> String.downcase()
+    |> String.contains?(value)
   end
 
   defp target_type("authored"), do: {:ok, :authored}

@@ -318,6 +318,28 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
   end
 
+  test "dashboard slugs must start with text and avoid route refs", %{scope: scope} do
+    assert {:error, {:route_ref_dashboard_slug, "1234567"}} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Numeric slug",
+               slug: "1234567"
+             })
+
+    assert {:error, {:invalid_dashboard_slug, "123-zza"}} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Leading digit slug",
+               slug: "123 ZZA"
+             })
+
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "Normalized slug",
+               slug: "ZZA_Availability"
+             })
+
+    assert dashboard.slug == "zza-availability"
+  end
+
   test "dashboard SRQL discovery returns accessible authored dashboards", %{scope: scope} do
     assert {:ok, dashboard} =
              Dashboards.create_authored_dashboard(scope, %{
@@ -329,6 +351,20 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              ServiceRadarWebNG.SRQL.query("in:dashboards title:%ZZA% limit:20", %{scope: scope})
 
     assert Enum.any?(rows, &(&1["id"] == dashboard.id and &1["type"] == "authored"))
+  end
+
+  test "dashboard SRQL discovery ignores sort tokens and handles status filters", %{scope: scope} do
+    assert {:ok, dashboard} =
+             Dashboards.create_authored_dashboard(scope, %{
+               title: "MSP Availability #{System.unique_integer([:positive])}",
+               description: "Airport NOC",
+               status: :active
+             })
+
+    assert {:ok, %{"results" => rows}} =
+             ServiceRadarWebNG.SRQL.query("in:dashboards status:active sort:title:asc limit:20", %{scope: scope})
+
+    assert Enum.any?(rows, &(&1["id"] == dashboard.id and &1["status"] == "active"))
   end
 
   test "sharing requires edit access to the target dashboard", %{dashboard: dashboard} do

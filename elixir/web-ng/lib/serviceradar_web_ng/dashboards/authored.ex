@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   @dashboard_ref_min 1_000_000
   @dashboard_ref_max 9_999_999
+  @dashboard_slug_pattern ~r/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/
+  @dashboard_route_ref_pattern ~r/^\d{7}$/
   @reserved_dashboard_slugs MapSet.new([
                               "new",
                               "edit",
@@ -933,12 +935,25 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp validate_dashboard_attrs(attrs) do
     slug = Map.get(attrs, :slug)
 
-    if is_binary(slug) and MapSet.member?(@reserved_dashboard_slugs, slug) do
-      {:error, {:reserved_dashboard_slug, slug}}
-    else
-      {:ok, attrs}
+    cond do
+      not is_binary(slug) ->
+        {:ok, attrs}
+
+      MapSet.member?(@reserved_dashboard_slugs, slug) ->
+        {:error, {:reserved_dashboard_slug, slug}}
+
+      route_ref_slug?(slug) ->
+        {:error, {:route_ref_dashboard_slug, slug}}
+
+      not Regex.match?(@dashboard_slug_pattern, slug) ->
+        {:error, {:invalid_dashboard_slug, slug}}
+
+      true ->
+        {:ok, attrs}
     end
   end
+
+  defp route_ref_slug?(slug) when is_binary(slug), do: Regex.match?(@dashboard_route_ref_pattern, slug)
 
   defp dashboard_lookup(value) when is_binary(value) do
     value = String.trim(value)
@@ -947,7 +962,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       canonical_uuid?(value) ->
         {:id, value}
 
-      Regex.match?(~r/^\d{7}$/, value) ->
+      Regex.match?(@dashboard_route_ref_pattern, value) ->
         {dashboard_ref, ""} = Integer.parse(value)
         {:ref, dashboard_ref}
 
@@ -1211,7 +1226,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp slugify(value) when is_binary(value) do
     value
     |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_-]+/, "-")
+    |> String.replace(~r/[^a-z0-9]+/, "-")
     |> String.trim("-")
     |> case do
       "" -> nil

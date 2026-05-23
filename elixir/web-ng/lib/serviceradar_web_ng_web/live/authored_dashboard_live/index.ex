@@ -921,6 +921,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   defp format_error({:required, field}), do: "#{field} is required"
   defp format_error(:empty_query), do: "SRQL query is required"
   defp format_error(:forbidden), do: "Not authorized to manage analytics dashboards"
+  defp format_error({:reserved_dashboard_slug, slug}), do: "Dashboard slug #{slug} is reserved"
+
+  defp format_error({:route_ref_dashboard_slug, slug}),
+    do: "Dashboard slug #{slug} conflicts with generated dashboard IDs"
+
+  defp format_error({:invalid_dashboard_slug, slug}),
+    do: "Dashboard slug #{slug} must start with a letter and use only letters, numbers, and dashes"
+
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 end

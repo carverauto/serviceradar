@@ -179,11 +179,15 @@ defmodule ServiceRadarWebNG.Dashboards do
   defp dashboard_query_filters(query) when is_binary(query) do
     query
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.reject(&(String.starts_with?(&1, "in:") or String.starts_with?(&1, "limit:")))
+    |> Enum.reject(&dashboard_control_token?/1)
     |> Enum.flat_map(&dashboard_query_filter/1)
   end
 
   defp dashboard_query_filters(_query), do: []
+
+  defp dashboard_control_token?(token) do
+    Enum.any?(~w(in: limit: sort: time: stats: rollup_stats: group_by:), &String.starts_with?(token, &1))
+  end
 
   defp dashboard_query_filter("title:" <> value), do: [{:title, clean_srql_value(value)}]
 

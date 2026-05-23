@@ -1498,6 +1498,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp format_error(:forbidden), do: "Not authorized to share dashboards"
   defp format_error(:not_found), do: "Record not found"
+  defp format_error({:reserved_dashboard_slug, slug}), do: "Dashboard slug #{slug} is reserved"
+
+  defp format_error({:route_ref_dashboard_slug, slug}),
+    do: "Dashboard slug #{slug} conflicts with generated dashboard IDs"
+
+  defp format_error({:invalid_dashboard_slug, slug}),
+    do: "Dashboard slug #{slug} must start with a letter and use only letters, numbers, and dashes"
+
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 end
