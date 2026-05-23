@@ -412,8 +412,7 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
   defp dashboard_query_filters(query) when is_binary(query) do
     query
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.reject(&String.starts_with?(&1, "in:"))
-    |> Enum.reject(&String.starts_with?(&1, "limit:"))
+    |> Enum.reject(&(String.starts_with?(&1, "in:") or String.starts_with?(&1, "limit:")))
     |> Enum.map(&clean_filter/1)
     |> Enum.reject(&(&1 == ""))
   end

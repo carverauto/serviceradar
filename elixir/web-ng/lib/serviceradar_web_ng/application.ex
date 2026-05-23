@@ -35,8 +35,7 @@ defmodule ServiceRadarWebNG.Application do
       |> maybe_add_first_party_dashboard_seeder()
       |> Kernel.++([
         # DNS cluster for Kubernetes deployments
-        {DNSCluster,
-         query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
+        {DNSCluster, query: Application.get_env(:serviceradar_web_ng, :dns_cluster_query) || :ignore}
       ])
       |> maybe_add_local_mailer_storage()
 
@@ -129,9 +128,7 @@ defmodule ServiceRadarWebNG.Application do
       uri when is_binary(uri) and uri != "" ->
         [
           {Adbc.Database,
-           driver: :postgresql,
-           uri: uri,
-           process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
+           driver: :postgresql, uri: uri, process_options: [name: ServiceRadarWebNG.FieldSurveyAdbcDatabase]}
         ]
 
       _ ->

@@ -360,6 +360,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "name" => package.name,
         "version" => package.version,
         "vendor" => package.vendor,
+        "source_type" => Atom.to_string(package.source_type || :upload),
         "capabilities" => package.capabilities || [],
         "renderer" => package.renderer || %{},
         "data_frames" => data_frames,

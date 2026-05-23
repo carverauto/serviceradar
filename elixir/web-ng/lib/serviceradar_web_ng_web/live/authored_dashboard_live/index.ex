@@ -767,8 +767,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   defp default_renderer(%{type: :datetime}), do: "time"
   defp default_renderer(%{type: :number}), do: "number"
 
-  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample),
-    do: "json_summary"
+  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample), do: "json_summary"
 
   defp default_renderer(_field), do: "text"
 
@@ -845,11 +844,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
-  defp selected_visual(value, compatible) when is_atom(value),
-    do: selected_visual(Atom.to_string(value), compatible)
+  defp selected_visual(value, compatible) when is_atom(value), do: selected_visual(Atom.to_string(value), compatible)
 
-  defp selected_visual(_value, compatible),
-    do: compatible |> List.first(:table) |> Atom.to_string()
+  defp selected_visual(_value, compatible), do: compatible |> List.first(:table) |> Atom.to_string()
 
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
@@ -903,8 +900,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     Enum.filter(memberships, &(&1.group_id == group_id))
   end
 
-  defp membership_count(memberships, group_id),
-    do: memberships |> memberships_for(group_id) |> length()
+  defp membership_count(memberships, group_id), do: memberships |> memberships_for(group_id) |> length()
 
   defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
     "#{name} <#{email}>"

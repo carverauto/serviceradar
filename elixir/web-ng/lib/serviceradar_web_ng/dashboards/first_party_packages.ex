@@ -3,8 +3,8 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   Bootstraps dashboard packages that ship as part of the ServiceRadar product.
 
   These packages still use the same dashboard package and instance resources as
-  operator-imported packages, but their renderer artifacts are bundled in
-  `priv/` and served from the application release.
+  operator-imported packages, but their renderers are built into the web asset
+  pipeline instead of loaded as separate package artifacts.
   """
 
   use GenServer
@@ -19,11 +19,13 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   require Ash.Query
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @dashboard_id "cloud.serviceradar.service-availability-noc"
   @route_slug "service-availability-noc"
   @package_dir "dashboard-packages/service-availability-noc"
-  @renderer_artifact "renderer.js"
-  @first_party_object_key "first-party://dashboard-packages/service-availability-noc/renderer.js"
+  @renderer_artifact "service-availability-noc"
+  @first_party_object_key "first-party://built-in/service-availability-noc"
   @seed_delay_ms 5_000
   @retry_delay_ms 30_000
 
@@ -57,9 +59,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   def handle_info(:seed, state) do
     case seed_all() do
       {:ok, %{package: package, instance: instance}} ->
-        Logger.info(
-          "Seeded first-party dashboard #{package.dashboard_id} at /dashboards/#{instance.route_slug}"
-        )
+        Logger.info("Seeded first-party dashboard #{package.dashboard_id} at /dashboards/#{instance.route_slug}")
 
         {:stop, :normal, state}
 
@@ -86,9 +86,8 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   def ensure_service_availability_noc(opts \\ []) do
     actor = Keyword.get(opts, :actor) || SystemActor.system(:first_party_dashboard_seeder)
 
-    with {:ok, manifest_json, renderer} <- read_package(opts),
+    with {:ok, manifest_json} <- read_package(opts),
          {:ok, manifest} <- Manifest.from_json(manifest_json),
-         :ok <- PackageImport.verify_artifact_digest(renderer, manifest),
          {:ok, attrs} <- package_attrs(manifest, opts),
          {:ok, package} <- upsert_package(attrs, actor),
          {:ok, package} <- ensure_package_enabled(package, actor),
@@ -98,34 +97,13 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     end
   end
 
-  @doc """
-  Returns the bundled renderer for a first-party dashboard package.
-  """
-  @spec fetch_renderer(DashboardPackage.t(), keyword()) ::
-          {:ok, {:binary, binary()}} | {:error, term()}
-  def fetch_renderer(package, opts \\ [])
-
-  def fetch_renderer(
-        %DashboardPackage{source_type: :first_party, dashboard_id: @dashboard_id} = package,
-        opts
-      ) do
-    with {:ok, _manifest_json, renderer} <- read_package(opts),
-         :ok <- verify_package_renderer(package, renderer) do
-      {:ok, {:binary, renderer}}
-    end
-  end
-
-  def fetch_renderer(_package, _opts), do: {:error, :not_first_party}
-
+  @sobelow_skip ["Traversal.FileModule"]
   defp read_package(opts) do
     dir = Keyword.get(opts, :package_dir) || default_package_dir()
     manifest_path = Path.join(dir, "manifest.json")
-    renderer_path = Path.join(dir, @renderer_artifact)
 
-    with {:ok, manifest_json} <- File.read(manifest_path),
-         {:ok, renderer} <- File.read(renderer_path) do
-      {:ok, manifest_json, renderer}
-    else
+    case File.read(manifest_path) do
+      {:ok, manifest_json} -> {:ok, manifest_json}
       {:error, reason} -> {:error, {:first_party_dashboard_asset_unavailable, reason}}
     end
   end
@@ -153,9 +131,9 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
 
   defp bundle_digest(opts) do
     case read_package(opts) do
-      {:ok, manifest_json, renderer} ->
+      {:ok, manifest_json} ->
         :sha256
-        |> :crypto.hash(manifest_json <> renderer)
+        |> :crypto.hash(manifest_json)
         |> Base.encode16(case: :lower)
 
       {:error, _reason} ->
@@ -169,8 +147,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     |> Ash.create(actor: actor)
   end
 
-  defp ensure_package_enabled(%DashboardPackage{status: :enabled} = package, _actor),
-    do: {:ok, package}
+  defp ensure_package_enabled(%DashboardPackage{status: :enabled} = package, _actor), do: {:ok, package}
 
   defp ensure_package_enabled(%DashboardPackage{status: :revoked}, _actor) do
     {:error, :first_party_dashboard_package_revoked}
@@ -193,9 +170,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
         update_route_instance(instance, package, actor)
 
       {:ok, %DashboardInstance{dashboard_package: %DashboardPackage{dashboard_id: owner}}} ->
-        {:error,
-         {:first_party_dashboard_route_in_use,
-          %{route_slug: @route_slug, owner_dashboard_id: owner}}}
+        {:error, {:first_party_dashboard_route_in_use, %{route_slug: @route_slug, owner_dashboard_id: owner}}}
 
       {:error, reason} ->
         {:error, reason}
@@ -228,11 +203,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     |> Ash.create(actor: actor)
   end
 
-  defp update_route_instance(
-         %DashboardInstance{} = instance,
-         %DashboardPackage{} = package,
-         actor
-       ) do
+  defp update_route_instance(%DashboardInstance{} = instance, %DashboardPackage{} = package, actor) do
     attrs = %{
       dashboard_package_id: package.id,
       name: package.name,
@@ -246,8 +217,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     |> Ash.update(actor: actor)
   end
 
-  defp maybe_mark_default(%DashboardInstance{is_default: true} = instance, _actor),
-    do: {:ok, instance}
+  defp maybe_mark_default(%DashboardInstance{is_default: true} = instance, _actor), do: {:ok, instance}
 
   defp maybe_mark_default(%DashboardInstance{} = instance, actor) do
     case fetch_default_dashboard_instance(actor) do
@@ -276,22 +246,6 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     |> Ash.Query.limit(1)
     |> Ash.read_one(actor: actor)
   end
-
-  defp verify_package_renderer(%DashboardPackage{content_hash: hash}, renderer)
-       when is_binary(hash) do
-    actual =
-      :sha256
-      |> :crypto.hash(renderer)
-      |> Base.encode16(case: :lower)
-
-    if String.downcase(hash) == actual do
-      :ok
-    else
-      {:error, :digest_mismatch}
-    end
-  end
-
-  defp verify_package_renderer(_package, _renderer), do: {:error, :missing_content_hash}
 
   defp default_package_dir do
     :serviceradar_web_ng

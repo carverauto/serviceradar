@@ -94,13 +94,11 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "services")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "services")}
   end
 
   @impl true
@@ -721,8 +719,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp ensure_default_query(_params), do: %{"q" => @default_query}
 
-  defp build_service_cards(plugin_states, _services, scope)
-       when is_list(plugin_states) and plugin_states != [] do
+  defp build_service_cards(plugin_states, _services, scope) when is_list(plugin_states) and plugin_states != [] do
     plugin_states
     |> Enum.map(&service_state_to_service/1)
     |> build_service_cards_from_services(scope)
@@ -832,8 +829,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp extract_display_instructions(_), do: []
 
-  defp filter_display_by_contract(display, details, scope)
-       when is_list(display) and is_map(details) do
+  defp filter_display_by_contract(display, details, scope) when is_list(display) and is_map(details) do
     plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
 
     if is_binary(plugin_id) and plugin_id != "" do

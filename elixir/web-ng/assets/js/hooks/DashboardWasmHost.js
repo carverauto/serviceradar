@@ -1,12 +1,15 @@
 import {Socket} from "phoenix"
+import {builtInDashboardRenderers} from "../dashboards"
 
 const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
 const OSM_STYLE_ID = "serviceradar-dashboard-osm-raster"
 const MAX_INLINE_LAYER_ROWS = 10000
 const DEFAULT_RENDERER_BOOT_TIMEOUT_MS = 10000
+
 const DASHBOARD_WASM_INTERFACE = "dashboard-wasm-v1"
 const DASHBOARD_BROWSER_MODULE_INTERFACE = "dashboard-browser-module-v1"
+const DASHBOARD_BUILT_IN_INTERFACE = "dashboard-built-in-v1"
 const MAX_MERCATOR_LAT = 85.05112878
 
 let mapDependenciesPromise = null
@@ -385,6 +388,11 @@ const DashboardWasmHost = {
     try {
       this.validateInterfaceVersion(host)
 
+      if (this.rendererKind(host) === "built_in") {
+        await this.bootBuiltInRenderer(host)
+        return
+      }
+
       if (this.rendererKind(host) === "browser_module") {
         await this.bootBrowserModule(host)
         return
@@ -461,6 +469,33 @@ const DashboardWasmHost = {
 
     this.el.innerHTML = ""
     this.el.classList.add("sr-dashboard-browser-module")
+    this._host = host
+    this._dashboardLibraries = await loadMapDependencies()
+    if (this.cancelled) return
+
+    const mounted = await withTimeout(
+      Promise.resolve().then(() => mount(this.el, host, this.browserModuleApi(host))),
+      rendererBootTimeoutMs(host),
+      `dashboard renderer timed out after ${rendererBootTimeoutMs(host)}ms`,
+    )
+    this._moduleDestroy = typeof mounted === "function" ? mounted : mounted?.destroy
+    this.connectFrameStream(host)
+  },
+
+  async bootBuiltInRenderer(host) {
+    const entrypoint = String(host?.package?.renderer?.entrypoint || host?.package?.renderer?.artifact || "")
+    const mount = builtInDashboardRenderers[entrypoint]
+
+    if (host?.package?.source_type !== "first_party") {
+      throw new Error("built-in dashboard renderers are only available to first-party packages")
+    }
+
+    if (typeof mount !== "function") {
+      throw new Error(`unknown built-in dashboard renderer: ${entrypoint || "missing"}`)
+    }
+
+    this.el.innerHTML = ""
+    this.el.classList.add("sr-dashboard-built-in")
     this._host = host
     this._dashboardLibraries = await loadMapDependencies()
     if (this.cancelled) return
@@ -968,11 +1003,15 @@ const DashboardWasmHost = {
     const declared = host?.package?.renderer?.interface_version || host?.host?.interface_version
     const kind = this.rendererKind(host)
 
+    if (kind === "built_in" && declared !== DASHBOARD_BUILT_IN_INTERFACE) {
+      throw new Error(`unsupported built-in dashboard renderer interface: ${declared || "missing"}`)
+    }
+
     if (kind === "browser_module" && declared !== DASHBOARD_BROWSER_MODULE_INTERFACE) {
       throw new Error(`unsupported dashboard browser module interface: ${declared || "missing"}`)
     }
 
-    if (kind !== "browser_module" && declared !== DASHBOARD_WASM_INTERFACE) {
+    if (kind !== "browser_module" && kind !== "built_in" && declared !== DASHBOARD_WASM_INTERFACE) {
       throw new Error(`unsupported dashboard WASM interface: ${declared || "missing"}`)
     }
   },

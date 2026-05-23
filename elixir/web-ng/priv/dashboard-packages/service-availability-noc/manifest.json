@@ -105,12 +105,12 @@
     }
   },
   "renderer": {
-    "kind": "browser_module",
-    "interface_version": "dashboard-browser-module-v1",
-    "artifact": "renderer.js",
-    "trust": "trusted",
-    "entrypoint": "mountDashboard",
-    "sha256": "3d8980cd86319c3c385ca8a8fede9308f40413d8f90c01c9a584160d84dfa69f"
+    "kind": "built_in",
+    "interface_version": "dashboard-built-in-v1",
+    "artifact": "service-availability-noc",
+    "trust": "first_party",
+    "entrypoint": "service_availability_noc",
+    "sha256": "c903cf36a7f0d7f64dcf3916550b2c81e7ca7b814ba5abc36d9c340c03a8d2f1"
   },
   "schema_version": 1
 }

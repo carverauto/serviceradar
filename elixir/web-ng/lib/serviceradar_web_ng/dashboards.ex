@@ -114,8 +114,7 @@ defmodule ServiceRadarWebNG.Dashboards do
   @spec authored_dashboard_route_ref(map()) :: String.t()
   def authored_dashboard_route_ref(%{slug: slug}) when is_binary(slug) and slug != "", do: slug
 
-  def authored_dashboard_route_ref(%{dashboard_ref: ref}) when is_integer(ref),
-    do: Integer.to_string(ref)
+  def authored_dashboard_route_ref(%{dashboard_ref: ref}) when is_integer(ref), do: Integer.to_string(ref)
 
   def authored_dashboard_route_ref(%{id: id}), do: to_string(id)
   def authored_dashboard_route_ref(_), do: ""
@@ -180,8 +179,7 @@ defmodule ServiceRadarWebNG.Dashboards do
   defp dashboard_query_filters(query) when is_binary(query) do
     query
     |> String.split(~r/\s+/, trim: true)
-    |> Enum.reject(&String.starts_with?(&1, "in:"))
-    |> Enum.reject(&String.starts_with?(&1, "limit:"))
+    |> Enum.reject(&(String.starts_with?(&1, "in:") or String.starts_with?(&1, "limit:")))
     |> Enum.flat_map(&dashboard_query_filter/1)
   end
 
@@ -189,8 +187,7 @@ defmodule ServiceRadarWebNG.Dashboards do
 
   defp dashboard_query_filter("title:" <> value), do: [{:title, clean_srql_value(value)}]
 
-  defp dashboard_query_filter("description:" <> value),
-    do: [{:description, clean_srql_value(value)}]
+  defp dashboard_query_filter("description:" <> value), do: [{:description, clean_srql_value(value)}]
 
   defp dashboard_query_filter("slug:" <> value), do: [{:slug, clean_srql_value(value)}]
   defp dashboard_query_filter("type:" <> value), do: [{:type, clean_srql_value(value)}]
@@ -219,8 +216,7 @@ defmodule ServiceRadarWebNG.Dashboards do
   defp package_name(%{name: name}) when is_binary(name) and name != "", do: name
   defp package_name(_package), do: nil
 
-  defp package_description(%{description: description})
-       when is_binary(description) and description != "" do
+  defp package_description(%{description: description}) when is_binary(description) and description != "" do
     description
   end
 
