@@ -118,15 +118,14 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
   end
 
   @doc false
+  @spec validate_first_party_manifest(Manifest.t()) :: :ok | {:error, term()}
   def validate_first_party_manifest(%Manifest{data_frames: data_frames}) do
-    supported_entities = MapSet.new(@supported_first_party_frame_entities)
-
     data_frames
     |> Enum.filter(&Map.get(&1, "required", true))
     |> Enum.reduce_while(:ok, fn frame, :ok ->
       case frame_entity(Map.get(frame, "query")) do
         {:ok, entity} ->
-          if MapSet.member?(supported_entities, entity) do
+          if entity in @supported_first_party_frame_entities do
             {:cont, :ok}
           else
             {:halt, {:error, {:unsupported_first_party_dashboard_frame_entity, frame["id"], entity}}}
@@ -138,6 +137,7 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
     end)
   end
 
+  @spec frame_entity(term()) :: {:ok, String.t()} | :error
   defp frame_entity(query) when is_binary(query) do
     case Regex.run(~r/(?:^|\s)in:([a-zA-Z0-9_]+)/, query) do
       [_, entity] -> {:ok, entity}

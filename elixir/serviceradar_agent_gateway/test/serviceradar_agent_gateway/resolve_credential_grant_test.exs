@@ -3,6 +3,7 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
 
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.AgentGatewayServer
+  alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
 
   defmodule PeerCertAdapter do
@@ -13,15 +14,15 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
   end
 
   setup do
-    ensure_revocation_store!()
+    CertificateTestHelpers.ensure_revocation_store!()
     AgentCertificateRevocation.clear()
 
-    parent_dir = unique_tmp_dir!("resolve-credential-grant-test")
+    parent_dir = CertificateTestHelpers.unique_tmp_dir!("resolve-credential-grant-test")
     on_exit(fn -> File.rm_rf(parent_dir) end)
 
     ca_cert = Path.join(parent_dir, "root.pem")
     ca_key = Path.join(parent_dir, "root-key.pem")
-    generate_ca_bundle!(ca_cert, ca_key)
+    CertificateTestHelpers.generate_ca_bundle!(ca_cert, ca_key)
 
     %{parent_dir: parent_dir, ca_cert: ca_cert, ca_key: ca_key}
   end
@@ -101,59 +102,6 @@ defmodule ServiceRadarAgentGateway.ResolveCredentialGrantTest do
         audit_writer: nil
       )
 
-    certificate_der!(bundle.certificate_pem)
-  end
-
-  defp ensure_revocation_store! do
-    if Process.whereis(AgentCertificateRevocation) do
-      :ok
-    else
-      start_supervised!(AgentCertificateRevocation)
-    end
-  end
-
-  defp certificate_der!(certificate_pem) do
-    certificate_pem
-    |> :public_key.pem_decode()
-    |> Enum.find_value(fn
-      {:Certificate, der, :not_encrypted} -> der
-      _ -> nil
-    end) ||
-      flunk("issued bundle did not include a certificate")
-  end
-
-  defp generate_ca_bundle!(ca_cert, ca_key) do
-    args = [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-keyout",
-      ca_key,
-      "-out",
-      ca_cert,
-      "-sha256",
-      "-days",
-      "1",
-      "-nodes",
-      "-subj",
-      "/CN=ServiceRadar Test Root"
-    ]
-
-    case System.cmd("openssl", args, stderr_to_stdout: true) do
-      {_output, 0} -> :ok
-      {output, status} -> flunk("openssl test CA generation failed (#{status}): #{output}")
-    end
-  end
-
-  defp unique_tmp_dir!(prefix) do
-    dir =
-      Path.join(
-        System.tmp_dir!(),
-        "#{prefix}-" <> (8 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
-      )
-
-    File.mkdir_p!(dir)
-    dir
+    CertificateTestHelpers.certificate_der!(bundle.certificate_pem)
   end
 end
