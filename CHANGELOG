@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.79
+
+Dashboard SRQL service views and default dashboard recovery.
+
+## Whats New
+
+**1.2.79**
+- Added SRQL support for dashboard service views, including `service_availability`, `monitored_services`, and `slo_evaluations` entities with rollups, status/severity filters, time filters, sorting, and visualization metadata.
+- Restored the bundled Service Availability NOC dashboard so `/dashboards` can load a default first-party dashboard backed by real SRQL frame data instead of placeholder queries.
+- Enhanced authored dashboards with visual binding validation, richer builder metadata, dashboard route/search improvements, and seeded first-party dashboard package handling.
+- Tightened dashboard release quality checks with fixture-backed package tests, manifest validation, and bounded migration startup-safety documentation.
+
 # ServiceRadar v1.2.78
 
 Dashboard creator foundation and agent plugin runtime hardening.
