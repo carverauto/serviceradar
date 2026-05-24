@@ -77,6 +77,9 @@ enum BindValue {
     Timestamp(DateTime<Utc>),
 }
 
+type FilterClause = (String, Vec<BindValue>);
+type FilterClauseFn = fn(&Filter) -> Result<FilterClause>;
+
 impl BindValue {
     fn bind<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
         match self {
@@ -464,7 +467,7 @@ fn append_where_filters(
     sql: &mut String,
     binds: &mut Vec<BindValue>,
     plan: &QueryPlan,
-    filter_fn: fn(&Filter) -> Result<(String, Vec<BindValue>)>,
+    filter_fn: FilterClauseFn,
 ) -> Result<()> {
     if plan.filters.is_empty() {
         return Ok(());
@@ -497,7 +500,7 @@ fn append_order_limit_offset(
     Ok(())
 }
 
-fn availability_filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
+fn availability_filter_clause(filter: &Filter) -> Result<FilterClause> {
     match filter.field.as_str() {
         "uid" => text_filter("s.uid", filter),
         "service_name" | "name" | "display_name" => text_filter("s.service_name", filter),
@@ -516,7 +519,7 @@ fn availability_filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>
     }
 }
 
-fn monitored_filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
+fn monitored_filter_clause(filter: &Filter) -> Result<FilterClause> {
     match filter.field.as_str() {
         "uid" => text_filter("s.uid", filter),
         "display_name" | "service_name" | "name" => text_filter("s.display_name", filter),
@@ -535,7 +538,7 @@ fn monitored_filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>)> 
     }
 }
 
-fn slo_filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
+fn slo_filter_clause(filter: &Filter) -> Result<FilterClause> {
     match filter.field.as_str() {
         "uid" => text_filter("e.uid", filter),
         "slo_key" => text_filter("e.slo_key", filter),
@@ -552,7 +555,7 @@ fn slo_filter_clause(filter: &Filter) -> Result<(String, Vec<BindValue>)> {
     }
 }
 
-fn text_filter(column: &str, filter: &Filter) -> Result<(String, Vec<BindValue>)> {
+fn text_filter(column: &str, filter: &Filter) -> Result<FilterClause> {
     match filter.op {
         FilterOp::Eq => Ok((format!("{column} = ?"), vec![text_scalar(filter)?])),
         FilterOp::NotEq => Ok((format!("{column} <> ?"), vec![text_scalar(filter)?])),
@@ -567,11 +570,11 @@ fn text_filter(column: &str, filter: &Filter) -> Result<(String, Vec<BindValue>)
     }
 }
 
-fn nullable_text_filter(column: &str, filter: &Filter) -> Result<(String, Vec<BindValue>)> {
+fn nullable_text_filter(column: &str, filter: &Filter) -> Result<FilterClause> {
     text_filter(&format!("COALESCE({column}, '')"), filter)
 }
 
-fn bool_filter(column: &str, filter: &Filter) -> Result<(String, Vec<BindValue>)> {
+fn bool_filter(column: &str, filter: &Filter) -> Result<FilterClause> {
     let value = parse_bool(filter.value.as_scalar()?)?;
     match filter.op {
         FilterOp::Eq => Ok((format!("{column} = ?"), vec![BindValue::Bool(value)])),
