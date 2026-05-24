@@ -15,31 +15,31 @@ defmodule ServiceRadar.Identity.UserGroup do
   @fields [:name, :description, :owner_id, :metadata]
 
   postgres do
-    table("user_groups")
-    repo(ServiceRadar.Repo)
-    schema("platform")
-    migrate?(false)
+    table "user_groups"
+    repo ServiceRadar.Repo
+    schema "platform"
+    migrate? false
 
     references do
-      reference(:owner, on_delete: :nilify)
+      reference :owner, on_delete: :nilify
     end
   end
 
   code_interface do
-    define(:list, action: :read)
-    define(:create_group, action: :create)
-    define(:update_group, action: :update)
+    define :list, action: :read
+    define :create_group, action: :create
+    define :update_group, action: :update
   end
 
   actions do
-    defaults([:read, :destroy])
+    defaults [:read, :destroy]
 
     create :create do
-      accept(@fields)
+      accept @fields
     end
 
     update :update do
-      accept(@fields -- [:owner_id])
+      accept @fields -- [:owner_id]
     end
   end
 
@@ -52,45 +52,45 @@ defmodule ServiceRadar.Identity.UserGroup do
   end
 
   attributes do
-    uuid_primary_key(:id)
+    uuid_primary_key :id
 
     attribute :name, :string do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :description, :string do
-      public?(true)
+      public? true
     end
 
     attribute :owner_id, :uuid do
-      public?(true)
+      public? true
     end
 
     attribute :metadata, :map do
-      allow_nil?(false)
-      public?(true)
-      default(%{})
+      allow_nil? false
+      public? true
+      default %{}
     end
 
-    create_timestamp(:inserted_at)
-    update_timestamp(:updated_at)
+    create_timestamp :inserted_at
+    update_timestamp :updated_at
   end
 
   relationships do
     belongs_to :owner, ServiceRadar.Identity.User do
-      attribute_writable?(true)
-      public?(true)
-      define_attribute?(false)
-      source_attribute(:owner_id)
+      attribute_writable? true
+      public? true
+      define_attribute? false
+      source_attribute :owner_id
     end
 
     has_many :memberships, ServiceRadar.Identity.UserGroupMembership do
-      destination_attribute(:group_id)
+      destination_attribute :group_id
     end
   end
 
   identities do
-    identity(:unique_name, [:name])
+    identity :unique_name, [:name]
   end
 end

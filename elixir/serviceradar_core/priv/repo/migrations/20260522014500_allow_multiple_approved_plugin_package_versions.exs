@@ -7,6 +7,8 @@ defmodule ServiceRadar.Repo.Migrations.AllowMultipleApprovedPluginPackageVersion
   end
 
   def down do
+    # serviceradar:allow-startup-maintenance - rollback-only bounded cleanup that restores
+    # the previous single-approved-package invariant before recreating the unique index.
     execute("""
     WITH ranked AS (
       SELECT

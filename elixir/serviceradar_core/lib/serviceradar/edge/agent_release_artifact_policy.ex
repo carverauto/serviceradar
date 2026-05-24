@@ -11,9 +11,10 @@ defmodule ServiceRadar.Edge.AgentReleaseArtifactPolicy do
 
   @spec enabled?(map()) :: boolean()
   def enabled?(artifact) when is_map(artifact) do
-    cond do
-      rdp_artifact?(artifact) -> remote_access_desktop_rdp_enabled?()
-      true -> true
+    if rdp_artifact?(artifact) do
+      remote_access_desktop_rdp_enabled?()
+    else
+      true
     end
   end
 

@@ -2,19 +2,20 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
+  alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
 
   setup do
-    ensure_revocation_store!()
+    CertificateTestHelpers.ensure_revocation_store!()
     AgentCertificateRevocation.clear()
 
-    parent_dir = unique_tmp_dir!("component-identity-resolver-test")
+    parent_dir = CertificateTestHelpers.unique_tmp_dir!("component-identity-resolver-test")
     on_exit(fn -> File.rm_rf(parent_dir) end)
 
     ca_cert = Path.join(parent_dir, "root.pem")
     ca_key = Path.join(parent_dir, "root-key.pem")
-    generate_ca_bundle!(ca_cert, ca_key)
+    CertificateTestHelpers.generate_ca_bundle!(ca_cert, ca_key)
 
     {:ok, bundle} =
       CertIssuer.issue_agent_bundle(
@@ -27,7 +28,7 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
         audit_writer: nil
       )
 
-    %{cert_der: certificate_der!(bundle.certificate_pem)}
+    %{cert_der: CertificateTestHelpers.certificate_der!(bundle.certificate_pem)}
   end
 
   test "resolves certificate identity with fingerprint and serial", %{cert_der: cert_der} do
@@ -55,58 +56,5 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
              )
 
     assert {:error, :revoked_certificate} = ComponentIdentityResolver.resolve_from_cert(cert_der)
-  end
-
-  defp ensure_revocation_store! do
-    if Process.whereis(AgentCertificateRevocation) do
-      :ok
-    else
-      start_supervised!(AgentCertificateRevocation)
-    end
-  end
-
-  defp certificate_der!(certificate_pem) do
-    certificate_pem
-    |> :public_key.pem_decode()
-    |> Enum.find_value(fn
-      {:Certificate, der, :not_encrypted} -> der
-      _ -> nil
-    end) ||
-      flunk("issued bundle did not include a certificate")
-  end
-
-  defp generate_ca_bundle!(ca_cert, ca_key) do
-    args = [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-keyout",
-      ca_key,
-      "-out",
-      ca_cert,
-      "-sha256",
-      "-days",
-      "1",
-      "-nodes",
-      "-subj",
-      "/CN=ServiceRadar Test Root"
-    ]
-
-    case System.cmd("openssl", args, stderr_to_stdout: true) do
-      {_output, 0} -> :ok
-      {output, status} -> flunk("openssl test CA generation failed (#{status}): #{output}")
-    end
-  end
-
-  defp unique_tmp_dir!(prefix) do
-    dir =
-      Path.join(
-        System.tmp_dir!(),
-        "#{prefix}-" <> (8 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
-      )
-
-    File.mkdir_p!(dir)
-    dir
   end
 end

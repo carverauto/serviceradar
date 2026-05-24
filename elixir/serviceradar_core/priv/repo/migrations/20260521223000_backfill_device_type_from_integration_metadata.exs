@@ -3,6 +3,8 @@ defmodule ServiceRadar.Repo.Migrations.BackfillDeviceTypeFromIntegrationMetadata
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - bounded metadata-derived backfill for devices
+    # still typed as Unknown; required so existing inventory rows feed the new type rollups.
     execute("""
     WITH candidates AS (
       SELECT

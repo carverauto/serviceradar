@@ -1,111 +1,145 @@
 [
   {
     "id": "availability_rollup",
-    "query": "in:services time:last_1h rollup_stats:availability",
+    "query": "in:service_availability time:last_1h rollup_stats:availability",
     "encoding": "json_rows",
     "status": "ok",
     "results": [
       {
         "total": 400,
-        "available": 389,
-        "unavailable": 11,
-        "availability_pct": 97.25
+        "ok": 386,
+        "warning": 4,
+        "critical": 8,
+        "unknown": 2,
+        "available": 386,
+        "unavailable": 10,
+        "availability_pct": 96.5
       }
     ]
   },
   {
     "id": "attention_services",
-    "query": "in:services available:false time:last_1h sort:timestamp:desc limit:50",
+    "query": "in:service_availability status:(critical,unknown,warning) time:last_1h sort:last_observed_at:desc limit:50",
     "encoding": "json_rows",
     "status": "ok",
     "results": [
       {
-        "service": "Demo URL 037",
+        "uid": "svc-demo-url-037",
         "service_name": "Demo URL 037",
-        "device_id": "demo-url-037",
-        "agent_id": "demo-agent",
+        "service_key": "demo-gateway:demo-agent:Demo URL 037",
+        "service_kind": "http",
+        "descriptor_id": "http",
+        "status": "critical",
         "available": false,
-        "status": "unavailable",
         "response_time_ms": 821,
-        "timestamp": "2026-05-21T22:42:00Z"
+        "summary": "http 500 in 821ms",
+        "last_observed_at": "2026-05-21T22:42:00Z"
       },
       {
-        "service": "Demo URL 074",
+        "uid": "svc-demo-url-074",
         "service_name": "Demo URL 074",
-        "device_id": "demo-url-074",
-        "agent_id": "demo-agent",
-        "available": false,
-        "status": "unavailable",
+        "service_key": "demo-gateway:demo-agent:Demo URL 074",
+        "service_kind": "http",
+        "descriptor_id": "http",
+        "status": "warning",
+        "available": true,
         "response_time_ms": 794,
-        "timestamp": "2026-05-21T22:41:00Z"
+        "summary": "http 200 in 794ms",
+        "last_observed_at": "2026-05-21T22:41:00Z"
       },
       {
-        "service": "Demo Database 019",
+        "uid": "svc-demo-db-019",
         "service_name": "Demo Database 019",
-        "device_id": "demo-db-019",
-        "agent_id": "demo-agent",
+        "service_key": "demo-gateway:demo-agent:Demo Database 019",
+        "service_kind": "postgres",
+        "descriptor_id": "postgres",
+        "status": "critical",
         "available": false,
-        "status": "unavailable",
         "response_time_ms": 1042,
-        "timestamp": "2026-05-21T22:40:00Z"
-      },
-      {
-        "service": "Demo Database 096",
-        "service_name": "Demo Database 096",
-        "device_id": "demo-db-096",
-        "agent_id": "demo-agent",
-        "available": false,
-        "status": "unavailable",
-        "response_time_ms": null,
-        "timestamp": "2026-05-21T22:31:00Z"
+        "summary": "connection timeout after 1042ms",
+        "last_observed_at": "2026-05-21T22:40:00Z"
       }
     ]
   },
   {
     "id": "service_inventory",
-    "query": "in:services time:last_1h sort:timestamp:desc limit:200",
+    "query": "in:monitored_services time:last_1h sort:display_name:asc limit:200",
     "encoding": "json_rows",
     "status": "ok",
     "results": [
       {
-        "service": "Demo URL 001",
-        "service_name": "Demo URL 001",
-        "device_id": "demo-url-001",
-        "agent_id": "demo-agent",
+        "uid": "svc-demo-url-001",
+        "display_name": "Demo URL 001",
+        "service_key": "demo-gateway:demo-agent:Demo URL 001",
+        "service_kind": "http",
+        "protocol": "https",
+        "host": "demo-001.example.net",
+        "port": 443,
+        "status": "ok",
         "available": true,
-        "status": "available",
-        "response_time_ms": 12,
-        "timestamp": "2026-05-21T22:45:00Z"
+        "last_observed_at": "2026-05-21T22:45:00Z"
       },
       {
-        "service": "Demo URL 002",
-        "service_name": "Demo URL 002",
-        "device_id": "demo-url-002",
-        "agent_id": "demo-agent",
+        "uid": "svc-demo-db-001",
+        "display_name": "Demo Database 001",
+        "service_key": "demo-gateway:demo-agent:Demo Database 001",
+        "service_kind": "postgres",
+        "protocol": "tcp",
+        "host": "db-001.example.net",
+        "port": 5432,
+        "status": "ok",
         "available": true,
-        "status": "available",
-        "response_time_ms": 15,
-        "timestamp": "2026-05-21T22:45:00Z"
+        "last_observed_at": "2026-05-21T22:45:00Z"
+      }
+    ]
+  },
+  {
+    "id": "slo_evaluations",
+    "query": "in:slo_evaluations severity:(warning,critical) time:last_24h sort:evaluated_at:desc limit:25",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "uid": "slo-demo-url-037",
+        "slo_key": "demo-gateway:demo-agent:Demo URL 037:availability_99",
+        "slo_name": "Demo URL 037 availability",
+        "owner": "operations",
+        "compliance_state": "noncompliant",
+        "severity": "critical",
+        "budget_remaining_basis_points": -175,
+        "burn_rate_short": 2.75,
+        "projected_exhaustion_at": null,
+        "evaluated_at": "2026-05-21T22:42:00Z"
       },
       {
-        "service": "Demo Database 001",
-        "service_name": "Demo Database 001",
-        "device_id": "demo-db-001",
-        "agent_id": "demo-agent",
-        "available": true,
-        "status": "available",
-        "response_time_ms": 22,
-        "timestamp": "2026-05-21T22:45:00Z"
-      },
+        "uid": "slo-demo-url-074",
+        "slo_key": "demo-gateway:demo-agent:Demo URL 074:availability_99",
+        "slo_name": "Demo URL 074 availability",
+        "owner": "operations",
+        "compliance_state": "at_risk",
+        "severity": "warning",
+        "budget_remaining_basis_points": 12,
+        "burn_rate_short": 0.88,
+        "projected_exhaustion_at": null,
+        "evaluated_at": "2026-05-21T22:41:00Z"
+      }
+    ]
+  },
+  {
+    "id": "slo_budget_rollup",
+    "query": "in:slo_evaluations time:last_24h rollup_stats:slo_error_budget",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
       {
-        "service": "Demo Database 002",
-        "service_name": "Demo Database 002",
-        "device_id": "demo-db-002",
-        "agent_id": "demo-agent",
-        "available": true,
-        "status": "available",
-        "response_time_ms": 24,
-        "timestamp": "2026-05-21T22:45:00Z"
+        "total": 400,
+        "critical": 8,
+        "warning": 4,
+        "ok": 388,
+        "error_budget_remaining": -175,
+        "avg_budget_remaining_basis_points": 81,
+        "max_burn_rate_short": 2.75,
+        "next_projected_exhaustion_at": null
       }
     ]
   }

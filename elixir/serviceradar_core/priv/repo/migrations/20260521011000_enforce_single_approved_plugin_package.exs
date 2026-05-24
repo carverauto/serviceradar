@@ -3,6 +3,8 @@ defmodule ServiceRadar.Repo.Migrations.EnforceSingleApprovedPluginPackage do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded cleanup before adding
+    # the partial unique index; only duplicate approved plugin package rows are touched.
     execute("""
     WITH ranked AS (
       SELECT

@@ -55,7 +55,8 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget do
     to_string(user_id) == actor_id
   end
 
-  defp grant_matches_actor?(%{subject_type: type, subject_group: group}, actor_id) when type in [:group, "group"] do
+  defp grant_matches_actor?(%{subject_type: type, subject_group: group}, actor_id)
+       when type in [:group, "group"] do
     group
     |> Map.get(:memberships, [])
     |> Enum.any?(&(to_string(&1.user_id) == actor_id))
