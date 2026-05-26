@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       |> assign(:preview, nil)
       |> assign(:pending_panels, [])
       |> assign(:selected_pending_panel_id, "")
+      |> assign(:inspector_errors, %{})
       |> assign(:selected_visuals, [:table])
       |> assign(:visual_options, Dashboards.authored_visual_options())
       |> assign_dashboard_builder(default_dashboard_params()["srql_query"])
@@ -227,11 +228,46 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                  socket
                  |> assign(:pending_panels, panels)
                  |> assign(:selected_pending_panel_id, panel.id)
+                 |> assign(:inspector_errors, Map.delete(socket.assigns.inspector_errors, panel.id))
                  |> assign(:dashboard_params, params)
                  |> assign_form()}
 
               {:error, reason} ->
-                {:noreply, put_flash(socket, :error, "Panel update failed: #{format_error(reason)}")}
+                {:noreply, assign_inspector_error(socket, id, reason)}
+            end
+        end
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
+  end
+
+  def handle_event("canvas_preview_panel", %{"id" => id, "panel" => params}, socket) when is_map(params) do
+    scope = socket.assigns.current_scope
+
+    case authorize_manage(socket) do
+      :ok ->
+        case Enum.find(socket.assigns.pending_panels, &(&1.id == id)) do
+          nil ->
+            {:noreply, assign_inspector_error(socket, id, "Panel not found")}
+
+          existing ->
+            params = merge_params(pending_panel_params(existing), params)
+
+            case panel_entry_from_params(scope, params, existing.position) do
+              {:ok, panel} ->
+                panel = %{panel | id: existing.id, layout: existing.layout, position: existing.position}
+
+                {:noreply,
+                 socket
+                 |> assign(:pending_panels, replace_pending_panel(socket.assigns.pending_panels, panel))
+                 |> assign(:selected_pending_panel_id, panel.id)
+                 |> assign(:dashboard_params, params)
+                 |> assign(:inspector_errors, Map.delete(socket.assigns.inspector_errors, panel.id))
+                 |> assign_form()}
+
+              {:error, reason} ->
+                {:noreply, assign_inspector_error(socket, id, reason)}
             end
         end
 
@@ -270,6 +306,32 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
           end)
 
         {:noreply, assign(socket, :pending_panels, panels)}
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
+  end
+
+  def handle_event("restore_canvas_draft", %{"dashboard" => dashboard, "panels" => panels}, socket)
+      when is_map(dashboard) and is_list(panels) do
+    case authorize_manage(socket) do
+      :ok ->
+        restored_panels =
+          panels
+          |> Enum.map(&restore_pending_panel/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.with_index()
+          |> Enum.map(&position_pending_panel/1)
+
+        selected_id = restored_panels |> List.first() |> then(&((&1 && &1.id) || ""))
+
+        {:noreply,
+         socket
+         |> assign(:dashboard_params, merge_params(socket.assigns.dashboard_params, dashboard))
+         |> assign(:pending_panels, restored_panels)
+         |> assign(:selected_pending_panel_id, selected_id)
+         |> assign(:inspector_errors, %{})
+         |> assign_form()}
 
       {:error, _reason} ->
         deny_manage(socket)
@@ -473,6 +535,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
+  defp assign_inspector_error(socket, id, reason) do
+    assign(socket, :inspector_errors, Map.put(socket.assigns.inspector_errors, id, format_error(reason)))
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -606,106 +672,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                 selected_id={@selected_pending_panel_id}
                 can_manage={@can_manage?}
                 default_query={@default_query}
+                dashboard_params={@dashboard_params}
+                inspector_errors={@inspector_errors}
+                srql_completions={srql_completions()}
+                draft_storage_key={dashboard_draft_storage_key(@current_scope)}
               />
-            </div>
-          </section>
-
-          <section
-            :if={@can_manage_groups? or @can_view_share_principals?}
-            class="rounded-lg border border-base-300 bg-base-100 xl:col-span-2"
-          >
-            <div class="border-b border-base-300 px-4 py-3">
-              <h2 class="text-sm font-semibold">User Groups</h2>
-              <p class="text-xs text-base-content/55">
-                Reusable groups for dashboard sharing and future access-controlled features.
-              </p>
-            </div>
-
-            <div
-              :if={@loading_access?}
-              class="p-4 text-sm text-base-content/60"
-            >
-              Loading groups...
-            </div>
-
-            <div :if={!@loading_access?} class="grid grid-cols-1 gap-6 p-4 lg:grid-cols-[1fr_360px]">
-              <div class="space-y-3">
-                <div
-                  :if={@user_groups == []}
-                  class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
-                >
-                  No user groups have been created yet.
-                </div>
-
-                <article
-                  :for={group <- @user_groups}
-                  class="rounded-lg border border-base-300 p-4"
-                >
-                  <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <h3 class="text-sm font-semibold">{group.name}</h3>
-                      <p class="mt-1 text-xs text-base-content/55">
-                        {group.description || "No description"}
-                      </p>
-                    </div>
-                    <span class="badge badge-outline">
-                      {membership_count(@user_group_memberships, group.id)} members
-                    </span>
-                  </div>
-                  <div class="mt-3 flex flex-wrap gap-2">
-                    <span
-                      :for={membership <- memberships_for(@user_group_memberships, group.id)}
-                      class="badge badge-ghost"
-                    >
-                      {user_label(membership.user)}
-                    </span>
-                  </div>
-                </article>
-              </div>
-
-              <div :if={@can_manage_groups?} class="space-y-4">
-                <.form
-                  for={@group_form}
-                  as={:group}
-                  phx-change="validate_group"
-                  phx-submit="create_group"
-                  class="space-y-3"
-                >
-                  <.input field={@group_form[:name]} type="text" label="Group name" />
-                  <.input field={@group_form[:description]} type="text" label="Description" />
-                  <button type="submit" class="btn btn-sm btn-primary">
-                    <.icon name="hero-user-group" class="size-4" /> Create Group
-                  </button>
-                </.form>
-
-                <.form
-                  for={@membership_form}
-                  as={:membership}
-                  phx-change="validate_membership"
-                  phx-submit="add_group_member"
-                  class="space-y-3 border-t border-base-300 pt-4"
-                >
-                  <.input
-                    field={@membership_form[:group_id]}
-                    type="select"
-                    label="Group"
-                    options={group_select_options(@user_groups)}
-                  />
-                  <.input
-                    field={@membership_form[:user_id]}
-                    type="select"
-                    label="User"
-                    options={user_select_options(@users)}
-                  />
-                  <button
-                    type="submit"
-                    class="btn btn-sm"
-                    disabled={@user_groups == [] or @users == []}
-                  >
-                    <.icon name="hero-user-plus" class="size-4" /> Add Member
-                  </button>
-                </.form>
-              </div>
             </div>
           </section>
         </div>
@@ -759,9 +730,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
         visual_type: to_string(panel.visual_type),
         trend_query: panel.trend_query,
         data_binding: panel.data_binding || %{},
-        display_config: panel.display_config || %{},
+        display_config: Map.take(panel.display_config || %{}, ["label", "unit"]),
         visual_config: panel.visual_config || %{},
-        field_metadata: panel.field_metadata || %{},
         preview: panel[:preview],
         layout: panel.layout || %{},
         position: panel.position || 0
@@ -789,6 +759,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   defp field_value(field, key) when is_map(field), do: Map.get(field, key) || Map.get(field, to_string(key))
   defp field_value(field, key), do: Map.get(field, key)
 
+  defp restore_pending_panel(%{} = panel) do
+    id = field_value(panel, :id)
+
+    if is_binary(id) and id != "" do
+      %{
+        id: id,
+        title: field_value(panel, :title) || "Panel",
+        dataset_key: field_value(panel, :dataset_key) || "primary",
+        srql_query: field_value(panel, :srql_query) || @default_query,
+        builder_state: field_value(panel, :builder_state) || %{},
+        visual_type: field_value(panel, :visual_type) || "table",
+        trend_query: field_value(panel, :trend_query),
+        data_binding: field_value(panel, :data_binding) || %{},
+        display_config: field_value(panel, :display_config) || %{},
+        visual_config: field_value(panel, :visual_config) || %{},
+        field_metadata: field_value(panel, :field_metadata) || %{},
+        preview: field_value(panel, :preview),
+        layout: field_value(panel, :layout) || %{},
+        position: parse_int(field_value(panel, :position), 0)
+      }
+    end
+  end
+
+  defp restore_pending_panel(_panel), do: nil
+
   defp pending_panel_params(panel) do
     %{
       "dataset_key" => panel.dataset_key,
@@ -796,7 +791,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       "srql_query" => panel.srql_query,
       "visual_type" => to_string(panel.visual_type),
       "unit" => get_in(panel.display_config || %{}, ["unit"]) || "",
-      "trend_query" => panel.trend_query || get_in(panel.visual_config || %{}, ["trend_query"]) || ""
+      "trend_query" => panel.trend_query || get_in(panel.visual_config || %{}, ["trend_query"]) || "",
+      "trend_mode" => get_in(panel.visual_config || %{}, ["trend_mode"]) || "",
+      "value_field" => get_in(panel.data_binding || %{}, ["value_field"]) || "",
+      "numerator_field" => get_in(panel.data_binding || %{}, ["numerator_field"]) || "",
+      "denominator_field" => get_in(panel.data_binding || %{}, ["denominator_field"]) || "",
+      "label_field" => get_in(panel.data_binding || %{}, ["label_field"]) || "",
+      "row_field" => get_in(panel.data_binding || %{}, ["row_field"]) || "",
+      "column_field" => get_in(panel.data_binding || %{}, ["column_field"]) || "",
+      "time_field" => get_in(panel.data_binding || %{}, ["time_field"]) || "",
+      "status_field" => get_in(panel.data_binding || %{}, ["status_field"]) || "",
+      "aggregate" => get_in(panel.data_binding || %{}, ["aggregate"]) || "sum",
+      "empty_value" => get_in(panel.data_binding || %{}, ["empty_value"]) || "0"
     }
   end
 
@@ -868,6 +874,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       trend_query = optional(params["trend_query"])
       preview = preview_snapshot(preview)
 
+      data_binding =
+        preview
+        |> default_data_binding(visual, dataset_key)
+        |> Map.merge(binding_params(params))
+
       {:ok,
        %{
          id: "pending-#{System.unique_integer([:positive])}",
@@ -877,7 +888,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
          builder_state: params["builder_state"] || %{},
          visual_type: visual,
          trend_query: trend_query,
-         data_binding: default_data_binding(preview, visual, dataset_key),
+         data_binding: data_binding,
          display_config: default_display_config(params, preview, visual, panel_title),
          visual_config: default_visual_config(params, visual, trend_query),
          field_metadata: %{
@@ -1102,20 +1113,45 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     )
   end
 
-  defp default_visual_config(_params, visual, trend_query) when visual in ["stat", "count", "gauge", "availability"] do
+  defp default_visual_config(params, visual, trend_query) when visual in ["stat", "count", "gauge", "availability"] do
     Map.reject(
       %{
         "thresholds" => [
           %{"label" => "warning", "value" => 70, "tone" => "warning"},
           %{"label" => "critical", "value" => 90, "tone" => "error"}
         ],
-        "trend_query" => trend_query
+        "trend_query" => trend_query,
+        "trend_mode" => optional(params["trend_mode"])
       },
       fn {_key, value} -> is_nil(value) or value == "" end
     )
   end
 
   defp default_visual_config(_params, _visual, _trend_query), do: %{}
+
+  defp binding_params(params) do
+    Enum.reduce(
+      [
+        "value_field",
+        "numerator_field",
+        "denominator_field",
+        "label_field",
+        "row_field",
+        "column_field",
+        "time_field",
+        "status_field",
+        "aggregate",
+        "empty_value"
+      ],
+      %{},
+      fn key, acc ->
+        case optional(params[key]) do
+          nil -> acc
+          value -> Map.put(acc, key, value)
+        end
+      end
+    )
+  end
 
   defp default_panel_layout(position, visual) do
     width =
@@ -1286,6 +1322,29 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
   defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
 
+  defp srql_completions do
+    entities = Enum.map(Catalog.entities(), & &1.id)
+    controls = ~w(limit: sort: time: status: type: tag: site: where group: by:)
+
+    entity_tokens = Enum.map(entities, &"in:#{&1}")
+
+    entity_fields =
+      Enum.flat_map(Catalog.entities(), fn entity ->
+        Enum.flat_map(
+          [:filter_fields, :value_fields, :series_fields, :stats_fields, :boolean_fields, :array_fields],
+          &Map.get(entity, &1, [])
+        )
+      end)
+
+    (entity_tokens ++ controls ++ entity_fields)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp dashboard_draft_storage_key(%{user: %{id: id}}) when is_binary(id), do: "serviceradar:dashboard-draft:#{id}"
+  defp dashboard_draft_storage_key(_scope), do: "serviceradar:dashboard-draft"
+
   defp normalize_visibility(value) when value in ~w(private shared public), do: value
   defp normalize_visibility(_value), do: "private"
 
@@ -1300,28 +1359,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   defp authorize_manage_groups(socket) do
     if socket.assigns.can_manage_groups?, do: :ok, else: {:error, :forbidden}
   end
-
-  defp group_select_options(groups) do
-    Enum.map(groups, &{&1.name, &1.id})
-  end
-
-  defp user_select_options(users) do
-    Enum.map(users, &{user_label(&1), &1.id})
-  end
-
-  defp memberships_for(memberships, group_id) do
-    Enum.filter(memberships, &(&1.group_id == group_id))
-  end
-
-  defp membership_count(memberships, group_id), do: memberships |> memberships_for(group_id) |> length()
-
-  defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
-    "#{name} <#{email}>"
-  end
-
-  defp user_label(%{email: %Ash.CiString{} = email}), do: to_string(email)
-  defp user_label(%{email: email}) when is_binary(email), do: email
-  defp user_label(_user), do: "Unknown user"
 
   defp format_error({:required, field}), do: "#{field} is required"
   defp format_error(:empty_query), do: "SRQL query is required"

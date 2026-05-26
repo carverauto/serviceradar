@@ -86,3 +86,39 @@ The authored dashboard viewer SHALL expose grid layout utilities for authorized 
 - **GIVEN** a saved dashboard has panels with gaps in their grid positions
 - **WHEN** an authorized editor chooses compact layout
 - **THEN** the panel layouts SHALL be updated to remove gaps while preserving each panel width and height where possible.
+
+### Requirement: Advanced dashboard inspector
+The dashboard creator SHALL provide an inspector that supports SRQL editing assistance, automatic preview, inline validation errors, structured visualization bindings, and comparison-window trend configuration.
+
+#### Scenario: User edits a panel query
+- **GIVEN** an authorized dashboard editor has selected a pending panel
+- **WHEN** they change the panel SRQL or visualization binding controls
+- **THEN** the inspector SHALL debounce preview execution
+- **AND** show any validation error inline with the selected panel instead of only relying on page flash messages.
+
+#### Scenario: User configures visualization bindings
+- **GIVEN** a panel preview returns named fields
+- **WHEN** the user selects gauge, count, pivot, or chart visualizations
+- **THEN** the inspector SHALL expose structured controls for the fields relevant to that visualization
+- **AND** persist those bindings into the saved panel configuration.
+
+### Requirement: Dashboard authoring continuity
+The dashboard creator SHALL preserve in-progress dashboard drafts across page reloads and avoid shipping unnecessary preview payloads on every canvas update.
+
+#### Scenario: User reloads with an unsaved dashboard draft
+- **GIVEN** a user has an unsaved dashboard with pending panels
+- **WHEN** they reload the dashboard creator
+- **THEN** the creator SHALL restore the draft metadata and pending panels for that user and browser.
+
+### Requirement: Dashboard export and group management
+Authored dashboards SHALL provide authenticated streaming CSV export for panel rows and SHALL manage reusable user groups outside of the dashboard creator page.
+
+#### Scenario: User exports a panel
+- **GIVEN** a user can view an authored dashboard panel
+- **WHEN** they request CSV export for that panel
+- **THEN** the system SHALL stream CSV content from an authenticated route.
+
+#### Scenario: User manages dashboard sharing groups
+- **GIVEN** a user has permission to view or manage sharing principals
+- **WHEN** they open the user group settings route
+- **THEN** they SHALL see reusable groups and memberships outside the dashboard creator workflow.

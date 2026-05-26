@@ -157,6 +157,37 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert Enum.map(panels, & &1.srql_query) == ["series services", "rich services"]
   end
 
+  test "creator restores canvas drafts and surfaces inline inspector errors", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/analytics")
+    render_async(view, 5_000)
+
+    html =
+      render_hook(view, "restore_canvas_draft", %{
+        "dashboard" => %{"title" => "Restored Draft"},
+        "panels" => [
+          %{
+            "id" => "draft-panel-1",
+            "title" => "Draft Panel",
+            "dataset_key" => "services",
+            "srql_query" => "series services",
+            "visual_type" => "table",
+            "layout" => %{"x" => 0, "y" => 0, "w" => 12, "h" => 8}
+          }
+        ]
+      })
+
+    assert html =~ "Restored Draft"
+    assert html =~ "Draft Panel"
+
+    html =
+      render_hook(view, "canvas_preview_panel", %{
+        "id" => "draft-panel-1",
+        "panel" => %{"srql_query" => ""}
+      })
+
+    assert html =~ "srql_query is required"
+  end
+
   test "dashboard library lists authored dashboards and updates favorite/default preferences", %{
     conn: conn,
     scope: scope
@@ -404,6 +435,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     html = render_async(view, 5_000)
 
     assert html =~ "download=\"service-series.csv\""
+    assert html =~ "/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}/panels/#{panel.id}/export.csv"
     assert html =~ "sr-authored-dashboard-panel"
     assert html =~ "--sr-panel-x: 9"
     assert html =~ "--sr-panel-y: 13"
@@ -434,6 +466,26 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     [first | _] = Dashboards.list_authored_panels(scope, dashboard.id)
     assert first.layout["x"] == 0
     assert first.layout["y"] == 0
+
+    conn =
+      get(
+        conn,
+        ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}/panels/#{panel.id}/export.csv"
+      )
+
+    assert response(conn, 200) =~ ~s("service","status","value")
+    assert get_resp_header(conn, "content-type") == ["text/csv; charset=utf-8"]
+  end
+
+  test "user groups are managed from settings instead of the dashboard creator", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings/user-groups")
+    html = render_async(view, 5_000)
+
+    assert html =~ "User Groups"
+    assert html =~ "Create Group"
+
+    {:ok, _view, html} = live(conn, ~p"/analytics")
+    refute html =~ "Create Group"
   end
 
   defp dashboard_with_panel!(scope, attrs) do

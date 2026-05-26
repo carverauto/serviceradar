@@ -866,7 +866,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             style={panel_grid_style(panel)}
             expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, panel.id)}
             can_manage?={can_manage_dashboard?(@dashboard, assigns)}
-            csv_data_url={panel_csv_data_url(Map.get(@panel_results, panel.id))}
+            csv_data_url={panel_csv_export_url(@dashboard, panel, @variable_values)}
           />
         </section>
       </div>
@@ -1278,28 +1278,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp format_duration(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
   defp format_duration(seconds), do: "#{div(seconds, 3_600)}h"
 
-  defp panel_csv_data_url({:ok, %{rows: rows, fields: fields}}) do
-    columns = Enum.map(fields, &field_name/1)
+  defp panel_csv_export_url(dashboard, panel, variable_values) do
+    dashboard_ref = Dashboards.authored_dashboard_route_ref(dashboard)
+    query = %{vars: Jason.encode!(variable_values || %{})}
 
-    csv =
-      Enum.map_join([columns | Enum.map(rows, fn row -> Enum.map(columns, &Map.get(row, &1)) end)], "\n", fn row ->
-        Enum.map_join(row, ",", &csv_cell/1)
-      end)
-
-    "data:text/csv;charset=utf-8,#{URI.encode(csv)}"
-  end
-
-  defp panel_csv_data_url(_result), do: nil
-
-  defp field_name(%{name: name}), do: name
-  defp field_name(%{"name" => name}), do: name
-  defp field_name(name), do: to_string(name)
-
-  defp csv_cell(value) do
-    value
-    |> format_value()
-    |> String.replace("\"", "\"\"")
-    |> then(&"\"#{&1}\"")
+    ~p"/dashboard/#{dashboard_ref}/panels/#{panel.id}/export.csv?#{query}"
   end
 
   defp safe_filename(value) do

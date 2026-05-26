@@ -40,3 +40,14 @@
 - [x] 7.4 Surface panel refresh intervals in rendered panel headers.
 - [x] 7.5 Keep viewer/editor controls permission-aware.
 - [x] 7.6 Add regression coverage for variables, duplicate/clone, compact layout, and inline actions.
+
+## 8. Remaining Authoring Phases
+- [x] 8.1 Replace plain SRQL textareas in the canvas inspector with an editor surface that provides query help and completion metadata.
+- [x] 8.2 Add debounced auto-preview for inspector changes and surface inspector errors inline.
+- [x] 8.3 Add structured binding controls for gauge/count, pivot, and chart panel outputs.
+- [x] 8.4 Replace free-form trend SRQL entry with comparison-window controls that synthesize trend queries.
+- [x] 8.5 Persist in-progress dashboard drafts across reloads.
+- [x] 8.6 Reduce canvas `data-props` payload size while keeping preview rendering functional.
+- [x] 8.7 Replace large CSV `data:` URLs with a streaming authenticated export endpoint.
+- [x] 8.8 Move reusable user group management out of the dashboard creator and into a dedicated settings page.
+- [x] 8.9 Add regression coverage for inspector editing, draft restore, CSV export, and group route separation.

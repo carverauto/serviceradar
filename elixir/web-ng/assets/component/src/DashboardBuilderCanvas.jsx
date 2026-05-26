@@ -1,6 +1,9 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {GridStack} from "gridstack"
 
+const SRQL_LANGUAGE_ID = "serviceradar-srql"
+const SRQL_MARKER_OWNER = "serviceradar-dashboard-builder"
+
 const VISUAL_LABELS = {
   table: "Table",
   stat: "Stat",
@@ -75,6 +78,192 @@ function panelRows(panel) {
 
 function firstField(fields, type) {
   return fields.find(field => field.type === type)?.name || fields[0]?.name || null
+}
+
+function fieldOptions(fields, predicate = () => true) {
+  return fields.filter(predicate).map(field => ({name: field.name, label: `${field.name} (${field.type})`}))
+}
+
+function ensureSrqlLanguage(monaco, completions) {
+  window.__serviceradarSrqlCompletions = completions
+
+  if (window.__serviceradarSrqlLanguageRegistered) return
+  window.__serviceradarSrqlLanguageRegistered = true
+
+  monaco.languages.register({id: SRQL_LANGUAGE_ID})
+  monaco.languages.setMonarchTokensProvider(SRQL_LANGUAGE_ID, {
+    tokenizer: {
+      root: [
+        [/\bin:[a-zA-Z0-9_-]+/, "keyword"],
+        [/\b(limit|sort|time|where|group|by|from|select|as|and|or|not)\b/, "keyword"],
+        [/\b(ok|warn|fail|unknown|true|false|null)\b/, "constant"],
+        [/"[^"]*"/, "string"],
+        [/'[^']*'/, "string"],
+        [/\b\d+(\.\d+)?\b/, "number"],
+        [/[<>!=]=?|=~/, "operator"],
+        [/[a-zA-Z_][\w.-]*/, "identifier"],
+      ],
+    },
+  })
+  monaco.languages.setLanguageConfiguration(SRQL_LANGUAGE_ID, {
+    brackets: [["(", ")"], ["[", "]"]],
+    autoClosingPairs: [
+      {open: "\"", close: "\""},
+      {open: "'", close: "'"},
+      {open: "(", close: ")"},
+      {open: "[", close: "]"},
+    ],
+  })
+  monaco.languages.registerCompletionItemProvider(SRQL_LANGUAGE_ID, {
+    triggerCharacters: [":", " ", ".", "$"],
+    provideCompletionItems(model, position) {
+      const word = model.getWordUntilPosition(position)
+      const linePrefix = model.getValueInRange({
+        startLineNumber: position.lineNumber,
+        startColumn: 1,
+        endLineNumber: position.lineNumber,
+        endColumn: position.column,
+      })
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn,
+      }
+      const completions = window.__serviceradarSrqlCompletions || []
+      const afterInPrefix = /\bin:$/.test(linePrefix)
+      const suggestions = completions.map(label => {
+        const isEntity = label.startsWith("in:")
+        const isControl = label.endsWith(":") || isEntity
+
+        return {
+          label: afterInPrefix && isEntity ? label.slice(3) : label,
+          insertText: afterInPrefix && isEntity ? label.slice(3) : label,
+          detail: isEntity ? "entity" : isControl ? "operator" : "field",
+          kind: isEntity
+            ? monaco.languages.CompletionItemKind.Module
+            : isControl
+              ? monaco.languages.CompletionItemKind.Keyword
+              : monaco.languages.CompletionItemKind.Field,
+          range,
+        }
+      })
+
+      return {suggestions}
+    },
+  })
+}
+
+function applySrqlMarkers(monaco, editor, error) {
+  const model = editor?.getModel()
+  if (!model) return
+
+  if (!error) {
+    monaco.editor.setModelMarkers(model, SRQL_MARKER_OWNER, [])
+    return
+  }
+
+  monaco.editor.setModelMarkers(model, SRQL_MARKER_OWNER, [
+    {
+      startLineNumber: 1,
+      startColumn: 1,
+      endLineNumber: model.getLineCount(),
+      endColumn: Math.max(2, model.getLineMaxColumn(model.getLineCount())),
+      severity: monaco.MarkerSeverity.Error,
+      message: error,
+    },
+  ])
+}
+
+function SrqlEditor({value, onChange, completions = [], disabled = false, error = null}) {
+  const containerRef = useRef(null)
+  const editorRef = useRef(null)
+  const monacoRef = useRef(null)
+  const onChangeRef = useRef(onChange)
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+  }, [onChange])
+
+  useEffect(() => {
+    if (!containerRef.current || editorRef.current) return undefined
+
+    let disposed = false
+    let subscription = null
+
+    import("monaco-editor/esm/vs/editor/editor.api").then(monaco => {
+      if (disposed || !containerRef.current) return
+
+      monacoRef.current = monaco
+      ensureSrqlLanguage(monaco, completions)
+
+      const darkTheme = document.documentElement.dataset.theme === "dark" || document.documentElement.classList.contains("dark")
+      editorRef.current = monaco.editor.create(containerRef.current, {
+        value: value || "",
+        language: SRQL_LANGUAGE_ID,
+        theme: darkTheme ? "vs-dark" : "vs",
+        readOnly: disabled,
+        automaticLayout: true,
+        fixedOverflowWidgets: true,
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        fontSize: 12,
+        lineDecorationsWidth: 8,
+        lineNumbersMinChars: 3,
+        minimap: {enabled: false},
+        overviewRulerLanes: 0,
+        renderLineHighlight: "none",
+        scrollBeyondLastLine: false,
+        scrollbar: {vertical: "hidden", horizontal: "auto", alwaysConsumeMouseWheel: false},
+        wordWrap: "on",
+      })
+      subscription = editorRef.current.onDidChangeModelContent(() => onChangeRef.current(editorRef.current.getValue()))
+      applySrqlMarkers(monaco, editorRef.current, error)
+    })
+
+    return () => {
+      disposed = true
+      subscription?.dispose()
+      editorRef.current?.dispose()
+      editorRef.current = null
+    }
+  }, [disabled])
+
+  useEffect(() => {
+    if (!monacoRef.current) return
+    ensureSrqlLanguage(monacoRef.current, completions)
+  }, [completions])
+
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    const current = editor.getValue()
+    if (current === (value || "")) return
+
+    editor.setValue(value || "")
+  }, [value])
+
+  useEffect(() => {
+    if (!monacoRef.current || !editorRef.current) return
+    applySrqlMarkers(monacoRef.current, editorRef.current, error)
+  }, [error])
+
+  return <div ref={containerRef} className="min-h-28 overflow-hidden rounded-lg border border-base-300 bg-base-100" />
+}
+
+function FieldSelect({label, value, fields, onChange, predicate}) {
+  const options = fieldOptions(fields, predicate)
+
+  return (
+    <label className="form-control">
+      <span className="label-text text-xs">{label}</span>
+      <select className="select select-sm w-full" value={value || ""} onChange={event => onChange(event.target.value)}>
+        <option value="">Auto</option>
+        {options.map(option => (
+          <option key={option.name} value={option.name}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 function MiniVisual({panel}) {
@@ -166,12 +355,28 @@ function MiniVisual({panel}) {
   )
 }
 
-function Inspector({panel, visualOptions, defaultQuery, onApply, onRemove}) {
+function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, onApply, onPreview, onRemove}) {
   const [draft, setDraft] = useState(() => draftFromPanel(panel, defaultQuery))
+  const lastPreviewKey = useRef("")
 
   useEffect(() => {
-    setDraft(draftFromPanel(panel, defaultQuery))
+    const next = draftFromPanel(panel, defaultQuery)
+    setDraft(next)
+    lastPreviewKey.current = draftPreviewKey(next)
   }, [panel, defaultQuery])
+
+  useEffect(() => {
+    if (!panel) return undefined
+    const key = draftPreviewKey(draft)
+    if (key === lastPreviewKey.current) return undefined
+
+    const timeout = window.setTimeout(() => {
+      lastPreviewKey.current = key
+      onPreview(panel.id, draftPayload(draft))
+    }, 450)
+
+    return () => window.clearTimeout(timeout)
+  }, [draft, onPreview, panel])
 
   if (!panel) {
     return (
@@ -182,6 +387,10 @@ function Inspector({panel, visualOptions, defaultQuery, onApply, onRemove}) {
   }
 
   const update = (key, value) => setDraft(current => ({...current, [key]: value}))
+  const fields = panelFields(panel)
+  const numericField = field => field.type === "number"
+  const dimensionField = field => ["string", "boolean", "datetime"].includes(String(field.type))
+  const visual = String(draft.visual_type || "table")
 
   return (
     <div className="space-y-3">
@@ -203,26 +412,70 @@ function Inspector({panel, visualOptions, defaultQuery, onApply, onRemove}) {
       </label>
       <label className="form-control">
         <span className="label-text text-xs">SRQL query</span>
-        <textarea
-          className="textarea textarea-sm min-h-28 w-full font-mono"
-          value={draft.srql_query}
-          onChange={event => update("srql_query", event.target.value)}
-        />
+        <SrqlEditor value={draft.srql_query} onChange={value => update("srql_query", value)} completions={srqlCompletions} error={error} />
       </label>
+      {error ? <div className="rounded-lg border border-error/30 bg-error/10 p-2 text-xs text-error">{error}</div> : null}
       <label className="form-control">
         <span className="label-text text-xs">Unit</span>
         <input className="input input-sm w-full" value={draft.unit} onChange={event => update("unit", event.target.value)} />
       </label>
-      <label className="form-control">
-        <span className="label-text text-xs">Trend SRQL</span>
-        <textarea
-          className="textarea textarea-sm min-h-20 w-full font-mono"
-          value={draft.trend_query}
-          onChange={event => update("trend_query", event.target.value)}
-        />
-      </label>
+      {["stat", "count", "gauge", "availability"].includes(visual) ? (
+        <div className="grid grid-cols-1 gap-2">
+          <FieldSelect label="Value field" value={draft.value_field} fields={fields} predicate={numericField} onChange={value => update("value_field", value)} />
+          <FieldSelect label="Numerator field" value={draft.numerator_field} fields={fields} predicate={numericField} onChange={value => update("numerator_field", value)} />
+          <FieldSelect label="Denominator field" value={draft.denominator_field} fields={fields} predicate={numericField} onChange={value => update("denominator_field", value)} />
+          <FieldSelect label="Label field" value={draft.label_field} fields={fields} onChange={value => update("label_field", value)} />
+        </div>
+      ) : null}
+      {visual === "pivot" ? (
+        <div className="grid grid-cols-1 gap-2">
+          <FieldSelect label="Rows" value={draft.row_field} fields={fields} predicate={dimensionField} onChange={value => update("row_field", value)} />
+          <FieldSelect label="Columns" value={draft.column_field} fields={fields} predicate={dimensionField} onChange={value => update("column_field", value)} />
+          <FieldSelect label="Values" value={draft.value_field} fields={fields} predicate={numericField} onChange={value => update("value_field", value)} />
+          <label className="form-control">
+            <span className="label-text text-xs">Aggregate</span>
+            <select className="select select-sm w-full" value={draft.aggregate || "sum"} onChange={event => update("aggregate", event.target.value)}>
+              {["sum", "avg", "min", "max", "count"].map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="form-control">
+            <span className="label-text text-xs">Empty value</span>
+            <input className="input input-sm w-full" value={draft.empty_value} onChange={event => update("empty_value", event.target.value)} />
+          </label>
+        </div>
+      ) : null}
+      {["line", "area", "bar", "category", "status_list"].includes(visual) ? (
+        <div className="grid grid-cols-1 gap-2">
+          {["line", "area"].includes(visual) ? (
+            <FieldSelect label="Time field" value={draft.time_field} fields={fields} predicate={field => field.type === "datetime"} onChange={value => update("time_field", value)} />
+          ) : null}
+          <FieldSelect label="Value field" value={draft.value_field} fields={fields} predicate={numericField} onChange={value => update("value_field", value)} />
+          <FieldSelect label="Label field" value={draft.label_field} fields={fields} onChange={value => update("label_field", value)} />
+          {visual === "status_list" ? (
+            <FieldSelect label="Status field" value={draft.status_field} fields={fields} onChange={value => update("status_field", value)} />
+          ) : null}
+        </div>
+      ) : null}
+      {["stat", "count", "gauge", "availability"].includes(visual) ? (
+        <label className="form-control">
+          <span className="label-text text-xs">Compare to</span>
+          <select className="select select-sm w-full" value={draft.trend_mode} onChange={event => update("trend_mode", event.target.value)}>
+            <option value="">No comparison</option>
+            <option value="last_hour">Last hour</option>
+            <option value="same_time_yesterday">Same time yesterday</option>
+            <option value="same_time_last_week">Same time last week</option>
+            <option value="custom">Custom SRQL</option>
+          </select>
+        </label>
+      ) : null}
+      {draft.trend_mode === "custom" ? (
+        <label className="form-control">
+          <span className="label-text text-xs">Custom trend SRQL</span>
+          <SrqlEditor value={draft.trend_query} onChange={value => update("trend_query", value)} completions={srqlCompletions} />
+        </label>
+      ) : null}
       <div className="flex gap-2">
-        <button type="button" className="btn btn-sm btn-primary" onClick={() => onApply(panel.id, draft)}>
+        <button type="button" className="btn btn-sm btn-primary" onClick={() => onApply(panel.id, draftPayload(draft))}>
           Apply
         </button>
         <button type="button" className="btn btn-sm btn-error btn-outline" onClick={() => onRemove(panel.id)}>
@@ -234,14 +487,57 @@ function Inspector({panel, visualOptions, defaultQuery, onApply, onRemove}) {
 }
 
 function draftFromPanel(panel, defaultQuery) {
+  const binding = panel?.data_binding || {}
+  const visualConfig = panel?.visual_config || {}
+
   return {
     dataset_key: panel?.dataset_key || "primary",
     panel_title: panel?.title || "Panel",
     srql_query: panel?.srql_query || defaultQuery || "",
     visual_type: String(panel?.visual_type || "table"),
     unit: panel?.display_config?.unit || "",
-    trend_query: panel?.trend_query || panel?.visual_config?.trend_query || "",
+    value_field: binding.value_field || "",
+    numerator_field: binding.numerator_field || "",
+    denominator_field: binding.denominator_field || "",
+    label_field: binding.label_field || "",
+    row_field: binding.row_field || "",
+    column_field: binding.column_field || "",
+    time_field: binding.time_field || "",
+    status_field: binding.status_field || "",
+    aggregate: binding.aggregate || "sum",
+    empty_value: binding.empty_value || "0",
+    trend_mode: visualConfig.trend_mode || (visualConfig.trend_query ? "custom" : ""),
+    trend_query: panel?.trend_query || visualConfig.trend_query || "",
   }
+}
+
+function draftPayload(draft) {
+  const trendQuery = synthesizeTrendQuery(draft)
+
+  return {
+    ...draft,
+    trend_query: trendQuery,
+  }
+}
+
+function draftPreviewKey(draft) {
+  return JSON.stringify(draftPayload(draft))
+}
+
+function synthesizeTrendQuery(draft) {
+  if (draft.trend_mode === "custom") return draft.trend_query || ""
+  if (!draft.trend_mode) return ""
+
+  const windowByMode = {
+    last_hour: "last_1h",
+    same_time_yesterday: "yesterday",
+    same_time_last_week: "last_week",
+  }
+  const window = windowByMode[draft.trend_mode]
+  if (!window) return ""
+
+  const base = String(draft.srql_query || "").replace(/\s+time:[^\s]+/g, "").trim()
+  return `${base} time:${window}`.trim()
 }
 
 export default function DashboardBuilderCanvas({
@@ -250,12 +546,44 @@ export default function DashboardBuilderCanvas({
   selectedId = "",
   canManage = false,
   defaultQuery = "",
+  dashboardParams = {},
+  inspectorErrors = {},
+  srqlCompletions = [],
+  draftStorageKey = "",
   pushEvent = () => {},
 }) {
   const gridRef = useRef(null)
   const gridInstance = useRef(null)
   const panelsById = useMemo(() => new Map(panels.map(panel => [panel.id, panel])), [panels])
   const selectedPanel = panelsById.get(selectedId) || panels[0] || null
+  const restoredRef = useRef(false)
+
+  useEffect(() => {
+    if (!draftStorageKey || restoredRef.current) return
+    restoredRef.current = true
+    const stored = window.localStorage.getItem(draftStorageKey)
+    if (!stored || panels.length > 0) return
+
+    try {
+      const draft = JSON.parse(stored)
+      if (draft?.panels?.length) pushEvent("restore_canvas_draft", draft)
+    } catch (_error) {
+      window.localStorage.removeItem(draftStorageKey)
+    }
+  }, [draftStorageKey, panels.length, pushEvent])
+
+  useEffect(() => {
+    if (!draftStorageKey || !canManage) return
+    if (panels.length === 0 && !dashboardParams?.title) return
+
+    window.localStorage.setItem(
+      draftStorageKey,
+      JSON.stringify({
+        dashboard: dashboardParams,
+        panels,
+      }),
+    )
+  }, [canManage, dashboardParams, draftStorageKey, panels])
 
   useEffect(() => {
     if (!gridRef.current) return
@@ -399,7 +727,10 @@ export default function DashboardBuilderCanvas({
           panel={selectedPanel}
           visualOptions={visualOptions}
           defaultQuery={defaultQuery}
+          srqlCompletions={srqlCompletions}
+          error={selectedPanel ? inspectorErrors[selectedPanel.id] : null}
           onApply={(id, draft) => pushEvent("canvas_update_panel", {id, panel: draft})}
+          onPreview={(id, draft) => pushEvent("canvas_preview_panel", {id, panel: draft})}
           onRemove={id => pushEvent("remove_panel", {id})}
         />
       </aside>
