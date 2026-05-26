@@ -48,11 +48,13 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     tests.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -429,18 +431,87 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> read_page_with_actor(actor)
     |> case do
       {:ok, devices} ->
-        devices
-        |> Enum.group_by(& &1.ip)
-        |> Enum.flat_map(fn {ip, grouped_devices} ->
-          grouped_devices
-          |> select_canonical_device(include_deleted)
-          |> maybe_record_for_ip(ip)
+        ash_results =
+          devices
+          |> Enum.group_by(& &1.ip)
+          |> Enum.flat_map(fn {ip, grouped_devices} ->
+            grouped_devices
+            |> select_canonical_device(include_deleted)
+            |> maybe_record_for_ip(ip)
+          end)
+          |> Map.new()
+
+        missing_ips = ips -- Map.keys(ash_results)
+
+        Map.merge(ash_results, lookup_devices_by_ips_sql(missing_ips, include_deleted, actor), fn
+          _ip, ash_record, _sql_record -> ash_record
+        end)
+
+      {:error, reason} ->
+        Logger.debug("Batch device lookup by IP failed, using SQL fallback: #{inspect(reason)}")
+        lookup_devices_by_ips_sql(ips, include_deleted, actor)
+    end
+  end
+
+  defp lookup_devices_by_ips_sql([], _include_deleted, _actor), do: %{}
+
+  defp lookup_devices_by_ips_sql(ips, include_deleted, actor) do
+    if SystemActor.system_actor?(actor) do
+      do_lookup_devices_by_ips_sql(ips, include_deleted)
+    else
+      %{}
+    end
+  end
+
+  defp do_lookup_devices_by_ips_sql(ips, include_deleted) do
+    sql = """
+    SELECT uid, ip, hostname, metadata
+    FROM ocsf_devices
+    WHERE ip = ANY($1)
+      AND ($2 OR deleted_at IS NULL)
+    ORDER BY
+      ip ASC,
+      CASE WHEN COALESCE(metadata, '{}'::jsonb) ? '_merged_into' THEN 1 ELSE 0 END ASC,
+      CASE WHEN lower(COALESCE(metadata->>'_deleted', '')) = 'true' THEN 1 ELSE 0 END ASC,
+      is_active DESC,
+      modified_time DESC NULLS LAST,
+      created_time DESC NULLS LAST,
+      uid ASC
+    """
+
+    case Repo.query(sql, [ips, include_deleted]) do
+      {:ok, %{columns: columns, rows: rows}} ->
+        rows
+        |> Enum.map(&row_to_map(columns, &1))
+        |> Enum.group_by(& &1["ip"])
+        |> Enum.flat_map(fn {ip, grouped_rows} ->
+          grouped_rows
+          |> select_canonical_row()
+          |> maybe_record_for_ip_row(ip)
         end)
         |> Map.new()
 
-      {:error, _} ->
+      {:error, reason} ->
+        Logger.debug("SQL fallback device lookup by IP failed: #{inspect(reason)}")
         %{}
     end
+  end
+
+  defp row_to_map(columns, row) do
+    columns
+    |> Enum.zip(row)
+    |> Map.new()
+  end
+
+  defp select_canonical_row([]), do: nil
+
+  defp select_canonical_row(rows) do
+    Enum.find(rows, fn row ->
+      metadata = row["metadata"] || %{}
+
+      not Map.has_key?(metadata, "_merged_into") and
+        String.downcase(to_string(metadata["_deleted"] || "")) != "true"
+    end) || List.first(rows)
   end
 
   defp lookup_aliases_by_ip([], _opts), do: %{}
@@ -615,6 +686,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp maybe_record_for_ip(nil, _ip), do: []
   defp maybe_record_for_ip(device, ip), do: [{ip, build_record_from_device(device)}]
 
+  defp maybe_record_for_ip_row(nil, _ip), do: []
+  defp maybe_record_for_ip_row(row, ip), do: [{ip, build_record_from_row(row)}]
+
   defp build_record_from_device(nil), do: nil
 
   defp build_record_from_device(device) do
@@ -630,6 +704,27 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
     %{
       canonical_device_id: device.uid,
+      partition: partition,
+      metadata_hash: nil,
+      attributes: attributes,
+      updated_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_record_from_row(row) do
+    uid = row["uid"]
+    partition = partition_from_device_id(uid)
+    metadata = row["metadata"] || %{}
+
+    attributes =
+      %{}
+      |> maybe_put("ip", row["ip"])
+      |> maybe_put("partition", partition)
+      |> maybe_put("hostname", row["hostname"])
+      |> maybe_put("source", metadata["discovery_source"])
+
+    %{
+      canonical_device_id: uid,
       partition: partition,
       metadata_hash: nil,
       attributes: attributes,
