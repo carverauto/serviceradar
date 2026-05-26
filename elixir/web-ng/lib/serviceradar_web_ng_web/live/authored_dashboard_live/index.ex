@@ -27,9 +27,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       |> assign(:loading_access?, connected?(socket))
       |> assign(:default_query, @default_query)
       |> assign(:preview, nil)
-      |> assign(:pending_panels, [])
-      |> assign(:selected_pending_panel_id, "")
-      |> assign(:inspector_errors, %{})
       |> assign(:selected_visuals, [:table])
       |> assign(:visual_options, Dashboards.authored_visual_options())
       |> assign_dashboard_builder(default_dashboard_params()["srql_query"])
@@ -113,12 +110,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     params = merge_params(socket.assigns.dashboard_params, params)
 
     with :ok <- authorize_manage(socket),
-         {:ok, dashboard_attrs, panel_attrs} <- attrs_from_params(scope, params, socket.assigns.pending_panels),
-         {:ok, {dashboard, _panels}} <-
-           Dashboards.create_authored_dashboard_with_panels(scope, dashboard_attrs, panel_attrs) do
+         {:ok, dashboard_attrs} <- attrs_from_params(params),
+         {:ok, dashboard} <- Dashboards.create_authored_dashboard(scope, dashboard_attrs) do
       {:noreply,
        socket
-       |> push_event("clear_canvas_draft", %{key: dashboard_draft_storage_key(scope)})
        |> put_flash(:info, "Saved dashboard")
        |> push_navigate(to: ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")}
     else
@@ -128,245 +123,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
          |> assign(:dashboard_params, params)
          |> assign_form()
          |> put_flash(:error, "Save failed: #{format_error(reason)}")}
-    end
-  end
-
-  def handle_event("add_panel", %{"dashboard" => params}, socket) do
-    scope = socket.assigns.current_scope
-    params = merge_params(socket.assigns.dashboard_params, params)
-
-    case authorize_manage(socket) do
-      :ok ->
-        case panel_entry_from_params(scope, params, length(socket.assigns.pending_panels)) do
-          {:ok, panel} ->
-            {:noreply,
-             socket
-             |> assign(:pending_panels, socket.assigns.pending_panels ++ [panel])
-             |> assign(:selected_pending_panel_id, panel.id)
-             |> assign(:dashboard_params, next_panel_params(params, length(socket.assigns.pending_panels) + 1))
-             |> assign(:preview, nil)
-             |> assign(:selected_visuals, [:table])
-             |> assign_dashboard_builder(@default_query)
-             |> assign_form()}
-
-          {:error, reason} ->
-            {:noreply,
-             socket
-             |> assign(:dashboard_params, params)
-             |> assign_form()
-             |> put_flash(:error, "Panel add failed: #{format_error(reason)}")}
-        end
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("add_panel", _params, socket) do
-    handle_event("add_panel", %{"dashboard" => socket.assigns.dashboard_params}, socket)
-  end
-
-  def handle_event("remove_panel", %{"id" => id}, socket) do
-    case authorize_manage(socket) do
-      :ok ->
-        panels =
-          socket.assigns.pending_panels
-          |> Enum.reject(&(&1.id == id))
-          |> Enum.with_index()
-          |> Enum.map(&position_pending_panel/1)
-
-        selected_id =
-          if Enum.any?(panels, &(&1.id == socket.assigns.selected_pending_panel_id)) do
-            socket.assigns.selected_pending_panel_id
-          else
-            panels |> List.first() |> then(&((&1 && &1.id) || ""))
-          end
-
-        {:noreply, assign(socket, pending_panels: panels, selected_pending_panel_id: selected_id)}
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("canvas_add_panel", %{"visualType" => visual}, socket) do
-    add_canvas_panel(socket, visual)
-  end
-
-  def handle_event("canvas_add_panel", %{"visual" => visual}, socket) do
-    add_canvas_panel(socket, visual)
-  end
-
-  def handle_event("canvas_add_panel", _params, socket) do
-    add_canvas_panel(socket, "table")
-  end
-
-  def handle_event("canvas_select_panel", %{"id" => id}, socket) do
-    case authorize_manage(socket) do
-      :ok -> {:noreply, assign(socket, :selected_pending_panel_id, id)}
-      {:error, _reason} -> deny_manage(socket)
-    end
-  end
-
-  def handle_event("canvas_update_panel", %{"id" => id, "panel" => params}, socket) when is_map(params) do
-    scope = socket.assigns.current_scope
-
-    case authorize_manage(socket) do
-      :ok ->
-        case Enum.find(socket.assigns.pending_panels, &(&1.id == id)) do
-          nil ->
-            {:noreply, put_flash(socket, :error, "Panel not found")}
-
-          existing ->
-            params = merge_params(pending_panel_params(existing), params)
-
-            case panel_entry_from_params(scope, params, existing.position) do
-              {:ok, panel} ->
-                panel = %{panel | id: existing.id, layout: existing.layout, position: existing.position}
-                panels = replace_pending_panel(socket.assigns.pending_panels, panel)
-
-                {:noreply,
-                 socket
-                 |> assign(:pending_panels, panels)
-                 |> assign(:selected_pending_panel_id, panel.id)
-                 |> assign(:inspector_errors, Map.delete(socket.assigns.inspector_errors, panel.id))
-                 |> assign(:dashboard_params, params)
-                 |> assign_form()}
-
-              {:error, reason} ->
-                {:noreply, assign_inspector_error(socket, id, reason)}
-            end
-        end
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("canvas_preview_panel", %{"id" => id, "panel" => params}, socket) when is_map(params) do
-    scope = socket.assigns.current_scope
-
-    case authorize_manage(socket) do
-      :ok ->
-        case Enum.find(socket.assigns.pending_panels, &(&1.id == id)) do
-          nil ->
-            {:noreply, assign_inspector_error(socket, id, "Panel not found")}
-
-          existing ->
-            params = merge_params(pending_panel_params(existing), params)
-
-            case panel_entry_from_params(scope, params, existing.position) do
-              {:ok, panel} ->
-                panel = %{panel | id: existing.id, layout: existing.layout, position: existing.position}
-
-                {:noreply,
-                 socket
-                 |> assign(:pending_panels, replace_pending_panel(socket.assigns.pending_panels, panel))
-                 |> assign(:selected_pending_panel_id, panel.id)
-                 |> assign(:dashboard_params, params)
-                 |> assign(:inspector_errors, Map.delete(socket.assigns.inspector_errors, panel.id))
-                 |> assign_form()}
-
-              {:error, reason} ->
-                {:noreply, assign_inspector_error(socket, id, reason)}
-            end
-        end
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("canvas_layout_change", %{"layouts" => layouts}, socket) when is_list(layouts) do
-    case authorize_manage(socket) do
-      :ok ->
-        layouts_by_id =
-          layouts
-          |> Enum.map(&normalize_canvas_layout/1)
-          |> Enum.reject(&is_nil/1)
-          |> Map.new()
-
-        panels =
-          socket.assigns.pending_panels
-          |> Enum.map(fn panel ->
-            case Map.get(layouts_by_id, panel.id) do
-              nil ->
-                panel
-
-              layout ->
-                %{panel | layout: Map.merge(panel.layout || %{}, layout)}
-            end
-          end)
-          |> Enum.sort_by(fn panel ->
-            {Map.get(panel.layout || %{}, "y", 0), Map.get(panel.layout || %{}, "x", 0), panel.position}
-          end)
-          |> Enum.with_index()
-          |> Enum.map(fn {panel, position} ->
-            layout = Map.put(panel.layout || %{}, "order", position)
-            %{panel | layout: layout, position: position}
-          end)
-
-        {:noreply, assign(socket, :pending_panels, panels)}
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("restore_canvas_draft", %{"dashboard" => dashboard, "panels" => panels}, socket)
-      when is_map(dashboard) and is_list(panels) do
-    case authorize_manage(socket) do
-      :ok ->
-        restored_panels =
-          panels
-          |> Enum.map(&restore_pending_panel/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.with_index()
-          |> Enum.map(&position_pending_panel/1)
-
-        selected_id = restored_panels |> List.first() |> then(&((&1 && &1.id) || ""))
-
-        {:noreply,
-         socket
-         |> assign(:dashboard_params, merge_params(socket.assigns.dashboard_params, dashboard))
-         |> assign(:pending_panels, restored_panels)
-         |> assign(:selected_pending_panel_id, selected_id)
-         |> assign(:inspector_errors, %{})
-         |> assign_form()}
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("reorder_panels", %{"ids" => ids}, socket) when is_list(ids) do
-    case authorize_manage(socket) do
-      :ok ->
-        panels_by_id = Map.new(socket.assigns.pending_panels, &{&1.id, &1})
-
-        panels =
-          ids
-          |> Enum.map(&Map.get(panels_by_id, &1))
-          |> Enum.reject(&is_nil/1)
-          |> Kernel.++(Enum.reject(socket.assigns.pending_panels, &(&1.id in ids)))
-          |> Enum.with_index()
-          |> Enum.map(&position_pending_panel/1)
-
-        {:noreply, assign(socket, :pending_panels, panels)}
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  def handle_event("move_panel", %{"id" => id, "direction" => direction}, socket) do
-    case authorize_manage(socket) do
-      :ok ->
-        panels = move_pending_panel(socket.assigns.pending_panels, id, direction)
-        {:noreply, assign(socket, :pending_panels, panels)}
-
-      {:error, _reason} ->
-        deny_manage(socket)
     end
   end
 
@@ -501,45 +257,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     preview_query(socket, Map.put(socket.assigns.dashboard_params, "srql_query", query))
   end
 
-  defp add_canvas_panel(socket, visual) do
-    scope = socket.assigns.current_scope
-    position = length(socket.assigns.pending_panels)
-
-    params =
-      Map.merge(socket.assigns.dashboard_params, %{
-        "dataset_key" => dataset_key("dataset_#{position + 1}", position),
-        "panel_title" => default_panel_title(visual, position),
-        "srql_query" => @default_query,
-        "visual_type" => to_string(visual),
-        "unit" => default_unit(to_string(visual)),
-        "trend_query" => ""
-      })
-
-    case authorize_manage(socket) do
-      :ok ->
-        case panel_entry_from_params(scope, params, position) do
-          {:ok, panel} ->
-            {:noreply,
-             socket
-             |> assign(:pending_panels, socket.assigns.pending_panels ++ [panel])
-             |> assign(:selected_pending_panel_id, panel.id)
-             |> assign(:dashboard_params, next_panel_params(params, position + 1))
-             |> assign(:preview, nil)
-             |> assign_form()}
-
-          {:error, reason} ->
-            {:noreply, put_flash(socket, :error, "Panel add failed: #{format_error(reason)}")}
-        end
-
-      {:error, _reason} ->
-        deny_manage(socket)
-    end
-  end
-
-  defp assign_inspector_error(socket, id, reason) do
-    assign(socket, :inspector_errors, Map.put(socket.assigns.inspector_errors, id, format_error(reason)))
-  end
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -628,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
             <div class="border-b border-base-300 px-4 py-3">
               <h2 class="text-sm font-semibold">New Dashboard</h2>
               <p class="text-xs text-base-content/55">
-                Add one or more SRQL-backed panels, then save them as a dashboard.
+                Create the dashboard first, then add SRQL-backed panels from its settings.
               </p>
             </div>
 
@@ -649,36 +366,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                 options={@visibility_options}
               />
 
-              <div class="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  class="btn btn-sm"
-                  phx-click="canvas_add_panel"
-                  phx-value-visual="table"
-                  disabled={!@can_manage?}
-                >
-                  <.icon name="hero-plus" class="size-4" /> Add Panel
-                </button>
+              <div class="flex flex-wrap items-center gap-2">
                 <button type="submit" class="btn btn-sm btn-primary" disabled={!@can_manage?}>
-                  <.icon name="hero-bookmark-square" class="size-4" /> Save Dashboard
+                  <.icon name="hero-bookmark-square" class="size-4" /> Create Dashboard
                 </button>
+                <span class="text-xs text-base-content/55">
+                  Panels are added after save so they can be tied to this dashboard.
+                </span>
               </div>
             </.form>
-
-            <div class="border-t border-base-300 p-4">
-              <.dashboard_builder_canvas
-                id="authored-dashboard-builder-canvas"
-                panels={canvas_panels(@pending_panels)}
-                visual_options={canvas_visual_options(@visual_options)}
-                selected_id={@selected_pending_panel_id}
-                can_manage={@can_manage?}
-                default_query={@default_query}
-                dashboard_params={@dashboard_params}
-                inspector_errors={@inspector_errors}
-                srql_completions={srql_completions()}
-                draft_storage_key={dashboard_draft_storage_key(@current_scope)}
-              />
-            </div>
           </section>
         </div>
       </div>
@@ -711,277 +407,26 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
-  defp canvas_visual_options(options) do
-    Enum.map(options, fn option ->
-      %{
-        type: to_string(option.type),
-        label: option.label,
-        description: option.description
-      }
-    end)
-  end
-
-  defp canvas_panels(panels) do
-    Enum.map(panels, fn panel ->
-      %{
-        id: panel.id,
-        title: panel.title,
-        dataset_key: panel.dataset_key,
-        srql_query: panel.srql_query,
-        visual_type: to_string(panel.visual_type),
-        trend_query: panel.trend_query,
-        data_binding: panel.data_binding || %{},
-        display_config: Map.take(panel.display_config || %{}, ["label", "unit"]),
-        visual_config: panel.visual_config || %{},
-        preview: panel[:preview],
-        layout: panel.layout || %{},
-        position: panel.position || 0
-      }
-    end)
-  end
-
-  defp preview_snapshot(preview) do
-    %{
-      row_count: Map.get(preview, :row_count, length(Map.get(preview, :rows, []))),
-      rows: Enum.take(Map.get(preview, :rows, []), 12),
-      fields: Enum.map(Map.get(preview, :fields, []), &field_snapshot/1),
-      compatible_visuals: Enum.map(Map.get(preview, :compatible_visuals, []), &to_string/1)
-    }
-  end
-
-  defp field_snapshot(field) do
-    %{
-      name: field_value(field, :name),
-      type: field |> field_value(:type) |> to_string(),
-      sample: field_value(field, :sample)
-    }
-  end
-
-  defp field_value(field, key) when is_map(field), do: Map.get(field, key) || Map.get(field, to_string(key))
-  defp field_value(field, key), do: Map.get(field, key)
-
-  defp restore_pending_panel(%{} = panel) do
-    id = field_value(panel, :id)
-
-    if is_binary(id) and id != "" do
-      %{
-        id: id,
-        title: field_value(panel, :title) || "Panel",
-        dataset_key: field_value(panel, :dataset_key) || "primary",
-        srql_query: field_value(panel, :srql_query) || @default_query,
-        builder_state: field_value(panel, :builder_state) || %{},
-        visual_type: field_value(panel, :visual_type) || "table",
-        trend_query: field_value(panel, :trend_query),
-        data_binding: field_value(panel, :data_binding) || %{},
-        display_config: field_value(panel, :display_config) || %{},
-        visual_config: field_value(panel, :visual_config) || %{},
-        field_metadata: field_value(panel, :field_metadata) || %{},
-        preview: field_value(panel, :preview),
-        layout: field_value(panel, :layout) || %{},
-        position: parse_int(field_value(panel, :position), 0)
-      }
-    end
-  end
-
-  defp restore_pending_panel(_panel), do: nil
-
-  defp pending_panel_params(panel) do
-    %{
-      "dataset_key" => panel.dataset_key,
-      "panel_title" => panel.title,
-      "srql_query" => panel.srql_query,
-      "visual_type" => to_string(panel.visual_type),
-      "unit" => get_in(panel.display_config || %{}, ["unit"]) || "",
-      "trend_query" => panel.trend_query || get_in(panel.visual_config || %{}, ["trend_query"]) || "",
-      "trend_mode" => get_in(panel.visual_config || %{}, ["trend_mode"]) || "",
-      "value_field" => get_in(panel.data_binding || %{}, ["value_field"]) || "",
-      "numerator_field" => get_in(panel.data_binding || %{}, ["numerator_field"]) || "",
-      "denominator_field" => get_in(panel.data_binding || %{}, ["denominator_field"]) || "",
-      "label_field" => get_in(panel.data_binding || %{}, ["label_field"]) || "",
-      "row_field" => get_in(panel.data_binding || %{}, ["row_field"]) || "",
-      "column_field" => get_in(panel.data_binding || %{}, ["column_field"]) || "",
-      "time_field" => get_in(panel.data_binding || %{}, ["time_field"]) || "",
-      "status_field" => get_in(panel.data_binding || %{}, ["status_field"]) || "",
-      "aggregate" => get_in(panel.data_binding || %{}, ["aggregate"]) || "sum",
-      "empty_value" => get_in(panel.data_binding || %{}, ["empty_value"]) || "0"
-    }
-  end
-
-  defp replace_pending_panel(panels, replacement) do
-    Enum.map(panels, fn
-      panel when panel.id == replacement.id -> replacement
-      panel -> panel
-    end)
-  end
-
-  defp normalize_canvas_layout(%{"id" => id} = layout) when is_binary(id) do
-    {id,
-     %{
-       "x" => integer_layout_value(layout["x"], 0),
-       "y" => integer_layout_value(layout["y"], 0),
-       "w" => integer_layout_value(layout["w"], 4),
-       "h" => integer_layout_value(layout["h"], 4)
-     }}
-  end
-
-  defp normalize_canvas_layout(_layout), do: nil
-
-  defp integer_layout_value(value, _default) when is_integer(value), do: max(value, 0)
-
-  defp integer_layout_value(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> max(integer, 0)
-      _ -> default
-    end
-  end
-
-  defp integer_layout_value(value, _default) when is_float(value), do: value |> round() |> max(0)
-  defp integer_layout_value(_value, default), do: default
-
-  defp attrs_from_params(scope, params, pending_panels) do
+  defp attrs_from_params(params) do
     title = required(params["title"], :title)
 
-    with {:ok, title} <- title,
-         {:ok, panel_attrs} <- panel_attrs_for_save(scope, params, pending_panels) do
+    with {:ok, title} <- title do
       {:ok,
        %{
          title: title,
          description: optional(params["description"]),
          status: :active,
          visibility: normalize_visibility(params["visibility"])
-       }, panel_attrs}
-    end
-  end
-
-  defp panel_attrs_for_save(_scope, _params, pending_panels) when is_list(pending_panels) and pending_panels != [] do
-    {:ok, Enum.map(pending_panels, &pending_panel_to_attrs/1)}
-  end
-
-  defp panel_attrs_for_save(scope, params, _pending_panels) do
-    with {:ok, panel} <- panel_entry_from_params(scope, params, 0) do
-      {:ok, [pending_panel_to_attrs(panel)]}
-    end
-  end
-
-  defp panel_entry_from_params(scope, params, position) do
-    panel_title = required(params["panel_title"], :panel_title)
-    query = required(params["srql_query"], :srql_query)
-
-    with {:ok, panel_title} <- panel_title,
-         {:ok, query} <- query,
-         {:ok, preview} <- Dashboards.preview_authored_query(scope, query) do
-      visual = selected_visual(params["visual_type"], preview.compatible_visuals)
-      dataset_key = dataset_key(params["dataset_key"], position)
-      trend_query = optional(params["trend_query"])
-      preview = preview_snapshot(preview)
-
-      data_binding =
-        preview
-        |> default_data_binding(visual, dataset_key)
-        |> Map.merge(binding_params(params))
-
-      {:ok,
-       %{
-         id: "pending-#{System.unique_integer([:positive])}",
-         title: panel_title,
-         dataset_key: dataset_key,
-         srql_query: query,
-         builder_state: params["builder_state"] || %{},
-         visual_type: visual,
-         trend_query: trend_query,
-         data_binding: data_binding,
-         display_config: default_display_config(params, preview, visual, panel_title),
-         visual_config: default_visual_config(params, visual, trend_query),
-         field_metadata: %{
-           fields: preview.fields,
-           compatible_visuals: preview.compatible_visuals
-         },
-         preview: preview,
-         layout: default_panel_layout(position, visual),
-         position: position
        }}
     end
   end
 
-  defp pending_panel_to_attrs(panel) do
-    Map.take(panel, [
-      :title,
-      :dataset_key,
-      :srql_query,
-      :builder_state,
-      :visual_type,
-      :data_binding,
-      :display_config,
-      :visual_config,
-      :field_metadata,
-      :layout,
-      :position
-    ])
-  end
-
   defp default_dashboard_params do
     %{
-      "title" => "Untitled dashboard",
+      "title" => "",
       "description" => "",
-      "visibility" => "private",
-      "dataset_key" => "primary",
-      "panel_title" => "Recent service checks",
-      "srql_query" => @default_query,
-      "visual_type" => "table",
-      "unit" => "",
-      "trend_query" => ""
+      "visibility" => "private"
     }
-  end
-
-  defp next_panel_params(params, panel_number) do
-    params
-    |> Map.put("dataset_key", "dataset_#{panel_number + 1}")
-    |> Map.put("panel_title", "Panel #{panel_number + 1}")
-    |> Map.put("srql_query", @default_query)
-    |> Map.put("visual_type", "table")
-    |> Map.put("unit", "")
-    |> Map.put("trend_query", "")
-    |> Map.delete("builder_state")
-  end
-
-  defp move_pending_panel(panels, id, direction) do
-    index = Enum.find_index(panels, &(&1.id == id))
-
-    target =
-      case direction do
-        "up" when is_integer(index) -> max(index - 1, 0)
-        "down" when is_integer(index) -> min(index + 1, length(panels) - 1)
-        _ -> index
-      end
-
-    if is_integer(index) and is_integer(target) and index != target do
-      panel = Enum.at(panels, index)
-
-      panels
-      |> List.delete_at(index)
-      |> List.insert_at(target, panel)
-      |> Enum.with_index()
-      |> Enum.map(&position_pending_panel/1)
-    else
-      panels
-    end
-  end
-
-  defp position_pending_panel({panel, position}) do
-    existing_layout =
-      case panel.layout do
-        layout when is_map(layout) -> layout
-        _ -> %{}
-      end
-
-    layout =
-      position
-      |> default_panel_layout(panel.visual_type)
-      |> Map.merge(existing_layout)
-      |> Map.put("y", position)
-      |> Map.put("order", position)
-
-    %{panel | position: position, layout: layout}
   end
 
   defp default_group_params do
@@ -1040,208 +485,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
   defp default_builder_filter_field(entity) do
     Catalog.entity(entity).default_filter_field || ""
-  end
-
-  defp default_data_binding(preview, visual, dataset_key) do
-    fields = preview.fields || []
-    numeric = first_field_of_type(fields, :number)
-    string = first_field_of_type(fields, :string)
-    datetime = first_field_of_type(fields, :datetime)
-
-    status =
-      Enum.find_value(fields, fn field ->
-        if field.name in ~w(status state health severity), do: field.name
-      end)
-
-    case visual do
-      "availability" ->
-        %{
-          "dataset" => dataset_key,
-          "numerator_field" => field_named(fields, "ok") || numeric,
-          "denominator_field" => field_named(fields, "total"),
-          "label_field" => string
-        }
-
-      "line" ->
-        %{
-          "dataset" => dataset_key,
-          "time_field" => datetime,
-          "value_field" => numeric,
-          "label_field" => string
-        }
-
-      "area" ->
-        %{
-          "dataset" => dataset_key,
-          "time_field" => datetime,
-          "value_field" => numeric,
-          "label_field" => string
-        }
-
-      "bar" ->
-        %{"dataset" => dataset_key, "label_field" => string, "value_field" => numeric}
-
-      "category" ->
-        %{"dataset" => dataset_key, "label_field" => string, "value_field" => numeric}
-
-      "status_list" ->
-        %{"dataset" => dataset_key, "label_field" => string, "status_field" => status}
-
-      "pivot" ->
-        %{
-          "dataset" => dataset_key,
-          "row_field" => string,
-          "column_field" => status || string,
-          "value_field" => numeric,
-          "aggregate" => "sum",
-          "empty_value" => "0"
-        }
-
-      _ ->
-        %{"dataset" => dataset_key, "value_field" => numeric, "label_field" => string}
-    end
-  end
-
-  defp default_display_config(params, preview, visual, panel_title) do
-    Map.reject(
-      %{
-        "label" => panel_title,
-        "unit" => optional(params["unit"]) || default_unit(visual),
-        "table_columns" => default_table_columns(preview.fields),
-        "caption" => optional(params["caption"])
-      },
-      fn {_key, value} -> is_nil(value) end
-    )
-  end
-
-  defp default_visual_config(params, visual, trend_query) when visual in ["stat", "count", "gauge", "availability"] do
-    Map.reject(
-      %{
-        "thresholds" => [
-          %{"label" => "warning", "value" => 70, "tone" => "warning"},
-          %{"label" => "critical", "value" => 90, "tone" => "error"}
-        ],
-        "trend_query" => trend_query,
-        "trend_mode" => optional(params["trend_mode"])
-      },
-      fn {_key, value} -> is_nil(value) or value == "" end
-    )
-  end
-
-  defp default_visual_config(_params, _visual, _trend_query), do: %{}
-
-  defp binding_params(params) do
-    Enum.reduce(
-      [
-        "value_field",
-        "numerator_field",
-        "denominator_field",
-        "label_field",
-        "row_field",
-        "column_field",
-        "time_field",
-        "status_field",
-        "aggregate",
-        "empty_value"
-      ],
-      %{},
-      fn key, acc ->
-        case optional(params[key]) do
-          nil -> acc
-          value -> Map.put(acc, key, value)
-        end
-      end
-    )
-  end
-
-  defp default_panel_layout(position, visual) do
-    width =
-      case to_string(visual) do
-        visual when visual in ["table", "pivot", "line", "area"] -> 12
-        "status_list" -> 8
-        _ -> 4
-      end
-
-    per_row = max(div(12, width), 1)
-
-    height =
-      case to_string(visual) do
-        visual when visual in ["table", "pivot"] -> 8
-        visual when visual in ["line", "area", "bar", "category"] -> 6
-        _ -> 4
-      end
-
-    %{
-      "x" => rem(position, per_row) * width,
-      "y" => div(position, per_row) * height,
-      "w" => width,
-      "h" => height,
-      "order" => position
-    }
-  end
-
-  defp dataset_key(value, position) do
-    value =
-      value
-      |> optional()
-      |> case do
-        nil -> "dataset_#{position + 1}"
-        other -> other
-      end
-
-    value
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9_]+/, "_")
-    |> String.trim("_")
-    |> case do
-      "" -> "dataset_#{position + 1}"
-      other -> other
-    end
-  end
-
-  defp default_table_columns(fields) do
-    Enum.map(fields || [], fn field ->
-      %{
-        "field" => field.name,
-        "label" => humanize_field(field.name),
-        "renderer" => default_renderer(field),
-        "visible" => true
-      }
-    end)
-  end
-
-  defp default_renderer(%{type: :boolean}), do: "boolean_icon"
-  defp default_renderer(%{type: :datetime}), do: "time"
-  defp default_renderer(%{type: :number}), do: "number"
-
-  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample), do: "json_summary"
-
-  defp default_renderer(_field), do: "text"
-
-  defp default_unit("availability"), do: "%"
-  defp default_unit("gauge"), do: "%"
-  defp default_unit(_visual), do: ""
-
-  defp default_panel_title(visual, position) do
-    visual
-    |> to_string()
-    |> humanize_field()
-    |> Kernel.<>(" Panel #{position + 1}")
-  end
-
-  defp first_field_of_type(fields, type) do
-    Enum.find_value(fields, fn field -> if field.type == type, do: field.name end)
-  end
-
-  defp field_named(fields, name) do
-    Enum.find_value(fields, fn field -> if field.name == name, do: field.name end)
-  end
-
-  defp humanize_field(value) do
-    value
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
   end
 
   defp load_access_controls(scope, assigns) do
@@ -1323,20 +566,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
   defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
 
-  defp srql_completions, do: Catalog.completion_tokens()
-
-  defp dashboard_draft_storage_key(%{user: %{id: id}}) when is_binary(id), do: "serviceradar:dashboard-draft:#{id}"
-  defp dashboard_draft_storage_key(_scope), do: "serviceradar:dashboard-draft"
-
   defp normalize_visibility(value) when value in ~w(private shared public), do: value
   defp normalize_visibility(_value), do: "private"
 
   defp authorize_manage(socket) do
     if socket.assigns.can_manage?, do: :ok, else: {:error, :forbidden}
-  end
-
-  defp deny_manage(socket) do
-    {:noreply, put_flash(socket, :error, "Not authorized to manage dashboards")}
   end
 
   defp authorize_manage_groups(socket) do

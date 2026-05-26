@@ -87,15 +87,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert html =~ "Dashboard Creator"
     assert html =~ "New Dashboard"
 
-    render_click(view, "add_panel", %{
-      "dashboard" => %{
-        "dataset_key" => "services",
-        "panel_title" => "Service Series",
-        "srql_query" => "series services",
-        "visual_type" => "table"
-      }
-    })
-
     view
     |> form("#dashboard-metadata-form", %{
       "dashboard" => %{"title" => title, "description" => "Created through LiveView", "visibility" => "private"}
@@ -110,36 +101,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert_redirect(view, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
     assert dashboard.owner_id == user.id
     assert dashboard.dashboard_ref in 1_000_000..9_999_999
+    assert Dashboards.list_authored_panels(scope, dashboard.id) == []
   end
 
-  test "creator saves multiple SRQL panels on one dashboard", %{conn: conn, scope: scope} do
+  test "saved dashboard settings creates schema-guided panels", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     title = "Multi Query LiveView #{unique}"
 
     {:ok, view, _html} = live(conn, ~p"/analytics")
     render_async(view, 5_000)
-
-    render_click(view, "add_panel", %{
-      "dashboard" => %{
-        "dataset_key" => "services",
-        "panel_title" => "Service Series",
-        "srql_query" => "series services",
-        "visual_type" => "table"
-      }
-    })
-
-    render_click(view, "add_panel", %{
-      "dashboard" => %{
-        "dataset_key" => "rich",
-        "panel_title" => "Rich Status",
-        "srql_query" => "rich services",
-        "visual_type" => "table"
-      }
-    })
-
-    assert render(view) =~ "Loading dashboard canvas"
-    assert render(view) =~ "Service Series"
-    assert render(view) =~ "Rich Status"
 
     view
     |> form("#dashboard-metadata-form", %{
@@ -152,40 +122,49 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       |> Dashboards.list_authored_dashboards(%{status: [:active], limit: 100})
       |> Enum.filter(&(&1.title == title))
 
-    panels = Dashboards.list_authored_panels(scope, dashboard.id)
-    assert Enum.map(panels, & &1.dataset_key) == ["services", "rich"]
-    assert Enum.map(panels, & &1.srql_query) == ["series services", "rich services"]
-  end
-
-  test "creator restores canvas drafts and surfaces inline inspector errors", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/analytics")
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
     render_async(view, 5_000)
 
-    html =
-      render_hook(view, "restore_canvas_draft", %{
-        "dashboard" => %{"title" => "Restored Draft"},
-        "panels" => [
-          %{
-            "id" => "draft-panel-1",
-            "title" => "Draft Panel",
-            "dataset_key" => "services",
-            "srql_query" => "series services",
-            "visual_type" => "table",
-            "layout" => %{"x" => 0, "y" => 0, "w" => 12, "h" => 8}
-          }
-        ]
-      })
+    view
+    |> element("button[phx-click='open_settings']", "Settings")
+    |> render_click()
 
-    assert html =~ "Restored Draft"
-    assert html =~ "Draft Panel"
+    view
+    |> element("button[phx-click='new_panel']", "Add Panel")
+    |> render_click()
 
-    html =
-      render_hook(view, "canvas_preview_panel", %{
-        "id" => "draft-panel-1",
-        "panel" => %{"srql_query" => ""}
-      })
+    refute has_element?(view, "select[name='panel[visual_type]'] option[value='availability']")
 
-    assert html =~ "srql_query is required"
+    view
+    |> form("form[phx-submit='submit_panel_form']", %{
+      "panel" => %{
+        "dataset_key" => "services",
+        "title" => "Service Series",
+        "srql_query" => "series services",
+        "visual_type" => "table"
+      }
+    })
+    |> render_change()
+
+    render_click(view, "preview_panel_edit")
+    refute has_element?(view, "select[name='panel[visual_type]'] option[value='availability']")
+    assert has_element?(view, "select[name='panel[value_field]'] option[selected][value='value']")
+    assert has_element?(view, "select[name='panel[label_field]'] option[selected][value='service']")
+
+    view
+    |> form("form[phx-submit='submit_panel_form']", %{
+      "panel" => %{
+        "dataset_key" => "services",
+        "title" => "Service Series",
+        "srql_query" => "series services",
+        "visual_type" => "table"
+      }
+    })
+    |> render_submit()
+
+    panels = Dashboards.list_authored_panels(scope, dashboard.id)
+    assert Enum.map(panels, & &1.dataset_key) == ["services"]
+    assert Enum.map(panels, & &1.srql_query) == ["series services"]
   end
 
   test "dashboard library lists authored dashboards and updates favorite/default preferences", %{
@@ -253,15 +232,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     |> render_click()
 
     view
-    |> form("form[phx-submit='save_panel']", %{
+    |> form("form[phx-submit='submit_panel_form']", %{
       "panel" => %{
         "title" => "Updated Service Series",
         "srql_query" => "series services",
         "visual_type" => "table",
         "refresh_interval_seconds" => "60",
         "position" => "1",
-        "visual_config_json" => "{}",
-        "layout_json" => "{}"
+        "layout_w" => "12",
+        "layout_h" => "8"
       }
     })
     |> render_submit()

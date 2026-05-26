@@ -57,6 +57,14 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
       {:ok, %{"results" => [%{"ok" => 9, "total" => 10, "site" => "ZZA"}]}}
     end
 
+    def query("breakdown" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"type" => "router", "count" => 12}]}}
+    end
+
+    def query("pivot" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"site" => "ZZA", "type" => "router", "count" => 12}]}}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -98,6 +106,15 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert :status_list in preview.compatible_visuals
   end
 
+  test "pivot compatibility requires two dimensions plus a numeric field", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "breakdown devices")
+    assert :bar in preview.compatible_visuals
+    refute :pivot in preview.compatible_visuals
+
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "pivot devices")
+    assert :pivot in preview.compatible_visuals
+  end
+
   test "preview exposes JSON paths from sample object values", %{scope: scope} do
     assert {:ok, preview} = Dashboards.preview_authored_query(scope, "rich services")
 
@@ -130,6 +147,16 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
 
     refute :stat in compatible
+
+    assert {:error, {:incompatible_visual_type, :availability, compatible}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Series availability",
+               srql_query: "series services",
+               visual_type: :availability
+             })
+
+    refute :availability in compatible
   end
 
   test "table fallback can save an empty result set", %{scope: scope, dashboard: dashboard} do

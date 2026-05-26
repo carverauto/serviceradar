@@ -1,6 +1,5 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {GridStack} from "gridstack"
-import {loadSrqlMonaco} from "../../js/lib/srql/monaco_srql.js"
 import SrqlEditor from "./SrqlEditor.jsx"
 
 const VISUAL_LABELS = {
@@ -268,7 +267,7 @@ function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, 
       </label>
       <label className="form-control">
         <span className="label-text text-xs">SRQL query</span>
-        <SrqlEditor value={draft.srql_query} onChange={value => update("srql_query", value)} completions={srqlCompletions} error={error} />
+        <SrqlEditor value={draft.srql_query} onChange={value => update("srql_query", value)} completions={srqlCompletions} error={error} rich />
       </label>
       {error ? <div className="rounded-lg border border-error/30 bg-error/10 p-2 text-xs text-error">{error}</div> : null}
       <label className="form-control">
@@ -327,7 +326,7 @@ function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, 
       {draft.trend_mode === "custom" ? (
         <label className="form-control">
           <span className="label-text text-xs">Custom trend SRQL</span>
-          <SrqlEditor value={draft.trend_query} onChange={value => update("trend_query", value)} completions={srqlCompletions} />
+          <SrqlEditor value={draft.trend_query} onChange={value => update("trend_query", value)} completions={srqlCompletions} rich />
         </label>
       ) : null}
       <div className="flex gap-2">
@@ -621,10 +620,6 @@ export default function DashboardBuilderCanvas({
   const panelsById = useMemo(() => new Map(panels.map(panel => [panel.id, panel])), [panels])
   const selectedPanel = panelsById.get(selectedId) || panels[0] || null
   const restoredRef = useRef(false)
-
-  useEffect(() => {
-    loadSrqlMonaco()
-  }, [])
 
   useEffect(() => {
     if (!draftStorageKey || restoredRef.current) return

@@ -506,10 +506,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
 
+  # Tables are the catch-all rendering path for any tabular SRQL result shape.
   defp validate_visual_compatibility(:table, _compatible), do: :ok
-  defp validate_visual_compatibility(:pivot, _compatible), do: :ok
-  defp validate_visual_compatibility(:availability, _compatible), do: :ok
-  defp validate_visual_compatibility(:count, _compatible), do: :ok
 
   defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
@@ -934,8 +932,10 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   def compatible_visuals(_rows, _fields), do: [:table]
 
   defp pivot_compatible?(fields) do
-    Enum.any?(fields, &(&1.type in [:string, :boolean, :datetime])) and
-      Enum.any?(fields, &(&1.type == :number))
+    dimension_count = Enum.count(fields, &(&1.type in [:string, :boolean, :datetime]))
+    has_numeric? = Enum.any?(fields, &(&1.type == :number))
+
+    dimension_count >= 2 and has_numeric?
   end
 
   @spec infer_fields([map()]) :: [map()]
