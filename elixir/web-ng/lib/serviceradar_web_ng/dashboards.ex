@@ -28,6 +28,10 @@ defmodule ServiceRadarWebNG.Dashboards do
   defdelegate get_authored_dashboard(scope, id, opts \\ []), to: Authored, as: :get_dashboard
   defdelegate create_authored_dashboard(scope, attrs), to: Authored, as: :create_dashboard
 
+  defdelegate create_authored_dashboard_with_panels(scope, attrs, panel_attrs),
+    to: Authored,
+    as: :create_dashboard_with_panels
+
   defdelegate update_authored_dashboard(scope, dashboard, attrs),
     to: Authored,
     as: :update_dashboard

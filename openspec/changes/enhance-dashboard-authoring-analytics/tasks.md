@@ -10,9 +10,10 @@
 ## 3. Multi-Query Dashboard Creation
 - [x] 3.1 Replace the single-panel new-dashboard form with a pending panel list.
 - [x] 3.2 Allow users to add, preview, remove, and reorder multiple SRQL-backed panels before save.
-- [ ] 3.3 Persist all pending panels transactionally enough that partial failures are reported and do not leave misleading UI state.
+- [x] 3.3 Persist all pending panels transactionally enough that partial failures are reported and do not leave misleading UI state.
 - [x] 3.4 Add LiveView coverage for creating a dashboard with multiple SRQL queries.
-- [x] 3.5 Add a modal-based panel composer and drag/drop draft panel layout ordering.
+- [x] 3.5 Add a modal-based panel composer and Gridstack canvas for draft panel layout and sizing.
+- [x] 3.6 Honor persisted panel layout in the saved dashboard renderer.
 
 ## 4. Gauge and Count Dashlets
 - [x] 4.1 Add structured gauge/count dashlet binding controls for value, numerator, denominator, label, unit, and thresholds.

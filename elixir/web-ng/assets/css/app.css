@@ -4,6 +4,7 @@
 @import "tailwindcss" source(none);
 @source "../css";
 @source "../js";
+@source "../component/src";
 @source "../../lib/serviceradar_web_ng_web";
 
 /* A Tailwind plugin that makes "hero-#{ICON}" classes available.
@@ -17,6 +18,7 @@
 
 /* Mapbox GL JS styles (used for netflow flow details map). */
 @import "../node_modules/mapbox-gl/dist/mapbox-gl.css";
+@import "../node_modules/gridstack/dist/gridstack.min.css";
 
 /* Force Mapbox popups to use dark text — the default white background
    inherits the page's light text color in dark mode themes. */

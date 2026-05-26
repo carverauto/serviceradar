@@ -36,6 +36,7 @@
     "d3-sankey": "^0.12.3",
     "elkjs": "^0.11.1",
     "events": "^3.3.0",
+    "gridstack": "^12.6.0",
     "jmuxer": "^2.1.0",
     "mapbox-gl": "^3.18.1",
     "phoenix": "^1.8.5",

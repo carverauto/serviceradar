@@ -25,8 +25,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       |> assign(:user_group_memberships, [])
       |> assign(:loading_dashboards?, connected?(socket))
       |> assign(:loading_access?, connected?(socket))
+      |> assign(:default_query, @default_query)
       |> assign(:preview, nil)
       |> assign(:pending_panels, [])
+      |> assign(:selected_pending_panel_id, "")
       |> assign(:panel_modal_open?, false)
       |> assign(:selected_visuals, [:table])
       |> assign(:visual_options, Dashboards.authored_visual_options())
@@ -112,8 +114,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
     with :ok <- authorize_manage(socket),
          {:ok, dashboard_attrs, panel_attrs} <- attrs_from_params(scope, params, socket.assigns.pending_panels),
-         {:ok, dashboard} <- Dashboards.create_authored_dashboard(scope, dashboard_attrs),
-         {:ok, _panels} <- create_dashboard_panels(scope, dashboard, panel_attrs) do
+         {:ok, {dashboard, _panels}} <-
+           Dashboards.create_authored_dashboard_with_panels(scope, dashboard_attrs, panel_attrs) do
       {:noreply,
        socket
        |> put_flash(:info, "Saved dashboard")
@@ -132,24 +134,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     scope = socket.assigns.current_scope
     params = merge_params(socket.assigns.dashboard_params, params)
 
-    case panel_entry_from_params(scope, params, length(socket.assigns.pending_panels)) do
-      {:ok, panel} ->
-        {:noreply,
-         socket
-         |> assign(:pending_panels, socket.assigns.pending_panels ++ [panel])
-         |> assign(:panel_modal_open?, false)
-         |> assign(:dashboard_params, next_panel_params(params, length(socket.assigns.pending_panels) + 1))
-         |> assign(:preview, nil)
-         |> assign(:selected_visuals, [:table])
-         |> assign_dashboard_builder(@default_query)
-         |> assign_form()}
+    case authorize_manage(socket) do
+      :ok ->
+        case panel_entry_from_params(scope, params, length(socket.assigns.pending_panels)) do
+          {:ok, panel} ->
+            {:noreply,
+             socket
+             |> assign(:pending_panels, socket.assigns.pending_panels ++ [panel])
+             |> assign(:selected_pending_panel_id, panel.id)
+             |> assign(:panel_modal_open?, false)
+             |> assign(:dashboard_params, next_panel_params(params, length(socket.assigns.pending_panels) + 1))
+             |> assign(:preview, nil)
+             |> assign(:selected_visuals, [:table])
+             |> assign_dashboard_builder(@default_query)
+             |> assign_form()}
 
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:dashboard_params, params)
-         |> assign_form()
-         |> put_flash(:error, "Panel add failed: #{format_error(reason)}")}
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> assign(:dashboard_params, params)
+             |> assign_form()
+             |> put_flash(:error, "Panel add failed: #{format_error(reason)}")}
+        end
+
+      {:error, _reason} ->
+        deny_manage(socket)
     end
   end
 
@@ -158,17 +167,144 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   end
 
   def handle_event("remove_panel", %{"id" => id}, socket) do
-    panels =
-      socket.assigns.pending_panels
-      |> Enum.reject(&(&1.id == id))
-      |> Enum.with_index()
-      |> Enum.map(&position_pending_panel/1)
+    case authorize_manage(socket) do
+      :ok ->
+        panels =
+          socket.assigns.pending_panels
+          |> Enum.reject(&(&1.id == id))
+          |> Enum.with_index()
+          |> Enum.map(&position_pending_panel/1)
 
-    {:noreply, assign(socket, :pending_panels, panels)}
+        selected_id =
+          if Enum.any?(panels, &(&1.id == socket.assigns.selected_pending_panel_id)) do
+            socket.assigns.selected_pending_panel_id
+          else
+            panels |> List.first() |> then(&((&1 && &1.id) || ""))
+          end
+
+        {:noreply, assign(socket, pending_panels: panels, selected_pending_panel_id: selected_id)}
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
+  end
+
+  def handle_event("canvas_add_panel", %{"visualType" => visual}, socket) do
+    scope = socket.assigns.current_scope
+    position = length(socket.assigns.pending_panels)
+
+    params =
+      Map.merge(socket.assigns.dashboard_params, %{
+        "dataset_key" => dataset_key("dataset_#{position + 1}", position),
+        "panel_title" => default_panel_title(visual, position),
+        "srql_query" => @default_query,
+        "visual_type" => to_string(visual),
+        "unit" => default_unit(to_string(visual)),
+        "trend_query" => ""
+      })
+
+    case authorize_manage(socket) do
+      :ok ->
+        case panel_entry_from_params(scope, params, position) do
+          {:ok, panel} ->
+            {:noreply,
+             socket
+             |> assign(:pending_panels, socket.assigns.pending_panels ++ [panel])
+             |> assign(:selected_pending_panel_id, panel.id)
+             |> assign(:dashboard_params, next_panel_params(params, position + 1))
+             |> assign(:preview, nil)
+             |> assign_form()}
+
+          {:error, reason} ->
+            {:noreply, put_flash(socket, :error, "Panel add failed: #{format_error(reason)}")}
+        end
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
+  end
+
+  def handle_event("canvas_select_panel", %{"id" => id}, socket) do
+    case authorize_manage(socket) do
+      :ok -> {:noreply, assign(socket, :selected_pending_panel_id, id)}
+      {:error, _reason} -> deny_manage(socket)
+    end
+  end
+
+  def handle_event("canvas_update_panel", %{"id" => id, "panel" => params}, socket) when is_map(params) do
+    scope = socket.assigns.current_scope
+
+    case authorize_manage(socket) do
+      :ok ->
+        case Enum.find(socket.assigns.pending_panels, &(&1.id == id)) do
+          nil ->
+            {:noreply, put_flash(socket, :error, "Panel not found")}
+
+          existing ->
+            params = merge_params(pending_panel_params(existing), params)
+
+            case panel_entry_from_params(scope, params, existing.position) do
+              {:ok, panel} ->
+                panel = %{panel | id: existing.id, layout: existing.layout, position: existing.position}
+                panels = replace_pending_panel(socket.assigns.pending_panels, panel)
+
+                {:noreply,
+                 socket
+                 |> assign(:pending_panels, panels)
+                 |> assign(:selected_pending_panel_id, panel.id)
+                 |> assign(:dashboard_params, params)
+                 |> assign_form()}
+
+              {:error, reason} ->
+                {:noreply, put_flash(socket, :error, "Panel update failed: #{format_error(reason)}")}
+            end
+        end
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
+  end
+
+  def handle_event("canvas_layout_change", %{"layouts" => layouts}, socket) when is_list(layouts) do
+    case authorize_manage(socket) do
+      :ok ->
+        layouts_by_id =
+          layouts
+          |> Enum.map(&normalize_canvas_layout/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.sort_by(fn {_id, layout} -> {layout["y"], layout["x"]} end)
+          |> Enum.with_index()
+          |> Map.new(fn {{id, layout}, order} ->
+            {id, Map.put(layout, "order", order)}
+          end)
+
+        panels =
+          socket.assigns.pending_panels
+          |> Enum.map(fn panel ->
+            case Map.get(layouts_by_id, panel.id) do
+              nil ->
+                panel
+
+              layout ->
+                %{panel | layout: Map.merge(panel.layout || %{}, layout), position: layout["order"]}
+            end
+          end)
+          |> Enum.sort_by(fn panel ->
+            {panel.position, Map.get(panel.layout || %{}, "y", 0), Map.get(panel.layout || %{}, "x", 0)}
+          end)
+
+        {:noreply, assign(socket, :pending_panels, panels)}
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
   end
 
   def handle_event("open_panel_modal", _params, socket) do
-    {:noreply, assign(socket, :panel_modal_open?, true)}
+    case authorize_manage(socket) do
+      :ok -> {:noreply, assign(socket, :panel_modal_open?, true)}
+      {:error, _reason} -> deny_manage(socket)
+    end
   end
 
   def handle_event("close_panel_modal", _params, socket) do
@@ -176,22 +312,34 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   end
 
   def handle_event("reorder_panels", %{"ids" => ids}, socket) when is_list(ids) do
-    panels_by_id = Map.new(socket.assigns.pending_panels, &{&1.id, &1})
+    case authorize_manage(socket) do
+      :ok ->
+        panels_by_id = Map.new(socket.assigns.pending_panels, &{&1.id, &1})
 
-    panels =
-      ids
-      |> Enum.map(&Map.get(panels_by_id, &1))
-      |> Enum.reject(&is_nil/1)
-      |> Kernel.++(Enum.reject(socket.assigns.pending_panels, &(&1.id in ids)))
-      |> Enum.with_index()
-      |> Enum.map(&position_pending_panel/1)
+        panels =
+          ids
+          |> Enum.map(&Map.get(panels_by_id, &1))
+          |> Enum.reject(&is_nil/1)
+          |> Kernel.++(Enum.reject(socket.assigns.pending_panels, &(&1.id in ids)))
+          |> Enum.with_index()
+          |> Enum.map(&position_pending_panel/1)
 
-    {:noreply, assign(socket, :pending_panels, panels)}
+        {:noreply, assign(socket, :pending_panels, panels)}
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
   end
 
   def handle_event("move_panel", %{"id" => id, "direction" => direction}, socket) do
-    panels = move_pending_panel(socket.assigns.pending_panels, id, direction)
-    {:noreply, assign(socket, :pending_panels, panels)}
+    case authorize_manage(socket) do
+      :ok ->
+        panels = move_pending_panel(socket.assigns.pending_panels, id, direction)
+        {:noreply, assign(socket, :pending_panels, panels)}
+
+      {:error, _reason} ->
+        deny_manage(socket)
+    end
   end
 
   def handle_event("validate_group", %{"group" => params}, socket) do
@@ -435,7 +583,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
               />
 
               <div class="flex flex-wrap gap-2">
-                <button type="button" class="btn btn-sm" phx-click="open_panel_modal">
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  phx-click="open_panel_modal"
+                  disabled={!@can_manage?}
+                >
                   <.icon name="hero-plus" class="size-4" /> Add Panel
                 </button>
                 <button type="submit" class="btn btn-sm btn-primary" disabled={!@can_manage?}>
@@ -444,72 +597,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
               </div>
             </.form>
 
-            <div :if={@pending_panels != []} class="border-t border-base-300 p-4">
-              <div class="mb-3 flex items-center justify-between gap-3">
-                <h3 class="text-sm font-semibold">Pending Panels</h3>
-                <span class="badge badge-outline">{length(@pending_panels)} panels</span>
-              </div>
-              <div
-                id="pending-dashboard-panels"
-                class="grid grid-cols-1 gap-3 lg:grid-cols-2"
-                phx-hook="DashboardPanelSorter"
-              >
-                <div
-                  :for={panel <- @pending_panels}
-                  id={"pending-panel-#{panel.id}"}
-                  data-panel-id={panel.id}
-                  draggable="true"
-                  class="flex min-h-36 cursor-grab flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-3 sm:justify-between"
-                >
-                  <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2">
-                      <span class="font-medium">{panel.title}</span>
-                      <span class="badge badge-sm badge-outline">{panel.visual_type}</span>
-                      <span class="badge badge-sm">{panel.dataset_key}</span>
-                    </div>
-                    <p class="mt-1 truncate font-mono text-xs text-base-content/55">
-                      {panel.srql_query}
-                    </p>
-                    <p
-                      :if={panel.trend_query}
-                      class="mt-1 truncate font-mono text-xs text-base-content/45"
-                    >
-                      trend: {panel.trend_query}
-                    </p>
-                    <p class="mt-2 text-xs text-base-content/45">
-                      {layout_summary(panel.layout)}
-                    </p>
-                  </div>
-                  <div class="flex shrink-0 justify-end gap-1">
-                    <button
-                      type="button"
-                      class="btn btn-xs"
-                      phx-click="move_panel"
-                      phx-value-id={panel.id}
-                      phx-value-direction="up"
-                    >
-                      <.icon name="hero-arrow-up" class="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-xs"
-                      phx-click="move_panel"
-                      phx-value-id={panel.id}
-                      phx-value-direction="down"
-                    >
-                      <.icon name="hero-arrow-down" class="size-4" />
-                    </button>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-error btn-outline"
-                      phx-click="remove_panel"
-                      phx-value-id={panel.id}
-                    >
-                      <.icon name="hero-trash" class="size-4" /> Remove
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <div class="border-t border-base-300 p-4">
+              <.dashboard_builder_canvas
+                id="authored-dashboard-builder-canvas"
+                panels={canvas_panels(@pending_panels)}
+                visual_options={canvas_visual_options(@visual_options)}
+                selected_id={@selected_pending_panel_id}
+                can_manage={@can_manage?}
+                default_query={@default_query}
+              />
             </div>
 
             <.panel_composer_modal
@@ -796,6 +892,98 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
+  defp canvas_visual_options(options) do
+    Enum.map(options, fn option ->
+      %{
+        type: to_string(option.type),
+        label: option.label,
+        description: option.description
+      }
+    end)
+  end
+
+  defp canvas_panels(panels) do
+    Enum.map(panels, fn panel ->
+      %{
+        id: panel.id,
+        title: panel.title,
+        dataset_key: panel.dataset_key,
+        srql_query: panel.srql_query,
+        visual_type: to_string(panel.visual_type),
+        trend_query: panel.trend_query,
+        data_binding: panel.data_binding || %{},
+        display_config: panel.display_config || %{},
+        visual_config: panel.visual_config || %{},
+        field_metadata: panel.field_metadata || %{},
+        preview: panel[:preview],
+        layout: panel.layout || %{},
+        position: panel.position || 0
+      }
+    end)
+  end
+
+  defp preview_snapshot(preview) do
+    %{
+      row_count: Map.get(preview, :row_count, length(Map.get(preview, :rows, []))),
+      rows: Enum.take(Map.get(preview, :rows, []), 12),
+      fields: Enum.map(Map.get(preview, :fields, []), &field_snapshot/1),
+      compatible_visuals: Enum.map(Map.get(preview, :compatible_visuals, []), &to_string/1)
+    }
+  end
+
+  defp field_snapshot(field) do
+    %{
+      name: field_value(field, :name),
+      type: field |> field_value(:type) |> to_string(),
+      sample: field_value(field, :sample)
+    }
+  end
+
+  defp field_value(field, key) when is_map(field), do: Map.get(field, key) || Map.get(field, to_string(key))
+  defp field_value(field, key), do: Map.get(field, key)
+
+  defp pending_panel_params(panel) do
+    %{
+      "dataset_key" => panel.dataset_key,
+      "panel_title" => panel.title,
+      "srql_query" => panel.srql_query,
+      "visual_type" => to_string(panel.visual_type),
+      "unit" => get_in(panel.display_config || %{}, ["unit"]) || "",
+      "trend_query" => panel.trend_query || get_in(panel.visual_config || %{}, ["trend_query"]) || ""
+    }
+  end
+
+  defp replace_pending_panel(panels, replacement) do
+    Enum.map(panels, fn
+      panel when panel.id == replacement.id -> replacement
+      panel -> panel
+    end)
+  end
+
+  defp normalize_canvas_layout(%{"id" => id} = layout) when is_binary(id) do
+    {id,
+     %{
+       "x" => integer_layout_value(layout["x"], 0),
+       "y" => integer_layout_value(layout["y"], 0),
+       "w" => integer_layout_value(layout["w"], 4),
+       "h" => integer_layout_value(layout["h"], 4)
+     }}
+  end
+
+  defp normalize_canvas_layout(_layout), do: nil
+
+  defp integer_layout_value(value, _default) when is_integer(value), do: max(value, 0)
+
+  defp integer_layout_value(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> max(integer, 0)
+      _ -> default
+    end
+  end
+
+  defp integer_layout_value(value, _default) when is_float(value), do: value |> round() |> max(0)
+  defp integer_layout_value(_value, default), do: default
+
   defp attrs_from_params(scope, params, pending_panels) do
     title = required(params["title"], :title)
 
@@ -831,6 +1019,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       visual = selected_visual(params["visual_type"], preview.compatible_visuals)
       dataset_key = dataset_key(params["dataset_key"], position)
       trend_query = optional(params["trend_query"])
+      preview = preview_snapshot(preview)
 
       {:ok,
        %{
@@ -848,6 +1037,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
            fields: preview.fields,
            compatible_visuals: preview.compatible_visuals
          },
+         preview: preview,
          layout: default_panel_layout(position, visual),
          position: position
        }}
@@ -870,25 +1060,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     ])
   end
 
-  defp create_dashboard_panels(scope, dashboard, panel_attrs) when is_list(panel_attrs) do
-    panel_attrs
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {attrs, index}, {:ok, panels} ->
-      attrs =
-        attrs
-        |> Map.put(:dashboard_id, dashboard.id)
-        |> Map.put_new(:position, index)
-
-      case Dashboards.create_authored_panel(scope, attrs) do
-        {:ok, panel} -> {:cont, {:ok, panels ++ [panel]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
   defp default_dashboard_params do
     %{
-      "title" => "Service Health",
+      "title" => "Untitled dashboard",
       "description" => "",
       "visibility" => "private",
       "dataset_key" => "primary",
@@ -935,16 +1109,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   end
 
   defp position_pending_panel({panel, position}) do
-    layout =
-      panel.layout
-      |> case do
+    existing_layout =
+      case panel.layout do
         layout when is_map(layout) -> layout
         _ -> %{}
       end
-      |> Map.merge(default_panel_layout(position, panel.visual_type), fn
-        key, existing, current when key in ["w", "h"] -> existing || current
-        _key, _existing, current -> current
-      end)
+
+    layout =
+      position
+      |> default_panel_layout(panel.visual_type)
+      |> Map.merge(existing_layout)
+      |> Map.put("y", position)
+      |> Map.put("order", position)
 
     %{panel | position: position, layout: layout}
   end
@@ -1102,6 +1278,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
         _ -> 4
       end
 
+    per_row = max(div(12, width), 1)
+
     height =
       case to_string(visual) do
         visual when visual in ["table", "pivot"] -> 8
@@ -1110,21 +1288,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       end
 
     %{
-      "x" => 0,
-      "y" => position,
+      "x" => rem(position, per_row) * width,
+      "y" => div(position, per_row) * height,
       "w" => width,
       "h" => height,
       "order" => position
     }
   end
-
-  defp layout_summary(layout) when is_map(layout) do
-    row = Map.get(layout, "order", Map.get(layout, "y", 0)) || 0
-
-    "Layout #{Map.get(layout, "w", 12)}x#{Map.get(layout, "h", 4)} at row #{row + 1}"
-  end
-
-  defp layout_summary(_layout), do: "Layout 12x4"
 
   defp dataset_key(value, position) do
     value =
@@ -1167,6 +1337,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
   defp default_unit("availability"), do: "%"
   defp default_unit("gauge"), do: "%"
   defp default_unit(_visual), do: ""
+
+  defp default_panel_title(visual, position) do
+    visual
+    |> to_string()
+    |> humanize_field()
+    |> Kernel.<>(" Panel #{position + 1}")
+  end
 
   defp first_field_of_type(fields, type) do
     Enum.find_value(fields, fn field -> if field.type == type, do: field.name end)
@@ -1275,6 +1452,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
   defp authorize_manage(socket) do
     if socket.assigns.can_manage?, do: :ok, else: {:error, :forbidden}
+  end
+
+  defp deny_manage(socket) do
+    {:noreply, put_flash(socket, :error, "Not authorized to manage dashboards")}
   end
 
   defp authorize_manage_groups(socket) do

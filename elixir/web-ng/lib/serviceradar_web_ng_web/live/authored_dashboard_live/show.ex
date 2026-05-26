@@ -698,13 +698,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <section
           :if={!@loading? and @dashboard}
-          class="grid grid-cols-1 gap-4 xl:grid-cols-2"
+          class="grid grid-cols-1 gap-4 lg:grid-cols-12"
         >
           <.panel_result
             :for={panel <- @dashboard.panels || []}
             panel={panel}
             result={Map.get(@panel_results, panel.id)}
             trend={Map.get(@trend_results, panel.id)}
+            style={panel_grid_style(panel)}
           />
         </section>
       </div>
@@ -720,7 +721,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign_new(:trend, fn -> nil end)
 
     ~H"""
-    <article class="rounded-lg border border-base-300 bg-base-100">
+    <article class="rounded-lg border border-base-300 bg-base-100" style={@style}>
       <div class="flex flex-col gap-2 border-b border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="min-w-0">
           <h2 class="truncate text-sm font-semibold">{@panel.title}</h2>
@@ -739,7 +740,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     assigns = assign(assigns, :message, format_error(reason))
 
     ~H"""
-    <article class="rounded-lg border border-error/30 bg-base-100">
+    <article class="rounded-lg border border-error/30 bg-base-100" style={@style}>
       <div class="border-b border-error/20 px-4 py-3">
         <h2 class="text-sm font-semibold">{@panel.title}</h2>
       </div>
@@ -750,7 +751,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp panel_result(assigns) do
     ~H"""
-    <article class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60">
+    <article
+      class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60"
+      style={@style}
+    >
       {@panel.title}
     </article>
     """
@@ -930,6 +934,27 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       "recipients" => ""
     }
   end
+
+  defp panel_grid_style(panel) do
+    layout = panel.layout || %{}
+    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12)
+    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
+
+    "grid-column: span #{width} / span #{width}; min-height: #{height * 38}px; order: #{order};"
+  end
+
+  defp bounded_integer(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)
+
+  defp bounded_integer(value, min, max) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> bounded_integer(integer, min, max)
+      _ -> min
+    end
+  end
+
+  defp bounded_integer(value, min, max) when is_float(value), do: value |> round() |> bounded_integer(min, max)
+  defp bounded_integer(_value, min, _max), do: min
 
   defp default_panel_params do
     %{

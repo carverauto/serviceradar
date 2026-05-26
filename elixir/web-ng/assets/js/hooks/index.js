@@ -1,7 +1,7 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
+import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
-import DashboardPanelSorter from "./DashboardPanelSorter"
 import DashboardWasmHost from "./DashboardWasmHost"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
@@ -36,8 +36,8 @@ import BandwidthGauge from "./charts/BandwidthGauge"
 export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
+  DashboardBuilderCanvas,
   DashboardMapViewSelect,
-  DashboardPanelSorter,
   DashboardWasmHost,
   JdmEditorHook,
   LocalTime,

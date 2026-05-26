@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
 
     view |> element("button[phx-click='add_panel']") |> render_click()
 
-    assert render(view) =~ "Pending Panels"
+    assert render(view) =~ "Loading dashboard canvas"
     assert render(view) =~ "Service Series"
     assert render(view) =~ "Rich Status"
 
