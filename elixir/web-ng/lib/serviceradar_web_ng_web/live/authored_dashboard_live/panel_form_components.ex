@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         datetime_panel_field_options(assigns.preview, assigns.panel, assigns.panel_results)
       )
       |> assign(:visual_options, panel_visual_select_options(assigns.preview, assigns.panel))
+      |> assign(:visual_locked?, is_nil(assigns.preview) and is_nil(assigns.panel))
 
     ~H"""
     <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
@@ -74,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
           type="select"
           label="Visualization"
           options={@visual_options}
+          disabled={@visual_locked?}
         />
         <.input
           field={@form[:refresh_interval_seconds]}
@@ -89,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         numeric_field_options={@numeric_field_options}
         dimension_field_options={@dimension_field_options}
         datetime_field_options={@datetime_field_options}
+        locked?={@visual_locked?}
       />
 
       <div class="flex flex-wrap gap-2 border-t border-base-300 pt-4">
@@ -114,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
   attr(:numeric_field_options, :list, default: [])
   attr(:dimension_field_options, :list, default: [])
   attr(:datetime_field_options, :list, default: [])
+  attr(:locked?, :boolean, default: false)
 
   defp panel_structured_fields(assigns) do
     visual = assigns.form |> Phoenix.HTML.Form.input_value(:visual_type) |> to_string()
@@ -130,7 +134,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       ])
 
     ~H"""
-    <section class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2">
+    <section
+      :if={@locked?}
+      class="rounded-lg border border-dashed border-base-300 bg-base-100 p-4 text-sm text-base-content/70 lg:col-span-2"
+    >
+      <div class="font-medium text-base-content">Preview the SRQL query first</div>
+      <p class="mt-1 text-xs">
+        The builder will inspect the returned fields and then unlock only the visualization and binding controls that fit this query.
+      </p>
+    </section>
+
+    <section
+      :if={!@locked?}
+      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
+    >
       <div class="lg:col-span-2">
         <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
           Data bindings
@@ -220,7 +237,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
     </section>
 
     <section
-      :if={@visual in ["stat", "count", "gauge", "availability"]}
+      :if={!@locked? and @visual in ["stat", "count", "gauge", "availability"]}
       class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
     >
       <div class="lg:col-span-2">
@@ -251,7 +268,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       </div>
     </section>
 
-    <section class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2">
+    <section
+      :if={!@locked?}
+      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
+    >
       <div class="lg:col-span-2">
         <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
           Display
@@ -268,7 +288,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
       />
     </section>
 
-    <section class="grid grid-cols-2 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-4">
+    <section
+      :if={!@locked?}
+      class="grid grid-cols-2 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-4"
+    >
       <div class="col-span-2 lg:col-span-4">
         <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
           Layout
@@ -302,7 +325,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
     SourceQueries.datetime_field_options(fields)
   end
 
-  defp panel_visual_select_options(nil, nil), do: SourceQueries.all_visual_options()
+  defp panel_visual_select_options(nil, nil), do: [{"Preview query first", ""}]
 
   defp panel_visual_select_options(preview, panel) do
     SourceQueries.compatible_visual_options(preview, panel)

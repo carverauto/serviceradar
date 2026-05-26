@@ -32,6 +32,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       {:ok, %{"results" => [%{"available" => 75, "total" => 100, "value" => 75}]}}
     end
 
+    def query("stat" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"value" => 10, "label" => "services"}]}}
+    end
+
     def query("trend" <> _rest, _opts) do
       {:ok, %{"results" => [%{"value" => 50}, %{"value" => 75}]}}
     end
@@ -133,23 +137,30 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     |> element("button[phx-click='new_panel']", "Add Panel")
     |> render_click()
 
+    assert has_element?(view, "select[name='panel[visual_type]'][disabled]")
+    assert render(view) =~ "Preview the SRQL query first"
+    assert has_element?(view, "select[name='panel[visual_type]'] option[value='']", "Preview query first")
     refute has_element?(view, "select[name='panel[visual_type]'] option[value='availability']")
+    refute has_element?(view, "select[name='panel[visual_type]'] option[value='gauge']")
+    refute has_element?(view, "select[name='panel[visual_type]'] option[value='table']")
 
     view
     |> form("form[phx-submit='submit_panel_form']", %{
       "panel" => %{
         "dataset_key" => "services",
         "title" => "Service Series",
-        "srql_query" => "series services",
-        "visual_type" => "table"
+        "srql_query" => "series services"
       }
     })
     |> render_change()
 
     render_click(view, "preview_panel_edit")
+    refute has_element?(view, "select[name='panel[visual_type]'][disabled]")
     refute has_element?(view, "select[name='panel[visual_type]'] option[value='availability']")
-    assert has_element?(view, "select[name='panel[value_field]'] option[selected][value='value']")
-    assert has_element?(view, "select[name='panel[label_field]'] option[selected][value='service']")
+    refute has_element?(view, "select[name='panel[visual_type]'] option[value='gauge']")
+    assert has_element?(view, "select[name='panel[visual_type]'] option[value='table']")
+    assert has_element?(view, "select[name='panel[visual_type]'] option[value='category']")
+    refute has_element?(view, "select[name='panel[value_field]']")
 
     view
     |> form("form[phx-submit='submit_panel_form']", %{
@@ -282,11 +293,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     |> element("button[phx-click='open_settings']", "Settings")
     |> render_click()
 
-    assert has_element?(view, "section", "Dashboard Settings")
+    assert has_element?(view, "section", "Dashboard Workbench")
     assert has_element?(view, "section", "Email Reports")
 
     view
-    |> element("button[phx-click='edit_panel'][phx-value-id='#{panel.id}']", "Edit")
+    |> element("button[phx-click='edit_panel'][phx-value-id='#{panel.id}']", "Open in Builder")
     |> render_click()
 
     view
@@ -434,7 +445,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       Dashboards.create_authored_panel(scope, %{
         dashboard_id: dashboard.id,
         title: "Current Services",
-        srql_query: "series services",
+        srql_query: "stat services",
         visual_type: :count,
         data_binding: %{"value_field" => "value"},
         display_config: %{"label" => "Current Services", "unit" => " services"},
@@ -446,14 +457,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     html = render_async(view, 5_000)
 
     assert html =~ "Device Availability"
-    assert html =~ "75.0"
-    assert html =~ "progress-warning"
-    assert html =~ "aria-label=\"Device Availability: 75.0%\""
-    assert html =~ "Trend:"
+    assert html =~ "dashboard-panel-chart-"
+    assert html =~ "Compared to 30 days ago"
     assert html =~ "+25"
     assert html =~ "Refresh 1m"
     assert html =~ count_panel.title
-    assert html =~ "10<span class=\"text-xl\"> services</span>"
+    assert html =~ " services</span>"
   end
 
   test "saved dashboard panel actions duplicate clone compact inspect refresh and export", %{
@@ -474,9 +483,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert html =~ "download=\"service-series.csv\""
     assert html =~ "/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}/panels/#{panel.id}/export.csv"
     assert html =~ "sr-authored-dashboard-panel"
-    assert html =~ "--sr-panel-x: 9"
+    assert html =~ "--sr-panel-x: 1"
     assert html =~ "--sr-panel-y: 13"
-    assert html =~ "--sr-panel-w: 4"
+    assert html =~ "--sr-panel-w: 12"
 
     html = render_click(view, "toggle_panel_srql", %{"id" => panel.id})
     assert html =~ panel.srql_query
