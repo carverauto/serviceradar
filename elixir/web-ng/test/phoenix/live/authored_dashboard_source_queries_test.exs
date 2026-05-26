@@ -54,6 +54,38 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
     end
   end
 
+  describe "outputs_for_preview/1" do
+    test "summarizes grouped availability outputs from the returned schema" do
+      outputs =
+        SourceQueries.outputs_for_preview(%{
+          fields: [
+            %{"name" => "is_available", "type" => "boolean"},
+            %{"name" => "count", "type" => "number"}
+          ],
+          compatible_visuals: [:availability, :gauge]
+        })
+
+      assert Enum.map(outputs, & &1["summary"]) == [
+               "Count grouped by is available",
+               "Count grouped by is available"
+             ]
+    end
+
+    test "summarizes pivot bindings from row, column, and value fields" do
+      [output] =
+        SourceQueries.outputs_for_preview(%{
+          fields: [
+            %{"name" => "site", "type" => "string"},
+            %{"name" => "is_available", "type" => "boolean"},
+            %{"name" => "count", "type" => "number"}
+          ],
+          compatible_visuals: [:pivot]
+        })
+
+      assert output["summary"] == "Rows: site | Columns: is available | Values: sum count"
+    end
+  end
+
   defp panel_attrs(query, lookback_days) do
     SourceQueries.panel_attrs_from_output(
       %{id: "dashboard-1", panels: []},

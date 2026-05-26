@@ -121,13 +121,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
               <button
                 :for={output <- @preview.outputs}
                 type="button"
-                class="btn btn-sm justify-start"
+                class="btn h-auto min-h-12 justify-start py-2"
                 phx-click="create_source_output"
                 phx-value-visual-type={output["visual_type"]}
                 disabled={!@can_manage?}
                 title={output["description"]}
               >
-                <.icon name="hero-plus" class="size-4" /> {output["label"]}
+                <.icon name="hero-plus" class="size-4 shrink-0" />
+                <span class="flex min-w-0 flex-col items-start text-left leading-tight">
+                  <span>{output["label"]}</span>
+                  <span
+                    :if={output["summary"]}
+                    class="mt-1 truncate text-[11px] font-normal opacity-70"
+                  >
+                    {output["summary"]}
+                  </span>
+                </span>
               </button>
             </div>
           </div>

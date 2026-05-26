@@ -336,13 +336,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   end
 
   defp output_for_visual(visual, fields) do
+    binding = binding_for_visual(visual, fields)
+
     %{
       "id" => "output_#{visual}",
       "visual_type" => to_string(visual),
       "intent" => intent_for_visual(visual),
       "label" => output_label(visual),
       "description" => output_description(visual),
-      "default_binding" => binding_for_visual(visual, fields)
+      "summary" => output_summary(visual, fields, binding),
+      "default_binding" => binding
     }
   end
 
@@ -377,6 +380,85 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   defp output_description(:stat), do: "Single numeric value."
   defp output_description(:table), do: "Raw rows and columns."
   defp output_description(_visual), do: "Rows and fields from this source query."
+
+  defp output_summary(visual, fields, binding) when visual in [:availability, :gauge] do
+    cond do
+      binding["value_field"] && binding["label_field"] ->
+        "Count grouped by #{summary_field(binding["label_field"])}"
+
+      binding["numerator_field"] && binding["denominator_field"] ->
+        "#{summary_field(binding["numerator_field"])} divided by #{summary_field(binding["denominator_field"])}"
+
+      binding["value_field"] ->
+        "Value from #{summary_field(binding["value_field"])}"
+
+      true ->
+        "#{length(fields)} returned fields"
+    end
+  end
+
+  defp output_summary(:pivot, _fields, binding) do
+    [
+      {"Rows", summarize_optional_field(binding["row_field"])},
+      {"Columns", summarize_optional_field(binding["column_field"])},
+      {"Values", aggregate_summary(binding)}
+    ]
+    |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
+    |> Enum.map_join(" | ", fn {label, value} -> "#{label}: #{value}" end)
+  end
+
+  defp output_summary(visual, _fields, binding) when visual in [:line, :area] do
+    output_binding_summary([
+      {"Time", binding["time_field"]},
+      {"Value", binding["value_field"]},
+      {"Series", binding["label_field"]}
+    ])
+  end
+
+  defp output_summary(visual, _fields, binding) when visual in [:bar, :category] do
+    output_binding_summary([{"Labels", binding["label_field"]}, {"Values", binding["value_field"]}])
+  end
+
+  defp output_summary(:status_list, _fields, binding) do
+    output_binding_summary([
+      {"Labels", binding["label_field"]},
+      {"Status", binding["status_field"]},
+      {"Values", binding["value_field"]}
+    ])
+  end
+
+  defp output_summary(visual, fields, binding) when visual in [:stat, :count] do
+    if binding["value_field"] do
+      "Value from #{summary_field(binding["value_field"])}"
+    else
+      "#{length(fields)} returned fields"
+    end
+  end
+
+  defp output_summary(:table, fields, _binding), do: "#{length(fields)} returned fields"
+  defp output_summary(_visual, fields, _binding), do: "#{length(fields)} returned fields"
+
+  defp output_binding_summary(parts) do
+    parts
+    |> Enum.reject(fn {_label, value} -> value in [nil, ""] end)
+    |> Enum.map_join(" | ", fn {label, value} -> "#{label}: #{summary_field(value)}" end)
+  end
+
+  defp aggregate_summary(binding) do
+    value = binding["value_field"]
+    aggregate = binding["aggregate"] || "sum"
+
+    if value in [nil, ""] do
+      nil
+    else
+      "#{aggregate} #{summary_field(value)}"
+    end
+  end
+
+  defp summarize_optional_field(value) when value in [nil, ""], do: nil
+  defp summarize_optional_field(value), do: summary_field(value)
+
+  defp summary_field(value), do: value |> humanize_field() |> String.downcase()
 
   defp binding_for_visual(:availability, fields) do
     if field_named(fields, "count") && availability_label_field(fields) do
