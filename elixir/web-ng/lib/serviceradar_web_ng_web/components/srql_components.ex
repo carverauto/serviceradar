@@ -26,9 +26,9 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   def srql_editor(%{field: %FormField{} = field} = assigns) do
     assigns
     |> assign(:field, nil)
-    |> assign_new(:id, fn -> field.id end)
-    |> assign_new(:name, fn -> field.name end)
-    |> assign_new(:value, fn -> field.value end)
+    |> assign(:id, assigns.id || field.id)
+    |> assign(:name, assigns.name || field.name)
+    |> assign(:value, assigns.value || field.value)
     |> srql_editor()
   end
 
@@ -48,13 +48,23 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     <div class={["fieldset mb-2", @class]}>
       <label :if={@label} for={@id} class="label mb-1">{@label}</label>
       <input
+        :if={@compact}
         id={@input_id}
-        type="hidden"
+        type="text"
         name={@name}
         value={@value}
+        class="sr-only"
         disabled={@disabled}
         {@rest}
       />
+      <textarea
+        :if={!@compact}
+        id={@input_id}
+        name={@name}
+        class="sr-only"
+        disabled={@disabled}
+        {@rest}
+      >{@value}</textarea>
       <div
         id={@id}
         phx-hook="SRQLEditor"
@@ -689,24 +699,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp format_category_label(value), do: to_string(value)
 
-  defp srql_completions do
-    entities = Enum.map(Catalog.entities(), & &1.id)
-    controls = ~w(limit: sort: time: status: type: tag: site: where group: by:)
-    entity_tokens = Enum.map(entities, &"in:#{&1}")
-
-    entity_fields =
-      Enum.flat_map(Catalog.entities(), fn entity ->
-        Enum.flat_map(
-          [:filter_fields, :value_fields, :series_fields, :stats_fields, :boolean_fields, :array_fields],
-          &Map.get(entity, &1, [])
-        )
-      end)
-
-    (entity_tokens ++ controls ++ entity_fields)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
+  defp srql_completions, do: Catalog.completion_tokens()
 
   attr(:supported, :boolean, default: true)
   attr(:sync, :boolean, default: true)

@@ -118,6 +118,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
            Dashboards.create_authored_dashboard_with_panels(scope, dashboard_attrs, panel_attrs) do
       {:noreply,
        socket
+       |> push_event("clear_canvas_draft", %{key: dashboard_draft_storage_key(scope)})
        |> put_flash(:info, "Saved dashboard")
        |> push_navigate(to: ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")}
     else
@@ -1322,25 +1323,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
   defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
 
-  defp srql_completions do
-    entities = Enum.map(Catalog.entities(), & &1.id)
-    controls = ~w(limit: sort: time: status: type: tag: site: where group: by:)
-
-    entity_tokens = Enum.map(entities, &"in:#{&1}")
-
-    entity_fields =
-      Enum.flat_map(Catalog.entities(), fn entity ->
-        Enum.flat_map(
-          [:filter_fields, :value_fields, :series_fields, :stats_fields, :boolean_fields, :array_fields],
-          &Map.get(entity, &1, [])
-        )
-      end)
-
-    (entity_tokens ++ controls ++ entity_fields)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
+  defp srql_completions, do: Catalog.completion_tokens()
 
   defp dashboard_draft_storage_key(%{user: %{id: id}}) when is_binary(id), do: "serviceradar:dashboard-draft:#{id}"
   defp dashboard_draft_storage_key(_scope), do: "serviceradar:dashboard-draft"

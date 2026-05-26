@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from "react"
 import {GridStack} from "gridstack"
+import {loadSrqlMonaco} from "../../js/lib/srql/monaco_srql.js"
 import SrqlEditor from "./SrqlEditor.jsx"
 
 const VISUAL_LABELS = {
@@ -76,6 +77,10 @@ function panelRows(panel) {
 
 function firstField(fields, type) {
   return fields.find(field => field.type === type)?.name || fields[0]?.name || null
+}
+
+function firstFieldWhere(fields, predicate) {
+  return fields.find(predicate)?.name || ""
 }
 
 function fieldOptions(fields, predicate = () => true) {
@@ -219,6 +224,13 @@ function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, 
   }
 
   const update = (key, value) => setDraft(current => ({...current, [key]: value}))
+  const updateVisual = value => {
+    setDraft(current => ({
+      ...current,
+      ...defaultsForVisual(value, fields),
+      visual_type: value,
+    }))
+  }
   const fields = panelFields(panel)
   const numericField = field => field.type === "number"
   const dimensionField = field => ["string", "boolean", "datetime"].includes(String(field.type))
@@ -236,7 +248,7 @@ function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, 
       </label>
       <label className="form-control">
         <span className="label-text text-xs">Visual</span>
-        <select className="select select-sm w-full" value={draft.visual_type} onChange={event => update("visual_type", event.target.value)}>
+        <select className="select select-sm w-full" value={draft.visual_type} onChange={event => updateVisual(event.target.value)}>
           {visualOptions.map(option => (
             <option key={option.type} value={option.type}>{option.label || VISUAL_LABELS[option.type] || option.type}</option>
           ))}
@@ -356,6 +368,75 @@ function draftPreviewKey(draft) {
   return JSON.stringify(draftPayload(draft))
 }
 
+function defaultsForVisual(visualType, fields) {
+  const visual = String(visualType || "table")
+  const numeric = field => field.type === "number"
+  const dimension = field => ["string", "boolean", "datetime"].includes(String(field.type))
+  const datetime = field => field.type === "datetime"
+
+  const defaults = {
+    value_field: "",
+    numerator_field: "",
+    denominator_field: "",
+    label_field: "",
+    row_field: "",
+    column_field: "",
+    time_field: "",
+    status_field: "",
+    aggregate: "sum",
+    empty_value: "0",
+  }
+
+  if (["stat", "count", "gauge", "availability"].includes(visual)) {
+    return {
+      ...defaults,
+      value_field: firstFieldWhere(fields, numeric),
+      numerator_field: firstFieldWhere(fields, numeric),
+      denominator_field: "",
+      label_field: firstFieldWhere(fields, field => !numeric(field)),
+    }
+  }
+
+  if (visual === "pivot") {
+    const dimensions = fields.filter(dimension)
+
+    return {
+      ...defaults,
+      row_field: dimensions[0]?.name || "",
+      column_field: dimensions[1]?.name || dimensions[0]?.name || "",
+      value_field: firstFieldWhere(fields, numeric),
+    }
+  }
+
+  if (["line", "area"].includes(visual)) {
+    return {
+      ...defaults,
+      time_field: firstFieldWhere(fields, datetime),
+      value_field: firstFieldWhere(fields, numeric),
+      label_field: firstFieldWhere(fields, field => !numeric(field)),
+    }
+  }
+
+  if (["bar", "category"].includes(visual)) {
+    return {
+      ...defaults,
+      value_field: firstFieldWhere(fields, numeric),
+      label_field: firstFieldWhere(fields, dimension),
+    }
+  }
+
+  if (visual === "status_list") {
+    return {
+      ...defaults,
+      value_field: firstFieldWhere(fields, numeric),
+      label_field: firstFieldWhere(fields, dimension),
+      status_field: firstFieldWhere(fields, field => ["status", "state", "health"].includes(field.name)) || firstFieldWhere(fields, dimension),
+    }
+  }
+
+  return defaults
+}
+
 function synthesizeTrendQuery(draft) {
   if (draft.trend_mode === "custom") return draft.trend_query || ""
   if (!draft.trend_mode) return ""
@@ -368,8 +449,71 @@ function synthesizeTrendQuery(draft) {
   const window = windowByMode[draft.trend_mode]
   if (!window) return ""
 
-  const base = String(draft.srql_query || "").replace(/\s+time:[^\s]+/g, "").trim()
+  const base = stripSrqlTimeTokens(draft.srql_query || "")
   return `${base} time:${window}`.trim()
+}
+
+function stripSrqlTimeTokens(query) {
+  return splitSrqlTokens(query)
+    .filter(token => !token.startsWith("time:"))
+    .join(" ")
+    .trim()
+}
+
+function splitSrqlTokens(query) {
+  const tokens = []
+  let current = ""
+  let quote = null
+  let escaped = false
+
+  for (const ch of String(query || "")) {
+    if (escaped) {
+      current += ch
+      escaped = false
+      continue
+    }
+
+    if (ch === "\\") {
+      current += ch
+      escaped = true
+      continue
+    }
+
+    if ((ch === "\"" || ch === "'") && !quote) {
+      quote = ch
+      current += ch
+      continue
+    }
+
+    if (quote && ch === quote) {
+      quote = null
+      current += ch
+      continue
+    }
+
+    if (!quote && /\s/.test(ch)) {
+      if (current) {
+        tokens.push(current)
+        current = ""
+      }
+      continue
+    }
+
+    current += ch
+  }
+
+  if (current) tokens.push(current)
+  return tokens
+}
+
+function draftForStorage(dashboardParams, panels) {
+  return {
+    dashboard: dashboardParams,
+    panels: panels.map(panel => {
+      const {preview: _preview, ...rest} = panel
+      return rest
+    }),
+  }
 }
 
 export default function DashboardBuilderCanvas({
@@ -391,6 +535,10 @@ export default function DashboardBuilderCanvas({
   const restoredRef = useRef(false)
 
   useEffect(() => {
+    loadSrqlMonaco()
+  }, [])
+
+  useEffect(() => {
     if (!draftStorageKey || restoredRef.current) return
     restoredRef.current = true
     const stored = window.localStorage.getItem(draftStorageKey)
@@ -408,13 +556,11 @@ export default function DashboardBuilderCanvas({
     if (!draftStorageKey || !canManage) return
     if (panels.length === 0 && !dashboardParams?.title) return
 
-    window.localStorage.setItem(
-      draftStorageKey,
-      JSON.stringify({
-        dashboard: dashboardParams,
-        panels,
-      }),
-    )
+    const timeout = window.setTimeout(() => {
+      window.localStorage.setItem(draftStorageKey, JSON.stringify(draftForStorage(dashboardParams, panels)))
+    }, 1500)
+
+    return () => window.clearTimeout(timeout)
   }, [canManage, dashboardParams, draftStorageKey, panels])
 
   useEffect(() => {
@@ -469,7 +615,7 @@ export default function DashboardBuilderCanvas({
       }
       grid.update(item, layout)
     })
-    grid.commit()
+    grid.batchUpdate(false)
 
     return undefined
   }, [panels, canManage, pushEvent])

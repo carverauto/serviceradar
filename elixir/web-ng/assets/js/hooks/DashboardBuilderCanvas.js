@@ -15,6 +15,11 @@ function parseProps(el) {
 
 export default {
   mounted() {
+    this.handleEvent("clear_canvas_draft", ({key} = {}) => {
+      const draftStorageKey = key || parseProps(this.el).draftStorageKey
+      if (draftStorageKey) window.localStorage.removeItem(draftStorageKey)
+    })
+
     this.reactRoot = createRoot(this.el)
     this.renderCanvas()
   },

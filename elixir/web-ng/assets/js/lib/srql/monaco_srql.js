@@ -1,5 +1,6 @@
 const SRQL_LANGUAGE_ID = "serviceradar-srql"
 const SRQL_MARKER_OWNER = "serviceradar-srql"
+let monacoPromise = null
 
 function globalState() {
   window.__serviceradarSrqlEditor = window.__serviceradarSrqlEditor || {
@@ -95,18 +96,23 @@ export function applySrqlMarkers(monaco, editor, error) {
 
   monaco.editor.setModelMarkers(model, SRQL_MARKER_OWNER, [
     {
-      startLineNumber: 1,
-      startColumn: 1,
-      endLineNumber: model.getLineCount(),
-      endColumn: Math.max(2, model.getLineMaxColumn(model.getLineCount())),
+      ...markerRangeForError(model, error),
       severity: monaco.MarkerSeverity.Error,
-      message: error,
+      message: errorMessage(error),
     },
   ])
 }
 
+export function loadSrqlMonaco() {
+  if (!monacoPromise) {
+    monacoPromise = import("monaco-editor/esm/vs/editor/editor.api")
+  }
+
+  return monacoPromise
+}
+
 export async function createSrqlEditor(container, options = {}) {
-  const monaco = await import("monaco-editor/esm/vs/editor/editor.api")
+  const monaco = await loadSrqlMonaco()
   ensureSrqlLanguage(monaco, options.completions || [])
 
   const compact = options.compact === true
@@ -134,4 +140,100 @@ export async function createSrqlEditor(container, options = {}) {
   applySrqlMarkers(monaco, editor, options.error)
 
   return {monaco, editor}
+}
+
+function errorMessage(error) {
+  if (!error) return ""
+  if (typeof error === "string") return error
+  return error.message || String(error)
+}
+
+function markerRangeForError(model, error) {
+  const explicit = explicitRangeForError(model, error)
+  if (explicit) return explicit
+
+  const tokenRange = tokenRangeForError(model, errorMessage(error))
+  if (tokenRange) return tokenRange
+
+  const firstLine = firstNonBlankLine(model)
+  const text = model.getLineContent(firstLine)
+  const startIndex = text.search(/\S/)
+  const startColumn = startIndex >= 0 ? startIndex + 1 : 1
+
+  return {
+    startLineNumber: firstLine,
+    startColumn,
+    endLineNumber: firstLine,
+    endColumn: Math.max(startColumn + 1, model.getLineMaxColumn(firstLine)),
+  }
+}
+
+function explicitRangeForError(model, error) {
+  if (!error || typeof error !== "object") return null
+
+  const line = integerInRange(error.line || error.startLineNumber, 1, model.getLineCount())
+  const column = integerInRange(error.column || error.startColumn, 1, model.getLineMaxColumn(line || 1))
+  if (!line || !column) return null
+
+  const endLine = integerInRange(error.endLine || error.endLineNumber, line, model.getLineCount()) || line
+  const endColumn =
+    integerInRange(error.endColumn, column + 1, model.getLineMaxColumn(endLine)) ||
+    Math.min(column + String(error.token || "").length + 1, model.getLineMaxColumn(endLine)) ||
+    column + 1
+
+  return {
+    startLineNumber: line,
+    startColumn: column,
+    endLineNumber: endLine,
+    endColumn: Math.max(column + 1, endColumn),
+  }
+}
+
+function tokenRangeForError(model, message) {
+  const candidates = errorTokenCandidates(message)
+
+  for (const candidate of candidates) {
+    for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber += 1) {
+      const line = model.getLineContent(lineNumber)
+      const index = line.indexOf(candidate)
+      if (index >= 0) {
+        return {
+          startLineNumber: lineNumber,
+          startColumn: index + 1,
+          endLineNumber: lineNumber,
+          endColumn: index + candidate.length + 1,
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+function errorTokenCandidates(message) {
+  if (!message) return []
+
+  const quoted = [...String(message).matchAll(/["']([^"']{1,160})["']/g)].map(match => match[1])
+  const bare =
+    String(message)
+      .match(/\b(?:in|time|sort|limit|bucket|agg|value_field|series|[a-zA-Z_][\w.-]*):[^\s,\]}]+/g) || []
+
+  return [...quoted, ...bare]
+    .map(candidate => candidate.trim())
+    .filter(candidate => candidate.length > 0)
+    .sort((a, b) => b.length - a.length)
+}
+
+function firstNonBlankLine(model) {
+  for (let lineNumber = 1; lineNumber <= model.getLineCount(); lineNumber += 1) {
+    if (model.getLineContent(lineNumber).trim() !== "") return lineNumber
+  }
+
+  return 1
+}
+
+function integerInRange(value, min, max) {
+  const integer = Number(value)
+  if (!Number.isInteger(integer)) return null
+  return Math.min(max, Math.max(min, integer))
 }
