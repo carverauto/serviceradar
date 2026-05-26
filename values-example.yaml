@@ -1,0 +1,223 @@
+# Example Environment Values (Tanzu)
+# Usage: helm upgrade serviceradar . -n example-namespace -f values.yaml -f values-example.yaml
+
+namespace: example-namespace
+
+global:
+  imageTag: "latest"
+  imagePullPolicy: Always
+  # Force a rollout when reusing the mutable latest tag.
+  forceRolloutOnUpgrade: true
+  storage:
+    # Existing Example NATS StatefulSet volumeClaimTemplates were created without
+    # an explicit storageClassName. Keep templates patch-compatible and pin
+    # per-workload PVCs below instead of changing StatefulSet immutable fields.
+    allowInsecureStorage: true
+
+image:
+  # Public GHCR images do not need an imagePullSecret.
+  registryPullSecret: ""
+
+topologySpread:
+  enabled: true
+  maxSkew: 2
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+nats:
+  replicas: 3
+
+# -- CNPG: use tanzusp0 storage class (no local-path on Tanzu) --
+cnpg:
+  enabled: true
+  storageClass: tanzusp0
+  postgresqlParameters:
+    max_connections: "500"
+    shared_buffers: "1GB"
+    work_mem: "16MB"
+  pooler:
+    # This Helm user can manage Pooler resources in example-namespace, so let the
+    # chart create the CNPG-managed PgBouncer pooler and route web/core through it.
+    enabled: true
+    create: true
+    name: cnpg-pooler-rw
+    instances: 3
+    route:
+      core: true
+      webNg: true
+      dbEventWriter: false
+    parameters:
+      ignore_startup_parameters: "search_path"
+      max_client_conn: "2000"
+      default_pool_size: "40"
+      reserve_pool_size: "10"
+      reserve_pool_timeout: "5"
+
+# -- Ingress: contour with Venafi TLS --
+# Prerequisites (apply separately with kubectl):
+#   1. issuer-tpp-secret  – Venafi TPP credentials
+#   2. issuer.yaml        – cert-manager Issuer (helm/serviceradar/issuer.yaml)
+#   3. certificate.yaml   – cert-manager Certificate (helm/serviceradar/certificate.yaml)
+# The Certificate creates the "serviceradar-ingress-tls" secret that the Ingress references.
+ingress:
+  enabled: true
+  host: "serviceradar.example.com"
+  className: contour
+  annotations:
+    projectcontour.io/force-ssl-redirect: "true"
+    # Contour requires explicit websocket route annotation on Ingress.
+    # Helm upgrades replace the Ingress object, so keep this in values rather
+    # than patching the live object by hand.
+    projectcontour.io/websocket-routes: "/live/websocket,/socket/websocket"
+  tls:
+    enabled: true
+    secretName: serviceradar-ingress-tls
+    clusterIssuer: ""
+
+# -- Agent Gateway: external edge agents connect over L4 gRPC/mTLS.
+# DNS/firewall should point to the LoadBalancer address for this service.
+# If the manually-created serviceradar-agent-gateway-lb service is still serving
+# 10.60.8.18, keep it until DNS/firewall is moved to the chart-managed service.
+agentGateway:
+  enabled: true
+  replicas: 3
+  # Include the eventual DNS name in regenerated gateway certs without forcing
+  # existing runtime cert rotation. Agents currently verify the existing
+  # serviceradar-agent-gateway SAN via SERVICERADAR_GATEWAY_SERVER_NAME below.
+  publicHostname: "serviceradar-gw.example.com"
+  service:
+    type: LoadBalancer
+    port: 50052
+    artifactPort: 50053
+    externalTrafficPolicy: Cluster
+    annotations: {}
+
+# -- Agent --
+agent:
+  hostNetwork: false
+  allowNetRaw: false
+  checkersStorage:
+    enabled: true
+    storageClassName: tanzusp0
+  cacheStorage:
+    enabled: true
+    storageClassName: tanzusp0
+    size: 1Gi
+  runtimeStorage:
+    enabled: true
+    storageClassName: tanzusp0
+    size: 5Gi
+
+# -- PVC storage classes: override durable volumes to tanzusp0 --
+
+geoipMmdb:
+  # Keep disabled with replicated web-ng unless this environment has an RWX
+  # claim. Tanzu block classes such as tanzusp0 are normally RWO, so an RWX
+  # claim here can stay Pending and prevent web-ng pods from scheduling.
+  enabled: false
+  storageClassName: tanzusp0
+
+webNg:
+  replicas: 3
+  # Temporary until serviceradar-gw.example.com DNS/firewall is completed. After DNS
+  # is live, change this to "serviceradar-gw.example.com:50052".
+  gatewayAddress: "10.60.8.18:50052"
+  extraEnv:
+    SERVICERADAR_GATEWAY_SERVER_NAME: "serviceradar-agent-gateway"
+  database:
+    poolSize: 8
+  obanQueues:
+    # Keep heavyweight integration workers on core. Running Armis northbound
+    # inside web-ng has OOMKilled UI pods and orphaned executing Oban jobs.
+    integrations: 0
+  pluginStorage:
+    enabled: true
+    backend: "jetstream"
+    jetstreamReplicas: 3
+    storageClassName: tanzusp0
+  resources:
+    limits:
+      cpu: "1"
+      memory: "2Gi"
+    requests:
+      cpu: "200m"
+      memory: "1Gi"
+
+core:
+  replicas: 3
+  database:
+    poolSize: 10
+  controlDatabase:
+    enabled: true
+    poolSize: 3
+  obanQueues:
+    default: 2
+    maintenance: 1
+
+dbEventWriter:
+  replicaCount: 3
+  cnpgMaxConnections: 4
+  enableMigrations: false
+  data:
+    enabled: false
+
+datasvc:
+  replicaCount: 3
+  jetstreamReplicas: 3
+  # Quote these so older chart renders cannot emit scientific notation in JSON.
+  bucketMaxBytes: "5368709120"
+  objectMaxBytes: "536870912"
+  objectStoreBytes: "2147483648"
+  data:
+    enabled: false
+
+zen:
+  replicaCount: 3
+  streamReplicas: 3
+  data:
+    enabled: false
+
+logCollector:
+  replicaCount: 3
+  streamReplicas: 3
+  data:
+    enabled: false
+  externalService:
+    enabled: false
+  tcpCollector:
+    enabled: true
+    replicaCount: 3
+    streamReplicas: 3
+
+trapd:
+  replicaCount: 3
+  streamReplicas: 3
+  externalService:
+    enabled: false
+
+# -- Network policy: disabled until network topology is understood --
+networkPolicy:
+  enabled: false
+  ingress:
+    cnpgOperator:
+      enabled: true
+
+flowCollector:
+  enabled: false
+
+bmpCollector:
+  enabled: false
+
+# -- Faker: disabled for production-style environment --
+faker:
+  enabled: false
+
+gobgp:
+  enabled: false
+
+# -- SPIRE: disabled for now --
+spire:
+  enabled: false
+
+rperfClient:
+  enabled: false

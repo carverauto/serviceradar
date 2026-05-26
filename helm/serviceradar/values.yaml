@@ -627,7 +627,9 @@ webNg:
     events: 1
     sweeps: 1
     edge: 1
-    integrations: 1
+    # Heavy integration jobs run on core; keeping this disabled avoids UI pod OOMs
+    # and orphaned executing Oban jobs when web-ng restarts.
+    integrations: 0
     maintenance: 0
     webMaintenance: 2
   godView:

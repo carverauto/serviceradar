@@ -14,9 +14,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       states: [:available, :scheduled, :executing, :retryable]
     ]
 
-  import Ecto.Query
-
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Integrations.ArmisNorthboundObanReaper
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -175,23 +174,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
       :ok
   end
 
-  defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds) do
-    worker_name = inspect(worker)
-    cutoff = DateTime.add(now, -cutoff_seconds, :second)
-    prefix = support_module().prefix()
-
-    Oban.Job
-    |> where([j], j.worker == ^worker_name)
-    |> where([j], j.state == "executing")
-    |> where([j], not is_nil(j.attempted_at) and j.attempted_at < ^cutoff)
-    |> where(
-      [j],
-      fragment("? ->> ? = ?", j.args, ^"integration_source_id", ^to_string(integration_source_id))
-    )
-    |> ServiceRadar.Repo.update_all(set: [state: "discarded", discarded_at: now], prefix: prefix)
-  rescue
-    _ -> {0, nil}
-  end
+  defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds),
+    do:
+      ArmisNorthboundObanReaper.reap_stale_source_jobs(
+        worker,
+        integration_source_id,
+        now,
+        cutoff_seconds
+      )
 
   defp failure_reason(%{result: %{error_message: message}}) when is_binary(message), do: message
   defp failure_reason(%{result: %{errors: errors}}), do: inspect(errors)
