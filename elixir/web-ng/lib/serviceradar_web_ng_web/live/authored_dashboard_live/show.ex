@@ -657,12 +657,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <section
           :if={@settings_open? and dashboard_settings_available?(@dashboard, assigns)}
-          class="rounded-lg border border-base-300 bg-base-100"
+          class="rounded-lg border border-slate-800/80 bg-[#0b1220]/90 text-slate-100 shadow-xl shadow-cyan-950/10 backdrop-blur-md"
         >
-          <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 class="text-sm font-semibold">Dashboard Settings</h2>
-              <p class="text-xs text-base-content/70">
+              <h2 class="text-sm font-semibold text-slate-100">Dashboard Settings</h2>
+              <p class="text-xs text-slate-400">
                 Manage SRQL panels, visual choices, email schedules, and dashboard-specific sharing.
               </p>
             </div>
@@ -674,16 +674,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           <div class="space-y-6 p-4">
             <section
               :if={can_manage_dashboard?(@dashboard, assigns)}
-              class="rounded-lg border border-base-300"
+              class="rounded-lg border border-slate-800/80 bg-slate-950/40"
             >
-              <div class="border-b border-base-300 px-4 py-3">
+              <div class="border-b border-slate-800/80 px-4 py-3">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p class="text-xs font-semibold uppercase tracking-normal text-primary">
+                    <p class="text-xs font-semibold uppercase tracking-normal text-cyan-400">
                       Composite authoring
                     </p>
-                    <h3 class="mt-1 text-lg font-semibold tracking-normal">Dashboard Workbench</h3>
-                    <p class="text-xs text-base-content/70">
+                    <h3 class="mt-1 text-lg font-semibold tracking-normal text-slate-100">
+                      Dashboard Workbench
+                    </h3>
+                    <p class="text-xs text-slate-400">
                       Compose SRQL-backed panels, map query output into supported visuals, and arrange the dashboard canvas.
                     </p>
                   </div>
@@ -1075,21 +1077,23 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     ~H"""
     <article
-      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100"
+      class="sr-authored-dashboard-panel rounded-lg border border-slate-800/80 bg-[#0f172a]/95 text-slate-100 shadow-xl shadow-cyan-950/20 backdrop-blur-md"
       style={@style}
     >
-      <div class="flex flex-col gap-2 border-b border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex shrink-0 flex-col gap-2 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
-            <h2 class="truncate text-sm font-semibold">{@panel.title}</h2>
+            <h2 class="truncate text-sm font-semibold text-slate-100">{@panel.title}</h2>
             <span :if={refresh_interval_label(@panel)} class="badge badge-xs badge-ghost">
               {refresh_interval_label(@panel)}
             </span>
           </div>
-          <p class="mt-1 truncate font-mono text-xs text-base-content/65">{@panel.srql_query}</p>
+          <p class="mt-1 truncate font-mono text-xs text-slate-400">{@panel.srql_query}</p>
         </div>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <span class="badge badge-outline">{@panel.visual_type}</span>
+          <span class="badge badge-outline border-cyan-500/30 text-cyan-300">
+            {@panel.visual_type}
+          </span>
           <button
             type="button"
             class="btn btn-xs btn-ghost"
@@ -1129,10 +1133,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           </a>
         </div>
       </div>
-      <div :if={@expanded_srql?} class="border-b border-base-300 bg-base-200/40 px-4 py-3">
+      <div
+        :if={@expanded_srql?}
+        class="shrink-0 border-b border-slate-800/80 bg-slate-950/60 px-4 py-3"
+      >
         <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
       </div>
-      <div class="p-4">
+      <div class="sr-authored-dashboard-panel-body p-4">
         <.render_visual panel={@panel} rows={@rows} fields={@fields} trend={@trend} />
       </div>
     </article>
@@ -1148,10 +1155,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     ~H"""
     <article
-      class="sr-authored-dashboard-panel rounded-lg border border-error/30 bg-base-100"
+      class="sr-authored-dashboard-panel rounded-lg border border-error/30 bg-[#0f172a]/95 text-slate-100"
       style={@style}
     >
-      <div class="flex flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex shrink-0 flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 class="text-sm font-semibold">{@panel.title}</h2>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
           <button
@@ -1184,10 +1191,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           </button>
         </div>
       </div>
-      <div :if={@expanded_srql?} class="border-b border-base-300 bg-base-200/40 px-4 py-3">
+      <div
+        :if={@expanded_srql?}
+        class="shrink-0 border-b border-slate-800/80 bg-slate-950/60 px-4 py-3"
+      >
         <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
       </div>
-      <div class="p-4 text-sm text-error">
+      <div class="sr-authored-dashboard-panel-body p-4 text-sm text-error">
         Could not preview this query: {@message}
       </div>
     </article>
@@ -1197,7 +1207,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp panel_result(assigns) do
     ~H"""
     <article
-      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60"
+      class="sr-authored-dashboard-panel rounded-lg border border-slate-800/80 bg-[#0f172a]/95 p-4 text-sm text-slate-400"
       style={@style}
     >
       {@panel.title}
@@ -1221,13 +1231,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
-    <div class="flex min-h-32 items-center" role="group" aria-label={"#{@label}: #{@value}#{@unit}"}>
+    <div
+      class="flex h-full min-h-0 items-center"
+      role="group"
+      aria-label={"#{@label}: #{@value}#{@unit}"}
+    >
       <div>
-        <div class="text-4xl font-semibold tracking-normal">
-          {@value}<span class="text-xl">{@unit}</span>
+        <div class="text-4xl font-semibold tracking-normal text-slate-100">
+          {@value}<span class="text-xl text-slate-400">{@unit}</span>
         </div>
-        <div class="mt-2 text-sm text-base-content/55">{@label}</div>
-        <div :if={@trend_summary} class="mt-2 text-xs text-base-content/60">
+        <div class="mt-2 text-sm text-slate-400">{@label}</div>
+        <div :if={@trend_summary} class="mt-2 text-xs text-slate-500">
           Trend: {@trend_summary}
         </div>
       </div>
@@ -1245,15 +1259,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
-    <div class="space-y-2">
+    <div class="flex h-full min-h-0 flex-col gap-2">
       <.dashboard_panel_chart
         id={"dashboard-panel-chart-#{@panel.id}"}
         panel={@chart_panel}
         rows={@chart_rows}
         fields={@chart_fields}
-        class="min-h-44"
       />
-      <div :if={@trend_summary} class="text-xs text-base-content/60">
+      <div :if={@trend_summary} class="shrink-0 text-xs text-slate-500">
         Trend: {@trend_summary}
       </div>
     </div>
@@ -1264,9 +1277,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     assigns = assign(assigns, :pivot, pivot_data(assigns.rows, assigns.panel, assigns.fields))
 
     ~H"""
-    <div class="space-y-2">
-      <div class="text-sm font-medium">Pivot Table</div>
-      <div class="overflow-x-auto rounded-lg border border-base-300">
+    <div class="flex h-full min-h-0 flex-col gap-2">
+      <div class="shrink-0 text-sm font-medium text-slate-100">Pivot Table</div>
+      <div class="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
         <table class="table table-sm">
           <thead>
             <tr>
@@ -1329,7 +1342,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     assigns = assign(assigns, :columns, table_columns(assigns.panel, assigns.fields))
 
     ~H"""
-    <div class="overflow-x-auto rounded-lg border border-base-300">
+    <div class="h-full min-h-0 overflow-auto rounded-lg border border-slate-800/80">
       <table class="table table-sm">
         <thead>
           <tr>

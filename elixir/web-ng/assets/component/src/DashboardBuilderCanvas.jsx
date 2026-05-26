@@ -130,15 +130,15 @@ function MiniVisual({panel}) {
     const unit = panel.display_config?.unit || (["gauge", "availability"].includes(visual) ? "%" : "")
 
     return (
-      <div className="flex h-full flex-col justify-center gap-2">
-        <div className="text-3xl font-semibold tracking-normal">
+      <div className="flex h-full min-h-0 flex-col justify-center gap-2 overflow-hidden">
+        <div className="text-3xl font-semibold tracking-normal text-slate-100">
           {raw}
-          <span className="text-base text-base-content/65">{unit}</span>
+          <span className="text-base text-slate-400">{unit}</span>
         </div>
-        <div className="truncate text-xs text-base-content/70">{panel.display_config?.label || valueField || "Value"}</div>
+        <div className="truncate text-xs text-slate-400">{panel.display_config?.label || valueField || "Value"}</div>
         {["gauge", "availability"].includes(visual) ? (
-          <div className="h-2 overflow-hidden rounded-full bg-base-300">
-            <div className="h-full rounded-full bg-primary" style={{width: `${Math.max(0, Math.min(raw, 100))}%`}} />
+          <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+            <div className="h-full rounded-full bg-cyan-400" style={{width: `${Math.max(0, Math.min(raw, 100))}%`}} />
           </div>
         ) : null}
       </div>
@@ -150,7 +150,7 @@ function MiniVisual({panel}) {
     const columnField = binding.column_field || fields.find(field => ["status", "state", "health"].includes(field.name))?.name
 
     return (
-      <div className="overflow-hidden rounded border border-base-300">
+      <div className="overflow-hidden rounded border border-slate-800">
         <table className="table table-xs">
           <thead>
             <tr>
@@ -177,11 +177,11 @@ function MiniVisual({panel}) {
     const max = Math.max(...values, 1)
 
     return (
-      <div className="flex h-24 items-end gap-1">
+      <div className="flex h-full min-h-0 items-end gap-1 overflow-hidden">
         {values.slice(0, 16).map((value, index) => (
           <div
             key={index}
-            className="min-w-2 flex-1 rounded-t bg-primary/70"
+            className="min-w-2 flex-1 rounded-t bg-cyan-400/80"
             style={{height: `${Math.max(8, (value / max) * 100)}%`}}
           />
         ))}
@@ -190,7 +190,7 @@ function MiniVisual({panel}) {
   }
 
   return (
-    <div className="overflow-hidden rounded border border-base-300">
+    <div className="overflow-hidden rounded border border-slate-800">
       <table className="table table-xs">
         <thead>
           <tr>{fields.slice(0, 4).map(field => <th key={field.name}>{field.name}</th>)}</tr>
@@ -313,12 +313,12 @@ export default function DashboardBuilderCanvas({
   const selectedPanel = panels.find(panel => panel.id === selectedId)
 
   return (
-    <div className="grid min-h-[560px] grid-cols-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)]">
-      <aside className="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+    <div className="grid min-h-[560px] grid-cols-1 gap-4 text-slate-100 xl:grid-cols-[240px_minmax(0,1fr)]">
+      <aside className="rounded-lg border border-slate-800/80 bg-[#0b1220]/95 p-4 shadow-xl shadow-cyan-950/10 backdrop-blur-md">
         <div className="mb-3">
-          <div className="text-xs font-semibold uppercase tracking-normal text-primary">Workbench</div>
+          <div className="text-xs font-semibold uppercase tracking-normal text-cyan-400">Workbench</div>
           <div className="mt-1 text-lg font-semibold tracking-normal">Visualization Palette</div>
-          <p className="mt-2 text-xs leading-5 text-base-content/60">
+          <p className="mt-2 text-xs leading-5 text-slate-400">
             Start with a visual type. The SRQL preview will narrow choices and field mappings before the panel can be saved.
           </p>
         </div>
@@ -327,7 +327,7 @@ export default function DashboardBuilderCanvas({
             <button
               key={option.type}
               type="button"
-              className="btn btn-sm justify-start rounded-md"
+              className="btn btn-sm justify-start rounded-md border-slate-800 bg-slate-950/70 text-slate-200 hover:border-cyan-500/40 hover:bg-cyan-950/30"
               disabled={!canManage}
               onClick={() => pushEvent("canvas_add_panel", {visualType: option.type})}
             >
@@ -335,42 +335,42 @@ export default function DashboardBuilderCanvas({
             </button>
           ))}
         </div>
-        <div className="mt-4 rounded-md border border-base-300 bg-base-200/45 p-3">
+        <div className="mt-4 rounded-md border border-slate-800 bg-slate-950/60 p-3">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-base-content/70">Panels</span>
+            <span className="text-slate-400">Panels</span>
             <span className="font-mono font-semibold">{panels.length}</span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-            <span className="text-base-content/70">Selected</span>
+            <span className="text-slate-400">Selected</span>
             <span className="truncate font-mono font-semibold">
               {selectedPanel?.title || "None"}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-            <span className="text-base-content/70">Layout</span>
+            <span className="text-slate-400">Layout</span>
             <span className="font-mono font-semibold">{canManage ? "Editable" : "Read only"}</span>
           </div>
         </div>
       </aside>
 
-      <main className="rounded-lg border border-base-300 bg-base-200/40 p-4 shadow-sm">
+      <main className="rounded-lg border border-slate-800/80 bg-[#0b1220]/80 p-4 shadow-xl shadow-cyan-950/10 backdrop-blur-md">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-lg font-semibold tracking-normal">Dashboard Canvas</div>
-            <p className="text-xs text-base-content/70">
+            <div className="text-lg font-semibold tracking-normal text-slate-100">Dashboard Canvas</div>
+            <p className="text-xs text-slate-400">
               Drag panels by their header, resize from the edges, and click a panel to open its composer.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {selectedPanel ? (
-              <span className="badge badge-primary badge-outline max-w-72 truncate">
+              <span className="badge badge-outline max-w-72 truncate border-cyan-500/30 text-cyan-300">
                 Editing {selectedPanel.title}
               </span>
             ) : null}
-            <span className="badge badge-outline">{panels.length} panels</span>
+            <span className="badge badge-outline border-slate-700 text-slate-300">{panels.length} panels</span>
           </div>
         </div>
-        <div className="relative min-h-[500px] rounded-lg border border-base-300 bg-base-100 p-2">
+        <div className="relative min-h-[500px] rounded-lg border border-slate-800 bg-slate-950/60 p-2">
           <div ref={gridRef} className="grid-stack min-h-[500px]">
             {panels.map((panel, index) => {
               const layout = normalizeLayout(panel, index)
@@ -388,13 +388,13 @@ export default function DashboardBuilderCanvas({
                   gs-h={layout.h}
                 >
                   <div
-                    className={`grid-stack-item-content group overflow-hidden rounded-lg border bg-base-100 shadow-sm transition-shadow hover:shadow-md ${selected ? "border-primary ring-1 ring-primary/30" : "border-base-300"}`}
+                    className={`grid-stack-item-content group overflow-hidden rounded-lg border bg-[#0f172a]/95 shadow-lg transition-shadow hover:shadow-cyan-950/20 ${selected ? "border-cyan-400 ring-1 ring-cyan-400/30" : "border-slate-800"}`}
                     onClick={() => pushEvent("canvas_select_panel", {id: panel.id})}
                   >
-                    <div className="sr-dashboard-canvas-drag-handle flex cursor-move select-none items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
+                    <div className="sr-dashboard-canvas-drag-handle flex cursor-move select-none items-center justify-between gap-2 border-b border-slate-800 px-3 py-2">
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
-                          <div className="truncate text-sm font-semibold">{panel.title}</div>
+                          <div className="truncate text-sm font-semibold text-slate-100">{panel.title}</div>
                           {panel.refresh_interval_seconds > 0 ? (
                             <span className="badge badge-xs badge-outline shrink-0">
                               {panel.refresh_interval_seconds}s
@@ -404,7 +404,7 @@ export default function DashboardBuilderCanvas({
                         {!compact ? (
                           <button
                             type="button"
-                            className="mt-1 max-w-full truncate rounded border border-base-300 bg-base-200 px-1.5 py-0.5 text-left font-mono text-[11px] text-primary"
+                            className="mt-1 max-w-full truncate rounded border border-slate-800 bg-slate-950/70 px-1.5 py-0.5 text-left font-mono text-[11px] text-cyan-300"
                             title="Open panel composer"
                             onClick={event => stopAndRun(event, () => pushEvent("canvas_select_panel", {id: panel.id}))}
                           >
@@ -413,7 +413,7 @@ export default function DashboardBuilderCanvas({
                         ) : null}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        <span className="badge badge-xs badge-outline">{VISUAL_LABELS[panel.visual_type] || panel.visual_type}</span>
+                        <span className="badge badge-xs badge-outline border-cyan-500/30 text-cyan-300">{VISUAL_LABELS[panel.visual_type] || panel.visual_type}</span>
                         {canManage ? (
                           <div className="hidden items-center gap-1 group-hover:flex">
                             <button
@@ -449,7 +449,7 @@ export default function DashboardBuilderCanvas({
             })}
           </div>
           {panels.length === 0 ? (
-            <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-lg border border-dashed border-base-300 text-center text-sm text-base-content/60">
+            <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-lg border border-dashed border-slate-800 text-center text-sm text-slate-500">
               <div>
                 <div className="font-semibold">No panels yet</div>
                 <div className="mt-1 text-xs">Add a visualization from the palette to start building the dashboard.</div>

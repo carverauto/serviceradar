@@ -17,6 +17,8 @@ import {
 } from "recharts"
 
 const CHART_COLORS = ["#38bdf8", "#22c55e", "#f59e0b", "#ef4444", "#a78bfa"]
+const GRID_STROKE = "#1e293b"
+const TICK_STROKE = "#94a3b8"
 const STATUS_COLORS = {
   success: "#22c55e",
   warning: "#f59e0b",
@@ -141,7 +143,7 @@ function gaugeDatum(rows, fields, panel) {
 
 function EmptyChart({message = "No chartable data"}) {
   return (
-    <div className="flex h-full min-h-32 items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/65">
+    <div className="flex h-full min-h-0 items-center justify-center rounded-lg border border-dashed border-slate-800 text-sm text-slate-500">
       {message}
     </div>
   )
@@ -152,9 +154,9 @@ function ChartTooltip({active, payload, label}) {
   const item = payload[0]
 
   return (
-    <div className="rounded-md border border-base-300 bg-base-100 px-3 py-2 text-xs shadow-lg">
-      <div className="font-medium text-base-content">{label}</div>
-      <div className="mt-1 font-mono text-base-content/75">{formatValue(item.value)}</div>
+    <div className="rounded-md border border-slate-700 bg-slate-950/95 px-3 py-2 text-xs shadow-xl shadow-cyan-950/30">
+      <div className="font-medium text-slate-100">{label}</div>
+      <div className="mt-1 font-mono text-slate-300">{formatValue(item.value)}</div>
     </div>
   )
 }
@@ -169,17 +171,17 @@ function AxisChart({visual, rows}) {
 
   const axis = (
     <>
-      <CartesianGrid stroke="currentColor" strokeOpacity={0.12} vertical={false} />
+      <CartesianGrid stroke={GRID_STROKE} strokeOpacity={0.95} vertical={false} />
       <XAxis
         dataKey="name"
         minTickGap={24}
-        tick={{fontSize: 11, fill: "currentColor"}}
+        tick={{fontSize: 11, fill: TICK_STROKE}}
         tickLine={false}
         axisLine={false}
       />
       <YAxis
         width={44}
-        tick={{fontSize: 11, fill: "currentColor"}}
+        tick={{fontSize: 11, fill: TICK_STROKE}}
         tickLine={false}
         axisLine={false}
       />
@@ -192,7 +194,7 @@ function AxisChart({visual, rows}) {
       <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
         <BarChart {...common}>
           {axis}
-          <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[6, 6, 0, 0]} maxBarSize={44} />
+          <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[5, 5, 0, 0]} maxBarSize={42} />
         </BarChart>
       </ResponsiveContainer>
     )
@@ -239,8 +241,8 @@ function GaugeChart({rows, fields, panel}) {
   const gauge = gaugeDatum(rows, fields, panel)
 
   return (
-    <div className="grid h-full min-h-44 grid-cols-1 items-center gap-4 sm:grid-cols-[minmax(160px,220px)_1fr]">
-      <div className="h-40">
+    <div className="grid h-full min-h-0 grid-cols-[minmax(96px,40%)_1fr] items-center gap-3 overflow-hidden">
+      <div className="h-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <RadialBarChart
             innerRadius="68%"
@@ -255,13 +257,13 @@ function GaugeChart({rows, fields, panel}) {
         </ResponsiveContainer>
       </div>
       <div className="min-w-0">
-        <div className="text-sm font-medium text-base-content/80">{gauge.label}</div>
-        <div className="mt-1 text-4xl font-semibold tracking-normal text-base-content">
-          {gauge.display}<span className="text-xl text-base-content/70">{gauge.unit}</span>
+        <div className="truncate text-sm font-medium text-slate-300">{gauge.label}</div>
+        <div className="mt-1 text-4xl font-semibold tracking-normal text-slate-100">
+          {gauge.display}<span className="text-xl text-slate-400">{gauge.unit}</span>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-base-content/70">
-          <span className="badge badge-sm badge-outline">{formatValue(gauge.numerator)} numerator</span>
-          <span className="badge badge-sm badge-outline">{formatValue(gauge.denominator)} total</span>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
+          <span className="rounded border border-slate-700 px-2 py-0.5">{formatValue(gauge.numerator)} numerator</span>
+          <span className="rounded border border-slate-700 px-2 py-0.5">{formatValue(gauge.denominator)} total</span>
         </div>
       </div>
     </div>
@@ -281,7 +283,7 @@ export default function DashboardPanelChart({
   }
 
   return (
-    <div className="h-56 min-h-56 text-base-content/70">
+    <div className="h-full min-h-0 overflow-hidden text-slate-400">
       <AxisChart visual={visual} rows={chartRows} />
     </div>
   )
