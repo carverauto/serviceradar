@@ -466,7 +466,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   def handle_event("compact_layout", _params, socket) do
     with :ok <- AccessControls.authorize_panel_edit(socket),
-         {:ok, panels} <- compact_dashboard_panels(socket) do
+         {:ok, panels} <-
+           CanvasState.compact_panel_layouts(
+             socket.assigns.current_scope,
+             socket.assigns.dashboard.panels || []
+           ) do
       dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
 
       {:noreply,
@@ -1184,40 +1188,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:ok, updated_dashboard} -> {:ok, %{updated_dashboard | panels: dashboard.panels || []}}
       {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp compact_dashboard_panels(socket) do
-    panels =
-      Enum.sort_by(
-        socket.assigns.dashboard.panels || [],
-        &{&1.position, Map.get(&1.layout || %{}, "y", 0), Map.get(&1.layout || %{}, "x", 0)}
-      )
-
-    indexed_panels = Enum.with_index(panels)
-
-    layouts =
-      indexed_panels
-      |> Map.new(fn {panel, index} -> {panel.id, compact_layout_for_panel(panel, index)} end)
-      |> LayoutHelpers.fill_final_orphan_layout(panels)
-
-    Enum.reduce_while(indexed_panels, {:ok, []}, fn {panel, index}, {:ok, updated} ->
-      layout = layouts |> Map.fetch!(panel.id) |> Map.put("order", index)
-
-      case Dashboards.update_authored_panel(socket.assigns.current_scope, panel, %{layout: layout, position: index}) do
-        {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp compact_layout_for_panel(panel, index) do
-    layout = panel.layout || %{}
-    width = layout |> Map.get("w", 4) |> LayoutHelpers.bounded_integer(1, 12)
-    height = layout |> Map.get("h", 4) |> LayoutHelpers.bounded_integer(2, 16)
-    x = rem(index * width, 12)
-    y = div(index * width, 12) * height
-
-    Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => index})
   end
 
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})

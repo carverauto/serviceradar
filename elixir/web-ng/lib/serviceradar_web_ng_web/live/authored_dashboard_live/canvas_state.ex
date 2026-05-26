@@ -95,6 +95,30 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState do
     end
   end
 
+  def compact_panel_layouts(scope, panels) do
+    panels =
+      Enum.sort_by(
+        panels || [],
+        &{&1.position, Map.get(&1.layout || %{}, "y", 0), Map.get(&1.layout || %{}, "x", 0)}
+      )
+
+    indexed_panels = Enum.with_index(panels)
+
+    layouts =
+      indexed_panels
+      |> Map.new(fn {panel, index} -> {panel.id, compact_layout(panel, index)} end)
+      |> LayoutHelpers.fill_final_orphan_layout(panels)
+
+    Enum.reduce_while(indexed_panels, {:ok, []}, fn {panel, index}, {:ok, updated} ->
+      layout = layouts |> Map.fetch!(panel.id) |> Map.put("order", index)
+
+      case Dashboards.update_authored_panel(scope, panel, %{layout: layout, position: index}) do
+        {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   defp field_metadata(metadata) do
     %{
       fields: fields(metadata_fields(metadata)),
@@ -175,6 +199,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState do
     layout
     |> Map.put_new("x", column * 4)
     |> Map.put_new("y", row * 4)
+  end
+
+  defp compact_layout(panel, index) do
+    layout = panel.layout || %{}
+    width = layout |> Map.get("w", 4) |> LayoutHelpers.bounded_integer(1, 12)
+    height = layout |> Map.get("h", 4) |> LayoutHelpers.bounded_integer(2, 16)
+    x = rem(index * width, 12)
+    y = div(index * width, 12) * height
+
+    Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => index})
   end
 
   defp layout_index(layouts) do
