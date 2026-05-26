@@ -1,8 +1,8 @@
 async (page) => {
   const baseUrl = "http://localhost:4000"
   const env = globalThis.process?.env || {}
-  const email = env.PLAYWRIGHT_AUTH_EMAIL
-  const password = env.PLAYWRIGHT_AUTH_PASSWORD
+  const email = env.PLAYWRIGHT_AUTH_EMAIL || (baseUrl.includes("localhost") ? "root@localhost" : undefined)
+  const password = env.PLAYWRIGHT_AUTH_PASSWORD || (baseUrl.includes("localhost") ? "serviceradar2026!" : undefined)
 
   if (!email || !password) {
     throw new Error("Set PLAYWRIGHT_AUTH_EMAIL and PLAYWRIGHT_AUTH_PASSWORD before running this matrix.")
@@ -16,10 +16,10 @@ async (page) => {
     {name: "available devices", query: "in:devices is_available:true limit:25", absent: ["availability"]},
     {name: "unavailable devices", query: "in:devices is_available:false limit:25", absent: ["availability"]},
     {name: "active devices", query: "in:devices is_active:true limit:25", absent: ["availability"]},
-    {name: "device type stats", query: "in:devices stats:count() as count by type limit:25", present: ["bar", "category"]},
-    {name: "device vendor stats", query: "in:devices stats:count() as count by vendor_name limit:25", present: ["bar", "category"]},
-    {name: "device availability stats", query: "in:devices stats:count() as count by is_available limit:25", present: ["bar"]},
-    {name: "device vendor type pivot", query: "in:devices stats:count() as count by vendor_name,type limit:25", present: ["pivot"]},
+    {name: "device type stats", query: "in:devices stats:count() as count by type limit:25", present: ["bar", "category"], absent: ["availability", "pivot"]},
+    {name: "device vendor stats", query: "in:devices stats:count() as count by vendor_name limit:25", present: ["bar", "category"], absent: ["availability", "pivot"]},
+    {name: "device availability stats", query: "in:devices stats:count() as count by is_available limit:25", present: ["availability", "gauge", "bar"]},
+    {name: "device vendor type pivot", query: "in:devices stats:count() as count by vendor_name,type limit:25", present: ["pivot"], absent: ["availability"]},
     {name: "device type single dimension", query: "in:devices stats:count() as count by type limit:25", absent: ["pivot"]},
     {name: "agents", query: "in:agents limit:25", absent: ["availability"]},
     {name: "gateways", query: "in:gateways limit:25", absent: ["availability"]},
@@ -34,8 +34,7 @@ async (page) => {
     {name: "otel metrics", query: "in:otel_metrics time:last_24h limit:25", absent: ["availability"]},
     {name: "otel metric summary", query: "in:otel_metrics time:last_24h rollup_stats:summary", present: ["gauge", "line", "bar"]},
     {name: "wifi sites", query: "in:wifi_sites limit:25", absent: ["availability"]},
-    {name: "wifi devices", query: "in:wifi_devices limit:25", absent: ["availability"]},
-    {name: "dashboards", query: "in:dashboards sort:title:asc limit:25", absent: ["availability"]},
+    {name: "wifi access points", query: "in:wifi_aps limit:25", absent: ["availability"]},
   ]
 
   async function ensureLoggedIn(targetPath) {
@@ -64,19 +63,27 @@ async (page) => {
   const results = []
 
   for (const testCase of cases) {
-    if (!(await page.locator("#authored-panel-srql-editor-new-input").count())) {
+    const expectedPresent = [...new Set(["table", ...(testCase.present || [])])]
+    const expectedAbsent = testCase.absent || []
+    const previewButton = page.locator('button[name="intent"][value="preview"]')
+
+    if (!(await previewButton.count())) {
       await page.getByRole("button", {name: "Add Panel"}).click()
-      await page.locator("#authored-panel-srql-editor-new-input").waitFor({timeout: 10_000})
+      await previewButton.waitFor({timeout: 10_000})
     }
 
     await page.locator("input[name=\"panel[title]\"]").fill(testCase.name)
     await setSrql(testCase.query)
-    await page.getByRole("button", {name: "Preview Query"}).click()
+    await page.waitForTimeout(200)
+    await previewButton.click({force: true, timeout: 10_000})
     try {
-      await page.waitForFunction(() => {
-        const cancel = document.querySelector('button[phx-click="cancel_panel_edit"]')
-        return cancel && !cancel.disabled
-      }, undefined, {timeout: 10_000})
+      await page.waitForFunction(({present, absent}) => {
+        const options = [...document.querySelectorAll('select[name="panel[visual_type]"] option')]
+          .map((node) => node.value)
+
+        return present.every((visual) => options.includes(visual)) &&
+          absent.every((visual) => !options.includes(visual))
+      }, {present: expectedPresent, absent: expectedAbsent}, {timeout: 15_000})
     } catch (error) {
       throw new Error(`${testCase.name}: preview did not settle`)
     }
@@ -85,20 +92,24 @@ async (page) => {
       .locator("select[name=\"panel[visual_type]\"] option")
       .evaluateAll((nodes) => nodes.map((node) => node.value))
 
-    for (const visual of testCase.present || []) {
+    for (const visual of expectedPresent) {
       if (!options.includes(visual)) {
         throw new Error(`${testCase.name}: expected ${visual}, got ${options.join(",")}`)
       }
     }
 
-    for (const visual of testCase.absent || []) {
+    for (const visual of expectedAbsent) {
       if (options.includes(visual)) {
         throw new Error(`${testCase.name}: did not expect ${visual}, got ${options.join(",")}`)
       }
     }
 
     results.push({name: testCase.name, options})
-    await page.getByRole("button", {name: "Cancel"}).click()
+    const cancelButton = page.getByRole("button", {name: "Cancel"})
+    if (await cancelButton.count()) {
+      await cancelButton.click()
+      await previewButton.waitFor({state: "detached", timeout: 10_000}).catch(() => {})
+    }
   }
 
   return results

@@ -2,9 +2,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents
+
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
 
   @impl true
   def mount(_params, _session, socket) do
@@ -980,7 +983,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           class="sr-authored-dashboard-grid grid grid-cols-1 gap-4 lg:grid-cols-12"
         >
           <.panel_result
-            :for={entry <- dashboard_panel_entries(@dashboard)}
+            :for={entry <- LayoutHelpers.dashboard_panel_entries(@dashboard)}
             panel={entry.panel}
             result={Map.get(@panel_results, entry.panel.id)}
             trend={Map.get(@trend_results, entry.panel.id)}
@@ -1167,214 +1170,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  attr(:panel, :map, required: true)
-  attr(:expanded_srql?, :boolean, default: false)
-  attr(:can_manage?, :boolean, default: false)
-  attr(:csv_data_url, :string, default: nil)
-
-  defp panel_action_menu(assigns) do
-    ~H"""
-    <div class="dropdown dropdown-end">
-      <button
-        type="button"
-        class="btn btn-xs btn-ghost"
-        tabindex="0"
-        aria-label={"Actions for #{@panel.title}"}
-        title="Panel actions"
-      >
-        <.icon name="hero-ellipsis-vertical" class="size-4" />
-      </button>
-      <ul
-        tabindex="0"
-        class="menu dropdown-content z-[80] mt-2 w-52 rounded-box border border-slate-800 bg-slate-950 p-2 text-xs shadow-2xl shadow-cyan-950/30"
-      >
-        <li>
-          <button type="button" phx-click="refresh_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-arrow-path" class="size-4" /> Refresh
-          </button>
-        </li>
-        <li>
-          <button type="button" phx-click="toggle_panel_srql" phx-value-id={@panel.id}>
-            <.icon name="hero-code-bracket-square" class="size-4" />
-            {if @expanded_srql?, do: "Hide SRQL", else: "View SRQL"}
-          </button>
-        </li>
-        <li :if={@can_manage?}>
-          <button type="button" phx-click="edit_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-pencil-square" class="size-4" /> Open in Builder
-          </button>
-        </li>
-        <li :if={@can_manage?}>
-          <button type="button" phx-click="duplicate_panel" phx-value-id={@panel.id}>
-            <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
-          </button>
-        </li>
-        <li :if={@csv_data_url}>
-          <a href={@csv_data_url} download={"#{safe_filename(@panel.title)}.csv"}>
-            <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
-          </a>
-        </li>
-        <li :if={@can_manage?}>
-          <button
-            type="button"
-            class="text-error"
-            phx-click="delete_panel"
-            phx-value-id={@panel.id}
-            data-confirm={"Delete panel \"#{@panel.title}\"?"}
-          >
-            <.icon name="hero-trash" class="size-4" /> Delete
-          </button>
-        </li>
-      </ul>
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
-    value =
-      bound_value(assigns.rows, assigns.panel, "value_field") ||
-        stat_value(assigns.rows, assigns.fields)
-
-    assigns =
-      assigns
-      |> assign(:value, format_value(value))
-      |> assign(
-        :label,
-        visual_label(assigns.panel, first_numeric_field(assigns.fields) || "value")
-      )
-      |> assign(:unit, display_value(assigns.panel, "unit", ""))
-      |> assign(:trend_summary, trend_summary(assigns[:trend], assigns.panel))
-
-    ~H"""
-    <div
-      class="flex h-full min-h-0 items-center"
-      role="group"
-      aria-label={"#{@label}: #{@value}#{@unit}"}
-    >
-      <div>
-        <div class="text-4xl font-semibold tracking-normal text-slate-100">
-          {@value}<span class="text-xl text-slate-400">{@unit}</span>
-        </div>
-        <div class="mt-2 text-sm text-slate-400">{@label}</div>
-        <div :if={@trend_summary} class="mt-2 text-xs text-slate-500">
-          {trend_summary_text(@trend_summary)}
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns)
-       when type in [:gauge, "gauge", :availability, "availability"] do
-    assigns =
-      assigns
-      |> assign(:chart_panel, chart_panel(assigns.panel))
-      |> assign(:chart_rows, chart_rows(assigns.rows))
-      |> assign(:chart_fields, chart_fields(assigns.fields))
-      |> assign(:trend_summary, trend_summary(assigns[:trend], assigns.panel))
-
-    ~H"""
-    <div class="flex h-full min-h-0 flex-col gap-2">
-      <.dashboard_panel_chart
-        id={"dashboard-panel-chart-#{@panel.id}"}
-        panel={@chart_panel}
-        rows={@chart_rows}
-        fields={@chart_fields}
-        trend={@trend_summary}
-      />
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:pivot, "pivot"] do
-    assigns = assign(assigns, :pivot, pivot_data(assigns.rows, assigns.panel, assigns.fields))
-
-    ~H"""
-    <div class="flex h-full min-h-0 flex-col gap-2">
-      <div class="shrink-0 text-sm font-medium text-slate-100">Pivot Table</div>
-      <div class="min-h-0 flex-1 overflow-auto rounded-lg border border-slate-800/80">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th>{@pivot.row_label}</th>
-              <th :for={column <- @pivot.columns}>{column}</th>
-              <th :if={@pivot.show_totals?}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={row <- @pivot.rows}>
-              <th>{row.label}</th>
-              <td :for={column <- @pivot.columns}>
-                {Map.get(row.values, column, @pivot.empty_value)}
-              </td>
-              <td :if={@pivot.show_totals?}>{row.total}</td>
-            </tr>
-          </tbody>
-        </table>
-        <.empty_rows :if={@pivot.rows == []} />
-      </div>
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:bar, "bar", :category, "category"] do
-    assigns =
-      assigns
-      |> assign(:chart_panel, chart_panel(assigns.panel))
-      |> assign(:chart_rows, chart_rows(assigns.rows))
-      |> assign(:chart_fields, chart_fields(assigns.fields))
-
-    ~H"""
-    <.dashboard_panel_chart
-      id={"dashboard-panel-chart-#{@panel.id}"}
-      panel={@chart_panel}
-      rows={@chart_rows}
-      fields={@chart_fields}
-    />
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:line, "line", :area, "area"] do
-    assigns =
-      assigns
-      |> assign(:chart_panel, chart_panel(assigns.panel))
-      |> assign(:chart_rows, chart_rows(assigns.rows))
-      |> assign(:chart_fields, chart_fields(assigns.fields))
-
-    ~H"""
-    <.dashboard_panel_chart
-      id={"dashboard-panel-chart-#{@panel.id}"}
-      panel={@chart_panel}
-      rows={@chart_rows}
-      fields={@chart_fields}
-    />
-    """
-  end
-
-  defp render_visual(assigns) do
-    assigns = assign(assigns, :columns, table_columns(assigns.panel, assigns.fields))
-
-    ~H"""
-    <div class="h-full min-h-0 overflow-auto rounded-lg border border-slate-800/80">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th :for={column <- @columns}>{column.label}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={row <- Enum.take(@rows, 100)}>
-            <td :for={column <- @columns} class="max-w-64 truncate">
-              <.table_cell value={table_value(row, column)} renderer={column.renderer} />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <.empty_rows :if={@rows == []} />
-    </div>
-    """
-  end
-
   defp default_user_grant_params do
     %{"subject_user_id" => "", "access" => "view"}
   end
@@ -1392,78 +1187,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     }
   end
 
-  defp dashboard_panel_entries(nil), do: []
-
-  defp dashboard_panel_entries(%{panels: panels}) when is_list(panels) do
-    layouts =
-      panels
-      |> Map.new(&{&1.id, normalized_panel_layout(&1)})
-      |> fill_final_orphan_layout(panels)
-
-    Enum.map(panels, fn panel ->
-      %{panel: panel, style: panel_grid_style(panel, Map.get(layouts, panel.id))}
-    end)
-  end
-
-  defp dashboard_panel_entries(_dashboard), do: []
-
-  defp panel_grid_style(panel, layout_override) do
-    layout = layout_override || panel.layout || %{}
-    x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
-    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
-    y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
-    order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
-
-    "--sr-panel-x: #{x + 1}; --sr-panel-y: #{y + 1}; --sr-panel-w: #{width}; --sr-panel-h: #{height}; --sr-panel-order: #{order};"
-  end
-
-  defp normalized_panel_layout(panel) do
-    layout = panel.layout || %{}
-    x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
-    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
-    y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
-    order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
-
-    Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => order})
-  end
-
-  defp fill_final_orphan_layout(layouts, panels) do
-    final_row =
-      panels
-      |> Enum.map(fn panel -> {panel, Map.get(layouts, panel.id)} end)
-      |> Enum.reject(fn {_panel, layout} -> is_nil(layout) end)
-      |> Enum.group_by(fn {_panel, layout} -> Map.get(layout, "y", 0) end)
-      |> Enum.max_by(fn {y, _row} -> y end, fn -> nil end)
-
-    case final_row do
-      {_y, [{panel, layout}]} ->
-        width = layout |> Map.get("w", 12) |> bounded_integer(1, 12)
-
-        if width < 12 do
-          Map.put(layouts, panel.id, Map.merge(layout, %{"x" => 0, "w" => 12}))
-        else
-          layouts
-        end
-
-      _ ->
-        layouts
-    end
-  end
-
-  defp bounded_integer(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)
-
-  defp bounded_integer(value, min, max) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> bounded_integer(integer, min, max)
-      _ -> min
-    end
-  end
-
-  defp bounded_integer(value, min, max) when is_float(value), do: value |> round() |> bounded_integer(min, max)
-  defp bounded_integer(_value, min, _max), do: min
-
   defp refresh_interval_label(%{refresh_interval_seconds: seconds}) when is_integer(seconds) and seconds > 0 do
     "Refresh #{format_duration(seconds)}"
   end
@@ -1479,55 +1202,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     query = %{vars: Jason.encode!(variable_values || %{})}
 
     ~p"/dashboard/#{dashboard_ref}/panels/#{panel.id}/export.csv?#{query}"
-  end
-
-  defp chart_panel(panel) do
-    %{
-      id: panel.id,
-      title: panel.title || "Panel",
-      visual_type: to_string(panel.visual_type || :line),
-      data_binding: panel.data_binding || %{},
-      display_config: panel.display_config || %{},
-      visual_config: panel.visual_config || %{}
-    }
-  end
-
-  defp chart_rows(rows) do
-    rows
-    |> List.wrap()
-    |> Enum.take(250)
-    |> Enum.map(&chart_row/1)
-  end
-
-  defp chart_row(row) when is_map(row) do
-    Map.new(row, fn {key, value} -> {to_string(key), chart_value(value)} end)
-  end
-
-  defp chart_row(_row), do: %{}
-
-  defp chart_fields(fields), do: canvas_fields(fields)
-
-  defp chart_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp chart_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
-  defp chart_value(value) when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
-  defp chart_value(value) when is_list(value), do: Enum.map(value, &chart_value/1)
-
-  defp chart_value(value) when is_map(value) do
-    Map.new(value, fn {key, nested_value} -> {to_string(key), chart_value(nested_value)} end)
-  end
-
-  defp chart_value(value), do: format_value(value)
-
-  defp safe_filename(value) do
-    value
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "-")
-    |> String.trim("-")
-    |> case do
-      "" -> "dashboard-panel"
-      filename -> filename
-    end
   end
 
   attr(:form, :any, required: true)
@@ -2112,8 +1786,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp next_panel_layout(layout, position) do
-    width = layout |> Map.get("w", 4) |> bounded_integer(1, 12)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    width = layout |> Map.get("w", 4) |> LayoutHelpers.bounded_integer(1, 12)
+    height = layout |> Map.get("h", 4) |> LayoutHelpers.bounded_integer(2, 16)
     x = rem(position * width, 12)
     y = div(position * width, 12) * height
 
@@ -2132,7 +1806,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     layouts =
       indexed_panels
       |> Map.new(fn {panel, index} -> {panel.id, compact_layout_for_panel(panel, index)} end)
-      |> fill_final_orphan_layout(panels)
+      |> LayoutHelpers.fill_final_orphan_layout(panels)
 
     Enum.reduce_while(indexed_panels, {:ok, []}, fn {panel, index}, {:ok, updated} ->
       layout = layouts |> Map.fetch!(panel.id) |> Map.put("order", index)
@@ -2146,8 +1820,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp compact_layout_for_panel(panel, index) do
     layout = panel.layout || %{}
-    width = layout |> Map.get("w", 4) |> bounded_integer(1, 12)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    width = layout |> Map.get("w", 4) |> LayoutHelpers.bounded_integer(1, 12)
+    height = layout |> Map.get("h", 4) |> LayoutHelpers.bounded_integer(2, 16)
     x = rem(index * width, 12)
     y = div(index * width, 12) * height
 
@@ -2495,10 +2169,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         %{
           position: index,
           layout: %{
-            "x" => bounded_integer(layout.x, 0, 11),
-            "y" => bounded_integer(layout.y, 0, 1_000),
-            "w" => bounded_integer(layout.w, 1, 12),
-            "h" => bounded_integer(layout.h, 2, 16),
+            "x" => LayoutHelpers.bounded_integer(layout.x, 0, 11),
+            "y" => LayoutHelpers.bounded_integer(layout.y, 0, 1_000),
+            "w" => LayoutHelpers.bounded_integer(layout.w, 1, 12),
+            "h" => LayoutHelpers.bounded_integer(layout.h, 2, 16),
             "order" => index
           }
         }
@@ -2741,354 +2415,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp user_label(%{email: email}) when is_binary(email), do: email
   defp user_label(_user), do: "Unknown user"
 
-  defp empty_rows(assigns) do
-    ~H"""
-    <div class="flex min-h-24 items-center justify-center text-sm text-base-content/70">
-      No rows returned.
-    </div>
-    """
-  end
-
-  attr(:value, :any, default: nil)
-  attr(:renderer, :string, default: "text")
-
-  defp table_cell(assigns) do
-    assigns = assign(assigns, :cell, table_cell_value(assigns.value, assigns.renderer))
-
-    ~H"""
-    <%= case @cell do %>
-      <% {:status, text, tone} -> %>
-        <span class={["badge badge-sm", status_badge_class(tone)]} title={text}>
-          <.icon name={status_icon(tone)} class="size-3" /> {text}
-        </span>
-      <% {:boolean, true} -> %>
-        <span class="badge badge-sm badge-success" title="true">
-          <.icon name="hero-check" class="size-3" /> true
-        </span>
-      <% {:boolean, false} -> %>
-        <span class="badge badge-sm badge-error badge-outline" title="false">
-          <.icon name="hero-x-mark" class="size-3" /> false
-        </span>
-      <% {:sparkline, points, title} -> %>
-        <svg
-          viewBox="0 0 100 24"
-          preserveAspectRatio="none"
-          class="h-6 w-28 text-primary"
-          role="img"
-          aria-label="sparkline"
-        >
-          <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
-        </svg>
-        <span class="sr-only">{title}</span>
-      <% {:json, summary, title} -> %>
-        <span class="font-mono text-[11px]" title={title}>{summary}</span>
-      <% {:text, text, title} -> %>
-        <span title={title}>{text}</span>
-    <% end %>
-    """
-  end
-
-  defp table_cell_value(value, renderer) when renderer in ["status", "status_icon", "icon"] do
-    text = format_value(value)
-    {:status, text, status_tone(value)}
-  end
-
-  defp table_cell_value(value, "sparkline") do
-    case table_sparkline_points(value) do
-      "" -> {:text, format_value(value), format_value(value)}
-      points -> {:sparkline, points, format_value(value)}
-    end
-  end
-
-  defp table_cell_value(value, "boolean_icon") when is_boolean(value), do: {:boolean, value}
-  defp table_cell_value(value, _renderer) when is_boolean(value), do: {:boolean, value}
-
-  defp table_cell_value(value, "json_summary") when is_map(value) or is_list(value) do
-    {:json, json_summary(value), json_title(value)}
-  end
-
-  defp table_cell_value(value, _renderer) when is_map(value) or is_list(value) do
-    {:json, json_summary(value), json_title(value)}
-  end
-
-  defp table_cell_value(value, _renderer) when is_binary(value) do
-    case decode_json_cell(value) do
-      {:ok, decoded} -> {:json, json_summary(decoded), json_title(decoded)}
-      :error -> text_cell(value)
-    end
-  end
-
-  defp table_cell_value(value, _renderer) do
-    value |> format_value() |> text_cell()
-  end
-
-  defp text_cell(text), do: {:text, text, text}
-
-  defp decode_json_cell(value) do
-    value = String.trim(value)
-
-    if String.starts_with?(value, ["{", "["]) do
-      case Jason.decode(value) do
-        {:ok, decoded} when is_map(decoded) or is_list(decoded) -> {:ok, decoded}
-        _ -> :error
-      end
-    else
-      :error
-    end
-  end
-
-  defp json_summary(value) when is_map(value) do
-    keys = value |> Map.keys() |> Enum.map(&to_string/1)
-
-    case keys do
-      [] ->
-        "0 fields"
-
-      keys ->
-        visible = keys |> Enum.take(3) |> Enum.join(", ")
-        extra = max(length(keys) - 3, 0)
-        suffix = if extra > 0, do: " +#{extra}", else: ""
-        "#{length(keys)} #{plural_label("field", length(keys))}: #{visible}#{suffix}"
-    end
-  end
-
-  defp json_summary(value) when is_list(value), do: "#{length(value)} #{plural_label("item", length(value))}"
-
-  defp plural_label(label, 1), do: label
-  defp plural_label(label, _count), do: label <> "s"
-
-  defp json_title(value) do
-    case Jason.encode(value) do
-      {:ok, encoded} -> encoded
-      _ -> inspect(value)
-    end
-  end
-
-  defp default_renderer(%{type: :boolean}), do: "boolean_icon"
-
-  defp default_renderer(%{name: name}) when name in ["status", "state", "health", "availability"], do: "status"
-
-  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample), do: "json_summary"
-
-  defp default_renderer(_field), do: "text"
-
-  defp table_columns(panel, fields) do
-    configured =
-      panel
-      |> Map.get(:display_config, %{})
-      |> Map.get("table_columns", [])
-
-    columns =
-      configured
-      |> Enum.filter(&is_map/1)
-      |> Enum.reject(&(&1["visible"] == false))
-      |> Enum.map(fn column ->
-        %{
-          field: column["field"] || column[:field],
-          path: column["path"] || column[:path],
-          label: column["label"] || humanize_field(column["field"] || column[:field]),
-          renderer: column["renderer"] || "text"
-        }
-      end)
-      |> Enum.reject(&is_nil(&1.field))
-
-    case columns do
-      [] ->
-        Enum.map(fields, fn field ->
-          %{
-            field: field.name,
-            path: nil,
-            label: humanize_field(field.name),
-            renderer: default_renderer(field)
-          }
-        end)
-
-      columns ->
-        columns
-    end
-  end
-
-  defp table_value(row, %{field: field, path: path}) do
-    value = Map.get(row, field)
-
-    case path do
-      path when is_binary(path) and path != "" -> value_at_path(value, path)
-      _ -> value
-    end
-  end
-
-  defp value_at_path(value, path) when is_map(value) and is_binary(path) do
-    path
-    |> String.split(".", trim: true)
-    |> Enum.reduce(value, fn key, acc ->
-      case acc do
-        map when is_map(map) -> Map.get(map, key)
-        _ -> nil
-      end
-    end)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp value_at_path(value, _path), do: value
-
-  defp stat_value([row | _], fields) do
-    key = first_numeric_field(fields)
-    if key, do: Map.get(row, key)
-  end
-
-  defp stat_value(_rows, _fields), do: "No data"
-
-  defp bound_value([row | _], panel, key) do
-    field = binding_value(panel, key)
-    if is_binary(field) and field != "", do: Map.get(row, field)
-  end
-
-  defp bound_value(_rows, _panel, _key), do: nil
-
-  defp pivot_data(rows, panel, fields) do
-    binding = panel.data_binding || %{}
-    row_field = binding["row_field"] || first_string_field(fields)
-    column_field = binding["column_field"] || status_field(fields) || first_string_field(fields)
-    value_field = binding["value_field"] || first_numeric_field(fields)
-    aggregate = binding["aggregate"] || "sum"
-    empty_value = binding["empty_value"] || "0"
-
-    grouped =
-      Enum.reduce(rows, %{}, fn row, acc ->
-        row_key = format_value(Map.get(row, row_field))
-        column_key = format_value(Map.get(row, column_field))
-        value = numeric(Map.get(row, value_field)) || 0
-
-        update_in(acc, [Access.key(row_key, %{}), Access.key(column_key, [])], &[value | &1])
-      end)
-
-    columns =
-      grouped
-      |> Map.values()
-      |> Enum.flat_map(&Map.keys/1)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    pivot_rows =
-      grouped
-      |> Enum.sort_by(fn {label, _values} -> label end)
-      |> Enum.map(fn {label, values_by_column} ->
-        values =
-          Map.new(columns, fn column ->
-            values = Map.get(values_by_column, column, [])
-            {column, aggregate_values(values, aggregate)}
-          end)
-
-        %{label: label, values: values, total: aggregate_values(Map.values(values), "sum")}
-      end)
-
-    %{
-      row_label: humanize_field(row_field || "row"),
-      columns: columns,
-      rows: pivot_rows,
-      empty_value: empty_value,
-      show_totals?: true
-    }
-  end
-
-  defp aggregate_values([], _aggregate), do: 0
-  defp aggregate_values(values, "count"), do: length(values)
-  defp aggregate_values(values, "avg"), do: Enum.sum(values) / max(length(values), 1)
-  defp aggregate_values(values, "max"), do: Enum.max(values, fn -> 0 end)
-  defp aggregate_values(values, "min"), do: Enum.min(values, fn -> 0 end)
-  defp aggregate_values(values, _aggregate), do: Enum.sum(values)
-
-  defp trend_summary({:ok, %{rows: rows, fields: fields}}, panel) do
-    value_key = first_numeric_field(fields)
-    lookback_days = trend_lookback_days(panel)
-
-    values =
-      rows
-      |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
-      |> Enum.reject(&is_nil/1)
-
-    case values do
-      [first | rest] when rest != [] ->
-        last = List.last(rest)
-        delta = last - first
-        percent_delta = if first == 0, do: nil, else: delta / first * 100
-
-        %{
-          "text" => "#{format_value(first)} -> #{format_value(last)} (#{signed_number(delta)})",
-          "delta" => delta,
-          "percent_delta" => percent_delta,
-          "direction" => trend_direction(delta),
-          "label" => trend_period_label(lookback_days)
-        }
-
-      [single] ->
-        %{
-          "text" => format_value(single),
-          "delta" => 0,
-          "percent_delta" => nil,
-          "direction" => "flat",
-          "label" => trend_period_label(lookback_days)
-        }
-
-      _ ->
-        nil
-    end
-  end
-
-  defp trend_summary(_trend, _panel), do: nil
-
-  defp trend_summary_text(%{"percent_delta" => percent_delta, "label" => label, "text" => text})
-       when is_number(percent_delta) do
-    "#{signed_percent(percent_delta)} #{label} (#{text})"
-  end
-
-  defp trend_summary_text(%{"label" => label, "text" => text}), do: "#{text} #{label}"
-  defp trend_summary_text(value) when is_binary(value), do: value
-  defp trend_summary_text(_value), do: nil
-
-  defp signed_number(value) when is_number(value) and value >= 0, do: "+#{format_value(value)}"
-  defp signed_number(value), do: format_value(value)
-
-  defp signed_percent(value) when is_number(value) and value >= 0, do: "+#{format_percent(value)}"
-  defp signed_percent(value), do: format_percent(value)
-
-  defp format_percent(value) when is_float(value), do: "#{:erlang.float_to_binary(value, decimals: 1)}%"
-  defp format_percent(value) when is_integer(value), do: "#{value}%"
-
-  defp trend_direction(value) when is_number(value) and value > 0, do: "up"
-  defp trend_direction(value) when is_number(value) and value < 0, do: "down"
-  defp trend_direction(_value), do: "flat"
-
-  defp trend_lookback_days(panel) do
-    panel
-    |> Map.get(:visual_config, %{})
-    |> map_value("trend_lookback_days", 30)
-    |> integer_value(30)
-    |> bounded_integer(1, 365)
-  end
-
-  defp trend_period_label(1), do: "compared to yesterday"
-  defp trend_period_label(days), do: "compared to #{days} days ago"
-
-  defp visual_label(panel, fallback) do
-    display_value(panel, "label", panel.title || fallback)
-  end
-
-  defp display_value(panel, key, fallback) do
-    case panel.display_config || %{} do
-      %{^key => value} when is_binary(value) and value != "" -> value
-      _ -> fallback
-    end
-  end
-
-  defp binding_value(panel, key) do
-    case panel.data_binding || %{} do
-      %{^key => value} when is_binary(value) -> value
-      _ -> nil
-    end
-  end
-
   defp humanize_field(nil), do: ""
 
   defp humanize_field(value) do
@@ -3098,82 +2424,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     |> String.capitalize()
   end
 
-  defp table_sparkline_points(values) when is_list(values) do
-    values =
-      values
-      |> Enum.map(&numeric/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.take(40)
-
-    case values do
-      [] ->
-        ""
-
-      [_single] ->
-        "0,12 100,12"
-
-      values ->
-        min_value = Enum.min(values)
-        max_value = Enum.max(values)
-        spread = max(max_value - min_value, 1.0)
-        last_index = max(length(values) - 1, 1)
-
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, index} ->
-          x = index / last_index * 100
-          y = 24 - (value - min_value) / spread * 20 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
-  end
-
-  defp table_sparkline_points(_value), do: ""
-
-  defp status_tone(value) do
-    value =
-      value
-      |> format_value()
-      |> String.downcase()
-
-    cond do
-      value in ["ok", "up", "true", "healthy", "online", "available", "ready", "success"] -> :success
-      value in ["warn", "warning", "degraded", "partial"] -> :warning
-      value in ["fail", "failed", "false", "down", "critical", "error", "offline", "unavailable"] -> :error
-      true -> :neutral
-    end
-  end
-
-  defp status_badge_class(:success), do: "badge-success"
-  defp status_badge_class(:warning), do: "badge-warning"
-  defp status_badge_class(:error), do: "badge-error"
-  defp status_badge_class(_tone), do: "badge-outline"
-
-  defp status_icon(:success), do: "hero-check-circle"
-  defp status_icon(:warning), do: "hero-exclamation-triangle"
-  defp status_icon(:error), do: "hero-x-circle"
-  defp status_icon(_tone), do: "hero-question-mark-circle"
-
-  defp first_numeric_field(fields), do: first_field_of_type(fields, :number)
-  defp first_string_field(fields), do: first_field_of_type(fields, :string)
-
   defp first_field_of_type(fields, type) do
     Enum.find_value(fields, fn field ->
       if field_type(field) == type, do: field_name(field)
     end)
   end
-
-  defp numeric(value) when is_integer(value), do: value * 1.0
-  defp numeric(value) when is_float(value), do: value
-
-  defp numeric(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {number, ""} -> number
-      _ -> nil
-    end
-  end
-
-  defp numeric(_value), do: nil
 
   defp format_value(%DateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
   defp format_value(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")

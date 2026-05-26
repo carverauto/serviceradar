@@ -146,7 +146,7 @@ pub(super) async fn execute(
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         // Check if this is a grouped stats query
-        if spec.group_field.is_some() {
+        if !spec.group_fields.is_empty() {
             let grouped_sql = build_grouped_stats_query(plan, &spec)?;
             let mut query = diesel::sql_query(&grouped_sql.sql).into_boxed();
             for bind in grouped_sql.binds {
@@ -193,7 +193,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
         // Check if this is a grouped stats query
-        if spec.group_field.is_some() {
+        if !spec.group_fields.is_empty() {
             let grouped_sql = build_grouped_stats_query(plan, &spec)?;
             let sql = rewrite_placeholders(&grouped_sql.sql);
             let params: Vec<BindParam> = grouped_sql
@@ -352,7 +352,7 @@ fn build_query(plan: &QueryPlan) -> Result<DeviceQuery<'static>> {
 #[derive(Debug, Clone)]
 struct DeviceStatsSpec {
     alias: String,
-    group_field: Option<DeviceGroupField>,
+    group_fields: Vec<DeviceGroupField>,
 }
 
 fn parse_stats_spec(raw: Option<&str>) -> Result<Option<DeviceStatsSpec>> {
@@ -389,22 +389,42 @@ fn parse_stats_spec(raw: Option<&str>) -> Result<Option<DeviceStatsSpec>> {
         ));
     }
 
-    // Parse optional "by <field>" clause
-    let mut group_field = None;
+    // Parse optional "by <field>[,<field>...]" clause
+    let mut group_fields = Vec::new();
     if tokens.len() >= 5 {
         if !tokens[3].eq_ignore_ascii_case("by") {
             return Err(ServiceError::InvalidRequest(
                 "expected 'by <field>' after stats alias".into(),
             ));
         }
-        group_field = Some(parse_group_field(tokens[4])?);
+        group_fields = parse_group_fields(tokens[4])?;
     } else if tokens.len() > 3 {
         return Err(ServiceError::InvalidRequest(
             "expected 'by <field>' after stats alias".into(),
         ));
     }
 
-    Ok(Some(DeviceStatsSpec { alias, group_field }))
+    Ok(Some(DeviceStatsSpec {
+        alias,
+        group_fields,
+    }))
+}
+
+fn parse_group_fields(raw: &str) -> Result<Vec<DeviceGroupField>> {
+    let fields: Vec<DeviceGroupField> = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .map(parse_group_field)
+        .collect::<Result<Vec<_>>>()?;
+
+    if fields.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "expected at least one stats group field".into(),
+        ));
+    }
+
+    Ok(fields)
 }
 
 fn parse_group_field(raw: &str) -> Result<DeviceGroupField> {
@@ -421,9 +441,11 @@ fn build_grouped_stats_query(
     plan: &QueryPlan,
     spec: &DeviceStatsSpec,
 ) -> Result<DeviceGroupedStatsSql> {
-    let group_field = spec
-        .group_field
-        .ok_or_else(|| ServiceError::Internal(anyhow::anyhow!("group_field is required")))?;
+    if spec.group_fields.is_empty() {
+        return Err(ServiceError::Internal(anyhow::anyhow!(
+            "at least one group field is required"
+        )));
+    }
 
     let mut binds = Vec::new();
     let mut clauses = Vec::new();
@@ -452,13 +474,23 @@ fn build_grouped_stats_query(
         }
     }
 
-    let column = group_field.column();
-    let response_key = group_field.response_key();
+    let group_pairs = spec
+        .group_fields
+        .iter()
+        .map(|field| format!("'{}', {}", field.response_key(), field.column()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let group_columns = spec
+        .group_fields
+        .iter()
+        .map(DeviceGroupField::column)
+        .collect::<Vec<_>>();
+    let group_by_sql = group_columns.join(", ");
 
     // Build SELECT with jsonb_build_object
     let mut sql = format!(
-        "SELECT jsonb_build_object('{}', {}, '{}', COUNT(*)) AS payload",
-        response_key, column, spec.alias
+        "SELECT jsonb_build_object({}, '{}', COUNT(*)) AS payload",
+        group_pairs, spec.alias
     );
     sql.push_str("\nFROM ocsf_devices");
 
@@ -467,10 +499,10 @@ fn build_grouped_stats_query(
         sql.push_str(&clauses.join(" AND "));
     }
 
-    sql.push_str(&format!("\nGROUP BY {column}"));
+    sql.push_str(&format!("\nGROUP BY {group_by_sql}"));
 
     // Order by count descending by default
-    let order_sql = build_grouped_stats_order_clause(plan, &spec.alias, column);
+    let order_sql = build_grouped_stats_order_clause(plan, &spec.alias, &spec.group_fields);
     sql.push_str(&order_sql);
 
     // Apply limit (default 20 for distributions)
@@ -488,7 +520,11 @@ fn build_grouped_stats_query(
     Ok(DeviceGroupedStatsSql { sql, binds })
 }
 
-fn build_grouped_stats_order_clause(plan: &QueryPlan, alias: &str, group_column: &str) -> String {
+fn build_grouped_stats_order_clause(
+    plan: &QueryPlan,
+    alias: &str,
+    group_fields: &[DeviceGroupField],
+) -> String {
     if plan.order.is_empty() {
         return "\nORDER BY COUNT(*) DESC".to_string();
     }
@@ -497,11 +533,11 @@ fn build_grouped_stats_order_clause(plan: &QueryPlan, alias: &str, group_column:
     for clause in &plan.order {
         let expr = if clause.field.eq_ignore_ascii_case(alias) || clause.field == "count" {
             "COUNT(*)".to_string()
-        } else if clause
-            .field
-            .eq_ignore_ascii_case(group_column.split('(').next().unwrap_or(""))
+        } else if let Some(group_field) = group_fields
+            .iter()
+            .find(|field| clause.field.eq_ignore_ascii_case(field.response_key()))
         {
-            group_column.to_string()
+            group_field.column().to_string()
         } else {
             continue;
         };

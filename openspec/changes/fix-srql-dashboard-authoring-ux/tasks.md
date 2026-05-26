@@ -37,5 +37,5 @@
 - [x] 5.1 Compile `elixir/web-ng` and build assets.
 - [x] 5.2 Start local web-ng against the `demo` namespace CNPG database.
 - [x] 5.3 Run Playwright checks for `/devices` SRQL editing, `/analytics` dashboard creation, dashboard panel authoring, and `/dashboard/1000001` panel controls.
-- [ ] 5.4 Run a dashboard authoring matrix across roughly 25 SRQL queries and assert offered visualizations match the returned schema.
+- [x] 5.4 Run a dashboard authoring matrix across roughly 25 SRQL queries and assert offered visualizations match the returned schema.
 - [x] 5.5 Verify Recharts-backed panels render in the browser without console errors.

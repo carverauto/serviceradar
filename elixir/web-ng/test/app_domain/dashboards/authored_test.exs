@@ -57,12 +57,31 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
       {:ok, %{"results" => [%{"ok" => 9, "total" => 10, "site" => "ZZA"}]}}
     end
 
+    def query("grouped availability" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{"is_available" => false, "count" => 12},
+           %{"is_available" => true, "count" => 3}
+         ]
+       }}
+    end
+
     def query("breakdown" <> _rest, _opts) do
       {:ok, %{"results" => [%{"type" => "router", "count" => 12}]}}
     end
 
     def query("pivot" <> _rest, _opts) do
       {:ok, %{"results" => [%{"site" => "ZZA", "type" => "router", "count" => 12}]}}
+    end
+
+    def query("datetime sample" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{"title" => "Operations", "updated_at" => ~U[2026-05-24 06:33:08.989313Z]}
+         ]
+       }}
     end
 
     def query(_query, _opts), do: {:ok, %{"results" => []}}
@@ -123,6 +142,14 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert details.type == :object
     assert details.json_paths == ["owner", "region"]
     refute details.aggregate_compatible
+  end
+
+  test "preview does not treat datetime structs as JSON path maps", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "datetime sample dashboards")
+
+    updated_at = Enum.find(preview.fields, &(&1.name == "updated_at"))
+    assert updated_at.type == :datetime
+    assert updated_at.json_paths == []
   end
 
   test "invalid SRQL is rejected before panel creation", %{scope: scope, dashboard: dashboard} do
@@ -223,7 +250,7 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert panel.visual_config["value_field"] == "value"
   end
 
-  test "availability visuals require numerator and denominator bindings", %{scope: scope, dashboard: dashboard} do
+  test "availability visuals support explicit numerator and denominator bindings", %{scope: scope, dashboard: dashboard} do
     assert {:error, {:required_binding_field, "denominator_field"}} =
              Dashboards.create_authored_panel(scope, %{
                dashboard_id: dashboard.id,
@@ -243,6 +270,26 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
 
     assert panel.visual_type == :availability
+  end
+
+  test "availability visuals support grouped availability count rows", %{scope: scope, dashboard: dashboard} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "grouped availability devices")
+    assert :availability in preview.compatible_visuals
+    assert :bar in preview.compatible_visuals
+    assert Enum.map(preview.fields, & &1.name) == ["count", "is_available"]
+
+    assert {:ok, panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Grouped Availability",
+               srql_query: "grouped availability devices",
+               visual_type: :availability,
+               data_binding: %{"value_field" => "count", "label_field" => "is_available"}
+             })
+
+    assert panel.visual_type == :availability
+    assert panel.data_binding["value_field"] == "count"
+    assert panel.data_binding["label_field"] == "is_available"
   end
 
   test "panel refresh interval must stay within the supported bounds", %{

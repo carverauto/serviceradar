@@ -156,11 +156,18 @@ function seriesRows(rows, fields, panel) {
 }
 
 function gaugeDatum(rows, fields, panel) {
-  const {valueField, denominatorField} = chartFields(panel, fields)
+  const {valueField, denominatorField, labelField} = chartFields(panel, fields)
   const visual = String(panel?.visual_type || "gauge")
+  const groupedAvailability = groupedAvailabilityDatum(rows, valueField, labelField)
   const row = rows[0] || {}
-  const numerator = numericValue(valueAt(row, valueField)) || 0
-  const denominator = numericValue(valueAt(row, denominatorField)) || 100
+  const numerator =
+    groupedAvailability?.numerator ??
+    numericValue(valueAt(row, panel?.data_binding?.numerator_field || valueField)) ??
+    0
+  const denominator =
+    groupedAvailability?.denominator ??
+    numericValue(valueAt(row, denominatorField)) ??
+    100
   const percent = denominator > 0 ? (numerator / denominator) * 100 : numerator
   const clamped = Math.max(0, Math.min(100, percent))
   const tone = gaugeTone(panel, clamped)
@@ -191,6 +198,31 @@ function gaugeDatum(rows, fields, panel) {
     label: panel?.display_config?.label || panel?.title || "Gauge",
     unit: panel?.display_config?.unit || "%",
   }
+}
+
+function groupedAvailabilityDatum(rows, valueField, labelField) {
+  if (!valueField || !labelField) return null
+
+  const normalizedLabel = String(labelField).toLowerCase()
+  if (!["is_available", "available", "availability"].includes(normalizedLabel)) return null
+
+  let numerator = 0
+  let denominator = 0
+  let matched = false
+
+  rows.forEach(row => {
+    const value = numericValue(valueAt(row, valueField))
+    if (value === null) return
+
+    const availability = booleanish(valueAt(row, labelField))
+    if (availability === null) return
+
+    matched = true
+    denominator += value
+    if (availability) numerator += value
+  })
+
+  return matched ? {numerator, denominator} : null
 }
 
 function EmptyChart({message = "No chartable data"}) {
