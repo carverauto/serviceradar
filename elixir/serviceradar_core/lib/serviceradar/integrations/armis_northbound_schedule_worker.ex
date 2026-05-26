@@ -12,6 +12,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Integrations.ArmisNorthboundObanReaper
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
@@ -113,7 +114,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
   defp reconcile_stale_source_jobs(source, now, actor) do
     cutoff_seconds = stale_run_cutoff_seconds()
 
-    _ = reap_stale_jobs_fun().(run_worker_module(), source.id, now, cutoff_seconds)
+    case reap_stale_jobs_fun().(run_worker_module(), source.id, now, cutoff_seconds) do
+      {count, _} when is_integer(count) and count > 0 ->
+        Logger.warning("Reaped stale Armis northbound jobs during scheduling",
+          integration_source_id: inspect(Map.get(source, :id)),
+          stale_job_count: count,
+          stale_run_cutoff_seconds: cutoff_seconds
+        )
+
+      _ ->
+        :ok
+    end
 
     if function_exported?(runner_module(), :reconcile_stale_runs, 3) do
       _ =
@@ -192,28 +203,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
     _ -> false
   end
 
-  defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds) do
-    worker_name = inspect(worker)
-
-    cutoff =
-      now
-      |> add_seconds(-cutoff_seconds)
-      |> to_naive_datetime()
-
-    prefix = support_module().prefix()
-
-    Oban.Job
-    |> where([j], j.worker == ^worker_name)
-    |> where([j], j.state == "executing")
-    |> where([j], not is_nil(j.attempted_at) and j.attempted_at < ^cutoff)
-    |> where(
-      [j],
-      fragment("? ->> ? = ?", j.args, ^"integration_source_id", ^to_string(integration_source_id))
-    )
-    |> ServiceRadar.Repo.update_all(set: [state: "discarded", discarded_at: now], prefix: prefix)
-  rescue
-    _ -> {0, nil}
-  end
+  defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds),
+    do:
+      ArmisNorthboundObanReaper.reap_stale_source_jobs(
+        worker,
+        integration_source_id,
+        now,
+        cutoff_seconds
+      )
 
   defp maybe_filter_args(query, args_filter) when args_filter in [%{}, nil], do: query
 
@@ -225,14 +222,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundScheduleWorker do
       where(scoped_query, [j], fragment("? ->> ? = ?", j.args, ^key, ^value))
     end)
   end
-
-  defp add_seconds(%DateTime{} = datetime, seconds), do: DateTime.add(datetime, seconds, :second)
-
-  defp add_seconds(%NaiveDateTime{} = datetime, seconds),
-    do: NaiveDateTime.add(datetime, seconds, :second)
-
-  defp to_naive_datetime(%DateTime{} = datetime), do: DateTime.to_naive(datetime)
-  defp to_naive_datetime(%NaiveDateTime{} = datetime), do: datetime
 
   defp source_module do
     Application.get_env(:serviceradar_core, :armis_northbound_source_module, IntegrationSource)

@@ -11,6 +11,28 @@
 {{- if hasKey $webNgGodView "runtimeGraphAutoRefresh" -}}
 {{- $runtimeGraphAutoRefresh = get $webNgGodView "runtimeGraphAutoRefresh" -}}
 {{- end -}}
+{{- $webNgObanQueueDefault := 2 -}}
+{{- if hasKey $webNgObanQueues "default" -}}{{- $webNgObanQueueDefault = get $webNgObanQueues "default" -}}{{- end -}}
+{{- $webNgObanQueueAlerts := 1 -}}
+{{- if hasKey $webNgObanQueues "alerts" -}}{{- $webNgObanQueueAlerts = get $webNgObanQueues "alerts" -}}{{- end -}}
+{{- $webNgObanQueueServiceChecks := 1 -}}
+{{- if hasKey $webNgObanQueues "serviceChecks" -}}{{- $webNgObanQueueServiceChecks = get $webNgObanQueues "serviceChecks" -}}{{- end -}}
+{{- $webNgObanQueueNotifications := 1 -}}
+{{- if hasKey $webNgObanQueues "notifications" -}}{{- $webNgObanQueueNotifications = get $webNgObanQueues "notifications" -}}{{- end -}}
+{{- $webNgObanQueueOnboarding := 1 -}}
+{{- if hasKey $webNgObanQueues "onboarding" -}}{{- $webNgObanQueueOnboarding = get $webNgObanQueues "onboarding" -}}{{- end -}}
+{{- $webNgObanQueueEvents := 1 -}}
+{{- if hasKey $webNgObanQueues "events" -}}{{- $webNgObanQueueEvents = get $webNgObanQueues "events" -}}{{- end -}}
+{{- $webNgObanQueueSweeps := 1 -}}
+{{- if hasKey $webNgObanQueues "sweeps" -}}{{- $webNgObanQueueSweeps = get $webNgObanQueues "sweeps" -}}{{- end -}}
+{{- $webNgObanQueueEdge := 1 -}}
+{{- if hasKey $webNgObanQueues "edge" -}}{{- $webNgObanQueueEdge = get $webNgObanQueues "edge" -}}{{- end -}}
+{{- $webNgObanQueueIntegrations := 1 -}}
+{{- if hasKey $webNgObanQueues "integrations" -}}{{- $webNgObanQueueIntegrations = get $webNgObanQueues "integrations" -}}{{- end -}}
+{{- $webNgObanQueueMaintenance := 0 -}}
+{{- if hasKey $webNgObanQueues "maintenance" -}}{{- $webNgObanQueueMaintenance = get $webNgObanQueues "maintenance" -}}{{- end -}}
+{{- $webNgObanQueueWebMaintenance := 2 -}}
+{{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
@@ -315,27 +337,27 @@ spec:
         - name: SERVICERADAR_WEB_NG_OBAN_ENABLED
           value: {{ default true $webNg.obanEnabled | quote }}
         - name: WEB_NG_OBAN_QUEUE_DEFAULT
-          value: {{ default 2 $webNgObanQueues.default | quote }}
+          value: {{ $webNgObanQueueDefault | quote }}
         - name: WEB_NG_OBAN_QUEUE_ALERTS
-          value: {{ default 1 $webNgObanQueues.alerts | quote }}
+          value: {{ $webNgObanQueueAlerts | quote }}
         - name: WEB_NG_OBAN_QUEUE_SERVICE_CHECKS
-          value: {{ default 1 $webNgObanQueues.serviceChecks | quote }}
+          value: {{ $webNgObanQueueServiceChecks | quote }}
         - name: WEB_NG_OBAN_QUEUE_NOTIFICATIONS
-          value: {{ default 1 $webNgObanQueues.notifications | quote }}
+          value: {{ $webNgObanQueueNotifications | quote }}
         - name: WEB_NG_OBAN_QUEUE_ONBOARDING
-          value: {{ default 1 $webNgObanQueues.onboarding | quote }}
+          value: {{ $webNgObanQueueOnboarding | quote }}
         - name: WEB_NG_OBAN_QUEUE_EVENTS
-          value: {{ default 1 $webNgObanQueues.events | quote }}
+          value: {{ $webNgObanQueueEvents | quote }}
         - name: WEB_NG_OBAN_QUEUE_SWEEPS
-          value: {{ default 1 $webNgObanQueues.sweeps | quote }}
+          value: {{ $webNgObanQueueSweeps | quote }}
         - name: WEB_NG_OBAN_QUEUE_EDGE
-          value: {{ default 1 $webNgObanQueues.edge | quote }}
+          value: {{ $webNgObanQueueEdge | quote }}
         - name: WEB_NG_OBAN_QUEUE_INTEGRATIONS
-          value: {{ default 1 $webNgObanQueues.integrations | quote }}
+          value: {{ $webNgObanQueueIntegrations | quote }}
         - name: WEB_NG_OBAN_QUEUE_MAINTENANCE
-          value: {{ default 0 $webNgObanQueues.maintenance | quote }}
+          value: {{ $webNgObanQueueMaintenance | quote }}
         - name: WEB_NG_OBAN_QUEUE_WEB_MAINTENANCE
-          value: {{ default 2 $webNgObanQueues.webMaintenance | quote }}
+          value: {{ $webNgObanQueueWebMaintenance | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS
           value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH

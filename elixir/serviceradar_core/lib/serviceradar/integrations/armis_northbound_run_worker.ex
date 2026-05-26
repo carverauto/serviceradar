@@ -15,11 +15,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     ]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Integrations.ArmisNorthboundObanReaper
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
+
+  @default_stale_run_cutoff_seconds 120
 
   @spec enqueue_now(String.t() | Ecto.UUID.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
   def enqueue_now(integration_source_id) do
@@ -102,6 +105,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
   defp enqueue(integration_source_id, opts) do
     if support_module().available?() do
+      integration_source_id = to_string(integration_source_id)
+      reap_stale_source_jobs(integration_source_id)
+
       integration_source_id
       |> args_for(Keyword.get(opts, :manual?, false))
       |> new(schedule_opts(opts))
@@ -141,6 +147,42 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
     end
   end
 
+  defp reap_stale_source_jobs(integration_source_id) do
+    cutoff_seconds = stale_run_cutoff_seconds()
+    now = DateTime.utc_now()
+
+    case reap_stale_jobs_fun().(__MODULE__, integration_source_id, now, cutoff_seconds) do
+      {count, _} when is_integer(count) and count > 0 ->
+        Logger.warning("Reaped stale Armis northbound jobs before enqueue",
+          integration_source_id: integration_source_id,
+          stale_job_count: count,
+          stale_run_cutoff_seconds: cutoff_seconds
+        )
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("Failed to reap stale Armis northbound jobs before enqueue",
+        integration_source_id: integration_source_id,
+        error: Exception.message(error)
+      )
+
+      :ok
+  end
+
+  defp default_reap_stale_source_jobs(worker, integration_source_id, now, cutoff_seconds),
+    do:
+      ArmisNorthboundObanReaper.reap_stale_source_jobs(
+        worker,
+        integration_source_id,
+        now,
+        cutoff_seconds
+      )
+
   defp failure_reason(%{result: %{error_message: message}}) when is_binary(message), do: message
   defp failure_reason(%{result: %{errors: errors}}), do: inspect(errors)
   defp failure_reason(reason), do: inspect(reason)
@@ -166,5 +208,21 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
   defp support_module do
     Application.get_env(:serviceradar_core, :armis_northbound_oban_support_module, ObanSupport)
+  end
+
+  defp stale_run_cutoff_seconds do
+    Application.get_env(
+      :serviceradar_core,
+      :armis_northbound_stale_run_cutoff_seconds,
+      @default_stale_run_cutoff_seconds
+    )
+  end
+
+  defp reap_stale_jobs_fun do
+    Application.get_env(
+      :serviceradar_core,
+      :armis_northbound_reap_stale_jobs_fun,
+      &default_reap_stale_source_jobs/4
+    )
   end
 end
