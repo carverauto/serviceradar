@@ -370,6 +370,159 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert primary_row.response_time_ms == 4
   end
 
+  test "failed sweeps mark canonical availability unavailable despite non-sweep last_seen_time",
+       %{
+         actor: actor,
+         agent_id: agent_id
+       } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("canonical-unavailable-#{unique_id}")
+    device_uid = "device-canonical-unavailable-#{unique_id}"
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: device_uid,
+          ip: ip,
+          hostname: "canonical-unavailable-#{unique_id}",
+          discovery_sources: ["armis"],
+          is_available: true,
+          last_seen_time: ~U[2100-01-01 00:00:00Z],
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Canonical Unavailable #{unique_id}",
+          partition: "partition-canonical-unavailable-#{unique_id}",
+          agent_id: agent_id,
+          interval: "1h"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    failed_result = %{
+      "host_ip" => ip,
+      "available" => false,
+      "port_results" => [],
+      "icmp_status" => %{"available" => false}
+    }
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results([failed_result], Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "first-failure-#{unique_id}"
+             )
+
+    {:ok, after_first_failure} = Device.get_by_ip(ip, false, actor: actor)
+    after_first_failure = single_result(after_first_failure)
+
+    assert after_first_failure.is_available
+    assert after_first_failure.metadata["sweep_consecutive_failures"] == 1
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results([failed_result], Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               config_version: "second-failure-#{unique_id}"
+             )
+
+    {:ok, after_second_failure} = Device.get_by_ip(ip, false, actor: actor)
+    after_second_failure = single_result(after_second_failure)
+
+    refute after_second_failure.is_available
+    assert after_second_failure.metadata["sweep_consecutive_failures"] == 2
+
+    {:ok, agent_row} =
+      DeviceAgentAvailability.get_by_device_agent(device_uid, agent_id, actor: actor)
+
+    refute agent_row.is_available
+  end
+
+  test "recent sweep success still wins over concurrent failed sweeps within interval", %{
+    actor: actor
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("available-wins-#{unique_id}")
+    primary_agent_id = "agent-available-wins-primary-#{unique_id}"
+    secondary_agent_id = "agent-available-wins-secondary-#{unique_id}"
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-available-wins-#{unique_id}",
+          ip: ip,
+          hostname: "available-wins-#{unique_id}",
+          discovery_sources: ["sweep"],
+          is_available: false,
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Available Wins #{unique_id}",
+          partition: "partition-available-wins-#{unique_id}",
+          interval: "1h"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "available" => true, "port_results" => []}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: primary_agent_id,
+               config_version: "available-#{unique_id}"
+             )
+
+    failed_result = %{
+      "host_ip" => ip,
+      "available" => false,
+      "port_results" => [],
+      "icmp_status" => %{"available" => false}
+    }
+
+    for attempt <- 1..2 do
+      assert {:ok, _stats} =
+               SweepResultsIngestor.ingest_results([failed_result], Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: secondary_agent_id,
+                 config_version: "failed-#{attempt}-#{unique_id}"
+               )
+    end
+
+    {:ok, device_after_failures} = Device.get_by_ip(ip, false, actor: actor)
+    device_after_failures = single_result(device_after_failures)
+
+    assert device_after_failures.is_available
+    assert device_after_failures.metadata["sweep_consecutive_failures"] == 0
+    assert is_binary(device_after_failures.metadata["sweep_last_available_at"])
+  end
+
   test "ingest results creates provisional devices for available unknown sweep hosts", %{
     actor: actor,
     agent_id: agent_id

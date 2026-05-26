@@ -1165,9 +1165,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       last_seen_time = $2,
       modified_time = $2,
       metadata = jsonb_set(
-        COALESCE(metadata, '{}'::jsonb),
-        '{sweep_consecutive_failures}',
-        '0'
+        jsonb_set(
+          COALESCE(metadata, '{}'::jsonb),
+          '{sweep_consecutive_failures}',
+          '0'
+        ),
+        '{sweep_last_available_at}',
+        to_jsonb($2::timestamptz)
       )
     WHERE uid = ANY($1)
       AND (availability_source_agent_id IS NULL OR availability_source_agent_id = $3)
@@ -1200,10 +1204,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # 2. Only set is_available=false if failure count >= threshold
     #
     # "Available wins" logic:
-    # - Skip devices that are currently available AND were updated recently
+    # - Skip devices that are currently available from a recent successful sweep
     # - The window is based on the sweep interval (from sweep group config)
     # - This prevents multi-agent conflicts where one agent sees the device
     #   and another doesn't, causing availability flapping
+    # - Do not use last_seen_time here: inventory integrations can refresh it
+    #   independently and would otherwise keep failed sweep targets online forever.
     #
     # This prevents transient network issues from causing availability flapping
     available_wins_window = get_available_wins_window(sweep_group_id)
@@ -1227,7 +1233,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     WHERE uid = ANY($1)
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
-      AND NOT (is_available = true AND last_seen_time > $4)
+      AND NOT (
+        is_available = true
+        AND COALESCE((metadata->>'sweep_last_available_at')::timestamptz > $4, false)
+      )
       AND (availability_source_agent_id IS NULL OR availability_source_agent_id = $5)
     """
 
