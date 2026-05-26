@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @mapbox_public_token_regex ~r/^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+  @dashboard_search_query "in:dashboards limit:100"
+  @dashboard_search_limit 100
 
   @impl true
   def mount(%{"route_slug" => route_slug}, _session, socket) do
@@ -26,8 +28,9 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:package, nil)
       |> assign(:query_text, "")
       |> assign(:frame_query_overrides, %{})
+      |> assign(:dashboard_catalog_limit, @dashboard_search_limit)
       |> assign(:host_payload_json, "{}")
-      |> assign(:srql, %{enabled: false, page_path: "/dashboards/#{route_slug}"})
+      |> assign_dashboard_search_srql()
 
     {:ok, socket}
   end
@@ -74,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   def handle_event("srql_submit", params, socket) do
     query = params |> Map.get("q", "") |> to_string() |> String.trim()
-    {:noreply, push_dashboard_queries(socket, query, %{})}
+    {:noreply, push_dashboard_search(socket, query)}
   end
 
   def handle_event("dashboard_srql_query", params, socket) do
@@ -93,7 +96,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply,
-     SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "wifi_sites", limit_assign_key: :dashboard_limit)}
+     SRQLPage.handle_event(socket, "srql_builder_toggle", %{},
+       entity: "dashboards",
+       limit_assign_key: :dashboard_catalog_limit
+     )}
   end
 
   def handle_event("srql_builder_change", params, socket) do
@@ -101,11 +107,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   end
 
   def handle_event("srql_builder_add_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "wifi_sites")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "dashboards")}
   end
 
   def handle_event("srql_builder_remove_filter", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "wifi_sites")}
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "dashboards")}
   end
 
   def handle_event("srql_builder_apply", _params, socket) do
@@ -119,11 +125,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> Map.get(:builder, %{})
       |> SRQLBuilder.build()
 
-    {:noreply, push_dashboard_queries(socket, query, %{})}
+    {:noreply, push_dashboard_search(socket, query)}
   end
 
   def handle_event("run_query", %{"query" => %{"q" => query}}, socket) do
-    {:noreply, push_dashboard_queries(socket, query, %{})}
+    {:noreply, push_dashboard_search(socket, query)}
   end
 
   @impl true
@@ -141,8 +147,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:package, package)
       |> assign(:page_title, instance.name)
       |> assign(:query_text, first_frame_query(data_frames))
-      |> assign(:dashboard_limit, 500)
-      |> assign_dashboard_srql(first_frame_query(data_frames))
+      |> assign_dashboard_search_srql()
       |> assign(
         :host_payload_json,
         Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox, socket.assigns.frame_query_overrides))
@@ -262,14 +267,18 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     end
   end
 
-  defp assign_dashboard_srql(socket, query) do
+  defp assign_dashboard_search_srql(socket) do
+    assign_dashboard_search_srql(socket, @dashboard_search_query)
+  end
+
+  defp assign_dashboard_search_srql(socket, query) do
     query = to_string(query || "")
-    {builder_supported, builder_sync, builder} = dashboard_builder(query)
+    {builder_supported, builder_sync, builder} = dashboard_search_builder(query)
 
     srql = %{
       enabled: true,
       placement: :topbar,
-      entity: "wifi_sites",
+      entity: "dashboards",
       page_path: socket.assigns.current_path,
       query: query,
       draft: query,
@@ -285,10 +294,25 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     assign(socket, :srql, srql)
   end
 
-  defp dashboard_builder(query) do
+  defp dashboard_search_builder(query) do
     case SRQLBuilder.parse(query) do
       {:ok, builder} -> {true, true, builder}
-      {:error, _} -> {false, false, SRQLBuilder.default_state("wifi_sites", 500)}
+      {:error, _} -> {false, false, SRQLBuilder.default_state("dashboards", @dashboard_search_limit)}
+    end
+  end
+
+  defp push_dashboard_search(socket, query) do
+    query = normalize_dashboard_search_query(query)
+    push_navigate(socket, to: ~p"/dashboards?#{%{q: query}}")
+  end
+
+  defp normalize_dashboard_search_query(query) do
+    query = query |> to_string() |> String.trim()
+
+    cond do
+      query == "" -> @dashboard_search_query
+      String.contains?(query, "in:dashboards") -> query
+      true -> "in:dashboards #{query} limit:#{@dashboard_search_limit}"
     end
   end
 

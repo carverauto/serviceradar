@@ -543,7 +543,6 @@ const DashboardWasmHost = {
         }
       }
 
-      this.updateVisibleSrqlQuery(payload.q)
       const nextUrl = this.srqlUrlFor(payload)
       if (!this.currentSrqlUrlMatches(nextUrl)) {
         window.history.replaceState(window.history.state, "", nextUrl)
@@ -791,13 +790,6 @@ const DashboardWasmHost = {
   currentSrqlUrlMatches(nextUrl) {
     const current = new URL(window.location.href)
     return current.pathname === nextUrl.pathname && current.search === nextUrl.search
-  },
-
-  updateVisibleSrqlQuery(query) {
-    const input = document.querySelector("#srql-query-bar input[name='q']")
-    if (typeof globalThis.HTMLInputElement !== "undefined" && input instanceof globalThis.HTMLInputElement) {
-      input.value = String(query || "")
-    }
   },
 
   connectFrameStream(host) {

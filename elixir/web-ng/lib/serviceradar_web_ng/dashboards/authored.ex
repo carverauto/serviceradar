@@ -49,6 +49,11 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       description: "Single numeric value with an optional label."
     },
     %{
+      type: :count,
+      label: "Count",
+      description: "Current count with optional trend-over-time comparison."
+    },
+    %{
       type: :gauge,
       label: "Gauge",
       description: "Bounded value with thresholds, units, and a prominent label."
@@ -82,6 +87,11 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       type: :status_list,
       label: "Status List",
       description: "Operational rows with status or health fields."
+    },
+    %{
+      type: :pivot,
+      label: "Pivot Table",
+      description: "Cross-tab analysis from row, column, and aggregate bindings."
     }
   ]
 
@@ -400,15 +410,17 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   defp validate_visual_type(type)
-       when type in [:table, :stat, :gauge, :availability, :line, :area, :bar, :category, :status_list] do
+       when type in [:table, :stat, :count, :gauge, :availability, :line, :area, :bar, :category, :status_list, :pivot] do
     :ok
   end
 
   defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
 
   defp validate_visual_compatibility(:table, _compatible), do: :ok
+  defp validate_visual_compatibility(:pivot, _compatible), do: :ok
   defp validate_visual_compatibility(:availability, _compatible), do: :ok
 
+  defp validate_visual_compatibility(:count, compatible), do: validate_visual_compatibility(:stat, compatible)
   defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
   defp validate_visual_compatibility(type, compatible) do
@@ -809,6 +821,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
     [:table]
     |> maybe_add_visual(:stat, stat_compatible?(rows, fields))
+    |> maybe_add_visual(:count, stat_compatible?(rows, fields))
     |> maybe_add_visual(:gauge, Enum.any?(fields, fn field -> field.type == :number end))
     |> maybe_add_visual(:availability, availability_compatible?(fields))
     |> maybe_add_visual(
@@ -825,9 +838,15 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       MapSet.member?(field_types, :string) and MapSet.member?(field_types, :number)
     )
     |> maybe_add_visual(:status_list, status_compatible?(fields))
+    |> maybe_add_visual(:pivot, pivot_compatible?(fields))
   end
 
   def compatible_visuals(_rows, _fields), do: [:table]
+
+  defp pivot_compatible?(fields) do
+    Enum.any?(fields, &(&1.type in [:string, :boolean, :datetime])) and
+      Enum.any?(fields, &(&1.type == :number))
+  end
 
   @spec infer_fields([map()]) :: [map()]
   def infer_fields(rows) when is_list(rows) do

@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:user_groups, [])
       |> assign(:users, [])
       |> assign(:panel_results, %{})
+      |> assign(:trend_results, %{})
       |> assign(:settings_open?, false)
       |> assign(:editing_panel_id, nil)
       |> assign(:can_edit?, can_edit?(socket.assigns.current_scope))
@@ -56,9 +57,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                 {panel.id, Dashboards.preview_authored_query(scope, panel.srql_query, limit: 250)}
               end)
 
+            trends =
+              Map.new(panels, fn panel ->
+                {panel.id, preview_trend_query(scope, panel)}
+              end)
+
             access = load_access_controls(scope, dashboard, access_assigns)
 
-            {:ok, dashboard, panels, results, access}
+            {:ok, dashboard, panels, results, trends, access}
           end
         end)
       else
@@ -73,13 +79,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   @impl true
-  def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:ok, dashboard, panels, results, access}}, socket) do
+  def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:ok, dashboard, panels, results, trends, access}}, socket) do
     dashboard = Map.put(dashboard, :panels, panels)
 
     {:noreply,
      socket
      |> assign(:dashboard, dashboard)
      |> assign(:panel_results, results)
+     |> assign(:trend_results, trends)
      |> assign(access)
      |> assign(:page_title, dashboard.title)
      |> assign(:loading?, false)
@@ -697,6 +704,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             :for={panel <- @dashboard.panels || []}
             panel={panel}
             result={Map.get(@panel_results, panel.id)}
+            trend={Map.get(@trend_results, panel.id)}
           />
         </section>
       </div>
@@ -709,6 +717,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       assigns
       |> assign(:rows, preview.rows)
       |> assign(:fields, preview.fields)
+      |> assign_new(:trend, fn -> nil end)
 
     ~H"""
     <article class="rounded-lg border border-base-300 bg-base-100">
@@ -720,7 +729,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         <span class="badge badge-outline">{@panel.visual_type}</span>
       </div>
       <div class="p-4">
-        <.render_visual panel={@panel} rows={@rows} fields={@fields} />
+        <.render_visual panel={@panel} rows={@rows} fields={@fields} trend={@trend} />
       </div>
     </article>
     """
@@ -747,7 +756,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
     value =
       bound_value(assigns.rows, assigns.panel, "value_field") ||
         stat_value(assigns.rows, assigns.fields)
@@ -760,6 +769,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         visual_label(assigns.panel, first_numeric_field(assigns.fields) || "value")
       )
       |> assign(:unit, display_value(assigns.panel, "unit", ""))
+      |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
     <div class="flex min-h-32 items-center">
@@ -768,6 +778,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           {@value}<span class="text-xl">{@unit}</span>
         </div>
         <div class="mt-2 text-sm text-base-content/55">{@label}</div>
+        <div :if={@trend_summary} class="mt-2 text-xs text-base-content/60">
+          Trend: {@trend_summary}
+        </div>
       </div>
     </div>
     """
@@ -775,7 +788,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp render_visual(%{panel: %{visual_type: type}} = assigns)
        when type in [:gauge, "gauge", :availability, "availability"] do
-    assigns = assign(assigns, :gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
+    assigns =
+      assigns
+      |> assign(:gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
+      |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
     <div class="flex min-h-44 flex-col justify-center gap-3">
@@ -792,6 +808,40 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       <div class="flex justify-between text-xs text-base-content/55">
         <span>{@gauge.numerator_label}: {@gauge.numerator}</span>
         <span>{@gauge.denominator_label}: {@gauge.denominator}</span>
+      </div>
+      <div :if={@trend_summary} class="text-xs text-base-content/60">
+        Trend: {@trend_summary}
+      </div>
+    </div>
+    """
+  end
+
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:pivot, "pivot"] do
+    assigns = assign(assigns, :pivot, pivot_data(assigns.rows, assigns.panel, assigns.fields))
+
+    ~H"""
+    <div class="space-y-2">
+      <div class="text-sm font-medium">Pivot Table</div>
+      <div class="overflow-x-auto rounded-lg border border-base-300">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>{@pivot.row_label}</th>
+              <th :for={column <- @pivot.columns}>{column}</th>
+              <th :if={@pivot.show_totals?}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @pivot.rows}>
+              <th>{row.label}</th>
+              <td :for={column <- @pivot.columns}>
+                {Map.get(row.values, column, @pivot.empty_value)}
+              </td>
+              <td :if={@pivot.show_totals?}>{row.total}</td>
+            </tr>
+          </tbody>
+        </table>
+        <.empty_rows :if={@pivot.rows == []} />
       </div>
     </div>
     """
@@ -986,12 +1036,33 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         {panel.id, Dashboards.preview_authored_query(socket.assigns.current_scope, panel.srql_query, limit: 250)}
       end)
 
+    trends =
+      Map.new(panels, fn panel ->
+        {panel.id, preview_trend_query(socket.assigns.current_scope, panel)}
+      end)
+
     socket
     |> assign(:dashboard, Map.put(dashboard, :panels, panels))
     |> assign(:panel_results, results)
+    |> assign(:trend_results, trends)
   end
 
   defp reload_dashboard_panels(socket), do: socket
+
+  defp preview_trend_query(scope, panel) do
+    query =
+      panel
+      |> Map.get(:visual_config, %{})
+      |> Map.get("trend_query")
+
+    case query do
+      value when is_binary(value) and value != "" ->
+        Dashboards.preview_authored_query(scope, value, limit: 250)
+
+      _ ->
+        nil
+    end
+  end
 
   defp access_assigns(assigns) do
     assigns
@@ -1327,6 +1398,92 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       denominator_label: humanize_field(denominator_field || "total")
     }
   end
+
+  defp pivot_data(rows, panel, fields) do
+    binding = panel.data_binding || %{}
+    row_field = binding["row_field"] || first_string_field(fields)
+    column_field = binding["column_field"] || status_field(fields) || first_string_field(fields)
+    value_field = binding["value_field"] || first_numeric_field(fields)
+    aggregate = binding["aggregate"] || "sum"
+    empty_value = binding["empty_value"] || "0"
+
+    grouped =
+      Enum.reduce(rows, %{}, fn row, acc ->
+        row_key = format_value(Map.get(row, row_field))
+        column_key = format_value(Map.get(row, column_field))
+        value = numeric(Map.get(row, value_field)) || 0
+
+        update_in(acc, [Access.key(row_key, %{}), Access.key(column_key, [])], &[value | &1])
+      end)
+
+    columns =
+      grouped
+      |> Map.values()
+      |> Enum.flat_map(&Map.keys/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    pivot_rows =
+      grouped
+      |> Enum.sort_by(fn {label, _values} -> label end)
+      |> Enum.map(fn {label, values_by_column} ->
+        values =
+          Map.new(columns, fn column ->
+            values = Map.get(values_by_column, column, [])
+            {column, aggregate_values(values, aggregate)}
+          end)
+
+        %{label: label, values: values, total: aggregate_values(Map.values(values), "sum")}
+      end)
+
+    %{
+      row_label: humanize_field(row_field || "row"),
+      columns: columns,
+      rows: pivot_rows,
+      empty_value: empty_value,
+      show_totals?: true
+    }
+  end
+
+  defp aggregate_values([], _aggregate), do: 0
+  defp aggregate_values(values, "count"), do: length(values)
+  defp aggregate_values(values, "avg"), do: Enum.sum(values) / max(length(values), 1)
+  defp aggregate_values(values, "max"), do: Enum.max(values, fn -> 0 end)
+  defp aggregate_values(values, "min"), do: Enum.min(values, fn -> 0 end)
+  defp aggregate_values(values, _aggregate), do: Enum.sum(values)
+
+  defp status_field(fields) do
+    Enum.find_value(fields, fn field ->
+      if field.name in ["status", "state", "health", "availability"], do: field.name
+    end)
+  end
+
+  defp trend_summary({:ok, %{rows: rows, fields: fields}}) do
+    value_key = first_numeric_field(fields)
+
+    values =
+      rows
+      |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
+      |> Enum.reject(&is_nil/1)
+
+    case values do
+      [first | rest] when rest != [] ->
+        last = List.last(rest)
+        delta = last - first
+        "#{format_value(first)} -> #{format_value(last)} (#{signed_number(delta)})"
+
+      [single] ->
+        format_value(single)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp trend_summary(_trend), do: nil
+
+  defp signed_number(value) when is_number(value) and value >= 0, do: "+#{format_value(value)}"
+  defp signed_number(value), do: format_value(value)
 
   defp visual_label(panel, fallback) do
     display_value(panel, "label", panel.title || fallback)

@@ -26,6 +26,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       |> assign(:loading_dashboards?, connected?(socket))
       |> assign(:loading_access?, connected?(socket))
       |> assign(:preview, nil)
+      |> assign(:pending_panels, [])
+      |> assign(:panel_modal_open?, false)
       |> assign(:selected_visuals, [:table])
       |> assign(:visual_options, Dashboards.authored_visual_options())
       |> assign_dashboard_builder(default_dashboard_params()["srql_query"])
@@ -109,14 +111,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     params = merge_params(socket.assigns.dashboard_params, params)
 
     with :ok <- authorize_manage(socket),
-         {:ok, preview} <- Dashboards.preview_authored_query(scope, params["srql_query"]),
-         {:ok, dashboard_attrs, panel_attrs} <- attrs_from_params(params, preview),
+         {:ok, dashboard_attrs, panel_attrs} <- attrs_from_params(scope, params, socket.assigns.pending_panels),
          {:ok, dashboard} <- Dashboards.create_authored_dashboard(scope, dashboard_attrs),
-         {:ok, _panel} <-
-           Dashboards.create_authored_panel(
-             scope,
-             Map.put(panel_attrs, :dashboard_id, dashboard.id)
-           ) do
+         {:ok, _panels} <- create_dashboard_panels(scope, dashboard, panel_attrs) do
       {:noreply,
        socket
        |> put_flash(:info, "Saved dashboard")
@@ -129,6 +126,72 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
          |> assign_form()
          |> put_flash(:error, "Save failed: #{format_error(reason)}")}
     end
+  end
+
+  def handle_event("add_panel", %{"dashboard" => params}, socket) do
+    scope = socket.assigns.current_scope
+    params = merge_params(socket.assigns.dashboard_params, params)
+
+    case panel_entry_from_params(scope, params, length(socket.assigns.pending_panels)) do
+      {:ok, panel} ->
+        {:noreply,
+         socket
+         |> assign(:pending_panels, socket.assigns.pending_panels ++ [panel])
+         |> assign(:panel_modal_open?, false)
+         |> assign(:dashboard_params, next_panel_params(params, length(socket.assigns.pending_panels) + 1))
+         |> assign(:preview, nil)
+         |> assign(:selected_visuals, [:table])
+         |> assign_dashboard_builder(@default_query)
+         |> assign_form()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:dashboard_params, params)
+         |> assign_form()
+         |> put_flash(:error, "Panel add failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("add_panel", _params, socket) do
+    handle_event("add_panel", %{"dashboard" => socket.assigns.dashboard_params}, socket)
+  end
+
+  def handle_event("remove_panel", %{"id" => id}, socket) do
+    panels =
+      socket.assigns.pending_panels
+      |> Enum.reject(&(&1.id == id))
+      |> Enum.with_index()
+      |> Enum.map(&position_pending_panel/1)
+
+    {:noreply, assign(socket, :pending_panels, panels)}
+  end
+
+  def handle_event("open_panel_modal", _params, socket) do
+    {:noreply, assign(socket, :panel_modal_open?, true)}
+  end
+
+  def handle_event("close_panel_modal", _params, socket) do
+    {:noreply, assign(socket, :panel_modal_open?, false)}
+  end
+
+  def handle_event("reorder_panels", %{"ids" => ids}, socket) when is_list(ids) do
+    panels_by_id = Map.new(socket.assigns.pending_panels, &{&1.id, &1})
+
+    panels =
+      ids
+      |> Enum.map(&Map.get(panels_by_id, &1))
+      |> Enum.reject(&is_nil/1)
+      |> Kernel.++(Enum.reject(socket.assigns.pending_panels, &(&1.id in ids)))
+      |> Enum.with_index()
+      |> Enum.map(&position_pending_panel/1)
+
+    {:noreply, assign(socket, :pending_panels, panels)}
+  end
+
+  def handle_event("move_panel", %{"id" => id, "direction" => direction}, socket) do
+    panels = move_pending_panel(socket.assigns.pending_panels, id, direction)
+    {:noreply, assign(socket, :pending_panels, panels)}
   end
 
   def handle_event("validate_group", %{"group" => params}, socket) do
@@ -350,11 +413,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
             <div class="border-b border-base-300 px-4 py-3">
               <h2 class="text-sm font-semibold">New Dashboard</h2>
               <p class="text-xs text-base-content/55">
-                Preview the SRQL result, then save it as a dashboard panel.
+                Add one or more SRQL-backed panels, then save them as a dashboard.
               </p>
             </div>
 
             <.form
+              id="dashboard-metadata-form"
               for={@dashboard_form}
               as={:dashboard}
               phx-change="validate"
@@ -369,21 +433,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
                 label="Visibility"
                 options={@visibility_options}
               />
-              <.input field={@dashboard_form[:panel_title]} type="text" label="Panel title" />
-              <.input field={@dashboard_form[:srql_query]} type="textarea" label="SRQL query" />
-              <button type="button" class="btn btn-sm btn-ghost" phx-click="srql_builder_toggle">
-                <.icon name="hero-adjustments-horizontal" class="size-4" /> Query Builder
-              </button>
-              <.input
-                field={@dashboard_form[:visual_type]}
-                type="select"
-                label="Visual"
-                options={visual_select_options(@visual_options, @selected_visuals)}
-              />
 
               <div class="flex flex-wrap gap-2">
-                <button type="button" class="btn btn-sm" phx-click="preview">
-                  <.icon name="hero-eye" class="size-4" /> Preview
+                <button type="button" class="btn btn-sm" phx-click="open_panel_modal">
+                  <.icon name="hero-plus" class="size-4" /> Add Panel
                 </button>
                 <button type="submit" class="btn btn-sm btn-primary" disabled={!@can_manage?}>
                   <.icon name="hero-bookmark-square" class="size-4" /> Save Dashboard
@@ -391,17 +444,85 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
               </div>
             </.form>
 
-            <div :if={@dashboard_builder_open?} class="border-t border-base-300 p-4">
-              <.srql_query_builder
-                supported={@dashboard_builder_supported?}
-                sync={@dashboard_builder_sync?}
-                builder={@dashboard_builder}
-              />
+            <div :if={@pending_panels != []} class="border-t border-base-300 p-4">
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <h3 class="text-sm font-semibold">Pending Panels</h3>
+                <span class="badge badge-outline">{length(@pending_panels)} panels</span>
+              </div>
+              <div
+                id="pending-dashboard-panels"
+                class="grid grid-cols-1 gap-3 lg:grid-cols-2"
+                phx-hook="DashboardPanelSorter"
+              >
+                <div
+                  :for={panel <- @pending_panels}
+                  id={"pending-panel-#{panel.id}"}
+                  data-panel-id={panel.id}
+                  draggable="true"
+                  class="flex min-h-36 cursor-grab flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-3 sm:justify-between"
+                >
+                  <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="font-medium">{panel.title}</span>
+                      <span class="badge badge-sm badge-outline">{panel.visual_type}</span>
+                      <span class="badge badge-sm">{panel.dataset_key}</span>
+                    </div>
+                    <p class="mt-1 truncate font-mono text-xs text-base-content/55">
+                      {panel.srql_query}
+                    </p>
+                    <p
+                      :if={panel.trend_query}
+                      class="mt-1 truncate font-mono text-xs text-base-content/45"
+                    >
+                      trend: {panel.trend_query}
+                    </p>
+                    <p class="mt-2 text-xs text-base-content/45">
+                      {layout_summary(panel.layout)}
+                    </p>
+                  </div>
+                  <div class="flex shrink-0 justify-end gap-1">
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      phx-click="move_panel"
+                      phx-value-id={panel.id}
+                      phx-value-direction="up"
+                    >
+                      <.icon name="hero-arrow-up" class="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      phx-click="move_panel"
+                      phx-value-id={panel.id}
+                      phx-value-direction="down"
+                    >
+                      <.icon name="hero-arrow-down" class="size-4" />
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-error btn-outline"
+                      phx-click="remove_panel"
+                      phx-value-id={panel.id}
+                    >
+                      <.icon name="hero-trash" class="size-4" /> Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div class="border-t border-base-300 p-4">
-              <.preview_result preview={@preview} visual_options={@visual_options} />
-            </div>
+            <.panel_composer_modal
+              :if={@panel_modal_open?}
+              form={@dashboard_form}
+              visual_options={@visual_options}
+              selected_visuals={@selected_visuals}
+              preview={@preview}
+              builder_open?={@dashboard_builder_open?}
+              builder_supported?={@dashboard_builder_supported?}
+              builder_sync?={@dashboard_builder_sync?}
+              builder={@dashboard_builder}
+            />
           </section>
 
           <section
@@ -572,6 +693,84 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     """
   end
 
+  attr(:form, :any, required: true)
+  attr(:visual_options, :list, required: true)
+  attr(:selected_visuals, :list, required: true)
+  attr(:preview, :any, default: nil)
+  attr(:builder_open?, :boolean, default: false)
+  attr(:builder_supported?, :boolean, default: true)
+  attr(:builder_sync?, :boolean, default: true)
+  attr(:builder, :map, default: %{})
+
+  defp panel_composer_modal(assigns) do
+    ~H"""
+    <div class="modal modal-open">
+      <div class="modal-box max-w-5xl rounded-lg">
+        <div class="flex items-start justify-between gap-4 border-b border-base-300 pb-3">
+          <div>
+            <h3 class="text-sm font-semibold">Add Dashboard Panel</h3>
+            <p class="mt-1 text-xs text-base-content/55">
+              Create a panel from its own SRQL query, visualization, and output bindings.
+            </p>
+          </div>
+          <button type="button" class="btn btn-xs btn-ghost" phx-click="close_panel_modal">
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </div>
+
+        <.form
+          id="panel-composer-form"
+          for={@form}
+          as={:dashboard}
+          phx-change="validate"
+          class="grid grid-cols-1 gap-4 py-4 lg:grid-cols-2"
+        >
+          <.input field={@form[:dataset_key]} type="text" label="Dataset key" />
+          <.input field={@form[:panel_title]} type="text" label="Panel title" />
+          <div class="lg:col-span-2">
+            <.input field={@form[:srql_query]} type="textarea" label="SRQL query" />
+          </div>
+          <.input
+            field={@form[:visual_type]}
+            type="select"
+            label="Visual"
+            options={visual_select_options(@visual_options, @selected_visuals)}
+          />
+          <.input field={@form[:unit]} type="text" label="Unit" />
+          <div class="lg:col-span-2">
+            <.input field={@form[:trend_query]} type="textarea" label="Trend-over-time SRQL" />
+          </div>
+
+          <div class="flex flex-wrap gap-2 lg:col-span-2">
+            <button type="button" class="btn btn-sm btn-ghost" phx-click="srql_builder_toggle">
+              <.icon name="hero-adjustments-horizontal" class="size-4" /> Query Builder
+            </button>
+            <button type="button" class="btn btn-sm" phx-click="preview">
+              <.icon name="hero-eye" class="size-4" /> Preview
+            </button>
+            <button type="button" class="btn btn-sm btn-primary" phx-click="add_panel">
+              <.icon name="hero-plus" class="size-4" /> Add Panel
+            </button>
+          </div>
+        </.form>
+
+        <div :if={@builder_open?} class="border-t border-base-300 py-4">
+          <.srql_query_builder
+            supported={@builder_supported?}
+            sync={@builder_sync?}
+            builder={@builder}
+          />
+        </div>
+
+        <div class="border-t border-base-300 pt-4">
+          <.preview_result preview={@preview} visual_options={@visual_options} />
+        </div>
+      </div>
+      <button type="button" class="modal-backdrop" phx-click="close_panel_modal">Close</button>
+    </div>
+    """
+  end
+
   defp preview_query(socket, params) do
     case Dashboards.preview_authored_query(socket.assigns.current_scope, params["srql_query"]) do
       {:ok, preview} ->
@@ -597,40 +796,94 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     end
   end
 
-  defp attrs_from_params(params, preview) do
+  defp attrs_from_params(scope, params, pending_panels) do
     title = required(params["title"], :title)
-    panel_title = required(params["panel_title"], :panel_title)
-    query = required(params["srql_query"], :srql_query)
-    visual = selected_visual(params["visual_type"], preview.compatible_visuals)
 
     with {:ok, title} <- title,
-         {:ok, panel_title} <- panel_title,
-         {:ok, query} <- query do
+         {:ok, panel_attrs} <- panel_attrs_for_save(scope, params, pending_panels) do
       {:ok,
        %{
          title: title,
          description: optional(params["description"]),
          status: :active,
          visibility: normalize_visibility(params["visibility"])
-       },
+       }, panel_attrs}
+    end
+  end
+
+  defp panel_attrs_for_save(_scope, _params, pending_panels) when is_list(pending_panels) and pending_panels != [] do
+    {:ok, Enum.map(pending_panels, &pending_panel_to_attrs/1)}
+  end
+
+  defp panel_attrs_for_save(scope, params, _pending_panels) do
+    with {:ok, panel} <- panel_entry_from_params(scope, params, 0) do
+      {:ok, [pending_panel_to_attrs(panel)]}
+    end
+  end
+
+  defp panel_entry_from_params(scope, params, position) do
+    panel_title = required(params["panel_title"], :panel_title)
+    query = required(params["srql_query"], :srql_query)
+
+    with {:ok, panel_title} <- panel_title,
+         {:ok, query} <- query,
+         {:ok, preview} <- Dashboards.preview_authored_query(scope, query) do
+      visual = selected_visual(params["visual_type"], preview.compatible_visuals)
+      dataset_key = dataset_key(params["dataset_key"], position)
+      trend_query = optional(params["trend_query"])
+
+      {:ok,
        %{
+         id: "pending-#{System.unique_integer([:positive])}",
          title: panel_title,
-         dataset_key: "primary",
+         dataset_key: dataset_key,
          srql_query: query,
          builder_state: params["builder_state"] || %{},
          visual_type: visual,
-         data_binding: default_data_binding(preview, visual),
-         display_config: %{
-           "label" => panel_title,
-           "unit" => default_unit(visual),
-           "table_columns" => default_table_columns(preview.fields)
-         },
+         trend_query: trend_query,
+         data_binding: default_data_binding(preview, visual, dataset_key),
+         display_config: default_display_config(params, preview, visual, panel_title),
+         visual_config: default_visual_config(params, visual, trend_query),
          field_metadata: %{
            fields: preview.fields,
            compatible_visuals: preview.compatible_visuals
-         }
+         },
+         layout: default_panel_layout(position, visual),
+         position: position
        }}
     end
+  end
+
+  defp pending_panel_to_attrs(panel) do
+    Map.take(panel, [
+      :title,
+      :dataset_key,
+      :srql_query,
+      :builder_state,
+      :visual_type,
+      :data_binding,
+      :display_config,
+      :visual_config,
+      :field_metadata,
+      :layout,
+      :position
+    ])
+  end
+
+  defp create_dashboard_panels(scope, dashboard, panel_attrs) when is_list(panel_attrs) do
+    panel_attrs
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {attrs, index}, {:ok, panels} ->
+      attrs =
+        attrs
+        |> Map.put(:dashboard_id, dashboard.id)
+        |> Map.put_new(:position, index)
+
+      case Dashboards.create_authored_panel(scope, attrs) do
+        {:ok, panel} -> {:cont, {:ok, panels ++ [panel]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp default_dashboard_params do
@@ -638,10 +891,62 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
       "title" => "Service Health",
       "description" => "",
       "visibility" => "private",
+      "dataset_key" => "primary",
       "panel_title" => "Recent service checks",
       "srql_query" => @default_query,
-      "visual_type" => "table"
+      "visual_type" => "table",
+      "unit" => "",
+      "trend_query" => ""
     }
+  end
+
+  defp next_panel_params(params, panel_number) do
+    params
+    |> Map.put("dataset_key", "dataset_#{panel_number + 1}")
+    |> Map.put("panel_title", "Panel #{panel_number + 1}")
+    |> Map.put("srql_query", @default_query)
+    |> Map.put("visual_type", "table")
+    |> Map.put("unit", "")
+    |> Map.put("trend_query", "")
+    |> Map.delete("builder_state")
+  end
+
+  defp move_pending_panel(panels, id, direction) do
+    index = Enum.find_index(panels, &(&1.id == id))
+
+    target =
+      case direction do
+        "up" when is_integer(index) -> max(index - 1, 0)
+        "down" when is_integer(index) -> min(index + 1, length(panels) - 1)
+        _ -> index
+      end
+
+    if is_integer(index) and is_integer(target) and index != target do
+      panel = Enum.at(panels, index)
+
+      panels
+      |> List.delete_at(index)
+      |> List.insert_at(target, panel)
+      |> Enum.with_index()
+      |> Enum.map(&position_pending_panel/1)
+    else
+      panels
+    end
+  end
+
+  defp position_pending_panel({panel, position}) do
+    layout =
+      panel.layout
+      |> case do
+        layout when is_map(layout) -> layout
+        _ -> %{}
+      end
+      |> Map.merge(default_panel_layout(position, panel.visual_type), fn
+        key, existing, current when key in ["w", "h"] -> existing || current
+        _key, _existing, current -> current
+      end)
+
+    %{panel | position: position, layout: layout}
   end
 
   defp default_group_params do
@@ -702,7 +1007,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     Catalog.entity(entity).default_filter_field || ""
   end
 
-  defp default_data_binding(preview, visual) do
+  defp default_data_binding(preview, visual, dataset_key) do
     fields = preview.fields || []
     numeric = first_field_of_type(fields, :number)
     string = first_field_of_type(fields, :string)
@@ -716,7 +1021,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
     case visual do
       "availability" ->
         %{
-          "dataset" => "primary",
+          "dataset" => dataset_key,
           "numerator_field" => field_named(fields, "ok") || numeric,
           "denominator_field" => field_named(fields, "total"),
           "label_field" => string
@@ -724,7 +1029,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
       "line" ->
         %{
-          "dataset" => "primary",
+          "dataset" => dataset_key,
           "time_field" => datetime,
           "value_field" => numeric,
           "label_field" => string
@@ -732,23 +1037,111 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Index do
 
       "area" ->
         %{
-          "dataset" => "primary",
+          "dataset" => dataset_key,
           "time_field" => datetime,
           "value_field" => numeric,
           "label_field" => string
         }
 
       "bar" ->
-        %{"dataset" => "primary", "label_field" => string, "value_field" => numeric}
+        %{"dataset" => dataset_key, "label_field" => string, "value_field" => numeric}
 
       "category" ->
-        %{"dataset" => "primary", "label_field" => string, "value_field" => numeric}
+        %{"dataset" => dataset_key, "label_field" => string, "value_field" => numeric}
 
       "status_list" ->
-        %{"dataset" => "primary", "label_field" => string, "status_field" => status}
+        %{"dataset" => dataset_key, "label_field" => string, "status_field" => status}
+
+      "pivot" ->
+        %{
+          "dataset" => dataset_key,
+          "row_field" => string,
+          "column_field" => status || string,
+          "value_field" => numeric,
+          "aggregate" => "sum",
+          "empty_value" => "0"
+        }
 
       _ ->
-        %{"dataset" => "primary", "value_field" => numeric, "label_field" => string}
+        %{"dataset" => dataset_key, "value_field" => numeric, "label_field" => string}
+    end
+  end
+
+  defp default_display_config(params, preview, visual, panel_title) do
+    Map.reject(
+      %{
+        "label" => panel_title,
+        "unit" => optional(params["unit"]) || default_unit(visual),
+        "table_columns" => default_table_columns(preview.fields),
+        "caption" => optional(params["caption"])
+      },
+      fn {_key, value} -> is_nil(value) end
+    )
+  end
+
+  defp default_visual_config(_params, visual, trend_query) when visual in ["stat", "count", "gauge", "availability"] do
+    Map.reject(
+      %{
+        "thresholds" => [
+          %{"label" => "warning", "value" => 70, "tone" => "warning"},
+          %{"label" => "critical", "value" => 90, "tone" => "error"}
+        ],
+        "trend_query" => trend_query
+      },
+      fn {_key, value} -> is_nil(value) or value == "" end
+    )
+  end
+
+  defp default_visual_config(_params, _visual, _trend_query), do: %{}
+
+  defp default_panel_layout(position, visual) do
+    width =
+      case to_string(visual) do
+        visual when visual in ["table", "pivot", "line", "area"] -> 12
+        "status_list" -> 8
+        _ -> 4
+      end
+
+    height =
+      case to_string(visual) do
+        visual when visual in ["table", "pivot"] -> 8
+        visual when visual in ["line", "area", "bar", "category"] -> 6
+        _ -> 4
+      end
+
+    %{
+      "x" => 0,
+      "y" => position,
+      "w" => width,
+      "h" => height,
+      "order" => position
+    }
+  end
+
+  defp layout_summary(layout) when is_map(layout) do
+    row = Map.get(layout, "order", Map.get(layout, "y", 0)) || 0
+
+    "Layout #{Map.get(layout, "w", 12)}x#{Map.get(layout, "h", 4)} at row #{row + 1}"
+  end
+
+  defp layout_summary(_layout), do: "Layout 12x4"
+
+  defp dataset_key(value, position) do
+    value =
+      value
+      |> optional()
+      |> case do
+        nil -> "dataset_#{position + 1}"
+        other -> other
+      end
+
+    value
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_]+/, "_")
+    |> String.trim("_")
+    |> case do
+      "" -> "dataset_#{position + 1}"
+      other -> other
     end
   end
 
