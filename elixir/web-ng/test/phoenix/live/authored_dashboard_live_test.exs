@@ -167,6 +167,64 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert Enum.map(panels, & &1.srql_query) == ["series services"]
   end
 
+  test "saved dashboard settings create panels from reusable source query outputs", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    title = "Source Query LiveView #{unique}"
+
+    {:ok, dashboard} =
+      Dashboards.create_authored_dashboard(scope, %{
+        title: title,
+        description: "",
+        visibility: :private,
+        status: :active
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    render_async(view, 5_000)
+
+    view
+    |> element("button[phx-click='open_settings']", "Settings")
+    |> render_click()
+
+    view
+    |> form("form[phx-submit='run_source_query']", %{
+      "source_query" => %{
+        "name" => "Service source",
+        "srql_query" => "series services",
+        "title" => "Services by status",
+        "display_label" => "Services",
+        "unit" => "",
+        "caption" => "",
+        "lookback_days" => "30"
+      }
+    })
+    |> render_submit()
+
+    assert has_element?(view, "button[phx-click='create_source_output'][phx-value-visual-type='category']")
+    assert render(view) =~ "Source schema"
+
+    view
+    |> element("button[phx-click='create_source_output'][phx-value-visual-type='category']")
+    |> render_click()
+
+    [panel] = Dashboards.list_authored_panels(scope, dashboard.id)
+    assert panel.title == "Services by status"
+    assert panel.srql_query == "series services"
+    assert panel.visual_type == :category
+    assert panel.builder_state["mode"] == "query_first"
+    assert panel.metadata["source_query_id"]
+    assert panel.metadata["output_id"]
+
+    {:ok, reloaded} = Dashboards.get_authored_dashboard(scope, dashboard.id)
+    assert [source] = reloaded.metadata["source_queries"]
+    assert source["name"] == "Service source"
+    assert source["srql_query"] == "series services"
+    assert Enum.any?(source["outputs"], &(&1["visual_type"] == "category"))
+  end
+
   test "dashboard library lists authored dashboards and updates favorite/default preferences", %{
     conn: conn,
     scope: scope

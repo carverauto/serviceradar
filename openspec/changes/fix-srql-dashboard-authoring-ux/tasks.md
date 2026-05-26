@@ -25,12 +25,12 @@
 
 ## 4. Query-First Builder Follow-Through
 
-- [ ] 4.1 Model dashboard source queries as reusable authoring data sources.
-- [ ] 4.2 Model outputs as source-query-derived visual definitions that can become panels.
-- [ ] 4.3 Add a query-first authoring flow: run SRQL, inspect sample rows and typed fields, add one or more outputs, then place outputs on the grid.
-- [ ] 4.4 Replace visual-first panel editing with intent-first choices backed by schema-compatible field selectors.
-- [ ] 4.5 Keep existing panels working while new guided dashboards can use source queries and outputs.
-- [ ] 4.6 Add source-query helpers/templates for `stats:` aggregation and `bucket:` downsampling patterns used by trend/gauge dashlets.
+- [x] 4.1 Model dashboard source queries as reusable authoring data sources.
+- [x] 4.2 Model outputs as source-query-derived visual definitions that can become panels.
+- [x] 4.3 Add a query-first authoring flow: run SRQL, inspect sample rows and typed fields, add one or more outputs, then place outputs on the grid.
+- [x] 4.4 Replace visual-first panel editing with intent-first choices backed by schema-compatible field selectors.
+- [x] 4.5 Keep existing panels working while new guided dashboards can use source queries and outputs.
+- [x] 4.6 Add source-query helpers/templates for `stats:` aggregation and `bucket:` downsampling patterns used by trend/gauge dashlets.
 
 ## 5. Validation
 

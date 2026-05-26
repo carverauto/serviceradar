@@ -3,11 +3,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents
 
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
   @impl true
   def mount(_params, _session, socket) do
@@ -28,6 +31,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:settings_open?, false)
       |> assign(:editing_panel_id, nil)
       |> assign(:panel_preview, nil)
+      |> assign(:source_query_params, SourceQueries.default_params())
+      |> assign(:source_query_preview, nil)
       |> assign(:can_edit?, can_edit?(socket.assigns.current_scope))
       |> assign(:can_share?, can_share?(socket.assigns.current_scope))
       |> assign(:can_schedule_reports?, can_schedule_reports?(socket.assigns.current_scope))
@@ -43,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:loading?, connected?(socket))
       |> assign_grant_forms()
       |> assign_report_schedule_form()
+      |> assign_source_query_form()
       |> assign_panel_form()
 
     {:ok, socket}
@@ -196,6 +202,87 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Panel create failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("validate_source_query", %{"source_query" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:source_query_params, merge_params(socket.assigns.source_query_params, params))
+     |> assign_source_query_form()}
+  end
+
+  def handle_event("apply_source_template", %{"key" => key}, socket) do
+    case SourceQueries.template_query(key) do
+      nil ->
+        {:noreply, socket}
+
+      query ->
+        params = Map.put(socket.assigns.source_query_params, "srql_query", query)
+
+        {:noreply,
+         socket
+         |> assign(:source_query_params, params)
+         |> assign_source_query_form()}
+    end
+  end
+
+  def handle_event("run_source_query", %{"source_query" => params}, socket) do
+    with :ok <- authorize_panel_edit(socket),
+         params = merge_params(socket.assigns.source_query_params, params),
+         {:ok, preview} <-
+           Dashboards.preview_authored_query(socket.assigns.current_scope, params["srql_query"]) do
+      source = SourceQueries.source_from_preview(params, preview)
+      preview = Map.put(preview, :outputs, source.outputs)
+
+      {:noreply,
+       socket
+       |> assign(:source_query_params, params)
+       |> assign(:source_query_preview, preview)
+       |> assign_source_query_form()
+       |> put_flash(:info, "Source query preview loaded")}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:source_query_preview, nil)
+         |> put_flash(:error, "Source query preview failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("create_source_output", %{"visual-type" => visual_type}, socket) do
+    with :ok <- authorize_panel_edit(socket),
+         %{source_query_preview: preview, dashboard: %{}} <- socket.assigns,
+         true <- is_map(preview),
+         source = SourceQueries.source_from_preview(socket.assigns.source_query_params, preview),
+         {:ok, dashboard} <- persist_source_query(socket, source),
+         attrs = SourceQueries.panel_attrs_from_output(dashboard, source, visual_type, socket.assigns.source_query_params),
+         {:ok, panel} <- Dashboards.create_authored_panel(socket.assigns.current_scope, attrs) do
+      panels =
+        dashboard.panels
+        |> List.wrap()
+        |> Kernel.++([panel])
+        |> Enum.sort_by(&{&1.position, &1.inserted_at})
+
+      dashboard = %{dashboard | panels: panels}
+
+      {:noreply,
+       socket
+       |> assign(:dashboard, dashboard)
+       |> assign(:editing_panel_id, panel.id)
+       |> assign(:panel_params, panel_to_params(panel))
+       |> assign(:panel_preview, preview)
+       |> assign_panel_form()
+       |> put_flash(:info, "Added #{SourceQueries.humanize_field(visual_type)} output to the canvas")}
+    else
+      false ->
+        {:noreply, put_flash(socket, :error, "Run a source query before adding an output")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Output creation failed: #{format_error(reason)}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Run a source query before adding an output")}
     end
   end
 
@@ -676,7 +763,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               :if={can_manage_dashboard?(@dashboard, assigns)}
               class="rounded-lg border border-slate-800/80 bg-slate-950/40"
             >
-              <div class="p-4">
+              <div class="space-y-4 p-4">
+                <.source_query_workbench
+                  form={@source_query_form}
+                  preview={@source_query_preview}
+                  source_queries={SourceQueries.source_queries(@dashboard)}
+                  templates={SourceQueries.templates()}
+                  can_manage?={can_manage_dashboard?(@dashboard, assigns)}
+                />
+
                 <.dashboard_builder_canvas
                   id={"authored-dashboard-canvas-#{@dashboard.id}"}
                   panels={dashboard_canvas_panels(@dashboard, @panel_results)}
@@ -1204,284 +1299,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     ~p"/dashboard/#{dashboard_ref}/panels/#{panel.id}/export.csv?#{query}"
   end
 
-  attr(:form, :any, required: true)
-  attr(:panel, :any, default: nil)
-  attr(:preview, :any, default: nil)
-  attr(:panel_results, :map, default: %{})
-
-  defp panel_form_fields(assigns) do
-    assigns =
-      assigns
-      |> assign(:field_options, panel_field_options(assigns.preview, assigns.panel, assigns.panel_results))
-      |> assign(
-        :numeric_field_options,
-        numeric_panel_field_options(assigns.preview, assigns.panel, assigns.panel_results)
-      )
-      |> assign(
-        :dimension_field_options,
-        dimension_panel_field_options(assigns.preview, assigns.panel, assigns.panel_results)
-      )
-      |> assign(
-        :datetime_field_options,
-        datetime_panel_field_options(assigns.preview, assigns.panel, assigns.panel_results)
-      )
-      |> assign(:visual_options, panel_visual_select_options(assigns.preview, assigns.panel))
-
-    ~H"""
-    <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
-      <div>
-        <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 1</p>
-        <h3 class="mt-1 text-sm font-semibold">SRQL source</h3>
-        <p class="text-xs text-base-content/70">
-          Define the dataset query this panel owns. Previewing the query drives the available visuals and field bindings.
-        </p>
-      </div>
-
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <.input field={@form[:dataset_key]} type="text" label="Dataset key" />
-        <.input field={@form[:title]} type="text" label="Panel title" />
-      </div>
-
-      <.srql_editor
-        id={"authored-panel-srql-editor-#{(@panel && @panel.id) || "new"}"}
-        field={@form[:srql_query]}
-        label="SRQL Query"
-        rich
-      />
-
-      <div class="flex flex-wrap items-center gap-2">
-        <button type="submit" name="intent" value="preview" class="btn btn-sm">
-          <.icon name="hero-play" class="size-4" /> Preview Query
-        </button>
-        <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/70">
-          Preview first to unlock compatible visualizations.
-        </span>
-      </div>
-    </section>
-
-    <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
-      <div>
-        <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 2</p>
-        <h3 class="mt-1 text-sm font-semibold">Visualization and bindings</h3>
-        <p class="text-xs text-base-content/70">
-          Choose a supported visual and map fields from the preview output into labels, values, status, and layout.
-        </p>
-      </div>
-
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <.input
-          field={@form[:visual_type]}
-          type="select"
-          label="Visualization"
-          options={@visual_options}
-        />
-        <.input
-          field={@form[:refresh_interval_seconds]}
-          type="number"
-          label="Refresh interval seconds"
-        />
-        <.input field={@form[:position]} type="number" label="Position" />
-      </div>
-
-      <.panel_structured_fields
-        form={@form}
-        field_options={@field_options}
-        numeric_field_options={@numeric_field_options}
-        dimension_field_options={@dimension_field_options}
-        datetime_field_options={@datetime_field_options}
-      />
-
-      <div class="flex flex-wrap gap-2 border-t border-base-300 pt-4">
-        <button
-          type="submit"
-          name="intent"
-          value="save"
-          class="btn btn-sm btn-primary"
-          disabled={!@preview and is_nil(@panel)}
-        >
-          <.icon name="hero-check" class="size-4" /> Save Panel
-        </button>
-        <button type="button" class="btn btn-sm" phx-click="cancel_panel_edit">
-          Cancel
-        </button>
-      </div>
-    </section>
-    """
-  end
-
-  attr(:form, :any, required: true)
-  attr(:field_options, :list, default: [])
-  attr(:numeric_field_options, :list, default: [])
-  attr(:dimension_field_options, :list, default: [])
-  attr(:datetime_field_options, :list, default: [])
-
-  defp panel_structured_fields(assigns) do
-    visual = assigns.form |> Phoenix.HTML.Form.input_value(:visual_type) |> to_string()
-
-    assigns =
-      assigns
-      |> assign(:visual, visual)
-      |> assign(:aggregate_options, [
-        {"Sum", "sum"},
-        {"Average", "avg"},
-        {"Minimum", "min"},
-        {"Maximum", "max"},
-        {"Count", "count"}
-      ])
-
-    ~H"""
-    <section class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2">
-      <div class="lg:col-span-2">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
-          Data bindings
-        </h4>
-      </div>
-      <.input
-        :if={@visual in ["stat", "count", "gauge", "line", "area", "bar", "category", "pivot"]}
-        field={@form[:value_field]}
-        type="select"
-        label="Value field"
-        options={@numeric_field_options}
-      />
-      <.input
-        :if={@visual in ["availability"]}
-        field={@form[:numerator_field]}
-        type="select"
-        label="Available/OK field"
-        options={@numeric_field_options}
-      />
-      <.input
-        :if={@visual in ["availability"]}
-        field={@form[:denominator_field]}
-        type="select"
-        label="Total field"
-        options={@numeric_field_options}
-      />
-      <.input
-        :if={
-          @visual in [
-            "stat",
-            "count",
-            "gauge",
-            "availability",
-            "line",
-            "area",
-            "bar",
-            "category",
-            "status_list"
-          ]
-        }
-        field={@form[:label_field]}
-        type="select"
-        label="Label field"
-        options={@field_options}
-      />
-      <.input
-        :if={@visual in ["line", "area"]}
-        field={@form[:time_field]}
-        type="select"
-        label="Time field"
-        options={@datetime_field_options}
-      />
-      <.input
-        :if={@visual == "status_list"}
-        field={@form[:status_field]}
-        type="select"
-        label="Status field"
-        options={@field_options}
-      />
-      <.input
-        :if={@visual == "pivot"}
-        field={@form[:row_field]}
-        type="select"
-        label="Rows"
-        options={@dimension_field_options}
-      />
-      <.input
-        :if={@visual == "pivot"}
-        field={@form[:column_field]}
-        type="select"
-        label="Columns"
-        options={@dimension_field_options}
-      />
-      <.input
-        :if={@visual == "pivot"}
-        field={@form[:aggregate]}
-        type="select"
-        label="Aggregate"
-        options={@aggregate_options}
-      />
-      <.input
-        :if={@visual == "pivot"}
-        field={@form[:empty_value]}
-        type="text"
-        label="Empty value"
-      />
-    </section>
-
-    <section
-      :if={@visual in ["stat", "count", "gauge", "availability"]}
-      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
-    >
-      <div class="lg:col-span-2">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
-          Trend comparison
-        </h4>
-        <p class="mt-1 text-xs text-base-content/60">
-          Compare this metric with a prior SRQL result, such as a bucketed or stats query for the previous period.
-        </p>
-      </div>
-      <.input
-        field={@form[:trend_mode]}
-        type="select"
-        label="Trend"
-        options={[
-          {"Off", ""},
-          {"Compare with prior period", "compare_previous"},
-          {"Custom SRQL comparison", "custom_query"}
-        ]}
-      />
-      <.input field={@form[:trend_lookback_days]} type="number" label="Lookback days" />
-      <div class="lg:col-span-2">
-        <.input
-          field={@form[:trend_query]}
-          type="textarea"
-          label="Trend SRQL"
-        />
-      </div>
-    </section>
-
-    <section class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2">
-      <div class="lg:col-span-2">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
-          Display
-        </h4>
-      </div>
-      <.input field={@form[:display_label]} type="text" label="Display label" />
-      <.input field={@form[:unit]} type="text" label="Unit" />
-      <.input field={@form[:caption]} type="text" label="Caption" />
-      <.input
-        :if={@visual == "table"}
-        field={@form[:table_columns]}
-        type="text"
-        label="Table columns"
-      />
-    </section>
-
-    <section class="grid grid-cols-2 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-4">
-      <div class="col-span-2 lg:col-span-4">
-        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
-          Layout
-        </h4>
-      </div>
-      <.input field={@form[:layout_x]} type="number" label="X" />
-      <.input field={@form[:layout_y]} type="number" label="Y" />
-      <.input field={@form[:layout_w]} type="number" label="Width" />
-      <.input field={@form[:layout_h]} type="number" label="Height" />
-    </section>
-    """
-  end
-
   defp default_panel_params do
     %{
       "dataset_key" => "primary",
@@ -1565,6 +1382,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     )
   end
 
+  defp assign_source_query_form(socket) do
+    assign(socket, :source_query_form, to_form(socket.assigns.source_query_params, as: :source_query))
+  end
+
   defp assign_panel_form(socket) do
     assign(socket, :panel_form, to_form(socket.assigns.panel_params, as: :panel))
   end
@@ -1638,6 +1459,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp reload_dashboard_panels(socket), do: socket
+
+  defp persist_source_query(socket, source) do
+    dashboard = socket.assigns.dashboard
+    metadata = SourceQueries.upsert_source_metadata(dashboard.metadata || %{}, source)
+
+    case Dashboards.update_authored_dashboard(socket.assigns.current_scope, dashboard, %{metadata: metadata}) do
+      {:ok, updated_dashboard} -> {:ok, %{updated_dashboard | panels: dashboard.panels || []}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp preview_panel_query(scope, panel, variable_values) do
     query = substitute_variables(panel.srql_query, variable_values)
@@ -2200,28 +2031,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp access_select_options, do: [{"View", "view"}, {"Edit", "edit"}]
 
-  defp panel_visual_select_options(nil, nil), do: all_panel_visual_options()
-
-  defp panel_visual_select_options(preview, panel) do
-    compatible =
-      preview
-      |> preview_compatible_visuals()
-      |> case do
-        [] -> panel_compatible_visuals(panel)
-        visuals -> visuals
-      end
-
-    compatible = if compatible == [], do: [:table], else: compatible
-
-    Dashboards.authored_visual_options()
-    |> Enum.filter(&(&1.type in compatible))
-    |> Enum.map(&{&1.label, to_string(&1.type)})
-  end
-
-  defp all_panel_visual_options do
-    Enum.map(Dashboards.authored_visual_options(), &{&1.label, to_string(&1.type)})
-  end
-
   defp selected_panel_visual(value, compatible) do
     compatible = Enum.map(compatible || [:table], &to_string/1)
     value = to_string(value || "table")
@@ -2278,45 +2087,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     }
   end
 
-  defp panel_field_options(preview, panel, panel_results) do
-    fields = panel_fields(preview, panel, panel_results)
-    [{"Auto", ""} | Enum.map(fields, &{field_label(&1), field_name(&1)})]
-  end
-
-  defp numeric_panel_field_options(preview, panel, panel_results) do
-    fields = Enum.filter(panel_fields(preview, panel, panel_results), &(field_type(&1) == :number))
-    [{"Auto", ""} | Enum.map(fields, &{field_label(&1), field_name(&1)})]
-  end
-
-  defp dimension_panel_field_options(preview, panel, panel_results) do
-    fields =
-      Enum.filter(panel_fields(preview, panel, panel_results), &(field_type(&1) in [:string, :boolean, :datetime]))
-
-    [{"Auto", ""} | Enum.map(fields, &{field_label(&1), field_name(&1)})]
-  end
-
-  defp datetime_panel_field_options(preview, panel, panel_results) do
-    fields = Enum.filter(panel_fields(preview, panel, panel_results), &(field_type(&1) == :datetime))
-    [{"Auto", ""} | Enum.map(fields, &{field_label(&1), field_name(&1)})]
-  end
-
-  defp panel_fields(preview, panel, panel_results) do
-    cond do
-      preview_fields(preview) != [] ->
-        preview_fields(preview)
-
-      panel && match?({:ok, _}, Map.get(panel_results, panel.id)) ->
-        {:ok, result} = Map.get(panel_results, panel.id)
-        preview_fields(result)
-
-      panel ->
-        metadata_fields(panel.field_metadata || %{})
-
-      true ->
-        []
-    end
-  end
-
   defp preview_fields(%{fields: fields}) when is_list(fields), do: fields
   defp preview_fields(%{"fields" => fields}) when is_list(fields), do: fields
   defp preview_fields(_preview), do: []
@@ -2358,8 +2128,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp visual_atom("status_list"), do: :status_list
   defp visual_atom("pivot"), do: :pivot
   defp visual_atom(_value), do: :table
-
-  defp field_label(field), do: "#{humanize_field(field_name(field))} (#{field_type(field)})"
 
   defp field_name(%{name: name}), do: to_string(name)
   defp field_name(%{"name" => name}), do: to_string(name)

@@ -348,23 +348,24 @@ export default function DashboardBuilderCanvas({
       <aside className="rounded-lg border border-slate-800/80 bg-[#0b1220]/95 p-4 shadow-xl shadow-cyan-950/10 backdrop-blur-md">
         <div className="mb-3">
           <div className="text-xs font-semibold uppercase tracking-normal text-cyan-400">Workbench</div>
-          <div className="mt-1 text-lg font-semibold tracking-normal">Visualization Palette</div>
+          <div className="mt-1 text-lg font-semibold tracking-normal">Layout Canvas</div>
           <p className="mt-2 text-xs leading-5 text-slate-400">
-            Start with a visual type. The SRQL preview will narrow choices and field mappings before the panel can be saved.
+            Run a source query above, add compatible outputs, then place or resize them here.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 xl:grid-cols-1">
-          {visualOptions.map(option => (
-            <button
-              key={option.type}
-              type="button"
-              className="btn btn-sm justify-start rounded-md border-slate-800 bg-slate-950/70 text-slate-200 hover:border-cyan-500/40 hover:bg-cyan-950/30"
-              disabled={!canManage}
-              onClick={() => pushEvent("canvas_add_panel", {visualType: option.type})}
-            >
-              {option.label || VISUAL_LABELS[option.type] || option.type}
-            </button>
-          ))}
+        <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+          <div className="text-xs font-semibold uppercase tracking-normal text-slate-400">Advanced</div>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            Custom panels are still available for existing workflows, but new dashboards should start from a source query.
+          </p>
+          <button
+            type="button"
+            className="btn btn-sm mt-3 w-full justify-start rounded-md border-slate-800 bg-slate-950/70 text-slate-200 hover:border-cyan-500/40 hover:bg-cyan-950/30"
+            disabled={!canManage}
+            onClick={() => pushEvent("canvas_add_panel", {visualType: "table"})}
+          >
+            Add custom panel
+          </button>
         </div>
         <div className="mt-4 rounded-md border border-slate-800 bg-slate-950/60 p-3">
           <div className="flex items-center justify-between gap-2 text-xs">
