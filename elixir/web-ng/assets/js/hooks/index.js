@@ -1,5 +1,6 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
+import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
 import JdmEditorHook from "./JdmEditorHook"
@@ -13,6 +14,7 @@ import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
 import RemoteAccessTCPText from "./RemoteAccessTCPText"
 import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
+import SRQLEditor from "./SRQLEditor"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
@@ -35,6 +37,7 @@ import BandwidthGauge from "./charts/BandwidthGauge"
 export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
+  DashboardBuilderCanvas,
   DashboardMapViewSelect,
   DashboardWasmHost,
   JdmEditorHook,
@@ -48,6 +51,7 @@ export default {
   RemoteAccessTCPText,
   RemoteAccessTerminal,
   RemoteConsoleTerminal,
+  SRQLEditor,
   SRQLTimeCookie,
   SpatialSurveyMap,
   NetflowSankeyChart,

@@ -10,6 +10,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
   defmodule SRQLStub do
     @moduledoc false
 
+    def query("series site:ZZA" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"service" => "iah-core", "status" => "ok", "value" => 10}]}}
+    end
+
+    def query("series site:MSP" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"service" => "msp-core", "status" => "ok", "value" => 20}]}}
+    end
+
     def query("series" <> _rest, _opts) do
       {:ok,
        %{
@@ -20,6 +28,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
        }}
     end
 
+    def query("availability" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"available" => 75, "total" => 100, "value" => 75}]}}
+    end
+
+    def query("trend" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"value" => 50}, %{"value" => 75}]}}
+    end
+
     def query("rich" <> _rest, _opts) do
       {:ok,
        %{
@@ -28,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
              "service" => "core",
              "enabled" => true,
              "status" => "down",
+             "value" => 1,
              "details" => %{"owner" => "noc", "region" => "iah"},
              "trend" => [1, 3, 2, 5]
            }
@@ -70,16 +87,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert html =~ "Dashboard Creator"
     assert html =~ "New Dashboard"
 
-    view
-    |> form("form[phx-submit='save']", %{
+    render_click(view, "add_panel", %{
       "dashboard" => %{
-        "title" => title,
-        "description" => "Created through LiveView",
-        "visibility" => "private",
+        "dataset_key" => "services",
         "panel_title" => "Service Series",
         "srql_query" => "series services",
         "visual_type" => "table"
       }
+    })
+
+    view
+    |> form("#dashboard-metadata-form", %{
+      "dashboard" => %{"title" => title, "description" => "Created through LiveView", "visibility" => "private"}
     })
     |> render_submit()
 
@@ -91,6 +110,82 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert_redirect(view, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
     assert dashboard.owner_id == user.id
     assert dashboard.dashboard_ref in 1_000_000..9_999_999
+  end
+
+  test "creator saves multiple SRQL panels on one dashboard", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    title = "Multi Query LiveView #{unique}"
+
+    {:ok, view, _html} = live(conn, ~p"/analytics")
+    render_async(view, 5_000)
+
+    render_click(view, "add_panel", %{
+      "dashboard" => %{
+        "dataset_key" => "services",
+        "panel_title" => "Service Series",
+        "srql_query" => "series services",
+        "visual_type" => "table"
+      }
+    })
+
+    render_click(view, "add_panel", %{
+      "dashboard" => %{
+        "dataset_key" => "rich",
+        "panel_title" => "Rich Status",
+        "srql_query" => "rich services",
+        "visual_type" => "table"
+      }
+    })
+
+    assert render(view) =~ "Loading dashboard canvas"
+    assert render(view) =~ "Service Series"
+    assert render(view) =~ "Rich Status"
+
+    view
+    |> form("#dashboard-metadata-form", %{
+      "dashboard" => %{"title" => title, "description" => "", "visibility" => "private"}
+    })
+    |> render_submit()
+
+    [dashboard] =
+      scope
+      |> Dashboards.list_authored_dashboards(%{status: [:active], limit: 100})
+      |> Enum.filter(&(&1.title == title))
+
+    panels = Dashboards.list_authored_panels(scope, dashboard.id)
+    assert Enum.map(panels, & &1.dataset_key) == ["services", "rich"]
+    assert Enum.map(panels, & &1.srql_query) == ["series services", "rich services"]
+  end
+
+  test "creator restores canvas drafts and surfaces inline inspector errors", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/analytics")
+    render_async(view, 5_000)
+
+    html =
+      render_hook(view, "restore_canvas_draft", %{
+        "dashboard" => %{"title" => "Restored Draft"},
+        "panels" => [
+          %{
+            "id" => "draft-panel-1",
+            "title" => "Draft Panel",
+            "dataset_key" => "services",
+            "srql_query" => "series services",
+            "visual_type" => "table",
+            "layout" => %{"x" => 0, "y" => 0, "w" => 12, "h" => 8}
+          }
+        ]
+      })
+
+    assert html =~ "Restored Draft"
+    assert html =~ "Draft Panel"
+
+    html =
+      render_hook(view, "canvas_preview_panel", %{
+        "id" => "draft-panel-1",
+        "panel" => %{"srql_query" => ""}
+      })
+
+    assert html =~ "srql_query is required"
   end
 
   test "dashboard library lists authored dashboards and updates favorite/default preferences", %{
@@ -154,7 +249,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert has_element?(view, "section", "Email Reports")
 
     view
-    |> element("button[phx-click='edit_panel'][phx-value-id='#{panel.id}']")
+    |> element("button[phx-click='edit_panel'][phx-value-id='#{panel.id}']", "Edit")
     |> render_click()
 
     view
@@ -233,6 +328,166 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     refute html =~ "{&quot;owner&quot;"
   end
 
+  test "saved dashboard renders pivot and trend dashlets", %{conn: conn, scope: scope} do
+    {dashboard, _panel} =
+      dashboard_with_panel!(scope,
+        title: "Pivot LiveView",
+        srql_query: "rich services",
+        visual_type: :pivot,
+        data_binding: %{
+          "row_field" => "service",
+          "column_field" => "status",
+          "value_field" => "value",
+          "aggregate" => "sum"
+        }
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    html = render_async(view, 5_000)
+
+    assert html =~ "Pivot Table"
+    assert html =~ "core"
+    assert html =~ "down"
+  end
+
+  test "saved dashboard variables substitute into panel SRQL", %{conn: conn, scope: scope} do
+    {dashboard, _panel} =
+      dashboard_with_panel!(scope,
+        title: "Variables LiveView",
+        srql_query: "series site:${site}",
+        variables: %{
+          "site" => %{"label" => "Site", "default" => "ZZA", "options" => ["ZZA", "MSP"]}
+        }
+      )
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    html = render_async(view, 5_000)
+
+    assert html =~ "Dashboard Variables"
+    assert html =~ "iah-core"
+
+    html = render_change(view, "change_variable", %{"variables" => %{"site" => "MSP"}})
+    assert html =~ "msp-core"
+    refute html =~ "iah-core"
+  end
+
+  test "saved dashboard renders gauge and count dashlets with thresholds and trends", %{
+    conn: conn,
+    scope: scope
+  } do
+    {dashboard, _panel} =
+      dashboard_with_panel!(scope,
+        title: "Gauge LiveView",
+        srql_query: "availability services",
+        visual_type: :gauge,
+        data_binding: %{"numerator_field" => "available", "denominator_field" => "total"},
+        display_config: %{
+          "label" => "Device Availability",
+          "unit" => "%",
+          "thresholds" => [
+            %{"value" => 70, "tone" => "warning"},
+            %{"value" => 90, "tone" => "success"}
+          ]
+        },
+        visual_config: %{"trend_query" => "trend availability"},
+        refresh_interval_seconds: 60
+      )
+
+    {:ok, count_panel} =
+      Dashboards.create_authored_panel(scope, %{
+        dashboard_id: dashboard.id,
+        title: "Current Services",
+        srql_query: "series services",
+        visual_type: :count,
+        data_binding: %{"value_field" => "value"},
+        display_config: %{"label" => "Current Services", "unit" => " services"},
+        visual_config: %{"trend_query" => "trend count"},
+        position: 1
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    html = render_async(view, 5_000)
+
+    assert html =~ "Device Availability"
+    assert html =~ "75.0"
+    assert html =~ "progress-warning"
+    assert html =~ "aria-label=\"Device Availability: 75.0%\""
+    assert html =~ "Trend:"
+    assert html =~ "+25"
+    assert html =~ "Refresh 1m"
+    assert html =~ count_panel.title
+    assert html =~ "10<span class=\"text-xl\"> services</span>"
+  end
+
+  test "saved dashboard panel actions duplicate clone compact inspect refresh and export", %{
+    conn: conn,
+    scope: scope
+  } do
+    {dashboard, panel} =
+      dashboard_with_panel!(scope,
+        title: "Actions LiveView",
+        layout: %{"x" => 8, "y" => 12, "w" => 4, "h" => 4, "order" => 0}
+      )
+
+    {target, _target_panel} = dashboard_with_panel!(scope, title: "Clone Target")
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    html = render_async(view, 5_000)
+
+    assert html =~ "download=\"service-series.csv\""
+    assert html =~ "/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}/panels/#{panel.id}/export.csv"
+    assert html =~ "sr-authored-dashboard-panel"
+    assert html =~ "--sr-panel-x: 9"
+    assert html =~ "--sr-panel-y: 13"
+    assert html =~ "--sr-panel-w: 4"
+
+    html = render_click(view, "toggle_panel_srql", %{"id" => panel.id})
+    assert html =~ panel.srql_query
+
+    html = render_click(view, "refresh_panel", %{"id" => panel.id})
+    assert html =~ "Panel refreshed"
+
+    html = render_click(view, "duplicate_panel", %{"id" => panel.id})
+    assert html =~ "Panel duplicated"
+    assert length(Dashboards.list_authored_panels(scope, dashboard.id)) == 2
+
+    html =
+      render_submit(view, "clone_panel", %{
+        "panel_id" => panel.id,
+        "target_dashboard_id" => target.id
+      })
+
+    assert html =~ "Panel cloned to"
+    assert length(Dashboards.list_authored_panels(scope, target.id)) == 2
+
+    html = render_click(view, "compact_layout", %{})
+    assert html =~ "Dashboard layout compacted"
+
+    [first | _] = Dashboards.list_authored_panels(scope, dashboard.id)
+    assert first.layout["x"] == 0
+    assert first.layout["y"] == 0
+
+    conn =
+      get(
+        conn,
+        ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}/panels/#{panel.id}/export.csv"
+      )
+
+    assert response(conn, 200) =~ ~s("service","status","value")
+    assert get_resp_header(conn, "content-type") == ["text/csv; charset=utf-8"]
+  end
+
+  test "user groups are managed from settings instead of the dashboard creator", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/settings/user-groups")
+    html = render_async(view, 5_000)
+
+    assert html =~ "User Groups"
+    assert html =~ "Create Group"
+
+    {:ok, _view, html} = live(conn, ~p"/analytics")
+    refute html =~ "Create Group"
+  end
+
   defp dashboard_with_panel!(scope, attrs) do
     title = Keyword.fetch!(attrs, :title)
 
@@ -241,7 +496,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
         title: "#{title} #{System.unique_integer([:positive])}",
         description: "LiveView workflow coverage",
         status: :active,
-        visibility: :private
+        visibility: :private,
+        variables: Keyword.get(attrs, :variables, %{})
       })
 
     {:ok, panel} =
@@ -250,7 +506,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
         title: "Service Series",
         srql_query: Keyword.get(attrs, :srql_query, "series services"),
         visual_type: Keyword.get(attrs, :visual_type, :table),
-        display_config: Keyword.get(attrs, :display_config, %{})
+        data_binding: Keyword.get(attrs, :data_binding, %{}),
+        display_config: Keyword.get(attrs, :display_config, %{}),
+        visual_config: Keyword.get(attrs, :visual_config, %{}),
+        layout: Keyword.get(attrs, :layout, %{}),
+        refresh_interval_seconds: Keyword.get(attrs, :refresh_interval_seconds, 0)
       })
 
     {dashboard, panel}

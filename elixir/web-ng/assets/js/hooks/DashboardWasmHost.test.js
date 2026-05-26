@@ -42,7 +42,6 @@ function hookContext(overrides = {}) {
     _children: children,
     _frameUpdateCallbacks: [],
     connectFrameStream: vi.fn(),
-    updateVisibleSrqlQuery: vi.fn(),
     pushEvent: vi.fn(),
     isDarkMode: vi.fn(() => false),
     ...overrides,
@@ -91,7 +90,6 @@ describe("DashboardWasmHost browser-module API", () => {
       empty: "",
     })
 
-    expect(hook.updateVisibleSrqlQuery).toHaveBeenCalledWith("in:wifi_sites site_code:(ZZC) limit:500")
     expect(window.history.replaceState).toHaveBeenCalledWith(
       window.history.state,
       "",

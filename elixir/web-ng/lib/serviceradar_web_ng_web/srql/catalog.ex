@@ -1033,7 +1033,32 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     }
   ]
 
+  @completion_field_groups [
+    :filter_fields,
+    :value_fields,
+    :series_fields,
+    :stats_fields,
+    :boolean_fields,
+    :array_fields
+  ]
+  @completion_control_tokens ~w(limit: sort: time: status: type: tag: site: where group: by:)
+  @completion_tokens (
+                       entity_tokens = Enum.map(@entities, &"in:#{&1.id}")
+
+                       field_tokens =
+                         Enum.flat_map(@entities, fn entity ->
+                           Enum.flat_map(@completion_field_groups, &Map.get(entity, &1, []))
+                         end)
+
+                       (entity_tokens ++ @completion_control_tokens ++ field_tokens)
+                       |> Enum.reject(&is_nil/1)
+                       |> Enum.uniq()
+                       |> Enum.sort()
+                     )
+
   def entities, do: @entities
+
+  def completion_tokens, do: @completion_tokens
 
   def entity(id) when is_binary(id) do
     Enum.find(@entities, &(&1.id == id)) ||

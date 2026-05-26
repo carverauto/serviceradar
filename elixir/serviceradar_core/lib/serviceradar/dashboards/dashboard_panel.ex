@@ -131,13 +131,15 @@ defmodule ServiceRadar.Dashboards.DashboardPanel do
       constraints one_of: [
                     :table,
                     :stat,
+                    :count,
                     :gauge,
                     :availability,
                     :line,
                     :area,
                     :bar,
                     :category,
-                    :status_list
+                    :status_list,
+                    :pivot
                   ]
     end
 

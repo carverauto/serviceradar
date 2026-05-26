@@ -698,6 +698,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
+    get("/dashboard/:dashboard_id/panels/:panel_id/export.csv", AuthoredDashboardExportController, :panel_csv)
 
     live_session :require_authenticated_user,
       on_mount: [
@@ -756,6 +757,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
       live("/settings/cli-sessions", Settings.CliSessionsLive, :index)
       live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
+      live("/settings/user-groups", Settings.UserGroupsLive, :index)
 
       live("/settings/audit/events", Settings.AuditLive.Events, :index)
       live("/settings/audit/events/:event_id", Settings.AuditLive.EventShow, :show)

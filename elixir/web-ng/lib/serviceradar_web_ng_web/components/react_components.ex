@@ -42,6 +42,48 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   """
   attr :id, :string, required: true
+  attr :panels, :list, default: []
+  attr :visual_options, :list, default: []
+  attr :selected_id, :string, default: ""
+  attr :can_manage, :boolean, default: false
+  attr :default_query, :string, default: ""
+  attr :dashboard_params, :map, default: %{}
+  attr :inspector_errors, :map, default: %{}
+  attr :srql_completions, :list, default: []
+  attr :draft_storage_key, :string, default: ""
+  attr :class, :string, default: ""
+
+  def dashboard_builder_canvas(assigns) do
+    assigns =
+      assign(assigns, :props, %{
+        panels: assigns.panels,
+        visualOptions: assigns.visual_options,
+        selectedId: assigns.selected_id,
+        canManage: assigns.can_manage,
+        defaultQuery: assigns.default_query,
+        dashboardParams: assigns.dashboard_params,
+        inspectorErrors: assigns.inspector_errors,
+        srqlCompletions: assigns.srql_completions,
+        draftStorageKey: assigns.draft_storage_key
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["min-h-[520px] w-full", @class]}
+      phx-update="ignore"
+      phx-hook="DashboardBuilderCanvas"
+      data-props={Jason.encode!(@props)}
+    >
+      <div class="flex min-h-[520px] items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading dashboard canvas...</span>
+      </div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
   attr :definition, :map, default: nil
   attr :read_only, :boolean, default: false
   attr :class, :string, default: ""

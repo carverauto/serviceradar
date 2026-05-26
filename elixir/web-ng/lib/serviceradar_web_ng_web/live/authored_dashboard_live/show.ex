@@ -17,6 +17,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:user_groups, [])
       |> assign(:users, [])
       |> assign(:panel_results, %{})
+      |> assign(:trend_results, %{})
+      |> assign(:variable_values, %{})
+      |> assign(:expanded_srql_panel_ids, MapSet.new())
+      |> assign(:clone_targets, [])
+      |> assign(:clone_target_id, "")
       |> assign(:settings_open?, false)
       |> assign(:editing_panel_id, nil)
       |> assign(:can_edit?, can_edit?(socket.assigns.current_scope))
@@ -43,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_params(%{"dashboard_id" => dashboard_id}, _uri, socket) do
     scope = socket.assigns.current_scope
     access_assigns = access_assigns(socket.assigns)
+    current_variable_values = socket.assigns.variable_values
 
     socket =
       if connected?(socket) do
@@ -50,15 +56,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           with {:ok, %AuthoredDashboard{} = dashboard} <-
                  Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
             panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
+            variable_values = dashboard_variable_values(dashboard, current_variable_values)
 
             results =
               Map.new(panels, fn panel ->
-                {panel.id, Dashboards.preview_authored_query(scope, panel.srql_query, limit: 250)}
+                {panel.id, preview_panel_query(scope, panel, variable_values)}
+              end)
+
+            trends =
+              Map.new(panels, fn panel ->
+                {panel.id, preview_trend_query(scope, panel, variable_values)}
               end)
 
             access = load_access_controls(scope, dashboard, access_assigns)
+            clone_targets = load_clone_targets(scope, dashboard)
 
-            {:ok, dashboard, panels, results, access}
+            {:ok, dashboard, panels, results, trends, variable_values, access, clone_targets}
           end
         end)
       else
@@ -73,13 +86,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   @impl true
-  def handle_async({:load_dashboard, _dashboard_id}, {:ok, {:ok, dashboard, panels, results, access}}, socket) do
+  def handle_async(
+        {:load_dashboard, _dashboard_id},
+        {:ok, {:ok, dashboard, panels, results, trends, variable_values, access, clone_targets}},
+        socket
+      ) do
     dashboard = Map.put(dashboard, :panels, panels)
 
     {:noreply,
      socket
      |> assign(:dashboard, dashboard)
      |> assign(:panel_results, results)
+     |> assign(:trend_results, trends)
+     |> assign(:variable_values, variable_values)
+     |> assign(:clone_targets, clone_targets)
+     |> assign(:clone_target_id, default_clone_target_id(clone_targets))
      |> assign(access)
      |> assign(:page_title, dashboard.title)
      |> assign(:loading?, false)
@@ -136,6 +157,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:ok, panel} ->
         {:noreply,
          socket
+         |> assign(:settings_open?, true)
          |> assign(:editing_panel_id, panel.id)
          |> assign(:panel_params, panel_to_params(panel))
          |> assign_panel_form()}
@@ -158,6 +180,103 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      socket
      |> assign(:panel_params, merge_params(socket.assigns.panel_params, params))
      |> assign_panel_form()}
+  end
+
+  def handle_event("change_variable", %{"variables" => params}, socket) do
+    values = dashboard_variable_values(socket.assigns.dashboard, params)
+
+    {:noreply,
+     socket
+     |> assign(:variable_values, values)
+     |> reload_dashboard_panels()}
+  end
+
+  def handle_event("refresh_panel", %{"id" => id}, socket) do
+    panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
+
+    case require_record(panel) do
+      {:ok, panel} ->
+        result = preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+        trend = preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+
+        {:noreply,
+         socket
+         |> assign(:panel_results, Map.put(socket.assigns.panel_results, panel.id, result))
+         |> assign(:trend_results, Map.put(socket.assigns.trend_results, panel.id, trend))
+         |> put_flash(:info, "Panel refreshed")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel refresh failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("toggle_panel_srql", %{"id" => id}, socket) do
+    expanded =
+      if MapSet.member?(socket.assigns.expanded_srql_panel_ids, id) do
+        MapSet.delete(socket.assigns.expanded_srql_panel_ids, id)
+      else
+        MapSet.put(socket.assigns.expanded_srql_panel_ids, id)
+      end
+
+    {:noreply, assign(socket, :expanded_srql_panel_ids, expanded)}
+  end
+
+  def handle_event("duplicate_panel", %{"id" => id}, socket) do
+    panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
+
+    with :ok <- authorize_panel_edit(socket),
+         {:ok, panel} <- require_record(panel),
+         {:ok, _panel} <-
+           Dashboards.create_authored_panel(
+             socket.assigns.current_scope,
+             duplicate_panel_attrs(panel, socket.assigns.dashboard)
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Panel duplicated")
+       |> reload_dashboard_panels()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel duplicate failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("clone_panel", %{"panel_id" => id, "target_dashboard_id" => target_dashboard_id}, socket) do
+    panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
+
+    with :ok <- authorize_panel_edit(socket),
+         {:ok, panel} <- require_record(panel),
+         {:ok, target} <-
+           Dashboards.get_authored_dashboard(socket.assigns.current_scope, target_dashboard_id, load: [:panels]),
+         {:ok, _panel} <-
+           Dashboards.create_authored_panel(
+             socket.assigns.current_scope,
+             duplicate_panel_attrs(panel, target)
+           ) do
+      {:noreply, put_flash(socket, :info, "Panel cloned to #{target.title}")}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel clone failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("clone_target", %{"target_dashboard_id" => target_dashboard_id}, socket) do
+    {:noreply, assign(socket, :clone_target_id, target_dashboard_id)}
+  end
+
+  def handle_event("compact_layout", _params, socket) do
+    with :ok <- authorize_panel_edit(socket),
+         {:ok, panels} <- compact_dashboard_panels(socket) do
+      dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
+
+      {:noreply,
+       socket
+       |> assign(:dashboard, dashboard)
+       |> put_flash(:info, "Dashboard layout compacted")}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Layout compact failed: #{format_error(reason)}")}
+    end
   end
 
   def handle_event("save_panel", %{"panel" => params}, socket) do
@@ -374,6 +493,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           </div>
         </section>
 
+        <.variable_bar
+          :if={@dashboard && dashboard_variables(@dashboard) != []}
+          dashboard={@dashboard}
+          values={@variable_values}
+        />
+
         <section
           :if={@settings_open? and dashboard_settings_available?(@dashboard, assigns)}
           class="rounded-lg border border-base-300 bg-base-100"
@@ -396,10 +521,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               class="rounded-lg border border-base-300"
             >
               <div class="border-b border-base-300 px-3 py-2">
-                <h3 class="text-sm font-semibold">Panels</h3>
-                <p class="text-xs text-base-content/55">
-                  SRQL queries and visualizations that make up this dashboard.
-                </p>
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h3 class="text-sm font-semibold">Panels</h3>
+                    <p class="text-xs text-base-content/55">
+                      SRQL queries and visualizations that make up this dashboard.
+                    </p>
+                  </div>
+                  <button type="button" class="btn btn-xs" phx-click="compact_layout">
+                    <.icon name="hero-squares-plus" class="size-4" /> Compact Layout
+                  </button>
+                </div>
               </div>
               <div class="divide-y divide-base-200">
                 <div
@@ -425,6 +557,39 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       <.icon name="hero-pencil-square" class="size-4" /> Edit
                     </button>
                   </div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      phx-click="duplicate_panel"
+                      phx-value-id={panel.id}
+                    >
+                      <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
+                    </button>
+                    <form
+                      phx-change="clone_target"
+                      phx-submit="clone_panel"
+                      class="flex flex-wrap items-center gap-2"
+                    >
+                      <input type="hidden" name="panel_id" value={panel.id} />
+                      <select
+                        name="target_dashboard_id"
+                        class="select select-xs"
+                        disabled={@clone_targets == []}
+                      >
+                        <option
+                          :for={target <- @clone_targets}
+                          value={target.id}
+                          selected={target.id == @clone_target_id}
+                        >
+                          {target.title}
+                        </option>
+                      </select>
+                      <button type="submit" class="btn btn-xs" disabled={@clone_targets == []}>
+                        <.icon name="hero-arrow-up-on-square-stack" class="size-4" /> Clone
+                      </button>
+                    </form>
+                  </div>
 
                   <.form
                     :if={@editing_panel_id == panel.id}
@@ -443,7 +608,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       options={visual_select_options()}
                     />
                     <div class="lg:col-span-2">
-                      <.input field={@panel_form[:srql_query]} type="textarea" label="SRQL Query" />
+                      <.srql_editor
+                        id={"authored-panel-srql-editor-#{panel.id}"}
+                        field={@panel_form[:srql_query]}
+                        label="SRQL Query"
+                      />
                     </div>
                     <.input
                       field={@panel_form[:refresh_interval_seconds]}
@@ -691,16 +860,65 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <section
           :if={!@loading? and @dashboard}
-          class="grid grid-cols-1 gap-4 xl:grid-cols-2"
+          class="sr-authored-dashboard-grid grid grid-cols-1 gap-4 lg:grid-cols-12"
         >
           <.panel_result
             :for={panel <- @dashboard.panels || []}
             panel={panel}
             result={Map.get(@panel_results, panel.id)}
+            trend={Map.get(@trend_results, panel.id)}
+            style={panel_grid_style(panel)}
+            expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, panel.id)}
+            can_manage?={can_manage_dashboard?(@dashboard, assigns)}
+            csv_data_url={panel_csv_export_url(@dashboard, panel, @variable_values)}
           />
         </section>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :dashboard, :any, required: true
+  attr :values, :map, default: %{}
+
+  defp variable_bar(assigns) do
+    assigns = assign(assigns, :variables, dashboard_variables(assigns.dashboard))
+
+    ~H"""
+    <section class="rounded-lg border border-base-300 bg-base-100 px-4 py-3">
+      <form phx-change="change_variable" class="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div class="shrink-0">
+          <h2 class="text-sm font-semibold">Dashboard Variables</h2>
+          <p class="text-xs text-base-content/55">
+            Values substitute into panel SRQL before execution.
+          </p>
+        </div>
+        <div class="flex flex-1 flex-wrap gap-3">
+          <label :for={variable <- @variables} class="form-control min-w-44">
+            <span class="label-text text-xs">{variable.label}</span>
+            <select
+              :if={variable.options != []}
+              name={"variables[#{variable.name}]"}
+              class="select select-sm"
+            >
+              <option
+                :for={option <- variable.options}
+                value={option}
+                selected={Map.get(@values, variable.name, variable.default) == option}
+              >
+                {option}
+              </option>
+            </select>
+            <input
+              :if={variable.options == []}
+              name={"variables[#{variable.name}]"}
+              class="input input-sm"
+              value={Map.get(@values, variable.name, variable.default)}
+            />
+          </label>
+        </div>
+      </form>
+    </section>
     """
   end
 
@@ -709,45 +927,144 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       assigns
       |> assign(:rows, preview.rows)
       |> assign(:fields, preview.fields)
+      |> assign_new(:trend, fn -> nil end)
+      |> assign_new(:expanded_srql?, fn -> false end)
+      |> assign_new(:can_manage?, fn -> false end)
+      |> assign_new(:csv_data_url, fn -> nil end)
 
     ~H"""
-    <article class="rounded-lg border border-base-300 bg-base-100">
+    <article
+      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100"
+      style={@style}
+    >
       <div class="flex flex-col gap-2 border-b border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="min-w-0">
-          <h2 class="truncate text-sm font-semibold">{@panel.title}</h2>
+          <div class="flex flex-wrap items-center gap-2">
+            <h2 class="truncate text-sm font-semibold">{@panel.title}</h2>
+            <span :if={refresh_interval_label(@panel)} class="badge badge-xs badge-ghost">
+              {refresh_interval_label(@panel)}
+            </span>
+          </div>
           <p class="mt-1 truncate font-mono text-xs text-base-content/45">{@panel.srql_query}</p>
         </div>
-        <span class="badge badge-outline">{@panel.visual_type}</span>
+        <div class="flex shrink-0 flex-wrap items-center gap-1">
+          <span class="badge badge-outline">{@panel.visual_type}</span>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="refresh_panel"
+            phx-value-id={@panel.id}
+            title="Refresh panel"
+          >
+            <.icon name="hero-arrow-path" class="size-4" />
+          </button>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="toggle_panel_srql"
+            phx-value-id={@panel.id}
+            title="View SRQL"
+          >
+            <.icon name="hero-code-bracket-square" class="size-4" />
+          </button>
+          <button
+            :if={@can_manage?}
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="edit_panel"
+            phx-value-id={@panel.id}
+            title="Open panel settings"
+          >
+            <.icon name="hero-pencil-square" class="size-4" />
+          </button>
+          <a
+            :if={@csv_data_url}
+            class="btn btn-xs btn-ghost"
+            href={@csv_data_url}
+            download={"#{safe_filename(@panel.title)}.csv"}
+            title="Export CSV"
+          >
+            <.icon name="hero-arrow-down-tray" class="size-4" />
+          </a>
+        </div>
+      </div>
+      <div :if={@expanded_srql?} class="border-b border-base-300 bg-base-200/40 px-4 py-3">
+        <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
       </div>
       <div class="p-4">
-        <.render_visual panel={@panel} rows={@rows} fields={@fields} />
+        <.render_visual panel={@panel} rows={@rows} fields={@fields} trend={@trend} />
       </div>
     </article>
     """
   end
 
   defp panel_result(%{result: {:error, reason}} = assigns) do
-    assigns = assign(assigns, :message, format_error(reason))
+    assigns =
+      assigns
+      |> assign(:message, format_error(reason))
+      |> assign_new(:expanded_srql?, fn -> false end)
+      |> assign_new(:can_manage?, fn -> false end)
 
     ~H"""
-    <article class="rounded-lg border border-error/30 bg-base-100">
-      <div class="border-b border-error/20 px-4 py-3">
+    <article
+      class="sr-authored-dashboard-panel rounded-lg border border-error/30 bg-base-100"
+      style={@style}
+    >
+      <div class="flex flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 class="text-sm font-semibold">{@panel.title}</h2>
+        <div class="flex shrink-0 flex-wrap items-center gap-1">
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="refresh_panel"
+            phx-value-id={@panel.id}
+            title="Refresh panel"
+          >
+            <.icon name="hero-arrow-path" class="size-4" />
+          </button>
+          <button
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="toggle_panel_srql"
+            phx-value-id={@panel.id}
+            title="View SRQL"
+          >
+            <.icon name="hero-code-bracket-square" class="size-4" />
+          </button>
+          <button
+            :if={@can_manage?}
+            type="button"
+            class="btn btn-xs btn-ghost"
+            phx-click="edit_panel"
+            phx-value-id={@panel.id}
+            title="Open panel settings"
+          >
+            <.icon name="hero-pencil-square" class="size-4" />
+          </button>
+        </div>
       </div>
-      <div class="p-4 text-sm text-error">{@message}</div>
+      <div :if={@expanded_srql?} class="border-b border-base-300 bg-base-200/40 px-4 py-3">
+        <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
+      </div>
+      <div class="p-4 text-sm text-error">
+        Could not preview this query: {@message}
+      </div>
     </article>
     """
   end
 
   defp panel_result(assigns) do
     ~H"""
-    <article class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60">
+    <article
+      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60"
+      style={@style}
+    >
       {@panel.title}
     </article>
     """
   end
 
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat"] do
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
     value =
       bound_value(assigns.rows, assigns.panel, "value_field") ||
         stat_value(assigns.rows, assigns.fields)
@@ -760,14 +1077,18 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         visual_label(assigns.panel, first_numeric_field(assigns.fields) || "value")
       )
       |> assign(:unit, display_value(assigns.panel, "unit", ""))
+      |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
-    <div class="flex min-h-32 items-center">
+    <div class="flex min-h-32 items-center" role="group" aria-label={"#{@label}: #{@value}#{@unit}"}>
       <div>
         <div class="text-4xl font-semibold tracking-normal">
           {@value}<span class="text-xl">{@unit}</span>
         </div>
         <div class="mt-2 text-sm text-base-content/55">{@label}</div>
+        <div :if={@trend_summary} class="mt-2 text-xs text-base-content/60">
+          Trend: {@trend_summary}
+        </div>
       </div>
     </div>
     """
@@ -775,10 +1096,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp render_visual(%{panel: %{visual_type: type}} = assigns)
        when type in [:gauge, "gauge", :availability, "availability"] do
-    assigns = assign(assigns, :gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
+    assigns =
+      assigns
+      |> assign(:gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
+      |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
-    <div class="flex min-h-44 flex-col justify-center gap-3">
+    <div
+      class="flex min-h-44 flex-col justify-center gap-3"
+      role="group"
+      aria-label={@gauge.aria_label}
+    >
       <div class="flex items-baseline justify-between gap-3">
         <div>
           <div class="text-sm font-medium">{@gauge.label}</div>
@@ -788,10 +1116,50 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           {@gauge.display}<span class="text-lg">{@gauge.unit}</span>
         </div>
       </div>
-      <progress class="progress progress-primary h-4" value={@gauge.percent} max="100"></progress>
+      <progress
+        class={["progress h-4", gauge_progress_class(@gauge.tone)]}
+        value={@gauge.percent}
+        max="100"
+        aria-label={@gauge.aria_label}
+      >
+      </progress>
       <div class="flex justify-between text-xs text-base-content/55">
         <span>{@gauge.numerator_label}: {@gauge.numerator}</span>
         <span>{@gauge.denominator_label}: {@gauge.denominator}</span>
+      </div>
+      <div :if={@trend_summary} class="text-xs text-base-content/60">
+        Trend: {@trend_summary}
+      </div>
+    </div>
+    """
+  end
+
+  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:pivot, "pivot"] do
+    assigns = assign(assigns, :pivot, pivot_data(assigns.rows, assigns.panel, assigns.fields))
+
+    ~H"""
+    <div class="space-y-2">
+      <div class="text-sm font-medium">Pivot Table</div>
+      <div class="overflow-x-auto rounded-lg border border-base-300">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>{@pivot.row_label}</th>
+              <th :for={column <- @pivot.columns}>{column}</th>
+              <th :if={@pivot.show_totals?}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @pivot.rows}>
+              <th>{row.label}</th>
+              <td :for={column <- @pivot.columns}>
+                {Map.get(row.values, column, @pivot.empty_value)}
+              </td>
+              <td :if={@pivot.show_totals?}>{row.total}</td>
+            </tr>
+          </tbody>
+        </table>
+        <.empty_rows :if={@pivot.rows == []} />
       </div>
     </div>
     """
@@ -879,6 +1247,58 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       "timezone" => "UTC",
       "recipients" => ""
     }
+  end
+
+  defp panel_grid_style(panel) do
+    layout = panel.layout || %{}
+    x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
+    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
+    y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
+    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
+
+    "--sr-panel-x: #{x + 1}; --sr-panel-y: #{y + 1}; --sr-panel-w: #{width}; --sr-panel-h: #{height}; --sr-panel-order: #{order};"
+  end
+
+  defp bounded_integer(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)
+
+  defp bounded_integer(value, min, max) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> bounded_integer(integer, min, max)
+      _ -> min
+    end
+  end
+
+  defp bounded_integer(value, min, max) when is_float(value), do: value |> round() |> bounded_integer(min, max)
+  defp bounded_integer(_value, min, _max), do: min
+
+  defp refresh_interval_label(%{refresh_interval_seconds: seconds}) when is_integer(seconds) and seconds > 0 do
+    "Refresh #{format_duration(seconds)}"
+  end
+
+  defp refresh_interval_label(_panel), do: nil
+
+  defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
+  defp format_duration(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
+  defp format_duration(seconds), do: "#{div(seconds, 3_600)}h"
+
+  defp panel_csv_export_url(dashboard, panel, variable_values) do
+    dashboard_ref = Dashboards.authored_dashboard_route_ref(dashboard)
+    query = %{vars: Jason.encode!(variable_values || %{})}
+
+    ~p"/dashboard/#{dashboard_ref}/panels/#{panel.id}/export.csv?#{query}"
+  end
+
+  defp safe_filename(value) do
+    value
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "dashboard-panel"
+      filename -> filename
+    end
   end
 
   defp default_panel_params do
@@ -983,15 +1403,202 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     results =
       Map.new(panels, fn panel ->
-        {panel.id, Dashboards.preview_authored_query(socket.assigns.current_scope, panel.srql_query, limit: 250)}
+        {panel.id, preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)}
+      end)
+
+    trends =
+      Map.new(panels, fn panel ->
+        {panel.id, preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)}
       end)
 
     socket
     |> assign(:dashboard, Map.put(dashboard, :panels, panels))
     |> assign(:panel_results, results)
+    |> assign(:trend_results, trends)
   end
 
   defp reload_dashboard_panels(socket), do: socket
+
+  defp preview_panel_query(scope, panel, variable_values) do
+    query = substitute_variables(panel.srql_query, variable_values)
+    Dashboards.preview_authored_query(scope, query, limit: 250)
+  end
+
+  defp preview_trend_query(scope, panel, variable_values) do
+    query =
+      panel
+      |> Map.get(:visual_config, %{})
+      |> Map.get("trend_query")
+
+    case query do
+      value when is_binary(value) and value != "" ->
+        Dashboards.preview_authored_query(scope, substitute_variables(value, variable_values), limit: 250)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp dashboard_variables(%{variables: variables}) when is_map(variables) do
+    variables
+    |> Enum.map(fn {name, config} -> dashboard_variable(name, config) end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(& &1.name)
+  end
+
+  defp dashboard_variables(%{variables: variables}) when is_list(variables) do
+    variables
+    |> Enum.map(fn
+      %{"name" => name} = config -> dashboard_variable(name, config)
+      %{name: name} = config -> dashboard_variable(name, config)
+      name when is_binary(name) -> dashboard_variable(name, %{})
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp dashboard_variables(_dashboard), do: []
+
+  defp dashboard_variable(name, config) when is_binary(name) do
+    normalized = normalize_variable_name(name)
+
+    if normalized == "" do
+      nil
+    else
+      config = if is_map(config), do: config, else: %{}
+      options = variable_options(config)
+      default = variable_default(config, options)
+
+      %{
+        name: normalized,
+        label: config["label"] || config[:label] || humanize_field(normalized),
+        options: options,
+        default: default
+      }
+    end
+  end
+
+  defp dashboard_variable(_name, _config), do: nil
+
+  defp dashboard_variable_values(dashboard, current_values) do
+    variables = dashboard_variables(dashboard)
+    current_values = current_values || %{}
+
+    Map.new(variables, fn variable ->
+      value = Map.get(current_values, variable.name) || variable.default || List.first(variable.options) || ""
+      {variable.name, to_string(value)}
+    end)
+  end
+
+  defp variable_options(config) do
+    options = config["options"] || config[:options] || []
+
+    options
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp variable_default(config, options) do
+    default = config["default"] || config[:default] || List.first(options) || ""
+    to_string(default)
+  end
+
+  defp normalize_variable_name(value) do
+    value
+    |> to_string()
+    |> String.trim()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "_")
+  end
+
+  defp substitute_variables(query, values) when is_binary(query) and is_map(values) do
+    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
+      Map.get(values, name, "")
+    end)
+  end
+
+  defp substitute_variables(query, _values), do: query
+
+  defp load_clone_targets(scope, dashboard) do
+    scope
+    |> Dashboards.list_authored_dashboards(%{status: [:draft, :active], limit: 200})
+    |> Enum.reject(&(&1.id == dashboard.id))
+    |> Enum.sort_by(&String.downcase(&1.title || ""))
+  end
+
+  defp default_clone_target_id([target | _]), do: target.id
+  defp default_clone_target_id(_targets), do: ""
+
+  defp duplicate_panel_attrs(panel, dashboard) do
+    panels = Map.get(dashboard, :panels, []) || []
+    position = length(panels)
+
+    %{
+      dashboard_id: dashboard.id,
+      dataset_key: unique_dataset_key(panel.dataset_key || "panel", panels),
+      title: "#{panel.title} Copy",
+      srql_query: panel.srql_query,
+      builder_state: panel.builder_state || %{},
+      visual_type: panel.visual_type,
+      data_binding: panel.data_binding || %{},
+      display_config: panel.display_config || %{},
+      visual_config: panel.visual_config || %{},
+      field_metadata: panel.field_metadata || %{},
+      layout: next_panel_layout(panel.layout || %{}, position),
+      refresh_interval_seconds: panel.refresh_interval_seconds || 0,
+      position: position,
+      metadata: panel.metadata || %{}
+    }
+  end
+
+  defp unique_dataset_key(base, panels) do
+    existing = MapSet.new(Enum.map(panels, &(&1.dataset_key || "")))
+    root = base |> to_string() |> String.replace(~r/[^a-zA-Z0-9_]+/, "_") |> String.trim("_")
+    root = if root == "", do: "panel", else: root
+
+    1
+    |> Stream.iterate(&(&1 + 1))
+    |> Enum.find_value(fn index ->
+      candidate = "#{root}_copy_#{index}"
+      if MapSet.member?(existing, candidate), do: nil, else: candidate
+    end)
+  end
+
+  defp next_panel_layout(layout, position) do
+    width = layout |> Map.get("w", 4) |> bounded_integer(1, 12)
+    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    x = rem(position * width, 12)
+    y = div(position * width, 12) * height
+
+    %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => position}
+  end
+
+  defp compact_dashboard_panels(socket) do
+    panels = socket.assigns.dashboard.panels || []
+
+    panels
+    |> Enum.sort_by(&{&1.position, Map.get(&1.layout || %{}, "y", 0), Map.get(&1.layout || %{}, "x", 0)})
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, []}, fn {panel, index}, {:ok, updated} ->
+      layout = compact_layout_for_panel(panel, index)
+
+      case Dashboards.update_authored_panel(socket.assigns.current_scope, panel, %{layout: layout, position: index}) do
+        {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp compact_layout_for_panel(panel, index) do
+    layout = panel.layout || %{}
+    width = layout |> Map.get("w", 4) |> bounded_integer(1, 12)
+    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    x = rem(index * width, 12)
+    y = div(index * width, 12) * height
+
+    Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => index})
+  end
 
   defp access_assigns(assigns) do
     assigns
@@ -1314,19 +1921,141 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     denominator = numeric(Map.get(row, denominator_field)) || 100.0
     percent = if denominator > 0, do: numerator / denominator * 100, else: numerator
     percent = percent |> max(0.0) |> min(100.0)
+    tone = gauge_tone(panel, percent)
+    label = visual_label(panel, "Gauge")
 
     %{
-      label: visual_label(panel, "Gauge"),
+      label: label,
       caption: display_value(panel, "caption", ""),
       unit: display_value(panel, "unit", "%"),
       display: :erlang.float_to_binary(percent, decimals: 1),
       percent: percent,
+      tone: tone,
       numerator: format_value(numerator),
       denominator: format_value(denominator),
       numerator_label: humanize_field(numerator_field || "value"),
-      denominator_label: humanize_field(denominator_field || "total")
+      denominator_label: humanize_field(denominator_field || "total"),
+      aria_label: "#{label}: #{:erlang.float_to_binary(percent, decimals: 1)}%"
     }
   end
+
+  defp gauge_tone(panel, percent) do
+    thresholds =
+      panel
+      |> Map.get(:display_config, %{})
+      |> Map.get("thresholds", [])
+      |> List.wrap()
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(fn threshold ->
+        value = numeric(threshold["value"] || threshold[:value] || threshold["at"] || threshold[:at])
+        tone = threshold["tone"] || threshold[:tone] || threshold["level"] || threshold[:level] || "primary"
+        {value, to_string(tone)}
+      end)
+      |> Enum.reject(fn {value, _tone} -> is_nil(value) end)
+      |> Enum.sort_by(fn {value, _tone} -> value end)
+
+    thresholds
+    |> Enum.reduce("primary", fn {value, tone}, acc -> if percent >= value, do: tone, else: acc end)
+    |> normalize_gauge_tone()
+  end
+
+  defp normalize_gauge_tone(tone) when tone in ["success", "warning", "error", "info", "primary"], do: tone
+  defp normalize_gauge_tone("warn"), do: "warning"
+  defp normalize_gauge_tone("critical"), do: "error"
+  defp normalize_gauge_tone("crit"), do: "error"
+  defp normalize_gauge_tone(_tone), do: "primary"
+
+  defp gauge_progress_class("success"), do: "progress-success"
+  defp gauge_progress_class("warning"), do: "progress-warning"
+  defp gauge_progress_class("error"), do: "progress-error"
+  defp gauge_progress_class("info"), do: "progress-info"
+  defp gauge_progress_class(_tone), do: "progress-primary"
+
+  defp pivot_data(rows, panel, fields) do
+    binding = panel.data_binding || %{}
+    row_field = binding["row_field"] || first_string_field(fields)
+    column_field = binding["column_field"] || status_field(fields) || first_string_field(fields)
+    value_field = binding["value_field"] || first_numeric_field(fields)
+    aggregate = binding["aggregate"] || "sum"
+    empty_value = binding["empty_value"] || "0"
+
+    grouped =
+      Enum.reduce(rows, %{}, fn row, acc ->
+        row_key = format_value(Map.get(row, row_field))
+        column_key = format_value(Map.get(row, column_field))
+        value = numeric(Map.get(row, value_field)) || 0
+
+        update_in(acc, [Access.key(row_key, %{}), Access.key(column_key, [])], &[value | &1])
+      end)
+
+    columns =
+      grouped
+      |> Map.values()
+      |> Enum.flat_map(&Map.keys/1)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    pivot_rows =
+      grouped
+      |> Enum.sort_by(fn {label, _values} -> label end)
+      |> Enum.map(fn {label, values_by_column} ->
+        values =
+          Map.new(columns, fn column ->
+            values = Map.get(values_by_column, column, [])
+            {column, aggregate_values(values, aggregate)}
+          end)
+
+        %{label: label, values: values, total: aggregate_values(Map.values(values), "sum")}
+      end)
+
+    %{
+      row_label: humanize_field(row_field || "row"),
+      columns: columns,
+      rows: pivot_rows,
+      empty_value: empty_value,
+      show_totals?: true
+    }
+  end
+
+  defp aggregate_values([], _aggregate), do: 0
+  defp aggregate_values(values, "count"), do: length(values)
+  defp aggregate_values(values, "avg"), do: Enum.sum(values) / max(length(values), 1)
+  defp aggregate_values(values, "max"), do: Enum.max(values, fn -> 0 end)
+  defp aggregate_values(values, "min"), do: Enum.min(values, fn -> 0 end)
+  defp aggregate_values(values, _aggregate), do: Enum.sum(values)
+
+  defp status_field(fields) do
+    Enum.find_value(fields, fn field ->
+      if field.name in ["status", "state", "health", "availability"], do: field.name
+    end)
+  end
+
+  defp trend_summary({:ok, %{rows: rows, fields: fields}}) do
+    value_key = first_numeric_field(fields)
+
+    values =
+      rows
+      |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
+      |> Enum.reject(&is_nil/1)
+
+    case values do
+      [first | rest] when rest != [] ->
+        last = List.last(rest)
+        delta = last - first
+        "#{format_value(first)} -> #{format_value(last)} (#{signed_number(delta)})"
+
+      [single] ->
+        format_value(single)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp trend_summary(_trend), do: nil
+
+  defp signed_number(value) when is_number(value) and value >= 0, do: "+#{format_value(value)}"
+  defp signed_number(value), do: format_value(value)
 
   defp visual_label(panel, fallback) do
     display_value(panel, "label", panel.title || fallback)

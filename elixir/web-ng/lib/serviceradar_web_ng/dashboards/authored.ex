@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -49,6 +50,11 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       description: "Single numeric value with an optional label."
     },
     %{
+      type: :count,
+      label: "Count",
+      description: "Current count with optional trend-over-time comparison."
+    },
+    %{
       type: :gauge,
       label: "Gauge",
       description: "Bounded value with thresholds, units, and a prominent label."
@@ -82,6 +88,11 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       type: :status_list,
       label: "Status List",
       description: "Operational rows with status or health fields."
+    },
+    %{
+      type: :pivot,
+      label: "Pivot Table",
+      description: "Cross-tab analysis from row, column, and aggregate bindings."
     }
   ]
 
@@ -201,6 +212,32 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   def create_dashboard(_scope, _attrs), do: {:error, :invalid_attributes}
 
+  @spec create_dashboard_with_panels(term(), map(), [map()]) ::
+          {:ok, {AuthoredDashboard.t(), [DashboardPanel.t()]}} | {:error, term()}
+  def create_dashboard_with_panels(scope, attrs, panel_attrs) when is_map(attrs) and is_list(panel_attrs) do
+    with {:ok, attrs} <- validate_dashboard_attrs(dashboard_attrs(attrs)) do
+      case Repo.transaction(fn ->
+             with {:ok, dashboard, dashboard_notifications} <-
+                    create_dashboard_with_ref_and_notifications(scope, attrs, 0),
+                  {:ok, panels, panel_notifications} <-
+                    create_panels_for_dashboard_with_notifications(scope, dashboard, panel_attrs) do
+               {dashboard, panels, dashboard_notifications ++ panel_notifications}
+             else
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+        {:ok, {dashboard, panels, notifications}} ->
+          Ash.Notifier.notify(notifications)
+          {:ok, {dashboard, panels}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  def create_dashboard_with_panels(_scope, _attrs, _panel_attrs), do: {:error, :invalid_attributes}
+
   @spec update_dashboard(term(), AuthoredDashboard.t(), map()) ::
           {:ok, AuthoredDashboard.t()} | {:error, term()}
   def update_dashboard(scope, %AuthoredDashboard{} = dashboard, attrs) when is_map(attrs) do
@@ -236,9 +273,43 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     end
   end
 
+  defp create_dashboard_with_ref_and_notifications(_scope, _attrs, attempts) when attempts >= 8 do
+    {:error, :dashboard_ref_generation_failed}
+  end
+
+  defp create_dashboard_with_ref_and_notifications(scope, attrs, attempts) do
+    dashboard_ref = generate_dashboard_ref()
+
+    if dashboard_ref_taken?(scope, dashboard_ref) do
+      create_dashboard_with_ref_and_notifications(scope, attrs, attempts + 1)
+    else
+      result =
+        AuthoredDashboard
+        |> Ash.Changeset.for_create(:create, Map.put(attrs, :dashboard_ref, dashboard_ref))
+        |> maybe_set_owner(scope)
+        |> create_with_notifications(scope)
+
+      case result do
+        {:ok, dashboard, notifications} ->
+          {:ok, dashboard, notifications}
+
+        {:error, reason} ->
+          maybe_retry_dashboard_ref_conflict_with_notifications(scope, attrs, attempts, reason)
+      end
+    end
+  end
+
   defp maybe_retry_dashboard_ref_conflict(scope, attrs, attempts, reason) do
     if unique_dashboard_ref_error?(reason) do
       create_dashboard_with_ref(scope, attrs, attempts + 1)
+    else
+      {:error, reason}
+    end
+  end
+
+  defp maybe_retry_dashboard_ref_conflict_with_notifications(scope, attrs, attempts, reason) do
+    if unique_dashboard_ref_error?(reason) do
+      create_dashboard_with_ref_and_notifications(scope, attrs, attempts + 1)
     else
       {:error, reason}
     end
@@ -293,6 +364,35 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   def create_panel(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  defp create_panels_for_dashboard_with_notifications(scope, %AuthoredDashboard{} = dashboard, panel_attrs) do
+    panel_attrs
+    |> Enum.with_index()
+    |> Enum.reduce_while({:ok, [], []}, fn {attrs, index}, {:ok, panels, notifications} ->
+      attrs =
+        attrs
+        |> Map.put(:dashboard_id, dashboard.id)
+        |> Map.put_new(:position, index)
+
+      case create_panel_with_notifications(scope, attrs) do
+        {:ok, panel, panel_notifications} ->
+          {:cont, {:ok, panels ++ [panel], notifications ++ panel_notifications}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp create_panel_with_notifications(scope, attrs) when is_map(attrs) do
+    attrs = panel_attrs(attrs)
+
+    with {:ok, attrs} <- validate_panel_attrs(scope, attrs) do
+      DashboardPanel
+      |> Ash.Changeset.for_create(:create, attrs)
+      |> create_with_notifications(scope)
+    end
+  end
 
   @spec update_panel(term(), DashboardPanel.t(), map()) ::
           {:ok, DashboardPanel.t()} | {:error, term()}
@@ -400,14 +500,16 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   defp validate_visual_type(type)
-       when type in [:table, :stat, :gauge, :availability, :line, :area, :bar, :category, :status_list] do
+       when type in [:table, :stat, :count, :gauge, :availability, :line, :area, :bar, :category, :status_list, :pivot] do
     :ok
   end
 
   defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
 
   defp validate_visual_compatibility(:table, _compatible), do: :ok
+  defp validate_visual_compatibility(:pivot, _compatible), do: :ok
   defp validate_visual_compatibility(:availability, _compatible), do: :ok
+  defp validate_visual_compatibility(:count, _compatible), do: :ok
 
   defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
@@ -809,6 +911,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
     [:table]
     |> maybe_add_visual(:stat, stat_compatible?(rows, fields))
+    |> maybe_add_visual(:count, stat_compatible?(rows, fields))
     |> maybe_add_visual(:gauge, Enum.any?(fields, fn field -> field.type == :number end))
     |> maybe_add_visual(:availability, availability_compatible?(fields))
     |> maybe_add_visual(
@@ -825,9 +928,15 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
       MapSet.member?(field_types, :string) and MapSet.member?(field_types, :number)
     )
     |> maybe_add_visual(:status_list, status_compatible?(fields))
+    |> maybe_add_visual(:pivot, pivot_compatible?(fields))
   end
 
   def compatible_visuals(_rows, _fields), do: [:table]
+
+  defp pivot_compatible?(fields) do
+    Enum.any?(fields, &(&1.type in [:string, :boolean, :datetime])) and
+      Enum.any?(fields, &(&1.type == :number))
+  end
 
   @spec infer_fields([map()]) :: [map()]
   def infer_fields(rows) when is_list(rows) do
@@ -911,6 +1020,10 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp create(changeset, nil), do: Ash.create(changeset)
   defp create(changeset, scope), do: Ash.create(changeset, scope: scope)
+
+  defp create_with_notifications(changeset, nil), do: Ash.create(changeset, return_notifications?: true)
+
+  defp create_with_notifications(changeset, scope), do: Ash.create(changeset, scope: scope, return_notifications?: true)
 
   defp update(changeset, nil), do: Ash.update(changeset)
   defp update(changeset, scope), do: Ash.update(changeset, scope: scope)

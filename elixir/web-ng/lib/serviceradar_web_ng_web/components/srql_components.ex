@@ -7,7 +7,89 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias Phoenix.HTML.FormField
   alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  attr(:id, :string, default: nil)
+  attr(:name, :string, default: nil)
+  attr(:value, :string, default: nil)
+  attr(:field, FormField, default: nil)
+  attr(:label, :string, default: nil)
+  attr(:error, :string, default: nil)
+  attr(:completions, :list, default: nil)
+  attr(:compact, :boolean, default: false)
+  attr(:disabled, :boolean, default: false)
+  attr(:class, :any, default: nil)
+  attr(:editor_class, :any, default: nil)
+  attr(:rest, :global, include: ~w(form required))
+
+  def srql_editor(%{field: %FormField{} = field} = assigns) do
+    assigns
+    |> assign(:field, nil)
+    |> assign(:id, assigns.id || field.id)
+    |> assign(:name, assigns.name || field.name)
+    |> assign(:value, assigns.value || field.value)
+    |> srql_editor()
+  end
+
+  def srql_editor(assigns) do
+    value = Phoenix.HTML.Form.normalize_value("text", assigns.value || "")
+    id = assigns.id || "srql-editor-#{System.unique_integer([:positive])}"
+    input_id = "#{id}-input"
+
+    assigns =
+      assigns
+      |> assign(:id, id)
+      |> assign(:input_id, input_id)
+      |> assign(:value, value)
+      |> assign(:completions_json, Jason.encode!(assigns.completions || srql_completions()))
+
+    ~H"""
+    <div class={["fieldset mb-2", @class]}>
+      <label :if={@label} for={@id} class="label mb-1">{@label}</label>
+      <input
+        :if={@compact}
+        id={@input_id}
+        type="text"
+        name={@name}
+        value={@value}
+        class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
+        disabled={@disabled}
+        {@rest}
+      />
+      <textarea
+        :if={!@compact}
+        id={@input_id}
+        name={@name}
+        class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
+        disabled={@disabled}
+        {@rest}
+      >{@value}</textarea>
+      <div
+        id={@id}
+        phx-hook="SRQLEditor"
+        phx-update="ignore"
+        data-input-id={@input_id}
+        data-value={@value}
+        data-completions={@completions_json}
+        data-error={@error}
+        data-compact={to_string(@compact)}
+        data-disabled={to_string(@disabled)}
+        class={[
+          @compact && "h-9",
+          !@compact && "min-h-28",
+          "overflow-hidden rounded-lg border border-base-300 bg-base-100",
+          @editor_class
+        ]}
+      />
+      <p :if={@error} class="mt-1 text-xs text-error">{@error}</p>
+    </div>
+    """
+  end
 
   attr(:query, :string, default: nil)
   attr(:draft, :string, default: nil)
@@ -36,13 +118,13 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         autocomplete="off"
       >
         <div class="flex-1 min-w-0">
-          <.ui_input
-            type="text"
+          <.srql_editor
+            id="srql-query-bar-editor"
             name="q"
             value={@draft || ""}
-            placeholder="SRQL query (e.g. in:devices time:last_7d sort:last_seen:desc limit:100)"
-            mono
-            class="w-full text-xs"
+            compact
+            class="mb-0"
+            editor_class="w-full"
           />
         </div>
 
@@ -620,6 +702,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   defp format_category_label(value), do: to_string(value)
+
+  defp srql_completions, do: Catalog.completion_tokens()
 
   attr(:supported, :boolean, default: true)
   attr(:sync, :boolean, default: true)
