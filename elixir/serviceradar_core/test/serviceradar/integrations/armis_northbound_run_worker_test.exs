@@ -22,6 +22,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SupportStub do
   @moduledoc false
 
   def available?, do: Process.get(:support_available, false)
+  def prefix, do: "platform"
 
   def safe_insert(job) do
     send(Process.get(:test_pid), {:safe_insert, job})
@@ -84,6 +85,31 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
     Process.delete(:test_pid)
   end
 
+  test "enqueue_now reaps stale executing source jobs before inserting" do
+    Process.put(:test_pid, self())
+
+    with_support(fn ->
+      Process.put(:support_available, true)
+      Application.put_env(:serviceradar_core, :armis_northbound_stale_run_cutoff_seconds, 240)
+
+      Application.put_env(:serviceradar_core, :armis_northbound_reap_stale_jobs_fun, fn
+        worker, source_id, now, cutoff_seconds ->
+          send(self(), {:reap_stale_jobs, worker, source_id, now, cutoff_seconds})
+          {1, nil}
+      end)
+
+      assert {:ok, %Ecto.Changeset{} = job} =
+               ArmisNorthboundRunWorker.enqueue_now("source-123")
+
+      assert_received {:reap_stale_jobs, ArmisNorthboundRunWorker, "source-123", %DateTime{}, 240}
+
+      assert_received {:safe_insert, ^job}
+    end)
+  after
+    Process.delete(:support_available)
+    Process.delete(:test_pid)
+  end
+
   test "perform delegates to configured source module and runner" do
     source_id = Ecto.UUID.generate()
     Process.put(:test_pid, self())
@@ -137,6 +163,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
     original_support =
       Application.get_env(:serviceradar_core, :armis_northbound_oban_support_module)
 
+    original_reap_stale_jobs =
+      Application.get_env(:serviceradar_core, :armis_northbound_reap_stale_jobs_fun)
+
+    original_stale_cutoff =
+      Application.get_env(:serviceradar_core, :armis_northbound_stale_run_cutoff_seconds)
+
     Application.put_env(
       :serviceradar_core,
       :armis_northbound_oban_support_module,
@@ -147,6 +179,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
       fun.()
     after
       restore_env(:armis_northbound_oban_support_module, original_support)
+      restore_env(:armis_northbound_reap_stale_jobs_fun, original_reap_stale_jobs)
+      restore_env(:armis_northbound_stale_run_cutoff_seconds, original_stale_cutoff)
     end
   end
 
