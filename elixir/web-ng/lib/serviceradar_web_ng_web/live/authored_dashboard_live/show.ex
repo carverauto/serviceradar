@@ -1239,35 +1239,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
        when type in [:gauge, "gauge", :availability, "availability"] do
     assigns =
       assigns
-      |> assign(:gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
+      |> assign(:chart_panel, chart_panel(assigns.panel))
+      |> assign(:chart_rows, chart_rows(assigns.rows))
+      |> assign(:chart_fields, chart_fields(assigns.fields))
       |> assign(:trend_summary, trend_summary(assigns[:trend]))
 
     ~H"""
-    <div
-      class="flex min-h-44 flex-col justify-center gap-3"
-      role="group"
-      aria-label={@gauge.aria_label}
-    >
-      <div class="flex items-baseline justify-between gap-3">
-        <div>
-          <div class="text-sm font-medium">{@gauge.label}</div>
-          <div class="mt-1 text-xs text-base-content/55">{@gauge.caption}</div>
-        </div>
-        <div class="text-3xl font-semibold tracking-normal">
-          {@gauge.display}<span class="text-lg">{@gauge.unit}</span>
-        </div>
-      </div>
-      <progress
-        class={["progress h-4", gauge_progress_class(@gauge.tone)]}
-        value={@gauge.percent}
-        max="100"
-        aria-label={@gauge.aria_label}
-      >
-      </progress>
-      <div class="flex justify-between text-xs text-base-content/55">
-        <span>{@gauge.numerator_label}: {@gauge.numerator}</span>
-        <span>{@gauge.denominator_label}: {@gauge.denominator}</span>
-      </div>
+    <div class="space-y-2">
+      <.dashboard_panel_chart
+        id={"dashboard-panel-chart-#{@panel.id}"}
+        panel={@chart_panel}
+        rows={@chart_rows}
+        fields={@chart_fields}
+        class="min-h-44"
+      />
       <div :if={@trend_summary} class="text-xs text-base-content/60">
         Trend: {@trend_summary}
       </div>
@@ -1307,45 +1292,36 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:bar, "bar", :category, "category"] do
-    assigns = assign(assigns, :bars, bars(assigns.rows, assigns.fields))
+    assigns =
+      assigns
+      |> assign(:chart_panel, chart_panel(assigns.panel))
+      |> assign(:chart_rows, chart_rows(assigns.rows))
+      |> assign(:chart_fields, chart_fields(assigns.fields))
 
     ~H"""
-    <div class="space-y-3">
-      <div :for={bar <- @bars} class="space-y-1">
-        <div class="flex items-center justify-between gap-3 text-xs">
-          <span class="truncate">{bar.label}</span>
-          <span class="font-mono text-base-content/60">{bar.value}</span>
-        </div>
-        <progress class="progress progress-primary h-2" value={bar.percent} max="100"></progress>
-      </div>
-      <.empty_rows :if={@bars == []} />
-    </div>
+    <.dashboard_panel_chart
+      id={"dashboard-panel-chart-#{@panel.id}"}
+      panel={@chart_panel}
+      rows={@chart_rows}
+      fields={@chart_fields}
+    />
     """
   end
 
   defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:line, "line", :area, "area"] do
-    assigns = assign(assigns, :points, sparkline_points(assigns.rows, assigns.fields))
+    assigns =
+      assigns
+      |> assign(:chart_panel, chart_panel(assigns.panel))
+      |> assign(:chart_rows, chart_rows(assigns.rows))
+      |> assign(:chart_fields, chart_fields(assigns.fields))
 
     ~H"""
-    <div class="h-48 rounded-lg border border-base-200 bg-base-200/30 p-3">
-      <svg
-        viewBox="0 0 100 40"
-        preserveAspectRatio="none"
-        class="h-full w-full"
-        role="img"
-        aria-label="Time series"
-      >
-        <polyline
-          :if={@points != ""}
-          points={@points}
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          class="text-primary"
-        />
-      </svg>
-      <.empty_rows :if={@points == ""} />
-    </div>
+    <.dashboard_panel_chart
+      id={"dashboard-panel-chart-#{@panel.id}"}
+      panel={@chart_panel}
+      rows={@chart_rows}
+      fields={@chart_fields}
+    />
     """
   end
 
@@ -1429,6 +1405,43 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     ~p"/dashboard/#{dashboard_ref}/panels/#{panel.id}/export.csv?#{query}"
   end
+
+  defp chart_panel(panel) do
+    %{
+      id: panel.id,
+      title: panel.title || "Panel",
+      visual_type: to_string(panel.visual_type || :line),
+      data_binding: panel.data_binding || %{},
+      display_config: panel.display_config || %{},
+      visual_config: panel.visual_config || %{}
+    }
+  end
+
+  defp chart_rows(rows) do
+    rows
+    |> List.wrap()
+    |> Enum.take(250)
+    |> Enum.map(&chart_row/1)
+  end
+
+  defp chart_row(row) when is_map(row) do
+    Map.new(row, fn {key, value} -> {to_string(key), chart_value(value)} end)
+  end
+
+  defp chart_row(_row), do: %{}
+
+  defp chart_fields(fields), do: canvas_fields(fields)
+
+  defp chart_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp chart_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp chart_value(value) when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
+  defp chart_value(value) when is_list(value), do: Enum.map(value, &chart_value/1)
+
+  defp chart_value(value) when is_map(value) do
+    Map.new(value, fn {key, nested_value} -> {to_string(key), chart_value(nested_value)} end)
+  end
+
+  defp chart_value(value), do: format_value(value)
 
   defp safe_filename(value) do
     value
@@ -2815,68 +2828,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp bound_value(_rows, _panel, _key), do: nil
 
-  defp gauge_data(rows, panel, fields) do
-    binding = panel.data_binding || %{}
-    row = List.first(rows) || %{}
-
-    numerator_field =
-      binding["numerator_field"] || binding["value_field"] || first_numeric_field(fields)
-
-    denominator_field = binding["denominator_field"]
-    numerator = numeric(Map.get(row, numerator_field)) || 0.0
-    denominator = numeric(Map.get(row, denominator_field)) || 100.0
-    percent = if denominator > 0, do: numerator / denominator * 100, else: numerator
-    percent = percent |> max(0.0) |> min(100.0)
-    tone = gauge_tone(panel, percent)
-    label = visual_label(panel, "Gauge")
-
-    %{
-      label: label,
-      caption: display_value(panel, "caption", ""),
-      unit: display_value(panel, "unit", "%"),
-      display: :erlang.float_to_binary(percent, decimals: 1),
-      percent: percent,
-      tone: tone,
-      numerator: format_value(numerator),
-      denominator: format_value(denominator),
-      numerator_label: humanize_field(numerator_field || "value"),
-      denominator_label: humanize_field(denominator_field || "total"),
-      aria_label: "#{label}: #{:erlang.float_to_binary(percent, decimals: 1)}%"
-    }
-  end
-
-  defp gauge_tone(panel, percent) do
-    thresholds =
-      panel
-      |> Map.get(:display_config, %{})
-      |> Map.get("thresholds", [])
-      |> List.wrap()
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn threshold ->
-        value = numeric(threshold["value"] || threshold[:value] || threshold["at"] || threshold[:at])
-        tone = threshold["tone"] || threshold[:tone] || threshold["level"] || threshold[:level] || "primary"
-        {value, to_string(tone)}
-      end)
-      |> Enum.reject(fn {value, _tone} -> is_nil(value) end)
-      |> Enum.sort_by(fn {value, _tone} -> value end)
-
-    thresholds
-    |> Enum.reduce("primary", fn {value, tone}, acc -> if percent >= value, do: tone, else: acc end)
-    |> normalize_gauge_tone()
-  end
-
-  defp normalize_gauge_tone(tone) when tone in ["success", "warning", "error", "info", "primary"], do: tone
-  defp normalize_gauge_tone("warn"), do: "warning"
-  defp normalize_gauge_tone("critical"), do: "error"
-  defp normalize_gauge_tone("crit"), do: "error"
-  defp normalize_gauge_tone(_tone), do: "primary"
-
-  defp gauge_progress_class("success"), do: "progress-success"
-  defp gauge_progress_class("warning"), do: "progress-warning"
-  defp gauge_progress_class("error"), do: "progress-error"
-  defp gauge_progress_class("info"), do: "progress-info"
-  defp gauge_progress_class(_tone), do: "progress-primary"
-
   defp pivot_data(rows, panel, fields) do
     binding = panel.data_binding || %{}
     row_field = binding["row_field"] || first_string_field(fields)
@@ -2982,61 +2933,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     |> to_string()
     |> String.replace("_", " ")
     |> String.capitalize()
-  end
-
-  defp bars(rows, fields) do
-    label_key = first_string_field(fields)
-    value_key = first_numeric_field(fields)
-
-    values =
-      if label_key && value_key do
-        rows
-        |> Enum.take(12)
-        |> Enum.map(fn row ->
-          %{label: format_value(Map.get(row, label_key)), value: numeric(Map.get(row, value_key))}
-        end)
-      else
-        []
-      end
-
-    max_value = values |> Enum.map(& &1.value) |> Enum.max(fn -> 0 end)
-
-    Enum.map(values, fn item ->
-      percent = if max_value > 0, do: item.value / max_value * 100, else: 0
-      Map.put(item, :percent, percent)
-    end)
-  end
-
-  defp sparkline_points(rows, fields) do
-    value_key = first_numeric_field(fields)
-
-    values =
-      rows
-      |> Enum.take(80)
-      |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
-      |> Enum.reject(&is_nil/1)
-
-    case values do
-      [] ->
-        ""
-
-      [_single] ->
-        "0,20 100,20"
-
-      values ->
-        min_value = Enum.min(values)
-        max_value = Enum.max(values)
-        spread = max(max_value - min_value, 1.0)
-        last_index = max(length(values) - 1, 1)
-
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, index} ->
-          x = index / last_index * 100
-          y = 40 - (value - min_value) / spread * 36 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
   end
 
   defp table_sparkline_points(values) when is_list(values) do

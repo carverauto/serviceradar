@@ -74,6 +74,36 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   end
 
   attr :id, :string, required: true
+  attr :panel, :map, required: true
+  attr :rows, :list, default: []
+  attr :fields, :list, default: []
+  attr :class, :string, default: ""
+
+  def dashboard_panel_chart(assigns) do
+    assigns =
+      assign(assigns, :props, %{
+        panel: assigns.panel,
+        rows: assigns.rows,
+        fields: assigns.fields
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["min-h-56 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="DashboardPanelChart"
+      data-props={Jason.encode!(@props)}
+    >
+      <div class="flex min-h-56 items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading chart...</span>
+      </div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
   attr :definition, :map, default: nil
   attr :read_only, :boolean, default: false
   attr :class, :string, default: ""

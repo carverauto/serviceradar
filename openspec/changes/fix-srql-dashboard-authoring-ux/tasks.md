@@ -17,6 +17,7 @@
 - [x] 3.3 Show schema-derived binding controls for the selected visualization.
 - [x] 3.4 Replace raw JSON fields with structured controls for binding, display, visual, and layout settings.
 - [x] 3.5 Fix rendered dashboard table/dropdown controls on `/dashboard/1000001`.
+- [x] 3.6 Render chart-capable dashboard panels with a Recharts React island while keeping table/pivot fallbacks server-rendered.
 
 ## 4. Query-First Builder Follow-Through
 
@@ -32,3 +33,4 @@
 - [x] 5.2 Start local web-ng against the `demo` namespace CNPG database.
 - [x] 5.3 Run Playwright checks for `/devices` SRQL editing, `/analytics` dashboard creation, dashboard panel authoring, and `/dashboard/1000001` panel controls.
 - [ ] 5.4 Run a dashboard authoring matrix across roughly 25 SRQL queries and assert offered visualizations match the returned schema.
+- [x] 5.5 Verify Recharts-backed panels render in the browser without console errors.
