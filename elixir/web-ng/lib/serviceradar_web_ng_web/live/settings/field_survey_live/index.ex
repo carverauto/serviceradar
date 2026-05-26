@@ -235,7 +235,11 @@ defmodule ServiceRadarWebNGWeb.Settings.FieldSurveyLive.Index do
 
               <.input field={@playlist_form[:label]} type="text" label="Label" />
               <.input field={@playlist_form[:enabled]} type="checkbox" label="Enabled" />
-              <.input field={@playlist_form[:srql_query]} type="textarea" label="SRQL query" />
+              <.srql_editor
+                id="field-survey-playlist-srql-editor"
+                field={@playlist_form[:srql_query]}
+                label="SRQL query"
+              />
 
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <.input field={@playlist_form[:sort_order]} type="number" label="Sort order" />

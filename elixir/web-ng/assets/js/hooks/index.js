@@ -14,6 +14,7 @@ import RemoteAccessSSHConsole from "./RemoteAccessSSHConsole"
 import RemoteAccessTCPText from "./RemoteAccessTCPText"
 import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
+import SRQLEditor from "./SRQLEditor"
 import SRQLTimeCookie from "./SRQLTimeCookie"
 import SpatialSurveyMap from "./SpatialSurveyMap"
 import NetflowSankeyChart from "./charts/NetflowSankeyChart"
@@ -50,6 +51,7 @@ export default {
   RemoteAccessTCPText,
   RemoteAccessTerminal,
   RemoteConsoleTerminal,
+  SRQLEditor,
   SRQLTimeCookie,
   SpatialSurveyMap,
   NetflowSankeyChart,

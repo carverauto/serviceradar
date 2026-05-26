@@ -667,11 +667,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
             <div class="flex items-center gap-2">
               <div class="flex-1">
-                <.input
-                  type="text"
+                <.srql_editor
+                  id="mtr-profile-target-query-editor"
                   field={@form[:target_query]}
-                  class="input input-bordered w-full font-mono text-sm"
-                  placeholder="in:devices tags.role:edge"
+                  compact
                 />
                 <p class="sr-mtr-muted mt-2 text-xs">
                   Baseline MTR automation always targets managed devices only. This SRQL query

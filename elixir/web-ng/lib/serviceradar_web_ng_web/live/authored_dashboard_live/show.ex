@@ -608,7 +608,11 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       options={visual_select_options()}
                     />
                     <div class="lg:col-span-2">
-                      <.input field={@panel_form[:srql_query]} type="textarea" label="SRQL Query" />
+                      <.srql_editor
+                        id={"authored-panel-srql-editor-#{panel.id}"}
+                        field={@panel_form[:srql_query]}
+                        label="SRQL Query"
+                      />
                     </div>
                     <.input
                       field={@panel_form[:refresh_interval_seconds]}
