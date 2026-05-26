@@ -196,6 +196,59 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
+  def handle_event("canvas_add_panel", %{"visualType" => visual_type}, socket) do
+    case authorize_panel_edit(socket) do
+      :ok ->
+        visual_type = canvas_visual_type(visual_type)
+        layout = canvas_new_panel_layout(visual_type, socket.assigns.dashboard.panels || [])
+
+        params =
+          Map.merge(default_panel_params(), %{
+            "title" => "#{humanize_field(visual_type)} Panel",
+            "visual_type" => visual_type,
+            "layout_x" => to_string(Map.get(layout, "x", 0)),
+            "layout_y" => to_string(Map.get(layout, "y", 0)),
+            "layout_w" => to_string(Map.get(layout, "w", 12)),
+            "layout_h" => to_string(Map.get(layout, "h", 8)),
+            "position" => to_string(length(socket.assigns.dashboard.panels || []))
+          })
+
+        {:noreply,
+         socket
+         |> assign(:settings_open?, true)
+         |> assign(:editing_panel_id, "new")
+         |> assign(:panel_preview, nil)
+         |> assign(:panel_params, params)
+         |> assign_panel_form()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel create failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("canvas_select_panel", %{"id" => id}, socket) do
+    handle_event("edit_panel", %{"id" => id}, socket)
+  end
+
+  def handle_event("canvas_layout_change", %{"layouts" => layouts}, socket) when is_list(layouts) do
+    with :ok <- authorize_panel_edit(socket),
+         {:ok, panels} <- update_canvas_panel_layouts(socket, layouts) do
+      dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
+
+      socket =
+        socket
+        |> assign(:dashboard, dashboard)
+        |> maybe_refresh_editing_panel_params(panels)
+
+      {:noreply, socket}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Layout update failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("canvas_layout_change", _params, socket), do: {:noreply, socket}
+
   def handle_event("validate_panel", %{"panel" => params}, socket) do
     {:noreply,
      socket
@@ -277,6 +330,33 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     else
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Panel duplicate failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("delete_panel", %{"id" => id}, socket) do
+    panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
+
+    with :ok <- authorize_panel_edit(socket),
+         {:ok, panel} <- require_record(panel),
+         :ok <- Dashboards.delete_authored_panel(socket.assigns.current_scope, panel) do
+      socket =
+        if socket.assigns.editing_panel_id == id do
+          socket
+          |> assign(:editing_panel_id, nil)
+          |> assign(:panel_preview, nil)
+          |> assign(:panel_params, default_panel_params())
+          |> assign_panel_form()
+        else
+          socket
+        end
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Panel deleted")
+       |> reload_dashboard_panels()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel delete failed: #{format_error(reason)}")}
     end
   end
 
@@ -596,116 +676,35 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               :if={can_manage_dashboard?(@dashboard, assigns)}
               class="rounded-lg border border-base-300"
             >
-              <div class="border-b border-base-300 px-3 py-2">
+              <div class="border-b border-base-300 px-4 py-3">
                 <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 class="text-sm font-semibold">Panels</h3>
+                    <p class="text-xs font-semibold uppercase tracking-normal text-primary">
+                      Composite authoring
+                    </p>
+                    <h3 class="mt-1 text-lg font-semibold tracking-normal">Dashboard Workbench</h3>
                     <p class="text-xs text-base-content/55">
-                      SRQL queries and visualizations that make up this dashboard.
+                      Compose SRQL-backed panels, map query output into supported visuals, and arrange the dashboard canvas.
                     </p>
                   </div>
                   <div class="flex flex-wrap gap-2">
-                    <button type="button" class="btn btn-xs btn-primary" phx-click="new_panel">
+                    <button type="button" class="btn btn-sm btn-primary" phx-click="new_panel">
                       <.icon name="hero-plus" class="size-4" /> Add Panel
                     </button>
-                    <button type="button" class="btn btn-xs" phx-click="compact_layout">
+                    <button type="button" class="btn btn-sm" phx-click="compact_layout">
                       <.icon name="hero-squares-plus" class="size-4" /> Compact Layout
                     </button>
                   </div>
                 </div>
               </div>
-              <div class="divide-y divide-base-200">
-                <div :if={@editing_panel_id == "new"} class="space-y-3 p-3">
-                  <div class="text-sm font-semibold">New panel</div>
-                  <.form
-                    for={@panel_form}
-                    as={:panel}
-                    phx-change="validate_panel"
-                    phx-submit="submit_panel_form"
-                    class="grid grid-cols-1 gap-3 rounded-lg border border-primary/30 bg-base-200/30 p-3 lg:grid-cols-2"
-                  >
-                    <.panel_form_fields
-                      form={@panel_form}
-                      panel={nil}
-                      preview={@panel_preview}
-                      panel_results={@panel_results}
-                    />
-                  </.form>
-                </div>
-
-                <div
-                  :for={panel <- @dashboard.panels || []}
-                  class="space-y-3 p-3"
-                >
-                  <div class="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
-                    <div class="min-w-0">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-sm font-medium">{panel.title}</span>
-                        <span class="badge badge-sm badge-outline">{panel.visual_type}</span>
-                      </div>
-                      <p class="mt-1 truncate font-mono text-xs text-base-content/55">
-                        {panel.srql_query}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-xs"
-                      phx-click="edit_panel"
-                      phx-value-id={panel.id}
-                    >
-                      <.icon name="hero-pencil-square" class="size-4" /> Edit
-                    </button>
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      class="btn btn-xs"
-                      phx-click="duplicate_panel"
-                      phx-value-id={panel.id}
-                    >
-                      <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
-                    </button>
-                    <form
-                      phx-change="clone_target"
-                      phx-submit="clone_panel"
-                      class="flex flex-wrap items-center gap-2"
-                    >
-                      <input type="hidden" name="panel_id" value={panel.id} />
-                      <select
-                        name="target_dashboard_id"
-                        class="select select-xs"
-                        disabled={@clone_targets == []}
-                      >
-                        <option
-                          :for={target <- @clone_targets}
-                          value={target.id}
-                          selected={target.id == @clone_target_id}
-                        >
-                          {target.title}
-                        </option>
-                      </select>
-                      <button type="submit" class="btn btn-xs" disabled={@clone_targets == []}>
-                        <.icon name="hero-arrow-up-on-square-stack" class="size-4" /> Clone
-                      </button>
-                    </form>
-                  </div>
-
-                  <.form
-                    :if={@editing_panel_id == panel.id}
-                    for={@panel_form}
-                    as={:panel}
-                    phx-change="validate_panel"
-                    phx-submit="submit_panel_form"
-                    class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-200/30 p-3 lg:grid-cols-2"
-                  >
-                    <.panel_form_fields
-                      form={@panel_form}
-                      panel={panel}
-                      preview={@panel_preview}
-                      panel_results={@panel_results}
-                    />
-                  </.form>
-                </div>
+              <div class="p-4">
+                <.dashboard_builder_canvas
+                  id={"authored-dashboard-canvas-#{@dashboard.id}"}
+                  panels={dashboard_canvas_panels(@dashboard, @panel_results)}
+                  visual_options={dashboard_canvas_visual_options()}
+                  selected_id={canvas_selected_panel_id(@editing_panel_id, @dashboard)}
+                  can_manage={can_manage_dashboard?(@dashboard, assigns)}
+                />
               </div>
             </section>
 
@@ -895,6 +894,96 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             </section>
           </div>
         </section>
+
+        <dialog
+          :if={@editing_panel_id}
+          id="dashboard-panel-composer-modal"
+          class="modal modal-open"
+        >
+          <div class="modal-box flex max-h-[90vh] w-11/12 max-w-6xl flex-col overflow-hidden p-0">
+            <div class="flex flex-col gap-3 border-b border-base-300 bg-base-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-normal text-primary">
+                  SRQL panel composer
+                </p>
+                <h2 class="mt-1 text-lg font-semibold tracking-normal">
+                  {if @editing_panel_id == "new", do: "Create New Panel", else: "Edit Panel"}
+                </h2>
+                <p class="text-xs text-base-content/55">
+                  Write the panel query, preview its output, then choose one of the compatible visualizations and bind fields.
+                </p>
+              </div>
+              <button type="button" class="btn btn-sm btn-ghost" phx-click="cancel_panel_edit">
+                <.icon name="hero-x-mark" class="size-4" /> Close
+              </button>
+            </div>
+
+            <div class="overflow-y-auto bg-base-200/40 p-4">
+              <.form
+                for={@panel_form}
+                as={:panel}
+                phx-change="validate_panel"
+                phx-submit="submit_panel_form"
+                class="grid grid-cols-1 gap-4 lg:grid-cols-2"
+              >
+                <.panel_form_fields
+                  form={@panel_form}
+                  panel={editing_panel(@dashboard, @editing_panel_id)}
+                  preview={@panel_preview}
+                  panel_results={@panel_results}
+                />
+              </.form>
+
+              <div
+                :if={@editing_panel_id != "new"}
+                class="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-base-300 bg-base-100 p-3"
+              >
+                <button
+                  type="button"
+                  class="btn btn-sm"
+                  phx-click="duplicate_panel"
+                  phx-value-id={@editing_panel_id}
+                >
+                  <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-error btn-outline"
+                  phx-click="delete_panel"
+                  phx-value-id={@editing_panel_id}
+                >
+                  <.icon name="hero-trash" class="size-4" /> Delete
+                </button>
+                <form
+                  phx-change="clone_target"
+                  phx-submit="clone_panel"
+                  class="ml-auto flex flex-wrap items-center gap-2"
+                >
+                  <input type="hidden" name="panel_id" value={@editing_panel_id} />
+                  <select
+                    name="target_dashboard_id"
+                    class="select select-sm"
+                    disabled={@clone_targets == []}
+                  >
+                    <option
+                      :for={target <- @clone_targets}
+                      value={target.id}
+                      selected={target.id == @clone_target_id}
+                    >
+                      {target.title}
+                    </option>
+                  </select>
+                  <button type="submit" class="btn btn-sm" disabled={@clone_targets == []}>
+                    <.icon name="hero-arrow-up-on-square-stack" class="size-4" /> Clone
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <form method="dialog" class="modal-backdrop">
+            <button type="button" phx-click="cancel_panel_edit">close</button>
+          </form>
+        </dialog>
 
         <div
           :if={@loading?}
@@ -1377,57 +1466,84 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:visual_options, panel_visual_select_options(assigns.preview, assigns.panel))
 
     ~H"""
-    <.input field={@form[:dataset_key]} type="text" label="Dataset key" />
-    <.input field={@form[:title]} type="text" label="Title" />
-    <.input
-      field={@form[:visual_type]}
-      type="select"
-      label="Visualization"
-      options={@visual_options}
-    />
-    <div class="lg:col-span-2">
+    <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 1</p>
+        <h3 class="mt-1 text-sm font-semibold">SRQL source</h3>
+        <p class="text-xs text-base-content/55">
+          Define the dataset query this panel owns. Previewing the query drives the available visuals and field bindings.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <.input field={@form[:dataset_key]} type="text" label="Dataset key" />
+        <.input field={@form[:title]} type="text" label="Panel title" />
+      </div>
+
       <.srql_editor
         id={"authored-panel-srql-editor-#{(@panel && @panel.id) || "new"}"}
         field={@form[:srql_query]}
         label="SRQL Query"
         rich
       />
-    </div>
-    <div class="flex flex-wrap items-center gap-2 lg:col-span-2">
-      <button type="submit" name="intent" value="preview" class="btn btn-sm">
-        <.icon name="hero-play" class="size-4" /> Preview Query
-      </button>
-      <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/55">
-        Preview the query to unlock compatible visualizations and field bindings.
-      </span>
-    </div>
-    <.input
-      field={@form[:refresh_interval_seconds]}
-      type="number"
-      label="Refresh interval seconds"
-    />
-    <.input field={@form[:position]} type="number" label="Position" />
-    <.panel_structured_fields
-      form={@form}
-      field_options={@field_options}
-      numeric_field_options={@numeric_field_options}
-      dimension_field_options={@dimension_field_options}
-      datetime_field_options={@datetime_field_options}
-    />
-    <div class="flex flex-wrap gap-2 lg:col-span-2">
-      <button
-        type="submit"
-        name="intent"
-        value="save"
-        class="btn btn-sm btn-primary"
-        disabled={!@preview and is_nil(@panel)}
-      >
-        <.icon name="hero-check" class="size-4" /> Save Panel
-      </button>
-      <button type="button" class="btn btn-sm" phx-click="cancel_panel_edit">
-        Cancel
-      </button>
-    </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="submit" name="intent" value="preview" class="btn btn-sm">
+          <.icon name="hero-play" class="size-4" /> Preview Query
+        </button>
+        <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/55">
+          Preview first to unlock compatible visualizations.
+        </span>
+      </div>
+    </section>
+
+    <section class="space-y-4 rounded-lg border border-base-300 bg-base-100 p-4">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 2</p>
+        <h3 class="mt-1 text-sm font-semibold">Visualization and bindings</h3>
+        <p class="text-xs text-base-content/55">
+          Choose a supported visual and map fields from the preview output into labels, values, status, and layout.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <.input
+          field={@form[:visual_type]}
+          type="select"
+          label="Visualization"
+          options={@visual_options}
+        />
+        <.input
+          field={@form[:refresh_interval_seconds]}
+          type="number"
+          label="Refresh interval seconds"
+        />
+        <.input field={@form[:position]} type="number" label="Position" />
+      </div>
+
+      <.panel_structured_fields
+        form={@form}
+        field_options={@field_options}
+        numeric_field_options={@numeric_field_options}
+        dimension_field_options={@dimension_field_options}
+        datetime_field_options={@datetime_field_options}
+      />
+
+      <div class="flex flex-wrap gap-2 border-t border-base-300 pt-4">
+        <button
+          type="submit"
+          name="intent"
+          value="save"
+          class="btn btn-sm btn-primary"
+          disabled={!@preview and is_nil(@panel)}
+        >
+          <.icon name="hero-check" class="size-4" /> Save Panel
+        </button>
+        <button type="button" class="btn btn-sm" phx-click="cancel_panel_edit">
+          Cancel
+        </button>
+      </div>
+    </section>
     """
   end
 
@@ -2089,9 +2205,197 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp recipients(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
   defp recipients(_value), do: []
 
+  defp dashboard_canvas_visual_options do
+    Enum.map(Dashboards.authored_visual_options(), fn option ->
+      %{
+        type: to_string(option.type),
+        label: option.label
+      }
+    end)
+  end
+
+  defp dashboard_canvas_panels(nil, _panel_results), do: []
+
+  defp dashboard_canvas_panels(%{panels: panels}, panel_results) do
+    panels
+    |> List.wrap()
+    |> Enum.map(fn panel ->
+      %{
+        id: panel.id,
+        dataset_key: panel.dataset_key || "primary",
+        title: panel.title || "Panel",
+        srql_query: panel.srql_query || "",
+        visual_type: to_string(panel.visual_type || :table),
+        data_binding: panel.data_binding || %{},
+        display_config: panel.display_config || %{},
+        visual_config: panel.visual_config || %{},
+        field_metadata: canvas_field_metadata(panel.field_metadata || %{}),
+        layout: panel.layout || %{},
+        refresh_interval_seconds: panel.refresh_interval_seconds || 0,
+        preview: canvas_panel_preview(Map.get(panel_results || %{}, panel.id), panel)
+      }
+    end)
+  end
+
+  defp dashboard_canvas_panels(_dashboard, _panel_results), do: []
+
+  defp canvas_field_metadata(metadata) do
+    %{
+      fields: canvas_fields(metadata_fields(metadata)),
+      compatible_visuals: Enum.map(panel_compatible_visuals(%{field_metadata: metadata}), &to_string/1)
+    }
+  end
+
+  defp canvas_panel_preview({:ok, preview}, _panel) when is_map(preview) do
+    %{
+      fields: canvas_fields(preview_fields(preview)),
+      rows: preview |> preview_rows() |> Enum.take(25),
+      compatible_visuals: preview |> preview_compatible_visuals() |> Enum.map(&to_string/1)
+    }
+  end
+
+  defp canvas_panel_preview(_result, panel) do
+    %{
+      fields: canvas_fields(metadata_fields(panel.field_metadata || %{})),
+      rows: [],
+      compatible_visuals: panel |> panel_compatible_visuals() |> Enum.map(&to_string/1)
+    }
+  end
+
+  defp canvas_fields(fields) do
+    Enum.map(fields || [], fn field ->
+      %{
+        name: field_name(field),
+        type: field |> field_type() |> to_string(),
+        sample: field_sample(field)
+      }
+    end)
+  end
+
+  defp preview_rows(%{rows: rows}) when is_list(rows), do: rows
+  defp preview_rows(%{"rows" => rows}) when is_list(rows), do: rows
+  defp preview_rows(_preview), do: []
+
+  defp field_sample(%{sample: sample}), do: sample
+  defp field_sample(%{"sample" => sample}), do: sample
+  defp field_sample(_field), do: nil
+
+  defp canvas_selected_panel_id(id, %{panels: panels}) when is_binary(id) and id != "new" do
+    if Enum.any?(panels || [], &(&1.id == id)), do: id, else: ""
+  end
+
+  defp canvas_selected_panel_id(_id, _dashboard), do: ""
+
+  defp editing_panel(%{panels: panels}, id) when is_binary(id) and id != "new" do
+    Enum.find(panels || [], &(&1.id == id))
+  end
+
+  defp editing_panel(_dashboard, _id), do: nil
+
+  defp canvas_visual_type(value) do
+    supported = MapSet.new(Dashboards.authored_visual_options(), &to_string(&1.type))
+
+    value = to_string(value || "table")
+    if MapSet.member?(supported, value), do: value, else: "table"
+  end
+
+  defp canvas_new_panel_layout(visual_type, panels) do
+    width = canvas_default_width(visual_type)
+    height = canvas_default_height(visual_type)
+    position = length(panels || [])
+
+    %{"w" => width, "h" => height}
+    |> next_panel_layout(position)
+    |> Map.put("order", position)
+  end
+
+  defp canvas_default_width(visual_type) when visual_type in ["table", "pivot", "line", "area"], do: 12
+  defp canvas_default_width("status_list"), do: 8
+  defp canvas_default_width(_visual_type), do: 4
+
+  defp canvas_default_height(visual_type) when visual_type in ["table", "pivot"], do: 8
+  defp canvas_default_height(visual_type) when visual_type in ["line", "area", "bar", "category"], do: 6
+  defp canvas_default_height(_visual_type), do: 4
+
+  defp update_canvas_panel_layouts(socket, layouts) do
+    panels = socket.assigns.dashboard.panels || []
+    layout_index = canvas_layout_index(layouts)
+
+    result =
+      Enum.reduce_while(panels, {:ok, []}, fn panel, {:ok, updated} ->
+        case Map.get(layout_index, panel.id) do
+          nil ->
+            {:cont, {:ok, updated ++ [panel]}}
+
+          %{layout: layout, position: position} ->
+            attrs = %{layout: Map.merge(panel.layout || %{}, layout), position: position}
+
+            case Dashboards.update_authored_panel(socket.assigns.current_scope, panel, attrs) do
+              {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
+              {:error, reason} -> {:halt, {:error, reason}}
+            end
+        end
+      end)
+
+    case result do
+      {:ok, panels} -> {:ok, Enum.sort_by(panels, &{&1.position, &1.inserted_at})}
+      error -> error
+    end
+  end
+
+  defp canvas_layout_index(layouts) do
+    layouts
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(fn layout ->
+      %{
+        id: to_string(layout["id"] || layout[:id] || ""),
+        x: integer_value(layout["x"] || layout[:x], 0),
+        y: integer_value(layout["y"] || layout[:y], 0),
+        w: integer_value(layout["w"] || layout[:w], 12),
+        h: integer_value(layout["h"] || layout[:h], 8)
+      }
+    end)
+    |> Enum.reject(&(&1.id == ""))
+    |> Enum.sort_by(&{&1.y, &1.x, &1.id})
+    |> Enum.with_index()
+    |> Map.new(fn {layout, index} ->
+      {
+        layout.id,
+        %{
+          position: index,
+          layout: %{
+            "x" => bounded_integer(layout.x, 0, 11),
+            "y" => bounded_integer(layout.y, 0, 1_000),
+            "w" => bounded_integer(layout.w, 1, 12),
+            "h" => bounded_integer(layout.h, 2, 16),
+            "order" => index
+          }
+        }
+      }
+    end)
+  end
+
+  defp maybe_refresh_editing_panel_params(socket, panels) do
+    case socket.assigns.editing_panel_id do
+      id when is_binary(id) and id != "new" ->
+        case Enum.find(panels, &(&1.id == id)) do
+          nil ->
+            socket
+
+          panel ->
+            socket
+            |> assign(:panel_params, panel_to_params(panel))
+            |> assign_panel_form()
+        end
+
+      _ ->
+        socket
+    end
+  end
+
   defp access_select_options, do: [{"View", "view"}, {"Edit", "edit"}]
 
-  defp panel_visual_select_options(nil, nil), do: [{"Table", "table"}]
+  defp panel_visual_select_options(nil, nil), do: all_panel_visual_options()
 
   defp panel_visual_select_options(preview, panel) do
     compatible =
@@ -2107,6 +2411,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     Dashboards.authored_visual_options()
     |> Enum.filter(&(&1.type in compatible))
     |> Enum.map(&{&1.label, to_string(&1.type)})
+  end
+
+  defp all_panel_visual_options do
+    Enum.map(Dashboards.authored_visual_options(), &{&1.label, to_string(&1.type)})
   end
 
   defp selected_panel_visual(value, compatible) do

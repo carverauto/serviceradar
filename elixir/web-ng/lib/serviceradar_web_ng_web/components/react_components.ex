@@ -46,11 +46,6 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :visual_options, :list, default: []
   attr :selected_id, :string, default: ""
   attr :can_manage, :boolean, default: false
-  attr :default_query, :string, default: ""
-  attr :dashboard_params, :map, default: %{}
-  attr :inspector_errors, :map, default: %{}
-  attr :srql_completions, :list, default: []
-  attr :draft_storage_key, :string, default: ""
   attr :class, :string, default: ""
 
   def dashboard_builder_canvas(assigns) do
@@ -59,12 +54,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         panels: assigns.panels,
         visualOptions: assigns.visual_options,
         selectedId: assigns.selected_id,
-        canManage: assigns.can_manage,
-        defaultQuery: assigns.default_query,
-        dashboardParams: assigns.dashboard_params,
-        inspectorErrors: assigns.inspector_errors,
-        srqlCompletions: assigns.srql_completions,
-        draftStorageKey: assigns.draft_storage_key
+        canManage: assigns.can_manage
       })
 
     ~H"""
