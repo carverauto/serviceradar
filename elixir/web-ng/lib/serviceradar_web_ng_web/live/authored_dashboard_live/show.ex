@@ -1167,104 +1167,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp panel_result(%{result: {:ok, preview}} = assigns) do
-    assigns =
-      assigns
-      |> assign(:rows, preview.rows)
-      |> assign(:fields, preview.fields)
-      |> assign_new(:trend, fn -> nil end)
-      |> assign_new(:expanded_srql?, fn -> false end)
-      |> assign_new(:can_manage?, fn -> false end)
-      |> assign_new(:csv_data_url, fn -> nil end)
-
-    ~H"""
-    <article
-      class="sr-authored-dashboard-panel rounded-lg border border-slate-800/80 bg-[#0f172a]/95 text-slate-100 shadow-xl shadow-cyan-950/20 backdrop-blur-md"
-      style={@style}
-    >
-      <div class="flex shrink-0 flex-col gap-2 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-2">
-            <h2 class="truncate text-sm font-semibold text-slate-100">{@panel.title}</h2>
-            <span :if={refresh_interval_label(@panel)} class="badge badge-xs badge-ghost">
-              {refresh_interval_label(@panel)}
-            </span>
-          </div>
-          <p class="mt-1 truncate font-mono text-xs text-slate-400">{@panel.srql_query}</p>
-        </div>
-        <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <span class="badge badge-outline border-cyan-500/30 text-cyan-300">
-            {@panel.visual_type}
-          </span>
-          <.panel_action_menu
-            panel={@panel}
-            expanded_srql?={@expanded_srql?}
-            can_manage?={@can_manage?}
-            csv_data_url={@csv_data_url}
-          />
-        </div>
-      </div>
-      <div
-        :if={@expanded_srql?}
-        class="shrink-0 border-b border-slate-800/80 bg-slate-950/60 px-4 py-3"
-      >
-        <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
-      </div>
-      <div class="sr-authored-dashboard-panel-body p-4">
-        <.render_visual panel={@panel} rows={@rows} fields={@fields} trend={@trend} />
-      </div>
-    </article>
-    """
-  end
-
-  defp panel_result(%{result: {:error, reason}} = assigns) do
-    assigns =
-      assigns
-      |> assign(:message, format_error(reason))
-      |> assign_new(:expanded_srql?, fn -> false end)
-      |> assign_new(:can_manage?, fn -> false end)
-      |> assign_new(:csv_data_url, fn -> nil end)
-
-    ~H"""
-    <article
-      class="sr-authored-dashboard-panel rounded-lg border border-error/30 bg-[#0f172a]/95 text-slate-100"
-      style={@style}
-    >
-      <div class="flex shrink-0 flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 class="text-sm font-semibold">{@panel.title}</h2>
-        <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <.panel_action_menu
-            panel={@panel}
-            expanded_srql?={@expanded_srql?}
-            can_manage?={@can_manage?}
-            csv_data_url={@csv_data_url}
-          />
-        </div>
-      </div>
-      <div
-        :if={@expanded_srql?}
-        class="shrink-0 border-b border-slate-800/80 bg-slate-950/60 px-4 py-3"
-      >
-        <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
-      </div>
-      <div class="sr-authored-dashboard-panel-body p-4 text-sm text-error">
-        Could not preview this query: {@message}
-      </div>
-    </article>
-    """
-  end
-
-  defp panel_result(assigns) do
-    ~H"""
-    <article
-      class="sr-authored-dashboard-panel rounded-lg border border-slate-800/80 bg-[#0f172a]/95 p-4 text-sm text-slate-400"
-      style={@style}
-    >
-      {@panel.title}
-    </article>
-    """
-  end
-
   defp default_user_grant_params do
     %{"subject_user_id" => "", "access" => "view"}
   end
@@ -1281,16 +1183,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       "recipients" => ""
     }
   end
-
-  defp refresh_interval_label(%{refresh_interval_seconds: seconds}) when is_integer(seconds) and seconds > 0 do
-    "Refresh #{format_duration(seconds)}"
-  end
-
-  defp refresh_interval_label(_panel), do: nil
-
-  defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
-  defp format_duration(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
-  defp format_duration(seconds), do: "#{div(seconds, 3_600)}h"
 
   defp panel_csv_export_url(dashboard, panel, variable_values) do
     dashboard_ref = Dashboards.authored_dashboard_route_ref(dashboard)
