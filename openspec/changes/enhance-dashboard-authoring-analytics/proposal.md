@@ -7,6 +7,7 @@ The current dashboard creator can save SRQL-backed panels, but it still behaves 
 - Promote multi-panel creation so a new dashboard can be composed from multiple named SRQL queries before the first save.
 - Add first-class gauge and count dashlets with explicit bindings, labels, thresholds, units, and optional trend-over-time comparison.
 - Add pivot-table visualizations backed by SRQL result sets, with row/column/value bindings and aggregate controls.
+- Add dashboard viewer affordances for panel duplication/cloning, variable substitution, compacting saved layouts, inline panel actions, refresh visibility, and permission-aware editing controls.
 - Keep dashboard package frame queries separate from global `/dashboards` catalog search so package dashboards do not pretend to have one representative SRQL query.
 - Extend SRQL builder/support metadata where needed so dashboard authoring can generate query families for current values and historical trend datasets.
 

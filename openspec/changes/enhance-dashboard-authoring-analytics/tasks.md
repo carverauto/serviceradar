@@ -5,7 +5,7 @@
 ## 2. Dashboard Search Separation
 - [x] 2.1 Make dashboard package pages use `in:dashboards` for the global topbar SRQL state.
 - [x] 2.2 Keep package frame SRQL overrides isolated to the dashboard host API and URL frame params.
-- [ ] 2.3 Add regression coverage for the topbar builder opening without unsupported-query warning.
+- [x] 2.3 Add regression coverage for the topbar builder opening without unsupported-query warning.
 
 ## 3. Multi-Query Dashboard Creation
 - [x] 3.1 Replace the single-panel new-dashboard form with a pending panel list.
@@ -18,8 +18,8 @@
 ## 4. Gauge and Count Dashlets
 - [x] 4.1 Add structured gauge/count dashlet binding controls for value, numerator, denominator, label, unit, and thresholds.
 - [x] 4.2 Add trend-over-time configuration for gauge/count dashlets, including comparison query/window and displayed delta.
-- [ ] 4.3 Render gauge/count dashlets in the dashboard and report paths with accessible labels and empty/error states.
-- [ ] 4.4 Add tests for gauge thresholds, count labels, and trend-over-time rendering.
+- [x] 4.3 Render gauge/count dashlets in the dashboard and report paths with accessible labels and empty/error states.
+- [x] 4.4 Add tests for gauge thresholds, count labels, and trend-over-time rendering.
 
 ## 5. Pivot Tables
 - [x] 5.1 Add pivot table as a first-class visual type.
@@ -32,3 +32,11 @@
 - [x] 6.2 Run focused dashboard Ash/resource tests.
 - [x] 6.3 Run `mix format` for touched Elixir files.
 - [x] 6.4 Run applicable web-ng quality checks before merge.
+
+## 7. Viewer Authoring Affordances
+- [x] 7.1 Add inline panel actions for refresh, SRQL inspection, edit-in-settings, CSV export, duplicate, and clone-to-dashboard.
+- [x] 7.2 Add dashboard-scoped variable controls and substitute variable values into panel and trend SRQL execution.
+- [x] 7.3 Add a compact layout action that reflows saved panels onto the 12-column grid.
+- [x] 7.4 Surface panel refresh intervals in rendered panel headers.
+- [x] 7.5 Keep viewer/editor controls permission-aware.
+- [x] 7.6 Add regression coverage for variables, duplicate/clone, compact layout, and inline actions.

@@ -509,8 +509,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   defp validate_visual_compatibility(:table, _compatible), do: :ok
   defp validate_visual_compatibility(:pivot, _compatible), do: :ok
   defp validate_visual_compatibility(:availability, _compatible), do: :ok
+  defp validate_visual_compatibility(:count, _compatible), do: :ok
 
-  defp validate_visual_compatibility(:count, compatible), do: validate_visual_compatibility(:stat, compatible)
   defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
   defp validate_visual_compatibility(type, compatible) do

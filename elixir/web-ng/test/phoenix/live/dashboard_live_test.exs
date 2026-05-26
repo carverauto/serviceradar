@@ -80,6 +80,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     refute has_element?(view, "#ops-traffic-map[phx-hook='OperationsTrafficMap']")
   end
 
+  test "dashboard package topbar builder opens as dashboard catalog search", %{conn: conn} do
+    route_slug = "dashboard-builder-map-#{System.unique_integer([:positive])}"
+    create_dashboard_instance!(route_slug)
+
+    {:ok, view, _html} = live(conn, ~p"/dashboards/#{route_slug}")
+
+    html = render_click(view, "srql_builder_toggle", %{})
+
+    assert has_element?(view, "#srql-query-bar input[name='q'][value='in:dashboards limit:100']")
+    assert html =~ "Entity"
+    refute html =~ "can't be fully represented"
+    refute html =~ "can’t be fully represented"
+  end
+
   test "renders virtualization efficiency panel from SRQL inventory", %{conn: conn} do
     unique = System.unique_integer([:positive])
     observed_at = DateTime.truncate(DateTime.utc_now(), :second)

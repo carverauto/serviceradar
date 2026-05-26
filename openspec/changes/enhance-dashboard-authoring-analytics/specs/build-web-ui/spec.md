@@ -56,3 +56,33 @@ Dashboard package pages SHALL keep the global topbar SRQL controls scoped to das
 - **WHEN** the update is pushed through the dashboard host API
 - **THEN** the global topbar search input SHALL continue to represent dashboard catalog search
 - **AND** the frame query SHALL remain available to the package through frame query overrides.
+
+### Requirement: Authored dashboard viewer actions
+The authored dashboard viewer SHALL expose panel-level actions for authorized users to refresh data, inspect SRQL, edit panel settings, duplicate a panel, clone a panel to another dashboard, and export visible rows as CSV.
+
+#### Scenario: User duplicates a dashboard panel
+- **GIVEN** an authorized dashboard editor is viewing a dashboard panel
+- **WHEN** they choose duplicate
+- **THEN** the dashboard SHALL create a new panel with the same SRQL, bindings, visual configuration, and layout adjusted to the next available position.
+
+#### Scenario: User clones a panel to another dashboard
+- **GIVEN** an authorized dashboard editor can edit a source panel and a target dashboard
+- **WHEN** they clone the panel to the target dashboard
+- **THEN** the target dashboard SHALL receive an independent panel copy.
+
+### Requirement: Dashboard variables
+Authored dashboards SHALL support dashboard-scoped variable controls whose selected values are substituted into panel SRQL before execution.
+
+#### Scenario: User changes a dashboard variable
+- **GIVEN** a dashboard defines a `site` variable and a panel query contains `${site}`
+- **WHEN** the user selects `MSP`
+- **THEN** the panel query SHALL execute with `MSP` substituted for `${site}`
+- **AND** the rendered dashboard SHALL refresh using the selected value.
+
+### Requirement: Saved dashboard layout utilities
+The authored dashboard viewer SHALL expose grid layout utilities for authorized editors, including compacting panels to remove gaps and showing refresh interval metadata in panel headers.
+
+#### Scenario: User compacts a dashboard layout
+- **GIVEN** a saved dashboard has panels with gaps in their grid positions
+- **WHEN** an authorized editor chooses compact layout
+- **THEN** the panel layouts SHALL be updated to remove gaps while preserving each panel width and height where possible.

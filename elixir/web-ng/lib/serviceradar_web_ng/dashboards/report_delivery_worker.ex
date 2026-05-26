@@ -163,16 +163,11 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       Enum.map_join(panel_results, "\n\n", fn {panel, result} ->
         case result do
           {:ok, preview} ->
-            rows =
-              preview.rows
-              |> Enum.take(10)
-              |> Enum.map_join("\n", &inspect/1)
-
             """
             #{panel.title}
             Query: #{panel.srql_query}
             Rows: #{preview.row_count}
-            #{rows}
+            #{render_panel_text(panel, preview)}
             """
 
           {:error, reason} ->
@@ -201,7 +196,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
               <h2>#{escape(panel.title)}</h2>
               <p><code>#{escape(panel.srql_query)}</code></p>
               <p>Rows: #{preview.row_count}</p>
-              #{render_table(preview.fields, Enum.take(preview.rows, 25))}
+              #{render_panel_html(panel, preview)}
             </section>
             """
 
@@ -241,6 +236,127 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       end)
 
     "<table><thead><tr>#{headers}</tr></thead><tbody>#{body}</tbody></table>"
+  end
+
+  defp render_panel_text(%{visual_type: type} = panel, preview) when type in [:stat, "stat", :count, "count"] do
+    value = report_bound_value(panel, preview, "value_field") || report_stat_value(preview)
+    label = report_display_value(panel, "label", panel.title)
+    unit = report_display_value(panel, "unit", "")
+    "#{label}: #{format_value(value)}#{unit}"
+  end
+
+  defp render_panel_text(%{visual_type: type} = panel, preview)
+       when type in [:gauge, "gauge", :availability, "availability"] do
+    gauge = report_gauge_data(panel, preview)
+    "#{gauge.label}: #{gauge.display}% (#{gauge.numerator}/#{gauge.denominator})"
+  end
+
+  defp render_panel_text(_panel, preview) do
+    preview.rows
+    |> Enum.take(10)
+    |> Enum.map_join("\n", &inspect/1)
+  end
+
+  defp render_panel_html(%{visual_type: type} = panel, preview) when type in [:stat, "stat", :count, "count"] do
+    value = report_bound_value(panel, preview, "value_field") || report_stat_value(preview)
+    label = report_display_value(panel, "label", panel.title)
+    unit = report_display_value(panel, "unit", "")
+
+    """
+    <div role="group" aria-label="#{escape("#{label}: #{format_value(value)}#{unit}")}">
+      <strong>#{escape(format_value(value))}#{escape(unit)}</strong>
+      <div>#{escape(label)}</div>
+    </div>
+    """
+  end
+
+  defp render_panel_html(%{visual_type: type} = panel, preview)
+       when type in [:gauge, "gauge", :availability, "availability"] do
+    gauge = report_gauge_data(panel, preview)
+
+    """
+    <div role="group" aria-label="#{escape(gauge.aria_label)}">
+      <strong>#{escape(gauge.display)}#{escape(gauge.unit)}</strong>
+      <div>#{escape(gauge.label)}</div>
+      <progress value="#{gauge.percent}" max="100" aria-label="#{escape(gauge.aria_label)}"></progress>
+      <div>#{escape(gauge.numerator_label)}: #{escape(gauge.numerator)} / #{escape(gauge.denominator_label)}: #{escape(gauge.denominator)}</div>
+    </div>
+    """
+  end
+
+  defp render_panel_html(_panel, preview), do: render_table(preview.fields, Enum.take(preview.rows, 25))
+
+  defp report_gauge_data(panel, preview) do
+    fields = preview.fields || []
+    row = List.first(preview.rows || []) || %{}
+    binding = panel.data_binding || %{}
+    numerator_field = binding["numerator_field"] || binding["value_field"] || report_first_numeric_field(fields)
+    denominator_field = binding["denominator_field"]
+    numerator = report_numeric(Map.get(row, numerator_field)) || 0.0
+    denominator = report_numeric(Map.get(row, denominator_field)) || 100.0
+    percent = if denominator > 0, do: numerator / denominator * 100, else: numerator
+    percent = percent |> max(0.0) |> min(100.0)
+    label = report_display_value(panel, "label", panel.title)
+    display = :erlang.float_to_binary(percent, decimals: 1)
+
+    %{
+      label: label,
+      unit: report_display_value(panel, "unit", "%"),
+      display: display,
+      percent: percent,
+      numerator: format_value(numerator),
+      denominator: format_value(denominator),
+      numerator_label: report_humanize_field(numerator_field || "value"),
+      denominator_label: report_humanize_field(denominator_field || "total"),
+      aria_label: "#{label}: #{display}%"
+    }
+  end
+
+  defp report_bound_value(panel, preview, key) do
+    field = (panel.data_binding || %{})[key]
+    row = List.first(preview.rows || []) || %{}
+    if is_binary(field) and field != "", do: Map.get(row, field)
+  end
+
+  defp report_stat_value(preview) do
+    field = report_first_numeric_field(preview.fields || [])
+    row = List.first(preview.rows || []) || %{}
+    if field, do: Map.get(row, field)
+  end
+
+  defp report_first_numeric_field(fields) do
+    Enum.find_value(fields, fn
+      %{name: name, type: :number} -> name
+      %{name: name, type: type} when type in [:integer, :float] -> name
+      _ -> nil
+    end)
+  end
+
+  defp report_numeric(value) when is_integer(value) or is_float(value), do: value * 1.0
+
+  defp report_numeric(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, _rest} -> number
+      :error -> nil
+    end
+  end
+
+  defp report_numeric(_value), do: nil
+
+  defp report_display_value(panel, key, fallback) do
+    case panel.display_config || %{} do
+      %{^key => value} when is_binary(value) and value != "" -> value
+      _ -> fallback || ""
+    end
+  end
+
+  defp report_humanize_field(nil), do: ""
+
+  defp report_humanize_field(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
   end
 
   defp total_row_count(panel_results) do
