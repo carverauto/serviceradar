@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.Source, as: CameraSource
+  alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
@@ -8013,9 +8015,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     unresolved_endpoint_specs =
       Enum.map(1..2, fn idx ->
         %{
-          uid: "sr:cluster-quarantine-endpoint-#{suffix}-#{idx}",
-          ip: "198.51.102.#{20 + idx}",
-          mac: "02:00:00:50:#{idx |> Integer.to_string(16) |> String.pad_leading(2, "0")}:ff"
+          uid: "sr:cluster-quarantine-endpoint-#{suffix}-#{idx}"
         }
       end)
 
@@ -8049,20 +8049,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
           }
         }
       ] ++
-        Enum.map(unresolved_endpoint_specs, fn %{
-                                                 uid: endpoint_uid,
-                                                 ip: endpoint_ip,
-                                                 mac: endpoint_mac
-                                               } ->
+        Enum.map(unresolved_endpoint_specs, fn %{uid: endpoint_uid} ->
           %{
             local_device_id: switch_uid,
             local_device_ip: "198.51.102.2",
             local_if_name: "edge2",
             local_if_index: 12,
-            neighbor_if_name: endpoint_mac,
+            neighbor_if_name: nil,
             neighbor_if_index: nil,
             neighbor_device_id: endpoint_uid,
-            neighbor_mgmt_addr: endpoint_ip,
+            neighbor_mgmt_addr: nil,
             protocol: "snmp-l2",
             evidence_class: "endpoint-attachment",
             confidence_tier: "medium",
@@ -8102,6 +8098,53 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
            end)
 
     refute Enum.any?(snapshot.nodes, &(&1.id == "cluster:endpoints:" <> switch_uid))
+  end
+
+  test "latest_snapshot/0 tolerates endpoint attachment edges with missing peer nodes during quarantine" do
+    {:ok, graph_ref} = RuntimeGraph.get_graph_ref()
+    original_rows = Native.runtime_graph_get_links(graph_ref)
+
+    on_exit(fn ->
+      Native.runtime_graph_replace_links(graph_ref, original_rows)
+    end)
+
+    suffix = System.unique_integer([:positive])
+    endpoint_uid = "sr:cluster-quarantine-orphan-endpoint-#{suffix}"
+
+    replace_runtime_graph_links!(graph_ref, [
+      %{
+        local_device_id: nil,
+        local_device_ip: nil,
+        local_if_name: nil,
+        local_if_index: nil,
+        neighbor_if_name: nil,
+        neighbor_if_index: nil,
+        neighbor_device_id: endpoint_uid,
+        neighbor_mgmt_addr: nil,
+        protocol: "snmp-l2",
+        evidence_class: "endpoint-attachment",
+        confidence_tier: "low",
+        confidence_reason: "single_identifier_inference",
+        flow_pps: 0,
+        flow_bps: 0,
+        capacity_bps: 0,
+        flow_pps_ab: 0,
+        flow_pps_ba: 0,
+        flow_bps_ab: 0,
+        flow_bps_ba: 0,
+        telemetry_source: "none",
+        telemetry_observed_at: "2026-03-24T04:30:00Z",
+        metadata: %{
+          "relation_type" => "ATTACHED_TO",
+          "evidence_class" => "endpoint-attachment"
+        }
+      }
+    ])
+
+    assert {:ok, %{snapshot: snapshot}} = latest_snapshot_for_test()
+
+    refute Enum.any?(snapshot.nodes, &(&1.id == endpoint_uid))
+    refute Enum.any?(snapshot.edges, &(&1.source == endpoint_uid or &1.target == endpoint_uid))
   end
 
   test "latest_snapshot/0 excludes weak non-interface SNMP-L2 attachments from endpoint summaries" do
@@ -8436,6 +8479,37 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       actor: actor
     )
     |> Ash.create!()
+  end
+
+  defp create_camera_inventory(actor, device_uid) do
+    {:ok, source} =
+      CameraSource.create_source(
+        %{
+          device_uid: device_uid,
+          vendor: "axis",
+          vendor_camera_id: "axis-#{System.unique_integer([:positive])}",
+          display_name: "Cluster Camera",
+          source_url: "rtsp://camera.local/stream",
+          assigned_agent_id: "agent-camera-cluster",
+          assigned_gateway_id: "gateway-camera-cluster"
+        },
+        actor: actor
+      )
+
+    {:ok, profile} =
+      CameraStreamProfile.create_profile(
+        %{
+          camera_source_id: source.id,
+          profile_name: "Main Stream",
+          codec_hint: "h264",
+          container_hint: "annexb",
+          rtsp_transport: "tcp",
+          relay_eligible: true
+        },
+        actor: actor
+      )
+
+    %{source: source, profile: profile}
   end
 
   defp create_topology_link(actor, timestamp, local_uid, neighbor_uid, if_index) do
