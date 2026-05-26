@@ -32,6 +32,8 @@ docker/compose/creds/
 
 # Added by me
 /k8s/robusta/generated_values.yaml
+/values-example.yaml
+/helm/serviceradar/values-example.yaml
 
 # crypto
 jwks.json
