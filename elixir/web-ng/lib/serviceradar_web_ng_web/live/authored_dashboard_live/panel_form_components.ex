@@ -125,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
     assigns =
       assigns
       |> assign(:visual, visual)
+      |> assign(:grouped_availability?, grouped_availability_options?(visual, assigns))
       |> assign(:aggregate_options, [
         {"Sum", "sum"},
         {"Average", "avg"},
@@ -154,21 +155,24 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         </h4>
       </div>
       <.input
-        :if={@visual in ["stat", "count", "gauge", "line", "area", "bar", "category", "pivot"]}
+        :if={
+          @visual in ["stat", "count", "gauge", "line", "area", "bar", "category", "pivot"] or
+            @grouped_availability?
+        }
         field={@form[:value_field]}
         type="select"
-        label="Value field"
+        label={if @grouped_availability?, do: "Count field", else: "Value field"}
         options={@numeric_field_options}
       />
       <.input
-        :if={@visual in ["availability"]}
+        :if={@visual == "availability" and !@grouped_availability?}
         field={@form[:numerator_field]}
         type="select"
         label="Available/OK field"
         options={@numeric_field_options}
       />
       <.input
-        :if={@visual in ["availability"]}
+        :if={@visual == "availability" and !@grouped_availability?}
         field={@form[:denominator_field]}
         type="select"
         label="Total field"
@@ -190,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         }
         field={@form[:label_field]}
         type="select"
-        label="Label field"
+        label={if @grouped_availability?, do: "Availability field", else: "Label field"}
         options={@field_options}
       />
       <.input
@@ -329,6 +333,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
 
   defp panel_visual_select_options(preview, panel) do
     SourceQueries.compatible_visual_options(preview, panel)
+  end
+
+  defp grouped_availability_options?("availability", assigns) do
+    option_value?(assigns.numeric_field_options, "count") and
+      Enum.any?(["is_available", "available", "availability"], &option_value?(assigns.field_options, &1))
+  end
+
+  defp grouped_availability_options?(_visual, _assigns), do: false
+
+  defp option_value?(options, value) do
+    Enum.any?(options, fn
+      {_label, ^value} -> true
+      %{value: ^value} -> true
+      option when is_binary(option) -> option == value
+      _option -> false
+    end)
   end
 
   defp panel_fields(preview, panel, panel_results) do

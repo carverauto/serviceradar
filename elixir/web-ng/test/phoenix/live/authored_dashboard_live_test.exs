@@ -32,6 +32,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
       {:ok, %{"results" => [%{"available" => 75, "total" => 100, "value" => 75}]}}
     end
 
+    def query("grouped availability" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{"is_available" => false, "count" => 4},
+           %{"is_available" => true, "count" => 8}
+         ]
+       }}
+    end
+
     def query("stat" <> _rest, _opts) do
       {:ok, %{"results" => [%{"value" => 10, "label" => "services"}]}}
     end
@@ -176,6 +186,56 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     panels = Dashboards.list_authored_panels(scope, dashboard.id)
     assert Enum.map(panels, & &1.dataset_key) == ["services"]
     assert Enum.map(panels, & &1.srql_query) == ["series services"]
+  end
+
+  test "saved dashboard settings show grouped availability binding controls", %{
+    conn: conn,
+    scope: scope
+  } do
+    {:ok, dashboard} =
+      Dashboards.create_authored_dashboard(scope, %{
+        title: "Grouped Availability LiveView #{System.unique_integer([:positive])}",
+        description: "",
+        visibility: :private,
+        status: :active
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}")
+    render_async(view, 5_000)
+
+    view
+    |> element("button[phx-click='open_settings']", "Settings")
+    |> render_click()
+
+    view
+    |> element("button[phx-click='new_panel']", "Add Panel")
+    |> render_click()
+
+    view
+    |> form("form[phx-submit='submit_panel_form']", %{
+      "panel" => %{
+        "dataset_key" => "device_availability",
+        "title" => "Device Availability",
+        "srql_query" => "grouped availability devices"
+      }
+    })
+    |> render_change()
+
+    render_click(view, "preview_panel_edit")
+
+    view
+    |> form("form[phx-submit='submit_panel_form']", %{
+      "panel" => %{"visual_type" => "availability"}
+    })
+    |> render_change()
+
+    html = render(view)
+    assert html =~ "Count field"
+    assert html =~ "Availability field"
+    refute html =~ "Available/OK field"
+    refute html =~ "Total field"
+    assert has_element?(view, "select[name='panel[value_field]'] option[selected][value='count']")
+    assert has_element?(view, "select[name='panel[label_field]'] option[selected][value='is_available']")
   end
 
   test "saved dashboard settings create panels from reusable source query outputs", %{
