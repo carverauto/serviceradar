@@ -339,6 +339,116 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:headers, %{"Authorization" => "Bearer token-abc"}}
   end
 
+  test "execute_batches refreshes the Armis token once after an unauthorized bulk update" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      settings: %{"batch_size" => 2},
+      credentials: %{"api_secret" => "secret"}
+    }
+
+    candidates = [
+      %{armis_device_id: "armis-1", is_available: true},
+      %{armis_device_id: "armis-2", is_available: false},
+      %{armis_device_id: "armis-3", is_available: true}
+    ]
+
+    {:ok, token_calls} = Agent.start(fn -> 0 end)
+    {:ok, request_log} = Agent.start(fn -> [] end)
+
+    on_exit(fn ->
+      Agent.stop(token_calls)
+      Agent.stop(request_log)
+    end)
+
+    token_fetcher = fn _source ->
+      call = Agent.get_and_update(token_calls, fn count -> {count + 1, count + 1} end)
+      {:ok, "token-#{call}"}
+    end
+
+    request = fn _path, _method, headers, body, _opts ->
+      auth = Map.fetch!(headers, "Authorization")
+      Agent.update(request_log, &[{auth, length(body)} | &1])
+
+      case auth do
+        "Bearer token-1" ->
+          {:ok, %{status: 401, body: %{"message" => "Invalid access token.", "success" => false}}}
+
+        "Bearer token-2" ->
+          {:ok, %{status: 200, body: %{"success" => true}}}
+      end
+    end
+
+    assert {:ok, result} =
+             ArmisNorthboundRunner.execute_batches(source, candidates,
+               token_fetcher: token_fetcher,
+               request: request
+             )
+
+    assert result.updated_count == 3
+    assert result.error_count == 0
+    assert Agent.get(token_calls, & &1) == 2
+
+    assert Agent.get(request_log, &Enum.reverse/1) == [
+             {"Bearer token-1", 2},
+             {"Bearer token-2", 2},
+             {"Bearer token-2", 1}
+           ]
+  end
+
+  test "execute_batches reports the original unauthorized response when token refresh fails" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      settings: %{"batch_size" => 2},
+      credentials: %{"api_secret" => "secret"}
+    }
+
+    candidates = [
+      %{armis_device_id: "armis-1", is_available: true},
+      %{armis_device_id: "armis-2", is_available: false},
+      %{armis_device_id: "armis-3", is_available: true}
+    ]
+
+    {:ok, token_calls} = Agent.start(fn -> 0 end)
+
+    on_exit(fn -> Agent.stop(token_calls) end)
+
+    token_fetcher = fn _source ->
+      case Agent.get_and_update(token_calls, fn count -> {count + 1, count + 1} end) do
+        1 -> {:ok, "expired-token"}
+        2 -> {:error, :token_endpoint_unavailable}
+      end
+    end
+
+    request = fn _path, _method, _headers, _body, _opts ->
+      {:ok, %{status: 401, body: %{"message" => "Invalid access token.", "success" => false}}}
+    end
+
+    assert {:error, result} =
+             ArmisNorthboundRunner.execute_batches(source, candidates,
+               token_fetcher: token_fetcher,
+               request: request
+             )
+
+    assert result.updated_count == 0
+    assert result.error_count == 2
+
+    assert result.errors == [
+             %{
+               batch_size: 2,
+               reason:
+                 {:token_refresh_failed, :token_endpoint_unavailable,
+                  {:unexpected_status, 401,
+                   %{"message" => "Invalid access token.", "success" => false}}}
+             }
+           ]
+  end
+
   test "execute_batches fails before token request when secret key is unavailable" do
     source = %{
       id: "source-1",

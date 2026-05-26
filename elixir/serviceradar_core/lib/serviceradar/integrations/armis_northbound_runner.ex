@@ -15,6 +15,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Integrations.ArmisClient
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
   alias ServiceRadar.Inventory.Device
@@ -311,14 +312,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       custom_field: custom_field
     )
 
-    case fetch_access_token(source, opts) do
+    case ArmisClient.fetch_access_token(source, opts) do
       {:ok, token} ->
         Logger.info("Fetched Armis northbound access token",
           integration_source_id: inspect(Map.get(source, :id)),
           batch_count: length(batches)
         )
 
-        execute_bulk_batches(source, candidates, batches, custom_field, token, request)
+        execute_bulk_batches(source, candidates, batches, custom_field, token, request, opts)
 
       {:error, reason} ->
         Logger.warning("Failed to fetch Armis northbound access token",
@@ -338,14 +339,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
-  defp execute_bulk_batches(source, candidates, batches, custom_field, token, request) do
+  defp execute_bulk_batches(source, candidates, batches, custom_field, token, request, opts) do
     initial = %{
       device_count: length(candidates),
       updated_count: 0,
       skipped_count: 0,
       error_count: 0,
       batch_count: length(batches),
-      errors: []
+      errors: [],
+      token_state: ArmisClient.token_state(token)
     }
 
     result =
@@ -362,14 +364,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           payload_shape: bulk_payload_shape(payload)
         )
 
-        case request.(
+        case ArmisClient.authenticated_request(
+               source,
+               acc.token_state,
+               request,
                "/api/v1/devices/custom-properties/_bulk/",
                :post,
-               request_headers(token),
                payload,
-               request_options(source)
+               request_options(source),
+               opts
              ) do
-          {:ok, %{status: status}} when status in 200..299 ->
+          {:ok, %{status: status}, token_state} when status in 200..299 ->
             Logger.info("Armis northbound bulk update batch accepted",
               integration_source_id: inspect(Map.get(source, :id)),
               batch_number: batch_number,
@@ -378,9 +383,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
               status: status
             )
 
-            {:cont, %{acc | updated_count: acc.updated_count + length(batch)}}
+            {:cont,
+             %{acc | updated_count: acc.updated_count + length(batch), token_state: token_state}}
 
-          {:ok, %{status: status, body: body}} ->
+          {:ok, %{status: status, body: body}, token_state} ->
             Logger.warning("Armis northbound bulk update batch rejected",
               integration_source_id: inspect(Map.get(source, :id)),
               batch_number: batch_number,
@@ -396,10 +402,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
              %{
                acc
                | error_count: acc.error_count + length(batch),
-                 errors: acc.errors ++ [error]
+                 errors: acc.errors ++ [error],
+                 token_state: token_state
              }}
 
-          {:error, reason} ->
+          {:error, reason, token_state} ->
             Logger.warning("Armis northbound bulk update batch failed",
               integration_source_id: inspect(Map.get(source, :id)),
               batch_number: batch_number,
@@ -414,10 +421,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
              %{
                acc
                | error_count: acc.error_count + length(batch),
-                 errors: acc.errors ++ [error]
+                 errors: acc.errors ++ [error],
+                 token_state: token_state
              }}
         end
       end)
+      |> Map.delete(:token_state)
 
     if result.errors == [] do
       {:ok, result}
@@ -1154,87 +1163,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> Ash.update(actor: actor)
   end
 
-  defp fetch_access_token(source, opts) do
-    fetcher = Keyword.get(opts, :token_fetcher, &default_token_fetcher/1)
-    fetcher.(source)
-  end
-
-  defp default_token_fetcher(source) do
-    credentials = credentials(source)
-
-    case armis_secret_key(credentials) do
-      secret_key when is_binary(secret_key) and secret_key != "" ->
-        fetch_access_token_with_secret(source, secret_key)
-
-      _ ->
-        {:error, :missing_secret_key}
-    end
-  end
-
-  defp fetch_access_token_with_secret(source, secret_key) do
-    body = %{"secret_key" => secret_key}
-
-    case default_form_request(
-           "/api/v1/access_token/",
-           :post,
-           %{
-             "content-type" => "application/x-www-form-urlencoded",
-             "accept" => "application/json"
-           },
-           body,
-           request_options(source)
-         ) do
-      {:ok, %{status: status, body: %{"data" => %{"access_token" => token}}}}
-      when status in 200..299 and is_binary(token) and token != "" ->
-        {:ok, token}
-
-      {:ok, %{status: status, body: %{"data" => %{"access_token" => token}}}}
-      when status in 200..299 and is_binary(token) ->
-        {:error, :missing_access_token}
-
-      {:ok, %{status: status, body: body}} ->
-        {:error, {:token_request_failed, status, body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp armis_secret_key(credentials) do
-    Enum.find_value(
-      ["secret_key", :secret_key, "api_secret", :api_secret],
-      "",
-      fn key ->
-        case Map.get(credentials, key) do
-          value when is_binary(value) ->
-            value = String.trim(value)
-            if value == "", do: nil, else: value
-
-          _ ->
-            nil
-        end
-      end
-    )
-  end
-
-  defp request_headers(token) do
-    %{
-      "Authorization" => authorization_header(token),
-      "Content-Type" => "application/json",
-      "Accept" => "application/json"
-    }
-  end
-
-  defp authorization_header(token) when is_binary(token) do
-    token = String.trim(token)
-
-    if Regex.match?(~r/^[A-Za-z]+\s+\S+/, token) do
-      token
-    else
-      "Bearer #{token}"
-    end
-  end
-
   defp request_options(source) do
     [base_url: Map.fetch!(source, :endpoint)]
   end
@@ -1242,21 +1170,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   defp default_request(path, method, headers, body, opts) do
     request =
       [method: method, url: path, json: body, headers: Enum.to_list(headers)]
-      |> Req.new()
-      |> Req.merge(opts)
-
-    case Req.request(request) do
-      {:ok, %Req.Response{status: status, body: response_body}} ->
-        {:ok, %{status: status, body: response_body}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp default_form_request(path, method, headers, body, opts) do
-    request =
-      [method: method, url: path, form: body, headers: Enum.to_list(headers)]
       |> Req.new()
       |> Req.merge(opts)
 
