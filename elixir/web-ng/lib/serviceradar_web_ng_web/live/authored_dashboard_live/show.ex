@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
-  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
@@ -37,16 +37,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:panel_preview, nil)
       |> assign(:source_query_params, SourceQueries.default_params())
       |> assign(:source_query_preview, nil)
-      |> assign(:can_edit?, can_edit?(socket.assigns.current_scope))
-      |> assign(:can_share?, can_share?(socket.assigns.current_scope))
-      |> assign(:can_schedule_reports?, can_schedule_reports?(socket.assigns.current_scope))
-      |> assign(:can_view_groups?, can_view_groups?(socket.assigns.current_scope))
+      |> assign(:can_edit?, AccessControls.can_edit?(socket.assigns.current_scope))
+      |> assign(:can_share?, AccessControls.can_share?(socket.assigns.current_scope))
+      |> assign(:can_schedule_reports?, AccessControls.can_schedule_reports?(socket.assigns.current_scope))
+      |> assign(:can_view_groups?, AccessControls.can_view_groups?(socket.assigns.current_scope))
       |> assign(
         :can_view_share_principals?,
-        can_view_share_principals?(socket.assigns.current_scope)
+        AccessControls.can_view_share_principals?(socket.assigns.current_scope)
       )
-      |> assign(:user_grant_params, default_user_grant_params())
-      |> assign(:group_grant_params, default_group_grant_params())
+      |> assign(:user_grant_params, AccessControls.default_user_grant_params())
+      |> assign(:group_grant_params, AccessControls.default_group_grant_params())
       |> assign(:report_schedule_params, default_report_schedule_params())
       |> assign(:panel_params, PanelParams.default())
       |> assign(:loading?, connected?(socket))
@@ -61,7 +61,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   @impl true
   def handle_params(%{"dashboard_id" => dashboard_id}, _uri, socket) do
     scope = socket.assigns.current_scope
-    access_assigns = access_assigns(socket.assigns)
+    access_assigns = AccessControls.assigns(socket.assigns)
     current_variable_values = socket.assigns.variable_values
 
     socket =
@@ -82,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                 {panel.id, preview_trend_query(scope, panel, variable_values)}
               end)
 
-            access = load_access_controls(scope, dashboard, access_assigns)
+            access = AccessControls.load(scope, dashboard, access_assigns)
             clone_targets = load_clone_targets(scope, dashboard)
 
             {:ok, dashboard, panels, results, trends, variable_values, access, clone_targets}
@@ -153,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("open_settings", _params, socket) do
-    if dashboard_settings_available?(socket.assigns.dashboard, socket.assigns) do
+    if AccessControls.settings_available?(socket.assigns.dashboard, socket.assigns) do
       {:noreply, assign(socket, :settings_open?, true)}
     else
       {:noreply, put_flash(socket, :error, "Not authorized to manage dashboard settings")}
@@ -194,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("new_panel", _params, socket) do
-    case authorize_panel_edit(socket) do
+    case AccessControls.authorize_panel_edit(socket) do
       :ok ->
         {:noreply,
          socket
@@ -232,7 +232,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("run_source_query", %{"source_query" => params}, socket) do
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          params = merge_params(socket.assigns.source_query_params, params),
          {:ok, preview} <-
            Dashboards.preview_authored_query(socket.assigns.current_scope, params["srql_query"]) do
@@ -255,7 +255,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("create_source_output", %{"visual-type" => visual_type}, socket) do
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          %{source_query_preview: preview, dashboard: %{}} <- socket.assigns,
          true <- is_map(preview),
          source = SourceQueries.source_from_preview(socket.assigns.source_query_params, preview),
@@ -291,7 +291,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("canvas_add_panel", %{"visualType" => visual_type}, socket) do
-    case authorize_panel_edit(socket) do
+    case AccessControls.authorize_panel_edit(socket) do
       :ok ->
         visual_type = CanvasState.visual_type(visual_type)
         layout = CanvasState.new_panel_layout(visual_type, socket.assigns.dashboard.panels || [])
@@ -325,7 +325,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("canvas_layout_change", %{"layouts" => layouts}, socket) when is_list(layouts) do
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panels} <-
            CanvasState.update_panel_layouts(
              socket.assigns.current_scope,
@@ -415,7 +415,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("duplicate_panel", %{"id" => id}, socket) do
     panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
 
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panel} <- require_record(panel),
          {:ok, _panel} <-
            Dashboards.create_authored_panel(
@@ -435,7 +435,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("delete_panel", %{"id" => id}, socket) do
     panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
 
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panel} <- require_record(panel),
          :ok <- Dashboards.delete_authored_panel(socket.assigns.current_scope, panel) do
       socket =
@@ -462,7 +462,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("clone_panel", %{"panel_id" => id, "target_dashboard_id" => target_dashboard_id}, socket) do
     panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
 
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panel} <- require_record(panel),
          {:ok, target} <-
            Dashboards.get_authored_dashboard(socket.assigns.current_scope, target_dashboard_id, load: [:panels]),
@@ -483,7 +483,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("compact_layout", _params, socket) do
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panels} <- compact_dashboard_panels(socket) do
       dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
 
@@ -508,7 +508,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     save_result =
       if socket.assigns.editing_panel_id == "new" do
-        with :ok <- authorize_panel_edit(socket) do
+        with :ok <- AccessControls.authorize_panel_edit(socket) do
           attrs =
             params
             |> PanelParams.attrs()
@@ -517,7 +517,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           Dashboards.create_authored_panel(socket.assigns.current_scope, attrs)
         end
       else
-        with :ok <- authorize_panel_edit(socket),
+        with :ok <- AccessControls.authorize_panel_edit(socket),
              {:ok, panel} <- require_record(panel) do
           Dashboards.update_authored_panel(socket.assigns.current_scope, panel, PanelParams.attrs(params))
         end
@@ -553,7 +553,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("grant_user", %{"grant" => params}, socket) do
     params = merge_params(socket.assigns.user_grant_params, params)
 
-    with :ok <- authorize_share(socket),
+    with :ok <- AccessControls.authorize_share(socket),
          {:ok, _grant} <-
            Dashboards.grant_authored_dashboard_to_user(
              socket.assigns.current_scope,
@@ -562,7 +562,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:noreply,
        socket
        |> put_flash(:info, "User access updated")
-       |> assign(:user_grant_params, default_user_grant_params())
+       |> assign(:user_grant_params, AccessControls.default_user_grant_params())
        |> reload_access_controls()}
     else
       {:error, reason} ->
@@ -577,7 +577,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("grant_group", %{"grant" => params}, socket) do
     params = merge_params(socket.assigns.group_grant_params, params)
 
-    with :ok <- authorize_share(socket),
+    with :ok <- AccessControls.authorize_share(socket),
          {:ok, _grant} <-
            Dashboards.grant_authored_dashboard_to_group(
              socket.assigns.current_scope,
@@ -586,7 +586,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:noreply,
        socket
        |> put_flash(:info, "Group access updated")
-       |> assign(:group_grant_params, default_group_grant_params())
+       |> assign(:group_grant_params, AccessControls.default_group_grant_params())
        |> reload_access_controls()}
     else
       {:error, reason} ->
@@ -601,7 +601,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("revoke_grant", %{"id" => id}, socket) do
     grant = Enum.find(socket.assigns.access_grants, &(&1.id == id))
 
-    with :ok <- authorize_share(socket),
+    with :ok <- AccessControls.authorize_share(socket),
          {:ok, grant} <- require_record(grant),
          :ok <- Dashboards.revoke_authored_access_grant(socket.assigns.current_scope, grant) do
       {:noreply, socket |> put_flash(:info, "Access revoked") |> reload_access_controls()}
@@ -629,7 +629,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> Map.put("dashboard_id", socket.assigns.dashboard.id)
       |> Map.put("recipients", recipients(params["recipients"]))
 
-    with :ok <- authorize_report_schedule(socket),
+    with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, _schedule} <-
            Dashboards.create_authored_report_schedule(socket.assigns.current_scope, attrs) do
       {:noreply,
@@ -658,7 +658,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         _ -> %{}
       end
 
-    with :ok <- authorize_report_schedule(socket),
+    with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
          {:ok, _schedule} <-
            Dashboards.update_authored_report_schedule(
@@ -676,7 +676,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("delete_report_schedule", %{"id" => id}, socket) do
     schedule = Enum.find(socket.assigns.dashboard.report_schedules || [], &(&1.id == id))
 
-    with :ok <- authorize_report_schedule(socket),
+    with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
          :ok <- Dashboards.delete_authored_report_schedule(socket.assigns.current_scope, schedule) do
       {:noreply, socket |> put_flash(:info, "Report schedule deleted") |> reload_report_schedules()}
@@ -729,7 +729,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         />
 
         <section
-          :if={@settings_open? and dashboard_settings_available?(@dashboard, assigns)}
+          :if={@settings_open? and AccessControls.settings_available?(@dashboard, assigns)}
           class="rounded-lg border border-slate-800/80 bg-[#0b1220]/90 text-slate-100 shadow-xl shadow-cyan-950/10 backdrop-blur-md"
         >
           <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -746,7 +746,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             </div>
             <div class="flex flex-wrap gap-2">
               <button
-                :if={can_manage_dashboard?(@dashboard, assigns)}
+                :if={AccessControls.can_manage?(@dashboard, assigns)}
                 type="button"
                 class="btn btn-sm btn-primary"
                 phx-click="new_panel"
@@ -754,7 +754,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                 <.icon name="hero-plus" class="size-4" /> Add Panel
               </button>
               <button
-                :if={can_manage_dashboard?(@dashboard, assigns)}
+                :if={AccessControls.can_manage?(@dashboard, assigns)}
                 type="button"
                 class="btn btn-sm"
                 phx-click="compact_layout"
@@ -769,7 +769,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
           <div class="space-y-6 p-4">
             <section
-              :if={can_manage_dashboard?(@dashboard, assigns)}
+              :if={AccessControls.can_manage?(@dashboard, assigns)}
               class="rounded-lg border border-slate-800/80 bg-slate-950/40"
             >
               <div class="space-y-4 p-4">
@@ -778,7 +778,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                   preview={@source_query_preview}
                   source_queries={SourceQueries.source_queries(@dashboard)}
                   templates={SourceQueries.templates()}
-                  can_manage?={can_manage_dashboard?(@dashboard, assigns)}
+                  can_manage?={AccessControls.can_manage?(@dashboard, assigns)}
                 />
 
                 <.dashboard_builder_canvas
@@ -786,13 +786,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                   panels={CanvasState.panels(@dashboard, @panel_results)}
                   visual_options={CanvasState.visual_options()}
                   selected_id={CanvasState.selected_panel_id(@editing_panel_id, @dashboard)}
-                  can_manage={can_manage_dashboard?(@dashboard, assigns)}
+                  can_manage={AccessControls.can_manage?(@dashboard, assigns)}
                 />
               </div>
             </section>
 
             <section
-              :if={can_share_dashboard?(@dashboard, assigns)}
+              :if={AccessControls.can_share_dashboard?(@dashboard, assigns)}
               class="rounded-lg border border-base-300"
             >
               <div class="flex flex-col gap-2 border-b border-base-300 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
@@ -819,7 +819,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                     class="flex flex-col gap-3 rounded-lg border border-base-300 p-3 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div>
-                      <div class="text-sm font-medium">{grant_label(grant)}</div>
+                      <div class="text-sm font-medium">{AccessControls.grant_label(grant)}</div>
                       <div class="mt-1 flex flex-wrap gap-2">
                         <span class="badge badge-sm">{grant.subject_type}</span>
                         <span class="badge badge-sm badge-outline">{grant.access}</span>
@@ -848,14 +848,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       field={@user_grant_form[:subject_user_id]}
                       type="select"
                       label="User"
-                      options={user_select_options(@users)}
+                      options={AccessControls.user_select_options(@users)}
                     />
                     <.input
                       field={@user_grant_form[:access]}
                       type="select"
                       id="user_grant_access"
                       label="Access"
-                      options={access_select_options()}
+                      options={AccessControls.access_select_options()}
                     />
                     <button type="submit" class="btn btn-sm" disabled={@users == []}>
                       <.icon name="hero-user-plus" class="size-4" /> Grant User
@@ -874,14 +874,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       field={@group_grant_form[:subject_group_id]}
                       type="select"
                       label="Group"
-                      options={group_select_options(@user_groups)}
+                      options={AccessControls.group_select_options(@user_groups)}
                     />
                     <.input
                       field={@group_grant_form[:access]}
                       type="select"
                       id="group_grant_access"
                       label="Access"
-                      options={access_select_options()}
+                      options={AccessControls.access_select_options()}
                     />
                     <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
                       <.icon name="hero-user-group" class="size-4" /> Grant Group
@@ -892,7 +892,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             </section>
 
             <section
-              :if={can_schedule_dashboard?(@dashboard, assigns)}
+              :if={AccessControls.can_schedule_dashboard?(@dashboard, assigns)}
               class="rounded-lg border border-base-300"
             >
               <div class="border-b border-base-300 px-3 py-2">
@@ -1093,7 +1093,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             trend={Map.get(@trend_results, entry.panel.id)}
             style={entry.style}
             expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, entry.panel.id)}
-            can_manage?={can_manage_dashboard?(@dashboard, assigns)}
+            can_manage?={AccessControls.can_manage?(@dashboard, assigns)}
             csv_data_url={panel_csv_export_url(@dashboard, entry.panel, @variable_values)}
           />
         </section>
@@ -1107,7 +1107,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           </span>
           <div class="flex flex-wrap gap-2">
             <button
-              :if={dashboard_settings_available?(@dashboard, assigns) and !@settings_open?}
+              :if={AccessControls.settings_available?(@dashboard, assigns) and !@settings_open?}
               type="button"
               class="btn btn-xs btn-primary"
               phx-click="open_settings"
@@ -1115,7 +1115,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
             </button>
             <button
-              :if={dashboard_settings_available?(@dashboard, assigns) and @settings_open?}
+              :if={AccessControls.settings_available?(@dashboard, assigns) and @settings_open?}
               type="button"
               class="btn btn-xs"
               phx-click="close_settings"
@@ -1130,14 +1130,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       </div>
     </Layouts.app>
     """
-  end
-
-  defp default_user_grant_params do
-    %{"subject_user_id" => "", "access" => "view"}
-  end
-
-  defp default_group_grant_params do
-    %{"subject_group_id" => "", "access" => "view"}
   end
 
   defp default_report_schedule_params do
@@ -1178,37 +1170,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     assign(socket, :panel_form, to_form(socket.assigns.panel_params, as: :panel))
   end
 
-  defp load_access_controls(scope, dashboard, assigns) do
-    access_grants =
-      if dashboard_settings_available?(dashboard, Map.put(assigns, :current_scope, scope)) do
-        Dashboards.list_authored_access_grants(scope, dashboard.id)
-      else
-        []
-      end
-
-    user_groups =
-      if assigns.can_view_groups? do
-        Dashboards.list_user_groups(scope)
-      else
-        []
-      end
-
-    users =
-      if assigns.can_view_share_principals? do
-        Dashboards.list_share_principals(scope)
-      else
-        []
-      end
-
-    %{access_grants: access_grants, user_groups: user_groups, users: users}
-  end
-
   defp reload_access_controls(%{assigns: %{dashboard: dashboard}} = socket) do
     access =
-      load_access_controls(
+      AccessControls.load(
         socket.assigns.current_scope,
         dashboard,
-        access_assigns(socket.assigns)
+        AccessControls.assigns(socket.assigns)
       )
 
     socket
@@ -1322,71 +1289,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => index})
   end
 
-  defp access_assigns(assigns) do
-    assigns
-    |> Map.take([:can_edit?, :can_share?, :can_view_groups?, :can_view_share_principals?])
-    |> Map.put_new(:current_scope, Map.get(assigns, :current_scope))
-  end
-
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
-
-  defp dashboard_settings_available?(nil, _assigns), do: false
-
-  defp dashboard_settings_available?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) or can_share_dashboard?(dashboard, assigns) or
-      can_schedule_dashboard?(dashboard, assigns)
-  end
-
-  defp can_manage_dashboard?(nil, _assigns), do: false
-
-  defp can_manage_dashboard?(dashboard, assigns) do
-    dashboard_owner?(dashboard, Map.get(assigns, :current_scope)) or
-      Map.get(assigns, :can_edit?, false)
-  end
-
-  defp can_share_dashboard?(nil, _assigns), do: false
-
-  defp can_share_dashboard?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) and Map.get(assigns, :can_share?, false)
-  end
-
-  defp can_schedule_dashboard?(nil, _assigns), do: false
-
-  defp can_schedule_dashboard?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) and Map.get(assigns, :can_schedule_reports?, false)
-  end
-
-  defp dashboard_owner?(%{owner_id: owner_id}, %{user: %{id: user_id}})
-       when not is_nil(owner_id) and not is_nil(user_id) do
-    to_string(owner_id) == to_string(user_id)
-  end
-
-  defp dashboard_owner?(_dashboard, _scope), do: false
-
-  defp can_edit?(scope), do: RBAC.can?(scope, "analytics.dashboards.edit")
-  defp can_share?(scope), do: RBAC.can?(scope, "analytics.dashboards.share")
-  defp can_schedule_reports?(scope), do: RBAC.can?(scope, "analytics.reports.schedule")
-  defp can_view_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.view")
-
-  defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
-
-  defp authorize_share(socket) do
-    if can_share_dashboard?(socket.assigns.dashboard, socket.assigns),
-      do: :ok,
-      else: {:error, :forbidden}
-  end
-
-  defp authorize_panel_edit(socket) do
-    if can_manage_dashboard?(socket.assigns.dashboard, socket.assigns),
-      do: :ok,
-      else: {:error, :forbidden}
-  end
-
-  defp authorize_report_schedule(socket) do
-    if can_schedule_dashboard?(socket.assigns.dashboard, socket.assigns),
-      do: :ok,
-      else: {:error, :forbidden}
-  end
 
   defp require_record(nil), do: {:error, :not_found}
   defp require_record(record), do: {:ok, record}
@@ -1419,33 +1322,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         socket
     end
   end
-
-  defp access_select_options, do: [{"View", "view"}, {"Edit", "edit"}]
-
-  defp group_select_options(groups) do
-    Enum.map(groups, &{&1.name, &1.id})
-  end
-
-  defp user_select_options(users) do
-    Enum.map(users, &{user_label(&1), &1.id})
-  end
-
-  defp grant_label(%{subject_type: :user, subject_user: user}), do: user_label(user)
-  defp grant_label(%{subject_type: "user", subject_user: user}), do: user_label(user)
-  defp grant_label(%{subject_type: :group, subject_group: group}), do: group_label(group)
-  defp grant_label(%{subject_type: "group", subject_group: group}), do: group_label(group)
-  defp grant_label(_grant), do: "Unknown principal"
-
-  defp group_label(%{name: name}) when is_binary(name) and name != "", do: name
-  defp group_label(_group), do: "Unknown group"
-
-  defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
-    "#{name} <#{email}>"
-  end
-
-  defp user_label(%{email: %Ash.CiString{} = email}), do: to_string(email)
-  defp user_label(%{email: email}) when is_binary(email), do: email
-  defp user_label(_user), do: "Unknown user"
 
   defp format_value(%DateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
   defp format_value(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
