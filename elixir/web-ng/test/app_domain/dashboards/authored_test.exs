@@ -123,6 +123,18 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert :bar in preview.compatible_visuals
     assert :category in preview.compatible_visuals
     assert :status_list in preview.compatible_visuals
+    refute :gauge in preview.compatible_visuals
+  end
+
+  test "gauge compatibility is limited to single metrics and availability ratios", %{scope: scope} do
+    assert {:ok, stat_preview} = Dashboards.preview_authored_query(scope, "stat services")
+    assert :gauge in stat_preview.compatible_visuals
+
+    assert {:ok, series_preview} = Dashboards.preview_authored_query(scope, "series services")
+    refute :gauge in series_preview.compatible_visuals
+
+    assert {:ok, grouped_preview} = Dashboards.preview_authored_query(scope, "grouped availability devices")
+    assert :gauge in grouped_preview.compatible_visuals
   end
 
   test "pivot compatibility requires two dimensions plus a numeric field", %{scope: scope} do
@@ -184,6 +196,16 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
 
     refute :availability in compatible
+
+    assert {:error, {:incompatible_visual_type, :gauge, compatible}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Series gauge",
+               srql_query: "series services",
+               visual_type: :gauge
+             })
+
+    refute :gauge in compatible
   end
 
   test "table fallback can save an empty result set", %{scope: scope, dashboard: dashboard} do
@@ -290,6 +312,17 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert panel.visual_type == :availability
     assert panel.data_binding["value_field"] == "count"
     assert panel.data_binding["label_field"] == "is_available"
+
+    assert {:ok, gauge_panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Grouped Availability Gauge",
+               srql_query: "grouped availability devices",
+               visual_type: :gauge,
+               data_binding: %{"value_field" => "count", "label_field" => "is_available"}
+             })
+
+    assert gauge_panel.visual_type == :gauge
   end
 
   test "panel refresh interval must stay within the supported bounds", %{

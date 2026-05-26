@@ -30,6 +30,30 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
     end
   end
 
+  describe "panel_attrs_from_output/4 gauge bindings" do
+    test "uses grouped availability bindings for gauge outputs" do
+      attrs =
+        SourceQueries.panel_attrs_from_output(
+          %{id: "dashboard-1", panels: []},
+          %{
+            id: "source-1",
+            name: "Device availability",
+            srql_query: "in:devices stats:count() as count by is_available",
+            fields: [
+              %{"name" => "is_available", "type" => "boolean"},
+              %{"name" => "count", "type" => "number"}
+            ]
+          },
+          "gauge",
+          %{"lookback_days" => "30"}
+        )
+
+      assert attrs.data_binding["value_field"] == "count"
+      assert attrs.data_binding["label_field"] == "is_available"
+      refute Map.has_key?(attrs.data_binding, "denominator_field")
+    end
+  end
+
   defp panel_attrs(query, lookback_days) do
     SourceQueries.panel_attrs_from_output(
       %{id: "dashboard-1", panels: []},

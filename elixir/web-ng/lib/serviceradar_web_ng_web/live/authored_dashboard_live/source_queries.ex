@@ -293,6 +293,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
     Enum.find_value(["status", "state", "health", "is_available", "available"], &field_named(fields, &1))
   end
 
+  def availability_label_field(fields) do
+    Enum.find_value(["is_available", "available", "availability"], &field_named(fields, &1))
+  end
+
   def availability_numerator_field(fields), do: field_named(fields, "ok") || field_named(fields, "available")
 
   defp normalize_source(source) do
@@ -375,10 +379,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   defp output_description(_visual), do: "Rows and fields from this source query."
 
   defp binding_for_visual(:availability, fields) do
-    if field_named(fields, "count") && status_field(fields) do
+    if field_named(fields, "count") && availability_label_field(fields) do
       %{
         "value_field" => field_named(fields, "count"),
-        "label_field" => status_field(fields),
+        "label_field" => availability_label_field(fields),
         "dataset" => "source"
       }
     else
@@ -388,6 +392,32 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
         "label_field" => first_field_of_type(fields, :string),
         "dataset" => "source"
       }
+    end
+  end
+
+  defp binding_for_visual(:gauge, fields) do
+    cond do
+      field_named(fields, "count") && availability_label_field(fields) ->
+        %{
+          "value_field" => field_named(fields, "count"),
+          "label_field" => availability_label_field(fields),
+          "dataset" => "source"
+        }
+
+      availability_numerator_field(fields) && field_named(fields, "total") ->
+        %{
+          "numerator_field" => availability_numerator_field(fields),
+          "denominator_field" => field_named(fields, "total"),
+          "label_field" => first_field_of_type(fields, :string),
+          "dataset" => "source"
+        }
+
+      true ->
+        %{
+          "value_field" => first_field_of_type(fields, :number),
+          "label_field" => first_field_of_type(fields, :string),
+          "dataset" => "source"
+        }
     end
   end
 

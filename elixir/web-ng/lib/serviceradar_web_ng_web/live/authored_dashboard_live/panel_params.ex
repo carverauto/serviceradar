@@ -129,11 +129,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
       |> maybe_default("value_field", SourceQueries.first_field_of_type(fields, :number))
       |> maybe_default("numerator_field", SourceQueries.availability_numerator_field(fields))
       |> maybe_default("denominator_field", SourceQueries.field_named(fields, "total"))
-      |> maybe_default("label_field", SourceQueries.first_field_of_type(fields, :string))
+      |> maybe_default(
+        "label_field",
+        SourceQueries.availability_label_field(fields) || SourceQueries.first_field_of_type(fields, :string)
+      )
       |> maybe_default("row_field", SourceQueries.first_field_of_type(fields, :string))
       |> maybe_default(
         "column_field",
-        SourceQueries.status_field(fields) || SourceQueries.first_field_of_type(fields, :string)
+        SourceQueries.availability_label_field(fields) ||
+          SourceQueries.status_field(fields) || SourceQueries.first_field_of_type(fields, :string)
       )
       |> maybe_default("time_field", SourceQueries.first_field_of_type(fields, :datetime))
       |> maybe_default("status_field", SourceQueries.status_field(fields))

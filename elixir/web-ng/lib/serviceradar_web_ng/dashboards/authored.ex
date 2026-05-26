@@ -509,8 +509,6 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   # Tables are the catch-all rendering path for any tabular SRQL result shape.
   defp validate_visual_compatibility(:table, _compatible), do: :ok
 
-  defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
-
   defp validate_visual_compatibility(type, compatible) do
     if type in compatible do
       :ok
@@ -914,7 +912,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     [:table]
     |> maybe_add_visual(:stat, stat_compatible?(rows, fields))
     |> maybe_add_visual(:count, stat_compatible?(rows, fields))
-    |> maybe_add_visual(:gauge, Enum.any?(fields, fn field -> field.type == :number end))
+    |> maybe_add_visual(:gauge, gauge_compatible?(rows, fields))
     |> maybe_add_visual(:availability, availability_compatible?(rows, fields))
     |> maybe_add_visual(
       :line,
@@ -1334,6 +1332,11 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
         (MapSet.member?(names, "is_available") or MapSet.member?(names, "available"))
 
     explicit_availability? or grouped_availability?
+  end
+
+  defp gauge_compatible?(rows, fields) do
+    availability_compatible?(rows, fields) or
+      (stat_compatible?(rows, fields) and Enum.any?(fields, &(&1.type == :number)))
   end
 
   defp grouped_availability_binding?(binding, fields) do

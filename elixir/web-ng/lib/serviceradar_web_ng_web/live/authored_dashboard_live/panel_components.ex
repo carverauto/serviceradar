@@ -704,8 +704,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     |> bounded_integer(1, 365)
   end
 
-  defp trend_period_label(1), do: "compared to yesterday"
-  defp trend_period_label(days), do: "compared to #{days} days ago"
+  defp trend_period_label(1), do: "Compared to yesterday"
+  defp trend_period_label(days), do: "Compared to #{days} days ago"
 
   defp visual_label(panel, fallback) do
     display_value(panel, "label", panel.title || fallback)

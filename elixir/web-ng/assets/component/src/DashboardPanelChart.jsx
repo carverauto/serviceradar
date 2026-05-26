@@ -386,7 +386,7 @@ function TrendBadge({trend}) {
   if (!text) return null
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5">
       <span className={`font-semibold ${trendTone(trend)}`}>
         {trendArrow(trend)} {text}
       </span>
@@ -399,8 +399,8 @@ function GaugeChart({rows, fields, panel, trend}) {
   const gauge = gaugeDatum(rows, fields, panel)
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(96px,40%)_1fr] items-center gap-3 overflow-hidden">
-      <div className="h-full min-h-0">
+    <div className="grid h-full min-h-0 grid-cols-1 items-center gap-2 overflow-hidden sm:grid-cols-[minmax(104px,34%)_minmax(0,1fr)] sm:gap-3">
+      <div className="h-24 min-h-0 sm:h-full">
         <ResponsiveChart>
           <RadialBarChart
             innerRadius="68%"
@@ -414,18 +414,18 @@ function GaugeChart({rows, fields, panel, trend}) {
           </RadialBarChart>
         </ResponsiveChart>
       </div>
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-slate-300">{gauge.label}</div>
-        <div className="mt-1 text-4xl font-semibold tracking-normal text-slate-100">
+      <div className="min-w-0 overflow-hidden">
+        <div className="line-clamp-2 text-sm font-medium leading-5 text-slate-300">{gauge.label}</div>
+        <div className="mt-1 text-3xl font-semibold tracking-normal text-slate-100 sm:text-4xl">
           {gauge.display}<span className="text-xl text-slate-400">{gauge.unit}</span>
         </div>
-        <div className="mt-2 truncate text-xs text-slate-400">{gauge.contextLabel}</div>
+        <div className="mt-2 line-clamp-2 text-xs leading-5 text-slate-400">{gauge.contextLabel}</div>
         <TrendBadge trend={trend} />
-        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-          <span className="rounded border border-slate-700 px-2 py-0.5">
+        <div className="mt-3 flex flex-wrap gap-2 text-xs leading-5 text-slate-400">
+          <span className="max-w-full rounded border border-slate-700 px-2 py-0.5">
             {formatValue(gauge.numerator)} {gauge.numeratorLabel}
           </span>
-          <span className="rounded border border-slate-700 px-2 py-0.5">
+          <span className="max-w-full rounded border border-slate-700 px-2 py-0.5">
             {formatValue(gauge.denominator)} {gauge.denominatorLabel}
           </span>
         </div>
