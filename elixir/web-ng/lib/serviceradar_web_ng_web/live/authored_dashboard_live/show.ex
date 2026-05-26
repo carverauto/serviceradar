@@ -241,7 +241,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
          %{source_query_preview: preview, dashboard: %{}} <- socket.assigns,
          true <- is_map(preview),
          source = SourceQueries.source_from_preview(socket.assigns.source_query_params, preview),
-         {:ok, dashboard} <- persist_source_query(socket, source),
+         {:ok, dashboard} <- SourceQueries.persist_source(socket.assigns.current_scope, socket.assigns.dashboard, source),
          attrs = SourceQueries.panel_attrs_from_output(dashboard, source, visual_type, socket.assigns.source_query_params),
          {:ok, panel} <- Dashboards.create_authored_panel(socket.assigns.current_scope, attrs) do
       panels =
@@ -1179,16 +1179,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp reload_dashboard_panels(socket), do: socket
-
-  defp persist_source_query(socket, source) do
-    dashboard = socket.assigns.dashboard
-    metadata = SourceQueries.upsert_source_metadata(dashboard.metadata || %{}, source)
-
-    case Dashboards.update_authored_dashboard(socket.assigns.current_scope, dashboard, %{metadata: metadata}) do
-      {:ok, updated_dashboard} -> {:ok, %{updated_dashboard | panels: dashboard.panels || []}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
 
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
 

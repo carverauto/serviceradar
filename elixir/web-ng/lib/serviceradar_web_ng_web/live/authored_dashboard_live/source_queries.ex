@@ -86,6 +86,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
 
   def upsert_source_metadata(_metadata, source), do: upsert_source_metadata(%{}, source)
 
+  def persist_source(scope, dashboard, source) do
+    metadata = upsert_source_metadata(dashboard.metadata || %{}, source)
+
+    case Dashboards.update_authored_dashboard(scope, dashboard, %{metadata: metadata}) do
+      {:ok, updated_dashboard} -> {:ok, %{updated_dashboard | panels: dashboard.panels || []}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   def source_from_preview(params, preview) when is_map(params) and is_map(preview) do
     query = params |> Map.get("srql_query", "") |> String.trim()
     name = params |> Map.get("name", "") |> String.trim()
