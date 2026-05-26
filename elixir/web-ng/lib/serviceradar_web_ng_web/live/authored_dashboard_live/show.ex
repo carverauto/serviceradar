@@ -856,7 +856,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
         <section
           :if={!@loading? and @dashboard}
-          class="grid grid-cols-1 gap-4 lg:grid-cols-12"
+          class="sr-authored-dashboard-grid grid grid-cols-1 gap-4 lg:grid-cols-12"
         >
           <.panel_result
             :for={panel <- @dashboard.panels || []}
@@ -929,7 +929,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign_new(:csv_data_url, fn -> nil end)
 
     ~H"""
-    <article class="rounded-lg border border-base-300 bg-base-100" style={@style}>
+    <article
+      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100"
+      style={@style}
+    >
       <div class="flex flex-col gap-2 border-b border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
@@ -999,7 +1002,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign_new(:can_manage?, fn -> false end)
 
     ~H"""
-    <article class="rounded-lg border border-error/30 bg-base-100" style={@style}>
+    <article
+      class="sr-authored-dashboard-panel rounded-lg border border-error/30 bg-base-100"
+      style={@style}
+    >
       <div class="flex flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 class="text-sm font-semibold">{@panel.title}</h2>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
@@ -1046,7 +1052,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp panel_result(assigns) do
     ~H"""
     <article
-      class="rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60"
+      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60"
       style={@style}
     >
       {@panel.title}
@@ -1241,11 +1247,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp panel_grid_style(panel) do
     layout = panel.layout || %{}
-    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12)
+    x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
+    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
+    y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
     height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
     order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
 
-    "grid-column: span #{width} / span #{width}; min-height: #{height * 38}px; order: #{order};"
+    "--sr-panel-x: #{x + 1}; --sr-panel-y: #{y + 1}; --sr-panel-w: #{width}; --sr-panel-h: #{height}; --sr-panel-order: #{order};"
   end
 
   defp bounded_integer(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)

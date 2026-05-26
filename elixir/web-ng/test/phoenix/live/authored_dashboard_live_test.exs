@@ -422,6 +422,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     html = render_async(view, 5_000)
 
     assert html =~ "download=\"service-series.csv\""
+    assert html =~ "sr-authored-dashboard-panel"
+    assert html =~ "--sr-panel-x: 9"
+    assert html =~ "--sr-panel-y: 13"
+    assert html =~ "--sr-panel-w: 4"
 
     html = render_click(view, "toggle_panel_srql", %{"id" => panel.id})
     assert html =~ panel.srql_query
