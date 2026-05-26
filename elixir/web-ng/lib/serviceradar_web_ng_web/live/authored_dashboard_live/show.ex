@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.ReportSchedules
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
@@ -47,7 +48,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       )
       |> assign(:user_grant_params, AccessControls.default_user_grant_params())
       |> assign(:group_grant_params, AccessControls.default_group_grant_params())
-      |> assign(:report_schedule_params, default_report_schedule_params())
+      |> assign(:report_schedule_params, ReportSchedules.default_params())
       |> assign(:panel_params, PanelParams.default())
       |> assign(:loading?, connected?(socket))
       |> assign_grant_forms()
@@ -605,10 +606,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("create_report_schedule", %{"schedule" => params}, socket) do
     params = merge_params(socket.assigns.report_schedule_params, params)
 
-    attrs =
-      params
-      |> Map.put("dashboard_id", socket.assigns.dashboard.id)
-      |> Map.put("recipients", recipients(params["recipients"]))
+    attrs = ReportSchedules.attrs(params, socket.assigns.dashboard.id)
 
     with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, _schedule} <-
@@ -616,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:noreply,
        socket
        |> put_flash(:info, "Report schedule created")
-       |> assign(:report_schedule_params, default_report_schedule_params())
+       |> assign(:report_schedule_params, ReportSchedules.default_params())
        |> reload_report_schedules()
        |> assign_report_schedule_form()}
     else
@@ -632,12 +630,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("toggle_report_schedule", %{"id" => id}, socket) do
     schedule = Enum.find(socket.assigns.dashboard.report_schedules || [], &(&1.id == id))
 
-    attrs =
-      case schedule do
-        %{enabled: true} -> %{enabled: false}
-        %{enabled: false} -> %{enabled: true}
-        _ -> %{}
-      end
+    attrs = ReportSchedules.toggle_attrs(schedule)
 
     with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
@@ -1113,15 +1106,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  defp default_report_schedule_params do
-    %{
-      "name" => "Daily dashboard report",
-      "cron" => "0 8 * * *",
-      "timezone" => "UTC",
-      "recipients" => ""
-    }
-  end
-
   defp panel_csv_export_url(dashboard, panel, variable_values) do
     dashboard_ref = Dashboards.authored_dashboard_route_ref(dashboard)
     query = %{vars: Jason.encode!(variable_values || %{})}
@@ -1240,17 +1224,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp require_record(nil), do: {:error, :not_found}
   defp require_record(record), do: {:ok, record}
-
-  defp recipients(value) when is_binary(value) do
-    value
-    |> String.split([",", "\n"], trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp recipients(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
-  defp recipients(_value), do: []
 
   defp maybe_refresh_editing_panel_params(socket, panels) do
     case socket.assigns.editing_panel_id do
