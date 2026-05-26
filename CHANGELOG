@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.80
+
+Dashboard authoring canvas and topology snapshot recovery.
+
+## Whats New
+
+**1.2.80**
+- Added the GridStack-powered authored dashboard canvas with draggable and resizable panels, live previews, visual field bindings, gauge/count/pivot/trend controls, dashboard variables, panel duplicate/clone workflows, compact layout, and viewer header actions for refresh, SRQL inspection, CSV export, and builder navigation.
+- Introduced the shared Monaco-backed SRQL editor with catalog completions, inline parse markers, and reusable LiveView/React integration across dashboard authoring and SRQL-enabled settings.
+- Improved authored dashboard persistence and UX with streaming panel CSV exports, draft save cleanup, preserved rendered grid placement, single-path panel creation, and full-width editing.
+- Hardened topology snapshot generation so endpoint attachment quarantine tolerates missing peer nodes instead of crashing `/topology/snapshot/latest`, with regression coverage for the GodView stream projection path.
+
 # ServiceRadar v1.2.79
 
 Dashboard SRQL service views and default dashboard recovery.
