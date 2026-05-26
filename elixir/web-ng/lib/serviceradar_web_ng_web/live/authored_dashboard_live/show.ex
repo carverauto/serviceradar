@@ -5,11 +5,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents
 
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
@@ -67,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           with {:ok, %AuthoredDashboard{} = dashboard} <-
                  Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
             panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
-            variable_values = dashboard_variable_values(dashboard, current_variable_values)
+            variable_values = DashboardVariables.values(dashboard, current_variable_values)
 
             results =
               Map.new(panels, fn panel ->
@@ -371,7 +373,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("change_variable", %{"variables" => params}, socket) do
-    values = dashboard_variable_values(socket.assigns.dashboard, params)
+    values = DashboardVariables.values(socket.assigns.dashboard, params)
 
     {:noreply,
      socket
@@ -720,7 +722,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     >
       <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <.variable_bar
-          :if={@dashboard && dashboard_variables(@dashboard) != []}
+          :if={@dashboard && DashboardVariables.list(@dashboard) != []}
           dashboard={@dashboard}
           values={@variable_values}
         />
@@ -1129,50 +1131,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
-  attr :dashboard, :any, required: true
-  attr :values, :map, default: %{}
-
-  defp variable_bar(assigns) do
-    assigns = assign(assigns, :variables, dashboard_variables(assigns.dashboard))
-
-    ~H"""
-    <section class="rounded-lg border border-base-300 bg-base-100 px-4 py-3">
-      <form phx-change="change_variable" class="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div class="shrink-0">
-          <h2 class="text-sm font-semibold">Dashboard Variables</h2>
-          <p class="text-xs text-base-content/70">
-            Values substitute into panel SRQL before execution.
-          </p>
-        </div>
-        <div class="flex flex-1 flex-wrap gap-3">
-          <label :for={variable <- @variables} class="form-control min-w-44">
-            <span class="label-text text-xs">{variable.label}</span>
-            <select
-              :if={variable.options != []}
-              name={"variables[#{variable.name}]"}
-              class="select select-sm"
-            >
-              <option
-                :for={option <- variable.options}
-                value={option}
-                selected={Map.get(@values, variable.name, variable.default) == option}
-              >
-                {option}
-              </option>
-            </select>
-            <input
-              :if={variable.options == []}
-              name={"variables[#{variable.name}]"}
-              class="input input-sm"
-              value={Map.get(@values, variable.name, variable.default)}
-            />
-          </label>
-        </div>
-      </form>
-    </section>
-    """
-  end
-
   defp default_user_grant_params do
     %{"subject_user_id" => "", "access" => "view"}
   end
@@ -1369,7 +1327,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp preview_panel_query(scope, panel, variable_values) do
-    query = substitute_variables(panel.srql_query, variable_values)
+    query = DashboardVariables.substitute(panel.srql_query, variable_values)
     Dashboards.preview_authored_query(scope, query, limit: 250)
   end
 
@@ -1381,93 +1339,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     case query do
       value when is_binary(value) and value != "" ->
-        Dashboards.preview_authored_query(scope, substitute_variables(value, variable_values), limit: 250)
+        Dashboards.preview_authored_query(scope, DashboardVariables.substitute(value, variable_values), limit: 250)
 
       _ ->
         nil
     end
   end
-
-  defp dashboard_variables(%{variables: variables}) when is_map(variables) do
-    variables
-    |> Enum.map(fn {name, config} -> dashboard_variable(name, config) end)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.sort_by(& &1.name)
-  end
-
-  defp dashboard_variables(%{variables: variables}) when is_list(variables) do
-    variables
-    |> Enum.map(fn
-      %{"name" => name} = config -> dashboard_variable(name, config)
-      %{name: name} = config -> dashboard_variable(name, config)
-      name when is_binary(name) -> dashboard_variable(name, %{})
-      _ -> nil
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp dashboard_variables(_dashboard), do: []
-
-  defp dashboard_variable(name, config) when is_binary(name) do
-    normalized = normalize_variable_name(name)
-
-    if normalized == "" do
-      nil
-    else
-      config = if is_map(config), do: config, else: %{}
-      options = variable_options(config)
-      default = variable_default(config, options)
-
-      %{
-        name: normalized,
-        label: config["label"] || config[:label] || humanize_field(normalized),
-        options: options,
-        default: default
-      }
-    end
-  end
-
-  defp dashboard_variable(_name, _config), do: nil
-
-  defp dashboard_variable_values(dashboard, current_values) do
-    variables = dashboard_variables(dashboard)
-    current_values = current_values || %{}
-
-    Map.new(variables, fn variable ->
-      value = Map.get(current_values, variable.name) || variable.default || List.first(variable.options) || ""
-      {variable.name, to_string(value)}
-    end)
-  end
-
-  defp variable_options(config) do
-    options = config["options"] || config[:options] || []
-
-    options
-    |> List.wrap()
-    |> Enum.map(&to_string/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp variable_default(config, options) do
-    default = config["default"] || config[:default] || List.first(options) || ""
-    to_string(default)
-  end
-
-  defp normalize_variable_name(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "_")
-  end
-
-  defp substitute_variables(query, values) when is_binary(query) and is_map(values) do
-    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
-      Map.get(values, name, "")
-    end)
-  end
-
-  defp substitute_variables(query, _values), do: query
 
   defp load_clone_targets(scope, dashboard) do
     scope
