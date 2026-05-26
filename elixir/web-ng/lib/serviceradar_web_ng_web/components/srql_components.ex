@@ -54,6 +54,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         name={@name}
         value={@value}
         class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
         disabled={@disabled}
         {@rest}
       />
@@ -62,6 +64,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         id={@input_id}
         name={@name}
         class="sr-only"
+        aria-hidden="true"
+        tabindex="-1"
         disabled={@disabled}
         {@rest}
       >{@value}</textarea>

@@ -195,10 +195,12 @@ function MiniVisual({panel}) {
 function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, onApply, onPreview, onRemove}) {
   const [draft, setDraft] = useState(() => draftFromPanel(panel, defaultQuery))
   const lastPreviewKey = useRef("")
+  const visualDrafts = useRef({})
 
   useEffect(() => {
     const next = draftFromPanel(panel, defaultQuery)
     setDraft(next)
+    visualDrafts.current = {[String(next.visual_type || "table")]: pickBindingDraft(next)}
     lastPreviewKey.current = draftPreviewKey(next)
   }, [panel, defaultQuery])
 
@@ -223,18 +225,28 @@ function Inspector({panel, visualOptions, defaultQuery, srqlCompletions, error, 
     )
   }
 
-  const update = (key, value) => setDraft(current => ({...current, [key]: value}))
-  const updateVisual = value => {
-    setDraft(current => ({
-      ...current,
-      ...defaultsForVisual(value, fields),
-      visual_type: value,
-    }))
-  }
   const fields = panelFields(panel)
   const numericField = field => field.type === "number"
   const dimensionField = field => ["string", "boolean", "datetime"].includes(String(field.type))
   const visual = String(draft.visual_type || "table")
+  const update = (key, value) => setDraft(current => ({...current, [key]: value}))
+  const updateVisual = value => {
+    setDraft(current => {
+      const currentVisual = String(current.visual_type || "table")
+      visualDrafts.current[currentVisual] = pickBindingDraft(current)
+
+      const nextVisual = String(value || "table")
+      const defaults = defaultsForVisual(nextVisual, fields, current)
+      const restored = visualDrafts.current[nextVisual]
+
+      return {
+        ...current,
+        ...emptyBindingDraft(),
+        ...sanitizeBindingsForVisual(nextVisual, restored || defaults, fields, defaults),
+        visual_type: nextVisual,
+      }
+    })
+  }
 
   return (
     <div className="space-y-3">
@@ -368,13 +380,8 @@ function draftPreviewKey(draft) {
   return JSON.stringify(draftPayload(draft))
 }
 
-function defaultsForVisual(visualType, fields) {
-  const visual = String(visualType || "table")
-  const numeric = field => field.type === "number"
-  const dimension = field => ["string", "boolean", "datetime"].includes(String(field.type))
-  const datetime = field => field.type === "datetime"
-
-  const defaults = {
+function emptyBindingDraft() {
+  return {
     value_field: "",
     numerator_field: "",
     denominator_field: "",
@@ -386,14 +393,82 @@ function defaultsForVisual(visualType, fields) {
     aggregate: "sum",
     empty_value: "0",
   }
+}
+
+function pickBindingDraft(draft) {
+  const bindings = {}
+  for (const key of Object.keys(emptyBindingDraft())) {
+    bindings[key] = draft?.[key] || ""
+  }
+
+  bindings.aggregate = draft?.aggregate || "sum"
+  bindings.empty_value = draft?.empty_value || "0"
+  return bindings
+}
+
+function visualBindingKeys(visualType) {
+  const visual = String(visualType || "table")
+
+  if (["stat", "count", "gauge", "availability"].includes(visual)) {
+    return ["value_field", "numerator_field", "denominator_field", "label_field"]
+  }
+
+  if (visual === "pivot") return ["row_field", "column_field", "value_field", "aggregate", "empty_value"]
+  if (["line", "area"].includes(visual)) return ["time_field", "value_field", "label_field"]
+  if (["bar", "category"].includes(visual)) return ["value_field", "label_field"]
+  if (visual === "status_list") return ["value_field", "label_field", "status_field"]
+
+  return []
+}
+
+function validField(value, fields, predicate = () => true) {
+  if (!value) return false
+  return fields.some(field => field.name === value && predicate(field))
+}
+
+function sanitizeBindingsForVisual(visualType, bindings, fields, defaults = emptyBindingDraft()) {
+  const visual = String(visualType || "table")
+  const numeric = field => field.type === "number"
+  const dimension = field => ["string", "boolean", "datetime"].includes(String(field.type))
+  const datetime = field => field.type === "datetime"
+  const next = {}
+
+  for (const key of visualBindingKeys(visual)) {
+    const value = bindings?.[key] || defaults[key] || ""
+
+    if (key === "aggregate") {
+      next[key] = ["sum", "avg", "min", "max", "count"].includes(value) ? value : defaults[key] || "sum"
+    } else if (key === "empty_value") {
+      next[key] = value || defaults[key] || "0"
+    } else if (key === "value_field" || key === "numerator_field" || key === "denominator_field") {
+      next[key] = validField(value, fields, numeric) ? value : defaults[key] || ""
+    } else if (key === "time_field") {
+      next[key] = validField(value, fields, datetime) ? value : defaults[key] || ""
+    } else if (key === "row_field" || key === "column_field") {
+      next[key] = validField(value, fields, dimension) ? value : defaults[key] || ""
+    } else {
+      next[key] = validField(value, fields) ? value : defaults[key] || ""
+    }
+  }
+
+  return next
+}
+
+function defaultsForVisual(visualType, fields, current = {}) {
+  const visual = String(visualType || "table")
+  const numeric = field => field.type === "number"
+  const dimension = field => ["string", "boolean", "datetime"].includes(String(field.type))
+  const datetime = field => field.type === "datetime"
+  const defaults = emptyBindingDraft()
+  const currentBindings = pickBindingDraft(current)
 
   if (["stat", "count", "gauge", "availability"].includes(visual)) {
     return {
       ...defaults,
-      value_field: firstFieldWhere(fields, numeric),
-      numerator_field: firstFieldWhere(fields, numeric),
+      value_field: validField(currentBindings.value_field, fields, numeric) ? currentBindings.value_field : firstFieldWhere(fields, numeric),
+      numerator_field: validField(currentBindings.numerator_field, fields, numeric) ? currentBindings.numerator_field : firstFieldWhere(fields, numeric),
       denominator_field: "",
-      label_field: firstFieldWhere(fields, field => !numeric(field)),
+      label_field: validField(currentBindings.label_field, fields) ? currentBindings.label_field : firstFieldWhere(fields, field => !numeric(field)),
     }
   }
 
@@ -404,7 +479,9 @@ function defaultsForVisual(visualType, fields) {
       ...defaults,
       row_field: dimensions[0]?.name || "",
       column_field: dimensions[1]?.name || dimensions[0]?.name || "",
-      value_field: firstFieldWhere(fields, numeric),
+      value_field: validField(currentBindings.value_field, fields, numeric) ? currentBindings.value_field : firstFieldWhere(fields, numeric),
+      aggregate: currentBindings.aggregate || "sum",
+      empty_value: currentBindings.empty_value || "0",
     }
   }
 
@@ -412,25 +489,28 @@ function defaultsForVisual(visualType, fields) {
     return {
       ...defaults,
       time_field: firstFieldWhere(fields, datetime),
-      value_field: firstFieldWhere(fields, numeric),
-      label_field: firstFieldWhere(fields, field => !numeric(field)),
+      value_field: validField(currentBindings.value_field, fields, numeric) ? currentBindings.value_field : firstFieldWhere(fields, numeric),
+      label_field: validField(currentBindings.label_field, fields) ? currentBindings.label_field : firstFieldWhere(fields, field => !numeric(field)),
     }
   }
 
   if (["bar", "category"].includes(visual)) {
     return {
       ...defaults,
-      value_field: firstFieldWhere(fields, numeric),
-      label_field: firstFieldWhere(fields, dimension),
+      value_field: validField(currentBindings.value_field, fields, numeric) ? currentBindings.value_field : firstFieldWhere(fields, numeric),
+      label_field: validField(currentBindings.label_field, fields, dimension) ? currentBindings.label_field : firstFieldWhere(fields, dimension),
     }
   }
 
   if (visual === "status_list") {
     return {
       ...defaults,
-      value_field: firstFieldWhere(fields, numeric),
-      label_field: firstFieldWhere(fields, dimension),
-      status_field: firstFieldWhere(fields, field => ["status", "state", "health"].includes(field.name)) || firstFieldWhere(fields, dimension),
+      value_field: validField(currentBindings.value_field, fields, numeric) ? currentBindings.value_field : firstFieldWhere(fields, numeric),
+      label_field: validField(currentBindings.label_field, fields, dimension) ? currentBindings.label_field : firstFieldWhere(fields, dimension),
+      status_field:
+        validField(currentBindings.status_field, fields) ?
+          currentBindings.status_field :
+          firstFieldWhere(fields, field => ["status", "state", "health"].includes(field.name)) || firstFieldWhere(fields, dimension),
     }
   }
 
@@ -516,6 +596,14 @@ function draftForStorage(dashboardParams, panels) {
   }
 }
 
+function writeDraftToStorage(key, dashboardParams, panels) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(draftForStorage(dashboardParams, panels)))
+  } catch (_error) {
+    // Browser privacy modes and quota limits can reject synchronous localStorage writes.
+  }
+}
+
 export default function DashboardBuilderCanvas({
   panels = [],
   visualOptions = [],
@@ -557,7 +645,7 @@ export default function DashboardBuilderCanvas({
     if (panels.length === 0 && !dashboardParams?.title) return
 
     const timeout = window.setTimeout(() => {
-      window.localStorage.setItem(draftStorageKey, JSON.stringify(draftForStorage(dashboardParams, panels)))
+      writeDraftToStorage(draftStorageKey, dashboardParams, panels)
     }, 1500)
 
     return () => window.clearTimeout(timeout)
