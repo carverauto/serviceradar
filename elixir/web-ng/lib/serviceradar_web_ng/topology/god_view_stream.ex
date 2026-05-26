@@ -3954,6 +3954,8 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> Map.get("cluster_kind") == "endpoint-summary"
   end
 
+  defp cluster_summary_node?(_node), do: false
+
   defp endpoint_cluster_id(anchor_id, anchor_if_index) when is_binary(anchor_id) and is_integer(anchor_if_index) do
     "cluster:endpoints:" <> anchor_id <> ":ifindex:" <> Integer.to_string(anchor_if_index)
   end
