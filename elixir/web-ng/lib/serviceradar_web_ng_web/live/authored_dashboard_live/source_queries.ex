@@ -486,10 +486,79 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   end
 
   defp synthesize_trend_query(query, lookback) do
-    query
-    |> to_string()
-    |> String.replace(~r/time:[^\s]+/, "time:last_#{lookback}d")
+    trend_time = "time:last_#{lookback}d"
+
+    {tokens, replaced?} =
+      query
+      |> to_string()
+      |> split_srql_tokens()
+      |> Enum.map_reduce(false, fn
+        token, false ->
+          if time_token?(token), do: {trend_time, true}, else: {token, false}
+
+        token, true ->
+          {token, true}
+      end)
+
+    tokens =
+      if replaced? do
+        tokens
+      else
+        tokens ++ [trend_time]
+      end
+
+    Enum.join(tokens, " ")
   end
+
+  defp split_srql_tokens(query) do
+    {tokens, current, _quote, _escaped?} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], "", nil, false}, &split_srql_token/2)
+
+    tokens =
+      if current == "" do
+        tokens
+      else
+        [current | tokens]
+      end
+
+    Enum.reverse(tokens)
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, true}) do
+    {tokens, current <> char, quote, false}
+  end
+
+  defp split_srql_token("\\", {tokens, current, quote, false}) when not is_nil(quote) do
+    {tokens, current <> "\\", quote, true}
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, false}) when char == quote and not is_nil(quote) do
+    {tokens, current <> char, nil, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, false}) when not is_nil(quote) do
+    {tokens, current <> char, quote, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, nil, false}) when char in ["\"", "'"] do
+    {tokens, current <> char, char, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, nil, false}) when char in [" ", "\n", "\r", "\t"] do
+    if current == "" do
+      {tokens, "", nil, false}
+    else
+      {[current | tokens], "", nil, false}
+    end
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, escaped?}) do
+    {tokens, current <> char, quote, escaped?}
+  end
+
+  defp time_token?(token), do: String.starts_with?(token, "time:")
 
   defp put_present(map, _key, value) when value in [nil, ""], do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
