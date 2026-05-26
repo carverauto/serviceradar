@@ -18,6 +18,10 @@
 - [x] 3.4 Replace raw JSON fields with structured controls for binding, display, visual, and layout settings.
 - [x] 3.5 Fix rendered dashboard table/dropdown controls on `/dashboard/1000001`.
 - [x] 3.6 Render chart-capable dashboard panels with a Recharts React island while keeping table/pivot fallbacks server-rendered.
+- [x] 3.7 Add rendered panel ellipsis menus for refresh, SRQL, edit, duplicate, delete, and export actions.
+- [x] 3.8 Add gauge/availability comparison settings for lookback period and trend SRQL.
+- [x] 3.9 Render gauge/availability trend deltas with operator-facing copy such as "Compared to 30 days ago".
+- [x] 3.10 Make automatic and compact layout fill final-row orphan panels instead of leaving dead space.
 
 ## 4. Query-First Builder Follow-Through
 
@@ -26,6 +30,7 @@
 - [ ] 4.3 Add a query-first authoring flow: run SRQL, inspect sample rows and typed fields, add one or more outputs, then place outputs on the grid.
 - [ ] 4.4 Replace visual-first panel editing with intent-first choices backed by schema-compatible field selectors.
 - [ ] 4.5 Keep existing panels working while new guided dashboards can use source queries and outputs.
+- [ ] 4.6 Add source-query helpers/templates for `stats:` aggregation and `bucket:` downsampling patterns used by trend/gauge dashlets.
 
 ## 5. Validation
 

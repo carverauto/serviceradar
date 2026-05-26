@@ -28,6 +28,7 @@ This change has two layers:
 - Fix rendered dashboard panel controls so table/dropdown interactions are clickable and keyboard accessible.
 - Define the next dashboard builder shape around reusable source queries and multiple outputs per query, so one SRQL result can produce several panels without duplicating the query.
 - Treat visualization selection as user intent backed by schema constraints, not a free-form visual dropdown that can create impossible bindings.
+- Add Armis-style metric/gauge dashlet support: panel action menus, comparison lookback settings, and trend direction/copy that can be driven by SRQL `stats:` or `bucket:` queries.
 - Add Playwright regression coverage for SRQL input editing, metadata-only dashboard creation, panel authoring, and rendered dashboard panel controls.
 
 ## Impact

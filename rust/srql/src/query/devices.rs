@@ -637,6 +637,15 @@ fn build_grouped_stats_filter_clause(
                 }
             }
         }
+        field if field.starts_with("metadata.") => {
+            let key = field.strip_prefix("metadata.").unwrap();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid metadata key '{key}'"
+                )));
+            }
+            build_grouped_jsonb_text_clause("metadata", key, filter, &mut binds)?
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for device stats: '{other}'"
@@ -719,9 +728,66 @@ fn build_grouped_device_type_clause(
             ));
             Ok(format!("{column} <> ?"))
         }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            Ok(format!("{column} = ANY(?)"))
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok("1=1".to_string());
+            }
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            Ok(format!("NOT ({column} = ANY(?))"))
+        }
         _ => Err(ServiceError::InvalidRequest(
-            "device_type filter only supports equality".into(),
+            "device_type filter only supports equality and list filters".into(),
         )),
+    }
+}
+
+fn build_grouped_jsonb_text_clause(
+    column: &str,
+    key: &str,
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    let jsonb_expr = format!("{column}->>'{key}'");
+
+    match filter.op {
+        FilterOp::Eq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{jsonb_expr} = ?"))
+        }
+        FilterOp::NotEq => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("({jsonb_expr} IS NULL OR {jsonb_expr} <> ?)"))
+        }
+        FilterOp::Like => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{jsonb_expr} ILIKE ?"))
+        }
+        FilterOp::NotLike => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!(
+                "({jsonb_expr} IS NULL OR {jsonb_expr} NOT ILIKE ?)"
+            ))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "JSONB field '{column}.{key}' only supports equality and LIKE filters"
+        ))),
     }
 }
 

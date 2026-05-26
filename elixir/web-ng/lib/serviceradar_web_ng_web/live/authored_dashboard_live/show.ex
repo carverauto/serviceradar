@@ -619,36 +619,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       flash={@flash}
       current_scope={@current_scope}
       current_path={@current_path}
+      page_title={if @dashboard, do: @dashboard.title, else: "Dashboard"}
       shell={:operations}
     >
-      <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p class="text-sm font-medium text-primary">Dashboard</p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-normal">
-              {if @dashboard, do: @dashboard.title, else: "Loading dashboard"}
-            </h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
-              {if @dashboard,
-                do: @dashboard.description || "SRQL-authored dashboard",
-                else: "Loading saved SRQL panels."}
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              :if={dashboard_settings_available?(@dashboard, assigns)}
-              type="button"
-              class="btn btn-sm btn-primary"
-              phx-click="open_settings"
-            >
-              <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
-            </button>
-            <.link navigate={~p"/analytics"} class="btn btn-sm">
-              <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
-            </.link>
-          </div>
-        </section>
-
+      <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <.variable_bar
           :if={@dashboard && dashboard_variables(@dashboard) != []}
           dashboard={@dashboard}
@@ -661,14 +635,37 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         >
           <div class="flex flex-col gap-3 border-b border-slate-800/80 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h2 class="text-sm font-semibold text-slate-100">Dashboard Settings</h2>
+              <p class="text-xs font-semibold uppercase tracking-normal text-cyan-400">
+                Dashboard Workbench
+              </p>
+              <h2 class="mt-1 text-lg font-semibold tracking-normal text-slate-100">
+                Compose and arrange panels
+              </h2>
               <p class="text-xs text-slate-400">
-                Manage SRQL panels, visual choices, email schedules, and dashboard-specific sharing.
+                Map SRQL output into supported visuals, then drag and resize panels on the canvas.
               </p>
             </div>
-            <button type="button" class="btn btn-xs btn-ghost" phx-click="close_settings">
-              <.icon name="hero-x-mark" class="size-4" /> Close
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <button
+                :if={can_manage_dashboard?(@dashboard, assigns)}
+                type="button"
+                class="btn btn-sm btn-primary"
+                phx-click="new_panel"
+              >
+                <.icon name="hero-plus" class="size-4" /> Add Panel
+              </button>
+              <button
+                :if={can_manage_dashboard?(@dashboard, assigns)}
+                type="button"
+                class="btn btn-sm"
+                phx-click="compact_layout"
+              >
+                <.icon name="hero-squares-plus" class="size-4" /> Compact Layout
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" phx-click="close_settings">
+                <.icon name="hero-x-mark" class="size-4" /> Close
+              </button>
+            </div>
           </div>
 
           <div class="space-y-6 p-4">
@@ -676,29 +673,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               :if={can_manage_dashboard?(@dashboard, assigns)}
               class="rounded-lg border border-slate-800/80 bg-slate-950/40"
             >
-              <div class="border-b border-slate-800/80 px-4 py-3">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p class="text-xs font-semibold uppercase tracking-normal text-cyan-400">
-                      Composite authoring
-                    </p>
-                    <h3 class="mt-1 text-lg font-semibold tracking-normal text-slate-100">
-                      Dashboard Workbench
-                    </h3>
-                    <p class="text-xs text-slate-400">
-                      Compose SRQL-backed panels, map query output into supported visuals, and arrange the dashboard canvas.
-                    </p>
-                  </div>
-                  <div class="flex flex-wrap gap-2">
-                    <button type="button" class="btn btn-sm btn-primary" phx-click="new_panel">
-                      <.icon name="hero-plus" class="size-4" /> Add Panel
-                    </button>
-                    <button type="button" class="btn btn-sm" phx-click="compact_layout">
-                      <.icon name="hero-squares-plus" class="size-4" /> Compact Layout
-                    </button>
-                  </div>
-                </div>
-              </div>
               <div class="p-4">
                 <.dashboard_builder_canvas
                   id={"authored-dashboard-canvas-#{@dashboard.id}"}
@@ -1006,16 +980,46 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           class="sr-authored-dashboard-grid grid grid-cols-1 gap-4 lg:grid-cols-12"
         >
           <.panel_result
-            :for={panel <- @dashboard.panels || []}
-            panel={panel}
-            result={Map.get(@panel_results, panel.id)}
-            trend={Map.get(@trend_results, panel.id)}
-            style={panel_grid_style(panel)}
-            expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, panel.id)}
+            :for={entry <- dashboard_panel_entries(@dashboard)}
+            panel={entry.panel}
+            result={Map.get(@panel_results, entry.panel.id)}
+            trend={Map.get(@trend_results, entry.panel.id)}
+            style={entry.style}
+            expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, entry.panel.id)}
             can_manage?={can_manage_dashboard?(@dashboard, assigns)}
-            csv_data_url={panel_csv_export_url(@dashboard, panel, @variable_values)}
+            csv_data_url={panel_csv_export_url(@dashboard, entry.panel, @variable_values)}
           />
         </section>
+
+        <footer
+          :if={!@loading? and @dashboard}
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-4 text-xs text-base-content/55"
+        >
+          <span class="truncate">
+            {@dashboard.description || "SRQL-authored dashboard"}
+          </span>
+          <div class="flex flex-wrap gap-2">
+            <button
+              :if={dashboard_settings_available?(@dashboard, assigns) and !@settings_open?}
+              type="button"
+              class="btn btn-xs btn-primary"
+              phx-click="open_settings"
+            >
+              <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+            </button>
+            <button
+              :if={dashboard_settings_available?(@dashboard, assigns) and @settings_open?}
+              type="button"
+              class="btn btn-xs"
+              phx-click="close_settings"
+            >
+              <.icon name="hero-x-mark" class="size-4" /> Close Settings
+            </button>
+            <.link navigate={~p"/analytics"} class="btn btn-xs">
+              <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
+            </.link>
+          </div>
+        </footer>
       </div>
     </Layouts.app>
     """
@@ -1094,43 +1098,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           <span class="badge badge-outline border-cyan-500/30 text-cyan-300">
             {@panel.visual_type}
           </span>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="refresh_panel"
-            phx-value-id={@panel.id}
-            title="Refresh panel"
-          >
-            <.icon name="hero-arrow-path" class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="toggle_panel_srql"
-            phx-value-id={@panel.id}
-            title="View SRQL"
-          >
-            <.icon name="hero-code-bracket-square" class="size-4" />
-          </button>
-          <button
-            :if={@can_manage?}
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="edit_panel"
-            phx-value-id={@panel.id}
-            title="Open panel settings"
-          >
-            <.icon name="hero-pencil-square" class="size-4" />
-          </button>
-          <a
-            :if={@csv_data_url}
-            class="btn btn-xs btn-ghost"
-            href={@csv_data_url}
-            download={"#{safe_filename(@panel.title)}.csv"}
-            title="Export CSV"
-          >
-            <.icon name="hero-arrow-down-tray" class="size-4" />
-          </a>
+          <.panel_action_menu
+            panel={@panel}
+            expanded_srql?={@expanded_srql?}
+            can_manage?={@can_manage?}
+            csv_data_url={@csv_data_url}
+          />
         </div>
       </div>
       <div
@@ -1152,6 +1125,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:message, format_error(reason))
       |> assign_new(:expanded_srql?, fn -> false end)
       |> assign_new(:can_manage?, fn -> false end)
+      |> assign_new(:csv_data_url, fn -> nil end)
 
     ~H"""
     <article
@@ -1161,34 +1135,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       <div class="flex shrink-0 flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 class="text-sm font-semibold">{@panel.title}</h2>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="refresh_panel"
-            phx-value-id={@panel.id}
-            title="Refresh panel"
-          >
-            <.icon name="hero-arrow-path" class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="toggle_panel_srql"
-            phx-value-id={@panel.id}
-            title="View SRQL"
-          >
-            <.icon name="hero-code-bracket-square" class="size-4" />
-          </button>
-          <button
-            :if={@can_manage?}
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="edit_panel"
-            phx-value-id={@panel.id}
-            title="Open panel settings"
-          >
-            <.icon name="hero-pencil-square" class="size-4" />
-          </button>
+          <.panel_action_menu
+            panel={@panel}
+            expanded_srql?={@expanded_srql?}
+            can_manage?={@can_manage?}
+            csv_data_url={@csv_data_url}
+          />
         </div>
       </div>
       <div
@@ -1215,6 +1167,69 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     """
   end
 
+  attr(:panel, :map, required: true)
+  attr(:expanded_srql?, :boolean, default: false)
+  attr(:can_manage?, :boolean, default: false)
+  attr(:csv_data_url, :string, default: nil)
+
+  defp panel_action_menu(assigns) do
+    ~H"""
+    <div class="dropdown dropdown-end">
+      <button
+        type="button"
+        class="btn btn-xs btn-ghost"
+        tabindex="0"
+        aria-label={"Actions for #{@panel.title}"}
+        title="Panel actions"
+      >
+        <.icon name="hero-ellipsis-vertical" class="size-4" />
+      </button>
+      <ul
+        tabindex="0"
+        class="menu dropdown-content z-[80] mt-2 w-52 rounded-box border border-slate-800 bg-slate-950 p-2 text-xs shadow-2xl shadow-cyan-950/30"
+      >
+        <li>
+          <button type="button" phx-click="refresh_panel" phx-value-id={@panel.id}>
+            <.icon name="hero-arrow-path" class="size-4" /> Refresh
+          </button>
+        </li>
+        <li>
+          <button type="button" phx-click="toggle_panel_srql" phx-value-id={@panel.id}>
+            <.icon name="hero-code-bracket-square" class="size-4" />
+            {if @expanded_srql?, do: "Hide SRQL", else: "View SRQL"}
+          </button>
+        </li>
+        <li :if={@can_manage?}>
+          <button type="button" phx-click="edit_panel" phx-value-id={@panel.id}>
+            <.icon name="hero-pencil-square" class="size-4" /> Open in Builder
+          </button>
+        </li>
+        <li :if={@can_manage?}>
+          <button type="button" phx-click="duplicate_panel" phx-value-id={@panel.id}>
+            <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
+          </button>
+        </li>
+        <li :if={@csv_data_url}>
+          <a href={@csv_data_url} download={"#{safe_filename(@panel.title)}.csv"}>
+            <.icon name="hero-arrow-down-tray" class="size-4" /> Export CSV
+          </a>
+        </li>
+        <li :if={@can_manage?}>
+          <button
+            type="button"
+            class="text-error"
+            phx-click="delete_panel"
+            phx-value-id={@panel.id}
+            data-confirm={"Delete panel \"#{@panel.title}\"?"}
+          >
+            <.icon name="hero-trash" class="size-4" /> Delete
+          </button>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
   defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
     value =
       bound_value(assigns.rows, assigns.panel, "value_field") ||
@@ -1228,7 +1243,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         visual_label(assigns.panel, first_numeric_field(assigns.fields) || "value")
       )
       |> assign(:unit, display_value(assigns.panel, "unit", ""))
-      |> assign(:trend_summary, trend_summary(assigns[:trend]))
+      |> assign(:trend_summary, trend_summary(assigns[:trend], assigns.panel))
 
     ~H"""
     <div
@@ -1242,7 +1257,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         </div>
         <div class="mt-2 text-sm text-slate-400">{@label}</div>
         <div :if={@trend_summary} class="mt-2 text-xs text-slate-500">
-          Trend: {@trend_summary}
+          {trend_summary_text(@trend_summary)}
         </div>
       </div>
     </div>
@@ -1256,7 +1271,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:chart_panel, chart_panel(assigns.panel))
       |> assign(:chart_rows, chart_rows(assigns.rows))
       |> assign(:chart_fields, chart_fields(assigns.fields))
-      |> assign(:trend_summary, trend_summary(assigns[:trend]))
+      |> assign(:trend_summary, trend_summary(assigns[:trend], assigns.panel))
 
     ~H"""
     <div class="flex h-full min-h-0 flex-col gap-2">
@@ -1265,10 +1280,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         panel={@chart_panel}
         rows={@chart_rows}
         fields={@chart_fields}
+        trend={@trend_summary}
       />
-      <div :if={@trend_summary} class="shrink-0 text-xs text-slate-500">
-        Trend: {@trend_summary}
-      </div>
     </div>
     """
   end
@@ -1379,8 +1392,23 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     }
   end
 
-  defp panel_grid_style(panel) do
-    layout = panel.layout || %{}
+  defp dashboard_panel_entries(nil), do: []
+
+  defp dashboard_panel_entries(%{panels: panels}) when is_list(panels) do
+    layouts =
+      panels
+      |> Map.new(&{&1.id, normalized_panel_layout(&1)})
+      |> fill_final_orphan_layout(panels)
+
+    Enum.map(panels, fn panel ->
+      %{panel: panel, style: panel_grid_style(panel, Map.get(layouts, panel.id))}
+    end)
+  end
+
+  defp dashboard_panel_entries(_dashboard), do: []
+
+  defp panel_grid_style(panel, layout_override) do
+    layout = layout_override || panel.layout || %{}
     x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
     width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
     y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
@@ -1388,6 +1416,40 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
 
     "--sr-panel-x: #{x + 1}; --sr-panel-y: #{y + 1}; --sr-panel-w: #{width}; --sr-panel-h: #{height}; --sr-panel-order: #{order};"
+  end
+
+  defp normalized_panel_layout(panel) do
+    layout = panel.layout || %{}
+    x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
+    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
+    y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
+    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
+    order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
+
+    Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => order})
+  end
+
+  defp fill_final_orphan_layout(layouts, panels) do
+    final_row =
+      panels
+      |> Enum.map(fn panel -> {panel, Map.get(layouts, panel.id)} end)
+      |> Enum.reject(fn {_panel, layout} -> is_nil(layout) end)
+      |> Enum.group_by(fn {_panel, layout} -> Map.get(layout, "y", 0) end)
+      |> Enum.max_by(fn {y, _row} -> y end, fn -> nil end)
+
+    case final_row do
+      {_y, [{panel, layout}]} ->
+        width = layout |> Map.get("w", 12) |> bounded_integer(1, 12)
+
+        if width < 12 do
+          Map.put(layouts, panel.id, Map.merge(layout, %{"x" => 0, "w" => 12}))
+        else
+          layouts
+        end
+
+      _ ->
+        layouts
+    end
   end
 
   defp bounded_integer(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)
@@ -1683,6 +1745,38 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       />
     </section>
 
+    <section
+      :if={@visual in ["stat", "count", "gauge", "availability"]}
+      class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2"
+    >
+      <div class="lg:col-span-2">
+        <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
+          Trend comparison
+        </h4>
+        <p class="mt-1 text-xs text-base-content/60">
+          Compare this metric with a prior SRQL result, such as a bucketed or stats query for the previous period.
+        </p>
+      </div>
+      <.input
+        field={@form[:trend_mode]}
+        type="select"
+        label="Trend"
+        options={[
+          {"Off", ""},
+          {"Compare with prior period", "compare_previous"},
+          {"Custom SRQL comparison", "custom_query"}
+        ]}
+      />
+      <.input field={@form[:trend_lookback_days]} type="number" label="Lookback days" />
+      <div class="lg:col-span-2">
+        <.input
+          field={@form[:trend_query]}
+          type="textarea"
+          label="Trend SRQL"
+        />
+      </div>
+    </section>
+
     <section class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-100 p-3 lg:col-span-2 lg:grid-cols-2">
       <div class="lg:col-span-2">
         <h4 class="text-xs font-semibold uppercase tracking-normal text-base-content/60">
@@ -1735,6 +1829,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       "caption" => "",
       "table_columns" => "",
       "trend_mode" => "",
+      "trend_lookback_days" => "30",
       "trend_query" => "",
       "layout_x" => "0",
       "layout_y" => "0",
@@ -1771,6 +1866,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       "caption" => map_value(display, "caption"),
       "table_columns" => table_columns_text(map_value(display, "table_columns", [])),
       "trend_mode" => map_value(visual, "trend_mode"),
+      "trend_lookback_days" => to_string(map_value(visual, "trend_lookback_days", 30)),
       "trend_query" => map_value(visual, "trend_query"),
       "layout_x" => to_string(map_value(layout, "x", 0)),
       "layout_y" => to_string(map_value(layout, "y", 0)),
@@ -2025,13 +2121,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp compact_dashboard_panels(socket) do
-    panels = socket.assigns.dashboard.panels || []
+    panels =
+      Enum.sort_by(
+        socket.assigns.dashboard.panels || [],
+        &{&1.position, Map.get(&1.layout || %{}, "y", 0), Map.get(&1.layout || %{}, "x", 0)}
+      )
 
-    panels
-    |> Enum.sort_by(&{&1.position, Map.get(&1.layout || %{}, "y", 0), Map.get(&1.layout || %{}, "x", 0)})
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {panel, index}, {:ok, updated} ->
-      layout = compact_layout_for_panel(panel, index)
+    indexed_panels = Enum.with_index(panels)
+
+    layouts =
+      indexed_panels
+      |> Map.new(fn {panel, index} -> {panel.id, compact_layout_for_panel(panel, index)} end)
+      |> fill_final_orphan_layout(panels)
+
+    Enum.reduce_while(indexed_panels, {:ok, []}, fn {panel, index}, {:ok, updated} ->
+      layout = layouts |> Map.fetch!(panel.id) |> Map.put("order", index)
 
       case Dashboards.update_authored_panel(socket.assigns.current_scope, panel, %{layout: layout, position: index}) do
         {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
@@ -2159,6 +2263,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp panel_visual_config(params) do
     %{}
     |> put_present("trend_mode", params["trend_mode"])
+    |> put_present("trend_lookback_days", params["trend_lookback_days"])
     |> put_present("trend_query", params["trend_query"])
   end
 
@@ -2894,8 +2999,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp aggregate_values(values, "min"), do: Enum.min(values, fn -> 0 end)
   defp aggregate_values(values, _aggregate), do: Enum.sum(values)
 
-  defp trend_summary({:ok, %{rows: rows, fields: fields}}) do
+  defp trend_summary({:ok, %{rows: rows, fields: fields}}, panel) do
     value_key = first_numeric_field(fields)
+    lookback_days = trend_lookback_days(panel)
 
     values =
       rows
@@ -2906,20 +3012,64 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       [first | rest] when rest != [] ->
         last = List.last(rest)
         delta = last - first
-        "#{format_value(first)} -> #{format_value(last)} (#{signed_number(delta)})"
+        percent_delta = if first == 0, do: nil, else: delta / first * 100
+
+        %{
+          "text" => "#{format_value(first)} -> #{format_value(last)} (#{signed_number(delta)})",
+          "delta" => delta,
+          "percent_delta" => percent_delta,
+          "direction" => trend_direction(delta),
+          "label" => trend_period_label(lookback_days)
+        }
 
       [single] ->
-        format_value(single)
+        %{
+          "text" => format_value(single),
+          "delta" => 0,
+          "percent_delta" => nil,
+          "direction" => "flat",
+          "label" => trend_period_label(lookback_days)
+        }
 
       _ ->
         nil
     end
   end
 
-  defp trend_summary(_trend), do: nil
+  defp trend_summary(_trend, _panel), do: nil
+
+  defp trend_summary_text(%{"percent_delta" => percent_delta, "label" => label, "text" => text})
+       when is_number(percent_delta) do
+    "#{signed_percent(percent_delta)} #{label} (#{text})"
+  end
+
+  defp trend_summary_text(%{"label" => label, "text" => text}), do: "#{text} #{label}"
+  defp trend_summary_text(value) when is_binary(value), do: value
+  defp trend_summary_text(_value), do: nil
 
   defp signed_number(value) when is_number(value) and value >= 0, do: "+#{format_value(value)}"
   defp signed_number(value), do: format_value(value)
+
+  defp signed_percent(value) when is_number(value) and value >= 0, do: "+#{format_percent(value)}"
+  defp signed_percent(value), do: format_percent(value)
+
+  defp format_percent(value) when is_float(value), do: "#{:erlang.float_to_binary(value, decimals: 1)}%"
+  defp format_percent(value) when is_integer(value), do: "#{value}%"
+
+  defp trend_direction(value) when is_number(value) and value > 0, do: "up"
+  defp trend_direction(value) when is_number(value) and value < 0, do: "down"
+  defp trend_direction(_value), do: "flat"
+
+  defp trend_lookback_days(panel) do
+    panel
+    |> Map.get(:visual_config, %{})
+    |> map_value("trend_lookback_days", 30)
+    |> integer_value(30)
+    |> bounded_integer(1, 365)
+  end
+
+  defp trend_period_label(1), do: "compared to yesterday"
+  defp trend_period_label(days), do: "compared to #{days} days ago"
 
   defp visual_label(panel, fallback) do
     display_value(panel, "label", panel.title || fallback)

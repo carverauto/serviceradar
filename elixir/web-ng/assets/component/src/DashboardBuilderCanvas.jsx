@@ -1,4 +1,4 @@
-import React, {useEffect, useRef} from "../../node_modules/react/index.js"
+import React, {useEffect, useMemo, useRef} from "../../node_modules/react/index.js"
 import {GridStack} from "gridstack"
 
 const VISUAL_LABELS = {
@@ -29,6 +29,23 @@ function normalizeLayout(panel, index) {
     w: Number.isFinite(Number(layout.w)) ? Number(layout.w) : defaultWidth(panel.visual_type),
     h: Number.isFinite(Number(layout.h)) ? Number(layout.h) : defaultHeight(panel.visual_type),
   }
+}
+
+function normalizedPanelEntries(panels) {
+  const entries = panels.map((panel, index) => ({panel, layout: normalizeLayout(panel, index)}))
+  const lastRow = Math.max(...entries.map(entry => entry.layout.y), 0)
+  const lastRowEntries = entries.filter(entry => entry.layout.y === lastRow)
+
+  if (lastRowEntries.length !== 1) return entries
+
+  const orphan = lastRowEntries[0]
+  if (orphan.layout.w >= 12) return entries
+
+  return entries.map(entry =>
+    entry.panel.id === orphan.panel.id
+      ? {...entry, layout: {...entry.layout, x: 0, w: 12, autoFilled: true}}
+      : entry,
+  )
 }
 
 function defaultWidth(visualType) {
@@ -126,19 +143,33 @@ function MiniVisual({panel}) {
 
   if (["stat", "count", "gauge", "availability"].includes(visual)) {
     const valueField = binding.value_field || binding.numerator_field || firstField(fields, "number")
+    const denominatorField = binding.denominator_field || fields.find(field => ["total", "count"].includes(field.name))?.name
     const raw = numericValue(valueAt(rows[0], valueField)) || 0
+    const denominator = numericValue(valueAt(rows[0], denominatorField))
+    const displayValue =
+      ["gauge", "availability"].includes(visual) && denominator > 0
+        ? Math.max(0, Math.min(100, (raw / denominator) * 100)).toFixed(1)
+        : raw
     const unit = panel.display_config?.unit || (["gauge", "availability"].includes(visual) ? "%" : "")
+    const label = panel.display_config?.label || (visual === "availability" ? "Availability" : valueField || "Value")
 
     return (
-      <div className="flex h-full min-h-0 flex-col justify-center gap-2 overflow-hidden">
-        <div className="text-3xl font-semibold tracking-normal text-slate-100">
-          {raw}
-          <span className="text-base text-slate-400">{unit}</span>
+      <div className="flex h-full min-h-0 flex-col justify-center gap-1.5 overflow-hidden">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <div className="shrink-0 text-2xl font-semibold tracking-normal text-slate-100">
+            {displayValue}
+            <span className="text-sm text-slate-400">{unit}</span>
+          </div>
+          <div className="min-w-0 truncate text-xs text-slate-400">{label}</div>
         </div>
-        <div className="truncate text-xs text-slate-400">{panel.display_config?.label || valueField || "Value"}</div>
+        {denominator > 0 && ["gauge", "availability"].includes(visual) ? (
+          <div className="truncate text-[11px] text-slate-500">
+            {visual === "availability" ? `${raw} of ${denominator} available` : `${raw} of ${denominator}`}
+          </div>
+        ) : null}
         {["gauge", "availability"].includes(visual) ? (
           <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-            <div className="h-full rounded-full bg-cyan-400" style={{width: `${Math.max(0, Math.min(raw, 100))}%`}} />
+            <div className="h-full rounded-full bg-cyan-400" style={{width: `${Math.max(0, Math.min(Number(displayValue), 100))}%`}} />
           </div>
         ) : null}
       </div>
@@ -230,6 +261,7 @@ export default function DashboardBuilderCanvas({
   const gridRef = useRef(null)
   const gridInstance = useRef(null)
   const syncingRef = useRef(false)
+  const panelEntries = useMemo(() => normalizedPanelEntries(panels), [panels])
 
   useEffect(() => {
     if (!gridRef.current) return
@@ -269,7 +301,7 @@ export default function DashboardBuilderCanvas({
     }
 
     const grid = gridInstance.current
-    const ids = new Set(panels.map(panel => panel.id))
+    const ids = new Set(panelEntries.map(entry => entry.panel.id))
     syncingRef.current = true
     grid.getGridItems().forEach(item => {
       if (!ids.has(item.dataset.panelId)) {
@@ -278,10 +310,9 @@ export default function DashboardBuilderCanvas({
     })
 
     grid.batchUpdate()
-    panels.forEach((panel, index) => {
+    panelEntries.forEach(({panel, layout}) => {
       const item = gridRef.current.querySelector(`[data-panel-id="${escapeSelector(panel.id)}"]`)
       if (!item) return
-      const layout = normalizeLayout(panel, index)
       if (!item.gridstackNode) {
         grid.makeWidget(item)
       }
@@ -293,7 +324,7 @@ export default function DashboardBuilderCanvas({
     })
 
     return undefined
-  }, [panels, canManage, pushEvent])
+  }, [panelEntries, canManage, pushEvent])
 
   useEffect(() => {
     if (!gridInstance.current) return
@@ -372,8 +403,7 @@ export default function DashboardBuilderCanvas({
         </div>
         <div className="relative min-h-[500px] rounded-lg border border-slate-800 bg-slate-950/60 p-2">
           <div ref={gridRef} className="grid-stack min-h-[500px]">
-            {panels.map((panel, index) => {
-              const layout = normalizeLayout(panel, index)
+            {panelEntries.map(({panel, layout}) => {
               const selected = panel.id === selectedId
               const compact = layout.h <= 4 || layout.w <= 4
 
@@ -398,6 +428,11 @@ export default function DashboardBuilderCanvas({
                           {panel.refresh_interval_seconds > 0 ? (
                             <span className="badge badge-xs badge-outline shrink-0">
                               {panel.refresh_interval_seconds}s
+                            </span>
+                          ) : null}
+                          {layout.autoFilled ? (
+                            <span className="badge badge-xs border-emerald-500/30 text-emerald-300">
+                              full row
                             </span>
                           ) : null}
                         </div>

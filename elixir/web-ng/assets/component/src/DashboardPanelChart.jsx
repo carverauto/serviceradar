@@ -1,4 +1,4 @@
-import React, {useMemo} from "../../node_modules/react/index.js"
+import React, {useEffect, useMemo, useRef, useState} from "../../node_modules/react/index.js"
 import {
   Area,
   AreaChart,
@@ -10,7 +10,6 @@ import {
   PolarAngleAxis,
   RadialBar,
   RadialBarChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -62,6 +61,13 @@ function formatValue(value) {
   return String(value)
 }
 
+function formatPercent(value) {
+  const number = numericValue(value)
+  if (number === null) return null
+  const prefix = number > 0 ? "+" : ""
+  return `${prefix}${number.toFixed(1)}%`
+}
+
 function formatAxisValue(value) {
   if (value === null || value === undefined || value === "") return ""
   const date = new Date(value)
@@ -69,6 +75,35 @@ function formatAxisValue(value) {
     return date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
   }
   return String(value)
+}
+
+function booleanish(value) {
+  if (value === true || value === "true") return true
+  if (value === false || value === "false") return false
+  return null
+}
+
+function formatCategoryValue(value, field) {
+  const normalizedField = String(field || "").toLowerCase()
+  if (["is_available", "available", "availability"].includes(normalizedField)) {
+    const availability = booleanish(value)
+    if (availability === true) return "Available"
+    if (availability === false) return "Unavailable"
+  }
+
+  return formatAxisValue(value)
+}
+
+function humanizeFieldName(field, fallback = "value") {
+  if (!field) return fallback
+  return String(field)
+    .replace(/_id$/u, "")
+    .replace(/_/gu, " ")
+    .replace(/\b\w/gu, character => character.toUpperCase())
+}
+
+function countLabel(count, singular, plural = `${singular}s`) {
+  return Number(count) === 1 ? singular : plural
 }
 
 function gaugeTone(panel, percent) {
@@ -113,7 +148,7 @@ function seriesRows(rows, fields, panel) {
       if (value === null) return null
 
       return {
-        name: formatAxisValue(valueAt(row, xField)) || `Row ${index + 1}`,
+        name: formatCategoryValue(valueAt(row, xField), xField) || `Row ${index + 1}`,
         value,
       }
     })
@@ -122,18 +157,35 @@ function seriesRows(rows, fields, panel) {
 
 function gaugeDatum(rows, fields, panel) {
   const {valueField, denominatorField} = chartFields(panel, fields)
+  const visual = String(panel?.visual_type || "gauge")
   const row = rows[0] || {}
   const numerator = numericValue(valueAt(row, valueField)) || 0
   const denominator = numericValue(valueAt(row, denominatorField)) || 100
   const percent = denominator > 0 ? (numerator / denominator) * 100 : numerator
   const clamped = Math.max(0, Math.min(100, percent))
   const tone = gaugeTone(panel, clamped)
+  const numeratorLabel =
+    panel?.display_config?.numerator_label ||
+    panel?.display_config?.value_label ||
+    (visual === "availability" ? countLabel(numerator, "available", "available") : humanizeFieldName(valueField))
+  const denominatorLabel =
+    panel?.display_config?.denominator_label ||
+    panel?.display_config?.total_label ||
+    (visual === "availability" ? countLabel(denominator, "monitored", "monitored") : humanizeFieldName(denominatorField, "target"))
+  const contextLabel =
+    panel?.display_config?.context_label ||
+    (visual === "availability"
+      ? `${formatValue(numerator)} of ${formatValue(denominator)} ${countLabel(denominator, "service")} available`
+      : `${formatValue(numerator)} of ${formatValue(denominator)} ${denominatorLabel.toLowerCase()}`)
 
   return {
     percent: clamped,
     display: clamped.toFixed(1),
     numerator,
     denominator,
+    numeratorLabel,
+    denominatorLabel,
+    contextLabel,
     tone,
     color: STATUS_COLORS[tone],
     label: panel?.display_config?.label || panel?.title || "Gauge",
@@ -145,6 +197,44 @@ function EmptyChart({message = "No chartable data"}) {
   return (
     <div className="flex h-full min-h-0 items-center justify-center rounded-lg border border-dashed border-slate-800 text-sm text-slate-500">
       {message}
+    </div>
+  )
+}
+
+function ResponsiveChart({children}) {
+  const ref = useRef(null)
+  const [size, setSize] = useState({width: 0, height: 0})
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return undefined
+
+    const updateSize = () => {
+      const rect = node.getBoundingClientRect()
+      setSize({
+        width: Math.max(0, Math.floor(rect.width)),
+        height: Math.max(0, Math.floor(rect.height)),
+      })
+    }
+
+    updateSize()
+
+    if (typeof ResizeObserver === "undefined") {
+      const frame = window.requestAnimationFrame(updateSize)
+      return () => window.cancelAnimationFrame(frame)
+    }
+
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [])
+
+  const ready = size.width > 0 && size.height > 0
+
+  return (
+    <div ref={ref} className="h-full min-h-0 w-full min-w-0">
+      {ready ? React.cloneElement(children, {width: size.width, height: size.height}) : null}
     </div>
   )
 }
@@ -191,18 +281,18 @@ function AxisChart({visual, rows}) {
 
   if (visual === "bar" || visual === "category") {
     return (
-      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+      <ResponsiveChart>
         <BarChart {...common}>
           {axis}
           <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[5, 5, 0, 0]} maxBarSize={42} />
         </BarChart>
-      </ResponsiveContainer>
+      </ResponsiveChart>
     )
   }
 
   if (visual === "area") {
     return (
-      <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+      <ResponsiveChart>
         <AreaChart {...common}>
           {axis}
           <Area
@@ -216,12 +306,12 @@ function AxisChart({visual, rows}) {
             activeDot={{r: 4}}
           />
         </AreaChart>
-      </ResponsiveContainer>
+      </ResponsiveChart>
     )
   }
 
   return (
-    <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+    <ResponsiveChart>
       <LineChart {...common}>
         {axis}
         <Line
@@ -233,17 +323,46 @@ function AxisChart({visual, rows}) {
           activeDot={{r: 4}}
         />
       </LineChart>
-    </ResponsiveContainer>
+    </ResponsiveChart>
   )
 }
 
-function GaugeChart({rows, fields, panel}) {
+function trendTone(trend) {
+  if (trend?.direction === "up") return "text-emerald-300"
+  if (trend?.direction === "down") return "text-rose-300"
+  return "text-slate-400"
+}
+
+function trendArrow(trend) {
+  if (trend?.direction === "up") return "Up"
+  if (trend?.direction === "down") return "Down"
+  return "Flat"
+}
+
+function TrendBadge({trend}) {
+  if (!trend) return null
+
+  const percent = formatPercent(trend.percent_delta)
+  const text = percent || trend.text
+  if (!text) return null
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <span className={`font-semibold ${trendTone(trend)}`}>
+        {trendArrow(trend)} {text}
+      </span>
+      {trend.label ? <span className="text-slate-500">{trend.label}</span> : null}
+    </div>
+  )
+}
+
+function GaugeChart({rows, fields, panel, trend}) {
   const gauge = gaugeDatum(rows, fields, panel)
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[minmax(96px,40%)_1fr] items-center gap-3 overflow-hidden">
       <div className="h-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+        <ResponsiveChart>
           <RadialBarChart
             innerRadius="68%"
             outerRadius="96%"
@@ -254,16 +373,22 @@ function GaugeChart({rows, fields, panel}) {
             <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
             <RadialBar dataKey="value" cornerRadius={8} background={{fill: "rgba(148, 163, 184, 0.18)"}} />
           </RadialBarChart>
-        </ResponsiveContainer>
+        </ResponsiveChart>
       </div>
       <div className="min-w-0">
         <div className="truncate text-sm font-medium text-slate-300">{gauge.label}</div>
         <div className="mt-1 text-4xl font-semibold tracking-normal text-slate-100">
           {gauge.display}<span className="text-xl text-slate-400">{gauge.unit}</span>
         </div>
+        <div className="mt-2 truncate text-xs text-slate-400">{gauge.contextLabel}</div>
+        <TrendBadge trend={trend} />
         <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
-          <span className="rounded border border-slate-700 px-2 py-0.5">{formatValue(gauge.numerator)} numerator</span>
-          <span className="rounded border border-slate-700 px-2 py-0.5">{formatValue(gauge.denominator)} total</span>
+          <span className="rounded border border-slate-700 px-2 py-0.5">
+            {formatValue(gauge.numerator)} {gauge.numeratorLabel}
+          </span>
+          <span className="rounded border border-slate-700 px-2 py-0.5">
+            {formatValue(gauge.denominator)} {gauge.denominatorLabel}
+          </span>
         </div>
       </div>
     </div>
@@ -274,12 +399,13 @@ export default function DashboardPanelChart({
   panel = {},
   rows = [],
   fields = [],
+  trend = null,
 }) {
   const visual = String(panel.visual_type || "line")
   const chartRows = useMemo(() => seriesRows(rows, fields, panel), [rows, fields, panel])
 
   if (visual === "gauge" || visual === "availability") {
-    return <GaugeChart rows={rows} fields={fields} panel={panel} />
+    return <GaugeChart rows={rows} fields={fields} panel={panel} trend={trend} />
   }
 
   return (

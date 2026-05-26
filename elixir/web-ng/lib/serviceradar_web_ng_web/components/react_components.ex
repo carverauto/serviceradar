@@ -77,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :panel, :map, required: true
   attr :rows, :list, default: []
   attr :fields, :list, default: []
+  attr :trend, :map, default: nil
   attr :class, :string, default: ""
 
   def dashboard_panel_chart(assigns) do
@@ -84,7 +85,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       assign(assigns, :props, %{
         panel: assigns.panel,
         rows: assigns.rows,
-        fields: assigns.fields
+        fields: assigns.fields,
+        trend: assigns.trend
       })
 
     ~H"""

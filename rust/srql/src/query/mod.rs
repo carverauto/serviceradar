@@ -1542,6 +1542,50 @@ mod tests {
     }
 
     #[test]
+    fn devices_stats_supports_metadata_like_filter() {
+        let query = r#"in:devices metadata.armis_tags:%development% stats:"count() as count by is_available""#;
+        let plan = plan_for(query);
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("metadata->>'armis_tags' ilike $1"),
+            "expected metadata JSONB filter in grouped SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("group by coalesce(is_available, false)"),
+            "expected availability grouping, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "expected one metadata filter param");
+        assert!(
+            matches!(params.first(), Some(BindParam::Text(value)) if value == "%development%"),
+            "expected development LIKE bind, got: {params:?}"
+        );
+    }
+
+    #[test]
+    fn devices_stats_supports_type_list_filter() {
+        let query = r#"in:devices type:(Router,Switch) stats:"count() as count by is_available""#;
+        let plan = plan_for(query);
+
+        let (sql, params) =
+            devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("coalesce(nullif(trim(type), ''), 'unknown') = any($1)"),
+            "expected normalized type list filter in grouped SQL, got: {sql}"
+        );
+        assert_eq!(params.len(), 1, "expected one type-list param");
+        assert!(
+            matches!(params.first(), Some(BindParam::TextArray(values)) if values == &vec!["Router".to_string(), "Switch".to_string()]),
+            "expected Router/Switch bind, got: {params:?}"
+        );
+    }
+
+    #[test]
     fn devices_stats_group_by_vendor() {
         let query = "in:devices stats:count() as count by vendor_name";
         let plan = plan_for(query);
