@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
@@ -289,8 +290,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("canvas_add_panel", %{"visualType" => visual_type}, socket) do
     case authorize_panel_edit(socket) do
       :ok ->
-        visual_type = canvas_visual_type(visual_type)
-        layout = canvas_new_panel_layout(visual_type, socket.assigns.dashboard.panels || [])
+        visual_type = CanvasState.visual_type(visual_type)
+        layout = CanvasState.new_panel_layout(visual_type, socket.assigns.dashboard.panels || [])
 
         params =
           Map.merge(default_panel_params(), %{
@@ -322,7 +323,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   def handle_event("canvas_layout_change", %{"layouts" => layouts}, socket) when is_list(layouts) do
     with :ok <- authorize_panel_edit(socket),
-         {:ok, panels} <- update_canvas_panel_layouts(socket, layouts) do
+         {:ok, panels} <-
+           CanvasState.update_panel_layouts(
+             socket.assigns.current_scope,
+             socket.assigns.dashboard.panels || [],
+             layouts
+           ) do
       dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
 
       socket =
@@ -774,9 +780,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
                 <.dashboard_builder_canvas
                   id={"authored-dashboard-canvas-#{@dashboard.id}"}
-                  panels={dashboard_canvas_panels(@dashboard, @panel_results)}
-                  visual_options={dashboard_canvas_visual_options()}
-                  selected_id={canvas_selected_panel_id(@editing_panel_id, @dashboard)}
+                  panels={CanvasState.panels(@dashboard, @panel_results)}
+                  visual_options={CanvasState.visual_options()}
+                  selected_id={CanvasState.selected_panel_id(@editing_panel_id, @dashboard)}
                   can_manage={can_manage_dashboard?(@dashboard, assigns)}
                 />
               </div>
@@ -1002,7 +1008,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               >
                 <.panel_form_fields
                   form={@panel_form}
-                  panel={editing_panel(@dashboard, @editing_panel_id)}
+                  panel={CanvasState.editing_panel(@dashboard, @editing_panel_id)}
                   preview={@panel_preview}
                   panel_results={@panel_results}
                 />
@@ -1733,176 +1739,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp recipients(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
   defp recipients(_value), do: []
 
-  defp dashboard_canvas_visual_options do
-    Enum.map(Dashboards.authored_visual_options(), fn option ->
-      %{
-        type: to_string(option.type),
-        label: option.label
-      }
-    end)
-  end
-
-  defp dashboard_canvas_panels(nil, _panel_results), do: []
-
-  defp dashboard_canvas_panels(%{panels: panels}, panel_results) do
-    panels
-    |> List.wrap()
-    |> Enum.map(fn panel ->
-      %{
-        id: panel.id,
-        dataset_key: panel.dataset_key || "primary",
-        title: panel.title || "Panel",
-        srql_query: panel.srql_query || "",
-        visual_type: to_string(panel.visual_type || :table),
-        data_binding: panel.data_binding || %{},
-        display_config: panel.display_config || %{},
-        visual_config: panel.visual_config || %{},
-        field_metadata: canvas_field_metadata(panel.field_metadata || %{}),
-        layout: panel.layout || %{},
-        refresh_interval_seconds: panel.refresh_interval_seconds || 0,
-        preview: canvas_panel_preview(Map.get(panel_results || %{}, panel.id), panel)
-      }
-    end)
-  end
-
-  defp dashboard_canvas_panels(_dashboard, _panel_results), do: []
-
-  defp canvas_field_metadata(metadata) do
-    %{
-      fields: canvas_fields(metadata_fields(metadata)),
-      compatible_visuals: Enum.map(panel_compatible_visuals(%{field_metadata: metadata}), &to_string/1)
-    }
-  end
-
-  defp canvas_panel_preview({:ok, preview}, _panel) when is_map(preview) do
-    %{
-      fields: canvas_fields(preview_fields(preview)),
-      rows: preview |> preview_rows() |> Enum.take(25),
-      compatible_visuals: preview |> preview_compatible_visuals() |> Enum.map(&to_string/1)
-    }
-  end
-
-  defp canvas_panel_preview(_result, panel) do
-    %{
-      fields: canvas_fields(metadata_fields(panel.field_metadata || %{})),
-      rows: [],
-      compatible_visuals: panel |> panel_compatible_visuals() |> Enum.map(&to_string/1)
-    }
-  end
-
-  defp canvas_fields(fields) do
-    Enum.map(fields || [], fn field ->
-      %{
-        name: field_name(field),
-        type: field |> field_type() |> to_string(),
-        sample: field_sample(field)
-      }
-    end)
-  end
-
-  defp preview_rows(%{rows: rows}) when is_list(rows), do: rows
-  defp preview_rows(%{"rows" => rows}) when is_list(rows), do: rows
-  defp preview_rows(_preview), do: []
-
-  defp field_sample(%{sample: sample}), do: sample
-  defp field_sample(%{"sample" => sample}), do: sample
-  defp field_sample(_field), do: nil
-
-  defp canvas_selected_panel_id(id, %{panels: panels}) when is_binary(id) and id != "new" do
-    if Enum.any?(panels || [], &(&1.id == id)), do: id, else: ""
-  end
-
-  defp canvas_selected_panel_id(_id, _dashboard), do: ""
-
-  defp editing_panel(%{panels: panels}, id) when is_binary(id) and id != "new" do
-    Enum.find(panels || [], &(&1.id == id))
-  end
-
-  defp editing_panel(_dashboard, _id), do: nil
-
-  defp canvas_visual_type(value) do
-    supported = MapSet.new(Dashboards.authored_visual_options(), &to_string(&1.type))
-
-    value = to_string(value || "table")
-    if MapSet.member?(supported, value), do: value, else: "table"
-  end
-
-  defp canvas_new_panel_layout(visual_type, panels) do
-    width = canvas_default_width(visual_type)
-    height = canvas_default_height(visual_type)
-    position = length(panels || [])
-
-    %{"w" => width, "h" => height}
-    |> next_panel_layout(position)
-    |> Map.put("order", position)
-  end
-
-  defp canvas_default_width(visual_type) when visual_type in ["table", "pivot", "line", "area"], do: 12
-  defp canvas_default_width("status_list"), do: 8
-  defp canvas_default_width(_visual_type), do: 4
-
-  defp canvas_default_height(visual_type) when visual_type in ["table", "pivot"], do: 8
-  defp canvas_default_height(visual_type) when visual_type in ["line", "area", "bar", "category"], do: 6
-  defp canvas_default_height(_visual_type), do: 4
-
-  defp update_canvas_panel_layouts(socket, layouts) do
-    panels = socket.assigns.dashboard.panels || []
-    layout_index = canvas_layout_index(layouts)
-
-    result =
-      Enum.reduce_while(panels, {:ok, []}, fn panel, {:ok, updated} ->
-        case Map.get(layout_index, panel.id) do
-          nil ->
-            {:cont, {:ok, updated ++ [panel]}}
-
-          %{layout: layout, position: position} ->
-            attrs = %{layout: Map.merge(panel.layout || %{}, layout), position: position}
-
-            case Dashboards.update_authored_panel(socket.assigns.current_scope, panel, attrs) do
-              {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-        end
-      end)
-
-    case result do
-      {:ok, panels} -> {:ok, Enum.sort_by(panels, &{&1.position, &1.inserted_at})}
-      error -> error
-    end
-  end
-
-  defp canvas_layout_index(layouts) do
-    layouts
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(fn layout ->
-      %{
-        id: to_string(layout["id"] || layout[:id] || ""),
-        x: integer_value(layout["x"] || layout[:x], 0),
-        y: integer_value(layout["y"] || layout[:y], 0),
-        w: integer_value(layout["w"] || layout[:w], 12),
-        h: integer_value(layout["h"] || layout[:h], 8)
-      }
-    end)
-    |> Enum.reject(&(&1.id == ""))
-    |> Enum.sort_by(&{&1.y, &1.x, &1.id})
-    |> Enum.with_index()
-    |> Map.new(fn {layout, index} ->
-      {
-        layout.id,
-        %{
-          position: index,
-          layout: %{
-            "x" => LayoutHelpers.bounded_integer(layout.x, 0, 11),
-            "y" => LayoutHelpers.bounded_integer(layout.y, 0, 1_000),
-            "w" => LayoutHelpers.bounded_integer(layout.w, 1, 12),
-            "h" => LayoutHelpers.bounded_integer(layout.h, 2, 16),
-            "order" => index
-          }
-        }
-      }
-    end)
-  end
-
   defp maybe_refresh_editing_panel_params(socket, panels) do
     case socket.assigns.editing_panel_id do
       id when is_binary(id) and id != "new" ->
@@ -1982,14 +1818,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp preview_fields(%{fields: fields}) when is_list(fields), do: fields
   defp preview_fields(%{"fields" => fields}) when is_list(fields), do: fields
   defp preview_fields(_preview), do: []
-
-  defp preview_compatible_visuals(%{compatible_visuals: visuals}) when is_list(visuals),
-    do: Enum.map(visuals, &visual_atom/1)
-
-  defp preview_compatible_visuals(%{"compatible_visuals" => visuals}) when is_list(visuals),
-    do: Enum.map(visuals, &visual_atom/1)
-
-  defp preview_compatible_visuals(_preview), do: []
 
   defp panel_compatible_visuals(nil), do: []
 
