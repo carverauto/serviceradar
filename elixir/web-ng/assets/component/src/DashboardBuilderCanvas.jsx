@@ -353,6 +353,7 @@ export default function DashboardBuilderCanvas({
           {panels.map((panel, index) => {
             const layout = normalizeLayout(panel, index)
             const selected = panel.id === selectedId
+            const compact = layout.h <= 4 || layout.w <= 4
 
             return (
               <div
@@ -371,7 +372,9 @@ export default function DashboardBuilderCanvas({
                   <div className="sr-dashboard-canvas-drag-handle flex cursor-move items-center justify-between gap-2 border-b border-base-300 px-3 py-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold">{panel.title}</div>
-                      <div className="truncate font-mono text-[11px] text-base-content/45">{panel.srql_query}</div>
+                      {!compact ? (
+                        <div className="truncate font-mono text-[11px] text-base-content/45">{panel.srql_query}</div>
+                      ) : null}
                     </div>
                     <span className="badge badge-xs badge-outline">{VISUAL_LABELS[panel.visual_type] || panel.visual_type}</span>
                   </div>

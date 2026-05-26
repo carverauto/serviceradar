@@ -87,10 +87,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert html =~ "Dashboard Creator"
     assert html =~ "New Dashboard"
 
-    view |> element("button[phx-click='open_panel_modal']") |> render_click()
-
-    view
-    |> form("#panel-composer-form", %{
+    render_click(view, "add_panel", %{
       "dashboard" => %{
         "dataset_key" => "services",
         "panel_title" => "Service Series",
@@ -98,9 +95,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
         "visual_type" => "table"
       }
     })
-    |> render_change()
-
-    view |> element("button[phx-click='add_panel']") |> render_click()
 
     view
     |> form("#dashboard-metadata-form", %{
@@ -125,10 +119,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     {:ok, view, _html} = live(conn, ~p"/analytics")
     render_async(view, 5_000)
 
-    view |> element("button[phx-click='open_panel_modal']") |> render_click()
-
-    view
-    |> form("#panel-composer-form", %{
+    render_click(view, "add_panel", %{
       "dashboard" => %{
         "dataset_key" => "services",
         "panel_title" => "Service Series",
@@ -136,14 +127,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
         "visual_type" => "table"
       }
     })
-    |> render_change()
 
-    view |> element("button[phx-click='add_panel']") |> render_click()
-
-    view |> element("button[phx-click='open_panel_modal']") |> render_click()
-
-    view
-    |> form("#panel-composer-form", %{
+    render_click(view, "add_panel", %{
       "dashboard" => %{
         "dataset_key" => "rich",
         "panel_title" => "Rich Status",
@@ -151,9 +136,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
         "visual_type" => "table"
       }
     })
-    |> render_change()
-
-    view |> element("button[phx-click='add_panel']") |> render_click()
 
     assert render(view) =~ "Loading dashboard canvas"
     assert render(view) =~ "Service Series"
