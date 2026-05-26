@@ -7,13 +7,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents
   import ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents
 
-  alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
   @impl true
@@ -67,26 +67,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     socket =
       if connected?(socket) do
         start_async(socket, {:load_dashboard, dashboard_id}, fn ->
-          with {:ok, %AuthoredDashboard{} = dashboard} <-
-                 Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
-            panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
-            variable_values = DashboardVariables.values(dashboard, current_variable_values)
-
-            results =
-              Map.new(panels, fn panel ->
-                {panel.id, preview_panel_query(scope, panel, variable_values)}
-              end)
-
-            trends =
-              Map.new(panels, fn panel ->
-                {panel.id, preview_trend_query(scope, panel, variable_values)}
-              end)
-
-            access = AccessControls.load(scope, dashboard, access_assigns)
-            clone_targets = load_clone_targets(scope, dashboard)
-
-            {:ok, dashboard, panels, results, trends, variable_values, access, clone_targets}
-          end
+          RuntimeData.load_dashboard(scope, dashboard_id, current_variable_values, access_assigns)
         end)
       else
         socket
@@ -114,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      |> assign(:trend_results, trends)
      |> assign(:variable_values, variable_values)
      |> assign(:clone_targets, clone_targets)
-     |> assign(:clone_target_id, default_clone_target_id(clone_targets))
+     |> assign(:clone_target_id, RuntimeData.default_clone_target_id(clone_targets))
      |> assign(access)
      |> assign(:page_title, dashboard.title)
      |> assign(:loading?, false)
@@ -387,8 +368,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     case require_record(panel) do
       {:ok, panel} ->
-        result = preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
-        trend = preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+        result = RuntimeData.preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+        trend = RuntimeData.preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
 
         {:noreply,
          socket
@@ -1198,14 +1179,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     panels = Dashboards.list_authored_panels(socket.assigns.current_scope, dashboard_id)
 
     results =
-      Map.new(panels, fn panel ->
-        {panel.id, preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)}
-      end)
+      RuntimeData.panel_results(socket.assigns.current_scope, panels, socket.assigns.variable_values)
 
     trends =
-      Map.new(panels, fn panel ->
-        {panel.id, preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)}
-      end)
+      RuntimeData.trend_results(socket.assigns.current_scope, panels, socket.assigns.variable_values)
 
     socket
     |> assign(:dashboard, Map.put(dashboard, :panels, panels))
@@ -1224,36 +1201,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  defp preview_panel_query(scope, panel, variable_values) do
-    query = DashboardVariables.substitute(panel.srql_query, variable_values)
-    Dashboards.preview_authored_query(scope, query, limit: 250)
-  end
-
-  defp preview_trend_query(scope, panel, variable_values) do
-    query =
-      panel
-      |> Map.get(:visual_config, %{})
-      |> Map.get("trend_query")
-
-    case query do
-      value when is_binary(value) and value != "" ->
-        Dashboards.preview_authored_query(scope, DashboardVariables.substitute(value, variable_values), limit: 250)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp load_clone_targets(scope, dashboard) do
-    scope
-    |> Dashboards.list_authored_dashboards(%{status: [:draft, :active], limit: 200})
-    |> Enum.reject(&(&1.id == dashboard.id))
-    |> Enum.sort_by(&String.downcase(&1.title || ""))
-  end
-
-  defp default_clone_target_id([target | _]), do: target.id
-  defp default_clone_target_id(_targets), do: ""
 
   defp compact_dashboard_panels(socket) do
     panels =
