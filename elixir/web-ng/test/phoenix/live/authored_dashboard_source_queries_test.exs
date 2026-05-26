@@ -86,6 +86,24 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
     end
   end
 
+  describe "templates/0" do
+    test "includes target-group availability templates backed by supported SRQL filters" do
+      template_queries = Map.new(SourceQueries.templates(), &{&1.key, &1.query})
+
+      assert template_queries["armis_development_availability"] ==
+               ~s|in:devices metadata.armis_tags:%development% stats:"count() as count by is_available"|
+
+      assert template_queries["armis_testing_availability"] ==
+               ~s|in:devices metadata.armis_tags:%testing% stats:"count() as count by is_available"|
+
+      assert template_queries["hypervisor_availability"] ==
+               ~s|in:devices type:Hypervisor stats:"count() as count by is_available"|
+
+      assert template_queries["router_switch_availability"] ==
+               ~s|in:devices type:(Router,Switch) stats:"count() as count by is_available"|
+    end
+  end
+
   defp panel_attrs(query, lookback_days) do
     SourceQueries.panel_attrs_from_output(
       %{id: "dashboard-1", panels: []},

@@ -39,6 +39,30 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
         description: "Grouped availability query for gauge or availability panels."
       },
       %{
+        key: "armis_development_availability",
+        label: "Armis development availability",
+        query: ~s|in:devices metadata.armis_tags:%development% stats:"count() as count by is_available"|,
+        description: "Availability gauge source for devices tagged as development in Armis metadata."
+      },
+      %{
+        key: "armis_testing_availability",
+        label: "Armis testing availability",
+        query: ~s|in:devices metadata.armis_tags:%testing% stats:"count() as count by is_available"|,
+        description: "Availability gauge source for devices tagged as testing in Armis metadata."
+      },
+      %{
+        key: "hypervisor_availability",
+        label: "Hypervisor availability",
+        query: ~s|in:devices type:Hypervisor stats:"count() as count by is_available"|,
+        description: "Availability gauge source for discovered hypervisors."
+      },
+      %{
+        key: "router_switch_availability",
+        label: "Routers and switches",
+        query: ~s|in:devices type:(Router,Switch) stats:"count() as count by is_available"|,
+        description: "Availability gauge source for routers and switches."
+      },
+      %{
         key: "service_recent",
         label: "Recent service checks",
         query: "in:services time:last_1h sort:timestamp:desc limit:25",
