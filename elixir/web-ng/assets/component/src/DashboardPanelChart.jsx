@@ -102,6 +102,13 @@ function humanizeFieldName(field, fallback = "value") {
     .replace(/\b\w/gu, character => character.toUpperCase())
 }
 
+function metricLabel(field, fallback) {
+  const normalized = String(field || "").toLowerCase()
+  if (["numerator", "value", "count"].includes(normalized)) return fallback
+  if (["denominator", "total", "target"].includes(normalized)) return fallback
+  return humanizeFieldName(field, fallback)
+}
+
 function countLabel(count, singular, plural = `${singular}s`) {
   return Number(count) === 1 ? singular : plural
 }
@@ -174,11 +181,11 @@ function gaugeDatum(rows, fields, panel) {
   const numeratorLabel =
     panel?.display_config?.numerator_label ||
     panel?.display_config?.value_label ||
-    (visual === "availability" ? countLabel(numerator, "available", "available") : humanizeFieldName(valueField))
+    (visual === "availability" ? countLabel(numerator, "available", "available") : metricLabel(valueField, "current"))
   const denominatorLabel =
     panel?.display_config?.denominator_label ||
     panel?.display_config?.total_label ||
-    (visual === "availability" ? countLabel(denominator, "monitored", "monitored") : humanizeFieldName(denominatorField, "target"))
+    (visual === "availability" ? countLabel(denominator, "monitored", "monitored") : metricLabel(denominatorField, "target"))
   const contextLabel =
     panel?.display_config?.context_label ||
     (visual === "availability"

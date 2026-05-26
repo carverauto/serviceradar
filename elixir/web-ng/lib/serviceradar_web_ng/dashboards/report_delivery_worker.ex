@@ -306,8 +306,8 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
       percent: percent,
       numerator: format_value(numerator),
       denominator: format_value(denominator),
-      numerator_label: report_humanize_field(numerator_field || "value"),
-      denominator_label: report_humanize_field(denominator_field || "total"),
+      numerator_label: report_metric_label(panel, "numerator_label", numerator_field, "current"),
+      denominator_label: report_metric_label(panel, "denominator_label", denominator_field, "target"),
       aria_label: "#{label}: #{display}%"
     }
   end
@@ -347,6 +347,21 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
     case panel.display_config || %{} do
       %{^key => value} when is_binary(value) and value != "" -> value
       _ -> fallback || ""
+    end
+  end
+
+  defp report_metric_label(panel, display_key, field, fallback) do
+    case report_display_value(panel, display_key, nil) do
+      "" -> report_default_metric_label(field, fallback)
+      value -> value
+    end
+  end
+
+  defp report_default_metric_label(field, fallback) do
+    case field |> to_string() |> String.downcase() do
+      value when value in ["numerator", "value", "count"] -> fallback
+      value when value in ["denominator", "total", "target"] -> fallback
+      _ -> report_humanize_field(field || fallback)
     end
   end
 
