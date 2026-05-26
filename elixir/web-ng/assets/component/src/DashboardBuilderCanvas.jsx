@@ -54,9 +54,50 @@ function valueAt(row, field) {
   return row[field]
 }
 
+function parseJsonValue(value) {
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null
+
+  try {
+    const parsed = JSON.parse(trimmed)
+    return parsed && typeof parsed === "object" ? parsed : null
+  } catch (_error) {
+    return null
+  }
+}
+
+function structuredSummary(value) {
+  const parsed = parseJsonValue(value)
+  const next = parsed || value
+
+  if (Array.isArray(next)) {
+    return `${next.length} ${next.length === 1 ? "item" : "items"}`
+  }
+
+  if (next && typeof next === "object") {
+    const keys = Object.keys(next)
+    if (keys.length === 0) return "0 fields"
+    const visible = keys.slice(0, 3).join(", ")
+    const extra = keys.length > 3 ? ` +${keys.length - 3}` : ""
+    return `${keys.length} ${keys.length === 1 ? "field" : "fields"}: ${visible}${extra}`
+  }
+
+  return null
+}
+
 function displayValue(value) {
   if (value === null || value === undefined || value === "") return "—"
-  if (typeof value === "object") return JSON.stringify(value)
+  const summary = structuredSummary(value)
+  if (summary) return summary
+  return String(value)
+}
+
+function displayTitle(value) {
+  if (value === null || value === undefined || value === "") return "No value"
+  const parsed = parseJsonValue(value)
+  const next = parsed || value
+  if (next && typeof next === "object") return JSON.stringify(next)
   return String(value)
 }
 
@@ -92,9 +133,9 @@ function MiniVisual({panel}) {
       <div className="flex h-full flex-col justify-center gap-2">
         <div className="text-3xl font-semibold tracking-normal">
           {raw}
-          <span className="text-base text-base-content/50">{unit}</span>
+          <span className="text-base text-base-content/65">{unit}</span>
         </div>
-        <div className="truncate text-xs text-base-content/55">{panel.display_config?.label || valueField || "Value"}</div>
+        <div className="truncate text-xs text-base-content/70">{panel.display_config?.label || valueField || "Value"}</div>
         {["gauge", "availability"].includes(visual) ? (
           <div className="h-2 overflow-hidden rounded-full bg-base-300">
             <div className="h-full rounded-full bg-primary" style={{width: `${Math.max(0, Math.min(raw, 100))}%`}} />
@@ -120,8 +161,8 @@ function MiniVisual({panel}) {
           <tbody>
             {rows.slice(0, 3).map((row, index) => (
               <tr key={index}>
-                <td>{displayValue(valueAt(row, rowField))}</td>
-                <td>{displayValue(valueAt(row, columnField))}</td>
+                <td title={displayTitle(valueAt(row, rowField))}>{displayValue(valueAt(row, rowField))}</td>
+                <td title={displayTitle(valueAt(row, columnField))}>{displayValue(valueAt(row, columnField))}</td>
               </tr>
             ))}
           </tbody>
@@ -157,7 +198,15 @@ function MiniVisual({panel}) {
         <tbody>
           {rows.slice(0, 4).map((row, index) => (
             <tr key={index}>
-              {fields.slice(0, 4).map(field => <td key={field.name}>{displayValue(valueAt(row, field.name))}</td>)}
+              {fields.slice(0, 4).map(field => {
+                const value = valueAt(row, field.name)
+
+                return (
+                  <td key={field.name} className="max-w-44 truncate" title={displayTitle(value)}>
+                    {displayValue(value)}
+                  </td>
+                )
+              })}
             </tr>
           ))}
         </tbody>
@@ -288,17 +337,17 @@ export default function DashboardBuilderCanvas({
         </div>
         <div className="mt-4 rounded-md border border-base-300 bg-base-200/45 p-3">
           <div className="flex items-center justify-between gap-2 text-xs">
-            <span className="text-base-content/55">Panels</span>
+            <span className="text-base-content/70">Panels</span>
             <span className="font-mono font-semibold">{panels.length}</span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-            <span className="text-base-content/55">Selected</span>
+            <span className="text-base-content/70">Selected</span>
             <span className="truncate font-mono font-semibold">
               {selectedPanel?.title || "None"}
             </span>
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 text-xs">
-            <span className="text-base-content/55">Layout</span>
+            <span className="text-base-content/70">Layout</span>
             <span className="font-mono font-semibold">{canManage ? "Editable" : "Read only"}</span>
           </div>
         </div>
@@ -308,7 +357,7 @@ export default function DashboardBuilderCanvas({
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-lg font-semibold tracking-normal">Dashboard Canvas</div>
-            <p className="text-xs text-base-content/55">
+            <p className="text-xs text-base-content/70">
               Drag panels by their header, resize from the edges, and click a panel to open its composer.
             </p>
           </div>
@@ -321,7 +370,7 @@ export default function DashboardBuilderCanvas({
             <span className="badge badge-outline">{panels.length} panels</span>
           </div>
         </div>
-        <div className="relative min-h-[500px] rounded-lg border border-base-300 bg-base-100/70 p-2">
+        <div className="relative min-h-[500px] rounded-lg border border-base-300 bg-base-100 p-2">
           <div ref={gridRef} className="grid-stack min-h-[500px]">
             {panels.map((panel, index) => {
               const layout = normalizeLayout(panel, index)

@@ -662,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 class="text-sm font-semibold">Dashboard Settings</h2>
-              <p class="text-xs text-base-content/55">
+              <p class="text-xs text-base-content/70">
                 Manage SRQL panels, visual choices, email schedules, and dashboard-specific sharing.
               </p>
             </div>
@@ -683,7 +683,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                       Composite authoring
                     </p>
                     <h3 class="mt-1 text-lg font-semibold tracking-normal">Dashboard Workbench</h3>
-                    <p class="text-xs text-base-content/55">
+                    <p class="text-xs text-base-content/70">
                       Compose SRQL-backed panels, map query output into supported visuals, and arrange the dashboard canvas.
                     </p>
                   </div>
@@ -715,7 +715,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               <div class="flex flex-col gap-2 border-b border-base-300 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 class="text-sm font-semibold">Sharing</h3>
-                  <p class="text-xs text-base-content/55">
+                  <p class="text-xs text-base-content/70">
                     Visibility is {@dashboard.visibility}; explicit grants add users or reusable groups.
                   </p>
                 </div>
@@ -835,7 +835,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <div class="text-sm font-medium">{schedule.name}</div>
-                        <div class="mt-1 font-mono text-xs text-base-content/55">
+                        <div class="mt-1 font-mono text-xs text-base-content/70">
                           {schedule.cron} · {schedule.timezone}
                         </div>
                       </div>
@@ -865,7 +865,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                         </button>
                       </div>
                     </div>
-                    <p class="mt-2 text-xs text-base-content/55">
+                    <p class="mt-2 text-xs text-base-content/70">
                       Next due: {format_value(schedule.next_due_at)}
                     </p>
                   </div>
@@ -909,7 +909,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
                 <h2 class="mt-1 text-lg font-semibold tracking-normal">
                   {if @editing_panel_id == "new", do: "Create New Panel", else: "Edit Panel"}
                 </h2>
-                <p class="text-xs text-base-content/55">
+                <p class="text-xs text-base-content/70">
                   Write the panel query, preview its output, then choose one of the compatible visualizations and bind fields.
                 </p>
               </div>
@@ -1030,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       <form phx-change="change_variable" class="flex flex-col gap-3 lg:flex-row lg:items-center">
         <div class="shrink-0">
           <h2 class="text-sm font-semibold">Dashboard Variables</h2>
-          <p class="text-xs text-base-content/55">
+          <p class="text-xs text-base-content/70">
             Values substitute into panel SRQL before execution.
           </p>
         </div>
@@ -1086,7 +1086,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
               {refresh_interval_label(@panel)}
             </span>
           </div>
-          <p class="mt-1 truncate font-mono text-xs text-base-content/45">{@panel.srql_query}</p>
+          <p class="mt-1 truncate font-mono text-xs text-base-content/65">{@panel.srql_query}</p>
         </div>
         <div class="flex shrink-0 flex-wrap items-center gap-1">
           <span class="badge badge-outline">{@panel.visual_type}</span>
@@ -1470,7 +1470,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       <div>
         <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 1</p>
         <h3 class="mt-1 text-sm font-semibold">SRQL source</h3>
-        <p class="text-xs text-base-content/55">
+        <p class="text-xs text-base-content/70">
           Define the dataset query this panel owns. Previewing the query drives the available visuals and field bindings.
         </p>
       </div>
@@ -1491,7 +1491,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
         <button type="submit" name="intent" value="preview" class="btn btn-sm">
           <.icon name="hero-play" class="size-4" /> Preview Query
         </button>
-        <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/55">
+        <span :if={!@preview and is_nil(@panel)} class="text-xs text-base-content/70">
           Preview first to unlock compatible visualizations.
         </span>
       </div>
@@ -1501,7 +1501,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       <div>
         <p class="text-xs font-semibold uppercase tracking-normal text-primary">Step 2</p>
         <h3 class="mt-1 text-sm font-semibold">Visualization and bindings</h3>
-        <p class="text-xs text-base-content/55">
+        <p class="text-xs text-base-content/70">
           Choose a supported visual and map fields from the preview output into labels, values, status, and layout.
         </p>
       </div>
@@ -2612,7 +2612,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp empty_rows(assigns) do
     ~H"""
-    <div class="flex min-h-24 items-center justify-center text-sm text-base-content/55">
+    <div class="flex min-h-24 items-center justify-center text-sm text-base-content/70">
       No rows returned.
     </div>
     """
@@ -2673,16 +2673,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   defp table_cell_value(value, _renderer) when is_boolean(value), do: {:boolean, value}
 
   defp table_cell_value(value, "json_summary") when is_map(value) or is_list(value) do
-    {:json, json_summary(value), inspect(value)}
+    {:json, json_summary(value), json_title(value)}
   end
 
   defp table_cell_value(value, _renderer) when is_map(value) or is_list(value) do
-    {:json, json_summary(value), inspect(value)}
+    {:json, json_summary(value), json_title(value)}
   end
 
   defp table_cell_value(value, _renderer) when is_binary(value) do
     case decode_json_cell(value) do
-      {:ok, decoded} -> {:json, json_summary(decoded), json_summary(decoded)}
+      {:ok, decoded} -> {:json, json_summary(decoded), json_title(decoded)}
       :error -> text_cell(value)
     end
   end
@@ -2707,11 +2707,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   defp json_summary(value) when is_map(value) do
-    keys = value |> Map.keys() |> Enum.map(&to_string/1) |> Enum.take(3)
-    "{#{Enum.join(keys, ", ")}}"
+    keys = value |> Map.keys() |> Enum.map(&to_string/1)
+
+    case keys do
+      [] ->
+        "0 fields"
+
+      keys ->
+        visible = keys |> Enum.take(3) |> Enum.join(", ")
+        extra = max(length(keys) - 3, 0)
+        suffix = if extra > 0, do: " +#{extra}", else: ""
+        "#{length(keys)} #{plural_label("field", length(keys))}: #{visible}#{suffix}"
+    end
   end
 
-  defp json_summary(value) when is_list(value), do: "[#{length(value)} items]"
+  defp json_summary(value) when is_list(value), do: "#{length(value)} #{plural_label("item", length(value))}"
+
+  defp plural_label(label, 1), do: label
+  defp plural_label(label, _count), do: label <> "s"
+
+  defp json_title(value) do
+    case Jason.encode(value) do
+      {:ok, encoded} -> encoded
+      _ -> inspect(value)
+    end
+  end
 
   defp default_renderer(%{type: :boolean}), do: "boolean_icon"
 
