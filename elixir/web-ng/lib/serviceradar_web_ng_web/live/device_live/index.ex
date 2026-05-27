@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
@@ -37,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @presence_window "last_24h"
   @presence_bucket "24h"
   @presence_device_cap 200
+  @agent_availability_fresh_seconds 2 * 60 * 60
   @device_pubsub_refresh_debounce_ms 1_000
 
   @impl true
@@ -51,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:devices, [])
      |> assign(:icmp_sparklines, %{})
      |> assign(:icmp_error, nil)
+     |> assign(:effective_availability_by_device, %{})
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:sysmon_profiles_by_device, %{})
@@ -693,6 +696,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     assign(socket,
       icmp_sparklines: %{},
       icmp_error: nil,
+      effective_availability_by_device: %{},
       snmp_presence: %{},
       sysmon_presence: %{},
       sysmon_profiles_by_device: %{},
@@ -766,6 +770,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        assign(socket,
          icmp_sparklines: enrichments.icmp_sparklines,
          icmp_error: enrichments.icmp_error,
+         effective_availability_by_device: enrichments.effective_availability_by_device,
          snmp_presence: enrichments.snmp_presence,
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
@@ -793,6 +798,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     srql = srql_module()
 
     {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql, devices, scope)
+    effective_availability_by_device = load_effective_availability(devices, scope)
     {snmp_presence, sysmon_presence} = load_metric_presence(srql, devices, scope)
     sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, devices)
     total_device_count = get_total_matching_count(scope, query)
@@ -800,12 +806,112 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     %{
       icmp_sparklines: icmp_sparklines,
       icmp_error: icmp_error,
+      effective_availability_by_device: effective_availability_by_device,
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: sysmon_profiles_by_device,
       total_device_count: total_device_count
     }
   end
+
+  defp load_effective_availability(devices, scope) do
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if device_uids == [] do
+      %{}
+    else
+      rows =
+        DeviceAgentAvailability
+        |> Ash.Query.for_read(:read, %{}, scope: scope)
+        |> Ash.Query.filter(device_uid in ^device_uids)
+        |> Ash.Query.sort(checked_at: :desc, agent_id: :asc)
+        |> Ash.read!(scope: scope)
+
+      rows_by_device = Enum.group_by(rows, & &1.device_uid)
+
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn device, acc ->
+        uid = Map.get(device, "uid") || Map.get(device, "id")
+        availability_rows = Map.get(rows_by_device, uid, [])
+
+        case effective_availability_from_rows(device, availability_rows) do
+          nil -> acc
+          value -> Map.put(acc, uid, value)
+        end
+      end)
+    end
+  rescue
+    reason ->
+      Logger.warning("Failed to load effective device availability: #{inspect(reason)}")
+      %{}
+  end
+
+  defp effective_availability_from_rows(_device, []), do: nil
+
+  defp effective_availability_from_rows(device, rows) do
+    fresh_rows = Enum.filter(rows, &agent_availability_fresh?/1)
+
+    if fresh_rows == [] do
+      nil
+    else
+      effective_availability_from_fresh_rows(device, fresh_rows)
+    end
+  end
+
+  defp effective_availability_from_fresh_rows(device, rows) do
+    source_agent_id =
+      device
+      |> Map.get("availability_source_agent_id")
+      |> blank_to_nil()
+
+    if is_binary(source_agent_id) do
+      rows
+      |> Enum.find(&(&1.agent_id == source_agent_id))
+      |> case do
+        nil -> nil
+        row -> row.is_available == true
+      end
+    else
+      Enum.any?(rows, &(&1.is_available == true))
+    end
+  end
+
+  defp agent_availability_fresh?(row) do
+    cutoff = DateTime.add(DateTime.utc_now(), -@agent_availability_fresh_seconds, :second)
+
+    case Map.get(row, :checked_at) do
+      %DateTime{} = observed_at -> DateTime.after?(observed_at, cutoff)
+      _ -> false
+    end
+  end
+
+  defp effective_availability(row, effective_availability_by_device) when is_map(row) do
+    uid = Map.get(row, "uid") || Map.get(row, "id")
+
+    case Map.fetch(effective_availability_by_device, uid) do
+      {:ok, value} -> value
+      :error -> Map.get(row, "is_available")
+    end
+  end
+
+  defp effective_availability(_row, _effective_availability_by_device), do: nil
+
+  defp blank_to_nil(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
 
   defp import_csv_preview(socket) do
     case socket.assigns.csv_preview do
@@ -1562,7 +1668,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       </span>
                     </td>
                     <td class="text-xs">
-                      <.availability_badge available={Map.get(row, "is_available")} />
+                      <.availability_badge available={
+                        effective_availability(row, @effective_availability_by_device)
+                      } />
                     </td>
                     <td class="text-xs">
                       <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />

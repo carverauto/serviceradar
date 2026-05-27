@@ -33,6 +33,28 @@ The system SHALL support choosing which availability source drives the canonical
 - **THEN** the system SHALL use the existing consolidated availability fallback
 - **AND** existing single-agent deployments SHALL continue to produce the same `is_available` behavior as before this change
 
+### Requirement: Availability source profiles
+The system SHALL support operator-managed availability source profiles that select a set of devices using SRQL and assign one agent as the canonical availability source for matching devices.
+
+#### Scenario: Profile assigns canonical agent by SRQL scope
+- **GIVEN** an enabled availability source profile with SRQL scope `in:devices site:plant-a`
+- **AND** the profile selects `agent-plant-a` as the canonical availability agent
+- **WHEN** the profile is evaluated
+- **THEN** matching devices SHALL derive canonical `is_available` from the latest fresh `agent-plant-a` availability state
+- **AND** non-matching devices SHALL keep their existing per-device override or default fallback behavior
+
+#### Scenario: Per-device override wins over profile
+- **GIVEN** a device matches an enabled availability source profile for `agent-plant-a`
+- **AND** the device has a per-device primary availability source override of `agent-maintenance`
+- **WHEN** canonical device availability is derived
+- **THEN** the device SHALL use `agent-maintenance` rather than the profile agent
+
+#### Scenario: Multiple profiles match a device
+- **GIVEN** a device matches two enabled availability source profiles with different selected agents
+- **WHEN** canonical source assignment is evaluated
+- **THEN** the system SHALL choose one profile using deterministic precedence
+- **AND** the selected profile SHALL be inspectable for audit or troubleshooting
+
 ### Requirement: Availability source freshness
 The system SHALL track freshness for per-agent availability so stale observations are distinguishable from current observations.
 

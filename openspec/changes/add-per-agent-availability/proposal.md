@@ -10,6 +10,7 @@ Operators need to compare availability by agent, choose which agent drives the p
 
 - Persist latest sweep availability per device and per agent, including protocol/check details, response time, ports, sweep group/profile context, and freshness metadata.
 - Add configuration for choosing the primary availability source for a device or device selection, with a deterministic fallback when no explicit source is configured.
+- Add availability source profiles that bind an SRQL device query to a canonical availability agent so operators can manage source-of-truth assignment by network segment or inventory slice.
 - Keep canonical `ocsf_devices.is_available` as a derived compatibility field, sourced from the configured primary availability source rather than blindly collapsing every agent's results.
 - Expose per-agent availability in device details so users can see how each vantage point sees the device without reading raw JSON.
 - Extend SRQL so users can query devices by per-agent availability and primary availability source.

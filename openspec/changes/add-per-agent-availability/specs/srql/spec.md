@@ -35,3 +35,17 @@ SRQL SHALL support finding devices whose latest availability differs between two
 - **GIVEN** devices have latest availability from `agent-intranet` and `agent-ot`
 - **WHEN** a client queries for devices where `agent-intranet` is available and `agent-ot` is unavailable
 - **THEN** SRQL SHALL return devices matching both conditions
+
+### Requirement: SRQL validates availability profile scopes
+SRQL SHALL provide a safe validation and preview path for availability source profile scopes.
+
+#### Scenario: Valid profile scope
+- **GIVEN** an operator enters an SRQL device query for an availability source profile
+- **WHEN** the UI validates the query
+- **THEN** SRQL SHALL confirm the query targets devices
+- **AND** return a bounded preview of matching device identifiers and a total count when available
+
+#### Scenario: Invalid profile scope
+- **GIVEN** an operator enters an SRQL query that does not target devices or cannot be parsed
+- **WHEN** the UI validates the query
+- **THEN** SRQL SHALL return a validation error without saving or applying the profile

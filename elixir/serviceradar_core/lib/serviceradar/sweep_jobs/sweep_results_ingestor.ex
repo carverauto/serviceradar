@@ -1174,7 +1174,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         to_jsonb($2::timestamptz)
       )
     WHERE uid = ANY($1)
-      AND (availability_source_agent_id IS NULL OR availability_source_agent_id = $3)
+      AND (
+        NULLIF(BTRIM(availability_source_agent_id), '') IS NULL
+        OR availability_source_agent_id = $3
+      )
     """
 
     case Repo.query(sql, [device_uids, timestamp, agent_id]) do
@@ -1237,7 +1240,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         is_available = true
         AND COALESCE((metadata->>'sweep_last_available_at')::timestamptz > $4, false)
       )
-      AND (availability_source_agent_id IS NULL OR availability_source_agent_id = $5)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM device_agent_availability daa
+        WHERE daa.device_uid = ocsf_devices.uid
+          AND daa.is_available = true
+          AND daa.checked_at > $4
+          AND (
+            NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NULL
+            OR daa.agent_id = ocsf_devices.availability_source_agent_id
+          )
+      )
+      AND (
+        NULLIF(BTRIM(availability_source_agent_id), '') IS NULL
+        OR availability_source_agent_id = $5
+      )
     """
 
     case Repo.query(sql, [

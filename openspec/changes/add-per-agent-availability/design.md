@@ -45,7 +45,11 @@ Canonical `ocsf_devices.is_available` stays available but becomes derived from a
 - default: current behavior/fallback, using the best available consolidated state so existing installs keep working
 - configured: a selected `agent_id` for a device or device selection
 
-The implementation may start with per-device primary-source configuration and later add policy/rule-based bulk assignment if needed. The UI must still support bulk assignment because the customer workflow applies to many Armis-imported devices.
+Primary-source configuration has two layers:
+- per-device override for one-off corrections or exceptions
+- availability source profile for repeatable assignment, where a profile contains an SRQL `in:devices ...` query and a selected canonical `agent_id`
+
+Profiles are evaluated against the current inventory and apply their selected agent to matching devices. If multiple enabled profiles match the same device, the system must use a deterministic precedence such as profile priority followed by stable ID ordering. A per-device override wins over profile-derived assignment.
 
 ### Northbound source selection
 
@@ -63,6 +67,7 @@ Proposed query shape can be finalized during implementation, but the capability 
 - devices available/unavailable from a specific agent
 - devices whose primary availability source is a specific agent
 - devices with differing availability between two agents
+- devices matching an availability source profile's SRQL scope, for preview and audit
 
 ## Risks / Trade-offs
 
@@ -76,12 +81,12 @@ Proposed query shape can be finalized during implementation, but the capability 
 1. Add the latest per-agent availability relation and backfill from recent sweep results when possible.
 2. Preserve existing `ocsf_devices.is_available` values until new latest-state data is present.
 3. Default primary availability selection to current behavior.
-4. Add UI controls and bulk actions for selecting a primary agent.
+4. Add per-device controls and availability source profiles for assigning a primary agent.
 5. Update Armis northbound to use canonical availability by default and allow selecting an agent-specific source.
 
 ## Open Questions
 
-- Should primary availability source be stored directly on `ocsf_devices`, in a related settings table, or as a tag/rule policy that resolves at read time?
+- Should profile-derived source assignments be materialized onto `ocsf_devices.availability_source_agent_id`, stored in a related effective-assignment table, or resolved at read time?
 - Should stale per-agent availability be ignored after a configurable age, or displayed as stale while still preserving the last known value?
 - Should Armis northbound support value mapping in the same change, or only source selection with the current boolean behavior?
 - What is the exact SRQL syntax for comparing two agents' availability without overcomplicating the query language?
