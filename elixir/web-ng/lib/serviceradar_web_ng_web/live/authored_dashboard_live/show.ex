@@ -276,8 +276,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
          %{source_query_preview: preview, dashboard: %{}} <- socket.assigns,
          true <- is_map(preview),
          source = SourceQueries.source_from_preview(socket.assigns.source_query_params, preview),
-         {:ok, dashboard} <- SourceQueries.persist_source(socket.assigns.current_scope, socket.assigns.dashboard, source),
-         attrs = SourceQueries.panel_attrs_from_output(dashboard, source, visual_type, socket.assigns.source_query_params),
+         {:ok, dashboard} <-
+           SourceQueries.persist_source(socket.assigns.current_scope, socket.assigns.dashboard, source),
+         attrs =
+           SourceQueries.panel_attrs_from_output(dashboard, source, visual_type, socket.assigns.source_query_params),
          {:ok, panel} <- Dashboards.create_authored_panel(socket.assigns.current_scope, attrs) do
       panels =
         dashboard.panels

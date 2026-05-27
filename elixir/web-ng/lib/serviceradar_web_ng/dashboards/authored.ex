@@ -499,12 +499,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     end
   end
 
-  defp validate_visual_type(type)
-       when type in [:table, :stat, :count, :gauge, :availability, :line, :area, :bar, :category, :status_list, :pivot] do
-    :ok
+  defp validate_visual_type(type) do
+    if type in visual_types() do
+      :ok
+    else
+      {:error, {:unsupported_visual_type, type}}
+    end
   end
-
-  defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
 
   # Tables are the catch-all rendering path for any tabular SRQL result shape.
   defp validate_visual_compatibility(:table, _compatible), do: :ok
