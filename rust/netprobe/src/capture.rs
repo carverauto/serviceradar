@@ -141,7 +141,7 @@ fn start_capture_workers(
             .name(thread_name)
             .spawn(move || {
                 let interface = capture.interface.clone();
-                let mut engine = match FingerprintEngine::tcp_only() {
+                let mut engine = match FingerprintEngine::phase1() {
                     Ok(engine) => engine,
                     Err(err) => {
                         metrics_worker.inc_signature_failures();
@@ -157,7 +157,7 @@ fn start_capture_workers(
                         Ok(packet) => {
                             metrics_worker.inc_packets_processed();
                             let events =
-                                engine.analyze_tcp_packet(&interface, now_unix_nano(), packet.data);
+                                engine.analyze_packet(&interface, now_unix_nano(), packet.data);
                             for event in events {
                                 let Some(event) = event_gate
                                     .lock()

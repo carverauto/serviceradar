@@ -5,6 +5,10 @@ use std::{net::IpAddr, time::SystemTime};
 use anyhow::{Context, Result};
 #[cfg(feature = "pcap-capture")]
 use huginn_net::{
+    huginn_net_http::{
+        http_common::HttpHeader,
+        output::{HttpRequestOutput, HttpResponseOutput},
+    },
     huginn_net_tcp::{
         db::MatchQualityType,
         output::{OSQualityMatched, SynAckTCPOutput, SynTCPOutput},
@@ -13,7 +17,9 @@ use huginn_net::{
 };
 
 #[cfg(feature = "pcap-capture")]
-use crate::proto::netprobe::{fingerprint_event, FingerprintEvent, TcpFingerprint};
+use crate::proto::netprobe::{
+    fingerprint_event, FingerprintEvent, HttpFingerprint, TcpFingerprint,
+};
 
 pub const FINGERPRINT_ENGINE_VERSION: &str = "huginn-net/1.7.3";
 
@@ -27,12 +33,12 @@ pub struct FingerprintEngine {
 
 #[cfg(feature = "pcap-capture")]
 impl FingerprintEngine {
-    pub fn tcp_only() -> Result<Self> {
+    pub fn phase1() -> Result<Self> {
         let database = Box::leak(Box::new(
             Database::load_default().context("failed to load huginn-net p0f database")?,
         ));
         let config = AnalysisConfig {
-            http_enabled: false,
+            http_enabled: true,
             tcp_enabled: true,
             tls_enabled: false,
             matcher_enabled: true,
@@ -43,7 +49,7 @@ impl FingerprintEngine {
         Ok(Self { analyzer })
     }
 
-    pub fn analyze_tcp_packet(
+    pub fn analyze_packet(
         &mut self,
         interface_name: &str,
         observed_at_unix_nano: i64,
@@ -62,6 +68,22 @@ impl FingerprintEngine {
                 observed_at_unix_nano,
                 syn_ack,
             ));
+        }
+
+        if let Some(request) = result.http_request {
+            if let Some(event) =
+                event_from_http_request(interface_name, observed_at_unix_nano, request)
+            {
+                events.push(event);
+            }
+        }
+
+        if let Some(response) = result.http_response {
+            if let Some(event) =
+                event_from_http_response(interface_name, observed_at_unix_nano, response)
+            {
+                events.push(event);
+            }
         }
 
         events
@@ -146,16 +168,91 @@ fn tcp_event(
     }
 }
 
+#[cfg(feature = "pcap-capture")]
+fn event_from_http_request(
+    interface_name: &str,
+    observed_at_unix_nano: i64,
+    request: HttpRequestOutput,
+) -> Option<FingerprintEvent> {
+    let user_agent = request.sig.user_agent.unwrap_or_default();
+    let accept_language = header_value(&request.sig.headers, "accept-language")
+        .or(request.lang)
+        .unwrap_or_default();
+
+    if user_agent.is_empty() && accept_language.is_empty() {
+        return None;
+    }
+
+    Some(http_event(
+        request.source.ip,
+        interface_name,
+        observed_at_unix_nano,
+        HttpFingerprint {
+            user_agent,
+            server: String::new(),
+            accept_language,
+        },
+    ))
+}
+
+#[cfg(feature = "pcap-capture")]
+fn event_from_http_response(
+    interface_name: &str,
+    observed_at_unix_nano: i64,
+    response: HttpResponseOutput,
+) -> Option<FingerprintEvent> {
+    let server = header_value(&response.sig.headers, "server").unwrap_or_default();
+    if server.is_empty() {
+        return None;
+    }
+
+    Some(http_event(
+        response.source.ip,
+        interface_name,
+        observed_at_unix_nano,
+        HttpFingerprint {
+            user_agent: String::new(),
+            server,
+            accept_language: String::new(),
+        },
+    ))
+}
+
+#[cfg(feature = "pcap-capture")]
+fn http_event(
+    ip: IpAddr,
+    interface_name: &str,
+    observed_at_unix_nano: i64,
+    fingerprint: HttpFingerprint,
+) -> FingerprintEvent {
+    FingerprintEvent {
+        ip: ip.to_string(),
+        profile_id: String::new(),
+        interface_name: interface_name.to_string(),
+        observed_at_unix_nano,
+        evidence: Some(fingerprint_event::Evidence::Http(fingerprint)),
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn header_value(headers: &[HttpHeader], name: &str) -> Option<String> {
+    headers
+        .iter()
+        .find(|header| header.name.eq_ignore_ascii_case(name))
+        .and_then(|header| header.value.clone())
+}
+
 #[cfg(all(test, feature = "pcap-capture"))]
 mod tests {
-    use super::FingerprintEngine;
+    use super::{header_value, FingerprintEngine};
     use crate::proto::netprobe::fingerprint_event;
+    use huginn_net::huginn_net_http::http_common::{HeaderSource, HttpHeader};
 
     #[test]
     fn emits_tcp_fingerprint_for_ipv4_syn_packet() {
-        let mut engine = FingerprintEngine::tcp_only().unwrap();
+        let mut engine = FingerprintEngine::phase1().unwrap();
 
-        let events = engine.analyze_tcp_packet("eth0", 123, ipv4_syn_packet());
+        let events = engine.analyze_packet("eth0", 123, ipv4_syn_packet());
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].ip, "192.0.2.10");
@@ -169,11 +266,26 @@ mod tests {
 
     #[test]
     fn ignores_non_tcp_packets() {
-        let mut engine = FingerprintEngine::tcp_only().unwrap();
+        let mut engine = FingerprintEngine::phase1().unwrap();
 
-        let events = engine.analyze_tcp_packet("eth0", 123, &[0, 1, 2, 3]);
+        let events = engine.analyze_packet("eth0", 123, &[0, 1, 2, 3]);
 
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn finds_http_header_values_case_insensitively() {
+        let headers = vec![HttpHeader::new(
+            "User-Agent",
+            Some("ServiceRadar Test"),
+            0,
+            HeaderSource::Http1Line,
+        )];
+
+        assert_eq!(
+            header_value(&headers, "user-agent"),
+            Some("ServiceRadar Test".to_string())
+        );
     }
 
     fn ipv4_syn_packet() -> &'static [u8] {
