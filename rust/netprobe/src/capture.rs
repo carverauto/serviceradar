@@ -9,8 +9,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use tokio::sync::broadcast;
 
-use crate::{config::Config, metrics::Metrics};
+use crate::{config::Config, metrics::Metrics, proto::netprobe::FingerprintEvent};
 
 #[cfg(feature = "pcap-capture")]
 use crate::fingerprint::{now_unix_nano, FingerprintEngine};
@@ -72,8 +73,12 @@ pub struct CaptureWorkers {
 }
 
 impl CaptureWorkers {
-    pub fn start(captures: CaptureHandles, metrics: Metrics) -> Result<Self> {
-        start_capture_workers(captures, metrics)
+    pub fn start(
+        captures: CaptureHandles,
+        metrics: Metrics,
+        fingerprint_events: broadcast::Sender<FingerprintEvent>,
+    ) -> Result<Self> {
+        start_capture_workers(captures, metrics, fingerprint_events)
     }
 }
 
@@ -113,13 +118,18 @@ where
 }
 
 #[cfg(feature = "pcap-capture")]
-fn start_capture_workers(captures: CaptureHandles, metrics: Metrics) -> Result<CaptureWorkers> {
+fn start_capture_workers(
+    captures: CaptureHandles,
+    metrics: Metrics,
+    fingerprint_events: broadcast::Sender<FingerprintEvent>,
+) -> Result<CaptureWorkers> {
     let stop = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::with_capacity(captures.len());
 
     for mut capture in captures.into_handles() {
         let stop_worker = Arc::clone(&stop);
         let metrics_worker = metrics.clone();
+        let event_tx = fingerprint_events.clone();
         let thread_name = format!("netprobe-capture-{}", capture.interface);
         let thread = thread::Builder::new()
             .name(thread_name)
@@ -143,11 +153,19 @@ fn start_capture_workers(captures: CaptureHandles, metrics: Metrics) -> Result<C
                             let events =
                                 engine.analyze_tcp_packet(&interface, now_unix_nano(), packet.data);
                             for event in events {
+                                let event_interface = event.interface_name.clone();
+                                let event_ip = event.ip.clone();
                                 metrics_worker.inc_fingerprint_events();
+                                if event_tx.send(event).is_err() {
+                                    log::debug!(
+                                        "dropping fingerprint event with no active IPC receiver for {}",
+                                        event_interface
+                                    );
+                                }
                                 log::debug!(
                                     "observed TCP fingerprint on {} for {}",
-                                    event.interface_name,
-                                    event.ip
+                                    event_interface,
+                                    event_ip
                                 );
                             }
                         }
@@ -167,7 +185,11 @@ fn start_capture_workers(captures: CaptureHandles, metrics: Metrics) -> Result<C
 }
 
 #[cfg(not(feature = "pcap-capture"))]
-fn start_capture_workers(_captures: CaptureHandles, _metrics: Metrics) -> Result<CaptureWorkers> {
+fn start_capture_workers(
+    _captures: CaptureHandles,
+    _metrics: Metrics,
+    _fingerprint_events: broadcast::Sender<FingerprintEvent>,
+) -> Result<CaptureWorkers> {
     Ok(CaptureWorkers {
         stop: Arc::new(AtomicBool::new(false)),
         threads: Vec::new(),

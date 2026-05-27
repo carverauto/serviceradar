@@ -12,7 +12,7 @@ use std::{path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use crate::{
     capture::CaptureWorkers,
@@ -83,15 +83,20 @@ async fn main() -> Result<()> {
     log::info!("opened {} capture interface(s)", capture_handles.len());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (fingerprint_event_tx, _) = broadcast::channel(4096);
     let metrics = Metrics::new()?;
-    let _capture_workers = CaptureWorkers::start(capture_handles, metrics.clone())
-        .context("failed to start capture workers")?;
+    let _capture_workers = CaptureWorkers::start(
+        capture_handles,
+        metrics.clone(),
+        fingerprint_event_tx.clone(),
+    )
+    .context("failed to start capture workers")?;
     let metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
         metrics.clone(),
         shutdown_rx.clone(),
     ));
-    let ipc_task = tokio::spawn(IpcServer::new(args.socket).run(shutdown_rx));
+    let ipc_task = tokio::spawn(IpcServer::new(args.socket, fingerprint_event_tx).run(shutdown_rx));
 
     wait_for_shutdown().await;
     let _ = shutdown_tx.send(true);

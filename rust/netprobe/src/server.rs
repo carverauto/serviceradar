@@ -10,25 +10,32 @@ use std::{
 use anyhow::{Context, Result};
 use tokio::{
     net::{UnixListener, UnixStream},
-    sync::watch,
+    sync::{broadcast, watch},
 };
 
 use crate::{
     fingerprint::FINGERPRINT_ENGINE_VERSION,
     framing::{read_frame, write_frame},
-    proto::netprobe::{netprobe_frame, ConfigAck, ErrorFrame, NetprobeFrame, PingAck},
+    proto::netprobe::{
+        netprobe_frame, ConfigAck, ErrorFrame, FingerprintEvent, NetprobeFrame, PingAck,
+    },
 };
 
 pub struct IpcServer {
     socket_path: PathBuf,
     active_client: Arc<AtomicBool>,
+    fingerprint_events: broadcast::Sender<FingerprintEvent>,
 }
 
 impl IpcServer {
-    pub fn new(socket_path: impl Into<PathBuf>) -> Self {
+    pub fn new(
+        socket_path: impl Into<PathBuf>,
+        fingerprint_events: broadcast::Sender<FingerprintEvent>,
+    ) -> Self {
         Self {
             socket_path: socket_path.into(),
             active_client: Arc::new(AtomicBool::new(false)),
+            fingerprint_events,
         }
     }
 
@@ -54,8 +61,9 @@ impl IpcServer {
                     }
 
                     let active_client = Arc::clone(&self.active_client);
+                    let event_rx = self.fingerprint_events.subscribe();
                     tokio::spawn(async move {
-                        let result = handle_client(stream).await;
+                        let result = handle_client(stream, event_rx).await;
                         active_client.store(false, Ordering::SeqCst);
                         if let Err(err) = result {
                             log::warn!("netprobe IPC client disconnected with error: {err:#}");
@@ -93,43 +101,66 @@ async fn reject_concurrent_client(mut stream: UnixStream) -> Result<()> {
     Ok(())
 }
 
-async fn handle_client(mut stream: UnixStream) -> Result<()> {
-    while let Some(frame) = read_frame(&mut stream).await? {
-        match frame.payload {
-            Some(netprobe_frame::Payload::Ping(ping)) => {
-                let ack = NetprobeFrame {
-                    sequence: frame.sequence,
-                    payload: Some(netprobe_frame::Payload::PingAck(PingAck {
-                        sent_at_unix_nano: ping.sent_at_unix_nano,
-                        acked_at_unix_nano: now_unix_nano(),
-                        fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
-                    })),
+async fn handle_client(
+    stream: UnixStream,
+    mut fingerprint_events: broadcast::Receiver<FingerprintEvent>,
+) -> Result<()> {
+    let (mut reader, mut writer) = stream.into_split();
+
+    loop {
+        tokio::select! {
+            frame = read_frame(&mut reader) => {
+                let Some(frame) = frame? else {
+                    return Ok(());
                 };
-                write_frame(&mut stream, &ack).await?;
+                let response = response_for_frame(frame);
+                write_frame(&mut writer, &response).await?;
             }
-            Some(netprobe_frame::Payload::ApplyConfig(_apply)) => {
-                let ack = NetprobeFrame {
-                    sequence: frame.sequence,
-                    payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
-                        config_hash: "phase1-skeleton".to_string(),
-                    })),
-                };
-                write_frame(&mut stream, &ack).await?;
-            }
-            _ => {
-                let err = NetprobeFrame {
-                    sequence: frame.sequence,
-                    payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
-                        code: "unsupported_frame".to_string(),
-                        message: "frame type is not supported by the Phase 1 skeleton".to_string(),
-                    })),
-                };
-                write_frame(&mut stream, &err).await?;
+            event = fingerprint_events.recv() => {
+                match event {
+                    Ok(event) => {
+                        let frame = NetprobeFrame {
+                            sequence: 0,
+                            payload: Some(netprobe_frame::Payload::FingerprintEvent(event)),
+                        };
+                        write_frame(&mut writer, &frame).await?;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        log::warn!("netprobe IPC client lagged; skipped {skipped} fingerprint event(s)");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Ok(());
+                    }
+                }
             }
         }
     }
+}
 
-    Ok(())
+fn response_for_frame(frame: NetprobeFrame) -> NetprobeFrame {
+    match frame.payload {
+        Some(netprobe_frame::Payload::Ping(ping)) => NetprobeFrame {
+            sequence: frame.sequence,
+            payload: Some(netprobe_frame::Payload::PingAck(PingAck {
+                sent_at_unix_nano: ping.sent_at_unix_nano,
+                acked_at_unix_nano: now_unix_nano(),
+                fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
+            })),
+        },
+        Some(netprobe_frame::Payload::ApplyConfig(_apply)) => NetprobeFrame {
+            sequence: frame.sequence,
+            payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
+                config_hash: "phase1-skeleton".to_string(),
+            })),
+        },
+        _ => NetprobeFrame {
+            sequence: frame.sequence,
+            payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
+                code: "unsupported_frame".to_string(),
+                message: "frame type is not supported by the Phase 1 skeleton".to_string(),
+            })),
+        },
+    }
 }
 
 fn now_unix_nano() -> i64 {
@@ -142,12 +173,18 @@ fn now_unix_nano() -> i64 {
 #[cfg(test)]
 mod tests {
     use tempfile::TempDir;
-    use tokio::{net::UnixStream, sync::watch};
+    use tokio::{
+        net::UnixStream,
+        sync::{broadcast, watch},
+    };
 
     use super::IpcServer;
     use crate::{
         framing::{read_frame, write_frame},
-        proto::netprobe::{netprobe_frame, NetprobeFrame, Ping},
+        proto::netprobe::{
+            fingerprint_event, netprobe_frame, FingerprintEvent, NetprobeFrame, Ping,
+            TcpFingerprint,
+        },
     };
 
     #[tokio::test]
@@ -155,7 +192,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let server = IpcServer::new(&socket);
+        let (event_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(&socket, event_tx);
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -189,7 +227,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let server = IpcServer::new(&socket);
+        let (event_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(&socket, event_tx);
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -206,6 +245,33 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
+    #[tokio::test]
+    async fn streams_fingerprint_events_to_connected_client() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (event_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(&socket, event_tx.clone());
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&event_tx).await;
+        event_tx.send(fingerprint_event()).unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::FingerprintEvent(event)) = response.payload else {
+            panic!("expected fingerprint event");
+        };
+        assert_eq!(event.ip, "192.0.2.10");
+        assert_eq!(event.interface_name, "eth0");
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
     async fn wait_for_socket(socket: &std::path::Path) {
         for _ in 0..50 {
             if socket.exists() {
@@ -214,5 +280,30 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         panic!("socket did not appear");
+    }
+
+    async fn wait_for_event_receiver(event_tx: &broadcast::Sender<FingerprintEvent>) {
+        for _ in 0..50 {
+            if event_tx.receiver_count() > 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("server did not subscribe to fingerprint events");
+    }
+
+    fn fingerprint_event() -> FingerprintEvent {
+        FingerprintEvent {
+            ip: "192.0.2.10".to_string(),
+            profile_id: "profile-1".to_string(),
+            interface_name: "eth0".to_string(),
+            observed_at_unix_nano: 123,
+            evidence: Some(fingerprint_event::Evidence::Tcp(TcpFingerprint {
+                signature: "sig".to_string(),
+                os_family: "linux".to_string(),
+                os_name: "Linux".to_string(),
+                confidence: 1.0,
+            })),
+        }
     }
 }
