@@ -19,23 +19,27 @@ use crate::{
     proto::netprobe::{
         netprobe_frame, ConfigAck, ErrorFrame, FingerprintEvent, NetprobeFrame, PingAck,
     },
+    runtime_config::RuntimeConfig,
 };
 
 pub struct IpcServer {
     socket_path: PathBuf,
     active_client: Arc<AtomicBool>,
     fingerprint_events: broadcast::Sender<FingerprintEvent>,
+    runtime_config: RuntimeConfig,
 }
 
 impl IpcServer {
     pub fn new(
         socket_path: impl Into<PathBuf>,
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
+        runtime_config: RuntimeConfig,
     ) -> Self {
         Self {
             socket_path: socket_path.into(),
             active_client: Arc::new(AtomicBool::new(false)),
             fingerprint_events,
+            runtime_config,
         }
     }
 
@@ -62,8 +66,9 @@ impl IpcServer {
 
                     let active_client = Arc::clone(&self.active_client);
                     let event_rx = self.fingerprint_events.subscribe();
+                    let runtime_config = self.runtime_config.clone();
                     tokio::spawn(async move {
-                        let result = handle_client(stream, event_rx).await;
+                        let result = handle_client(stream, event_rx, runtime_config).await;
                         active_client.store(false, Ordering::SeqCst);
                         if let Err(err) = result {
                             log::warn!("netprobe IPC client disconnected with error: {err:#}");
@@ -104,6 +109,7 @@ async fn reject_concurrent_client(mut stream: UnixStream) -> Result<()> {
 async fn handle_client(
     stream: UnixStream,
     mut fingerprint_events: broadcast::Receiver<FingerprintEvent>,
+    runtime_config: RuntimeConfig,
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
 
@@ -113,7 +119,7 @@ async fn handle_client(
                 let Some(frame) = frame? else {
                     return Ok(());
                 };
-                let response = response_for_frame(frame);
+                let response = response_for_frame(frame, &runtime_config);
                 write_frame(&mut writer, &response).await?;
             }
             event = fingerprint_events.recv() => {
@@ -137,7 +143,7 @@ async fn handle_client(
     }
 }
 
-fn response_for_frame(frame: NetprobeFrame) -> NetprobeFrame {
+fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> NetprobeFrame {
     match frame.payload {
         Some(netprobe_frame::Payload::Ping(ping)) => NetprobeFrame {
             sequence: frame.sequence,
@@ -147,12 +153,26 @@ fn response_for_frame(frame: NetprobeFrame) -> NetprobeFrame {
                 fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
             })),
         },
-        Some(netprobe_frame::Payload::ApplyConfig(_apply)) => NetprobeFrame {
-            sequence: frame.sequence,
-            payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
-                config_hash: "phase1-skeleton".to_string(),
-            })),
-        },
+        Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
+            match apply
+                .config
+                .and_then(|config| runtime_config.apply(config).ok())
+            {
+                Some(config_hash) => NetprobeFrame {
+                    sequence: frame.sequence,
+                    payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
+                        config_hash,
+                    })),
+                },
+                None => NetprobeFrame {
+                    sequence: frame.sequence,
+                    payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
+                        code: "invalid_config".to_string(),
+                        message: "visibility config is missing or invalid".to_string(),
+                    })),
+                },
+            }
+        }
         _ => NetprobeFrame {
             sequence: frame.sequence,
             payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
@@ -180,11 +200,13 @@ mod tests {
 
     use super::IpcServer;
     use crate::{
+        config::Config,
         framing::{read_frame, write_frame},
         proto::netprobe::{
-            fingerprint_event, netprobe_frame, FingerprintEvent, NetprobeFrame, Ping,
-            TcpFingerprint,
+            fingerprint_event, netprobe_frame, ApplyConfig, FingerprintEvent, NetprobeFrame, Ping,
+            TcpFingerprint, VisibilityAgentConfig,
         },
+        runtime_config::RuntimeConfig,
     };
 
     #[tokio::test]
@@ -193,7 +215,7 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(&socket, event_tx);
+        let server = IpcServer::new(&socket, event_tx, RuntimeConfig::new(&Config::default()));
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -228,7 +250,7 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(&socket, event_tx);
+        let server = IpcServer::new(&socket, event_tx, RuntimeConfig::new(&Config::default()));
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -251,7 +273,11 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(&socket, event_tx.clone());
+        let server = IpcServer::new(
+            &socket,
+            event_tx.clone(),
+            RuntimeConfig::new(&Config::default()),
+        );
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -267,6 +293,45 @@ mod tests {
         };
         assert_eq!(event.ip, "192.0.2.10");
         assert_eq!(event.interface_name, "eth0");
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn applies_visibility_config() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (event_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(&socket, event_tx, RuntimeConfig::new(&Config::default()));
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 7,
+                payload: Some(netprobe_frame::Payload::ApplyConfig(ApplyConfig {
+                    config: Some(VisibilityAgentConfig {
+                        enabled: true,
+                        default_sample_interval_ms: 1_000,
+                        ..Default::default()
+                    }),
+                })),
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 7);
+        assert!(matches!(
+            response.payload,
+            Some(netprobe_frame::Payload::ConfigAck(_))
+        ));
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();

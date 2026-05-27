@@ -6,9 +6,14 @@ mod framing;
 mod lifecycle;
 mod metrics;
 mod proto;
+mod runtime_config;
 mod server;
 
-use std::{path::PathBuf, time::Duration};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
@@ -19,6 +24,7 @@ use crate::{
     config::Config,
     lifecycle::{initialize_privileged_resources, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
+    runtime_config::{FingerprintEventGate, RuntimeConfig},
     server::IpcServer,
 };
 
@@ -84,11 +90,16 @@ async fn main() -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (fingerprint_event_tx, _) = broadcast::channel(4096);
+    let runtime_config = RuntimeConfig::new(&config);
+    let fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
+        runtime_config.clone(),
+    )));
     let metrics = Metrics::new()?;
     let _capture_workers = CaptureWorkers::start(
         capture_handles,
         metrics.clone(),
         fingerprint_event_tx.clone(),
+        fingerprint_gate,
     )
     .context("failed to start capture workers")?;
     let metrics_task = tokio::spawn(serve_metrics(
@@ -96,7 +107,9 @@ async fn main() -> Result<()> {
         metrics.clone(),
         shutdown_rx.clone(),
     ));
-    let ipc_task = tokio::spawn(IpcServer::new(args.socket, fingerprint_event_tx).run(shutdown_rx));
+    let ipc_task = tokio::spawn(
+        IpcServer::new(args.socket, fingerprint_event_tx, runtime_config).run(shutdown_rx),
+    );
 
     wait_for_shutdown().await;
     let _ = shutdown_tx.send(true);

@@ -3,7 +3,7 @@ use std::thread;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     thread::JoinHandle,
 };
@@ -11,7 +11,10 @@ use std::{
 use anyhow::{Context, Result};
 use tokio::sync::broadcast;
 
-use crate::{config::Config, metrics::Metrics, proto::netprobe::FingerprintEvent};
+use crate::{
+    config::Config, metrics::Metrics, proto::netprobe::FingerprintEvent,
+    runtime_config::FingerprintEventGate,
+};
 
 #[cfg(feature = "pcap-capture")]
 use crate::fingerprint::{now_unix_nano, FingerprintEngine};
@@ -77,8 +80,9 @@ impl CaptureWorkers {
         captures: CaptureHandles,
         metrics: Metrics,
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
+        event_gate: Arc<Mutex<FingerprintEventGate>>,
     ) -> Result<Self> {
-        start_capture_workers(captures, metrics, fingerprint_events)
+        start_capture_workers(captures, metrics, fingerprint_events, event_gate)
     }
 }
 
@@ -122,6 +126,7 @@ fn start_capture_workers(
     captures: CaptureHandles,
     metrics: Metrics,
     fingerprint_events: broadcast::Sender<FingerprintEvent>,
+    event_gate: Arc<Mutex<FingerprintEventGate>>,
 ) -> Result<CaptureWorkers> {
     let stop = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::with_capacity(captures.len());
@@ -130,6 +135,7 @@ fn start_capture_workers(
         let stop_worker = Arc::clone(&stop);
         let metrics_worker = metrics.clone();
         let event_tx = fingerprint_events.clone();
+        let event_gate = Arc::clone(&event_gate);
         let thread_name = format!("netprobe-capture-{}", capture.interface);
         let thread = thread::Builder::new()
             .name(thread_name)
@@ -153,6 +159,13 @@ fn start_capture_workers(
                             let events =
                                 engine.analyze_tcp_packet(&interface, now_unix_nano(), packet.data);
                             for event in events {
+                                let Some(event) = event_gate
+                                    .lock()
+                                    .expect("fingerprint event gate lock poisoned")
+                                    .filter(event)
+                                else {
+                                    continue;
+                                };
                                 let event_interface = event.interface_name.clone();
                                 let event_ip = event.ip.clone();
                                 metrics_worker.inc_fingerprint_events();
@@ -189,6 +202,7 @@ fn start_capture_workers(
     _captures: CaptureHandles,
     _metrics: Metrics,
     _fingerprint_events: broadcast::Sender<FingerprintEvent>,
+    _event_gate: Arc<Mutex<FingerprintEventGate>>,
 ) -> Result<CaptureWorkers> {
     Ok(CaptureWorkers {
         stop: Arc::new(AtomicBool::new(false)),
