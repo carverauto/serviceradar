@@ -96,8 +96,8 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 10. [Phase 1] Identity reconciliation
 
-- [ ] 10.1 Treat the passive fingerprint as a *weak* identifier signal in `Multi-Identifier Convergence` (never a sole basis for merge).
-- [ ] 10.2 Property tests ensuring passive fingerprints cannot spuriously merge distinct strong-identifier devices.
+- [x] 10.1 Treat the passive fingerprint as a *weak* identifier signal in `Multi-Identifier Convergence` (never a sole basis for merge).
+- [x] 10.2 Property tests ensuring passive fingerprints cannot spuriously merge distinct strong-identifier devices.
 
 ### 11. [Phase 1] RBAC and capability surfacing
 

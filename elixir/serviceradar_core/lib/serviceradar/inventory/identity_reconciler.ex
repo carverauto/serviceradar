@@ -25,6 +25,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   5. `mac` - MAC address (normalized)
 
   IP is a "weak" identifier only used when no strong identifiers are present.
+  Passive fingerprints are weak corroborating evidence only; they are never
+  used as lookup or merge keys.
   """
 
   import Bitwise
@@ -59,6 +61,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           integration_id: String.t() | nil,
           netbox_id: String.t() | nil,
           mac: String.t() | nil,
+          passive_fingerprint: String.t() | nil,
           ip: String.t() | nil,
           partition: String.t()
         }
@@ -132,6 +135,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       integration_id: get_integration_id(metadata),
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
       mac: normalize_mac(update[:mac]),
+      passive_fingerprint: passive_fingerprint_identifier(metadata),
       ip: String.trim(update[:ip] || ""),
       partition: partition
     }
@@ -159,6 +163,76 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         get_trimmed(metadata, "integration_id")
     end
   end
+
+  defp passive_fingerprint_identifier(metadata) when is_map(metadata) do
+    tokens =
+      [
+        passive_value(metadata, "tcp", "p0f_signature"),
+        passive_value(metadata, "tcp", "signature"),
+        passive_value(metadata, "tcp", "os_family"),
+        passive_value(metadata, "tcp", "os_name"),
+        passive_value(metadata, "tls", "ja4"),
+        passive_value(metadata, "tls", "ja4s"),
+        passive_value(metadata, "http", "server"),
+        passive_value(metadata, "http", "user_agent")
+      ]
+      |> Enum.map(&normalize_passive_token/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case tokens do
+      [] ->
+        nil
+
+      tokens ->
+        digest =
+          tokens
+          |> Enum.sort()
+          |> Enum.join("|")
+          |> then(&:crypto.hash(:sha256, &1))
+          |> Base.encode16(case: :lower)
+
+        "sha256:" <> digest
+    end
+  end
+
+  defp passive_fingerprint_identifier(_metadata), do: nil
+
+  defp passive_value(metadata, protocol, field) do
+    nested =
+      metadata
+      |> get_map_value("passive_fingerprint")
+      |> get_map_value(protocol)
+
+    get_trimmed(metadata, "passive_fingerprint.#{protocol}.#{field}") ||
+      get_trimmed(nested, field)
+  end
+
+  defp normalize_passive_token(nil), do: nil
+
+  defp normalize_passive_token(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> blank_to_nil()
+  end
+
+  defp normalize_passive_token(_value), do: nil
+
+  defp get_map_value(map, key) when is_map(map) do
+    case map[key] || map[passive_atom_key(key)] do
+      value when is_map(value) -> value
+      _ -> %{}
+    end
+  end
+
+  defp get_map_value(_map, _key), do: %{}
+
+  defp passive_atom_key("passive_fingerprint"), do: :passive_fingerprint
+  defp passive_atom_key("tcp"), do: :tcp
+  defp passive_atom_key("tls"), do: :tls
+  defp passive_atom_key("http"), do: :http
+  defp passive_atom_key(_key), do: nil
 
   defp get_trimmed(map, key) when is_map(map) do
     case map[key] do
@@ -489,6 +563,12 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         partition
       )
       |> maybe_add_identifier(canonical_id, :mac, ids_get(ids, :mac), partition)
+      |> maybe_add_identifier(
+        canonical_id,
+        :passive_fingerprint,
+        ids_get(ids, :passive_fingerprint),
+        partition
+      )
 
     results =
       Enum.map(identifiers_to_register, fn params ->
@@ -1599,6 +1679,21 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp maybe_add_identifier(acc, _device_id, _id_type, nil, _partition), do: acc
+
+  defp maybe_add_identifier(acc, device_id, :passive_fingerprint, id_value, partition) do
+    [
+      %{
+        device_id: device_id,
+        identifier_type: :passive_fingerprint,
+        identifier_value: id_value,
+        partition: partition,
+        confidence: :weak,
+        source: "passive-netprobe",
+        metadata: %{"identity_signal_role" => "corroborating_only"}
+      }
+      | acc
+    ]
+  end
 
   defp maybe_add_identifier(acc, device_id, :mac, id_value, partition) do
     [
