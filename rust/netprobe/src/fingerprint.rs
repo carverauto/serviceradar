@@ -13,12 +13,13 @@ use huginn_net::{
         db::MatchQualityType,
         output::{OSQualityMatched, SynAckTCPOutput, SynTCPOutput},
     },
+    huginn_net_tls::output::TlsClientOutput,
     AnalysisConfig, Database, HuginnNet,
 };
 
 #[cfg(feature = "pcap-capture")]
 use crate::proto::netprobe::{
-    fingerprint_event, FingerprintEvent, HttpFingerprint, TcpFingerprint,
+    fingerprint_event, FingerprintEvent, HttpFingerprint, TcpFingerprint, TlsFingerprint,
 };
 
 pub const FINGERPRINT_ENGINE_VERSION: &str = "huginn-net/1.7.3";
@@ -40,7 +41,7 @@ impl FingerprintEngine {
         let config = AnalysisConfig {
             http_enabled: true,
             tcp_enabled: true,
-            tls_enabled: false,
+            tls_enabled: true,
             matcher_enabled: true,
         };
         let analyzer = HuginnNet::new(Some(database), MAX_CONNECTIONS, Some(config))
@@ -84,6 +85,14 @@ impl FingerprintEngine {
             {
                 events.push(event);
             }
+        }
+
+        if let Some(tls_client) = result.tls_client {
+            events.push(event_from_tls_client(
+                interface_name,
+                observed_at_unix_nano,
+                tls_client,
+            ));
         }
 
         events
@@ -242,9 +251,36 @@ fn header_value(headers: &[HttpHeader], name: &str) -> Option<String> {
         .and_then(|header| header.value.clone())
 }
 
+#[cfg(feature = "pcap-capture")]
+fn event_from_tls_client(
+    interface_name: &str,
+    observed_at_unix_nano: i64,
+    tls_client: TlsClientOutput,
+) -> FingerprintEvent {
+    FingerprintEvent {
+        ip: tls_client.source.ip.to_string(),
+        profile_id: String::new(),
+        interface_name: interface_name.to_string(),
+        observed_at_unix_nano,
+        evidence: Some(fingerprint_event::Evidence::Tls(TlsFingerprint {
+            ja4: tls_client.sig.ja4.full.value().to_string(),
+            ja4s: String::new(),
+            sni_redacted: redact_sni_presence(tls_client.sig.sni.as_deref()).to_string(),
+        })),
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn redact_sni_presence(sni: Option<&str>) -> &'static str {
+    match sni {
+        Some("") | None => "",
+        Some(_) => "<present>",
+    }
+}
+
 #[cfg(all(test, feature = "pcap-capture"))]
 mod tests {
-    use super::{header_value, FingerprintEngine};
+    use super::{header_value, redact_sni_presence, FingerprintEngine};
     use crate::proto::netprobe::fingerprint_event;
     use huginn_net::huginn_net_http::http_common::{HeaderSource, HttpHeader};
 
@@ -286,6 +322,13 @@ mod tests {
             header_value(&headers, "user-agent"),
             Some("ServiceRadar Test".to_string())
         );
+    }
+
+    #[test]
+    fn redacts_sni_values_to_presence_only() {
+        assert_eq!(redact_sni_presence(Some("example.com")), "<present>");
+        assert_eq!(redact_sni_presence(Some("")), "");
+        assert_eq!(redact_sni_presence(None), "");
     }
 
     fn ipv4_syn_packet() -> &'static [u8] {
