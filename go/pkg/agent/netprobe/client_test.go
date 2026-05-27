@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -144,6 +145,71 @@ func TestClientReturnsErrorFrame(t *testing.T) {
 	}
 }
 
+func TestClientDropsFingerprintEventsOnBackpressure(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+
+	recorder := &testEventDropRecorder{}
+	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
+	defer client.Close()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		for i := 0; i < 2; i++ {
+			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+				Payload: &netprobepb.NetprobeFrame_FingerprintEvent{
+					FingerprintEvent: &netprobepb.FingerprintEvent{Ip: "192.0.2.10"},
+				},
+			})
+			if err != nil {
+				t.Errorf("write event frame %d: %v", i, err)
+				return
+			}
+		}
+		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+			ping := frame.GetPing()
+			if ping == nil {
+				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
+				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
+			}
+			return &netprobepb.NetprobeFrame{
+				Sequence: frame.GetSequence(),
+				Payload: &netprobepb.NetprobeFrame_PingAck{
+					PingAck: &netprobepb.PingAck{SentAtUnixNano: ping.GetSentAtUnixNano()},
+				},
+			}
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	waitFor(t, ctx, func() bool {
+		return client.DroppedFingerprintEvents() == 1
+	})
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("Ping() after backpressure error = %v", err)
+	}
+
+	select {
+	case event := <-client.Events():
+		if event.GetIp() != "192.0.2.10" {
+			t.Fatalf("queued event IP = %q, want 192.0.2.10", event.GetIp())
+		}
+	default:
+		t.Fatal("expected first fingerprint event to remain queued")
+	}
+
+	if got := client.DroppedFingerprintEvents(); got != 1 {
+		t.Fatalf("DroppedFingerprintEvents() = %d, want 1", got)
+	}
+	recorder.assertOne(t, EventStreamFingerprint, EventDropBackpressure)
+
+	client.Close()
+	<-serverDone
+}
+
 func handleTestFrame(t *testing.T, conn net.Conn, handler func(*netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame) {
 	t.Helper()
 
@@ -154,5 +220,53 @@ func handleTestFrame(t *testing.T, conn net.Conn, handler func(*netprobepb.Netpr
 	}
 	if err := writeFrame(conn, handler(frame)); err != nil {
 		t.Errorf("write test response: %v", err)
+	}
+}
+
+func waitFor(t *testing.T, ctx context.Context, ready func() bool) {
+	t.Helper()
+
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		if ready() {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting: %v", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+type testEventDropRecorder struct {
+	mu     sync.Mutex
+	events []eventDrop
+}
+
+type eventDrop struct {
+	stream string
+	reason string
+}
+
+func (r *testEventDropRecorder) IncEventDrop(stream, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.events = append(r.events, eventDrop{stream: stream, reason: reason})
+}
+
+func (r *testEventDropRecorder) assertOne(t *testing.T, stream, reason string) {
+	t.Helper()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.events) != 1 {
+		t.Fatalf("recorded event drops = %d, want 1", len(r.events))
+	}
+	if r.events[0].stream != stream || r.events[0].reason != reason {
+		t.Fatalf("recorded event drop = (%q, %q), want (%q, %q)", r.events[0].stream, r.events[0].reason, stream, reason)
 	}
 }

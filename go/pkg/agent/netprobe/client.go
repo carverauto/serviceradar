@@ -31,15 +31,42 @@ import (
 
 const defaultEventBuffer = 1024
 
+const (
+	MetricEventsDroppedTotal = "netprobe_events_dropped_total"
+	EventStreamFingerprint   = "fingerprint"
+	EventDropBackpressure    = "backpressure"
+)
+
 var (
-	ErrClientClosed      = errors.New("netprobe client is closed")
-	ErrUnexpectedFrame   = errors.New("netprobe returned unexpected frame")
-	ErrEventBackpressure = errors.New("netprobe fingerprint event buffer is full")
+	ErrClientClosed    = errors.New("netprobe client is closed")
+	ErrUnexpectedFrame = errors.New("netprobe returned unexpected frame")
 )
 
 type response struct {
 	frame *netprobepb.NetprobeFrame
 	err   error
+}
+
+// EventDropRecorder records dropped netprobe stream events.
+type EventDropRecorder interface {
+	IncEventDrop(stream, reason string)
+}
+
+// EventDropRecorderFunc adapts a function into an EventDropRecorder.
+type EventDropRecorderFunc func(stream, reason string)
+
+func (f EventDropRecorderFunc) IncEventDrop(stream, reason string) {
+	f(stream, reason)
+}
+
+// ClientOption customizes a Client.
+type ClientOption func(*Client)
+
+// WithEventDropRecorder records dropped stream events for metrics export.
+func WithEventDropRecorder(recorder EventDropRecorder) ClientOption {
+	return func(c *Client) {
+		c.eventDropRecorder = recorder
+	}
 }
 
 // Client is a sequence-aware IPC client for the netprobe Unix socket protocol.
@@ -59,6 +86,9 @@ type Client struct {
 	closeErr  atomic.Value
 
 	lastEngineVersion atomic.Value
+
+	droppedFingerprintEvents atomic.Uint64
+	eventDropRecorder        EventDropRecorder
 }
 
 // Dial connects to a netprobe Unix-domain socket and starts the read loop.
@@ -73,7 +103,7 @@ func Dial(ctx context.Context, socketPath string) (*Client, error) {
 }
 
 // NewClient wraps an already-connected net.Conn. It is exported for tests.
-func NewClient(conn net.Conn, eventBuffer int) *Client {
+func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	if eventBuffer <= 0 {
 		eventBuffer = defaultEventBuffer
 	}
@@ -83,6 +113,9 @@ func NewClient(conn net.Conn, eventBuffer int) *Client {
 		pending: make(map[uint64]chan response),
 		events:  make(chan *netprobepb.FingerprintEvent, eventBuffer),
 		done:    make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(c)
 	}
 	go c.readLoop()
 
@@ -160,6 +193,11 @@ func (c *Client) FingerprintEngineVersion() string {
 	version, _ := value.(string)
 
 	return version
+}
+
+// DroppedFingerprintEvents returns events dropped because the downstream consumer was slow.
+func (c *Client) DroppedFingerprintEvents() uint64 {
+	return c.droppedFingerprintEvents.Load()
 }
 
 // Close closes the IPC connection and unblocks pending requests.
@@ -243,8 +281,7 @@ func (c *Client) readLoop() {
 				select {
 				case c.events <- event:
 				default:
-					c.closeWithError(ErrEventBackpressure)
-					return
+					c.recordEventDrop(EventStreamFingerprint, EventDropBackpressure)
 				}
 			}
 			continue
@@ -258,6 +295,15 @@ func (c *Client) readLoop() {
 		if ch != nil {
 			ch <- response{frame: frame}
 		}
+	}
+}
+
+func (c *Client) recordEventDrop(stream, reason string) {
+	if stream == EventStreamFingerprint && reason == EventDropBackpressure {
+		c.droppedFingerprintEvents.Add(1)
+	}
+	if c.eventDropRecorder != nil {
+		c.eventDropRecorder.IncEventDrop(stream, reason)
 	}
 }
 

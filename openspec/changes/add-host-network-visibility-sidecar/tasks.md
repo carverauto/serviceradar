@@ -65,7 +65,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 6.1 Implement a `Sidecar` for `netprobe` plugged into the runtime from §5.
 - [x] 6.2 Implement the IPC client: opens UDS, sends `ApplyConfig`, drains the `FingerprintEvents` stream.
 - [x] 6.3 Translate `FingerprintEvent` records into discovery ingestion records bound to canonical devices via `IP Alias Resolution`.
-- [ ] 6.4 Backpressure: drop new events when downstream is slow; increment `_events_dropped_total{stream="fingerprint",reason="backpressure"}`.
+- [x] 6.4 Backpressure: drop new events when downstream is slow; increment `_events_dropped_total{stream="fingerprint",reason="backpressure"}`.
 - [x] 6.5 Unit tests for the fingerprint translation path.
 
 ### 7. [Phase 1] Agent config delivery
