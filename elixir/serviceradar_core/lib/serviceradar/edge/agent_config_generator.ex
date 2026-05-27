@@ -222,6 +222,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       config_json: Map.get(config, :config_json, <<>>),
       sysmon_config: Map.get(config, :sysmon_config),
       snmp_config: Map.get(config, :snmp_config),
+      visibility_config: Map.get(config, :visibility_config),
       plugin_config: proto_plugins
     }
   end
@@ -243,6 +244,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     mapper_config = load_mapper_config(agent_id)
     sysmon_config = load_sysmon_config(agent_id)
     snmp_config = load_snmp_config(agent_id)
+    visibility_config = load_visibility_config(agent_id)
     plugin_assignments = load_plugin_assignments(agent_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
 
@@ -258,6 +260,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       mapper_config,
       sysmon_config,
       snmp_config,
+      visibility_config,
       plugin_config
     )
   end
@@ -781,6 +784,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          mapper_config,
          sysmon_config,
          snmp_config,
+         visibility_config,
          plugin_config
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
@@ -800,6 +804,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         full_payload,
         sysmon_config,
         snmp_config,
+        visibility_config,
         plugin_assignments,
         plugin_engine_limits
       )
@@ -822,7 +827,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       plugin_engine_limits: plugin_engine_limits,
       config_json: config_json,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
-      snmp_config: build_snmp_proto_config(snmp_config)
+      snmp_config: build_snmp_proto_config(snmp_config),
+      visibility_config: build_visibility_proto_config(visibility_config)
     }
   end
 
@@ -892,6 +898,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sync_payload,
          sysmon_config,
          snmp_config,
+         visibility_config,
          plugin_assignments,
          plugin_engine_limits
        ) do
@@ -908,6 +915,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sync: stable_config_fragment(sync_payload),
       sysmon: stable_config_fragment(sysmon_config),
       snmp: stable_config_fragment(snmp_config),
+      visibility: stable_config_fragment(visibility_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits
     }
@@ -1203,6 +1211,41 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
+  # Load visibility configuration from the AgentConfig system when a compiler is registered.
+  defp load_visibility_config(agent_id) do
+    case Compiler.compiler_for(:visibility) do
+      {:ok, _compiler} ->
+        partition = get_agent_partition(agent_id)
+        actor = SystemActor.system(:visibility_config_loader)
+        device_uid = resolve_agent_device_uid(agent_id, actor)
+
+        case ConfigServer.get_config(:visibility, partition, agent_id,
+               actor: actor,
+               device_uid: device_uid
+             ) do
+          {:ok, entry} ->
+            entry.config
+
+          {:error, :no_config_found} ->
+            Logger.debug(
+              "No visibility config found for agent #{agent_id}, using disabled config"
+            )
+
+            disabled_visibility_config()
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to load visibility config for agent #{agent_id}: #{inspect(reason)}"
+            )
+
+            disabled_visibility_config()
+        end
+
+      {:error, :unknown_config_type} ->
+        disabled_visibility_config()
+    end
+  end
+
   # Build the proto-compatible SysmonConfig struct
   defp build_sysmon_proto_config(nil), do: nil
 
@@ -1299,6 +1342,66 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp build_snmp_oid_config(_), do: %Monitoring.SNMPOIDConfig{}
+
+  defp disabled_visibility_config do
+    %{
+      "enabled" => false,
+      "capture_interfaces" => [],
+      "binary_overrides" => %{},
+      "device_bindings" => [],
+      "default_sample_interval_ms" => 0
+    }
+  end
+
+  defp build_visibility_proto_config(nil), do: nil
+
+  defp build_visibility_proto_config(config) when is_map(config) do
+    %Monitoring.VisibilityConfig{
+      enabled: Map.get(config, "enabled", false),
+      capture_interfaces: config |> Map.get("capture_interfaces", []) |> List.wrap(),
+      binary_overrides: build_visibility_binary_overrides(Map.get(config, "binary_overrides")),
+      device_bindings:
+        config
+        |> Map.get("device_bindings", [])
+        |> List.wrap()
+        |> Enum.map(&build_visibility_device_binding/1),
+      default_sample_interval_ms: Map.get(config, "default_sample_interval_ms", 0) || 0
+    }
+  end
+
+  defp build_visibility_binary_overrides(overrides) when is_map(overrides) do
+    path = Map.get(overrides, "path", "") || ""
+
+    if path == "" do
+      nil
+    else
+      %Monitoring.VisibilityBinaryOverrides{path: path}
+    end
+  end
+
+  defp build_visibility_binary_overrides(_), do: nil
+
+  defp build_visibility_device_binding(binding) when is_map(binding) do
+    %Monitoring.VisibilityDeviceBinding{
+      ip: Map.get(binding, "ip", "") || "",
+      profile_id: Map.get(binding, "profile_id", "") || "",
+      profile_name: Map.get(binding, "profile_name", "") || "",
+      fingerprint: build_visibility_fingerprint_config(Map.get(binding, "fingerprint")),
+      sample_interval_ms: Map.get(binding, "sample_interval_ms", 0) || 0
+    }
+  end
+
+  defp build_visibility_device_binding(_), do: %Monitoring.VisibilityDeviceBinding{}
+
+  defp build_visibility_fingerprint_config(fingerprint) when is_map(fingerprint) do
+    %Monitoring.VisibilityFingerprintConfig{
+      tcp: Map.get(fingerprint, "tcp", false),
+      tls: Map.get(fingerprint, "tls", false),
+      http: Map.get(fingerprint, "http", false)
+    }
+  end
+
+  defp build_visibility_fingerprint_config(_), do: nil
 
   defp resolve_agent_device_uid(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do

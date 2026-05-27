@@ -72,9 +72,9 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 - [x] 7.1 Extend `proto/monitoring.proto` `AgentConfigResponse` with `VisibilityConfig visibility_config` (parallel to `sysmon_config` / `snmp_config`).
 - [x] 7.2 Define `VisibilityConfig`: `enabled`, `capture_interfaces`, `binary_overrides {path}`, repeated `device_bindings {ip, profile_id, profile_name, fingerprint, sample_interval_ms}`. Reserve fields for `dpi`, `flow_attribution`, `process_snapshot_interval_s` so later phases extend without breaking changes.
-- [ ] 7.3 Plumb the new field through Elixir compiler output and Go parser.
+- [x] 7.3 Plumb the new field through Elixir compiler output and Go parser.
 - [ ] 7.4 Verify chunked delivery (`add-streamed-agent-config`) handles the new field; add a streaming test case with 5k device bindings.
-- [ ] 7.5 Hash the new sub-config into the agent's config version hash.
+- [x] 7.5 Hash the new sub-config into the agent's config version hash.
 
 ### 8. [Phase 1] Ash control plane (`elixir/serviceradar_core/`)
 

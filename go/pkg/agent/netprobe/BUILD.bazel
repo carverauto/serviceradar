@@ -4,6 +4,7 @@ go_library(
     name = "netprobe",
     srcs = [
         "client.go",
+        "config.go",
         "framing.go",
         "sidecar.go",
         "translator.go",
@@ -13,6 +14,7 @@ go_library(
     deps = [
         "//go/pkg/agent/sidecar",
         "//go/pkg/models",
+        "//proto",
         "//proto/discovery",
         "//proto/agent/netprobe/v1:netprobepb",
         "@org_golang_google_protobuf//proto",
@@ -23,6 +25,7 @@ go_test(
     name = "netprobe_test",
     srcs = [
         "client_test.go",
+        "config_test.go",
         "framing_test.go",
         "sidecar_test.go",
         "translator_test.go",
@@ -31,6 +34,7 @@ go_test(
     deps = [
         "//go/pkg/devicealias",
         "//go/pkg/models",
+        "//proto",
         "//proto/discovery",
         "//proto/agent/netprobe/v1:netprobepb",
     ],
