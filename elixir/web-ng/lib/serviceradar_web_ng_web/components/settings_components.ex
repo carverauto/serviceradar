@@ -127,6 +127,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
 
   defp can_discovery_tab?(current_scope) do
     RBAC.can?(current_scope, "settings.networks.manage") or
+      RBAC.can?(current_scope, "visibility_profiles:read") or
       RBAC.can?(current_scope, "settings.snmp_profiles.manage") or
       RBAC.can?(current_scope, "settings.credentials.manage") or
       remote_access_discovery_tab_visible?(current_scope)
@@ -371,6 +372,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             active: String.starts_with?(path, "/settings/networks/device-enrichment")
           },
           %{
+            label: "Visibility Profiles",
+            navigate: ~p"/settings/networks/visibility-profiles",
+            active: String.starts_with?(path, "/settings/networks/visibility-profiles")
+          },
+          %{
             label: "Credential Rules",
             navigate: ~p"/settings/networks/credentials",
             active: String.starts_with?(path, "/settings/networks/credentials")
@@ -431,6 +437,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       String.starts_with?(path, "/settings/networks") and
       not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
+      not String.starts_with?(path, "/settings/networks/visibility-profiles") and
       not String.starts_with?(path, "/settings/networks/credentials") and
       not String.starts_with?(path, "/settings/networks/host-keys") and
       not String.starts_with?(path, "/settings/networks/desktop-targets") and
@@ -475,6 +482,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     permission =
       case label do
         "SNMP" -> "settings.snmp_profiles.manage"
+        "Visibility Profiles" -> "visibility_profiles:read"
         "Credential Rules" -> "settings.credentials.manage"
         "Host Keys" -> "settings.remote_access_host_keys.manage"
         "Desktop Targets" -> "settings.edge.manage"
@@ -486,6 +494,20 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       permissions when is_list(permissions) -> RBAC.can_any?(scope, permissions)
       permission -> RBAC.can?(scope, permission)
     end
+  end
+
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
+
+  def discovery_nav(assigns) do
+    assigns = assign(assigns, :tabs, discovery_tabs(assigns.current_path, assigns[:current_scope]))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" />
+    </div>
+    """
   end
 
   defp remote_access_discovery_tab_visible?(current_scope) do

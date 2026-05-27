@@ -107,10 +107,10 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 12. [Phase 1] Web UI (`elixir/web-ng/`) — minimal
 
-- [ ] 12.1 Add `Settings → Discovery → Visibility Profiles` route, list view, and form (`lib/serviceradar_web_ng_web/live/settings/visibility_profiles_live/`).
-- [ ] 12.2 Reuse the existing SRQL query builder for `target_query`.
-- [ ] 12.3 Implement the fingerprint section of the toggle UI (per-protocol TCP / TLS / HTTP). Hide DPI, flow attribution, and process snapshot toggles behind a "Coming in a later phase" notice (or omit them entirely until Phase 2/3).
-- [ ] 12.4 Implement target-count display (handles invalid SRQL → "Unknown" same as SNMP profiles).
+- [x] 12.1 Add `Settings → Discovery → Visibility Profiles` route, list view, and form (`lib/serviceradar_web_ng_web/live/settings/visibility_profiles_live/`).
+- [x] 12.2 Reuse the existing SRQL query builder for `target_query`.
+- [x] 12.3 Implement the fingerprint section of the toggle UI (per-protocol TCP / TLS / HTTP). Hide DPI, flow attribution, and process snapshot toggles behind a "Coming in a later phase" notice (or omit them entirely until Phase 2/3).
+- [x] 12.4 Implement target-count display (handles invalid SRQL → "Unknown" same as SNMP profiles).
 - [ ] 12.5 Add "Network Visibility" panel to Device Detail that renders only the passive-fingerprint section in Phase 1.
 - [ ] 12.6 Extend Agent Detail page with `netprobe` sidecar state and `host-network-visibility` capability badge.
 - [ ] 12.7 Playwright tests for Phase-1 profile CRUD and device detail fingerprint panel.
