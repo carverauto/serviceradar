@@ -9,7 +9,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateVisibilityProfiles do
       add :description, :text
       add :enabled, :boolean, null: false, default: true
       add :target_query, :text
-      add :priority, :bigint, null: false, default: 0
+      add :priority, :integer, null: false, default: 0
 
       add :fingerprint, :map,
         null: false,

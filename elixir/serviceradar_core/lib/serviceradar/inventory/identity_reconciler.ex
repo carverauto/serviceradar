@@ -565,12 +565,6 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         partition
       )
       |> maybe_add_identifier(canonical_id, :mac, ids_get(ids, :mac), partition)
-      |> maybe_add_identifier(
-        canonical_id,
-        :passive_fingerprint,
-        ids_get(ids, :passive_fingerprint),
-        partition
-      )
 
     results =
       Enum.map(identifiers_to_register, fn params ->
@@ -1681,21 +1675,6 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp maybe_add_identifier(acc, _device_id, _id_type, nil, _partition), do: acc
-
-  defp maybe_add_identifier(acc, device_id, :passive_fingerprint, id_value, partition) do
-    [
-      %{
-        device_id: device_id,
-        identifier_type: :passive_fingerprint,
-        identifier_value: id_value,
-        partition: partition,
-        confidence: :weak,
-        source: "passive-netprobe",
-        metadata: %{"identity_signal_role" => "corroborating_only"}
-      }
-      | acc
-    ]
-  end
 
   defp maybe_add_identifier(acc, device_id, :mac, id_value, partition) do
     [

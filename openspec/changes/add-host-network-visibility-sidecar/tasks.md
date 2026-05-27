@@ -119,9 +119,9 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 ### 13. [Phase 1] Packaging
 
 - [x] 13.1 Add `//rust/netprobe:netprobe` to `build/packaging/agent/BUILD.bazel` `pkg_files` (rename to `serviceradar-netprobe`, mode `0755`).
-- [x] 13.2 Update `build/packaging/packages.bzl` `PACKAGES["agent"]` to include the sidecar at `/usr/local/lib/serviceradar/bin/`.
+- [x] 13.2 Update `build/packaging/packages.bzl` `PACKAGES["agent"]` to include the sidecar at `/usr/local/lib/serviceradar/bin/` and declare the Phase 1 libpcap runtime dependency for deb/rpm packages.
 - [x] 13.3 deb/rpm postinst applies `setcap cap_net_raw+ep` to the sidecar binary (Phase 1 capability set; eBPF caps land with Phase 3).
-- [x] 13.4 Add `//rust/netprobe:netprobe` to `docker/images/BUILD.bazel` `agent_image_amd64` file map. No arm64 agent image target currently exists in `docker/images/BUILD.bazel`.
+- [x] 13.4 Add `//rust/netprobe:netprobe` to `docker/images/BUILD.bazel` `agent_image_amd64` file map and include libpcap/glibc runtime libraries in the Alpine netutils rootfs. No arm64 agent image target currently exists in `docker/images/BUILD.bazel`.
 - [x] 13.5 Add a `netprobe.enabled` toggle under `helm/serviceradar/values.yaml` (default false).
 - [ ] 13.6 Verify the resulting agent OCI image starts the sidecar on a Kind cluster and emits fingerprint events for a deliberately-crafted test packet.
 

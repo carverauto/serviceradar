@@ -1139,6 +1139,14 @@ http_file(
 )
 
 http_file(
+    name = "alpine_libpcap_apk",
+    sha256 = "79b8536d0854612169de44eea053423daa07fde6ab836edaee9444143090d8f3",
+    urls = [
+        "https://dl-cdn.alpinelinux.org/alpine/v3.20/main/x86_64/libpcap-1.10.4-r1.apk",
+    ],
+)
+
+http_file(
     name = "alpine_libbsd_apk",
     sha256 = "8936afde94982d1152fab86d45e8ced56004ef9c21c78719b86c056a8b25769d",
     urls = [

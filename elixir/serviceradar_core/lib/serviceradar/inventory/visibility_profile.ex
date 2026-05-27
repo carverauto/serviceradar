@@ -33,6 +33,11 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     :retention_days,
     :partition_id
   ]
+  @reserved_phase_one_fields [
+    :dpi,
+    :flow_attribution,
+    :process_snapshot_interval_s
+  ]
 
   postgres do
     table "visibility_profiles"
@@ -46,6 +51,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     create :create do
       accept @profile_fields
 
+      change &reject_reserved_phase_one_fields/2
       change ValidateSrqlQuery
     end
 
@@ -53,6 +59,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
       accept @profile_fields
 
       require_atomic? false
+      change &reject_reserved_phase_one_fields/2
       change ValidateSrqlQuery
     end
 
@@ -185,5 +192,18 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
 
   identities do
     identity :unique_partition_name, [:partition_id, :name]
+  end
+
+  defp reject_reserved_phase_one_fields(changeset, _context) do
+    Enum.reduce(@reserved_phase_one_fields, changeset, fn field, changeset ->
+      if Ash.Changeset.get_attribute(changeset, field) == nil do
+        changeset
+      else
+        Ash.Changeset.add_error(changeset,
+          field: field,
+          message: "is reserved for a later host network visibility phase"
+        )
+      end
+    end)
   end
 end

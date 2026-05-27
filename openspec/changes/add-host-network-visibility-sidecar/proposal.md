@@ -119,9 +119,12 @@ management.
 - `rust/netprobe/` Cargo crate built as `serviceradar-netprobe`, added
   to the workspace `Cargo.toml` and exposed via `rust/netprobe/BUILD.bazel`
   (`rust_binary`) mirroring `rust/trapd/`.
-- Static **musl** builds for `x86_64-unknown-linux-musl` and
+- Static **musl** build targets for `x86_64-unknown-linux-musl` and
   `aarch64-unknown-linux-musl`, registered in `MODULE.bazel`
-  `extra_target_triples` and `.cargo/config.toml`.
+  `extra_target_triples` and `.cargo/config.toml`. Phase 1 shipping
+  packages use the libpcap-enabled dynamic Linux build and declare or
+  bundle the libpcap runtime dependency; static packet capture remains
+  a future portability hardening target.
 - New Cargo dependencies pulled into the workspace via crate-universe:
   `huginn-net` (fingerprinting), `aya` + `aya-log` + `aya-ebpf`
   (eBPF), `etherparse` (parsing), `pcap` (capture handle), `tokio`
@@ -429,7 +432,8 @@ and reversible on its own:
 
 - **Phase 1 — OS fingerprinting only (the first shipping increment).**
   `rust/netprobe/` skeleton with `huginn-net` integration; static musl
-  builds wired into MODULE.bazel and agent packaging; sidecar runtime
+  build targets wired into MODULE.bazel plus libpcap-enabled dynamic
+  Linux agent packaging; sidecar runtime
   in `go/pkg/agent/sidecar/`; IPC v1 protobuf carrying only
   `ApplyConfig` / `Ping` / `FingerprintEvents` (other event channels
   reserved); `VisibilityProfile` Ash resource with only the

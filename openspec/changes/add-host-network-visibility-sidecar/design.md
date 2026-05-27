@@ -61,7 +61,9 @@ Constraints:
 - Must coexist with `add-streamed-agent-config` (chunked config
   delivery), `add-unifi-wifi-discovery-parity` (vendor-DB
   fingerprinting), and the existing `flow-collector`.
-- Static musl binary for x86_64 and aarch64 Linux.
+- Static musl build targets for x86_64 and aarch64 Linux; Phase 1
+  shipping artifacts use the libpcap-enabled dynamic Linux build until
+  static packet capture support is available.
 - Strong privacy posture: no payloads, no URIs, redacted process
   command lines.
 - Multi-tenancy: all events and profiles partition-scoped via the
@@ -90,7 +92,8 @@ case), security review (eBPF capability surface).
 - Bazel-first builds. `bazel build //rust/netprobe:netprobe` and
   `bazel build //build/packaging/agent:agent_image_amd64` both produce
   ship-ready artefacts.
-- Static musl binaries for x86_64-linux-musl and aarch64-linux-musl.
+- Static musl binaries remain buildable for x86_64-linux-musl and
+  aarch64-linux-musl as portability targets.
 
 **Non-Goals**
 
@@ -572,7 +575,7 @@ case), security review (eBPF capability surface).
 | `huginn-net` upstream regression. | Pin to a known release in `Cargo.toml`; renovate-bot updates gated by agent E2E. |
 | `aya` upstream churn (still pre-1.0). | Pin to a tested release and budget for periodic version bumps; document this in the runbook. |
 | Sidecar crash storms (e.g. malformed packet bug). | Exponential restart back-off, circuit-breaker, surface as agent health warning. |
-| Static musl build pulls in conflicting C-deps. | Validated in Phase 1 by `bazel build --platforms=...linux-musl`; fall back to glibc-static-stdlib with documented portability constraints if blocked. |
+| Static musl build pulls in conflicting C-deps. | Validated in Phase 1 by `bazel build --platforms=...linux-musl`; Phase 1 shipping packages use the libpcap-enabled dynamic Linux build with explicit runtime dependencies until static packet capture support is available. |
 | Process-attribution cardinality explosion on busy hosts. | Bounded LRU eviction, per-(pid, 5-tuple) deduplication window, sample-interval rate limit per profile, drop counters surfaced as metrics. |
 | Privacy: cmdline / DNS leakage. | Default redaction at the sidecar boundary; opt-in via profile flag; clear runbook. |
 | Capability creep on the agent process. | All eBPF and pcap capabilities scoped to the sidecar binary via file capabilities or per-process `securityContext`. |
@@ -595,7 +598,8 @@ Phased rollout (Phase 1 is the minimum-viable shipping increment and
 the only phase scoped for the *first* release of this work):
 
 1. **Phase 1 — OS fingerprinting only.** `rust/netprobe/` skeleton +
-   `huginn-net` integration; static musl builds + agent packaging;
+   `huginn-net` integration; static musl build targets +
+   libpcap-enabled dynamic Linux agent packaging;
    sidecar runtime (`go/pkg/agent/sidecar/`); IPC v1 protobuf with
    only `ApplyConfig` / `Ping` / `FingerprintEvents` (other event
    channels reserved for future variants but not implemented);

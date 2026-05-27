@@ -5,17 +5,27 @@
 ServiceRadar SHALL ship a standalone Rust binary
 `serviceradar-netprobe` built from `rust/netprobe/` and bundled inside
 the `serviceradar-agent` package (deb, rpm, OCI image, tarball). The
-binary MUST be statically linked against musl for
-`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` and MUST
-NOT require any runtime shared-library dependencies.
+project MUST keep build targets for static musl binaries for
+`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. Phase 1
+shipping Linux artifacts MAY use the default dynamically linked build
+while packet capture depends on libpcap; those artifacts MUST declare
+or bundle their libpcap and C-runtime dependencies.
 
-#### Scenario: Static musl binary ships with the agent package
+#### Scenario: Netprobe binary ships with the agent package
 - **WHEN** the agent OCI image, deb, or rpm is built via the Bazel
   packaging targets
 - **THEN** `/usr/local/lib/serviceradar/bin/serviceradar-netprobe`
   exists in the artifact
-- **AND** `file` on the binary reports "statically linked" and `ldd`
-  reports "not a dynamic executable"
+- **AND** deb/rpm metadata declares the libpcap runtime package
+- **AND** the OCI runtime filesystem includes the libpcap runtime
+  library needed by the packaged binary
+
+#### Scenario: Static musl build target remains available
+- **WHEN** `bazel build --platforms=//build/platforms:linux_x86_64_musl //rust/netprobe:netprobe`
+  is run
+- **THEN** the build produces a static `serviceradar-netprobe` binary
+- **AND** the packaging docs mark the musl artifact as a portability
+  target until static packet capture support is available
 
 #### Scenario: Sidecar is excluded on non-Linux agent builds
 - **WHEN** the agent is packaged for macOS or Windows

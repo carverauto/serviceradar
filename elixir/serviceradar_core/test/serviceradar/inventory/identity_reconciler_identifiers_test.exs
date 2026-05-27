@@ -65,6 +65,33 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIdentifiersTest do
     assert audit.to_device_id == device_b.uid
   end
 
+  test "register_identifiers does not persist passive fingerprint identifiers", %{actor: actor} do
+    passive_fingerprint = "sha256:#{String.duplicate("a", 64)}"
+
+    {:ok, device} = create_device(actor, "device-passive-fingerprint")
+
+    ids = %{
+      agent_id: nil,
+      armis_id: nil,
+      integration_id: nil,
+      netbox_id: nil,
+      mac: nil,
+      passive_fingerprint: passive_fingerprint,
+      partition: "default"
+    }
+
+    assert :ok = IdentityReconciler.register_identifiers(device.uid, ids, actor: actor)
+
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: :passive_fingerprint,
+        identifier_value: passive_fingerprint,
+        partition: "default"
+      })
+
+    assert {:ok, []} = Ash.read(query, actor: actor)
+  end
+
   test "agent_id resolves to same device after IP change", %{actor: actor} do
     agent_id = "k8s-agent-#{System.unique_integer([:positive])}"
     original_ip = "10.20.0.#{:rand.uniform(200)}"

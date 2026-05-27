@@ -50,6 +50,7 @@ declare_apk_rootfs_targets([
     ("netcat", "@alpine_netcat_openbsd_apk//file"),
     ("inetutils_telnet", "@alpine_inetutils_telnet_apk//file"),
     ("libcap2", "@alpine_libcap2_apk//file"),
+    ("libpcap", "@alpine_libpcap_apk//file"),
     ("libbsd", "@alpine_libbsd_apk//file"),
     ("libmd", "@alpine_libmd_apk//file"),
     ("bash", "@alpine_bash_apk//file"),
