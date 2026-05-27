@@ -52,6 +52,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "device list SRQL submit routes catalog entity changes and drops stale filters", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
+
+    view
+    |> form("#srql-query-bar", %{q: "in:bmp_events include_inactive:true router_ip:192.0.2.1"})
+    |> render_submit()
+
+    assert_redirect(
+      view,
+      ~p"/observability/bmp?#{%{q: "in:bmp_events router_ip:192.0.2.1", limit: 20}}"
+    )
+  end
+
+  test "device list SRQL submit routes WiFi catalog entities to WiFi inventory", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
+
+    view
+    |> form("#srql-query-bar", %{q: "in:wifi_sites site_code:ZZC"})
+    |> render_submit()
+
+    assert_redirect(view, ~p"/devices/wifi?#{%{q: "in:wifi_sites site_code:ZZC", limit: 20}}")
+  end
+
+  test "renders WiFi inventory view", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/devices/wifi?#{%{q: "in:wifi_sites limit:10", limit: 10}}")
+
+    assert html =~ "WiFi Inventory"
+    assert html =~ "WiFi Sites"
+    assert html =~ "in:wifi_sites"
+  end
+
   test "device list status uses per-agent availability fallback", %{conn: conn} do
     unique = System.unique_integer([:positive])
     uid = "test-device-agent-availability-#{unique}"

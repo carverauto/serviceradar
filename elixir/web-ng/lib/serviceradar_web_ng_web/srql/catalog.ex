@@ -206,7 +206,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "bmp_events",
       label: "BMP Events",
-      route: "/observability",
+      route: "/observability/bmp",
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",
@@ -402,7 +402,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_sites",
       label: "WiFi Sites",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -415,7 +415,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_site_snapshots",
       label: "WiFi Site Snapshots",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -444,7 +444,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_aps",
       label: "WiFi Access Points",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -456,7 +456,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_controllers",
       label: "WiFi Controllers",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -468,7 +468,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_radius_groups",
       label: "WiFi RADIUS Groups",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "last_24h",
       default_sort_field: "collection_timestamp",
       default_sort_dir: "desc",
@@ -502,7 +502,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_fleet_history",
       label: "WiFi Fleet History",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "",
       default_sort_field: "build_date",
       default_sort_dir: "desc",
@@ -544,7 +544,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "wifi_site_references",
       label: "WiFi Site References",
-      route: nil,
+      route: "/devices/wifi",
       default_time: "",
       default_sort_field: "updated_at",
       default_sort_dir: "desc",
@@ -589,7 +589,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "logs",
       label: "Logs",
-      route: "/logs",
+      route: "/observability",
+      route_params: %{"tab" => "logs"},
       default_time: "last_7d",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
@@ -609,7 +610,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "flows",
       label: "Flows",
-      route: "/flows",
+      route: "/observability",
+      route_params: %{"tab" => "netflows"},
       default_time: "last_24h",
       default_sort_field: "time",
       default_sort_dir: "desc",
@@ -739,7 +741,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "slo_evaluations",
       label: "SLO Evaluations",
-      route: "/dashboards",
+      route: "/dashboards/service-availability-noc",
       default_time: "last_24h",
       default_sort_field: "evaluated_at",
       default_sort_dir: "desc",
@@ -1127,7 +1129,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
        "downsample" => Map.get(entity, :downsample, false),
        "fields" => fields,
        "label" => Map.get(entity, :label, entity.id),
-       "route" => Map.get(entity, :route)
+       "route" => Map.get(entity, :route),
+       "route_params" => Map.get(entity, :route_params, %{})
      }}
   end
 
