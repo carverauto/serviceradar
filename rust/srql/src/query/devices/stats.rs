@@ -13,7 +13,7 @@ use crate::{
     schema::ocsf_devices::dsl::{
         deleted_at as col_deleted_at, last_seen_time as col_last_seen_time, ocsf_devices,
     },
-    time::TimeRange,
+    time::{parse_time_value, TimeRange},
 };
 use chrono::{DateTime, Utc};
 use diesel::dsl::sql;
@@ -390,7 +390,10 @@ fn build_grouped_stats_filter_clause(
         "mac" => build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => build_grouped_text_clause("gateway_id", filter, &mut binds)?,
         "agent_id" => build_grouped_text_clause("agent_id", filter, &mut binds)?,
-        "availability_source_agent_id" | "availability_source_agent" => {
+        "availability_source_agent_id"
+        | "availability_source_agent"
+        | "primary_availability_source"
+        | "primary_availability_source_agent_id" => {
             build_grouped_text_clause("availability_source_agent_id", filter, &mut binds)?
         }
         "available_from_agent" => {
@@ -398,6 +401,12 @@ fn build_grouped_stats_filter_clause(
         }
         "unavailable_from_agent" => {
             build_grouped_agent_availability_clause(filter, false, &mut binds)?
+        }
+        "availability_source_fresh_within" => {
+            build_grouped_availability_source_freshness_clause(filter, true, &mut binds)?
+        }
+        "availability_source_stale_after" => {
+            build_grouped_availability_source_freshness_clause(filter, false, &mut binds)?
         }
         "type" | "device_type" => build_grouped_device_type_clause(filter, &mut binds)?,
         "type_id" => {
@@ -667,6 +676,37 @@ fn build_grouped_agent_availability_clause(
 
     Ok(format!(
         "EXISTS (SELECT 1 FROM device_agent_availability daa WHERE daa.device_uid = ocsf_devices.uid AND daa.agent_id = ? AND daa.is_available = {available})"
+    ))
+}
+
+fn build_grouped_availability_source_freshness_clause(
+    filter: &Filter,
+    fresh: bool,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    if !matches!(filter.op, FilterOp::Eq) {
+        return Err(ServiceError::InvalidRequest(
+            "availability source freshness filters only support equality".into(),
+        ));
+    }
+
+    let threshold = filter
+        .value
+        .as_scalar()
+        .and_then(parse_time_value)?
+        .resolve(Utc::now())?
+        .start;
+
+    binds.push(DeviceSqlBindValue::Timestamp(threshold));
+
+    let exists_op = if fresh { "EXISTS" } else { "NOT EXISTS" };
+
+    Ok(format!(
+        "NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NOT NULL \
+         AND {exists_op} (SELECT 1 FROM device_agent_availability daa \
+         WHERE daa.device_uid = ocsf_devices.uid \
+         AND daa.agent_id = ocsf_devices.availability_source_agent_id \
+         AND daa.checked_at >= ?)"
     ))
 }
 

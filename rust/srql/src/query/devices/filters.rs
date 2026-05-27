@@ -10,10 +10,12 @@ use crate::{
         risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
         vendor_name as col_vendor_name,
     },
+    time::parse_time_value,
 };
+use chrono::{DateTime, Utc};
 use diesel::dsl::{not, sql};
 use diesel::prelude::*;
-use diesel::sql_types::{Array, Bool, Text};
+use diesel::sql_types::{Array, Bool, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use std::net::IpAddr;
 
@@ -57,7 +59,10 @@ pub(super) fn apply_filter<'a>(
                 "agent filter only supports equality"
             )?;
         }
-        "availability_source_agent_id" | "availability_source_agent" => {
+        "availability_source_agent_id"
+        | "availability_source_agent"
+        | "primary_availability_source"
+        | "primary_availability_source_agent_id" => {
             query = apply_eq_filter!(
                 query,
                 filter,
@@ -71,6 +76,12 @@ pub(super) fn apply_filter<'a>(
         }
         "unavailable_from_agent" => {
             query = apply_agent_availability_filter(query, filter, false)?;
+        }
+        "availability_source_fresh_within" => {
+            query = apply_availability_source_freshness_filter(query, filter, true)?;
+        }
+        "availability_source_stale_after" => {
+            query = apply_availability_source_freshness_filter(query, filter, false)?;
         }
         "is_available" => {
             query = apply_eq_filter!(
@@ -362,6 +373,62 @@ fn apply_agent_availability_filter<'a>(
     Ok(query.filter(expr))
 }
 
+fn apply_availability_source_freshness_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+    fresh: bool,
+) -> Result<DeviceQuery<'a>> {
+    if !matches!(filter.op, FilterOp::Eq) {
+        return Err(ServiceError::InvalidRequest(
+            "availability source freshness filters only support equality".into(),
+        ));
+    }
+
+    let threshold = freshness_threshold(filter)?;
+    let fresh_expr = sql::<Bool>(
+        r#"
+        NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM device_agent_availability daa
+          WHERE daa.device_uid = ocsf_devices.uid
+            AND daa.agent_id = ocsf_devices.availability_source_agent_id
+            AND daa.checked_at >=
+        "#,
+    )
+    .bind::<Timestamptz, _>(threshold)
+    .sql(")");
+
+    let stale_expr = sql::<Bool>(
+        r#"
+        NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM device_agent_availability daa
+          WHERE daa.device_uid = ocsf_devices.uid
+            AND daa.agent_id = ocsf_devices.availability_source_agent_id
+            AND daa.checked_at >=
+        "#,
+    )
+    .bind::<Timestamptz, _>(threshold)
+    .sql(")");
+
+    Ok(if fresh {
+        query.filter(fresh_expr)
+    } else {
+        query.filter(stale_expr)
+    })
+}
+
+fn freshness_threshold(filter: &Filter) -> Result<DateTime<Utc>> {
+    filter
+        .value
+        .as_scalar()
+        .and_then(parse_time_value)?
+        .resolve(Utc::now())
+        .map(|range| range.start)
+}
+
 /// Normalized MAC filter for the Diesel typed query path.
 /// Strips separators from both column and value so any format matches.
 fn apply_mac_filter<'a>(query: DeviceQuery<'a>, filter: &Filter) -> Result<DeviceQuery<'a>> {
@@ -455,6 +522,8 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         | "agent_id"
         | "availability_source_agent_id"
         | "availability_source_agent"
+        | "primary_availability_source"
+        | "primary_availability_source_agent_id"
         | "available_from_agent"
         | "unavailable_from_agent"
         | "type"
@@ -463,6 +532,10 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         | "model"
         | "risk_level" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        "availability_source_fresh_within" | "availability_source_stale_after" => {
+            params.push(BindParam::timestamptz(freshness_threshold(filter)?));
             Ok(())
         }
         "tags" => match filter.op {

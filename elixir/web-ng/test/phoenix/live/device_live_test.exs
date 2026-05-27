@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+  alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   setup %{conn: conn} do
@@ -49,6 +50,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ uid
     assert html =~ "test-host"
     assert html =~ "in:devices"
+  end
+
+  test "device list status uses per-agent availability fallback", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-agent-availability-#{unique}"
+    hostname = "agent-available-host-#{unique}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: hostname,
+        is_available: false,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    Repo.insert_all("device_agent_availability", [
+      %{
+        id: Ecto.UUID.generate(),
+        device_uid: uid,
+        agent_id: "agent-live-#{unique}",
+        agent_name: "live-agent",
+        is_available: true,
+        checked_at: now,
+        response_time_ms: 8,
+        open_ports: [],
+        sweep_modes_results: %{"icmp" => "success"},
+        metadata: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
+    html = render_until(view, "Online", 5_000)
+
+    assert html =~ hostname
+    assert html =~ "Online"
+    refute html =~ "Offline"
   end
 
   test "navigates to the device details page after adding a device", %{conn: conn} do
@@ -1602,7 +1646,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability falls back to recent sweep history when canonical rows are absent" do
     html =
-      render_component(&ServiceRadarWebNGWeb.DeviceLive.Show.agent_availability_section/1,
+      render_component(&Show.agent_availability_section/1,
         rows: [],
         device_row: %{},
         sweep_results: %{
@@ -1624,6 +1668,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Available"
     assert html =~ "ICMP ok"
     refute html =~ "No per-agent sweep availability has been recorded"
+  end
+
+  test "agent availability marks canonical profile-derived source" do
+    html =
+      render_component(&Show.agent_availability_section/1,
+        rows: [
+          %{
+            agent_id: "agent-canonical-segment",
+            agent_name: "Segment Agent",
+            is_available: true,
+            checked_at: ~U[2026-05-17 06:42:00Z],
+            response_time_ms: 9,
+            open_ports: [22, 443],
+            sweep_modes_results: %{"icmp" => "success"}
+          },
+          %{
+            agent_id: "agent-other-segment",
+            agent_name: "Other Agent",
+            is_available: false,
+            checked_at: ~U[2026-05-17 06:41:00Z],
+            response_time_ms: nil,
+            open_ports: [],
+            sweep_modes_results: %{"icmp" => "failed"}
+          }
+        ],
+        device_row: %{
+          "availability_source_agent_id" => "agent-canonical-segment",
+          "availability_source_profile_id" => Ecto.UUID.generate()
+        },
+        sweep_results: nil
+      )
+
+    assert html =~ "Canonical source"
+    assert html =~ "profile assigned"
+    assert html =~ "source"
+    assert html =~ "profile"
+    assert html =~ "Segment Agent"
+    assert html =~ "Available"
+    assert html =~ "Other Agent"
+    assert html =~ "Unavailable"
   end
 
   describe "interfaces bulk edit" do
