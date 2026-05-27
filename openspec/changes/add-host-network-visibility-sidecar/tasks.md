@@ -93,7 +93,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 9.1 Register `passive-netprobe` in the `DiscoverySource` enum used by `network-discovery`.
 - [x] 9.2 Update the discovery ingest writer to persist fingerprint payloads onto the canonical `Device` resolved through `IP Alias Resolution`.
 - [x] 9.3 Hook `Rule-Driven Vendor and Type Enrichment` to consume passive-netprobe payloads.
-- [ ] 9.4 Integration test: ingest synthetic events for an Armis-imported device IP and confirm enrichment.
+- [x] 9.4 Integration test: ingest synthetic events for an Armis-imported device IP and confirm enrichment.
 
 ### 10. [Phase 1] Identity reconciliation
 
