@@ -319,6 +319,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:api_auth)
 
     post("/query", QueryController, :execute)
+    get("/srql/catalog", SrqlCatalogController, :show)
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)

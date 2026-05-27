@@ -49,23 +49,39 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class={["fieldset mb-2", @class]}>
       <label :if={@label} for={@id} class="label mb-1">{@label}</label>
-      <input
-        :if={@compact}
-        id={@id}
-        type="text"
-        name={@name}
-        value={@value}
-        list={"#{@id}-completions"}
-        phx-debounce="150"
-        class={[
-          "input input-sm w-full font-mono text-xs",
-          "rounded-lg border-base-300 bg-base-100",
-          "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
-          @editor_class
-        ]}
-        disabled={@disabled}
-        {@rest}
-      />
+      <div :if={@compact} class="relative" data-srql-input-frame>
+        <input
+          id={@id}
+          type="text"
+          name={@name}
+          value={@value}
+          list={"#{@id}-completions"}
+          phx-hook="SRQLInput"
+          phx-debounce="150"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          class={[
+            "input input-sm w-full font-mono text-xs",
+            "rounded-lg border-base-300 bg-base-100",
+            "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+            "srql-input",
+            @editor_class
+          ]}
+          disabled={@disabled}
+          {@rest}
+        />
+        <div class="srql-input-overlay" data-srql-input-overlay aria-hidden="true"></div>
+        <ul
+          class="srql-dropdown hidden"
+          data-srql-input-dropdown
+          role="listbox"
+          aria-label="SRQL completions"
+        >
+        </ul>
+        <div class="srql-hint hidden" data-srql-input-hint aria-hidden="true"></div>
+      </div>
       <datalist :if={@compact} id={"#{@id}-completions"}>
         <option :for={completion <- @completion_values} value={completion}></option>
       </datalist>

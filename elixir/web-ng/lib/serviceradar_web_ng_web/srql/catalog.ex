@@ -1060,6 +1060,35 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   def completion_tokens, do: @completion_tokens
 
+  def structured do
+    cache_key = {__MODULE__, :structured, :v1}
+
+    case :persistent_term.get(cache_key, nil) do
+      nil ->
+        catalog = structured_from_entities(@entities)
+        :persistent_term.put(cache_key, catalog)
+        catalog
+
+      catalog ->
+        catalog
+    end
+  end
+
+  def structured_from_entities(entities) when is_list(entities) do
+    payload = %{
+      "control_tokens" => control_tokens(),
+      "entities" => Map.new(entities, &structured_entity/1),
+      "operators" => operators()
+    }
+
+    Map.put(payload, "version", content_hash(payload))
+  end
+
+  def etag(catalog \\ structured()) when is_map(catalog) do
+    version = Map.fetch!(catalog, "version")
+    ~s("#{version}")
+  end
+
   def entity(id) when is_binary(id) do
     Enum.find(@entities, &(&1.id == id)) ||
       %{
@@ -1075,4 +1104,61 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   end
 
   def entity(_), do: entity("devices")
+
+  defp structured_entity(%{} = entity) do
+    fields = %{
+      "array" => entity |> Map.get(:array_fields, []) |> Enum.sort(),
+      "boolean" => entity |> Map.get(:boolean_fields, []) |> Enum.sort(),
+      "filter" => entity |> Map.get(:filter_fields, []) |> Enum.sort(),
+      "numeric" => entity |> Map.get(:numeric_fields, []) |> Enum.sort(),
+      "series" => entity |> Map.get(:series_fields, []) |> Enum.sort(),
+      "stats" => entity |> Map.get(:stats_fields, []) |> Enum.sort(),
+      "value" => entity |> Map.get(:value_fields, []) |> Enum.sort()
+    }
+
+    {entity.id,
+     %{
+       "default_filter_field" => Map.get(entity, :default_filter_field, ""),
+       "default_sort" => %{
+         "field" => Map.get(entity, :default_sort_field, ""),
+         "direction" => Map.get(entity, :default_sort_dir, "desc")
+       },
+       "default_time" => Map.get(entity, :default_time, ""),
+       "downsample" => Map.get(entity, :downsample, false),
+       "fields" => fields,
+       "label" => Map.get(entity, :label, entity.id),
+       "route" => Map.get(entity, :route)
+     }}
+  end
+
+  defp control_tokens do
+    Enum.sort(@completion_control_tokens)
+  end
+
+  defp operators do
+    [":", ":contains", ":equals", "!=", ">", "<", ">=", "<="]
+  end
+
+  defp content_hash(payload) do
+    :sha256
+    |> :crypto.hash(canonical_json(payload))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp canonical_json(value) when is_map(value) do
+    value
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.map_join(",", fn {key, nested} -> Jason.encode!(to_string(key)) <> ":" <> canonical_json(nested) end)
+    |> then(&("{" <> &1 <> "}"))
+  end
+
+  defp canonical_json(value) when is_list(value) do
+    value
+    |> Enum.map_join(",", &canonical_json/1)
+    |> then(&("[" <> &1 <> "]"))
+  end
+
+  defp canonical_json(value) do
+    Jason.encode!(value)
+  end
 end
