@@ -72,8 +72,8 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     end
 
     read :list_targeting_profiles do
-      description "List enabled SRQL-targeted profiles ordered by priority"
-      filter expr(enabled == true and not is_nil(target_query) and target_query != "")
+      description "List enabled profiles ordered by targeting priority"
+      filter expr(enabled == true)
 
       prepare fn query, _context ->
         Ash.Query.sort(query, priority: :desc)

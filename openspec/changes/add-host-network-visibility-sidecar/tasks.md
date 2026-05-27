@@ -81,9 +81,9 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 8.1 Create `lib/serviceradar/inventory/visibility_profile.ex` Ash resource. Phase 1 attribute set: `name`, `description`, `enabled`, `target_query`, `priority`, `fingerprint {tcp, tls, http}`, `sample_interval_ms`, `retention_days`, `partition_id`, temporal fields. Add the remaining maps (`dpi`, `flow_attribution`, `process_snapshot_interval_s`) as nullable so they can be populated by later phases without another migration.
 - [ ] 8.2 Generate migration via `mix ash.codegen add_visibility_profile`; apply with `mix ash.migrate`.
 - [x] 8.3 Add `Ash.Policy.Authorizer` policies mirroring `SysmonProfile`.
-- [ ] 8.4 Create `lib/serviceradar/agent_config/compilers/visibility_compiler.ex` using `SrqlTargetResolver.resolve_for_device/2`. Compile only the fingerprint surface in Phase 1.
-- [ ] 8.5 Unit tests for compiler: priority ordering, default scope `in:devices`, disabled profile handling.
-- [ ] 8.6 Wire compiler output into `AgentConfigResponse.visibility_config`.
+- [x] 8.4 Create `lib/serviceradar/agent_config/compilers/visibility_compiler.ex` using `SrqlTargetResolver.resolve_for_device/2`. Compile only the fingerprint surface in Phase 1.
+- [x] 8.5 Unit tests for compiler: priority ordering, default scope `in:devices`, disabled profile handling.
+- [x] 8.6 Wire compiler output into `AgentConfigResponse.visibility_config`.
 - [ ] 8.7 Extend `Serviceradar.Inventory.Device` validation to accept new `os.passive_fingerprint`, `metadata.passive_fingerprint` map keys.
 - [ ] 8.8 Ship initial `visibility_enrichment_rules.yaml` pack mapping common p0f / JA4 signatures to `type_id`, `vendor_name`, `os.family`.
 
