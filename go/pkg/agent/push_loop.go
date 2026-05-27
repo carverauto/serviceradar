@@ -67,11 +67,12 @@ var (
 const (
 	maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
 
-	capabilityHostNetworkVisibility                    = "host-network-visibility"
-	capabilityHostNetworkVisibilityFingerprintEnabled  = "host-network-visibility.fingerprint.enabled"
-	capabilityHostNetworkVisibilityDPIUnavailable      = "host-network-visibility.dpi.unavailable"
-	capabilityHostNetworkVisibilityFlowUnavailable     = "host-network-visibility.flow_attribution.unavailable"
-	capabilityHostNetworkVisibilitySnapshotUnavailable = "host-network-visibility.process_snapshot.unavailable"
+	capabilityHostNetworkVisibility                       = "host-network-visibility"
+	capabilityHostNetworkVisibilityFingerprintEnabled     = "host-network-visibility.fingerprint.enabled"
+	capabilityHostNetworkVisibilityFingerprintUnavailable = "host-network-visibility.fingerprint.unavailable"
+	capabilityHostNetworkVisibilityDPIUnavailable         = "host-network-visibility.dpi.unavailable"
+	capabilityHostNetworkVisibilityFlowUnavailable        = "host-network-visibility.flow_attribution.unavailable"
+	capabilityHostNetworkVisibilitySnapshotUnavailable    = "host-network-visibility.process_snapshot.unavailable"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -1928,7 +1929,8 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	cfg *ServerConfig,
 	sidecarStatus sidecarStatusProvider,
 ) *proto.GatewayServiceStatus {
-	resp := buildAgentCapabilityStatusResponse(agentCapabilitiesForStatus(cfg), sidecarStatusesForStatus(sidecarStatus))
+	sidecars := sidecarStatusesForStatus(sidecarStatus)
+	resp := buildAgentCapabilityStatusResponse(agentCapabilitiesForStatus(cfg, sidecars), sidecars)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
 }
 
@@ -1936,7 +1938,7 @@ func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto
 	payload, err := json.Marshal(agentCapabilityStatusPayload{
 		Capabilities: append([]string(nil), capabilities...),
 		HostNetworkVisibility: hostNetworkVisibilityCapabilityStatus{
-			Fingerprint:     "enabled",
+			Fingerprint:     hostNetworkVisibilityFingerprintStatus(capabilities),
 			DPI:             "unavailable",
 			FlowAttribution: "unavailable",
 			ProcessSnapshot: "unavailable",
@@ -1956,12 +1958,8 @@ func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto
 	}
 }
 
-func agentCapabilitiesForStatus(cfg *ServerConfig) []string {
-	if cfg == nil {
-		return agentCapabilities(agentCapabilityOptions{})
-	}
-
-	return getAgentCapabilities(cfg)
+func agentCapabilitiesForStatus(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
+	return getAgentCapabilitiesForSidecars(cfg, sidecars)
 }
 
 func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
@@ -2577,7 +2575,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	helloReq := &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
-		Capabilities:  getAgentCapabilities(&cfg),
+		Capabilities:  p.getAgentCapabilities(&cfg),
 		Hostname:      hostname,
 		Os:            runtime.GOOS,
 		Arch:          runtime.GOARCH,
@@ -3466,14 +3464,32 @@ func isDockerRuntime() bool {
 }
 
 type agentCapabilityOptions struct {
-	enhancedBPF bool
-	desktopRDP  bool
+	enhancedBPF                             bool
+	desktopRDP                              bool
+	hostNetworkVisibilityFingerprintEnabled bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
+	return getAgentCapabilitiesForSidecars(cfg, nil)
+}
+
+func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
+	if p == nil || p.server == nil {
+		return getAgentCapabilities(cfg)
+	}
+
+	p.server.mu.RLock()
+	sidecarStatus := p.server.sidecarStatus
+	p.server.mu.RUnlock()
+
+	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus))
+}
+
+func getAgentCapabilitiesForSidecars(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
 	return agentCapabilities(agentCapabilityOptions{
-		enhancedBPF: remoteaccess.PlatformEnhancedRecordingAvailable(),
-		desktopRDP:  remoteAccessRDPCapabilityEnabled(cfg),
+		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
+		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
+		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 	})
 }
 
@@ -3494,10 +3510,15 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
 		capabilityHostNetworkVisibility,
-		capabilityHostNetworkVisibilityFingerprintEnabled,
 		capabilityHostNetworkVisibilityDPIUnavailable,
 		capabilityHostNetworkVisibilityFlowUnavailable,
 		capabilityHostNetworkVisibilitySnapshotUnavailable,
+	}
+
+	if options.hostNetworkVisibilityFingerprintEnabled {
+		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled)
+	} else {
+		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintUnavailable)
 	}
 
 	if options.enhancedBPF {
@@ -3512,6 +3533,37 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	}
 
 	return capabilities
+}
+
+func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
+	if containsCapability(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled) {
+		return "enabled"
+	}
+
+	return "unavailable"
+}
+
+func hasHealthyNetprobeSidecar(sidecars []*proto.SidecarStatus) bool {
+	for _, status := range sidecars {
+		if status == nil {
+			continue
+		}
+		if strings.EqualFold(status.GetName(), "netprobe") && status.GetState() == string(sidecar.StateHealthy) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsCapability(capabilities []string, capability string) bool {
+	for _, candidate := range capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+
+	return false
 }
 
 func remoteAccessRDPCapabilityEnabled(cfg *ServerConfig) bool {

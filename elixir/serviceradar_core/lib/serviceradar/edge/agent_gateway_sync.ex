@@ -460,7 +460,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp has_host_network_visibility_capability?(capability_names) do
     Enum.any?(capability_names, fn capability ->
-      capability == "host-network-visibility" or String.contains?(capability, "netprobe")
+      capability == "host-network-visibility.fingerprint.enabled"
     end)
   end
 

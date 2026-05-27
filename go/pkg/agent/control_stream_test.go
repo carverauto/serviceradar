@@ -925,7 +925,7 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
 		capabilityHostNetworkVisibility,
-		capabilityHostNetworkVisibilityFingerprintEnabled,
+		capabilityHostNetworkVisibilityFingerprintUnavailable,
 		capabilityHostNetworkVisibilityDPIUnavailable,
 		capabilityHostNetworkVisibilityFlowUnavailable,
 		capabilityHostNetworkVisibilitySnapshotUnavailable,
@@ -940,6 +940,17 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	if slices.Contains(base, remoteaccess.CapabilityRemoteAccessRDP) ||
 		slices.Contains(base, remoteaccess.CapabilityRemoteAccessDesktop) {
 		t.Fatalf("base capabilities should not advertise RDP: %#v", base)
+	}
+	if slices.Contains(base, capabilityHostNetworkVisibilityFingerprintEnabled) {
+		t.Fatalf("base capabilities should not advertise enabled fingerprinting: %#v", base)
+	}
+
+	withNetprobe := agentCapabilities(agentCapabilityOptions{hostNetworkVisibilityFingerprintEnabled: true})
+	if !slices.Contains(withNetprobe, capabilityHostNetworkVisibilityFingerprintEnabled) {
+		t.Fatalf("netprobe capabilities missing enabled fingerprinting: %#v", withNetprobe)
+	}
+	if slices.Contains(withNetprobe, capabilityHostNetworkVisibilityFingerprintUnavailable) {
+		t.Fatalf("netprobe capabilities should not advertise unavailable fingerprinting: %#v", withNetprobe)
 	}
 
 	withBPF := agentCapabilities(agentCapabilityOptions{enhancedBPF: true})

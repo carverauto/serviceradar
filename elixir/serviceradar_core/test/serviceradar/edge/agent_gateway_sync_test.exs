@@ -207,6 +207,29 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert "passive-netprobe" in device.discovery_sources
     end
 
+    test "does not add passive-netprobe source when fingerprinting is unavailable", %{
+      unique_id: unique_id,
+      actor: actor
+    } do
+      agent_id = "agent-host-visibility-unavailable-#{unique_id}"
+
+      attrs = %{
+        hostname: "host-visibility-unavailable",
+        source_ip: "10.0.0.4",
+        capabilities: [
+          "host-network-visibility",
+          "host-network-visibility.fingerprint.unavailable",
+          "host-network-visibility.dpi.unavailable"
+        ]
+      }
+
+      {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+      {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+      assert "agent" in device.discovery_sources
+      refute "passive-netprobe" in device.discovery_sources
+    end
+
     test "registers agent_id in device_identifiers", %{
       unique_id: unique_id,
       actor: actor

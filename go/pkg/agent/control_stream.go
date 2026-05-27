@@ -319,7 +319,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 			Hello: &proto.ControlStreamHello{
 				AgentId:       agentID,
 				Partition:     partition,
-				Capabilities:  getAgentCapabilities(&cfg),
+				Capabilities:  p.getAgentCapabilities(&cfg),
 				ConfigVersion: p.getConfigVersion(),
 				Version:       Version,
 				Hostname:      hostname,
