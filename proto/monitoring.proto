@@ -78,6 +78,16 @@ message StatusResponse {
   int64 response_time = 5;
   string agent_id = 6;
   string gateway_id = 7;   // Gateway ID for traceability
+  repeated SidecarStatus sidecars = 8;
+}
+
+message SidecarStatus {
+  string name = 1;
+  string state = 2;
+  int32 pid = 3;
+  int64 last_health_at = 4; // Unix seconds, UTC.
+  uint32 restart_count = 5;
+  string last_error = 6;
 }
 
 message ResultsResponse {

@@ -55,7 +55,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 5.3 Implement process supervision via `exec.CommandContext`, structured logger passthrough tagged `sidecar=<name>` + `pid=<pid>`.
 - [x] 5.4 Implement exponential restart back-off (1s → 60s cap); per-minute restart-cap circuit breaker.
 - [x] 5.5 Implement health probe loop (5 s default); mark unhealthy after 3 consecutive failures.
-- [ ] 5.6 Surface sidecar state into `StatusResponse` (`name`, `state`, `pid`, `last_health_at`, `restart_count`, `last_error`).
+- [x] 5.6 Surface sidecar state into `StatusResponse` (`name`, `state`, `pid`, `last_health_at`, `restart_count`, `last_error`).
 - [x] 5.7 Implement graceful shutdown: SIGTERM → 5 s grace → SIGKILL.
 - [x] 5.8 Unit-test the manager with a fake `Sidecar` and a fake child script.
 - [x] 5.9 README at `go/pkg/agent/sidecar/README.md` documenting the contract for future sidecars.

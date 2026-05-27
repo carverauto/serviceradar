@@ -383,7 +383,7 @@ func (x SweepCompletionStatus_Status) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SweepCompletionStatus_Status.Descriptor instead.
 func (SweepCompletionStatus_Status) EnumDescriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{8, 0}
+	return file_monitoring_proto_rawDescGZIP(), []int{9, 0}
 }
 
 type DeviceStatusRequest struct {
@@ -615,6 +615,7 @@ type StatusResponse struct {
 	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
 	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	GatewayId     string                 `protobuf:"bytes,7,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway ID for traceability
+	Sidecars      []*SidecarStatus       `protobuf:"bytes,8,rep,name=sidecars,proto3" json:"sidecars,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -698,6 +699,97 @@ func (x *StatusResponse) GetGatewayId() string {
 	return ""
 }
 
+func (x *StatusResponse) GetSidecars() []*SidecarStatus {
+	if x != nil {
+		return x.Sidecars
+	}
+	return nil
+}
+
+type SidecarStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	Pid           int32                  `protobuf:"varint,3,opt,name=pid,proto3" json:"pid,omitempty"`
+	LastHealthAt  int64                  `protobuf:"varint,4,opt,name=last_health_at,json=lastHealthAt,proto3" json:"last_health_at,omitempty"` // Unix seconds, UTC.
+	RestartCount  uint32                 `protobuf:"varint,5,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
+	LastError     string                 `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SidecarStatus) Reset() {
+	*x = SidecarStatus{}
+	mi := &file_monitoring_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SidecarStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SidecarStatus) ProtoMessage() {}
+
+func (x *SidecarStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SidecarStatus.ProtoReflect.Descriptor instead.
+func (*SidecarStatus) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SidecarStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SidecarStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *SidecarStatus) GetPid() int32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *SidecarStatus) GetLastHealthAt() int64 {
+	if x != nil {
+		return x.LastHealthAt
+	}
+	return 0
+}
+
+func (x *SidecarStatus) GetRestartCount() uint32 {
+	if x != nil {
+		return x.RestartCount
+	}
+	return 0
+}
+
+func (x *SidecarStatus) GetLastError() string {
+	if x != nil {
+		return x.LastError
+	}
+	return ""
+}
+
 type ResultsResponse struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Available       bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
@@ -719,7 +811,7 @@ type ResultsResponse struct {
 
 func (x *ResultsResponse) Reset() {
 	*x = ResultsResponse{}
-	mi := &file_monitoring_proto_msgTypes[4]
+	mi := &file_monitoring_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -731,7 +823,7 @@ func (x *ResultsResponse) String() string {
 func (*ResultsResponse) ProtoMessage() {}
 
 func (x *ResultsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[4]
+	mi := &file_monitoring_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -744,7 +836,7 @@ func (x *ResultsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultsResponse.ProtoReflect.Descriptor instead.
 func (*ResultsResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{4}
+	return file_monitoring_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *ResultsResponse) GetAvailable() bool {
@@ -851,7 +943,7 @@ type SweepServiceStatus struct {
 
 func (x *SweepServiceStatus) Reset() {
 	*x = SweepServiceStatus{}
-	mi := &file_monitoring_proto_msgTypes[5]
+	mi := &file_monitoring_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -863,7 +955,7 @@ func (x *SweepServiceStatus) String() string {
 func (*SweepServiceStatus) ProtoMessage() {}
 
 func (x *SweepServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[5]
+	mi := &file_monitoring_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -876,7 +968,7 @@ func (x *SweepServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepServiceStatus.ProtoReflect.Descriptor instead.
 func (*SweepServiceStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{5}
+	return file_monitoring_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SweepServiceStatus) GetNetwork() string {
@@ -924,7 +1016,7 @@ type PortStatus struct {
 
 func (x *PortStatus) Reset() {
 	*x = PortStatus{}
-	mi := &file_monitoring_proto_msgTypes[6]
+	mi := &file_monitoring_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -936,7 +1028,7 @@ func (x *PortStatus) String() string {
 func (*PortStatus) ProtoMessage() {}
 
 func (x *PortStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[6]
+	mi := &file_monitoring_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -949,7 +1041,7 @@ func (x *PortStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PortStatus.ProtoReflect.Descriptor instead.
 func (*PortStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{6}
+	return file_monitoring_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PortStatus) GetPort() int32 {
@@ -980,7 +1072,7 @@ type ResultsChunk struct {
 
 func (x *ResultsChunk) Reset() {
 	*x = ResultsChunk{}
-	mi := &file_monitoring_proto_msgTypes[7]
+	mi := &file_monitoring_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -992,7 +1084,7 @@ func (x *ResultsChunk) String() string {
 func (*ResultsChunk) ProtoMessage() {}
 
 func (x *ResultsChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[7]
+	mi := &file_monitoring_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1005,7 +1097,7 @@ func (x *ResultsChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultsChunk.ProtoReflect.Descriptor instead.
 func (*ResultsChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{7}
+	return file_monitoring_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ResultsChunk) GetData() []byte {
@@ -1067,7 +1159,7 @@ type SweepCompletionStatus struct {
 
 func (x *SweepCompletionStatus) Reset() {
 	*x = SweepCompletionStatus{}
-	mi := &file_monitoring_proto_msgTypes[8]
+	mi := &file_monitoring_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1079,7 +1171,7 @@ func (x *SweepCompletionStatus) String() string {
 func (*SweepCompletionStatus) ProtoMessage() {}
 
 func (x *SweepCompletionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[8]
+	mi := &file_monitoring_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1092,7 +1184,7 @@ func (x *SweepCompletionStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepCompletionStatus.ProtoReflect.Descriptor instead.
 func (*SweepCompletionStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{8}
+	return file_monitoring_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SweepCompletionStatus) GetStatus() SweepCompletionStatus_Status {
@@ -1195,7 +1287,7 @@ type SweepScannerStats struct {
 
 func (x *SweepScannerStats) Reset() {
 	*x = SweepScannerStats{}
-	mi := &file_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1207,7 +1299,7 @@ func (x *SweepScannerStats) String() string {
 func (*SweepScannerStats) ProtoMessage() {}
 
 func (x *SweepScannerStats) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[9]
+	mi := &file_monitoring_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1220,7 +1312,7 @@ func (x *SweepScannerStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SweepScannerStats.ProtoReflect.Descriptor instead.
 func (*SweepScannerStats) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{9}
+	return file_monitoring_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SweepScannerStats) GetPacketsSent() uint64 {
@@ -1377,7 +1469,7 @@ type GatewayStatusRequest struct {
 
 func (x *GatewayStatusRequest) Reset() {
 	*x = GatewayStatusRequest{}
-	mi := &file_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1389,7 +1481,7 @@ func (x *GatewayStatusRequest) String() string {
 func (*GatewayStatusRequest) ProtoMessage() {}
 
 func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[10]
+	mi := &file_monitoring_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1402,7 +1494,7 @@ func (x *GatewayStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusRequest.ProtoReflect.Descriptor instead.
 func (*GatewayStatusRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{10}
+	return file_monitoring_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GatewayStatusRequest) GetServices() []*GatewayServiceStatus {
@@ -1499,7 +1591,7 @@ type GatewayStatusResponse struct {
 
 func (x *GatewayStatusResponse) Reset() {
 	*x = GatewayStatusResponse{}
-	mi := &file_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1511,7 +1603,7 @@ func (x *GatewayStatusResponse) String() string {
 func (*GatewayStatusResponse) ProtoMessage() {}
 
 func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[11]
+	mi := &file_monitoring_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1524,7 +1616,7 @@ func (x *GatewayStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusResponse.ProtoReflect.Descriptor instead.
 func (*GatewayStatusResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{11}
+	return file_monitoring_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GatewayStatusResponse) GetReceived() bool {
@@ -1558,7 +1650,7 @@ type GatewayStatusChunk struct {
 
 func (x *GatewayStatusChunk) Reset() {
 	*x = GatewayStatusChunk{}
-	mi := &file_monitoring_proto_msgTypes[12]
+	mi := &file_monitoring_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1570,7 +1662,7 @@ func (x *GatewayStatusChunk) String() string {
 func (*GatewayStatusChunk) ProtoMessage() {}
 
 func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[12]
+	mi := &file_monitoring_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1583,7 +1675,7 @@ func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusChunk.ProtoReflect.Descriptor instead.
 func (*GatewayStatusChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{12}
+	return file_monitoring_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GatewayStatusChunk) GetServices() []*GatewayServiceStatus {
@@ -1710,7 +1802,7 @@ type GatewayServiceStatus struct {
 
 func (x *GatewayServiceStatus) Reset() {
 	*x = GatewayServiceStatus{}
-	mi := &file_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1722,7 +1814,7 @@ func (x *GatewayServiceStatus) String() string {
 func (*GatewayServiceStatus) ProtoMessage() {}
 
 func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1735,7 +1827,7 @@ func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayServiceStatus.ProtoReflect.Descriptor instead.
 func (*GatewayServiceStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{13}
+	return file_monitoring_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GatewayServiceStatus) GetServiceName() string {
@@ -1827,7 +1919,7 @@ type AgentHelloRequest struct {
 
 func (x *AgentHelloRequest) Reset() {
 	*x = AgentHelloRequest{}
-	mi := &file_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1839,7 +1931,7 @@ func (x *AgentHelloRequest) String() string {
 func (*AgentHelloRequest) ProtoMessage() {}
 
 func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1852,7 +1944,7 @@ func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloRequest.ProtoReflect.Descriptor instead.
 func (*AgentHelloRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{14}
+	return file_monitoring_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *AgentHelloRequest) GetAgentId() string {
@@ -1941,7 +2033,7 @@ type AgentHelloResponse struct {
 
 func (x *AgentHelloResponse) Reset() {
 	*x = AgentHelloResponse{}
-	mi := &file_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1953,7 +2045,7 @@ func (x *AgentHelloResponse) String() string {
 func (*AgentHelloResponse) ProtoMessage() {}
 
 func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1966,7 +2058,7 @@ func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloResponse.ProtoReflect.Descriptor instead.
 func (*AgentHelloResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{15}
+	return file_monitoring_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AgentHelloResponse) GetAccepted() bool {
@@ -2029,7 +2121,7 @@ type AgentConfigRequest struct {
 
 func (x *AgentConfigRequest) Reset() {
 	*x = AgentConfigRequest{}
-	mi := &file_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2041,7 +2133,7 @@ func (x *AgentConfigRequest) String() string {
 func (*AgentConfigRequest) ProtoMessage() {}
 
 func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2054,7 +2146,7 @@ func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigRequest.ProtoReflect.Descriptor instead.
 func (*AgentConfigRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{16}
+	return file_monitoring_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AgentConfigRequest) GetAgentId() string {
@@ -2096,7 +2188,7 @@ type AgentConfigResponse struct {
 
 func (x *AgentConfigResponse) Reset() {
 	*x = AgentConfigResponse{}
-	mi := &file_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2108,7 +2200,7 @@ func (x *AgentConfigResponse) String() string {
 func (*AgentConfigResponse) ProtoMessage() {}
 
 func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2121,7 +2213,7 @@ func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigResponse.ProtoReflect.Descriptor instead.
 func (*AgentConfigResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{17}
+	return file_monitoring_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AgentConfigResponse) GetNotModified() bool {
@@ -2212,7 +2304,7 @@ type AgentConfigChunk struct {
 
 func (x *AgentConfigChunk) Reset() {
 	*x = AgentConfigChunk{}
-	mi := &file_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2224,7 +2316,7 @@ func (x *AgentConfigChunk) String() string {
 func (*AgentConfigChunk) ProtoMessage() {}
 
 func (x *AgentConfigChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2237,7 +2329,7 @@ func (x *AgentConfigChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigChunk.ProtoReflect.Descriptor instead.
 func (*AgentConfigChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{18}
+	return file_monitoring_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AgentConfigChunk) GetAgentId() string {
@@ -2322,7 +2414,7 @@ type ControlStreamHello struct {
 
 func (x *ControlStreamHello) Reset() {
 	*x = ControlStreamHello{}
-	mi := &file_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2334,7 +2426,7 @@ func (x *ControlStreamHello) String() string {
 func (*ControlStreamHello) ProtoMessage() {}
 
 func (x *ControlStreamHello) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2347,7 +2439,7 @@ func (x *ControlStreamHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamHello.ProtoReflect.Descriptor instead.
 func (*ControlStreamHello) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{19}
+	return file_monitoring_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ControlStreamHello) GetAgentId() string {
@@ -2434,7 +2526,7 @@ type CommandRequest struct {
 
 func (x *CommandRequest) Reset() {
 	*x = CommandRequest{}
-	mi := &file_monitoring_proto_msgTypes[20]
+	mi := &file_monitoring_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2446,7 +2538,7 @@ func (x *CommandRequest) String() string {
 func (*CommandRequest) ProtoMessage() {}
 
 func (x *CommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[20]
+	mi := &file_monitoring_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2459,7 +2551,7 @@ func (x *CommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandRequest.ProtoReflect.Descriptor instead.
 func (*CommandRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{20}
+	return file_monitoring_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *CommandRequest) GetCommandId() string {
@@ -2510,7 +2602,7 @@ type CommandAck struct {
 
 func (x *CommandAck) Reset() {
 	*x = CommandAck{}
-	mi := &file_monitoring_proto_msgTypes[21]
+	mi := &file_monitoring_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2522,7 +2614,7 @@ func (x *CommandAck) String() string {
 func (*CommandAck) ProtoMessage() {}
 
 func (x *CommandAck) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[21]
+	mi := &file_monitoring_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2535,7 +2627,7 @@ func (x *CommandAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandAck.ProtoReflect.Descriptor instead.
 func (*CommandAck) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{21}
+	return file_monitoring_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *CommandAck) GetCommandId() string {
@@ -2581,7 +2673,7 @@ type CommandProgress struct {
 
 func (x *CommandProgress) Reset() {
 	*x = CommandProgress{}
-	mi := &file_monitoring_proto_msgTypes[22]
+	mi := &file_monitoring_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2593,7 +2685,7 @@ func (x *CommandProgress) String() string {
 func (*CommandProgress) ProtoMessage() {}
 
 func (x *CommandProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[22]
+	mi := &file_monitoring_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2606,7 +2698,7 @@ func (x *CommandProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandProgress.ProtoReflect.Descriptor instead.
 func (*CommandProgress) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{22}
+	return file_monitoring_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CommandProgress) GetCommandId() string {
@@ -2666,7 +2758,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_monitoring_proto_msgTypes[23]
+	mi := &file_monitoring_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2678,7 +2770,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[23]
+	mi := &file_monitoring_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2691,7 +2783,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{23}
+	return file_monitoring_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CommandResult) GetCommandId() string {
@@ -2747,7 +2839,7 @@ type ConfigAck struct {
 
 func (x *ConfigAck) Reset() {
 	*x = ConfigAck{}
-	mi := &file_monitoring_proto_msgTypes[24]
+	mi := &file_monitoring_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2759,7 +2851,7 @@ func (x *ConfigAck) String() string {
 func (*ConfigAck) ProtoMessage() {}
 
 func (x *ConfigAck) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[24]
+	mi := &file_monitoring_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2772,7 +2864,7 @@ func (x *ConfigAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigAck.ProtoReflect.Descriptor instead.
 func (*ConfigAck) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{24}
+	return file_monitoring_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ConfigAck) GetConfigVersion() string {
@@ -2809,7 +2901,7 @@ type ConsoleFrame struct {
 
 func (x *ConsoleFrame) Reset() {
 	*x = ConsoleFrame{}
-	mi := &file_monitoring_proto_msgTypes[25]
+	mi := &file_monitoring_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2821,7 +2913,7 @@ func (x *ConsoleFrame) String() string {
 func (*ConsoleFrame) ProtoMessage() {}
 
 func (x *ConsoleFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[25]
+	mi := &file_monitoring_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2834,7 +2926,7 @@ func (x *ConsoleFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsoleFrame.ProtoReflect.Descriptor instead.
 func (*ConsoleFrame) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{25}
+	return file_monitoring_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *ConsoleFrame) GetSessionId() string {
@@ -2925,7 +3017,7 @@ type ControlStreamRequest struct {
 
 func (x *ControlStreamRequest) Reset() {
 	*x = ControlStreamRequest{}
-	mi := &file_monitoring_proto_msgTypes[26]
+	mi := &file_monitoring_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2937,7 +3029,7 @@ func (x *ControlStreamRequest) String() string {
 func (*ControlStreamRequest) ProtoMessage() {}
 
 func (x *ControlStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[26]
+	mi := &file_monitoring_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2950,7 +3042,7 @@ func (x *ControlStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamRequest.ProtoReflect.Descriptor instead.
 func (*ControlStreamRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{26}
+	return file_monitoring_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ControlStreamRequest) GetPayload() isControlStreamRequest_Payload {
@@ -3069,7 +3161,7 @@ type ControlStreamResponse struct {
 
 func (x *ControlStreamResponse) Reset() {
 	*x = ControlStreamResponse{}
-	mi := &file_monitoring_proto_msgTypes[27]
+	mi := &file_monitoring_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3081,7 +3173,7 @@ func (x *ControlStreamResponse) String() string {
 func (*ControlStreamResponse) ProtoMessage() {}
 
 func (x *ControlStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[27]
+	mi := &file_monitoring_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3094,7 +3186,7 @@ func (x *ControlStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamResponse.ProtoReflect.Descriptor instead.
 func (*ControlStreamResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{27}
+	return file_monitoring_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ControlStreamResponse) GetPayload() isControlStreamResponse_Payload {
@@ -3171,7 +3263,7 @@ type CredentialBrokerResolveRequest struct {
 
 func (x *CredentialBrokerResolveRequest) Reset() {
 	*x = CredentialBrokerResolveRequest{}
-	mi := &file_monitoring_proto_msgTypes[28]
+	mi := &file_monitoring_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3183,7 +3275,7 @@ func (x *CredentialBrokerResolveRequest) String() string {
 func (*CredentialBrokerResolveRequest) ProtoMessage() {}
 
 func (x *CredentialBrokerResolveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[28]
+	mi := &file_monitoring_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3196,7 +3288,7 @@ func (x *CredentialBrokerResolveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialBrokerResolveRequest.ProtoReflect.Descriptor instead.
 func (*CredentialBrokerResolveRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{28}
+	return file_monitoring_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *CredentialBrokerResolveRequest) GetAgentId() string {
@@ -3265,7 +3357,7 @@ type CredentialBrokerResolveResponse struct {
 
 func (x *CredentialBrokerResolveResponse) Reset() {
 	*x = CredentialBrokerResolveResponse{}
-	mi := &file_monitoring_proto_msgTypes[29]
+	mi := &file_monitoring_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3277,7 +3369,7 @@ func (x *CredentialBrokerResolveResponse) String() string {
 func (*CredentialBrokerResolveResponse) ProtoMessage() {}
 
 func (x *CredentialBrokerResolveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[29]
+	mi := &file_monitoring_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3290,7 +3382,7 @@ func (x *CredentialBrokerResolveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialBrokerResolveResponse.ProtoReflect.Descriptor instead.
 func (*CredentialBrokerResolveResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{29}
+	return file_monitoring_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *CredentialBrokerResolveResponse) GetSuccess() bool {
@@ -3353,7 +3445,7 @@ type PluginConfig struct {
 
 func (x *PluginConfig) Reset() {
 	*x = PluginConfig{}
-	mi := &file_monitoring_proto_msgTypes[30]
+	mi := &file_monitoring_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3365,7 +3457,7 @@ func (x *PluginConfig) String() string {
 func (*PluginConfig) ProtoMessage() {}
 
 func (x *PluginConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[30]
+	mi := &file_monitoring_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3378,7 +3470,7 @@ func (x *PluginConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginConfig.ProtoReflect.Descriptor instead.
 func (*PluginConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{30}
+	return file_monitoring_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *PluginConfig) GetAssignments() []*PluginAssignmentConfig {
@@ -3408,7 +3500,7 @@ type PluginEngineLimits struct {
 
 func (x *PluginEngineLimits) Reset() {
 	*x = PluginEngineLimits{}
-	mi := &file_monitoring_proto_msgTypes[31]
+	mi := &file_monitoring_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3420,7 +3512,7 @@ func (x *PluginEngineLimits) String() string {
 func (*PluginEngineLimits) ProtoMessage() {}
 
 func (x *PluginEngineLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[31]
+	mi := &file_monitoring_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3433,7 +3525,7 @@ func (x *PluginEngineLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginEngineLimits.ProtoReflect.Descriptor instead.
 func (*PluginEngineLimits) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{31}
+	return file_monitoring_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PluginEngineLimits) GetMaxMemoryMb() int32 {
@@ -3495,7 +3587,7 @@ type PluginAssignmentConfig struct {
 
 func (x *PluginAssignmentConfig) Reset() {
 	*x = PluginAssignmentConfig{}
-	mi := &file_monitoring_proto_msgTypes[32]
+	mi := &file_monitoring_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3507,7 +3599,7 @@ func (x *PluginAssignmentConfig) String() string {
 func (*PluginAssignmentConfig) ProtoMessage() {}
 
 func (x *PluginAssignmentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[32]
+	mi := &file_monitoring_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3520,7 +3612,7 @@ func (x *PluginAssignmentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginAssignmentConfig.ProtoReflect.Descriptor instead.
 func (*PluginAssignmentConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{32}
+	return file_monitoring_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PluginAssignmentConfig) GetAssignmentId() string {
@@ -3714,7 +3806,7 @@ type SysmonConfig struct {
 
 func (x *SysmonConfig) Reset() {
 	*x = SysmonConfig{}
-	mi := &file_monitoring_proto_msgTypes[33]
+	mi := &file_monitoring_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3726,7 +3818,7 @@ func (x *SysmonConfig) String() string {
 func (*SysmonConfig) ProtoMessage() {}
 
 func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[33]
+	mi := &file_monitoring_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3739,7 +3831,7 @@ func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SysmonConfig.ProtoReflect.Descriptor instead.
 func (*SysmonConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{33}
+	return file_monitoring_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SysmonConfig) GetEnabled() bool {
@@ -3862,7 +3954,7 @@ type AgentCheckConfig struct {
 
 func (x *AgentCheckConfig) Reset() {
 	*x = AgentCheckConfig{}
-	mi := &file_monitoring_proto_msgTypes[34]
+	mi := &file_monitoring_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3874,7 +3966,7 @@ func (x *AgentCheckConfig) String() string {
 func (*AgentCheckConfig) ProtoMessage() {}
 
 func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[34]
+	mi := &file_monitoring_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3887,7 +3979,7 @@ func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCheckConfig.ProtoReflect.Descriptor instead.
 func (*AgentCheckConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{34}
+	return file_monitoring_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AgentCheckConfig) GetCheckId() string {
@@ -3983,7 +4075,7 @@ type SNMPConfig struct {
 
 func (x *SNMPConfig) Reset() {
 	*x = SNMPConfig{}
-	mi := &file_monitoring_proto_msgTypes[35]
+	mi := &file_monitoring_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3995,7 +4087,7 @@ func (x *SNMPConfig) String() string {
 func (*SNMPConfig) ProtoMessage() {}
 
 func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[35]
+	mi := &file_monitoring_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4008,7 +4100,7 @@ func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPConfig.ProtoReflect.Descriptor instead.
 func (*SNMPConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{35}
+	return file_monitoring_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SNMPConfig) GetEnabled() bool {
@@ -4063,7 +4155,7 @@ type SNMPTargetConfig struct {
 
 func (x *SNMPTargetConfig) Reset() {
 	*x = SNMPTargetConfig{}
-	mi := &file_monitoring_proto_msgTypes[36]
+	mi := &file_monitoring_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4075,7 +4167,7 @@ func (x *SNMPTargetConfig) String() string {
 func (*SNMPTargetConfig) ProtoMessage() {}
 
 func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[36]
+	mi := &file_monitoring_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4088,7 +4180,7 @@ func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPTargetConfig.ProtoReflect.Descriptor instead.
 func (*SNMPTargetConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{36}
+	return file_monitoring_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SNMPTargetConfig) GetId() string {
@@ -4183,7 +4275,7 @@ type SNMPv3Auth struct {
 
 func (x *SNMPv3Auth) Reset() {
 	*x = SNMPv3Auth{}
-	mi := &file_monitoring_proto_msgTypes[37]
+	mi := &file_monitoring_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4195,7 +4287,7 @@ func (x *SNMPv3Auth) String() string {
 func (*SNMPv3Auth) ProtoMessage() {}
 
 func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[37]
+	mi := &file_monitoring_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4208,7 +4300,7 @@ func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPv3Auth.ProtoReflect.Descriptor instead.
 func (*SNMPv3Auth) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{37}
+	return file_monitoring_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SNMPv3Auth) GetUsername() string {
@@ -4267,7 +4359,7 @@ type SNMPOIDConfig struct {
 
 func (x *SNMPOIDConfig) Reset() {
 	*x = SNMPOIDConfig{}
-	mi := &file_monitoring_proto_msgTypes[38]
+	mi := &file_monitoring_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4279,7 +4371,7 @@ func (x *SNMPOIDConfig) String() string {
 func (*SNMPOIDConfig) ProtoMessage() {}
 
 func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[38]
+	mi := &file_monitoring_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4292,7 +4384,7 @@ func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPOIDConfig.ProtoReflect.Descriptor instead.
 func (*SNMPOIDConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{38}
+	return file_monitoring_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SNMPOIDConfig) GetOid() string {
@@ -4344,7 +4436,7 @@ type MtrMplsLabel struct {
 
 func (x *MtrMplsLabel) Reset() {
 	*x = MtrMplsLabel{}
-	mi := &file_monitoring_proto_msgTypes[39]
+	mi := &file_monitoring_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4356,7 +4448,7 @@ func (x *MtrMplsLabel) String() string {
 func (*MtrMplsLabel) ProtoMessage() {}
 
 func (x *MtrMplsLabel) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[39]
+	mi := &file_monitoring_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4369,7 +4461,7 @@ func (x *MtrMplsLabel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrMplsLabel.ProtoReflect.Descriptor instead.
 func (*MtrMplsLabel) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{39}
+	return file_monitoring_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *MtrMplsLabel) GetLabel() int32 {
@@ -4412,7 +4504,7 @@ type MtrAsnInfo struct {
 
 func (x *MtrAsnInfo) Reset() {
 	*x = MtrAsnInfo{}
-	mi := &file_monitoring_proto_msgTypes[40]
+	mi := &file_monitoring_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4424,7 +4516,7 @@ func (x *MtrAsnInfo) String() string {
 func (*MtrAsnInfo) ProtoMessage() {}
 
 func (x *MtrAsnInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[40]
+	mi := &file_monitoring_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4437,7 +4529,7 @@ func (x *MtrAsnInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrAsnInfo.ProtoReflect.Descriptor instead.
 func (*MtrAsnInfo) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{40}
+	return file_monitoring_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *MtrAsnInfo) GetAsn() int32 {
@@ -4480,7 +4572,7 @@ type MtrHopResult struct {
 
 func (x *MtrHopResult) Reset() {
 	*x = MtrHopResult{}
-	mi := &file_monitoring_proto_msgTypes[41]
+	mi := &file_monitoring_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4492,7 +4584,7 @@ func (x *MtrHopResult) String() string {
 func (*MtrHopResult) ProtoMessage() {}
 
 func (x *MtrHopResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[41]
+	mi := &file_monitoring_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4505,7 +4597,7 @@ func (x *MtrHopResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrHopResult.ProtoReflect.Descriptor instead.
 func (*MtrHopResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{41}
+	return file_monitoring_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *MtrHopResult) GetHopNumber() int32 {
@@ -4647,7 +4739,7 @@ type MtrTraceResult struct {
 
 func (x *MtrTraceResult) Reset() {
 	*x = MtrTraceResult{}
-	mi := &file_monitoring_proto_msgTypes[42]
+	mi := &file_monitoring_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4659,7 +4751,7 @@ func (x *MtrTraceResult) String() string {
 func (*MtrTraceResult) ProtoMessage() {}
 
 func (x *MtrTraceResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[42]
+	mi := &file_monitoring_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4672,7 +4764,7 @@ func (x *MtrTraceResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrTraceResult.ProtoReflect.Descriptor instead.
 func (*MtrTraceResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{42}
+	return file_monitoring_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *MtrTraceResult) GetTarget() string {
@@ -4769,7 +4861,7 @@ type MtrCheckResult struct {
 
 func (x *MtrCheckResult) Reset() {
 	*x = MtrCheckResult{}
-	mi := &file_monitoring_proto_msgTypes[43]
+	mi := &file_monitoring_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4781,7 +4873,7 @@ func (x *MtrCheckResult) String() string {
 func (*MtrCheckResult) ProtoMessage() {}
 
 func (x *MtrCheckResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[43]
+	mi := &file_monitoring_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4794,7 +4886,7 @@ func (x *MtrCheckResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrCheckResult.ProtoReflect.Descriptor instead.
 func (*MtrCheckResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{43}
+	return file_monitoring_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *MtrCheckResult) GetCheckId() string {
@@ -4877,7 +4969,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"gateway_id\x18\x04 \x01(\tR\tgatewayId\x12\x18\n" +
 	"\adetails\x18\x05 \x01(\tR\adetails\x12#\n" +
 	"\rlast_sequence\x18\x06 \x01(\tR\flastSequence\x12N\n" +
-	"\x11completion_status\x18\a \x01(\v2!.monitoring.SweepCompletionStatusR\x10completionStatus\"\xed\x01\n" +
+	"\x11completion_status\x18\a \x01(\v2!.monitoring.SweepCompletionStatusR\x10completionStatus\"\xa4\x02\n" +
 	"\x0eStatusResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\fR\amessage\x12!\n" +
@@ -4886,7 +4978,16 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rresponse_time\x18\x05 \x01(\x03R\fresponseTime\x12\x19\n" +
 	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
-	"gateway_id\x18\a \x01(\tR\tgatewayId\"\xea\x03\n" +
+	"gateway_id\x18\a \x01(\tR\tgatewayId\x125\n" +
+	"\bsidecars\x18\b \x03(\v2\x19.monitoring.SidecarStatusR\bsidecars\"\xb5\x01\n" +
+	"\rSidecarStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x10\n" +
+	"\x03pid\x18\x03 \x01(\x05R\x03pid\x12$\n" +
+	"\x0elast_health_at\x18\x04 \x01(\x03R\flastHealthAt\x12#\n" +
+	"\rrestart_count\x18\x05 \x01(\rR\frestartCount\x12\x1d\n" +
+	"\n" +
+	"last_error\x18\x06 \x01(\tR\tlastError\"\xea\x03\n" +
 	"\x0fResultsResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12!\n" +
@@ -5402,7 +5503,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 49)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
 var file_monitoring_proto_goTypes = []any{
 	(SNMPVersion)(0),                        // 0: monitoring.SNMPVersion
 	(SNMPSecurityLevel)(0),                  // 1: monitoring.SNMPSecurityLevel
@@ -5414,117 +5515,119 @@ var file_monitoring_proto_goTypes = []any{
 	(*StatusRequest)(nil),                   // 7: monitoring.StatusRequest
 	(*ResultsRequest)(nil),                  // 8: monitoring.ResultsRequest
 	(*StatusResponse)(nil),                  // 9: monitoring.StatusResponse
-	(*ResultsResponse)(nil),                 // 10: monitoring.ResultsResponse
-	(*SweepServiceStatus)(nil),              // 11: monitoring.SweepServiceStatus
-	(*PortStatus)(nil),                      // 12: monitoring.PortStatus
-	(*ResultsChunk)(nil),                    // 13: monitoring.ResultsChunk
-	(*SweepCompletionStatus)(nil),           // 14: monitoring.SweepCompletionStatus
-	(*SweepScannerStats)(nil),               // 15: monitoring.SweepScannerStats
-	(*GatewayStatusRequest)(nil),            // 16: monitoring.GatewayStatusRequest
-	(*GatewayStatusResponse)(nil),           // 17: monitoring.GatewayStatusResponse
-	(*GatewayStatusChunk)(nil),              // 18: monitoring.GatewayStatusChunk
-	(*GatewayServiceStatus)(nil),            // 19: monitoring.GatewayServiceStatus
-	(*AgentHelloRequest)(nil),               // 20: monitoring.AgentHelloRequest
-	(*AgentHelloResponse)(nil),              // 21: monitoring.AgentHelloResponse
-	(*AgentConfigRequest)(nil),              // 22: monitoring.AgentConfigRequest
-	(*AgentConfigResponse)(nil),             // 23: monitoring.AgentConfigResponse
-	(*AgentConfigChunk)(nil),                // 24: monitoring.AgentConfigChunk
-	(*ControlStreamHello)(nil),              // 25: monitoring.ControlStreamHello
-	(*CommandRequest)(nil),                  // 26: monitoring.CommandRequest
-	(*CommandAck)(nil),                      // 27: monitoring.CommandAck
-	(*CommandProgress)(nil),                 // 28: monitoring.CommandProgress
-	(*CommandResult)(nil),                   // 29: monitoring.CommandResult
-	(*ConfigAck)(nil),                       // 30: monitoring.ConfigAck
-	(*ConsoleFrame)(nil),                    // 31: monitoring.ConsoleFrame
-	(*ControlStreamRequest)(nil),            // 32: monitoring.ControlStreamRequest
-	(*ControlStreamResponse)(nil),           // 33: monitoring.ControlStreamResponse
-	(*CredentialBrokerResolveRequest)(nil),  // 34: monitoring.CredentialBrokerResolveRequest
-	(*CredentialBrokerResolveResponse)(nil), // 35: monitoring.CredentialBrokerResolveResponse
-	(*PluginConfig)(nil),                    // 36: monitoring.PluginConfig
-	(*PluginEngineLimits)(nil),              // 37: monitoring.PluginEngineLimits
-	(*PluginAssignmentConfig)(nil),          // 38: monitoring.PluginAssignmentConfig
-	(*SysmonConfig)(nil),                    // 39: monitoring.SysmonConfig
-	(*AgentCheckConfig)(nil),                // 40: monitoring.AgentCheckConfig
-	(*SNMPConfig)(nil),                      // 41: monitoring.SNMPConfig
-	(*SNMPTargetConfig)(nil),                // 42: monitoring.SNMPTargetConfig
-	(*SNMPv3Auth)(nil),                      // 43: monitoring.SNMPv3Auth
-	(*SNMPOIDConfig)(nil),                   // 44: monitoring.SNMPOIDConfig
-	(*MtrMplsLabel)(nil),                    // 45: monitoring.MtrMplsLabel
-	(*MtrAsnInfo)(nil),                      // 46: monitoring.MtrAsnInfo
-	(*MtrHopResult)(nil),                    // 47: monitoring.MtrHopResult
-	(*MtrTraceResult)(nil),                  // 48: monitoring.MtrTraceResult
-	(*MtrCheckResult)(nil),                  // 49: monitoring.MtrCheckResult
-	nil,                                     // 50: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                                     // 51: monitoring.ControlStreamHello.LabelsEntry
-	nil,                                     // 52: monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	nil,                                     // 53: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                                     // 54: monitoring.AgentCheckConfig.SettingsEntry
+	(*SidecarStatus)(nil),                   // 10: monitoring.SidecarStatus
+	(*ResultsResponse)(nil),                 // 11: monitoring.ResultsResponse
+	(*SweepServiceStatus)(nil),              // 12: monitoring.SweepServiceStatus
+	(*PortStatus)(nil),                      // 13: monitoring.PortStatus
+	(*ResultsChunk)(nil),                    // 14: monitoring.ResultsChunk
+	(*SweepCompletionStatus)(nil),           // 15: monitoring.SweepCompletionStatus
+	(*SweepScannerStats)(nil),               // 16: monitoring.SweepScannerStats
+	(*GatewayStatusRequest)(nil),            // 17: monitoring.GatewayStatusRequest
+	(*GatewayStatusResponse)(nil),           // 18: monitoring.GatewayStatusResponse
+	(*GatewayStatusChunk)(nil),              // 19: monitoring.GatewayStatusChunk
+	(*GatewayServiceStatus)(nil),            // 20: monitoring.GatewayServiceStatus
+	(*AgentHelloRequest)(nil),               // 21: monitoring.AgentHelloRequest
+	(*AgentHelloResponse)(nil),              // 22: monitoring.AgentHelloResponse
+	(*AgentConfigRequest)(nil),              // 23: monitoring.AgentConfigRequest
+	(*AgentConfigResponse)(nil),             // 24: monitoring.AgentConfigResponse
+	(*AgentConfigChunk)(nil),                // 25: monitoring.AgentConfigChunk
+	(*ControlStreamHello)(nil),              // 26: monitoring.ControlStreamHello
+	(*CommandRequest)(nil),                  // 27: monitoring.CommandRequest
+	(*CommandAck)(nil),                      // 28: monitoring.CommandAck
+	(*CommandProgress)(nil),                 // 29: monitoring.CommandProgress
+	(*CommandResult)(nil),                   // 30: monitoring.CommandResult
+	(*ConfigAck)(nil),                       // 31: monitoring.ConfigAck
+	(*ConsoleFrame)(nil),                    // 32: monitoring.ConsoleFrame
+	(*ControlStreamRequest)(nil),            // 33: monitoring.ControlStreamRequest
+	(*ControlStreamResponse)(nil),           // 34: monitoring.ControlStreamResponse
+	(*CredentialBrokerResolveRequest)(nil),  // 35: monitoring.CredentialBrokerResolveRequest
+	(*CredentialBrokerResolveResponse)(nil), // 36: monitoring.CredentialBrokerResolveResponse
+	(*PluginConfig)(nil),                    // 37: monitoring.PluginConfig
+	(*PluginEngineLimits)(nil),              // 38: monitoring.PluginEngineLimits
+	(*PluginAssignmentConfig)(nil),          // 39: monitoring.PluginAssignmentConfig
+	(*SysmonConfig)(nil),                    // 40: monitoring.SysmonConfig
+	(*AgentCheckConfig)(nil),                // 41: monitoring.AgentCheckConfig
+	(*SNMPConfig)(nil),                      // 42: monitoring.SNMPConfig
+	(*SNMPTargetConfig)(nil),                // 43: monitoring.SNMPTargetConfig
+	(*SNMPv3Auth)(nil),                      // 44: monitoring.SNMPv3Auth
+	(*SNMPOIDConfig)(nil),                   // 45: monitoring.SNMPOIDConfig
+	(*MtrMplsLabel)(nil),                    // 46: monitoring.MtrMplsLabel
+	(*MtrAsnInfo)(nil),                      // 47: monitoring.MtrAsnInfo
+	(*MtrHopResult)(nil),                    // 48: monitoring.MtrHopResult
+	(*MtrTraceResult)(nil),                  // 49: monitoring.MtrTraceResult
+	(*MtrCheckResult)(nil),                  // 50: monitoring.MtrCheckResult
+	nil,                                     // 51: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                                     // 52: monitoring.ControlStreamHello.LabelsEntry
+	nil,                                     // 53: monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	nil,                                     // 54: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                                     // 55: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
-	14, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
-	14, // 1: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
-	12, // 2: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
-	5,  // 3: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
-	15, // 4: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
-	19, // 5: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
-	19, // 6: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
-	50, // 7: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
-	40, // 8: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
-	39, // 9: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
-	41, // 10: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
-	36, // 11: monitoring.AgentConfigResponse.plugin_config:type_name -> monitoring.PluginConfig
-	51, // 12: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
-	25, // 13: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
-	27, // 14: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
-	28, // 15: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
-	29, // 16: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
-	30, // 17: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
-	31, // 18: monitoring.ControlStreamRequest.console_frame:type_name -> monitoring.ConsoleFrame
-	26, // 19: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
-	23, // 20: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
-	31, // 21: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
-	52, // 22: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	38, // 23: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
-	37, // 24: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
-	53, // 25: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	54, // 26: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	42, // 27: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
-	0,  // 28: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
-	43, // 29: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
-	44, // 30: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
-	1,  // 31: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
-	2,  // 32: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
-	3,  // 33: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
-	4,  // 34: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
-	46, // 35: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
-	45, // 36: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
-	47, // 37: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
-	48, // 38: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
-	7,  // 39: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	8,  // 40: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	8,  // 41: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	20, // 42: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	22, // 43: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	22, // 44: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
-	16, // 45: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	18, // 46: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	32, // 47: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
-	34, // 48: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	9,  // 49: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	10, // 50: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	13, // 51: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	21, // 52: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	23, // 53: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	24, // 54: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	17, // 55: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	17, // 56: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	33, // 57: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	35, // 58: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	49, // [49:59] is the sub-list for method output_type
-	39, // [39:49] is the sub-list for method input_type
-	39, // [39:39] is the sub-list for extension type_name
-	39, // [39:39] is the sub-list for extension extendee
-	0,  // [0:39] is the sub-list for field type_name
+	15, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
+	10, // 1: monitoring.StatusResponse.sidecars:type_name -> monitoring.SidecarStatus
+	15, // 2: monitoring.ResultsResponse.sweep_completion:type_name -> monitoring.SweepCompletionStatus
+	13, // 3: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
+	5,  // 4: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
+	16, // 5: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
+	20, // 6: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
+	20, // 7: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
+	51, // 8: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	41, // 9: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
+	40, // 10: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
+	42, // 11: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
+	37, // 12: monitoring.AgentConfigResponse.plugin_config:type_name -> monitoring.PluginConfig
+	52, // 13: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
+	26, // 14: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
+	28, // 15: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
+	29, // 16: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
+	30, // 17: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
+	31, // 18: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
+	32, // 19: monitoring.ControlStreamRequest.console_frame:type_name -> monitoring.ConsoleFrame
+	27, // 20: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
+	24, // 21: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
+	32, // 22: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
+	53, // 23: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	39, // 24: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
+	38, // 25: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
+	54, // 26: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	55, // 27: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	43, // 28: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	0,  // 29: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	44, // 30: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	45, // 31: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	1,  // 32: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	2,  // 33: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	3,  // 34: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	4,  // 35: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	47, // 36: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
+	46, // 37: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
+	48, // 38: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
+	49, // 39: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
+	7,  // 40: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	8,  // 41: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	8,  // 42: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	21, // 43: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	23, // 44: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	23, // 45: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
+	17, // 46: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	19, // 47: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	33, // 48: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
+	35, // 49: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
+	9,  // 50: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	11, // 51: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	14, // 52: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	22, // 53: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	24, // 54: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	25, // 55: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	18, // 56: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	18, // 57: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	34, // 58: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	36, // 59: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	50, // [50:60] is the sub-list for method output_type
+	40, // [40:50] is the sub-list for method input_type
+	40, // [40:40] is the sub-list for extension type_name
+	40, // [40:40] is the sub-list for extension extendee
+	0,  // [0:40] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -5532,7 +5635,7 @@ func file_monitoring_proto_init() {
 	if File_monitoring_proto != nil {
 		return
 	}
-	file_monitoring_proto_msgTypes[26].OneofWrappers = []any{
+	file_monitoring_proto_msgTypes[27].OneofWrappers = []any{
 		(*ControlStreamRequest_Hello)(nil),
 		(*ControlStreamRequest_CommandAck)(nil),
 		(*ControlStreamRequest_CommandProgress)(nil),
@@ -5540,7 +5643,7 @@ func file_monitoring_proto_init() {
 		(*ControlStreamRequest_ConfigAck)(nil),
 		(*ControlStreamRequest_ConsoleFrame)(nil),
 	}
-	file_monitoring_proto_msgTypes[27].OneofWrappers = []any{
+	file_monitoring_proto_msgTypes[28].OneofWrappers = []any{
 		(*ControlStreamResponse_Command)(nil),
 		(*ControlStreamResponse_Config)(nil),
 		(*ControlStreamResponse_ConsoleFrame)(nil),
@@ -5551,7 +5654,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   49,
+			NumMessages:   50,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
