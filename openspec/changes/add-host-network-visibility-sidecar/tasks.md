@@ -44,8 +44,8 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 ### 4. [Phase 1] IPC protocol skeleton (`proto/agent/netprobe/v1/`)
 
 - [x] 4.1 Create `proto/agent/netprobe/v1/netprobe.proto` with messages `VisibilityAgentConfig`, `DeviceBinding`, `FingerprintEvent` (oneof TCP/TLS/HTTP), `Ping`, `PingAck`. Reserve field numbers and message names for `DpiEvent`, `FlowAttributionEvent`, `ProcessSnapshot`, `ExternalFlowRecord`, `StartRemoteCapture`, `PcapngBlock` — defined as empty placeholder messages with TODO comments so later phases extend without breaking changes.
-- [ ] 4.2 Add `buf` lint pass; no breaking-change checks yet (v1 alpha until first archive).
-- [ ] 4.3 Generate Go bindings under `go/proto/agent/netprobe/v1/` and Rust bindings under `rust/netprobe/src/proto/`.
+- [x] 4.2 Add `buf` lint pass; no breaking-change checks yet (v1 alpha until first archive).
+- [x] 4.3 Generate Go bindings under `proto/agent/netprobe/v1/` and Rust bindings via the `rust/netprobe/build.rs` Prost `OUT_DIR` include path.
 - [x] 4.4 Document framing rules: 4-byte big-endian length prefix, max frame size 4 MiB.
 
 ### 5. [Phase 1] Agent sidecar runtime (`go/pkg/agent/sidecar/`)

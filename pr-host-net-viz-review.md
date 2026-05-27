@@ -33,9 +33,10 @@ longer open.
 | Pass 3 Mi-30 | Resolved | `1d8b28731` | `register_identifiers/3` no longer persists passive fingerprint hashes as `DeviceIdentifier` rows. |
 | Pass 3 Mi-31 | Resolved | `1d8b28731` | Visibility profile migration now uses `:integer` for `priority`, matching the Ash resource. |
 | Pass 3 M-13 | Investigated | `4af4bda1a` | Added the missing `identity_wheres_to_sql` metadata that blocked Ash codegen at `RemoteAccessRequest`; `mix ash.codegen add_visibility_profile --dry-run` now runs but reveals broad pre-existing snapshot drift outside this proposal, so the VisibilityProfile migration remains open for a dedicated Ash migration cleanup. |
-| Pass 3 N-11 | Resolved | current batch | Split the 1122-line Visibility Profiles LiveView into a 429-line event/persistence LiveView plus component, form-state, and target-query-builder modules. |
+| Pass 3 N-11 | Resolved | `0c1229a46` | Split the 1122-line Visibility Profiles LiveView into a 429-line event/persistence LiveView plus component, form-state, and target-query-builder modules. |
 | Pass 3 N-13 | Resolved | `4af4bda1a` | Agent capability status keeps sidecar state only in the JSON `Message` payload used by `GatewayServiceStatus` and no longer also sets `StatusResponse.Sidecars`. |
 | Pass 3 N-14 | Resolved | `4af4bda1a` | Agent postinstall now emits one canonical netprobe capability remediation message for both `setcap` failure paths. |
+| Phase 1 §4.2/§4.3 | Resolved | current batch | Added pinned Buf lint config/Makefile target, wired proto lint into Go CI, added netprobe Go generation to `make generate-proto`, and documented the checked-in Go plus build-time Rust Prost binding paths in the OpenSpec task list. |
 
 ---
 
