@@ -64,9 +64,9 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 - [x] 6.1 Implement a `Sidecar` for `netprobe` plugged into the runtime from §5.
 - [x] 6.2 Implement the IPC client: opens UDS, sends `ApplyConfig`, drains the `FingerprintEvents` stream.
-- [ ] 6.3 Translate `FingerprintEvent` records into discovery ingestion records bound to canonical devices via `IP Alias Resolution`.
+- [x] 6.3 Translate `FingerprintEvent` records into discovery ingestion records bound to canonical devices via `IP Alias Resolution`.
 - [ ] 6.4 Backpressure: drop new events when downstream is slow; increment `_events_dropped_total{stream="fingerprint",reason="backpressure"}`.
-- [ ] 6.5 Unit tests for the fingerprint translation path.
+- [x] 6.5 Unit tests for the fingerprint translation path.
 
 ### 7. [Phase 1] Agent config delivery
 
@@ -89,7 +89,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 9. [Phase 1] Discovery ingestion integration
 
-- [ ] 9.1 Register `passive-netprobe` in the `DiscoverySource` enum used by `network-discovery`.
+- [x] 9.1 Register `passive-netprobe` in the `DiscoverySource` enum used by `network-discovery`.
 - [ ] 9.2 Update the discovery ingest writer to persist fingerprint payloads onto the canonical `Device` resolved through `IP Alias Resolution`.
 - [ ] 9.3 Hook `Rule-Driven Vendor and Type Enrichment` to consume passive-netprobe payloads.
 - [ ] 9.4 Integration test: ingest synthetic events for an Armis-imported device IP and confirm enrichment.
