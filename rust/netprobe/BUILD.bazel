@@ -33,6 +33,7 @@ rust_binary(
         "anyhow",
         "clap",
         "env_logger",
+        "huginn-net",
         "log",
         "nix",
         "prometheus",

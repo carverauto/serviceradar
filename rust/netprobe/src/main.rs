@@ -1,6 +1,7 @@
 mod capabilities;
 mod capture;
 mod config;
+mod fingerprint;
 mod framing;
 mod lifecycle;
 mod metrics;
@@ -14,6 +15,7 @@ use clap::{Parser, ValueEnum};
 use tokio::sync::watch;
 
 use crate::{
+    capture::CaptureWorkers,
     config::Config,
     lifecycle::{initialize_privileged_resources, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
@@ -72,16 +74,18 @@ async fn main() -> Result<()> {
     }
 
     let mut startup_ops = SystemStartupOps;
-    let _capture_handles = initialize_privileged_resources(
+    let capture_handles = initialize_privileged_resources(
         &mut startup_ops,
         &config,
         args.drop_user.as_deref(),
         args.skip_cap_check,
     )?;
-    log::info!("opened {} capture interface(s)", _capture_handles.len());
+    log::info!("opened {} capture interface(s)", capture_handles.len());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let metrics = Metrics::new()?;
+    let _capture_workers = CaptureWorkers::start(capture_handles, metrics.clone())
+        .context("failed to start capture workers")?;
     let metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
         metrics.clone(),

@@ -14,6 +14,7 @@ use tokio::{
 };
 
 use crate::{
+    fingerprint::FINGERPRINT_ENGINE_VERSION,
     framing::{read_frame, write_frame},
     proto::netprobe::{netprobe_frame, ConfigAck, ErrorFrame, NetprobeFrame, PingAck},
 };
@@ -101,6 +102,7 @@ async fn handle_client(mut stream: UnixStream) -> Result<()> {
                     payload: Some(netprobe_frame::Payload::PingAck(PingAck {
                         sent_at_unix_nano: ping.sent_at_unix_nano,
                         acked_at_unix_nano: now_unix_nano(),
+                        fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
                     })),
                 };
                 write_frame(&mut stream, &ack).await?;

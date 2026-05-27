@@ -1,6 +1,19 @@
+#[cfg(feature = "pcap-capture")]
+use std::thread;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+};
+
 use anyhow::{Context, Result};
 
-use crate::config::Config;
+use crate::{config::Config, metrics::Metrics};
+
+#[cfg(feature = "pcap-capture")]
+use crate::fingerprint::{now_unix_nano, FingerprintEngine};
 
 #[cfg(feature = "pcap-capture")]
 pub type CaptureBackendHandle = pcap::Capture<pcap::Active>;
@@ -14,7 +27,8 @@ pub struct CaptureHandles<H = CaptureBackendHandle> {
 
 pub struct CaptureHandle<H = CaptureBackendHandle> {
     interface: String,
-    _handle: H,
+    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    handle: H,
 }
 
 pub trait CaptureOpener {
@@ -45,6 +59,34 @@ impl<H> CaptureHandles<H> {
     pub fn interfaces(&self) -> impl Iterator<Item = &str> {
         self.handles.iter().map(|handle| handle.interface.as_str())
     }
+
+    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    fn into_handles(self) -> Vec<CaptureHandle<H>> {
+        self.handles
+    }
+}
+
+pub struct CaptureWorkers {
+    stop: Arc<AtomicBool>,
+    threads: Vec<JoinHandle<()>>,
+}
+
+impl CaptureWorkers {
+    pub fn start(captures: CaptureHandles, metrics: Metrics) -> Result<Self> {
+        start_capture_workers(captures, metrics)
+    }
+}
+
+impl Drop for CaptureWorkers {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+
+        while let Some(thread) = self.threads.pop() {
+            if thread.join().is_err() {
+                log::warn!("netprobe capture worker panicked during shutdown");
+            }
+        }
+    }
 }
 
 pub fn open_allowlisted_interfaces<O>(
@@ -63,11 +105,73 @@ where
             .with_context(|| format!("failed to open capture interface {interface}"))?;
         handles.push(CaptureHandle {
             interface: interface.clone(),
-            _handle: handle,
+            handle,
         });
     }
 
     Ok(CaptureHandles { handles })
+}
+
+#[cfg(feature = "pcap-capture")]
+fn start_capture_workers(captures: CaptureHandles, metrics: Metrics) -> Result<CaptureWorkers> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let mut threads = Vec::with_capacity(captures.len());
+
+    for mut capture in captures.into_handles() {
+        let stop_worker = Arc::clone(&stop);
+        let metrics_worker = metrics.clone();
+        let thread_name = format!("netprobe-capture-{}", capture.interface);
+        let thread = thread::Builder::new()
+            .name(thread_name)
+            .spawn(move || {
+                let interface = capture.interface.clone();
+                let mut engine = match FingerprintEngine::tcp_only() {
+                    Ok(engine) => engine,
+                    Err(err) => {
+                        metrics_worker.inc_signature_failures();
+                        log::error!(
+                            "failed to initialize fingerprint engine for {interface}: {err:#}"
+                        );
+                        return;
+                    }
+                };
+
+                while !stop_worker.load(Ordering::SeqCst) {
+                    match capture.handle.next_packet() {
+                        Ok(packet) => {
+                            metrics_worker.inc_packets_processed();
+                            let events =
+                                engine.analyze_tcp_packet(&interface, now_unix_nano(), packet.data);
+                            for event in events {
+                                metrics_worker.inc_fingerprint_events();
+                                log::debug!(
+                                    "observed TCP fingerprint on {} for {}",
+                                    event.interface_name,
+                                    event.ip
+                                );
+                            }
+                        }
+                        Err(pcap::Error::TimeoutExpired) => {}
+                        Err(err) => {
+                            metrics_worker.inc_packets_dropped();
+                            log::warn!("failed to read packet on {interface}: {err}");
+                        }
+                    }
+                }
+            })
+            .context("failed to start pcap capture worker")?;
+        threads.push(thread);
+    }
+
+    Ok(CaptureWorkers { stop, threads })
+}
+
+#[cfg(not(feature = "pcap-capture"))]
+fn start_capture_workers(_captures: CaptureHandles, _metrics: Metrics) -> Result<CaptureWorkers> {
+    Ok(CaptureWorkers {
+        stop: Arc::new(AtomicBool::new(false)),
+        threads: Vec::new(),
+    })
 }
 
 impl CaptureOpener for PcapCaptureOpener {
