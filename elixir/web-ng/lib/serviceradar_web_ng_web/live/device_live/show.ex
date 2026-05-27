@@ -5300,12 +5300,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           ],
           ["mikrotik_api_names", "mikrotik_api_urls"]
         ),
-        metadata_group("Proxmox", "hero-cube-transparent", [
-          metadata_item(
-            "Candidate probe",
-            metadata_lookup(metadata, "proxmox_candidate_probe_enabled")
-          )
-        ]),
+        proxmox_metadata_group(metadata),
         metadata_group("Discovery", "hero-map", [
           metadata_item("Discovery ID", metadata_lookup(metadata, "discovery_id"), mono: true),
           metadata_item(
@@ -5428,6 +5423,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     else
       metadata_group(title, icon, [])
     end
+  end
+
+  defp proxmox_metadata_group(metadata) when is_map(metadata) do
+    if proxmox_metadata_evidence?(metadata) do
+      metadata_group("Proxmox", "hero-cube-transparent", [
+        metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
+        metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
+        metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
+        metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
+        metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
+      ])
+    else
+      metadata_group("Proxmox", "hero-cube-transparent", [])
+    end
+  end
+
+  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [])
+
+  defp proxmox_metadata_evidence?(metadata) when is_map(metadata) do
+    truthy?(metadata_lookup(metadata, "proxmox_candidate")) or
+      metadata_present?(metadata_lookup(metadata, "proxmox_candidate_evidence")) or
+      metadata_source_evidence?(metadata, ["proxmox_candidate", "proxmox_api"])
   end
 
   defp metadata_source_evidence?(metadata, source_keys)
