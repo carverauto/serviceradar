@@ -61,6 +61,13 @@ struct Args {
         env = "SERVICERADAR_NETPROBE_SKIP_CAP_CHECK"
     )]
     skip_cap_check: bool,
+
+    #[arg(
+        long,
+        default_value_t = false,
+        env = "SERVICERADAR_NETPROBE_ALLOW_ROOT"
+    )]
+    allow_root: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -85,6 +92,7 @@ async fn main() -> Result<()> {
         &config,
         args.drop_user.as_deref(),
         args.skip_cap_check,
+        args.allow_root,
     )?;
     log::info!("opened {} capture interface(s)", capture_handles.len());
 

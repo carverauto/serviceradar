@@ -32,24 +32,66 @@ fn has_effective_cap_net_raw() -> Result<bool> {
     Ok(bits & (1u64 << CAP_NET_RAW) != 0)
 }
 
-pub fn drop_privileges(user: Option<&str>) -> Result<()> {
+pub fn drop_privileges_or_allow_root(user: Option<&str>, allow_root: bool) -> Result<()> {
     #[cfg(unix)]
     {
-        use nix::unistd::{setgid, setuid, User};
-
-        let Some(user) = user else {
-            return Ok(());
-        };
-
-        let Some(target) =
-            User::from_name(user).with_context(|| format!("failed to resolve user {user}"))?
-        else {
-            anyhow::bail!("user {user} does not exist");
-        };
-
-        setgid(target.gid).with_context(|| format!("failed to set gid for {user}"))?;
-        setuid(target.uid).with_context(|| format!("failed to set uid for {user}"))?;
+        drop_privileges_unix(user, allow_root)?;
     }
 
+    #[cfg(not(unix))]
+    {
+        let _ = (user, allow_root);
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn drop_privileges_unix(user: Option<&str>, allow_root: bool) -> Result<()> {
+    use std::ffi::CString;
+
+    use nix::unistd::{setgid, setuid, Uid, User};
+
+    let Some(user) = user else {
+        if Uid::current().is_root() && !allow_root {
+            anyhow::bail!(
+                "serviceradar-netprobe refuses to serve IPC as root; configure --drop-user or set --allow-root for development only"
+            );
+        }
+        if Uid::current().is_root() && allow_root {
+            log::warn!(
+                "serviceradar-netprobe continuing as root because --allow-root was set; do not use this in production"
+            );
+        }
+
+        return Ok(());
+    };
+
+    let Some(target) =
+        User::from_name(user).with_context(|| format!("failed to resolve user {user}"))?
+    else {
+        anyhow::bail!("user {user} does not exist");
+    };
+
+    let c_user = CString::new(user).context("drop user contains an embedded NUL byte")?;
+    initialize_supplementary_groups(&c_user, target.gid)
+        .with_context(|| format!("failed to initialize supplementary groups for {user}"))?;
+    setgid(target.gid).with_context(|| format!("failed to set gid for {user}"))?;
+    setuid(target.uid).with_context(|| format!("failed to set uid for {user}"))?;
+
+    Ok(())
+}
+
+#[cfg(all(unix, target_os = "linux"))]
+fn initialize_supplementary_groups(user: &std::ffi::CStr, gid: nix::unistd::Gid) -> Result<()> {
+    use nix::unistd::initgroups;
+
+    initgroups(user, gid)?;
+
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn initialize_supplementary_groups(_user: &std::ffi::CStr, _gid: nix::unistd::Gid) -> Result<()> {
     Ok(())
 }

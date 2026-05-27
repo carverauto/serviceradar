@@ -47,6 +47,9 @@ jobs:
           - project: rust/log-collector
             runner: cargo
           - project: rust/netprobe
+            runner: bazel-test
+            bazel_target: //rust/netprobe:netprobe_test
+          - project: rust/netprobe
             runner: bazel-static
             bazel_target: //rust/netprobe:netprobe
             platform: //build/platforms:linux_x86_64_musl
@@ -265,6 +268,11 @@ jobs:
         if: ${{ matrix.runner == 'bazel' }}
         run: |
           bazel build ${{ matrix.bazel_target }}
+
+      - name: Test Bazel target
+        if: ${{ matrix.runner == 'bazel-test' }}
+        run: |
+          bazel test ${{ matrix.bazel_target }}
 
       - name: Build static musl Bazel target
         if: ${{ matrix.runner == 'bazel-static' }}

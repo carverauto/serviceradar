@@ -12,6 +12,13 @@ require_cmd() {
   fi
 }
 
+require_pkg_config() {
+  local pkg="$1"
+  if ! command -v pkg-config >/dev/null 2>&1 || ! pkg-config --exists "${pkg}"; then
+    missing+=("pkg-config:${pkg}")
+  fi
+}
+
 install_as_root() {
   if [[ "$(id -u)" != "0" ]]; then
     return 1
@@ -40,13 +47,14 @@ ensure_base_build_tools() {
   require_cmd bison
   require_cmd file
   require_cmd readelf
+  require_pkg_config libpcap
 }
 
 case "${profile}" in
   base|bazel-build)
     ensure_base_build_tools
     if ((${#missing[@]})); then
-      install_as_root build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison file binutils || true
+      install_as_root build-essential pkg-config libssl-dev libpcap-dev protobuf-compiler cmake flex bison file binutils || true
     fi
     ;;
   service-build)
@@ -55,7 +63,7 @@ case "${profile}" in
     require_cmd rpm2cpio
     require_cmd psql
     if ((${#missing[@]})); then
-      install_as_root build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison file binutils rpm rpm2cpio postgresql-client || true
+      install_as_root build-essential pkg-config libssl-dev libpcap-dev protobuf-compiler cmake flex bison file binutils rpm rpm2cpio postgresql-client || true
     fi
     ;;
   release-rpm)

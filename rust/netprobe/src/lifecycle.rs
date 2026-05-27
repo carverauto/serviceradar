@@ -7,7 +7,7 @@ pub trait StartupOps {
 
     fn assert_phase1_capabilities(&mut self) -> Result<()>;
     fn open_capture_handles(&mut self, config: &Config) -> Result<Self::Captures>;
-    fn drop_privileges(&mut self, user: Option<&str>) -> Result<()>;
+    fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()>;
 }
 
 pub struct SystemStartupOps;
@@ -23,8 +23,8 @@ impl StartupOps for SystemStartupOps {
         CaptureHandles::open(config)
     }
 
-    fn drop_privileges(&mut self, user: Option<&str>) -> Result<()> {
-        capabilities::drop_privileges(user)
+    fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()> {
+        capabilities::drop_privileges_or_allow_root(user, allow_root)
     }
 }
 
@@ -33,6 +33,7 @@ pub fn initialize_privileged_resources<O>(
     config: &Config,
     drop_user: Option<&str>,
     skip_cap_check: bool,
+    allow_root: bool,
 ) -> Result<O::Captures>
 where
     O: StartupOps,
@@ -42,7 +43,7 @@ where
     }
 
     let captures = ops.open_capture_handles(config)?;
-    ops.drop_privileges(drop_user)?;
+    ops.drop_privileges(drop_user, allow_root)?;
 
     Ok(captures)
 }
@@ -57,6 +58,8 @@ mod tests {
     #[derive(Default)]
     struct FakeStartupOps {
         calls: Vec<&'static str>,
+        drop_user: Option<String>,
+        allow_root: bool,
     }
 
     impl StartupOps for FakeStartupOps {
@@ -72,8 +75,10 @@ mod tests {
             Ok(2)
         }
 
-        fn drop_privileges(&mut self, _user: Option<&str>) -> Result<()> {
+        fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()> {
             self.calls.push("drop_privileges");
+            self.drop_user = user.map(str::to_string);
+            self.allow_root = allow_root;
             Ok(())
         }
     }
@@ -84,7 +89,7 @@ mod tests {
         let mut ops = FakeStartupOps::default();
 
         let captures =
-            initialize_privileged_resources(&mut ops, &config, Some("serviceradar"), false)
+            initialize_privileged_resources(&mut ops, &config, Some("serviceradar"), false, false)
                 .unwrap();
 
         assert_eq!(captures, 2);
@@ -92,6 +97,8 @@ mod tests {
             ops.calls,
             ["assert_caps", "open_captures", "drop_privileges"]
         );
+        assert_eq!(ops.drop_user.as_deref(), Some("serviceradar"));
+        assert!(!ops.allow_root);
     }
 
     #[test]
@@ -99,8 +106,9 @@ mod tests {
         let config = Config::default();
         let mut ops = FakeStartupOps::default();
 
-        initialize_privileged_resources(&mut ops, &config, None, true).unwrap();
+        initialize_privileged_resources(&mut ops, &config, None, true, true).unwrap();
 
         assert_eq!(ops.calls, ["open_captures", "drop_privileges"]);
+        assert!(ops.allow_root);
     }
 }
