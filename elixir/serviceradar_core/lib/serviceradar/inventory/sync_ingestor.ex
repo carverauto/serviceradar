@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.PassiveFingerprintPayload
   alias ServiceRadar.Repo
 
   require Logger
@@ -1188,6 +1189,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       |> merge_sync_meta_metadata(sync_meta)
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
       |> merge_boundary_names_metadata()
+      |> PassiveFingerprintPayload.enrich_metadata()
+
+    os =
+      update
+      |> get_map(["os", :os])
+      |> PassiveFingerprintPayload.enrich_os(metadata)
 
     %{
       device_id: get_string(update, ["device_id", :device_id]),
@@ -1199,7 +1206,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       partition: get_string(update, ["partition", :partition]) || "default",
       metadata: metadata,
       tags: get_map(update, ["tags", :tags]),
-      os: get_map(update, ["os", :os]),
+      os: os,
       hw_info: get_map(update, ["hw_info", :hw_info]),
       network_interfaces: get_list(update, ["network_interfaces", :network_interfaces]),
       first_seen_time: parse_timestamp(get_value(update, ["first_seen_time", :first_seen_time])),
