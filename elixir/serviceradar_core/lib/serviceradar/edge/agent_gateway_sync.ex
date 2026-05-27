@@ -432,23 +432,40 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   # Build discovery_sources list based on agent capabilities
   defp build_discovery_sources(capabilities) when is_list(capabilities) do
-    base_sources = ["agent"]
+    capability_names = Enum.map(capabilities, &normalize_capability_name/1)
 
-    # Add sysmon source if agent has sysmon capability
-    has_sysmon =
-      Enum.any?(capabilities, fn cap ->
-        cap_lower = String.downcase(to_string(cap))
-        String.contains?(cap_lower, "sysmon") or String.contains?(cap_lower, "system_monitor")
-      end)
-
-    if has_sysmon do
-      ["sysmon" | base_sources]
-    else
-      base_sources
-    end
+    ["agent"]
+    |> maybe_add_discovery_source("sysmon", has_sysmon_capability?(capability_names))
+    |> maybe_add_discovery_source(
+      "passive-netprobe",
+      has_host_network_visibility_capability?(capability_names)
+    )
   end
 
   defp build_discovery_sources(_), do: ["agent"]
+
+  defp normalize_capability_name(capability) do
+    capability
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("_", "-")
+  end
+
+  defp has_sysmon_capability?(capability_names) do
+    Enum.any?(capability_names, fn capability ->
+      String.contains?(capability, "sysmon") or String.contains?(capability, "system-monitor")
+    end)
+  end
+
+  defp has_host_network_visibility_capability?(capability_names) do
+    Enum.any?(capability_names, fn capability ->
+      capability == "host-network-visibility" or String.contains?(capability, "netprobe")
+    end)
+  end
+
+  defp maybe_add_discovery_source(sources, source, true), do: [source | sources]
+  defp maybe_add_discovery_source(sources, _source, false), do: sources
 
   defp link_agent_to_device(agent_id, device_uid, actor) do
     # DB connection's search_path determines the schema

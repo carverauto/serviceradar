@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -50,6 +51,11 @@ type Server struct {
 	mapperService      *MapperService
 	pluginManager      *PluginManager
 	credentialBroker   CredentialBrokerResolver
+	sidecarStatus      sidecarStatusProvider
+}
+
+type sidecarStatusProvider interface {
+	Status() []sidecar.Status
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

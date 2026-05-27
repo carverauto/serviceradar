@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -63,7 +64,31 @@ var (
 	errPluginMissingSummary = errors.New("plugin summary missing")
 )
 
-const maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
+const (
+	maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
+
+	capabilityHostNetworkVisibility                    = "host-network-visibility"
+	capabilityHostNetworkVisibilityFingerprintEnabled  = "host-network-visibility.fingerprint.enabled"
+	capabilityHostNetworkVisibilityDPIUnavailable      = "host-network-visibility.dpi.unavailable"
+	capabilityHostNetworkVisibilityFlowUnavailable     = "host-network-visibility.flow_attribution.unavailable"
+	capabilityHostNetworkVisibilitySnapshotUnavailable = "host-network-visibility.process_snapshot.unavailable"
+
+	agentCapabilityServiceName = "agent"
+	agentCapabilityServiceType = "agent"
+)
+
+type hostNetworkVisibilityCapabilityStatus struct {
+	Fingerprint     string `json:"fingerprint"`
+	DPI             string `json:"dpi"`
+	FlowAttribution string `json:"flow_attribution"`
+	ProcessSnapshot string `json:"process_snapshot"`
+}
+
+type agentCapabilityStatusPayload struct {
+	Capabilities          []string                              `json:"capabilities"`
+	HostNetworkVisibility hostNetworkVisibilityCapabilityStatus `json:"host_network_visibility"`
+	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
+}
 
 type limitedJSONBuffer struct {
 	bytes.Buffer
@@ -1852,7 +1877,13 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
 	sysmonSvc := p.server.sysmonService
+	cfg := p.server.config
+	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
+
+	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus); status != nil {
+		statuses = append(statuses, status)
+	}
 
 	for _, svc := range services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
@@ -1893,6 +1924,54 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	return statuses, sysmonStatus
 }
 
+func (p *PushLoop) buildAgentCapabilityGatewayStatus(
+	cfg *ServerConfig,
+	sidecarStatus sidecarStatusProvider,
+) *proto.GatewayServiceStatus {
+	resp := buildAgentCapabilityStatusResponse(agentCapabilitiesForStatus(cfg), sidecarStatusesForStatus(sidecarStatus))
+	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
+}
+
+func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto.SidecarStatus) *proto.StatusResponse {
+	payload, err := json.Marshal(agentCapabilityStatusPayload{
+		Capabilities: append([]string(nil), capabilities...),
+		HostNetworkVisibility: hostNetworkVisibilityCapabilityStatus{
+			Fingerprint:     "enabled",
+			DPI:             "unavailable",
+			FlowAttribution: "unavailable",
+			ProcessSnapshot: "unavailable",
+		},
+		Sidecars: sidecars,
+	})
+	if err != nil {
+		payload = []byte(`{"error":"agent capability status marshal failed"}`)
+	}
+
+	return &proto.StatusResponse{
+		Available:   true,
+		Message:     payload,
+		ServiceName: agentCapabilityServiceName,
+		ServiceType: agentCapabilityServiceType,
+		Sidecars:    sidecars,
+	}
+}
+
+func agentCapabilitiesForStatus(cfg *ServerConfig) []string {
+	if cfg == nil {
+		return agentCapabilities(agentCapabilityOptions{})
+	}
+
+	return getAgentCapabilities(cfg)
+}
+
+func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
+	if provider == nil {
+		return nil
+	}
+
+	return sidecar.ToProtoStatuses(provider.Status())
+}
+
 func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
@@ -1918,7 +1997,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
+	gatewayID := gatewayIDFromClient(p.gateway)
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -3414,6 +3493,11 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
+		capabilityHostNetworkVisibility,
+		capabilityHostNetworkVisibilityFingerprintEnabled,
+		capabilityHostNetworkVisibilityDPIUnavailable,
+		capabilityHostNetworkVisibilityFlowUnavailable,
+		capabilityHostNetworkVisibilitySnapshotUnavailable,
 	}
 
 	if options.enhancedBPF {

@@ -924,6 +924,11 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
+		capabilityHostNetworkVisibility,
+		capabilityHostNetworkVisibilityFingerprintEnabled,
+		capabilityHostNetworkVisibilityDPIUnavailable,
+		capabilityHostNetworkVisibilityFlowUnavailable,
+		capabilityHostNetworkVisibilitySnapshotUnavailable,
 	} {
 		if !slices.Contains(base, capability) {
 			t.Fatalf("base capabilities missing %q: %#v", capability, base)

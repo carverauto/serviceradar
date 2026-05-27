@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -76,6 +78,74 @@ func TestBuildStatusSignatureDetectsAvailabilityChange(t *testing.T) {
 	}
 }
 
+func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars(t *testing.T) {
+	sidecars := []*proto.SidecarStatus{
+		{Name: "netprobe", State: "healthy", Pid: 1234, RestartCount: 1},
+	}
+
+	resp := buildAgentCapabilityStatusResponse(
+		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintEnabled},
+		sidecars,
+	)
+
+	if !resp.GetAvailable() {
+		t.Fatal("agent capability status should be available")
+	}
+	if got := resp.GetSidecars(); len(got) != 1 || got[0].GetName() != "netprobe" {
+		t.Fatalf("sidecars = %#v, want netprobe status", got)
+	}
+
+	var payload agentCapabilityStatusPayload
+	if err := json.Unmarshal(resp.GetMessage(), &payload); err != nil {
+		t.Fatalf("failed to decode capability payload: %v", err)
+	}
+
+	if payload.HostNetworkVisibility.Fingerprint != "enabled" {
+		t.Fatalf("fingerprint = %q, want enabled", payload.HostNetworkVisibility.Fingerprint)
+	}
+	if payload.HostNetworkVisibility.DPI != "unavailable" ||
+		payload.HostNetworkVisibility.FlowAttribution != "unavailable" ||
+		payload.HostNetworkVisibility.ProcessSnapshot != "unavailable" {
+		t.Fatalf("unexpected unavailable surfaces: %#v", payload.HostNetworkVisibility)
+	}
+	if len(payload.Sidecars) != 1 || payload.Sidecars[0].GetName() != "netprobe" {
+		t.Fatalf("payload sidecars = %#v, want netprobe status", payload.Sidecars)
+	}
+}
+
+func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
+	pl := NewPushLoop(
+		&Server{
+			config: &ServerConfig{AgentID: "agent-1", Partition: "default"},
+			sidecarStatus: fakeSidecarStatusProvider{
+				statuses: []sidecar.Status{{Name: "netprobe", State: sidecar.StateHealthy, PID: 4321}},
+			},
+		},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+
+	status := pl.buildAgentCapabilityGatewayStatus(pl.server.config, pl.server.sidecarStatus)
+	if status == nil {
+		t.Fatal("expected agent capability gateway status")
+	}
+	if status.GetServiceName() != agentCapabilityServiceName {
+		t.Fatalf("service_name = %q, want %q", status.GetServiceName(), agentCapabilityServiceName)
+	}
+	if status.GetAgentId() != "agent-1" {
+		t.Fatalf("agent_id = %q, want agent-1", status.GetAgentId())
+	}
+
+	var payload agentCapabilityStatusPayload
+	if err := json.Unmarshal(status.GetMessage(), &payload); err != nil {
+		t.Fatalf("failed to decode capability payload: %v", err)
+	}
+	if len(payload.Sidecars) != 1 || payload.Sidecars[0].GetName() != "netprobe" {
+		t.Fatalf("payload sidecars = %#v, want netprobe status", payload.Sidecars)
+	}
+}
+
 func TestEvaluateStatusPushHeartbeat(t *testing.T) {
 	pl := NewPushLoop(nil, nil, 30*time.Second, logger.NewTestLogger())
 	statuses := []*proto.GatewayServiceStatus{
@@ -104,6 +174,14 @@ func TestEvaluateStatusPushHeartbeat(t *testing.T) {
 	if !afterHeartbeat.shouldPush || afterHeartbeat.reason != statusPushReasonHeartbeat {
 		t.Fatalf("expected heartbeat push, got %+v", afterHeartbeat)
 	}
+}
+
+type fakeSidecarStatusProvider struct {
+	statuses []sidecar.Status
+}
+
+func (f fakeSidecarStatusProvider) Status() []sidecar.Status {
+	return f.statuses
 }
 
 func TestBuildResultsStatusChunksForAgentIncludesRuntimeMetadata(t *testing.T) {

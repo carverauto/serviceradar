@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/config"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -59,6 +61,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	}
 
 	s.initPluginManager(ctx)
+	s.initNetprobeSidecarStatus()
 
 	// Initialize embedded sysmon service
 	if err := s.initSysmonService(ctx); err != nil {
@@ -196,6 +199,22 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	}
 
 	return nil
+}
+
+func (s *Server) initNetprobeSidecarStatus() {
+	manager, err := sidecar.NewManager(
+		sidecar.Config{
+			ClientFactory: netprobe.ClientFactory(),
+			Logger:        s.logger.WithComponent("agent.sidecar"),
+		},
+		netprobe.NewSidecar(netprobe.SidecarConfig{}),
+	)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to initialize netprobe sidecar status")
+		return
+	}
+
+	s.sidecarStatus = manager
 }
 
 // initSysmonService creates and initializes the embedded sysmon service.

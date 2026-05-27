@@ -169,12 +169,32 @@ defmodule ServiceRadar.AgentRegistry do
   @doc """
   Find agents with specific capabilities.
   """
-  @spec find_agents_with_capability(atom()) :: [map()]
+  @spec find_agents_with_capability(atom() | String.t()) :: [map()]
   def find_agents_with_capability(capability) do
+    capability = normalize_capability(capability)
+
     Enum.filter(find_agents(), fn agent ->
-      capability in Map.get(agent, :capabilities, [])
+      agent
+      |> Map.get(:capabilities, [])
+      |> Enum.map(&normalize_capability/1)
+      |> Enum.member?(capability)
     end)
   end
+
+  defp normalize_capability(capability) when is_atom(capability) do
+    capability
+    |> Atom.to_string()
+    |> normalize_capability()
+  end
+
+  defp normalize_capability(capability) when is_binary(capability) do
+    capability
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("_", "-")
+  end
+
+  defp normalize_capability(capability), do: capability |> to_string() |> normalize_capability()
 
   @doc """
   Get gRPC connection details for an agent.

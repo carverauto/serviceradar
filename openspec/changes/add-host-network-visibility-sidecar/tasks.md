@@ -102,8 +102,8 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 ### 11. [Phase 1] RBAC and capability surfacing
 
 - [x] 11.1 Add `visibility_profiles:read|write|delete` permissions to `elixir/serviceradar_core/lib/serviceradar/identity/rbac/catalog.ex`. `agent_capture:remote` is **not** added in Phase 1.
-- [ ] 11.2 Register `host-network-visibility` as an agent capability in `agent-registry`; Phase 1 advertises `fingerprint` as `enabled`, every other surface as `unavailable`.
-- [ ] 11.3 Surface `netprobe` sidecar status in the agent's `StatusResponse` capability bundle.
+- [x] 11.2 Register `host-network-visibility` as an agent capability in `agent-registry`; Phase 1 advertises `fingerprint` as `enabled`, every other surface as `unavailable`.
+- [x] 11.3 Surface `netprobe` sidecar status in the agent's `StatusResponse` capability bundle.
 
 ### 12. [Phase 1] Web UI (`elixir/web-ng/`) — minimal
 
