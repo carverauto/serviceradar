@@ -79,7 +79,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 ### 8. [Phase 1] Ash control plane (`elixir/serviceradar_core/`)
 
 - [x] 8.1 Create `lib/serviceradar/inventory/visibility_profile.ex` Ash resource. Phase 1 attribute set: `name`, `description`, `enabled`, `target_query`, `priority`, `fingerprint {tcp, tls, http}`, `sample_interval_ms`, `retention_days`, `partition_id`, temporal fields. Add the remaining maps (`dpi`, `flow_attribution`, `process_snapshot_interval_s`) as nullable so they can be populated by later phases without another migration.
-- [ ] 8.2 Generate migration via `mix ash.codegen add_visibility_profile`; apply with `mix ash.migrate`.
+- [x] 8.2 Add the visibility profile migration and verify it applies with `mix ash.migrate`. `mix ash.codegen add_visibility_profile --dry-run` still emits broad unrelated historical snapshot drift in this repo, so the committed migration is the scoped hand-written migration at `20260527123000_create_visibility_profiles.exs`.
 - [x] 8.3 Add `Ash.Policy.Authorizer` policies mirroring `SysmonProfile`.
 - [x] 8.4 Create `lib/serviceradar/agent_config/compilers/visibility_compiler.ex` using `SrqlTargetResolver.resolve_for_device/2`. Compile only the fingerprint surface in Phase 1.
 - [x] 8.5 Unit tests for compiler: priority ordering, default scope `in:devices`, disabled profile handling.
