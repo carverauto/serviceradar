@@ -18,8 +18,8 @@ describe("SRQL tokenizer", () => {
     expect(result.activeRange).toEqual({start: 3, end: 3})
   })
 
-  test("where: places the cursor in a field slot", () => {
-    const result = tokenize("in:devices where:", "in:devices where:".length)
+  test("where followed by whitespace places the cursor in a field slot", () => {
+    const result = tokenize("in:devices where ", "in:devices where ".length)
 
     expect(result.entity).toBe("devices")
     expect(result.slot).toBe("field")
@@ -58,9 +58,28 @@ describe("SRQL tokenizer", () => {
     expect(result.slot).toBe("value")
   })
 
-  test("where followed by whitespace expects a field", () => {
-    const result = tokenize("in:devices where ", "in:devices where ".length)
+  test("quoted values can contain whitespace", () => {
+    const result = tokenize("in:devices hostname:\"my server\"", "in:devices hostname:\"my server\"".length)
 
-    expect(result.slot).toBe("field")
+    expect(result.tokens).toEqual([
+      {start: 0, end: 3, kind: "control", text: "in:"},
+      {start: 3, end: 10, kind: "entity", text: "devices"},
+      {start: 11, end: 19, kind: "field", text: "hostname"},
+      {start: 19, end: 20, kind: "op", text: ":"},
+      {start: 20, end: 31, kind: "value", text: "\"my server\""},
+    ])
+    expect(result.slot).toBe("value")
+  })
+
+  test("operators inside quoted values are ignored", () => {
+    const result = tokenize("in:logs message:\"http://service\"", "in:logs message:\"http://service\"".length)
+
+    expect(result.tokens).toEqual([
+      {start: 0, end: 3, kind: "control", text: "in:"},
+      {start: 3, end: 7, kind: "entity", text: "logs"},
+      {start: 8, end: 15, kind: "field", text: "message"},
+      {start: 15, end: 16, kind: "op", text: ":"},
+      {start: 16, end: 32, kind: "value", text: "\"http://service\""},
+    ])
   })
 })

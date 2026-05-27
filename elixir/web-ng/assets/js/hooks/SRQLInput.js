@@ -2,6 +2,26 @@ import {tokenize} from "../lib/srql/tokenizer.js"
 
 const BOOLEAN_VALUES = ["true", "false"]
 const TIME_VALUES = ["last_1h", "last_24h", "last_7d", "last_30d"]
+const CONTROL_DESCRIPTIONS = {
+  "by:": "Group or aggregate results by a field.",
+  "group:": "Group results by a field.",
+  "in:": "Choose the SRQL entity to query.",
+  "limit:": "Limit the number of returned rows.",
+  "site:": "Filter results to a site.",
+  "sort:": "Sort results by a field.",
+  "status:": "Filter results by status.",
+  "tag:": "Filter results by tag.",
+  "time:": "Choose a relative time window.",
+  "type:": "Filter results by type.",
+  where: "Start a field filter clause.",
+}
+const HINT_ROLE_LABELS = {
+  control: "Control token",
+  entity: "Entity",
+  field: "Field",
+  op: "Operator",
+  value: "Value",
+}
 
 function ensureCache() {
   window.__srqlCatalog ||= {etag: null, data: null}
@@ -68,21 +88,16 @@ export default {
     }
 
     try {
-      const headers = cache.etag ? {"If-None-Match": cache.etag} : {}
-      const response = await fetch("/api/srql/catalog", {headers})
-
-      if (response.status === 304 && cache.data) {
-        this.catalog = cache.data
-      } else if (response.ok) {
-        cache.etag = response.headers.get("etag")
-        cache.data = await response.json()
-        this.catalog = cache.data
-      }
+      cache.inflight ||= fetchCatalog(cache)
+      await cache.inflight
+      this.catalog = cache.data
 
       this.updateState()
     } catch (_error) {
       this.catalog = null
       this.close()
+    } finally {
+      cache.inflight = null
     }
   },
 
@@ -139,11 +154,12 @@ export default {
         value,
         label: value,
         detail: entity.label || "Entity",
+        slot: "entity",
       }))
     } else if (state.slot === "field") {
-      candidates = this.fieldsForEntity(state.entity).map(value => ({value, label: value, detail: "Field"}))
+      candidates = this.fieldsForEntity(state.entity).map(value => ({value, label: value, detail: "Field", slot: "field"}))
     } else if (state.slot === "op") {
-      candidates = (this.catalog.operators || []).map(value => ({value, label: value, detail: "Operator"}))
+      candidates = (this.catalog.operators || []).map(value => ({value, label: value, detail: "Operator", slot: "op"}))
     } else if (state.slot === "value") {
       candidates = this.valueCandidates(state)
     } else if (state.slot === "control") {
@@ -151,14 +167,13 @@ export default {
         value,
         label: value,
         detail: "Control",
+        slot: "control",
       }))
     }
 
-    if (!raw || this.forceAllCandidates) return candidates.slice(0, 12)
+    if (!raw || this.forceAllCandidates) return candidates
 
-    return candidates
-      .filter(candidate => candidate.value.toLowerCase().startsWith(raw))
-      .slice(0, 12)
+    return rankedMatches(candidates, raw)
   },
 
   activeText(state) {
@@ -168,7 +183,9 @@ export default {
   },
 
   fieldsForEntity(entityId) {
-    const entity = this.catalog.entities?.[entityId] || this.catalog.entities?.devices
+    if (!entityId) return allFields(this.catalog.entities || {})
+
+    const entity = this.catalog.entities?.[entityId]
     const fields = entity?.fields || {}
     return unique(Object.values(fields).flat())
   },
@@ -176,19 +193,25 @@ export default {
   valueCandidates(state) {
     const field = nearestField(state.tokens, state.activeRange?.start ?? 0)
     if (field && this.booleanFields(state.entity).includes(field.text)) {
-      return BOOLEAN_VALUES.map(value => ({value, label: value, detail: "Boolean"}))
+      return BOOLEAN_VALUES.map(value => ({value, label: value, detail: "Boolean", slot: "value"}))
     }
 
     const control = nearestControl(state.tokens, state.activeRange?.start ?? 0)
     if (control?.text === "time:") {
-      return TIME_VALUES.map(value => ({value, label: value, detail: "Time range"}))
+      return TIME_VALUES.map(value => ({value, label: value, detail: "Time range", slot: "value"}))
     }
 
     return []
   },
 
   booleanFields(entityId) {
-    const entity = this.catalog.entities?.[entityId] || this.catalog.entities?.devices
+    if (!entityId) {
+      return unique(
+        Object.values(this.catalog.entities || {}).flatMap(entity => entity?.fields?.boolean || [])
+      )
+    }
+
+    const entity = this.catalog.entities?.[entityId]
     return entity?.fields?.boolean || []
   },
 
@@ -257,7 +280,17 @@ export default {
     }
 
     const values = this.hintValues(token).slice(0, 4).join(", ")
-    this.hint.textContent = values ? `${token.kind}: ${values}` : token.kind
+    const role = document.createElement("strong")
+    const description = document.createElement("span")
+    const preview = document.createElement("span")
+
+    role.textContent = HINT_ROLE_LABELS[token.kind] || token.kind
+    description.textContent = this.hintDescription(token)
+    preview.textContent = values ? `Try: ${values}` : ""
+    preview.className = "srql-hint__preview"
+
+    this.hint.replaceChildren(role, description, preview)
+    this.positionHint(token)
     this.hint.classList.remove("hidden")
   },
 
@@ -265,13 +298,41 @@ export default {
     if (token.kind === "entity") return Object.keys(this.catalog.entities || {})
     if (token.kind === "field") return this.fieldsForEntity(this.state.entity)
     if (token.kind === "op") return this.catalog.operators || []
-    if (token.kind === "control") return this.catalog.control_tokens || []
+    if (token.kind === "control") {
+      if (token.text === "in:") return Object.keys(this.catalog.entities || {})
+      if (token.text === "where") return this.fieldsForEntity(this.state.entity)
+      if (token.text === "time:") return TIME_VALUES
+      return this.catalog.control_tokens || []
+    }
     return []
+  },
+
+  hintDescription(token) {
+    if (token.kind === "control") return CONTROL_DESCRIPTIONS[token.text] || "Controls how the query is interpreted."
+    if (token.kind === "entity") return this.catalog.entities?.[token.text]?.label || "Queryable SRQL entity."
+    if (token.kind === "field" && this.state.entity) return `Filter or group ${this.state.entity} results.`
+    if (token.kind === "field") return "Filter or group results after choosing an entity."
+    if (token.kind === "op") return "Compare a field to a value."
+    if (token.kind === "value") return "Value for the preceding field or control token."
+    return ""
+  },
+
+  positionHint(token) {
+    if (!this.frame || !this.hint) return
+
+    const inputStyle = window.getComputedStyle(this.input)
+    const paddingLeft = Number.parseFloat(inputStyle.paddingLeft) || 0
+    const tokenLeft = paddingLeft + textWidth(this.input.value.slice(0, token.start), inputStyle) - this.input.scrollLeft
+    const maxLeft = Math.max(0, this.frame.clientWidth - 240)
+    const left = Math.max(0, Math.min(tokenLeft, maxLeft))
+
+    this.hint.style.left = `${left}px`
+    this.hint.style.right = "auto"
   },
 
   isUnknown(token) {
     if (token.kind === "entity") return !this.catalog.entities?.[token.text]
-    if (token.kind === "field") return !this.fieldsForEntity(this.state.entity).includes(token.text)
+    if (token.kind === "field") return Boolean(this.state.entity) && !this.fieldsForEntity(this.state.entity).includes(token.text)
     if (token.kind === "op") return !(this.catalog.operators || []).includes(token.text)
     if (token.kind === "control") {
       const controls = new Set(["in:", "where", ...(this.catalog.control_tokens || [])])
@@ -284,11 +345,23 @@ export default {
   accept(candidate) {
     if (!candidate || !this.state) return
 
-    const range = this.state.activeRange || {start: this.input.selectionStart, end: this.input.selectionEnd}
-    this.input.setRangeText(candidate.value, range.start, range.end, "end")
+    const selectionStart = this.input.selectionStart ?? 0
+    const selectionEnd = this.input.selectionEnd ?? selectionStart
+    const range = this.state.activeRange || (selectionStart !== selectionEnd ? {start: selectionStart, end: selectionEnd} : null)
+    if (!range) return
+
+    const replacementRange = this.replacementRange(candidate, range)
+    this.input.setRangeText(completionText(candidate), replacementRange.start, replacementRange.end, "end")
     this.input.dispatchEvent(new Event("input", {bubbles: true}))
     this.input.dispatchEvent(new Event("change", {bubbles: true}))
     this.close()
+  },
+
+  replacementRange(candidate, range) {
+    if (candidate.slot !== "field") return range
+
+    const next = this.state.tokens.find(token => token.start === range.end && token.kind === "op" && token.text === ":")
+    return next ? {start: range.start, end: next.end} : range
   },
 
   close() {
@@ -303,6 +376,59 @@ export default {
   syncOverlayScroll() {
     if (this.overlay) this.overlay.scrollLeft = this.input.scrollLeft
   },
+}
+
+async function fetchCatalog(cache) {
+  const headers = cache.etag ? {"If-None-Match": cache.etag} : {}
+  const response = await fetch("/api/srql/catalog", {headers})
+
+  if (response.status === 304 && cache.data) return
+  if (!response.ok) throw new Error(`SRQL catalog request failed with ${response.status}`)
+
+  cache.etag = response.headers.get("etag")
+  cache.data = await response.json()
+}
+
+function allFields(entities) {
+  return unique(Object.values(entities).flatMap(entity => Object.values(entity?.fields || {}).flat()))
+}
+
+function rankedMatches(candidates, raw) {
+  return candidates
+    .map(candidate => ({candidate, rank: matchRank(candidate.value.toLowerCase(), raw)}))
+    .filter(({rank}) => rank >= 0)
+    .sort((left, right) => left.rank - right.rank || left.candidate.value.localeCompare(right.candidate.value))
+    .map(({candidate}) => candidate)
+}
+
+function matchRank(value, raw) {
+  if (value.startsWith(raw)) return 0
+  if (value.includes(raw)) return 1
+  if (isSubsequence(raw, value)) return 2
+  return -1
+}
+
+function isSubsequence(needle, haystack) {
+  let index = 0
+  for (const char of haystack) {
+    if (char === needle[index]) index += 1
+    if (index === needle.length) return true
+  }
+  return false
+}
+
+function completionText(candidate) {
+  if (candidate.slot === "entity") return `${candidate.value} `
+  if (candidate.slot === "field" && !candidate.value.endsWith(":")) return `${candidate.value}:`
+  if (candidate.slot === "control" && candidate.value === "where") return "where "
+  return candidate.value
+}
+
+function textWidth(text, style) {
+  const canvas = textWidth.canvas || (textWidth.canvas = document.createElement("canvas"))
+  const context = canvas.getContext("2d")
+  context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`
+  return context.measureText(text).width
 }
 
 function nearestField(tokens, position) {

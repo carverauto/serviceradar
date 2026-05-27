@@ -6,7 +6,7 @@ The compact SRQL search input (the shared `srql_editor` component in `compact` m
 #### Scenario: Tab completes an entity after `in:`
 - **GIVEN** the user has typed `in:dev` in the navbar SRQL input
 - **WHEN** the user presses Tab
-- **THEN** the input is completed to `in:devices` and the dropdown closes
+- **THEN** the input is completed to `in:devices ` and the dropdown closes
 
 #### Scenario: Arrow keys cycle and Enter selects
 - **GIVEN** the dropdown is open with multiple candidates
@@ -19,7 +19,7 @@ The compact SRQL search input (the shared `srql_editor` component in `compact` m
 - **THEN** the dropdown closes and the input value is unchanged
 
 #### Scenario: Slot-scoped completions
-- **GIVEN** the query is `in:devices where:host`
+- **GIVEN** the query is `in:devices where host`
 - **WHEN** the cursor is positioned at the end of `host`
 - **THEN** the dropdown offers field-name completions for the `devices` entity (e.g. `hostname`) and does not offer entity names or control tokens
 

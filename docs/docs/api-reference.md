@@ -100,8 +100,8 @@ A successful response has this shape:
 
 ```json
 {
-  "version": 1,
-  "control_tokens": ["by:", "group:", "in:", "limit:", "sort:", "time:", "where:"],
+  "version": "4c5459599ba5dac6e26738d1a06339f50be1937f7a647da5de457c63af95b452",
+  "control_tokens": ["by:", "group:", "in:", "limit:", "sort:", "time:", "where"],
   "operators": [":", ":contains", ":equals", "!=", ">", ">=", "<", "<="],
   "entities": {
     "devices": {
@@ -116,6 +116,10 @@ A successful response has this shape:
   }
 }
 ```
+
+`version` is the raw catalog digest. The `ETag` header wraps the same digest in
+quotes for HTTP validation; send the quoted header value back in
+`If-None-Match`.
 
 ## Other endpoints
 

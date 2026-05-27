@@ -49,7 +49,18 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class={["fieldset mb-2", @class]}>
       <label :if={@label} for={@id} class="label mb-1">{@label}</label>
-      <div :if={@compact} class="relative" data-srql-input-frame>
+      <div
+        :if={@compact}
+        class="relative srql-input-frame"
+        data-srql-input-frame
+        style={[
+          "--srql-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;",
+          "--srql-font-size: 0.75rem;",
+          "--srql-line-height: 1rem;",
+          "--srql-padding-inline: 0.75rem;",
+          "--srql-padding-block: 0.375rem;"
+        ]}
+      >
         <input
           id={@id}
           type="text"

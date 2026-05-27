@@ -142,6 +142,11 @@
   z-index: 1;
   color: #0f172a;
   caret-color: #0f172a;
+  font-family: var(--srql-font-family);
+  font-size: var(--srql-font-size);
+  line-height: var(--srql-line-height);
+  padding-inline: var(--srql-padding-inline);
+  padding-block: var(--srql-padding-block);
 }
 
 .srql-input-overlay {
@@ -152,10 +157,11 @@
   pointer-events: none;
   color: transparent;
   white-space: pre;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.75rem;
-  line-height: 2rem;
-  padding-inline: 0.75rem;
+  font-family: var(--srql-font-family);
+  font-size: var(--srql-font-size);
+  line-height: var(--srql-line-height);
+  padding-inline: var(--srql-padding-inline);
+  padding-block: var(--srql-padding-block);
 }
 
 .srql-token--unknown {
@@ -214,7 +220,7 @@
 .srql-hint {
   position: absolute;
   top: calc(100% + 0.25rem);
-  right: 0;
+  left: 0;
   z-index: 39;
   max-width: 24rem;
   border: 1px solid var(--color-base-300);
@@ -224,6 +230,17 @@
   color: var(--color-base-content);
   padding: 0.375rem 0.5rem;
   font-size: 0.75rem;
+}
+
+.srql-hint strong,
+.srql-hint span {
+  display: block;
+}
+
+.srql-hint__preview {
+  margin-top: 0.125rem;
+  color: color-mix(in srgb, var(--color-base-content) 65%, transparent);
+  font-family: var(--srql-font-family);
 }
 
 .sr-authored-dashboard-grid {

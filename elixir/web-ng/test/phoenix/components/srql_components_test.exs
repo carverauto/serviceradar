@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
       )
 
     assert html =~ ~s(phx-hook="SRQLInput")
+    assert html =~ ~s(class="relative srql-input-frame")
+    assert html =~ ~s(--srql-font-size: 0.75rem;)
     assert html =~ ~s(data-srql-input-overlay)
     assert html =~ ~s(<datalist id="query-completions">)
     refute html =~ ~s(phx-hook="SRQLEditor")

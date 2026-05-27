@@ -11,7 +11,7 @@
 - [x] 2.1 Add `assets/js/lib/srql/tokenizer.js` exporting `tokenize(query, cursor) → { tokens, activeToken, slot }`
 - [x] 2.2 Define `Token { start, end, kind, text }` where `kind ∈ {control, entity, field, value, op, unknown}`
 - [x] 2.3 Define `slot ∈ {entity, field, op, value, control, none}` derived from preceding tokens
-- [x] 2.4 Jest/vitest unit tests covering: empty input, `in:` slot, `where:` field slot, value slot, mid-token cursor, trailing whitespace, multi-clause `in:devices hostname:srv ip:10.`
+- [x] 2.4 Jest/vitest unit tests covering: empty input, `in:` slot, `where ` field slot, value slot, quoted values, mid-token cursor, trailing whitespace, multi-clause `in:devices hostname:srv ip:10.`
 - [ ] 2.5 Property test (StreamData-driven Elixir test that shells out, or pure JS fast-check) confirming the tokenizer's slot inference matches the Rust NIF parser for known-good inputs
 
 ## 3. Phoenix Hook + overlay

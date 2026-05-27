@@ -79,9 +79,10 @@ async (page) => {
 
   const input = await setQuery("in:dev")
   await page.keyboard.press("ArrowDown")
+  await page.keyboard.press("ArrowUp")
   await page.waitForSelector("[data-srql-input-dropdown]:not(.hidden)", {timeout: 10_000})
   await page.keyboard.press("Tab")
-  await page.waitForFunction(() => document.querySelector("#srql-query-bar-editor")?.value === "in:devices")
+  await page.waitForFunction(() => document.querySelector("#srql-query-bar-editor")?.value === "in:devices ")
 
   await setQuery("in:device")
   await page.waitForFunction(() => {
@@ -111,6 +112,22 @@ async (page) => {
   }
 
   await page.keyboard.press("Escape")
+  await input.evaluate((node) => {
+    node.value = "in:devices hostname:srv"
+    node.dispatchEvent(new Event("input", {bubbles: true}))
+    node.dispatchEvent(new Event("change", {bubbles: true}))
+  })
+  const fieldBox = await input.boundingBox()
+  if (!fieldBox) throw new Error("SRQL field input bounding box was unavailable.")
+  await page.mouse.click(fieldBox.x + 95, fieldBox.y + fieldBox.height / 2)
+  await page.waitForSelector("[data-srql-input-dropdown]:not(.hidden)", {timeout: 10_000})
+  await page.locator("[data-srql-input-dropdown] .srql-dropdown__item").evaluateAll((items) => {
+    const item = items.find((node) => node.querySelector("span")?.textContent?.trim() === "ip")
+    if (!item) throw new Error("ip field candidate was not visible")
+    item.click()
+  })
+  await page.waitForFunction(() => document.querySelector("#srql-query-bar-editor")?.value === "in:devices ip:srv")
+
   await input.evaluate((node) => {
     node.value = ""
     node.dispatchEvent(new Event("input", {bubbles: true}))
@@ -157,8 +174,9 @@ async (page) => {
   await page.screenshot({path: screenshotPath, fullPage: false})
 
   return {
-    autocomplete: "in:devices",
+    autocomplete: "in:devices ",
     unknownToken: "device",
+    fieldReplacement: "in:devices ip:srv",
     entityDropdown: dropdownLabels,
     geometry,
     screenshotPath,

@@ -1,4 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogController do
+  @moduledoc """
+  Serves the browser-facing SRQL catalog used by compact editors.
+
+  The `ETag` response header is the HTTP validator and is quoted per the HTTP
+  header grammar. The JSON body's `version` field is the same digest without
+  quotes so clients can display or compare it as data; wrap it in quotes before
+  sending it as an `If-None-Match` value.
+  """
+
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
