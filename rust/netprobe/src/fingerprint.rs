@@ -283,6 +283,7 @@ mod tests {
     use super::{header_value, redact_sni_presence, FingerprintEngine};
     use crate::proto::netprobe::fingerprint_event;
     use huginn_net::huginn_net_http::http_common::{HeaderSource, HttpHeader};
+    use std::io::Write;
 
     #[test]
     fn emits_tcp_fingerprint_for_ipv4_syn_packet() {
@@ -331,6 +332,62 @@ mod tests {
         assert_eq!(redact_sni_presence(None), "");
     }
 
+    #[test]
+    fn emits_fixture_pcap_event_variants() {
+        let fixture = fixture_pcap(&[
+            tcp_syn_packet([192, 0, 2, 21], [198, 51, 100, 40], 49_152, 80),
+            http_request_packet(),
+            http_response_packet(),
+            tls_client_hello_packet(),
+        ]);
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(&fixture).unwrap();
+
+        let mut capture = pcap::Capture::from_file(file.path()).unwrap();
+        let mut engine = FingerprintEngine::phase1().unwrap();
+        let mut events = Vec::new();
+
+        while let Ok(packet) = capture.next_packet() {
+            events.extend(engine.analyze_packet("eth0", 456, packet.data));
+        }
+
+        let http_request = events.iter().find_map(|event| match &event.evidence {
+            Some(fingerprint_event::Evidence::Http(http))
+                if http.user_agent == "ServiceRadar Test" =>
+            {
+                Some((event, http))
+            }
+            _ => None,
+        });
+        let (event, http) = http_request.expect("expected HTTP request fingerprint event");
+        assert_eq!(event.ip, "192.0.2.21");
+        assert_eq!(event.interface_name, "eth0");
+        assert_eq!(event.observed_at_unix_nano, 456);
+        assert_eq!(http.accept_language, "en-US,en;q=0.9");
+
+        let http_response = events.iter().find_map(|event| match &event.evidence {
+            Some(fingerprint_event::Evidence::Http(http))
+                if http.server == "ServiceRadar Fixture" =>
+            {
+                Some((event, http))
+            }
+            _ => None,
+        });
+        let (event, http) = http_response.expect("expected HTTP response fingerprint event");
+        assert_eq!(event.ip, "198.51.100.40");
+        assert_eq!(http.user_agent, "");
+
+        let tls = events.iter().find_map(|event| match &event.evidence {
+            Some(fingerprint_event::Evidence::Tls(tls)) => Some((event, tls)),
+            _ => None,
+        });
+        let (event, tls) = tls.expect("expected TLS ClientHello fingerprint event");
+        assert_eq!(event.ip, "192.0.2.22");
+        assert!(tls.ja4.starts_with("t12i"));
+        assert_eq!(tls.ja4s, "");
+        assert_eq!(tls.sni_redacted, "");
+    }
+
     fn ipv4_syn_packet() -> &'static [u8] {
         &[
             0x45, 0x00, 0x00, 0x3c, 0x12, 0x34, 0x40, 0x00, 0x40, 0x06, 0x00, 0x00, 0xc0, 0x00,
@@ -339,5 +396,157 @@ mod tests {
             0x05, 0xb4, 0x04, 0x02, 0x08, 0x0a, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
             0x01, 0x03, 0x03, 0x07,
         ]
+    }
+
+    fn fixture_pcap(packets: &[Vec<u8>]) -> Vec<u8> {
+        let mut pcap = Vec::new();
+        pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
+        pcap.extend_from_slice(&2u16.to_le_bytes());
+        pcap.extend_from_slice(&4u16.to_le_bytes());
+        pcap.extend_from_slice(&0i32.to_le_bytes());
+        pcap.extend_from_slice(&0u32.to_le_bytes());
+        pcap.extend_from_slice(&65_535u32.to_le_bytes());
+        pcap.extend_from_slice(&101u32.to_le_bytes()); // DLT_RAW, packet data starts at IP header.
+
+        for packet in packets {
+            pcap.extend_from_slice(&1u32.to_le_bytes());
+            pcap.extend_from_slice(&0u32.to_le_bytes());
+            pcap.extend_from_slice(&(packet.len() as u32).to_le_bytes());
+            pcap.extend_from_slice(&(packet.len() as u32).to_le_bytes());
+            pcap.extend_from_slice(packet);
+        }
+
+        pcap
+    }
+
+    fn http_request_packet() -> Vec<u8> {
+        ipv4_tcp_packet(
+            [192, 0, 2, 21],
+            [198, 51, 100, 40],
+            49_152,
+            80,
+            b"GET / HTTP/1.1\r\nHost: example.com\r\nUser-Agent: ServiceRadar Test\r\nAccept-Language: en-US,en;q=0.9\r\n\r\n",
+        )
+    }
+
+    fn http_response_packet() -> Vec<u8> {
+        ipv4_tcp_packet(
+            [198, 51, 100, 40],
+            [192, 0, 2, 21],
+            80,
+            49_152,
+            b"HTTP/1.1 200 OK\r\nServer: ServiceRadar Fixture\r\nContent-Length: 0\r\n\r\n",
+        )
+    }
+
+    fn tls_client_hello_packet() -> Vec<u8> {
+        ipv4_tcp_packet(
+            [192, 0, 2, 22],
+            [198, 51, 100, 40],
+            49_153,
+            443,
+            &tls_client_hello_payload(),
+        )
+    }
+
+    fn tls_client_hello_payload() -> Vec<u8> {
+        let cipher_suites = [0x1301u16, 0x1302u16];
+        let mut body = Vec::new();
+        body.extend_from_slice(&[0x03, 0x03]);
+        body.extend_from_slice(&[0u8; 32]);
+        body.push(0x00);
+        body.extend_from_slice(&((cipher_suites.len() * 2) as u16).to_be_bytes());
+        for suite in cipher_suites {
+            body.extend_from_slice(&suite.to_be_bytes());
+        }
+        body.push(0x01);
+        body.push(0x00);
+        body.extend_from_slice(&0u16.to_be_bytes());
+
+        let body_len = body.len() as u32;
+        let mut handshake = vec![
+            0x01,
+            ((body_len >> 16) & 0xff) as u8,
+            ((body_len >> 8) & 0xff) as u8,
+            (body_len & 0xff) as u8,
+        ];
+        handshake.extend_from_slice(&body);
+
+        let record_len = handshake.len() as u16;
+        let mut record = vec![0x16, 0x03, 0x03];
+        record.extend_from_slice(&record_len.to_be_bytes());
+        record.extend_from_slice(&handshake);
+        record
+    }
+
+    fn ipv4_tcp_packet(
+        source_ip: [u8; 4],
+        destination_ip: [u8; 4],
+        source_port: u16,
+        destination_port: u16,
+        payload: &[u8],
+    ) -> Vec<u8> {
+        ipv4_tcp_packet_with_flags(
+            source_ip,
+            destination_ip,
+            source_port,
+            destination_port,
+            0x18,
+            payload,
+        )
+    }
+
+    fn tcp_syn_packet(
+        source_ip: [u8; 4],
+        destination_ip: [u8; 4],
+        source_port: u16,
+        destination_port: u16,
+    ) -> Vec<u8> {
+        ipv4_tcp_packet_with_flags(
+            source_ip,
+            destination_ip,
+            source_port,
+            destination_port,
+            0x02,
+            &[],
+        )
+    }
+
+    fn ipv4_tcp_packet_with_flags(
+        source_ip: [u8; 4],
+        destination_ip: [u8; 4],
+        source_port: u16,
+        destination_port: u16,
+        flags: u8,
+        payload: &[u8],
+    ) -> Vec<u8> {
+        let total_len = 20 + 20 + payload.len();
+        let mut packet = Vec::with_capacity(total_len);
+        packet.extend_from_slice(&[
+            0x45,
+            0x00,
+            ((total_len >> 8) & 0xff) as u8,
+            (total_len & 0xff) as u8,
+            0x12,
+            0x34,
+            0x40,
+            0x00,
+            0x40,
+            0x06,
+            0x00,
+            0x00,
+        ]);
+        packet.extend_from_slice(&source_ip);
+        packet.extend_from_slice(&destination_ip);
+        packet.extend_from_slice(&source_port.to_be_bytes());
+        packet.extend_from_slice(&destination_port.to_be_bytes());
+        packet.extend_from_slice(&[0x01, 0x02, 0x03, 0x04]);
+        packet.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
+        packet.extend_from_slice(&[0x50, flags]);
+        packet.extend_from_slice(&0xfa_f0u16.to_be_bytes());
+        packet.extend_from_slice(&0u16.to_be_bytes());
+        packet.extend_from_slice(&0u16.to_be_bytes());
+        packet.extend_from_slice(payload);
+        packet
     }
 }
