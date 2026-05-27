@@ -99,6 +99,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
       assert template_queries["hypervisor_availability"] ==
                ~s|in:devices type:Hypervisor stats:"count() as count by is_available"|
 
+      assert template_queries["workstation_availability"] ==
+               ~s|in:devices type:Workstation stats:"count() as count by is_available"|
+
       assert template_queries["router_switch_availability"] ==
                ~s|in:devices type:(Router,Switch) stats:"count() as count by is_available"|
     end

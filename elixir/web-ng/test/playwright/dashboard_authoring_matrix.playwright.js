@@ -1,8 +1,8 @@
 async (page) => {
-  const baseUrl = "http://localhost:4000"
   const env = globalThis.process?.env || {}
-  const email = env.PLAYWRIGHT_AUTH_EMAIL || (baseUrl.includes("localhost") ? "root@localhost" : undefined)
-  const password = env.PLAYWRIGHT_AUTH_PASSWORD || (baseUrl.includes("localhost") ? "serviceradar2026!" : undefined)
+  const baseUrl = env.PLAYWRIGHT_BASE_URL || "http://localhost:4000"
+  const email = env.PLAYWRIGHT_AUTH_EMAIL
+  const password = env.PLAYWRIGHT_AUTH_PASSWORD
 
   if (!email || !password) {
     throw new Error("Set PLAYWRIGHT_AUTH_EMAIL and PLAYWRIGHT_AUTH_PASSWORD before running this matrix.")

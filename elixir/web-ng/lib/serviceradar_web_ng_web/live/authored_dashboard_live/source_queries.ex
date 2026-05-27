@@ -57,6 +57,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
         description: "Availability gauge source for discovered hypervisors."
       },
       %{
+        key: "workstation_availability",
+        label: "Workstation availability",
+        query: ~s|in:devices type:Workstation stats:"count() as count by is_available"|,
+        description: "Availability gauge source for workstation devices."
+      },
+      %{
         key: "router_switch_availability",
         label: "Routers and switches",
         query: ~s|in:devices type:(Router,Switch) stats:"count() as count by is_available"|,
