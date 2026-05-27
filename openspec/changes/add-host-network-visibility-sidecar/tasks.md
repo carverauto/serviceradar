@@ -114,7 +114,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 12.4 Implement target-count display (handles invalid SRQL → "Unknown" same as SNMP profiles).
 - [x] 12.5 Add "Network Visibility" panel to Device Detail that renders only the passive-fingerprint section in Phase 1.
 - [x] 12.6 Extend Agent Detail page with `netprobe` sidecar state and `host-network-visibility` capability badge.
-- [ ] 12.7 Playwright tests for Phase-1 profile CRUD and device detail fingerprint panel.
+- [x] 12.7 Playwright tests for Phase-1 profile CRUD and device detail fingerprint panel.
 
 ### 13. [Phase 1] Packaging
 
