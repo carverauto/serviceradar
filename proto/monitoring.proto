@@ -306,6 +306,9 @@ message AgentConfigResponse {
   // SNMP configuration for embedded SNMP monitoring
   SNMPConfig snmp_config = 9;
 
+  // Host network visibility sidecar configuration
+  VisibilityConfig visibility_config = 10;
+
   // Wasm plugin configuration assignments
   PluginConfig plugin_config = 11;
 }
@@ -559,6 +562,36 @@ message SNMPConfig {
 
   // SNMP targets to poll
   repeated SNMPTargetConfig targets = 4;
+}
+
+// VisibilityConfig defines host network visibility sidecar configuration.
+message VisibilityConfig {
+  bool enabled = 1;
+  repeated string capture_interfaces = 2;
+  VisibilityBinaryOverrides binary_overrides = 3;
+  repeated VisibilityDeviceBinding device_bindings = 4;
+  uint32 default_sample_interval_ms = 5;
+
+  reserved 20 to 39;
+  reserved "dpi", "flow_attribution", "process_snapshot_interval_s";
+}
+
+message VisibilityBinaryOverrides {
+  string path = 1;
+}
+
+message VisibilityDeviceBinding {
+  string ip = 1;
+  string profile_id = 2;
+  string profile_name = 3;
+  VisibilityFingerprintConfig fingerprint = 4;
+  uint32 sample_interval_ms = 5;
+}
+
+message VisibilityFingerprintConfig {
+  bool tcp = 1;
+  bool tls = 2;
+  bool http = 3;
 }
 
 // SNMPTargetConfig defines a single SNMP target (network device) to poll.

@@ -437,6 +437,7 @@ defmodule Monitoring.AgentConfigResponse do
   field(:config_json, 7, type: :bytes, json_name: "configJson")
   field(:sysmon_config, 8, type: Monitoring.SysmonConfig, json_name: "sysmonConfig")
   field(:snmp_config, 9, type: Monitoring.SNMPConfig, json_name: "snmpConfig")
+  field(:visibility_config, 10, type: Monitoring.VisibilityConfig, json_name: "visibilityConfig")
   field(:plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig")
 end
 
@@ -813,6 +814,70 @@ defmodule Monitoring.SNMPConfig do
   field(:profile_id, 2, type: :string, json_name: "profileId")
   field(:profile_name, 3, type: :string, json_name: "profileName")
   field(:targets, 4, repeated: true, type: Monitoring.SNMPTargetConfig)
+end
+
+defmodule Monitoring.VisibilityConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.VisibilityConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:enabled, 1, type: :bool)
+  field(:capture_interfaces, 2, repeated: true, type: :string, json_name: "captureInterfaces")
+
+  field(:binary_overrides, 3,
+    type: Monitoring.VisibilityBinaryOverrides,
+    json_name: "binaryOverrides"
+  )
+
+  field(:device_bindings, 4,
+    repeated: true,
+    type: Monitoring.VisibilityDeviceBinding,
+    json_name: "deviceBindings"
+  )
+
+  field(:default_sample_interval_ms, 5, type: :uint32, json_name: "defaultSampleIntervalMs")
+end
+
+defmodule Monitoring.VisibilityBinaryOverrides do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.VisibilityBinaryOverrides",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:path, 1, type: :string)
+end
+
+defmodule Monitoring.VisibilityDeviceBinding do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.VisibilityDeviceBinding",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:ip, 1, type: :string)
+  field(:profile_id, 2, type: :string, json_name: "profileId")
+  field(:profile_name, 3, type: :string, json_name: "profileName")
+  field(:fingerprint, 4, type: Monitoring.VisibilityFingerprintConfig)
+  field(:sample_interval_ms, 5, type: :uint32, json_name: "sampleIntervalMs")
+end
+
+defmodule Monitoring.VisibilityFingerprintConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.VisibilityFingerprintConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:tcp, 1, type: :bool)
+  field(:tls, 2, type: :bool)
+  field(:http, 3, type: :bool)
 end
 
 defmodule Monitoring.SNMPTargetConfig do
