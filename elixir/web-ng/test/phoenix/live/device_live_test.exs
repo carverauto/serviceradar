@@ -923,12 +923,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Armis"
     assert html =~ "NetBox"
     assert html =~ "SNMP"
-    assert html =~ "Proxmox"
     assert html =~ "Dusk UniFi"
     assert html =~ "gateway"
     assert html =~ "Tablet"
-    assert html =~ "Candidate probe"
-    assert html =~ "Yes"
+    refute html =~ "Proxmox"
+    refute html =~ "Candidate probe"
     assert html =~ "aruba-24g-02"
     assert html =~ "Minnetonka, MN"
     assert html =~ ".1.3.6.1.4.1.11.2.3.7.11.153"
@@ -958,6 +957,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "_alias_last_seen_at"
     refute html =~ "debug_unifi_payload"
     refute html =~ "raw-integration-id"
+  end
+
+  test "metadata summary renders Proxmox only for device-level candidate evidence" do
+    generic_html =
+      render_component(&Show.metadata_summary_section/1,
+        device_row: %{
+          "metadata" => %{
+            "source" => "snmp",
+            "sys_name" => "tonka01",
+            "proxmox_candidate_probe_enabled" => "true"
+          }
+        }
+      )
+
+    refute generic_html =~ "Proxmox"
+    refute generic_html =~ "Candidate probe"
+
+    candidate_html =
+      render_component(&Show.metadata_summary_section/1,
+        device_row: %{
+          "metadata" => %{
+            "source" => "proxmox-candidate",
+            "proxmox_candidate" => "true",
+            "proxmox_candidate_evidence" => "pve_web_fingerprint",
+            "proxmox_candidate_service" => "pve-web-ui",
+            "proxmox_candidate_port" => "8006",
+            "proxmox_candidate_title" => "pve01"
+          }
+        }
+      )
+
+    assert candidate_html =~ "Proxmox"
+    assert candidate_html =~ "Candidate"
+    assert candidate_html =~ "pve_web_fingerprint"
+    assert candidate_html =~ "pve-web-ui"
+    assert candidate_html =~ "8006"
+    assert candidate_html =~ "pve01"
   end
 
   test "marks SNMP fallback-derived classification in list and details views", %{conn: conn} do
