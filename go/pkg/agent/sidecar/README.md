@@ -12,7 +12,7 @@ Implement `Sidecar` for each child process:
   paths, and config paths.
 - `BinaryPath()` returns the executable to launch.
 - `Args(socketPath, configPath string)` returns process arguments. The manager
-  computes the socket and config paths as `<runtime-dir>/<name>.sock` and
+  computes the socket and config paths as `<runtime-dir>/<name>/ipc.sock` and
   `<config-dir>/<name>.json`.
 - `OnHealthy(client)` is called after a successful health probe. The health
   client is closed after the callback returns.

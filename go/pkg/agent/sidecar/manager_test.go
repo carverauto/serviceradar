@@ -61,6 +61,13 @@ while true; do sleep 1; done
 	waitForStatus(t, mgr, "netprobe", func(status Status) bool {
 		return status.State == StateHealthy && status.PID > 0
 	})
+	status := statusByName(t, mgr, "netprobe")
+	if got, want := status.SocketPath, filepath.Join(dir, "run", "netprobe", "ipc.sock"); got != want {
+		t.Fatalf("SocketPath = %q, want %q", got, want)
+	}
+	assertDirMode(t, filepath.Join(dir, "run"), 0o700)
+	assertDirMode(t, filepath.Join(dir, "run", "netprobe"), 0o700)
+
 	if healthy.Load() == 0 {
 		t.Fatal("expected OnHealthy to be called")
 	}
@@ -71,7 +78,7 @@ while true; do sleep 1; done
 		t.Fatalf("Stop() error = %v", err)
 	}
 
-	status := statusByName(t, mgr, "netprobe")
+	status = statusByName(t, mgr, "netprobe")
 	if status.State != StateStopped {
 		t.Fatalf("state after Stop() = %q, want %q", status.State, StateStopped)
 	}
@@ -190,6 +197,21 @@ func writeScript(t *testing.T, dir, name, body string) string {
 	}
 
 	return path
+}
+
+func assertDirMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a directory", path)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode = %#o, want %#o", path, got, want)
+	}
 }
 
 func waitForStatus(t *testing.T, mgr *Manager, name string, accept func(Status) bool) {

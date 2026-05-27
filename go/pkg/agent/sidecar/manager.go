@@ -34,7 +34,7 @@ import (
 )
 
 const (
-	defaultRuntimeDir              = "/run/serviceradar/sidecars"
+	defaultRuntimeDir              = "/run/serviceradar"
 	defaultConfigDir               = "/etc/serviceradar/sidecars"
 	defaultHealthInterval          = 5 * time.Second
 	defaultUnhealthyThreshold      = 3
@@ -132,11 +132,16 @@ func (m *Manager) Start(ctx context.Context) error {
 	if m.started {
 		return ErrManagerStarted
 	}
-	if err := os.MkdirAll(m.cfg.RuntimeDir, 0o750); err != nil {
+	if err := ensureDirectoryMode(m.cfg.RuntimeDir, 0o700); err != nil {
 		return fmt.Errorf("create sidecar runtime dir: %w", err)
 	}
-	if err := os.MkdirAll(m.cfg.ConfigDir, 0o750); err != nil {
+	if err := ensureDirectoryMode(m.cfg.ConfigDir, 0o750); err != nil {
 		return fmt.Errorf("create sidecar config dir: %w", err)
+	}
+	for _, sc := range m.sidecars {
+		if err := ensureDirectoryMode(sidecarRuntimeDir(m.cfg.RuntimeDir, sc.Name()), 0o700); err != nil {
+			return fmt.Errorf("create sidecar runtime dir for %s: %w", sc.Name(), err)
+		}
 	}
 
 	m.ctx, m.cancel = context.WithCancel(ctx)
@@ -497,11 +502,15 @@ func applyDefaults(cfg Config) Config {
 }
 
 func socketPath(runtimeDir, name string) string {
-	return filepath.Join(runtimeDir, name+".sock")
+	return filepath.Join(sidecarRuntimeDir(runtimeDir, name), "ipc.sock")
 }
 
 func configPath(configDir, name string) string {
 	return filepath.Join(configDir, name+".json")
+}
+
+func sidecarRuntimeDir(runtimeDir, name string) string {
+	return filepath.Join(runtimeDir, name)
 }
 
 func errorString(err error) string {
@@ -509,4 +518,11 @@ func errorString(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func ensureDirectoryMode(path string, mode os.FileMode) error {
+	if err := os.MkdirAll(path, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
 }
