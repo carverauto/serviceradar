@@ -39,7 +39,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 3.4 Implement per-(IP, protocol) sample-interval rate limiting honouring `sample_interval_ms`.
 - [x] 3.5 Emit `FingerprintEvent` records on the dedicated server-streamed channel.
 - [x] 3.6 Unit tests with pcap fixtures producing each event variant.
-- [ ] 3.7 Integration test (`#[tokio::test]`) running the sidecar end-to-end against fixture traffic.
+- [x] 3.7 Integration test (`#[tokio::test]`) running the sidecar end-to-end against fixture traffic.
 
 ### 4. [Phase 1] IPC protocol skeleton (`proto/agent/netprobe/v1/`)
 
