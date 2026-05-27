@@ -1,7 +1,8 @@
-import React, {useEffect, useRef} from "react"
+import React, {useEffect, useId, useRef} from "react"
 import {applySrqlMarkers, createSrqlEditor, ensureSrqlLanguage} from "../../js/lib/srql/monaco_srql.js"
 
-export default function SrqlEditor({value, onChange, completions = [], disabled = false, error = null, compact = false}) {
+export default function SrqlEditor({value, onChange, completions = [], disabled = false, error = null, compact = false, rich = false}) {
+  const listId = useId()
   const containerRef = useRef(null)
   const editorRef = useRef(null)
   const monacoRef = useRef(null)
@@ -12,6 +13,7 @@ export default function SrqlEditor({value, onChange, completions = [], disabled 
   }, [onChange])
 
   useEffect(() => {
+    if (!rich) return undefined
     if (!containerRef.current || editorRef.current) return undefined
 
     let disposed = false
@@ -35,7 +37,7 @@ export default function SrqlEditor({value, onChange, completions = [], disabled 
       editorRef.current = null
       monacoRef.current = null
     }
-  }, [compact, disabled])
+  }, [compact, disabled, rich])
 
   useEffect(() => {
     if (!monacoRef.current) return
@@ -55,6 +57,41 @@ export default function SrqlEditor({value, onChange, completions = [], disabled 
     if (!monacoRef.current || !editorRef.current) return
     applySrqlMarkers(monacoRef.current, editorRef.current, error)
   }, [error])
+
+  if (!rich) {
+    const className = compact
+      ? "input input-sm w-full font-mono text-xs"
+      : "textarea textarea-bordered min-h-28 w-full font-mono text-xs leading-relaxed"
+
+    return (
+      <>
+        {compact ? (
+          <input
+            type="text"
+            value={value || ""}
+            list={listId}
+            disabled={disabled}
+            className={className}
+            onChange={event => onChangeRef.current(event.target.value)}
+          />
+        ) : (
+          <textarea
+            value={value || ""}
+            disabled={disabled}
+            className={className}
+            onChange={event => onChangeRef.current(event.target.value)}
+          />
+        )}
+        {compact ? (
+          <datalist id={listId}>
+            {completions.map(completion => (
+              <option key={completion} value={completion} />
+            ))}
+          </datalist>
+        ) : null}
+      </>
+    )
+  }
 
   return (
     <div

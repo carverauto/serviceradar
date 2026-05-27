@@ -57,6 +57,33 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
       {:ok, %{"results" => [%{"ok" => 9, "total" => 10, "site" => "ZZA"}]}}
     end
 
+    def query("grouped availability" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{"is_available" => false, "count" => 12},
+           %{"is_available" => true, "count" => 3}
+         ]
+       }}
+    end
+
+    def query("breakdown" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"type" => "router", "count" => 12}]}}
+    end
+
+    def query("pivot" <> _rest, _opts) do
+      {:ok, %{"results" => [%{"site" => "ZZA", "type" => "router", "count" => 12}]}}
+    end
+
+    def query("datetime sample" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{"title" => "Operations", "updated_at" => ~U[2026-05-24 06:33:08.989313Z]}
+         ]
+       }}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -96,6 +123,27 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert :bar in preview.compatible_visuals
     assert :category in preview.compatible_visuals
     assert :status_list in preview.compatible_visuals
+    refute :gauge in preview.compatible_visuals
+  end
+
+  test "gauge compatibility is limited to single metrics and availability ratios", %{scope: scope} do
+    assert {:ok, stat_preview} = Dashboards.preview_authored_query(scope, "stat services")
+    assert :gauge in stat_preview.compatible_visuals
+
+    assert {:ok, series_preview} = Dashboards.preview_authored_query(scope, "series services")
+    refute :gauge in series_preview.compatible_visuals
+
+    assert {:ok, grouped_preview} = Dashboards.preview_authored_query(scope, "grouped availability devices")
+    assert :gauge in grouped_preview.compatible_visuals
+  end
+
+  test "pivot compatibility requires two dimensions plus a numeric field", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "breakdown devices")
+    assert :bar in preview.compatible_visuals
+    refute :pivot in preview.compatible_visuals
+
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "pivot devices")
+    assert :pivot in preview.compatible_visuals
   end
 
   test "preview exposes JSON paths from sample object values", %{scope: scope} do
@@ -106,6 +154,14 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert details.type == :object
     assert details.json_paths == ["owner", "region"]
     refute details.aggregate_compatible
+  end
+
+  test "preview does not treat datetime structs as JSON path maps", %{scope: scope} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "datetime sample dashboards")
+
+    updated_at = Enum.find(preview.fields, &(&1.name == "updated_at"))
+    assert updated_at.type == :datetime
+    assert updated_at.json_paths == []
   end
 
   test "invalid SRQL is rejected before panel creation", %{scope: scope, dashboard: dashboard} do
@@ -130,6 +186,26 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
 
     refute :stat in compatible
+
+    assert {:error, {:incompatible_visual_type, :availability, compatible}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Series availability",
+               srql_query: "series services",
+               visual_type: :availability
+             })
+
+    refute :availability in compatible
+
+    assert {:error, {:incompatible_visual_type, :gauge, compatible}} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Series gauge",
+               srql_query: "series services",
+               visual_type: :gauge
+             })
+
+    refute :gauge in compatible
   end
 
   test "table fallback can save an empty result set", %{scope: scope, dashboard: dashboard} do
@@ -196,7 +272,7 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
     assert panel.visual_config["value_field"] == "value"
   end
 
-  test "availability visuals require numerator and denominator bindings", %{scope: scope, dashboard: dashboard} do
+  test "availability visuals support explicit numerator and denominator bindings", %{scope: scope, dashboard: dashboard} do
     assert {:error, {:required_binding_field, "denominator_field"}} =
              Dashboards.create_authored_panel(scope, %{
                dashboard_id: dashboard.id,
@@ -216,6 +292,37 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
              })
 
     assert panel.visual_type == :availability
+  end
+
+  test "availability visuals support grouped availability count rows", %{scope: scope, dashboard: dashboard} do
+    assert {:ok, preview} = Dashboards.preview_authored_query(scope, "grouped availability devices")
+    assert :availability in preview.compatible_visuals
+    assert :bar in preview.compatible_visuals
+    assert Enum.map(preview.fields, & &1.name) == ["count", "is_available"]
+
+    assert {:ok, panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Grouped Availability",
+               srql_query: "grouped availability devices",
+               visual_type: :availability,
+               data_binding: %{"value_field" => "count", "label_field" => "is_available"}
+             })
+
+    assert panel.visual_type == :availability
+    assert panel.data_binding["value_field"] == "count"
+    assert panel.data_binding["label_field"] == "is_available"
+
+    assert {:ok, gauge_panel} =
+             Dashboards.create_authored_panel(scope, %{
+               dashboard_id: dashboard.id,
+               title: "Grouped Availability Gauge",
+               srql_query: "grouped availability devices",
+               visual_type: :gauge,
+               data_binding: %{"value_field" => "count", "label_field" => "is_available"}
+             })
+
+    assert gauge_panel.visual_type == :gauge
   end
 
   test "panel refresh interval must stay within the supported bounds", %{

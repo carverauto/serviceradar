@@ -2,9 +2,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadar.Dashboards.AuthoredDashboard
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComposerComponents
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.VariableComponents
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents
+
   alias ServiceRadarWebNG.Dashboards
-  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.CanvasState
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.ReportSchedules
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.RuntimeData
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries
 
   @impl true
   def mount(_params, _session, socket) do
@@ -24,21 +35,25 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       |> assign(:clone_target_id, "")
       |> assign(:settings_open?, false)
       |> assign(:editing_panel_id, nil)
-      |> assign(:can_edit?, can_edit?(socket.assigns.current_scope))
-      |> assign(:can_share?, can_share?(socket.assigns.current_scope))
-      |> assign(:can_schedule_reports?, can_schedule_reports?(socket.assigns.current_scope))
-      |> assign(:can_view_groups?, can_view_groups?(socket.assigns.current_scope))
+      |> assign(:panel_preview, nil)
+      |> assign(:source_query_params, SourceQueries.default_params())
+      |> assign(:source_query_preview, nil)
+      |> assign(:can_edit?, AccessControls.can_edit?(socket.assigns.current_scope))
+      |> assign(:can_share?, AccessControls.can_share?(socket.assigns.current_scope))
+      |> assign(:can_schedule_reports?, AccessControls.can_schedule_reports?(socket.assigns.current_scope))
+      |> assign(:can_view_groups?, AccessControls.can_view_groups?(socket.assigns.current_scope))
       |> assign(
         :can_view_share_principals?,
-        can_view_share_principals?(socket.assigns.current_scope)
+        AccessControls.can_view_share_principals?(socket.assigns.current_scope)
       )
-      |> assign(:user_grant_params, default_user_grant_params())
-      |> assign(:group_grant_params, default_group_grant_params())
-      |> assign(:report_schedule_params, default_report_schedule_params())
-      |> assign(:panel_params, default_panel_params())
+      |> assign(:user_grant_params, AccessControls.default_user_grant_params())
+      |> assign(:group_grant_params, AccessControls.default_group_grant_params())
+      |> assign(:report_schedule_params, ReportSchedules.default_params())
+      |> assign(:panel_params, PanelParams.default())
       |> assign(:loading?, connected?(socket))
       |> assign_grant_forms()
       |> assign_report_schedule_form()
+      |> assign_source_query_form()
       |> assign_panel_form()
 
     {:ok, socket}
@@ -47,32 +62,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   @impl true
   def handle_params(%{"dashboard_id" => dashboard_id}, _uri, socket) do
     scope = socket.assigns.current_scope
-    access_assigns = access_assigns(socket.assigns)
+    access_assigns = AccessControls.assigns(socket.assigns)
     current_variable_values = socket.assigns.variable_values
 
     socket =
       if connected?(socket) do
         start_async(socket, {:load_dashboard, dashboard_id}, fn ->
-          with {:ok, %AuthoredDashboard{} = dashboard} <-
-                 Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels, :report_schedules]) do
-            panels = Enum.sort_by(dashboard.panels || [], &{&1.position, &1.inserted_at})
-            variable_values = dashboard_variable_values(dashboard, current_variable_values)
-
-            results =
-              Map.new(panels, fn panel ->
-                {panel.id, preview_panel_query(scope, panel, variable_values)}
-              end)
-
-            trends =
-              Map.new(panels, fn panel ->
-                {panel.id, preview_trend_query(scope, panel, variable_values)}
-              end)
-
-            access = load_access_controls(scope, dashboard, access_assigns)
-            clone_targets = load_clone_targets(scope, dashboard)
-
-            {:ok, dashboard, panels, results, trends, variable_values, access, clone_targets}
-          end
+          RuntimeData.load_dashboard(scope, dashboard_id, current_variable_values, access_assigns)
         end)
       else
         socket
@@ -100,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      |> assign(:trend_results, trends)
      |> assign(:variable_values, variable_values)
      |> assign(:clone_targets, clone_targets)
-     |> assign(:clone_target_id, default_clone_target_id(clone_targets))
+     |> assign(:clone_target_id, RuntimeData.default_clone_target_id(clone_targets))
      |> assign(access)
      |> assign(:page_title, dashboard.title)
      |> assign(:loading?, false)
@@ -139,7 +135,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("open_settings", _params, socket) do
-    if dashboard_settings_available?(socket.assigns.dashboard, socket.assigns) do
+    if AccessControls.settings_available?(socket.assigns.dashboard, socket.assigns) do
       {:noreply, assign(socket, :settings_open?, true)}
     else
       {:noreply, put_flash(socket, :error, "Not authorized to manage dashboard settings")}
@@ -155,11 +151,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     case require_record(panel) do
       {:ok, panel} ->
+        panel_preview = PanelParams.preview_from_result(Map.get(socket.assigns.panel_results, panel.id), panel)
+
         {:noreply,
          socket
          |> assign(:settings_open?, true)
          |> assign(:editing_panel_id, panel.id)
-         |> assign(:panel_params, panel_to_params(panel))
+         |> assign(:panel_preview, panel_preview)
+         |> assign(:panel_params, PanelParams.from_panel(panel))
          |> assign_panel_form()}
 
       {:error, reason} ->
@@ -171,9 +170,200 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     {:noreply,
      socket
      |> assign(:editing_panel_id, nil)
-     |> assign(:panel_params, default_panel_params())
+     |> assign(:panel_preview, nil)
+     |> assign(:panel_params, PanelParams.default())
      |> assign_panel_form()}
   end
+
+  def handle_event("new_panel", _params, socket) do
+    case AccessControls.authorize_panel_edit(socket) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:settings_open?, true)
+         |> assign(:editing_panel_id, "new")
+         |> assign(:panel_preview, nil)
+         |> assign(:panel_params, PanelParams.default())
+         |> assign_panel_form()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel create failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("validate_source_query", %{"source_query" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:source_query_params, merge_params(socket.assigns.source_query_params, params))
+     |> assign_source_query_form()}
+  end
+
+  def handle_event("apply_source_template", %{"key" => key}, socket) do
+    case SourceQueries.template_query(key) do
+      nil ->
+        {:noreply, socket}
+
+      query ->
+        params = Map.put(socket.assigns.source_query_params, "srql_query", query)
+
+        {:noreply,
+         socket
+         |> assign(:source_query_params, params)
+         |> assign_source_query_form()}
+    end
+  end
+
+  def handle_event("load_source_query", %{"id" => id}, socket) do
+    case SourceQueries.find_source(socket.assigns.dashboard, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Source query not found")}
+
+      source ->
+        {:noreply,
+         socket
+         |> assign(:source_query_params, SourceQueries.source_params(source))
+         |> assign(:source_query_preview, nil)
+         |> assign_source_query_form()
+         |> put_flash(:info, "Source query loaded")}
+    end
+  end
+
+  def handle_event("remove_source_query", %{"id" => id}, socket) do
+    source = SourceQueries.find_source(socket.assigns.dashboard, id)
+
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         {:ok, source} <- require_record(source),
+         0 <- source.panel_count,
+         {:ok, dashboard} <- SourceQueries.remove_source(socket.assigns.current_scope, socket.assigns.dashboard, id) do
+      {:noreply,
+       socket
+       |> assign(:dashboard, dashboard)
+       |> put_flash(:info, "Source query removed")}
+    else
+      count when is_integer(count) ->
+        {:noreply, put_flash(socket, :error, "Remove linked panels before deleting this source")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Source query removal failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("run_source_query", %{"source_query" => params}, socket) do
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         params = merge_params(socket.assigns.source_query_params, params),
+         {:ok, preview} <-
+           Dashboards.preview_authored_query(socket.assigns.current_scope, params["srql_query"]) do
+      source = SourceQueries.source_from_preview(params, preview)
+      preview = Map.put(preview, :outputs, source.outputs)
+
+      {:noreply,
+       socket
+       |> assign(:source_query_params, params)
+       |> assign(:source_query_preview, preview)
+       |> assign_source_query_form()
+       |> put_flash(:info, "Source query preview loaded")}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:source_query_preview, nil)
+         |> put_flash(:error, "Source query preview failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("create_source_output", %{"visual-type" => visual_type}, socket) do
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         %{source_query_preview: preview, dashboard: %{}} <- socket.assigns,
+         true <- is_map(preview),
+         source = SourceQueries.source_from_preview(socket.assigns.source_query_params, preview),
+         {:ok, dashboard} <- SourceQueries.persist_source(socket.assigns.current_scope, socket.assigns.dashboard, source),
+         attrs = SourceQueries.panel_attrs_from_output(dashboard, source, visual_type, socket.assigns.source_query_params),
+         {:ok, panel} <- Dashboards.create_authored_panel(socket.assigns.current_scope, attrs) do
+      panels =
+        dashboard.panels
+        |> List.wrap()
+        |> Kernel.++([panel])
+        |> Enum.sort_by(&{&1.position, &1.inserted_at})
+
+      dashboard = %{dashboard | panels: panels}
+
+      {:noreply,
+       socket
+       |> assign(:dashboard, dashboard)
+       |> assign(:editing_panel_id, panel.id)
+       |> assign(:panel_params, PanelParams.from_panel(panel))
+       |> assign(:panel_preview, preview)
+       |> assign_panel_form()
+       |> put_flash(:info, "Added #{SourceQueries.humanize_field(visual_type)} output to the canvas")}
+    else
+      false ->
+        {:noreply, put_flash(socket, :error, "Run a source query before adding an output")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Output creation failed: #{format_error(reason)}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Run a source query before adding an output")}
+    end
+  end
+
+  def handle_event("canvas_add_panel", %{"visualType" => visual_type}, socket) do
+    case AccessControls.authorize_panel_edit(socket) do
+      :ok ->
+        visual_type = CanvasState.visual_type(visual_type)
+        layout = CanvasState.new_panel_layout(visual_type, socket.assigns.dashboard.panels || [])
+
+        params =
+          Map.merge(PanelParams.default(), %{
+            "title" => "#{SourceQueries.humanize_field(visual_type)} Panel",
+            "visual_type" => visual_type,
+            "layout_x" => to_string(Map.get(layout, "x", 0)),
+            "layout_y" => to_string(Map.get(layout, "y", 0)),
+            "layout_w" => to_string(Map.get(layout, "w", 12)),
+            "layout_h" => to_string(Map.get(layout, "h", 8)),
+            "position" => to_string(length(socket.assigns.dashboard.panels || []))
+          })
+
+        {:noreply,
+         socket
+         |> assign(:settings_open?, true)
+         |> assign(:editing_panel_id, "new")
+         |> assign(:panel_preview, nil)
+         |> assign(:panel_params, params)
+         |> assign_panel_form()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel create failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("canvas_select_panel", %{"id" => id}, socket) do
+    handle_event("edit_panel", %{"id" => id}, socket)
+  end
+
+  def handle_event("canvas_layout_change", %{"layouts" => layouts}, socket) when is_list(layouts) do
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         {:ok, panels} <-
+           CanvasState.update_panel_layouts(
+             socket.assigns.current_scope,
+             socket.assigns.dashboard.panels || [],
+             layouts
+           ) do
+      dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
+
+      socket =
+        socket
+        |> assign(:dashboard, dashboard)
+        |> maybe_refresh_editing_panel_params(panels)
+
+      {:noreply, socket}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Layout update failed: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("canvas_layout_change", _params, socket), do: {:noreply, socket}
 
   def handle_event("validate_panel", %{"panel" => params}, socket) do
     {:noreply,
@@ -182,8 +372,26 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
      |> assign_panel_form()}
   end
 
+  def handle_event("preview_panel_edit", %{"panel" => params}, socket) do
+    params = merge_params(socket.assigns.panel_params, params)
+    preview_panel_edit(socket, params)
+  end
+
+  def handle_event("preview_panel_edit", _params, socket) do
+    preview_panel_edit(socket, socket.assigns.panel_params)
+  end
+
+  def handle_event("submit_panel_form", %{"intent" => "preview", "panel" => params}, socket) do
+    params = merge_params(socket.assigns.panel_params, params)
+    preview_panel_edit(socket, params)
+  end
+
+  def handle_event("submit_panel_form", %{"panel" => params}, socket) do
+    handle_event("save_panel", %{"panel" => params}, socket)
+  end
+
   def handle_event("change_variable", %{"variables" => params}, socket) do
-    values = dashboard_variable_values(socket.assigns.dashboard, params)
+    values = DashboardVariables.values(socket.assigns.dashboard, params)
 
     {:noreply,
      socket
@@ -196,8 +404,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     case require_record(panel) do
       {:ok, panel} ->
-        result = preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
-        trend = preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+        result = RuntimeData.preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
+        trend = RuntimeData.preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)
 
         {:noreply,
          socket
@@ -224,12 +432,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("duplicate_panel", %{"id" => id}, socket) do
     panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
 
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panel} <- require_record(panel),
          {:ok, _panel} <-
            Dashboards.create_authored_panel(
              socket.assigns.current_scope,
-             duplicate_panel_attrs(panel, socket.assigns.dashboard)
+             PanelParams.duplicate_attrs(panel, socket.assigns.dashboard)
            ) do
       {:noreply,
        socket
@@ -241,17 +449,44 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
+  def handle_event("delete_panel", %{"id" => id}, socket) do
+    panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
+
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         {:ok, panel} <- require_record(panel),
+         :ok <- Dashboards.delete_authored_panel(socket.assigns.current_scope, panel) do
+      socket =
+        if socket.assigns.editing_panel_id == id do
+          socket
+          |> assign(:editing_panel_id, nil)
+          |> assign(:panel_preview, nil)
+          |> assign(:panel_params, PanelParams.default())
+          |> assign_panel_form()
+        else
+          socket
+        end
+
+      {:noreply,
+       socket
+       |> put_flash(:info, "Panel deleted")
+       |> reload_dashboard_panels()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Panel delete failed: #{format_error(reason)}")}
+    end
+  end
+
   def handle_event("clone_panel", %{"panel_id" => id, "target_dashboard_id" => target_dashboard_id}, socket) do
     panel = Enum.find(socket.assigns.dashboard.panels || [], &(&1.id == id))
 
-    with :ok <- authorize_panel_edit(socket),
+    with :ok <- AccessControls.authorize_panel_edit(socket),
          {:ok, panel} <- require_record(panel),
          {:ok, target} <-
            Dashboards.get_authored_dashboard(socket.assigns.current_scope, target_dashboard_id, load: [:panels]),
          {:ok, _panel} <-
            Dashboards.create_authored_panel(
              socket.assigns.current_scope,
-             duplicate_panel_attrs(panel, target)
+             PanelParams.duplicate_attrs(panel, target)
            ) do
       {:noreply, put_flash(socket, :info, "Panel cloned to #{target.title}")}
     else
@@ -265,8 +500,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   end
 
   def handle_event("compact_layout", _params, socket) do
-    with :ok <- authorize_panel_edit(socket),
-         {:ok, panels} <- compact_dashboard_panels(socket) do
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         {:ok, panels} <-
+           CanvasState.compact_panel_layouts(
+             socket.assigns.current_scope,
+             socket.assigns.dashboard.panels || []
+           ) do
       dashboard = Map.put(socket.assigns.dashboard, :panels, panels)
 
       {:noreply,
@@ -288,22 +527,34 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
     params = merge_params(socket.assigns.panel_params, params)
 
-    with :ok <- authorize_panel_edit(socket),
-         {:ok, panel} <- require_record(panel),
-         {:ok, _panel} <-
-           Dashboards.update_authored_panel(
-             socket.assigns.current_scope,
-             panel,
-             panel_attrs(params)
-           ) do
-      {:noreply,
-       socket
-       |> put_flash(:info, "Panel updated")
-       |> assign(:editing_panel_id, nil)
-       |> assign(:panel_params, default_panel_params())
-       |> reload_dashboard_panels()
-       |> assign_panel_form()}
-    else
+    save_result =
+      if socket.assigns.editing_panel_id == "new" do
+        with :ok <- AccessControls.authorize_panel_edit(socket) do
+          attrs =
+            params
+            |> PanelParams.attrs()
+            |> Map.put(:dashboard_id, socket.assigns.dashboard.id)
+
+          Dashboards.create_authored_panel(socket.assigns.current_scope, attrs)
+        end
+      else
+        with :ok <- AccessControls.authorize_panel_edit(socket),
+             {:ok, panel} <- require_record(panel) do
+          Dashboards.update_authored_panel(socket.assigns.current_scope, panel, PanelParams.attrs(params))
+        end
+      end
+
+    case save_result do
+      {:ok, _panel} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, if(socket.assigns.editing_panel_id == "new", do: "Panel created", else: "Panel updated"))
+         |> assign(:editing_panel_id, nil)
+         |> assign(:panel_preview, nil)
+         |> assign(:panel_params, PanelParams.default())
+         |> reload_dashboard_panels()
+         |> assign_panel_form()}
+
       {:error, reason} ->
         {:noreply,
          socket
@@ -323,7 +574,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("grant_user", %{"grant" => params}, socket) do
     params = merge_params(socket.assigns.user_grant_params, params)
 
-    with :ok <- authorize_share(socket),
+    with :ok <- AccessControls.authorize_share(socket),
          {:ok, _grant} <-
            Dashboards.grant_authored_dashboard_to_user(
              socket.assigns.current_scope,
@@ -332,7 +583,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:noreply,
        socket
        |> put_flash(:info, "User access updated")
-       |> assign(:user_grant_params, default_user_grant_params())
+       |> assign(:user_grant_params, AccessControls.default_user_grant_params())
        |> reload_access_controls()}
     else
       {:error, reason} ->
@@ -347,7 +598,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("grant_group", %{"grant" => params}, socket) do
     params = merge_params(socket.assigns.group_grant_params, params)
 
-    with :ok <- authorize_share(socket),
+    with :ok <- AccessControls.authorize_share(socket),
          {:ok, _grant} <-
            Dashboards.grant_authored_dashboard_to_group(
              socket.assigns.current_scope,
@@ -356,7 +607,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       {:noreply,
        socket
        |> put_flash(:info, "Group access updated")
-       |> assign(:group_grant_params, default_group_grant_params())
+       |> assign(:group_grant_params, AccessControls.default_group_grant_params())
        |> reload_access_controls()}
     else
       {:error, reason} ->
@@ -371,7 +622,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("revoke_grant", %{"id" => id}, socket) do
     grant = Enum.find(socket.assigns.access_grants, &(&1.id == id))
 
-    with :ok <- authorize_share(socket),
+    with :ok <- AccessControls.authorize_share(socket),
          {:ok, grant} <- require_record(grant),
          :ok <- Dashboards.revoke_authored_access_grant(socket.assigns.current_scope, grant) do
       {:noreply, socket |> put_flash(:info, "Access revoked") |> reload_access_controls()}
@@ -394,18 +645,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("create_report_schedule", %{"schedule" => params}, socket) do
     params = merge_params(socket.assigns.report_schedule_params, params)
 
-    attrs =
-      params
-      |> Map.put("dashboard_id", socket.assigns.dashboard.id)
-      |> Map.put("recipients", recipients(params["recipients"]))
+    attrs = ReportSchedules.attrs(params, socket.assigns.dashboard.id)
 
-    with :ok <- authorize_report_schedule(socket),
+    with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, _schedule} <-
            Dashboards.create_authored_report_schedule(socket.assigns.current_scope, attrs) do
       {:noreply,
        socket
        |> put_flash(:info, "Report schedule created")
-       |> assign(:report_schedule_params, default_report_schedule_params())
+       |> assign(:report_schedule_params, ReportSchedules.default_params())
        |> reload_report_schedules()
        |> assign_report_schedule_form()}
     else
@@ -421,14 +669,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("toggle_report_schedule", %{"id" => id}, socket) do
     schedule = Enum.find(socket.assigns.dashboard.report_schedules || [], &(&1.id == id))
 
-    attrs =
-      case schedule do
-        %{enabled: true} -> %{enabled: false}
-        %{enabled: false} -> %{enabled: true}
-        _ -> %{}
-      end
+    attrs = ReportSchedules.toggle_attrs(schedule)
 
-    with :ok <- authorize_report_schedule(socket),
+    with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
          {:ok, _schedule} <-
            Dashboards.update_authored_report_schedule(
@@ -446,13 +689,38 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
   def handle_event("delete_report_schedule", %{"id" => id}, socket) do
     schedule = Enum.find(socket.assigns.dashboard.report_schedules || [], &(&1.id == id))
 
-    with :ok <- authorize_report_schedule(socket),
+    with :ok <- AccessControls.authorize_report_schedule(socket),
          {:ok, schedule} <- require_record(schedule),
          :ok <- Dashboards.delete_authored_report_schedule(socket.assigns.current_scope, schedule) do
       {:noreply, socket |> put_flash(:info, "Report schedule deleted") |> reload_report_schedules()}
     else
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Schedule delete failed: #{format_error(reason)}")}
+    end
+  end
+
+  defp preview_panel_edit(socket, params) do
+    case Dashboards.preview_authored_query(socket.assigns.current_scope, params["srql_query"]) do
+      {:ok, preview} ->
+        requested_visual = to_string(params["visual_type"] || "table")
+        visual = PanelParams.selected_visual(params["visual_type"], preview.compatible_visuals)
+        params = PanelParams.default_binding_params(params, preview, visual)
+        flash_message = PanelParams.preview_flash(requested_visual, visual)
+
+        {:noreply,
+         socket
+         |> assign(:panel_params, Map.put(params, "visual_type", visual))
+         |> assign(:panel_preview, preview)
+         |> assign_panel_form()
+         |> put_flash(:info, flash_message)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:panel_params, params)
+         |> assign(:panel_preview, nil)
+         |> assign_panel_form()
+         |> put_flash(:error, "Panel preview failed: #{format_error(reason)}")}
     end
   end
 
@@ -463,386 +731,45 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
       flash={@flash}
       current_scope={@current_scope}
       current_path={@current_path}
+      page_title={if @dashboard, do: @dashboard.title, else: "Dashboard"}
       shell={:operations}
     >
-      <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section class="flex flex-col gap-3 border-b border-base-300 pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p class="text-sm font-medium text-primary">Dashboard</p>
-            <h1 class="mt-1 text-2xl font-semibold tracking-normal">
-              {if @dashboard, do: @dashboard.title, else: "Loading dashboard"}
-            </h1>
-            <p class="mt-2 max-w-3xl text-sm text-base-content/65">
-              {if @dashboard,
-                do: @dashboard.description || "SRQL-authored dashboard",
-                else: "Loading saved SRQL panels."}
-            </p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button
-              :if={dashboard_settings_available?(@dashboard, assigns)}
-              type="button"
-              class="btn btn-sm btn-primary"
-              phx-click="open_settings"
-            >
-              <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
-            </button>
-            <.link navigate={~p"/analytics"} class="btn btn-sm">
-              <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
-            </.link>
-          </div>
-        </section>
-
+      <div class="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <.variable_bar
-          :if={@dashboard && dashboard_variables(@dashboard) != []}
+          :if={@dashboard && DashboardVariables.list(@dashboard) != []}
           dashboard={@dashboard}
           values={@variable_values}
         />
 
-        <section
-          :if={@settings_open? and dashboard_settings_available?(@dashboard, assigns)}
-          class="rounded-lg border border-base-300 bg-base-100"
-        >
-          <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 class="text-sm font-semibold">Dashboard Settings</h2>
-              <p class="text-xs text-base-content/55">
-                Manage SRQL panels, visual choices, email schedules, and dashboard-specific sharing.
-              </p>
-            </div>
-            <button type="button" class="btn btn-xs btn-ghost" phx-click="close_settings">
-              <.icon name="hero-x-mark" class="size-4" /> Close
-            </button>
-          </div>
+        <.dashboard_workbench
+          dashboard={@dashboard}
+          settings_open?={@settings_open?}
+          source_query_form={@source_query_form}
+          source_query_preview={@source_query_preview}
+          panel_results={@panel_results}
+          editing_panel_id={@editing_panel_id}
+          access_grants={@access_grants}
+          user_grant_form={@user_grant_form}
+          group_grant_form={@group_grant_form}
+          users={@users}
+          user_groups={@user_groups}
+          can_view_groups?={@can_view_groups?}
+          report_schedule_form={@report_schedule_form}
+          current_scope={@current_scope}
+          can_edit?={@can_edit?}
+          can_share?={@can_share?}
+          can_schedule_reports?={@can_schedule_reports?}
+        />
 
-          <div class="space-y-6 p-4">
-            <section
-              :if={can_manage_dashboard?(@dashboard, assigns)}
-              class="rounded-lg border border-base-300"
-            >
-              <div class="border-b border-base-300 px-3 py-2">
-                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 class="text-sm font-semibold">Panels</h3>
-                    <p class="text-xs text-base-content/55">
-                      SRQL queries and visualizations that make up this dashboard.
-                    </p>
-                  </div>
-                  <button type="button" class="btn btn-xs" phx-click="compact_layout">
-                    <.icon name="hero-squares-plus" class="size-4" /> Compact Layout
-                  </button>
-                </div>
-              </div>
-              <div class="divide-y divide-base-200">
-                <div
-                  :for={panel <- @dashboard.panels || []}
-                  class="space-y-3 p-3"
-                >
-                  <div class="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto]">
-                    <div class="min-w-0">
-                      <div class="flex flex-wrap items-center gap-2">
-                        <span class="text-sm font-medium">{panel.title}</span>
-                        <span class="badge badge-sm badge-outline">{panel.visual_type}</span>
-                      </div>
-                      <p class="mt-1 truncate font-mono text-xs text-base-content/55">
-                        {panel.srql_query}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-xs"
-                      phx-click="edit_panel"
-                      phx-value-id={panel.id}
-                    >
-                      <.icon name="hero-pencil-square" class="size-4" /> Edit
-                    </button>
-                  </div>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      class="btn btn-xs"
-                      phx-click="duplicate_panel"
-                      phx-value-id={panel.id}
-                    >
-                      <.icon name="hero-document-duplicate" class="size-4" /> Duplicate
-                    </button>
-                    <form
-                      phx-change="clone_target"
-                      phx-submit="clone_panel"
-                      class="flex flex-wrap items-center gap-2"
-                    >
-                      <input type="hidden" name="panel_id" value={panel.id} />
-                      <select
-                        name="target_dashboard_id"
-                        class="select select-xs"
-                        disabled={@clone_targets == []}
-                      >
-                        <option
-                          :for={target <- @clone_targets}
-                          value={target.id}
-                          selected={target.id == @clone_target_id}
-                        >
-                          {target.title}
-                        </option>
-                      </select>
-                      <button type="submit" class="btn btn-xs" disabled={@clone_targets == []}>
-                        <.icon name="hero-arrow-up-on-square-stack" class="size-4" /> Clone
-                      </button>
-                    </form>
-                  </div>
-
-                  <.form
-                    :if={@editing_panel_id == panel.id}
-                    for={@panel_form}
-                    as={:panel}
-                    phx-change="validate_panel"
-                    phx-submit="save_panel"
-                    class="grid grid-cols-1 gap-3 rounded-lg border border-base-300 bg-base-200/30 p-3 lg:grid-cols-2"
-                  >
-                    <.input field={@panel_form[:dataset_key]} type="text" label="Dataset key" />
-                    <.input field={@panel_form[:title]} type="text" label="Title" />
-                    <.input
-                      field={@panel_form[:visual_type]}
-                      type="select"
-                      label="Visualization"
-                      options={visual_select_options()}
-                    />
-                    <div class="lg:col-span-2">
-                      <.srql_editor
-                        id={"authored-panel-srql-editor-#{panel.id}"}
-                        field={@panel_form[:srql_query]}
-                        label="SRQL Query"
-                      />
-                    </div>
-                    <.input
-                      field={@panel_form[:refresh_interval_seconds]}
-                      type="number"
-                      label="Refresh interval seconds"
-                    />
-                    <.input field={@panel_form[:position]} type="number" label="Position" />
-                    <div class="lg:col-span-2">
-                      <.input
-                        field={@panel_form[:data_binding_json]}
-                        type="textarea"
-                        label="Data binding JSON"
-                      />
-                    </div>
-                    <div class="lg:col-span-2">
-                      <.input
-                        field={@panel_form[:display_config_json]}
-                        type="textarea"
-                        label="Display config JSON"
-                      />
-                    </div>
-                    <div class="lg:col-span-2">
-                      <.input
-                        field={@panel_form[:visual_config_json]}
-                        type="textarea"
-                        label="Visual config JSON"
-                      />
-                    </div>
-                    <div class="lg:col-span-2">
-                      <.input field={@panel_form[:layout_json]} type="textarea" label="Layout JSON" />
-                    </div>
-                    <div class="flex flex-wrap gap-2 lg:col-span-2">
-                      <button type="submit" class="btn btn-sm btn-primary">
-                        <.icon name="hero-check" class="size-4" /> Save Panel
-                      </button>
-                      <button type="button" class="btn btn-sm" phx-click="cancel_panel_edit">
-                        Cancel
-                      </button>
-                    </div>
-                  </.form>
-                </div>
-              </div>
-            </section>
-
-            <section
-              :if={can_share_dashboard?(@dashboard, assigns)}
-              class="rounded-lg border border-base-300"
-            >
-              <div class="flex flex-col gap-2 border-b border-base-300 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 class="text-sm font-semibold">Sharing</h3>
-                  <p class="text-xs text-base-content/55">
-                    Visibility is {@dashboard.visibility}; explicit grants add users or reusable groups.
-                  </p>
-                </div>
-                <span class="badge badge-outline">{length(@access_grants)} grants</span>
-              </div>
-
-              <div class="grid grid-cols-1 gap-6 p-3 lg:grid-cols-[1fr_360px]">
-                <div class="space-y-3">
-                  <div
-                    :if={@access_grants == []}
-                    class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
-                  >
-                    No explicit sharing grants yet.
-                  </div>
-
-                  <div
-                    :for={grant <- @access_grants}
-                    class="flex flex-col gap-3 rounded-lg border border-base-300 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <div class="text-sm font-medium">{grant_label(grant)}</div>
-                      <div class="mt-1 flex flex-wrap gap-2">
-                        <span class="badge badge-sm">{grant.subject_type}</span>
-                        <span class="badge badge-sm badge-outline">{grant.access}</span>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      class="btn btn-xs btn-error btn-outline"
-                      phx-click="revoke_grant"
-                      phx-value-id={grant.id}
-                    >
-                      <.icon name="hero-trash" class="size-4" /> Revoke
-                    </button>
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <.form
-                    for={@user_grant_form}
-                    as={:grant}
-                    phx-change="validate_user_grant"
-                    phx-submit="grant_user"
-                    class="space-y-3"
-                  >
-                    <.input
-                      field={@user_grant_form[:subject_user_id]}
-                      type="select"
-                      label="User"
-                      options={user_select_options(@users)}
-                    />
-                    <.input
-                      field={@user_grant_form[:access]}
-                      type="select"
-                      id="user_grant_access"
-                      label="Access"
-                      options={access_select_options()}
-                    />
-                    <button type="submit" class="btn btn-sm" disabled={@users == []}>
-                      <.icon name="hero-user-plus" class="size-4" /> Grant User
-                    </button>
-                  </.form>
-
-                  <.form
-                    :if={@can_view_groups?}
-                    for={@group_grant_form}
-                    as={:grant}
-                    phx-change="validate_group_grant"
-                    phx-submit="grant_group"
-                    class="space-y-3 border-t border-base-300 pt-4"
-                  >
-                    <.input
-                      field={@group_grant_form[:subject_group_id]}
-                      type="select"
-                      label="Group"
-                      options={group_select_options(@user_groups)}
-                    />
-                    <.input
-                      field={@group_grant_form[:access]}
-                      type="select"
-                      id="group_grant_access"
-                      label="Access"
-                      options={access_select_options()}
-                    />
-                    <button type="submit" class="btn btn-sm" disabled={@user_groups == []}>
-                      <.icon name="hero-user-group" class="size-4" /> Grant Group
-                    </button>
-                  </.form>
-                </div>
-              </div>
-            </section>
-
-            <section
-              :if={can_schedule_dashboard?(@dashboard, assigns)}
-              class="rounded-lg border border-base-300"
-            >
-              <div class="border-b border-base-300 px-3 py-2">
-                <h3 class="text-sm font-semibold">Email Reports</h3>
-                <p class="text-xs text-base-content/55">
-                  One scanner job picks up due schedules and enqueues delivery attempts.
-                </p>
-              </div>
-
-              <div class="grid grid-cols-1 gap-6 p-3 lg:grid-cols-[1fr_360px]">
-                <div class="space-y-3">
-                  <div
-                    :if={(@dashboard.report_schedules || []) == []}
-                    class="rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60"
-                  >
-                    No report schedules yet.
-                  </div>
-
-                  <div
-                    :for={schedule <- @dashboard.report_schedules || []}
-                    class="rounded-lg border border-base-300 p-3"
-                  >
-                    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <div class="text-sm font-medium">{schedule.name}</div>
-                        <div class="mt-1 font-mono text-xs text-base-content/55">
-                          {schedule.cron} · {schedule.timezone}
-                        </div>
-                      </div>
-                      <div class="flex items-center gap-2">
-                        <span class="badge badge-outline">
-                          {schedule.last_status ||
-                            if(schedule.enabled, do: "enabled", else: "disabled")}
-                        </span>
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-ghost"
-                          phx-click="toggle_report_schedule"
-                          phx-value-id={schedule.id}
-                        >
-                          <.icon
-                            name={if(schedule.enabled, do: "hero-pause", else: "hero-play")}
-                            class="size-4"
-                          />
-                        </button>
-                        <button
-                          type="button"
-                          class="btn btn-xs btn-ghost text-error"
-                          phx-click="delete_report_schedule"
-                          phx-value-id={schedule.id}
-                        >
-                          <.icon name="hero-trash" class="size-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <p class="mt-2 text-xs text-base-content/55">
-                      Next due: {format_value(schedule.next_due_at)}
-                    </p>
-                  </div>
-                </div>
-
-                <.form
-                  for={@report_schedule_form}
-                  as={:schedule}
-                  phx-change="validate_report_schedule"
-                  phx-submit="create_report_schedule"
-                  class="space-y-3"
-                >
-                  <.input field={@report_schedule_form[:name]} type="text" label="Name" />
-                  <.input field={@report_schedule_form[:cron]} type="text" label="Cron" />
-                  <.input field={@report_schedule_form[:timezone]} type="text" label="Timezone" />
-                  <.input
-                    field={@report_schedule_form[:recipients]}
-                    type="textarea"
-                    label="Recipients"
-                  />
-                  <button type="submit" class="btn btn-sm btn-primary">
-                    <.icon name="hero-envelope" class="size-4" /> Schedule Report
-                  </button>
-                </.form>
-              </div>
-            </section>
-          </div>
-        </section>
+        <.panel_composer_modal
+          dashboard={@dashboard}
+          editing_panel_id={@editing_panel_id}
+          panel_form={@panel_form}
+          panel_preview={@panel_preview}
+          panel_results={@panel_results}
+          clone_targets={@clone_targets}
+          clone_target_id={@clone_target_id}
+        />
 
         <div
           :if={@loading?}
@@ -863,472 +790,56 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
           class="sr-authored-dashboard-grid grid grid-cols-1 gap-4 lg:grid-cols-12"
         >
           <.panel_result
-            :for={panel <- @dashboard.panels || []}
-            panel={panel}
-            result={Map.get(@panel_results, panel.id)}
-            trend={Map.get(@trend_results, panel.id)}
-            style={panel_grid_style(panel)}
-            expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, panel.id)}
-            can_manage?={can_manage_dashboard?(@dashboard, assigns)}
-            csv_data_url={panel_csv_export_url(@dashboard, panel, @variable_values)}
+            :for={entry <- LayoutHelpers.dashboard_panel_entries(@dashboard)}
+            panel={entry.panel}
+            result={Map.get(@panel_results, entry.panel.id)}
+            trend={Map.get(@trend_results, entry.panel.id)}
+            style={entry.style}
+            expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, entry.panel.id)}
+            can_manage?={AccessControls.can_manage?(@dashboard, assigns)}
+            csv_data_url={panel_csv_export_url(@dashboard, entry.panel, @variable_values)}
           />
         </section>
+
+        <footer
+          :if={!@loading? and @dashboard}
+          class="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 pt-4 text-xs text-base-content/55"
+        >
+          <span class="truncate">
+            {@dashboard.description || "SRQL-authored dashboard"}
+          </span>
+          <div class="flex flex-wrap gap-2">
+            <button
+              :if={AccessControls.settings_available?(@dashboard, assigns) and !@settings_open?}
+              type="button"
+              class="btn btn-xs btn-primary"
+              phx-click="open_settings"
+            >
+              <.icon name="hero-cog-6-tooth" class="size-4" /> Settings
+            </button>
+            <button
+              :if={AccessControls.settings_available?(@dashboard, assigns) and @settings_open?}
+              type="button"
+              class="btn btn-xs"
+              phx-click="close_settings"
+            >
+              <.icon name="hero-x-mark" class="size-4" /> Close Settings
+            </button>
+            <.link navigate={~p"/analytics"} class="btn btn-xs">
+              <.icon name="hero-pencil-square" class="size-4" /> Dashboard Creator
+            </.link>
+          </div>
+        </footer>
       </div>
     </Layouts.app>
     """
   end
-
-  attr :dashboard, :any, required: true
-  attr :values, :map, default: %{}
-
-  defp variable_bar(assigns) do
-    assigns = assign(assigns, :variables, dashboard_variables(assigns.dashboard))
-
-    ~H"""
-    <section class="rounded-lg border border-base-300 bg-base-100 px-4 py-3">
-      <form phx-change="change_variable" class="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <div class="shrink-0">
-          <h2 class="text-sm font-semibold">Dashboard Variables</h2>
-          <p class="text-xs text-base-content/55">
-            Values substitute into panel SRQL before execution.
-          </p>
-        </div>
-        <div class="flex flex-1 flex-wrap gap-3">
-          <label :for={variable <- @variables} class="form-control min-w-44">
-            <span class="label-text text-xs">{variable.label}</span>
-            <select
-              :if={variable.options != []}
-              name={"variables[#{variable.name}]"}
-              class="select select-sm"
-            >
-              <option
-                :for={option <- variable.options}
-                value={option}
-                selected={Map.get(@values, variable.name, variable.default) == option}
-              >
-                {option}
-              </option>
-            </select>
-            <input
-              :if={variable.options == []}
-              name={"variables[#{variable.name}]"}
-              class="input input-sm"
-              value={Map.get(@values, variable.name, variable.default)}
-            />
-          </label>
-        </div>
-      </form>
-    </section>
-    """
-  end
-
-  defp panel_result(%{result: {:ok, preview}} = assigns) do
-    assigns =
-      assigns
-      |> assign(:rows, preview.rows)
-      |> assign(:fields, preview.fields)
-      |> assign_new(:trend, fn -> nil end)
-      |> assign_new(:expanded_srql?, fn -> false end)
-      |> assign_new(:can_manage?, fn -> false end)
-      |> assign_new(:csv_data_url, fn -> nil end)
-
-    ~H"""
-    <article
-      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100"
-      style={@style}
-    >
-      <div class="flex flex-col gap-2 border-b border-base-300 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="min-w-0">
-          <div class="flex flex-wrap items-center gap-2">
-            <h2 class="truncate text-sm font-semibold">{@panel.title}</h2>
-            <span :if={refresh_interval_label(@panel)} class="badge badge-xs badge-ghost">
-              {refresh_interval_label(@panel)}
-            </span>
-          </div>
-          <p class="mt-1 truncate font-mono text-xs text-base-content/45">{@panel.srql_query}</p>
-        </div>
-        <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <span class="badge badge-outline">{@panel.visual_type}</span>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="refresh_panel"
-            phx-value-id={@panel.id}
-            title="Refresh panel"
-          >
-            <.icon name="hero-arrow-path" class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="toggle_panel_srql"
-            phx-value-id={@panel.id}
-            title="View SRQL"
-          >
-            <.icon name="hero-code-bracket-square" class="size-4" />
-          </button>
-          <button
-            :if={@can_manage?}
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="edit_panel"
-            phx-value-id={@panel.id}
-            title="Open panel settings"
-          >
-            <.icon name="hero-pencil-square" class="size-4" />
-          </button>
-          <a
-            :if={@csv_data_url}
-            class="btn btn-xs btn-ghost"
-            href={@csv_data_url}
-            download={"#{safe_filename(@panel.title)}.csv"}
-            title="Export CSV"
-          >
-            <.icon name="hero-arrow-down-tray" class="size-4" />
-          </a>
-        </div>
-      </div>
-      <div :if={@expanded_srql?} class="border-b border-base-300 bg-base-200/40 px-4 py-3">
-        <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
-      </div>
-      <div class="p-4">
-        <.render_visual panel={@panel} rows={@rows} fields={@fields} trend={@trend} />
-      </div>
-    </article>
-    """
-  end
-
-  defp panel_result(%{result: {:error, reason}} = assigns) do
-    assigns =
-      assigns
-      |> assign(:message, format_error(reason))
-      |> assign_new(:expanded_srql?, fn -> false end)
-      |> assign_new(:can_manage?, fn -> false end)
-
-    ~H"""
-    <article
-      class="sr-authored-dashboard-panel rounded-lg border border-error/30 bg-base-100"
-      style={@style}
-    >
-      <div class="flex flex-col gap-2 border-b border-error/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 class="text-sm font-semibold">{@panel.title}</h2>
-        <div class="flex shrink-0 flex-wrap items-center gap-1">
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="refresh_panel"
-            phx-value-id={@panel.id}
-            title="Refresh panel"
-          >
-            <.icon name="hero-arrow-path" class="size-4" />
-          </button>
-          <button
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="toggle_panel_srql"
-            phx-value-id={@panel.id}
-            title="View SRQL"
-          >
-            <.icon name="hero-code-bracket-square" class="size-4" />
-          </button>
-          <button
-            :if={@can_manage?}
-            type="button"
-            class="btn btn-xs btn-ghost"
-            phx-click="edit_panel"
-            phx-value-id={@panel.id}
-            title="Open panel settings"
-          >
-            <.icon name="hero-pencil-square" class="size-4" />
-          </button>
-        </div>
-      </div>
-      <div :if={@expanded_srql?} class="border-b border-base-300 bg-base-200/40 px-4 py-3">
-        <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
-      </div>
-      <div class="p-4 text-sm text-error">
-        Could not preview this query: {@message}
-      </div>
-    </article>
-    """
-  end
-
-  defp panel_result(assigns) do
-    ~H"""
-    <article
-      class="sr-authored-dashboard-panel rounded-lg border border-base-300 bg-base-100 p-4 text-sm text-base-content/60"
-      style={@style}
-    >
-      {@panel.title}
-    </article>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
-    value =
-      bound_value(assigns.rows, assigns.panel, "value_field") ||
-        stat_value(assigns.rows, assigns.fields)
-
-    assigns =
-      assigns
-      |> assign(:value, format_value(value))
-      |> assign(
-        :label,
-        visual_label(assigns.panel, first_numeric_field(assigns.fields) || "value")
-      )
-      |> assign(:unit, display_value(assigns.panel, "unit", ""))
-      |> assign(:trend_summary, trend_summary(assigns[:trend]))
-
-    ~H"""
-    <div class="flex min-h-32 items-center" role="group" aria-label={"#{@label}: #{@value}#{@unit}"}>
-      <div>
-        <div class="text-4xl font-semibold tracking-normal">
-          {@value}<span class="text-xl">{@unit}</span>
-        </div>
-        <div class="mt-2 text-sm text-base-content/55">{@label}</div>
-        <div :if={@trend_summary} class="mt-2 text-xs text-base-content/60">
-          Trend: {@trend_summary}
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns)
-       when type in [:gauge, "gauge", :availability, "availability"] do
-    assigns =
-      assigns
-      |> assign(:gauge, gauge_data(assigns.rows, assigns.panel, assigns.fields))
-      |> assign(:trend_summary, trend_summary(assigns[:trend]))
-
-    ~H"""
-    <div
-      class="flex min-h-44 flex-col justify-center gap-3"
-      role="group"
-      aria-label={@gauge.aria_label}
-    >
-      <div class="flex items-baseline justify-between gap-3">
-        <div>
-          <div class="text-sm font-medium">{@gauge.label}</div>
-          <div class="mt-1 text-xs text-base-content/55">{@gauge.caption}</div>
-        </div>
-        <div class="text-3xl font-semibold tracking-normal">
-          {@gauge.display}<span class="text-lg">{@gauge.unit}</span>
-        </div>
-      </div>
-      <progress
-        class={["progress h-4", gauge_progress_class(@gauge.tone)]}
-        value={@gauge.percent}
-        max="100"
-        aria-label={@gauge.aria_label}
-      >
-      </progress>
-      <div class="flex justify-between text-xs text-base-content/55">
-        <span>{@gauge.numerator_label}: {@gauge.numerator}</span>
-        <span>{@gauge.denominator_label}: {@gauge.denominator}</span>
-      </div>
-      <div :if={@trend_summary} class="text-xs text-base-content/60">
-        Trend: {@trend_summary}
-      </div>
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:pivot, "pivot"] do
-    assigns = assign(assigns, :pivot, pivot_data(assigns.rows, assigns.panel, assigns.fields))
-
-    ~H"""
-    <div class="space-y-2">
-      <div class="text-sm font-medium">Pivot Table</div>
-      <div class="overflow-x-auto rounded-lg border border-base-300">
-        <table class="table table-sm">
-          <thead>
-            <tr>
-              <th>{@pivot.row_label}</th>
-              <th :for={column <- @pivot.columns}>{column}</th>
-              <th :if={@pivot.show_totals?}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={row <- @pivot.rows}>
-              <th>{row.label}</th>
-              <td :for={column <- @pivot.columns}>
-                {Map.get(row.values, column, @pivot.empty_value)}
-              </td>
-              <td :if={@pivot.show_totals?}>{row.total}</td>
-            </tr>
-          </tbody>
-        </table>
-        <.empty_rows :if={@pivot.rows == []} />
-      </div>
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:bar, "bar", :category, "category"] do
-    assigns = assign(assigns, :bars, bars(assigns.rows, assigns.fields))
-
-    ~H"""
-    <div class="space-y-3">
-      <div :for={bar <- @bars} class="space-y-1">
-        <div class="flex items-center justify-between gap-3 text-xs">
-          <span class="truncate">{bar.label}</span>
-          <span class="font-mono text-base-content/60">{bar.value}</span>
-        </div>
-        <progress class="progress progress-primary h-2" value={bar.percent} max="100"></progress>
-      </div>
-      <.empty_rows :if={@bars == []} />
-    </div>
-    """
-  end
-
-  defp render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:line, "line", :area, "area"] do
-    assigns = assign(assigns, :points, sparkline_points(assigns.rows, assigns.fields))
-
-    ~H"""
-    <div class="h-48 rounded-lg border border-base-200 bg-base-200/30 p-3">
-      <svg
-        viewBox="0 0 100 40"
-        preserveAspectRatio="none"
-        class="h-full w-full"
-        role="img"
-        aria-label="Time series"
-      >
-        <polyline
-          :if={@points != ""}
-          points={@points}
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          class="text-primary"
-        />
-      </svg>
-      <.empty_rows :if={@points == ""} />
-    </div>
-    """
-  end
-
-  defp render_visual(assigns) do
-    assigns = assign(assigns, :columns, table_columns(assigns.panel, assigns.fields))
-
-    ~H"""
-    <div class="overflow-x-auto rounded-lg border border-base-300">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th :for={column <- @columns}>{column.label}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={row <- Enum.take(@rows, 100)}>
-            <td :for={column <- @columns} class="max-w-64 truncate">
-              <.table_cell value={table_value(row, column)} renderer={column.renderer} />
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <.empty_rows :if={@rows == []} />
-    </div>
-    """
-  end
-
-  defp default_user_grant_params do
-    %{"subject_user_id" => "", "access" => "view"}
-  end
-
-  defp default_group_grant_params do
-    %{"subject_group_id" => "", "access" => "view"}
-  end
-
-  defp default_report_schedule_params do
-    %{
-      "name" => "Daily dashboard report",
-      "cron" => "0 8 * * *",
-      "timezone" => "UTC",
-      "recipients" => ""
-    }
-  end
-
-  defp panel_grid_style(panel) do
-    layout = panel.layout || %{}
-    x = layout |> Map.get("x", 0) |> bounded_integer(0, 11)
-    width = layout |> Map.get("w", 12) |> bounded_integer(1, 12 - x)
-    y = layout |> Map.get("y", 0) |> bounded_integer(0, 1_000)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
-    order = layout |> Map.get("order", panel.position || 0) |> bounded_integer(0, 1_000)
-
-    "--sr-panel-x: #{x + 1}; --sr-panel-y: #{y + 1}; --sr-panel-w: #{width}; --sr-panel-h: #{height}; --sr-panel-order: #{order};"
-  end
-
-  defp bounded_integer(value, min, max) when is_integer(value), do: value |> max(min) |> min(max)
-
-  defp bounded_integer(value, min, max) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> bounded_integer(integer, min, max)
-      _ -> min
-    end
-  end
-
-  defp bounded_integer(value, min, max) when is_float(value), do: value |> round() |> bounded_integer(min, max)
-  defp bounded_integer(_value, min, _max), do: min
-
-  defp refresh_interval_label(%{refresh_interval_seconds: seconds}) when is_integer(seconds) and seconds > 0 do
-    "Refresh #{format_duration(seconds)}"
-  end
-
-  defp refresh_interval_label(_panel), do: nil
-
-  defp format_duration(seconds) when seconds < 60, do: "#{seconds}s"
-  defp format_duration(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
-  defp format_duration(seconds), do: "#{div(seconds, 3_600)}h"
 
   defp panel_csv_export_url(dashboard, panel, variable_values) do
     dashboard_ref = Dashboards.authored_dashboard_route_ref(dashboard)
     query = %{vars: Jason.encode!(variable_values || %{})}
 
     ~p"/dashboard/#{dashboard_ref}/panels/#{panel.id}/export.csv?#{query}"
-  end
-
-  defp safe_filename(value) do
-    value
-    |> to_string()
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "-")
-    |> String.trim("-")
-    |> case do
-      "" -> "dashboard-panel"
-      filename -> filename
-    end
-  end
-
-  defp default_panel_params do
-    %{
-      "dataset_key" => "primary",
-      "title" => "",
-      "srql_query" => "",
-      "visual_type" => "table",
-      "data_binding_json" => "{}",
-      "display_config_json" => "{}",
-      "visual_config_json" => "{}",
-      "layout_json" => "{}",
-      "refresh_interval_seconds" => "0",
-      "position" => "0"
-    }
-  end
-
-  defp panel_to_params(panel) do
-    %{
-      "dataset_key" => panel.dataset_key || "primary",
-      "title" => panel.title || "",
-      "srql_query" => panel.srql_query || "",
-      "visual_type" => to_string(panel.visual_type || :table),
-      "data_binding_json" => Jason.encode!(panel.data_binding || %{}, pretty: true),
-      "display_config_json" => Jason.encode!(panel.display_config || %{}, pretty: true),
-      "visual_config_json" => Jason.encode!(panel.visual_config || %{}, pretty: true),
-      "layout_json" => Jason.encode!(panel.layout || %{}, pretty: true),
-      "refresh_interval_seconds" => to_string(panel.refresh_interval_seconds || 0),
-      "position" => to_string(panel.position || 0)
-    }
   end
 
   defp assign_grant_forms(socket) do
@@ -1345,41 +856,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     )
   end
 
+  defp assign_source_query_form(socket) do
+    assign(socket, :source_query_form, to_form(socket.assigns.source_query_params, as: :source_query))
+  end
+
   defp assign_panel_form(socket) do
     assign(socket, :panel_form, to_form(socket.assigns.panel_params, as: :panel))
   end
 
-  defp load_access_controls(scope, dashboard, assigns) do
-    access_grants =
-      if dashboard_settings_available?(dashboard, Map.put(assigns, :current_scope, scope)) do
-        Dashboards.list_authored_access_grants(scope, dashboard.id)
-      else
-        []
-      end
-
-    user_groups =
-      if assigns.can_view_groups? do
-        Dashboards.list_user_groups(scope)
-      else
-        []
-      end
-
-    users =
-      if assigns.can_view_share_principals? do
-        Dashboards.list_share_principals(scope)
-      else
-        []
-      end
-
-    %{access_grants: access_grants, user_groups: user_groups, users: users}
-  end
-
   defp reload_access_controls(%{assigns: %{dashboard: dashboard}} = socket) do
     access =
-      load_access_controls(
+      AccessControls.load(
         socket.assigns.current_scope,
         dashboard,
-        access_assigns(socket.assigns)
+        AccessControls.assigns(socket.assigns)
       )
 
     socket
@@ -1402,14 +892,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     panels = Dashboards.list_authored_panels(socket.assigns.current_scope, dashboard_id)
 
     results =
-      Map.new(panels, fn panel ->
-        {panel.id, preview_panel_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)}
-      end)
+      RuntimeData.panel_results(socket.assigns.current_scope, panels, socket.assigns.variable_values)
 
     trends =
-      Map.new(panels, fn panel ->
-        {panel.id, preview_trend_query(socket.assigns.current_scope, panel, socket.assigns.variable_values)}
-      end)
+      RuntimeData.trend_results(socket.assigns.current_scope, panels, socket.assigns.variable_values)
 
     socket
     |> assign(:dashboard, Map.put(dashboard, :panels, panels))
@@ -1419,811 +905,28 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
 
   defp reload_dashboard_panels(socket), do: socket
 
-  defp preview_panel_query(scope, panel, variable_values) do
-    query = substitute_variables(panel.srql_query, variable_values)
-    Dashboards.preview_authored_query(scope, query, limit: 250)
-  end
-
-  defp preview_trend_query(scope, panel, variable_values) do
-    query =
-      panel
-      |> Map.get(:visual_config, %{})
-      |> Map.get("trend_query")
-
-    case query do
-      value when is_binary(value) and value != "" ->
-        Dashboards.preview_authored_query(scope, substitute_variables(value, variable_values), limit: 250)
-
-      _ ->
-        nil
-    end
-  end
-
-  defp dashboard_variables(%{variables: variables}) when is_map(variables) do
-    variables
-    |> Enum.map(fn {name, config} -> dashboard_variable(name, config) end)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.sort_by(& &1.name)
-  end
-
-  defp dashboard_variables(%{variables: variables}) when is_list(variables) do
-    variables
-    |> Enum.map(fn
-      %{"name" => name} = config -> dashboard_variable(name, config)
-      %{name: name} = config -> dashboard_variable(name, config)
-      name when is_binary(name) -> dashboard_variable(name, %{})
-      _ -> nil
-    end)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp dashboard_variables(_dashboard), do: []
-
-  defp dashboard_variable(name, config) when is_binary(name) do
-    normalized = normalize_variable_name(name)
-
-    if normalized == "" do
-      nil
-    else
-      config = if is_map(config), do: config, else: %{}
-      options = variable_options(config)
-      default = variable_default(config, options)
-
-      %{
-        name: normalized,
-        label: config["label"] || config[:label] || humanize_field(normalized),
-        options: options,
-        default: default
-      }
-    end
-  end
-
-  defp dashboard_variable(_name, _config), do: nil
-
-  defp dashboard_variable_values(dashboard, current_values) do
-    variables = dashboard_variables(dashboard)
-    current_values = current_values || %{}
-
-    Map.new(variables, fn variable ->
-      value = Map.get(current_values, variable.name) || variable.default || List.first(variable.options) || ""
-      {variable.name, to_string(value)}
-    end)
-  end
-
-  defp variable_options(config) do
-    options = config["options"] || config[:options] || []
-
-    options
-    |> List.wrap()
-    |> Enum.map(&to_string/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp variable_default(config, options) do
-    default = config["default"] || config[:default] || List.first(options) || ""
-    to_string(default)
-  end
-
-  defp normalize_variable_name(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "_")
-  end
-
-  defp substitute_variables(query, values) when is_binary(query) and is_map(values) do
-    Regex.replace(~r/\$\{([a-zA-Z][a-zA-Z0-9_-]*)\}/, query, fn _match, name ->
-      Map.get(values, name, "")
-    end)
-  end
-
-  defp substitute_variables(query, _values), do: query
-
-  defp load_clone_targets(scope, dashboard) do
-    scope
-    |> Dashboards.list_authored_dashboards(%{status: [:draft, :active], limit: 200})
-    |> Enum.reject(&(&1.id == dashboard.id))
-    |> Enum.sort_by(&String.downcase(&1.title || ""))
-  end
-
-  defp default_clone_target_id([target | _]), do: target.id
-  defp default_clone_target_id(_targets), do: ""
-
-  defp duplicate_panel_attrs(panel, dashboard) do
-    panels = Map.get(dashboard, :panels, []) || []
-    position = length(panels)
-
-    %{
-      dashboard_id: dashboard.id,
-      dataset_key: unique_dataset_key(panel.dataset_key || "panel", panels),
-      title: "#{panel.title} Copy",
-      srql_query: panel.srql_query,
-      builder_state: panel.builder_state || %{},
-      visual_type: panel.visual_type,
-      data_binding: panel.data_binding || %{},
-      display_config: panel.display_config || %{},
-      visual_config: panel.visual_config || %{},
-      field_metadata: panel.field_metadata || %{},
-      layout: next_panel_layout(panel.layout || %{}, position),
-      refresh_interval_seconds: panel.refresh_interval_seconds || 0,
-      position: position,
-      metadata: panel.metadata || %{}
-    }
-  end
-
-  defp unique_dataset_key(base, panels) do
-    existing = MapSet.new(Enum.map(panels, &(&1.dataset_key || "")))
-    root = base |> to_string() |> String.replace(~r/[^a-zA-Z0-9_]+/, "_") |> String.trim("_")
-    root = if root == "", do: "panel", else: root
-
-    1
-    |> Stream.iterate(&(&1 + 1))
-    |> Enum.find_value(fn index ->
-      candidate = "#{root}_copy_#{index}"
-      if MapSet.member?(existing, candidate), do: nil, else: candidate
-    end)
-  end
-
-  defp next_panel_layout(layout, position) do
-    width = layout |> Map.get("w", 4) |> bounded_integer(1, 12)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
-    x = rem(position * width, 12)
-    y = div(position * width, 12) * height
-
-    %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => position}
-  end
-
-  defp compact_dashboard_panels(socket) do
-    panels = socket.assigns.dashboard.panels || []
-
-    panels
-    |> Enum.sort_by(&{&1.position, Map.get(&1.layout || %{}, "y", 0), Map.get(&1.layout || %{}, "x", 0)})
-    |> Enum.with_index()
-    |> Enum.reduce_while({:ok, []}, fn {panel, index}, {:ok, updated} ->
-      layout = compact_layout_for_panel(panel, index)
-
-      case Dashboards.update_authored_panel(socket.assigns.current_scope, panel, %{layout: layout, position: index}) do
-        {:ok, panel} -> {:cont, {:ok, updated ++ [panel]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp compact_layout_for_panel(panel, index) do
-    layout = panel.layout || %{}
-    width = layout |> Map.get("w", 4) |> bounded_integer(1, 12)
-    height = layout |> Map.get("h", 4) |> bounded_integer(2, 16)
-    x = rem(index * width, 12)
-    y = div(index * width, 12) * height
-
-    Map.merge(layout, %{"x" => x, "y" => y, "w" => width, "h" => height, "order" => index})
-  end
-
-  defp access_assigns(assigns) do
-    assigns
-    |> Map.take([:can_edit?, :can_share?, :can_view_groups?, :can_view_share_principals?])
-    |> Map.put_new(:current_scope, Map.get(assigns, :current_scope))
-  end
-
   defp merge_params(current, incoming), do: Map.merge(current || %{}, incoming || %{})
-
-  defp dashboard_settings_available?(nil, _assigns), do: false
-
-  defp dashboard_settings_available?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) or can_share_dashboard?(dashboard, assigns) or
-      can_schedule_dashboard?(dashboard, assigns)
-  end
-
-  defp can_manage_dashboard?(nil, _assigns), do: false
-
-  defp can_manage_dashboard?(dashboard, assigns) do
-    dashboard_owner?(dashboard, Map.get(assigns, :current_scope)) or
-      Map.get(assigns, :can_edit?, false)
-  end
-
-  defp can_share_dashboard?(nil, _assigns), do: false
-
-  defp can_share_dashboard?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) and Map.get(assigns, :can_share?, false)
-  end
-
-  defp can_schedule_dashboard?(nil, _assigns), do: false
-
-  defp can_schedule_dashboard?(dashboard, assigns) do
-    can_manage_dashboard?(dashboard, assigns) and Map.get(assigns, :can_schedule_reports?, false)
-  end
-
-  defp dashboard_owner?(%{owner_id: owner_id}, %{user: %{id: user_id}})
-       when not is_nil(owner_id) and not is_nil(user_id) do
-    to_string(owner_id) == to_string(user_id)
-  end
-
-  defp dashboard_owner?(_dashboard, _scope), do: false
-
-  defp can_edit?(scope), do: RBAC.can?(scope, "analytics.dashboards.edit")
-  defp can_share?(scope), do: RBAC.can?(scope, "analytics.dashboards.share")
-  defp can_schedule_reports?(scope), do: RBAC.can?(scope, "analytics.reports.schedule")
-  defp can_view_groups?(scope), do: RBAC.can?(scope, "identity.user_groups.view")
-
-  defp can_view_share_principals?(scope), do: RBAC.can?(scope, "analytics.share_principals.view")
-
-  defp authorize_share(socket) do
-    if can_share_dashboard?(socket.assigns.dashboard, socket.assigns),
-      do: :ok,
-      else: {:error, :forbidden}
-  end
-
-  defp authorize_panel_edit(socket) do
-    if can_manage_dashboard?(socket.assigns.dashboard, socket.assigns),
-      do: :ok,
-      else: {:error, :forbidden}
-  end
-
-  defp authorize_report_schedule(socket) do
-    if can_schedule_dashboard?(socket.assigns.dashboard, socket.assigns),
-      do: :ok,
-      else: {:error, :forbidden}
-  end
-
-  defp panel_attrs(params) do
-    %{
-      dataset_key: params["dataset_key"],
-      title: params["title"],
-      srql_query: params["srql_query"],
-      visual_type: params["visual_type"],
-      data_binding: json_map(params["data_binding_json"]),
-      display_config: json_map(params["display_config_json"]),
-      visual_config: json_map(params["visual_config_json"]),
-      layout: json_map(params["layout_json"]),
-      refresh_interval_seconds: integer_value(params["refresh_interval_seconds"], 0),
-      position: integer_value(params["position"], 0)
-    }
-  end
-
-  defp json_map(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, decoded} when is_map(decoded) -> decoded
-      _ -> %{}
-    end
-  end
-
-  defp json_map(_value), do: %{}
-
-  defp integer_value(value, default) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {int, ""} -> int
-      _ -> default
-    end
-  end
-
-  defp integer_value(value, _default) when is_integer(value), do: value
-  defp integer_value(_value, default), do: default
 
   defp require_record(nil), do: {:error, :not_found}
   defp require_record(record), do: {:ok, record}
 
-  defp recipients(value) when is_binary(value) do
-    value
-    |> String.split([",", "\n"], trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
+  defp maybe_refresh_editing_panel_params(socket, panels) do
+    case socket.assigns.editing_panel_id do
+      id when is_binary(id) and id != "new" ->
+        case Enum.find(panels, &(&1.id == id)) do
+          nil ->
+            socket
 
-  defp recipients(value) when is_list(value), do: Enum.filter(value, &is_binary/1)
-  defp recipients(_value), do: []
-
-  defp access_select_options, do: [{"View", "view"}, {"Edit", "edit"}]
-
-  defp visual_select_options do
-    Enum.map(Dashboards.authored_visual_options(), &{&1.label, to_string(&1.type)})
-  end
-
-  defp group_select_options(groups) do
-    Enum.map(groups, &{&1.name, &1.id})
-  end
-
-  defp user_select_options(users) do
-    Enum.map(users, &{user_label(&1), &1.id})
-  end
-
-  defp grant_label(%{subject_type: :user, subject_user: user}), do: user_label(user)
-  defp grant_label(%{subject_type: "user", subject_user: user}), do: user_label(user)
-  defp grant_label(%{subject_type: :group, subject_group: group}), do: group_label(group)
-  defp grant_label(%{subject_type: "group", subject_group: group}), do: group_label(group)
-  defp grant_label(_grant), do: "Unknown principal"
-
-  defp group_label(%{name: name}) when is_binary(name) and name != "", do: name
-  defp group_label(_group), do: "Unknown group"
-
-  defp user_label(%{display_name: name, email: email}) when is_binary(name) and name != "" do
-    "#{name} <#{email}>"
-  end
-
-  defp user_label(%{email: %Ash.CiString{} = email}), do: to_string(email)
-  defp user_label(%{email: email}) when is_binary(email), do: email
-  defp user_label(_user), do: "Unknown user"
-
-  defp empty_rows(assigns) do
-    ~H"""
-    <div class="flex min-h-24 items-center justify-center text-sm text-base-content/55">
-      No rows returned.
-    </div>
-    """
-  end
-
-  attr(:value, :any, default: nil)
-  attr(:renderer, :string, default: "text")
-
-  defp table_cell(assigns) do
-    assigns = assign(assigns, :cell, table_cell_value(assigns.value, assigns.renderer))
-
-    ~H"""
-    <%= case @cell do %>
-      <% {:status, text, tone} -> %>
-        <span class={["badge badge-sm", status_badge_class(tone)]} title={text}>
-          <.icon name={status_icon(tone)} class="size-3" /> {text}
-        </span>
-      <% {:boolean, true} -> %>
-        <span class="badge badge-sm badge-success" title="true">
-          <.icon name="hero-check" class="size-3" /> true
-        </span>
-      <% {:boolean, false} -> %>
-        <span class="badge badge-sm badge-error badge-outline" title="false">
-          <.icon name="hero-x-mark" class="size-3" /> false
-        </span>
-      <% {:sparkline, points, title} -> %>
-        <svg
-          viewBox="0 0 100 24"
-          preserveAspectRatio="none"
-          class="h-6 w-28 text-primary"
-          role="img"
-          aria-label="sparkline"
-        >
-          <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
-        </svg>
-        <span class="sr-only">{title}</span>
-      <% {:json, summary, title} -> %>
-        <span class="font-mono text-[11px]" title={title}>{summary}</span>
-      <% {:text, text, title} -> %>
-        <span title={title}>{text}</span>
-    <% end %>
-    """
-  end
-
-  defp table_cell_value(value, renderer) when renderer in ["status", "status_icon", "icon"] do
-    text = format_value(value)
-    {:status, text, status_tone(value)}
-  end
-
-  defp table_cell_value(value, "sparkline") do
-    case table_sparkline_points(value) do
-      "" -> {:text, format_value(value), format_value(value)}
-      points -> {:sparkline, points, format_value(value)}
-    end
-  end
-
-  defp table_cell_value(value, "boolean_icon") when is_boolean(value), do: {:boolean, value}
-  defp table_cell_value(value, _renderer) when is_boolean(value), do: {:boolean, value}
-
-  defp table_cell_value(value, "json_summary") when is_map(value) or is_list(value) do
-    {:json, json_summary(value), inspect(value)}
-  end
-
-  defp table_cell_value(value, _renderer) when is_map(value) or is_list(value) do
-    {:json, json_summary(value), inspect(value)}
-  end
-
-  defp table_cell_value(value, _renderer) do
-    text = format_value(value)
-    {:text, text, text}
-  end
-
-  defp json_summary(value) when is_map(value) do
-    keys = value |> Map.keys() |> Enum.map(&to_string/1) |> Enum.take(3)
-    "{#{Enum.join(keys, ", ")}}"
-  end
-
-  defp json_summary(value) when is_list(value), do: "[#{length(value)} items]"
-
-  defp default_renderer(%{type: :boolean}), do: "boolean_icon"
-
-  defp default_renderer(%{name: name}) when name in ["status", "state", "health", "availability"], do: "status"
-
-  defp default_renderer(%{sample: sample}) when is_map(sample) or is_list(sample), do: "json_summary"
-
-  defp default_renderer(_field), do: "text"
-
-  defp table_columns(panel, fields) do
-    configured =
-      panel
-      |> Map.get(:display_config, %{})
-      |> Map.get("table_columns", [])
-
-    columns =
-      configured
-      |> Enum.filter(&is_map/1)
-      |> Enum.reject(&(&1["visible"] == false))
-      |> Enum.map(fn column ->
-        %{
-          field: column["field"] || column[:field],
-          path: column["path"] || column[:path],
-          label: column["label"] || humanize_field(column["field"] || column[:field]),
-          renderer: column["renderer"] || "text"
-        }
-      end)
-      |> Enum.reject(&is_nil(&1.field))
-
-    case columns do
-      [] ->
-        Enum.map(fields, fn field ->
-          %{
-            field: field.name,
-            path: nil,
-            label: humanize_field(field.name),
-            renderer: default_renderer(field)
-          }
-        end)
-
-      columns ->
-        columns
-    end
-  end
-
-  defp table_value(row, %{field: field, path: path}) do
-    value = Map.get(row, field)
-
-    case path do
-      path when is_binary(path) and path != "" -> value_at_path(value, path)
-      _ -> value
-    end
-  end
-
-  defp value_at_path(value, path) when is_map(value) and is_binary(path) do
-    path
-    |> String.split(".", trim: true)
-    |> Enum.reduce(value, fn key, acc ->
-      case acc do
-        map when is_map(map) -> Map.get(map, key)
-        _ -> nil
-      end
-    end)
-  rescue
-    ArgumentError -> nil
-  end
-
-  defp value_at_path(value, _path), do: value
-
-  defp stat_value([row | _], fields) do
-    key = first_numeric_field(fields)
-    if key, do: Map.get(row, key)
-  end
-
-  defp stat_value(_rows, _fields), do: "No data"
-
-  defp bound_value([row | _], panel, key) do
-    field = binding_value(panel, key)
-    if is_binary(field) and field != "", do: Map.get(row, field)
-  end
-
-  defp bound_value(_rows, _panel, _key), do: nil
-
-  defp gauge_data(rows, panel, fields) do
-    binding = panel.data_binding || %{}
-    row = List.first(rows) || %{}
-
-    numerator_field =
-      binding["numerator_field"] || binding["value_field"] || first_numeric_field(fields)
-
-    denominator_field = binding["denominator_field"]
-    numerator = numeric(Map.get(row, numerator_field)) || 0.0
-    denominator = numeric(Map.get(row, denominator_field)) || 100.0
-    percent = if denominator > 0, do: numerator / denominator * 100, else: numerator
-    percent = percent |> max(0.0) |> min(100.0)
-    tone = gauge_tone(panel, percent)
-    label = visual_label(panel, "Gauge")
-
-    %{
-      label: label,
-      caption: display_value(panel, "caption", ""),
-      unit: display_value(panel, "unit", "%"),
-      display: :erlang.float_to_binary(percent, decimals: 1),
-      percent: percent,
-      tone: tone,
-      numerator: format_value(numerator),
-      denominator: format_value(denominator),
-      numerator_label: humanize_field(numerator_field || "value"),
-      denominator_label: humanize_field(denominator_field || "total"),
-      aria_label: "#{label}: #{:erlang.float_to_binary(percent, decimals: 1)}%"
-    }
-  end
-
-  defp gauge_tone(panel, percent) do
-    thresholds =
-      panel
-      |> Map.get(:display_config, %{})
-      |> Map.get("thresholds", [])
-      |> List.wrap()
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(fn threshold ->
-        value = numeric(threshold["value"] || threshold[:value] || threshold["at"] || threshold[:at])
-        tone = threshold["tone"] || threshold[:tone] || threshold["level"] || threshold[:level] || "primary"
-        {value, to_string(tone)}
-      end)
-      |> Enum.reject(fn {value, _tone} -> is_nil(value) end)
-      |> Enum.sort_by(fn {value, _tone} -> value end)
-
-    thresholds
-    |> Enum.reduce("primary", fn {value, tone}, acc -> if percent >= value, do: tone, else: acc end)
-    |> normalize_gauge_tone()
-  end
-
-  defp normalize_gauge_tone(tone) when tone in ["success", "warning", "error", "info", "primary"], do: tone
-  defp normalize_gauge_tone("warn"), do: "warning"
-  defp normalize_gauge_tone("critical"), do: "error"
-  defp normalize_gauge_tone("crit"), do: "error"
-  defp normalize_gauge_tone(_tone), do: "primary"
-
-  defp gauge_progress_class("success"), do: "progress-success"
-  defp gauge_progress_class("warning"), do: "progress-warning"
-  defp gauge_progress_class("error"), do: "progress-error"
-  defp gauge_progress_class("info"), do: "progress-info"
-  defp gauge_progress_class(_tone), do: "progress-primary"
-
-  defp pivot_data(rows, panel, fields) do
-    binding = panel.data_binding || %{}
-    row_field = binding["row_field"] || first_string_field(fields)
-    column_field = binding["column_field"] || status_field(fields) || first_string_field(fields)
-    value_field = binding["value_field"] || first_numeric_field(fields)
-    aggregate = binding["aggregate"] || "sum"
-    empty_value = binding["empty_value"] || "0"
-
-    grouped =
-      Enum.reduce(rows, %{}, fn row, acc ->
-        row_key = format_value(Map.get(row, row_field))
-        column_key = format_value(Map.get(row, column_field))
-        value = numeric(Map.get(row, value_field)) || 0
-
-        update_in(acc, [Access.key(row_key, %{}), Access.key(column_key, [])], &[value | &1])
-      end)
-
-    columns =
-      grouped
-      |> Map.values()
-      |> Enum.flat_map(&Map.keys/1)
-      |> Enum.uniq()
-      |> Enum.sort()
-
-    pivot_rows =
-      grouped
-      |> Enum.sort_by(fn {label, _values} -> label end)
-      |> Enum.map(fn {label, values_by_column} ->
-        values =
-          Map.new(columns, fn column ->
-            values = Map.get(values_by_column, column, [])
-            {column, aggregate_values(values, aggregate)}
-          end)
-
-        %{label: label, values: values, total: aggregate_values(Map.values(values), "sum")}
-      end)
-
-    %{
-      row_label: humanize_field(row_field || "row"),
-      columns: columns,
-      rows: pivot_rows,
-      empty_value: empty_value,
-      show_totals?: true
-    }
-  end
-
-  defp aggregate_values([], _aggregate), do: 0
-  defp aggregate_values(values, "count"), do: length(values)
-  defp aggregate_values(values, "avg"), do: Enum.sum(values) / max(length(values), 1)
-  defp aggregate_values(values, "max"), do: Enum.max(values, fn -> 0 end)
-  defp aggregate_values(values, "min"), do: Enum.min(values, fn -> 0 end)
-  defp aggregate_values(values, _aggregate), do: Enum.sum(values)
-
-  defp status_field(fields) do
-    Enum.find_value(fields, fn field ->
-      if field.name in ["status", "state", "health", "availability"], do: field.name
-    end)
-  end
-
-  defp trend_summary({:ok, %{rows: rows, fields: fields}}) do
-    value_key = first_numeric_field(fields)
-
-    values =
-      rows
-      |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
-      |> Enum.reject(&is_nil/1)
-
-    case values do
-      [first | rest] when rest != [] ->
-        last = List.last(rest)
-        delta = last - first
-        "#{format_value(first)} -> #{format_value(last)} (#{signed_number(delta)})"
-
-      [single] ->
-        format_value(single)
+          panel ->
+            socket
+            |> assign(:panel_params, PanelParams.from_panel(panel))
+            |> assign_panel_form()
+        end
 
       _ ->
-        nil
+        socket
     end
   end
-
-  defp trend_summary(_trend), do: nil
-
-  defp signed_number(value) when is_number(value) and value >= 0, do: "+#{format_value(value)}"
-  defp signed_number(value), do: format_value(value)
-
-  defp visual_label(panel, fallback) do
-    display_value(panel, "label", panel.title || fallback)
-  end
-
-  defp display_value(panel, key, fallback) do
-    case panel.display_config || %{} do
-      %{^key => value} when is_binary(value) and value != "" -> value
-      _ -> fallback
-    end
-  end
-
-  defp binding_value(panel, key) do
-    case panel.data_binding || %{} do
-      %{^key => value} when is_binary(value) -> value
-      _ -> nil
-    end
-  end
-
-  defp humanize_field(nil), do: ""
-
-  defp humanize_field(value) do
-    value
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
-  end
-
-  defp bars(rows, fields) do
-    label_key = first_string_field(fields)
-    value_key = first_numeric_field(fields)
-
-    values =
-      if label_key && value_key do
-        rows
-        |> Enum.take(12)
-        |> Enum.map(fn row ->
-          %{label: format_value(Map.get(row, label_key)), value: numeric(Map.get(row, value_key))}
-        end)
-      else
-        []
-      end
-
-    max_value = values |> Enum.map(& &1.value) |> Enum.max(fn -> 0 end)
-
-    Enum.map(values, fn item ->
-      percent = if max_value > 0, do: item.value / max_value * 100, else: 0
-      Map.put(item, :percent, percent)
-    end)
-  end
-
-  defp sparkline_points(rows, fields) do
-    value_key = first_numeric_field(fields)
-
-    values =
-      rows
-      |> Enum.take(80)
-      |> Enum.map(fn row -> numeric(Map.get(row, value_key)) end)
-      |> Enum.reject(&is_nil/1)
-
-    case values do
-      [] ->
-        ""
-
-      [_single] ->
-        "0,20 100,20"
-
-      values ->
-        min_value = Enum.min(values)
-        max_value = Enum.max(values)
-        spread = max(max_value - min_value, 1.0)
-        last_index = max(length(values) - 1, 1)
-
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, index} ->
-          x = index / last_index * 100
-          y = 40 - (value - min_value) / spread * 36 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
-  end
-
-  defp table_sparkline_points(values) when is_list(values) do
-    values =
-      values
-      |> Enum.map(&numeric/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.take(40)
-
-    case values do
-      [] ->
-        ""
-
-      [_single] ->
-        "0,12 100,12"
-
-      values ->
-        min_value = Enum.min(values)
-        max_value = Enum.max(values)
-        spread = max(max_value - min_value, 1.0)
-        last_index = max(length(values) - 1, 1)
-
-        values
-        |> Enum.with_index()
-        |> Enum.map_join(" ", fn {value, index} ->
-          x = index / last_index * 100
-          y = 24 - (value - min_value) / spread * 20 - 2
-          "#{Float.round(x, 2)},#{Float.round(y, 2)}"
-        end)
-    end
-  end
-
-  defp table_sparkline_points(_value), do: ""
-
-  defp status_tone(value) do
-    value =
-      value
-      |> format_value()
-      |> String.downcase()
-
-    cond do
-      value in ["ok", "up", "true", "healthy", "online", "available", "ready", "success"] -> :success
-      value in ["warn", "warning", "degraded", "partial"] -> :warning
-      value in ["fail", "failed", "false", "down", "critical", "error", "offline", "unavailable"] -> :error
-      true -> :neutral
-    end
-  end
-
-  defp status_badge_class(:success), do: "badge-success"
-  defp status_badge_class(:warning), do: "badge-warning"
-  defp status_badge_class(:error), do: "badge-error"
-  defp status_badge_class(_tone), do: "badge-outline"
-
-  defp status_icon(:success), do: "hero-check-circle"
-  defp status_icon(:warning), do: "hero-exclamation-triangle"
-  defp status_icon(:error), do: "hero-x-circle"
-  defp status_icon(_tone), do: "hero-question-mark-circle"
-
-  defp first_numeric_field(fields), do: first_field_of_type(fields, :number)
-  defp first_string_field(fields), do: first_field_of_type(fields, :string)
-
-  defp first_field_of_type(fields, type) do
-    Enum.find_value(fields, fn field ->
-      if field.type == type, do: field.name
-    end)
-  end
-
-  defp numeric(value) when is_integer(value), do: value * 1.0
-  defp numeric(value) when is_float(value), do: value
-
-  defp numeric(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {number, ""} -> number
-      _ -> nil
-    end
-  end
-
-  defp numeric(_value), do: nil
-
-  defp format_value(%DateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
-  defp format_value(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
-  defp format_value(value) when is_binary(value), do: value
-  defp format_value(value) when is_integer(value), do: Integer.to_string(value)
-  defp format_value(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
-  defp format_value(value) when is_boolean(value), do: to_string(value)
-  defp format_value(nil), do: ""
-  defp format_value(value), do: inspect(value)
 
   defp format_error(:forbidden), do: "Not authorized to share dashboards"
   defp format_error(:not_found), do: "Record not found"

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:error, :string, default: nil)
   attr(:completions, :list, default: nil)
   attr(:compact, :boolean, default: false)
+  attr(:rich, :boolean, default: false)
   attr(:disabled, :boolean, default: false)
   attr(:class, :any, default: nil)
   attr(:editor_class, :any, default: nil)
@@ -42,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:id, id)
       |> assign(:input_id, input_id)
       |> assign(:value, value)
+      |> assign(:completion_values, assigns.completions || srql_completions())
       |> assign(:completions_json, Jason.encode!(assigns.completions || srql_completions()))
 
     ~H"""
@@ -49,18 +51,40 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       <label :if={@label} for={@id} class="label mb-1">{@label}</label>
       <input
         :if={@compact}
-        id={@input_id}
+        id={@id}
         type="text"
         name={@name}
         value={@value}
-        class="sr-only"
-        aria-hidden="true"
-        tabindex="-1"
+        list={"#{@id}-completions"}
+        phx-debounce="150"
+        class={[
+          "input input-sm w-full font-mono text-xs",
+          "rounded-lg border-base-300 bg-base-100",
+          "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+          @editor_class
+        ]}
         disabled={@disabled}
         {@rest}
       />
+      <datalist :if={@compact} id={"#{@id}-completions"}>
+        <option :for={completion <- @completion_values} value={completion}></option>
+      </datalist>
       <textarea
-        :if={!@compact}
+        :if={!@compact and !@rich}
+        id={@id}
+        name={@name}
+        phx-debounce="300"
+        class={[
+          "textarea textarea-bordered min-h-28 w-full font-mono text-xs leading-relaxed",
+          "rounded-lg border-base-300 bg-base-100",
+          "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+          @editor_class
+        ]}
+        disabled={@disabled}
+        {@rest}
+      >{@value}</textarea>
+      <textarea
+        :if={!@compact and @rich}
         id={@input_id}
         name={@name}
         class="sr-only"
@@ -70,6 +94,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         {@rest}
       >{@value}</textarea>
       <div
+        :if={!@compact and @rich}
         id={@id}
         phx-hook="SRQLEditor"
         phx-update="ignore"

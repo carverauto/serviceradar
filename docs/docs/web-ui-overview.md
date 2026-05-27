@@ -59,6 +59,14 @@ Most list views support **SRQL**, the ServiceRadar Query Language, for
 filtering and searching. To learn it, see the
 [SRQL Tutorial](./srql-tutorial.md).
 
+## Dashboards and analytics
+
+Open **Dashboards** to find dashboards you own, dashboards shared with you, and
+dashboards available through your groups. Open **Analytics** to create a
+self-authored dashboard from SRQL source queries, guided visual outputs, and a
+drag-and-drop canvas. See [Self-Authored Dashboards](./self-authored-dashboards.md)
+for the full workflow.
+
 ## Settings
 
 The **Settings** tree is where administrators and operators configure the

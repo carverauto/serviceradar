@@ -1,6 +1,7 @@
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
+import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
 import JdmEditorHook from "./JdmEditorHook"
@@ -38,6 +39,7 @@ export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
   DashboardBuilderCanvas,
+  DashboardPanelChart,
   DashboardMapViewSelect,
   DashboardWasmHost,
   JdmEditorHook,

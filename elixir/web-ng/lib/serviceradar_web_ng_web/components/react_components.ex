@@ -46,11 +46,6 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :visual_options, :list, default: []
   attr :selected_id, :string, default: ""
   attr :can_manage, :boolean, default: false
-  attr :default_query, :string, default: ""
-  attr :dashboard_params, :map, default: %{}
-  attr :inspector_errors, :map, default: %{}
-  attr :srql_completions, :list, default: []
-  attr :draft_storage_key, :string, default: ""
   attr :class, :string, default: ""
 
   def dashboard_builder_canvas(assigns) do
@@ -59,12 +54,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         panels: assigns.panels,
         visualOptions: assigns.visual_options,
         selectedId: assigns.selected_id,
-        canManage: assigns.can_manage,
-        defaultQuery: assigns.default_query,
-        dashboardParams: assigns.dashboard_params,
-        inspectorErrors: assigns.inspector_errors,
-        srqlCompletions: assigns.srql_completions,
-        draftStorageKey: assigns.draft_storage_key
+        canManage: assigns.can_manage
       })
 
     ~H"""
@@ -81,6 +71,50 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       </div>
     </div>
     """
+  end
+
+  attr :id, :string, required: true
+  attr :panel, :map, required: true
+  attr :rows, :list, default: []
+  attr :fields, :list, default: []
+  attr :trend, :map, default: nil
+  attr :class, :string, default: ""
+
+  def dashboard_panel_chart(assigns) do
+    assigns =
+      assign(assigns, :props, %{
+        panel: dashboard_panel_chart_props(assigns.panel),
+        rows: assigns.rows,
+        fields: assigns.fields,
+        trend: assigns.trend
+      })
+
+    ~H"""
+    <div
+      id={@id}
+      class={["h-full min-h-0 w-full", @class]}
+      phx-update="ignore"
+      phx-hook="DashboardPanelChart"
+      data-props={Jason.encode!(@props)}
+    >
+      <div class="flex h-full min-h-24 items-center justify-center rounded-lg border border-dashed border-base-300 text-sm text-base-content/60">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-3">Loading chart...</span>
+      </div>
+    </div>
+    """
+  end
+
+  defp dashboard_panel_chart_props(panel) do
+    %{
+      id: panel.id,
+      title: panel.title,
+      srql_query: Map.get(panel, :srql_query) || Map.get(panel, "srql_query"),
+      visual_type: panel.visual_type,
+      data_binding: panel.data_binding || %{},
+      display_config: panel.display_config || %{},
+      visual_config: panel.visual_config || %{}
+    }
   end
 
   attr :id, :string, required: true

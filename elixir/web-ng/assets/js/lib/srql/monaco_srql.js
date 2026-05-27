@@ -47,7 +47,7 @@ export function ensureSrqlLanguage(monaco, completions = []) {
     ],
   })
   monaco.languages.registerCompletionItemProvider(SRQL_LANGUAGE_ID, {
-    triggerCharacters: [":", " ", ".", "$"],
+    triggerCharacters: [":", " ", ".", "$", "_"],
     provideCompletionItems(model, position) {
       const word = model.getWordUntilPosition(position)
       const linePrefix = model.getValueInRange({
@@ -66,16 +66,18 @@ export function ensureSrqlLanguage(monaco, completions = []) {
       const suggestions = (globalState().completions || []).map(label => {
         const isEntity = label.startsWith("in:")
         const isControl = label.endsWith(":") || isEntity
+        const insertText = afterInPrefix && isEntity ? label.slice(3) : label
 
         return {
-          label: afterInPrefix && isEntity ? label.slice(3) : label,
-          insertText: afterInPrefix && isEntity ? label.slice(3) : label,
+          label: insertText,
+          insertText,
           detail: isEntity ? "entity" : isControl ? "operator" : "field",
           kind: isEntity
             ? monaco.languages.CompletionItemKind.Module
             : isControl
               ? monaco.languages.CompletionItemKind.Keyword
               : monaco.languages.CompletionItemKind.Field,
+          sortText: `${isEntity ? "0" : isControl ? "1" : "2"}-${label}`,
           range,
         }
       })
@@ -126,14 +128,27 @@ export async function createSrqlEditor(container, options = {}) {
     fixedOverflowWidgets: true,
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
     fontSize: compact ? 11 : 12,
+    glyphMargin: false,
+    lightbulb: {enabled: false},
     lineDecorationsWidth: compact ? 0 : 8,
     lineNumbers: compact ? "off" : "on",
     lineNumbersMinChars: compact ? 0 : 3,
     minimap: {enabled: false},
     overviewRulerLanes: 0,
+    parameterHints: {enabled: false},
+    quickSuggestions: {other: true, comments: false, strings: false},
     renderLineHighlight: compact ? "none" : "line",
     scrollBeyondLastLine: false,
     scrollbar: {vertical: compact ? "hidden" : "auto", horizontal: "auto", alwaysConsumeMouseWheel: false},
+    suggest: {
+      preview: true,
+      showFields: true,
+      showKeywords: true,
+      showWords: false,
+    },
+    suggestOnTriggerCharacters: true,
+    tabCompletion: "on",
+    wordBasedSuggestions: "off",
     wordWrap: compact ? "off" : "on",
   })
 

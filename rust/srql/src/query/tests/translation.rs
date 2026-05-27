@@ -1,0 +1,280 @@
+use super::*;
+
+#[test]
+fn translate_param_arity_matches_sql_placeholders() {
+    let config = test_config();
+
+    let cursor = encode_cursor(250);
+
+    let cases = [
+            QueryRequest {
+                query: "in:devices stats:count() as total".to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:services available:false time:last_24h stats:count() as failing"
+                    .to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:gateways is_healthy:true status:ready sort:agent_count:desc".to_string(),
+                limit: Some(10),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query:
+                    "in:dashboards status:active srql_query:%cpu_metrics% sort:updated_at:desc"
+                        .to_string(),
+                limit: Some(25),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:devices time:last_7d sort:last_seen:desc is_available:true discovery_sources:(sweep,armis)".to_string(),
+                limit: Some(20),
+                cursor: Some(cursor.clone()),
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:interfaces time:last_24h ip_addresses:(10.0.0.1,10.0.0.2) sort:timestamp:asc".to_string(),
+                limit: Some(5),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:traces time:last_24h status_code:(1,2) kind:(1,2,3) sort:timestamp:desc".to_string(),
+                limit: Some(25),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:device_graph device_id:dev-1 collector_owned_only:true include_topology:false".to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+        ];
+
+    for request in cases {
+        let response = match translate_request(&config, request.clone()) {
+            Ok(response) => response,
+            Err(err) => {
+                panic!("translation failed for query '{}': {err:?}", request.query)
+            }
+        };
+        let max_placeholder = super::max_dollar_placeholder(&response.sql);
+        assert_eq!(
+            max_placeholder,
+            response.params.len(),
+            "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+            response.sql,
+            response.params
+        );
+    }
+}
+
+#[test]
+fn translate_includes_visualization_metadata() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics time:last_7d limit:10".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let viz = response.viz.expect("viz metadata should be present");
+
+    assert!(
+        viz.columns.iter().any(|col| {
+            col.name == "timestamp" && matches!(col.col_type, viz::ColumnType::Timestamptz)
+        }),
+        "expected timestamp column meta, got: {:?}",
+        viz.columns
+    );
+
+    assert!(
+        viz.suggestions
+            .iter()
+            .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+        "expected timeseries suggestion, got: {:?}",
+        viz.suggestions
+    );
+}
+
+#[test]
+fn translate_downsample_emits_time_bucket_query() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name limit:25"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response.sql.to_lowercase().contains("to_timestamp(floor("),
+        "expected floor-based time bucketing in SQL, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.to_lowercase().contains("group by 1, 2"),
+        "expected group by bucket+series, got: {}",
+        response.sql
+    );
+
+    let viz = response.viz.expect("viz metadata should be present");
+    assert_eq!(viz.columns.len(), 3);
+    assert!(
+        viz.suggestions
+            .iter()
+            .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+        "expected timeseries suggestion, got: {:?}",
+        viz.suggestions
+    );
+
+    assert!(
+        response.params.len() >= 4,
+        "expected time range + limit/offset params, got: {:?}",
+        response.params
+    );
+}
+
+#[test]
+fn translate_downsample_respects_value_field() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:memory_metrics time:last_7d bucket:5m agg:avg value_field:used_bytes limit:10"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("avg(used_bytes)") || sql.contains("avg(avg_used_bytes)"),
+        "expected downsample to use used_bytes or avg_used_bytes, got: {}",
+        response.sql
+    );
+}
+
+#[test]
+fn translate_flows_downsample_emits_time_bucket_query() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total limit:25"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("from ocsf_network_activity"),
+        "expected flows downsample to query ocsf_network_activity, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("to_timestamp(floor("),
+        "expected floor-based time bucketing in SQL, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("sum(bytes_total)"),
+        "expected sum(bytes_total), got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("group by 1, 2"),
+        "expected group by bucket+series, got: {}",
+        response.sql
+    );
+
+    let viz = response.viz.expect("viz metadata should be present");
+    assert_eq!(viz.columns.len(), 3);
+    assert!(
+        viz.suggestions
+            .iter()
+            .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
+        "expected timeseries suggestion, got: {:?}",
+        viz.suggestions
+    );
+}
+
+#[test]
+fn translate_graph_cypher_rejects_mutations() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:graph_cypher cypher:\"CREATE (n:Device {id:'x'}) RETURN 1 as result\""
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let err = translate_request(&config, request).expect_err("should reject write cypher");
+    assert!(
+        err.to_string().to_lowercase().contains("read-only"),
+        "expected read-only error, got: {err}"
+    );
+}
+
+#[test]
+fn translate_graph_cypher_wraps_rows_as_topology_payload() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:graph_cypher cypher:\"MATCH (n) RETURN n\" limit:10".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("jsonb_build_object('nodes'"),
+        "expected topology wrapper in SQL, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("jsonb_build_array"),
+        "expected jsonb_build_array in SQL, got: {}",
+        response.sql
+    );
+    assert_eq!(
+        response.params.len(),
+        2,
+        "expected limit + offset binds, got: {:?}",
+        response.params
+    );
+}

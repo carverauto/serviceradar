@@ -1,0 +1,53 @@
+use super::{devices, gateways, interfaces, *};
+use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
+use std::time::Duration as StdDuration;
+
+mod device_queries;
+mod entity_examples;
+mod metric_caggs;
+mod translation;
+
+fn plan_for(query: &str) -> QueryPlan {
+    let config = test_config();
+    let ast = parser::parse(query).expect("docs query should parse");
+    let request = QueryRequest {
+        query: query.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+    build_query_plan(&config, &request, ast).expect("should build plan for docs query")
+}
+
+fn has_availability_filter(plan: &QueryPlan, expected: bool) -> bool {
+    plan.filters.iter().any(|filter| {
+        filter.field == "is_available"
+            && matches!(
+                &filter.value,
+                FilterValue::Scalar(value) if value.eq_ignore_ascii_case(
+                    if expected { "true" } else { "false" }
+                )
+            )
+    })
+}
+
+fn test_config() -> AppConfig {
+    AppConfig {
+        listen_addr: "127.0.0.1:0".parse().unwrap(),
+        database_url: "postgres://example/db".to_string(),
+        age_graph_name: "platform_graph".to_string(),
+        max_pool_size: 1,
+        pg_ssl_root_cert: None,
+        pg_ssl_cert: None,
+        pg_ssl_key: None,
+        api_key: None,
+        api_key_kv_key: None,
+        allowed_origins: None,
+        default_limit: 100,
+        max_limit: 500,
+        request_timeout: StdDuration::from_secs(30),
+        rate_limit_max_requests: 120,
+        rate_limit_window: StdDuration::from_secs(60),
+    }
+}

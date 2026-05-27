@@ -218,15 +218,13 @@ DATASVC_ENABLED=false SERVICE_HEARTBEAT_ENABLED=false SERVICERADAR_WEB_NG_OBAN_E
   PHX_HOST=localhost SERVICERADAR_DEV_ROUTES=true mix phx.server
 ```
 
-When pointing this loop at the Kubernetes `demo` CNPG instance, keep the port-forward and password material outside the repo:
+When pointing this loop at the Kubernetes `demo` CNPG instance, use the `$demo-cnpg-local-web-ng` skill instead of hand-rolled port-forwards:
 
 ```bash
-kubectl port-forward -n demo svc/cnpg-pooler-rw 5455:5432
-kubectl get secret serviceradar-db-credentials -n demo -o jsonpath='{.data.password}' | base64 -d > tmp/demo-cnpg-current-password
-chmod 600 tmp/demo-cnpg-current-password
+.agents/skills/demo-cnpg-local-web-ng/scripts/start-local-web-ng.sh
 ```
 
-Then set `CNPG_PASSWORD="$(cat ../../tmp/demo-cnpg-current-password)"` in the Phoenix command from `elixir/web-ng/` and use `CNPG_DATABASE=serviceradar`.
+The skill/script reads `demo/serviceradar-db-credentials`, tries the GitOps-managed `demo/cnpg-rw-internal-lb` VIP (`192.168.6.82:5432`), then falls back to the current CNPG primary node's NodePort paths such as `10.0.2.11:32040` and `10.0.2.11:30455`. If the `192.168.6.82` VIP fails but NodePort works, treat it as a routing/L2 issue outside web-ng/CNPG. Keep the permanent Kubernetes objects in GitOps (`gitops/k8s/demo-cnpg-internal-access/`), not as one-off live changes.
 
 If the local CNPG requires TLS, use the standard cert-backed command from the Local Development with Docker CNPG section instead. A repeated `Unknown CA` error means the cert bundle does not match the CNPG server; refresh the local certs before relying on the LiveView route. If Phoenix or CNPG is not needed for the current visual pass, create a temporary ignored harness under `tmp/` that loads `elixir/web-ng/priv/static/assets/css/app.css` and mirrors the rendered dashboard HTML.
 

@@ -23,6 +23,8 @@ cnpg_ssl_enabled = cnpg_ssl_mode != "disable"
 cnpg_hostname = System.get_env("CNPG_HOST", "localhost")
 cnpg_tls_server_name = System.get_env("CNPG_TLS_SERVER_NAME", cnpg_hostname)
 cnpg_pool_size = parse_positive_integer.(System.get_env("CNPG_POOL_SIZE"), 10)
+cnpg_queue_target = parse_positive_integer.(System.get_env("CNPG_QUEUE_TARGET_MS"), 15_000)
+cnpg_queue_interval = parse_positive_integer.(System.get_env("CNPG_QUEUE_INTERVAL_MS"), 15_000)
 phx_port = parse_positive_integer.(System.get_env("PHX_PORT"), 4000)
 
 cnpg_cert_dir = System.get_env("CNPG_CERT_DIR", "")
@@ -147,6 +149,8 @@ config :serviceradar_core, ServiceRadar.Repo,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
   pool_size: cnpg_pool_size,
+  queue_target: cnpg_queue_target,
+  queue_interval: cnpg_queue_interval,
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
 

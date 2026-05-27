@@ -506,12 +506,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp validate_visual_type(type), do: {:error, {:unsupported_visual_type, type}}
 
+  # Tables are the catch-all rendering path for any tabular SRQL result shape.
   defp validate_visual_compatibility(:table, _compatible), do: :ok
-  defp validate_visual_compatibility(:pivot, _compatible), do: :ok
-  defp validate_visual_compatibility(:availability, _compatible), do: :ok
-  defp validate_visual_compatibility(:count, _compatible), do: :ok
-
-  defp validate_visual_compatibility(:gauge, compatible), do: validate_visual_compatibility(:stat, compatible)
 
   defp validate_visual_compatibility(type, compatible) do
     if type in compatible do
@@ -522,9 +518,13 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   end
 
   defp validate_data_binding(:availability, binding, fields) when is_map(binding) do
-    with :ok <- validate_required_binding(binding, fields, "numerator_field"),
-         :ok <- validate_required_binding(binding, fields, "denominator_field") do
+    if grouped_availability_binding?(binding, fields) do
       validate_optional_bindings(binding, fields)
+    else
+      with :ok <- validate_required_binding(binding, fields, "numerator_field"),
+           :ok <- validate_required_binding(binding, fields, "denominator_field") do
+        validate_optional_bindings(binding, fields)
+      end
     end
   end
 
@@ -912,8 +912,8 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     [:table]
     |> maybe_add_visual(:stat, stat_compatible?(rows, fields))
     |> maybe_add_visual(:count, stat_compatible?(rows, fields))
-    |> maybe_add_visual(:gauge, Enum.any?(fields, fn field -> field.type == :number end))
-    |> maybe_add_visual(:availability, availability_compatible?(fields))
+    |> maybe_add_visual(:gauge, gauge_compatible?(rows, fields))
+    |> maybe_add_visual(:availability, availability_compatible?(rows, fields))
     |> maybe_add_visual(
       :line,
       MapSet.member?(field_types, :datetime) and MapSet.member?(field_types, :number)
@@ -934,8 +934,10 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
   def compatible_visuals(_rows, _fields), do: [:table]
 
   defp pivot_compatible?(fields) do
-    Enum.any?(fields, &(&1.type in [:string, :boolean, :datetime])) and
-      Enum.any?(fields, &(&1.type == :number))
+    dimension_count = Enum.count(fields, &(&1.type in [:string, :boolean, :datetime]))
+    has_numeric? = Enum.any?(fields, &(&1.type == :number))
+
+    dimension_count >= 2 and has_numeric?
   end
 
   @spec infer_fields([map()]) :: [map()]
@@ -966,7 +968,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp json_paths(values) do
     values
-    |> Enum.find(&is_map/1)
+    |> Enum.find(&(is_map(&1) and not is_struct(&1)))
     |> case do
       nil ->
         []
@@ -981,7 +983,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp flatten_json_paths(value, prefix \\ "")
 
-  defp flatten_json_paths(value, prefix) when is_map(value) do
+  defp flatten_json_paths(value, prefix) when is_map(value) and not is_struct(value) do
     Enum.flat_map(value, fn {key, nested} ->
       path =
         [prefix, to_string(key)]
@@ -989,7 +991,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
         |> Enum.join(".")
 
       case nested do
-        nested when is_map(nested) -> [path | flatten_json_paths(nested, path)]
+        nested when is_map(nested) and not is_struct(nested) -> [path | flatten_json_paths(nested, path)]
         _ -> [path]
       end
     end)
@@ -1317,11 +1319,57 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
     end)
   end
 
-  defp availability_compatible?(fields) do
+  defp availability_compatible?(rows, fields) do
     names = MapSet.new(Enum.map(fields, & &1.name))
 
-    MapSet.member?(names, "total") and
-      (MapSet.member?(names, "ok") or MapSet.member?(names, "available"))
+    explicit_availability? =
+      length(rows) == 1 and
+        MapSet.member?(names, "total") and
+        (MapSet.member?(names, "ok") or MapSet.member?(names, "available"))
+
+    grouped_availability? =
+      MapSet.member?(names, "count") and
+        (MapSet.member?(names, "is_available") or MapSet.member?(names, "available"))
+
+    explicit_availability? or grouped_availability?
+  end
+
+  defp gauge_compatible?(rows, fields) do
+    availability_compatible?(rows, fields) or
+      (stat_compatible?(rows, fields) and Enum.any?(fields, &gauge_metric_field?/1))
+  end
+
+  defp gauge_metric_field?(%{type: :number, name: name}) when is_binary(name) do
+    normalized = String.downcase(name)
+
+    normalized in [
+      "value",
+      "total",
+      "count",
+      "current",
+      "target",
+      "ok",
+      "available",
+      "error",
+      "errors",
+      "warning",
+      "critical",
+      "unknown",
+      "availability_pct"
+    ] or String.ends_with?(normalized, "_pct") or String.ends_with?(normalized, "_percent")
+  end
+
+  defp gauge_metric_field?(_field), do: false
+
+  defp grouped_availability_binding?(binding, fields) do
+    names = MapSet.new(Enum.map(fields, & &1.name))
+    value_field = Map.get(binding, "value_field") || Map.get(binding, :value_field)
+    label_field = Map.get(binding, "label_field") || Map.get(binding, :label_field)
+
+    value_field in ["count", "total"] and
+      label_field in ["is_available", "available", "availability"] and
+      MapSet.member?(names, value_field) and
+      MapSet.member?(names, label_field)
   end
 
   defp maybe_add_visual(visuals, visual, true), do: visuals ++ [visual]
