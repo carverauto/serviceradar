@@ -1,6 +1,6 @@
 load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
 load("@rules_rust//rust:defs.bzl", "rust_binary")
-load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+load("@rust_crates//:defs.bzl", "crate_deps")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -24,8 +24,19 @@ rust_binary(
     srcs = glob(["src/**/*.rs"]),
     crate_root = "src/main.rs",
     edition = "2021",
-    deps = all_crate_deps(normal = True) + [
+    deps = crate_deps([
+        "anyhow",
+        "clap",
+        "env_logger",
+        "log",
+        "nix",
+        "prometheus",
+        "prost",
+        "serde",
+        "serde_json",
+        "thiserror",
+        "tokio",
+    ]) + [
         ":build_script",
     ],
-    proc_macro_deps = all_crate_deps(proc_macro = True),
 )

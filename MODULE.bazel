@@ -560,7 +560,16 @@ rust.toolchain(
     versions = [RUST_DEFAULT_VERSION],
 )
 use_repo(rust, "rust_toolchains")
+use_repo(
+    rust,
+    "rust_linux_x86_64__aarch64-unknown-linux-musl__stable_tools",
+    "rust_linux_x86_64__x86_64-unknown-linux-musl__stable_tools",
+)
 
+register_toolchains(
+    "//build/rust:linux_aarch64_musl_toolchain",
+    "//build/rust:linux_x86_64_musl_toolchain",
+)
 register_toolchains("@rust_toolchains//:all")
 
 # TODO(bazel-migration): add rust_host_tools for pinned host binaries and expand
