@@ -79,6 +79,48 @@ For pagination across large result sets, pass the `next_cursor` value from a
 response back as the `cursor` field (with `direction: "next"`) on the
 following request.
 
+## Discover the SRQL catalog — `GET /api/srql/catalog`
+
+The `/api/srql/catalog` endpoint returns the canonical client-side reference for
+SRQL entity names, grouped fields, control tokens, and operators. Browser
+editors use it for completions and validation hints instead of embedding their
+own field lists.
+
+The endpoint uses the same authentication options as the rest of the API. It
+also returns `ETag` and `Cache-Control: private, max-age=300, must-revalidate`
+headers, so clients can send `If-None-Match` and reuse a cached catalog when the
+server responds with `304 Not Modified`.
+
+```bash
+curl https://your-serviceradar-host/api/srql/catalog \
+  -H "Authorization: Bearer $SERVICERADAR_API_TOKEN"
+```
+
+A successful response has this shape:
+
+```json
+{
+  "version": "4c5459599ba5dac6e26738d1a06339f50be1937f7a647da5de457c63af95b452",
+  "control_tokens": ["by:", "group:", "in:", "limit:", "sort:", "time:", "where"],
+  "operators": [":", ":contains", ":equals", "!=", ">", ">=", "<", "<="],
+  "entities": {
+    "devices": {
+      "label": "Devices",
+      "fields": {
+        "boolean": ["is_active", "is_available"],
+        "numeric": ["risk_score"],
+        "text": ["hostname", "ip", "vendor_name"],
+        "time": ["last_seen_time"]
+      }
+    }
+  }
+}
+```
+
+`version` is the raw catalog digest. The `ETag` header wraps the same digest in
+quotes for HTTP validation; send the quoted header value back in
+`If-None-Match`.
+
 ## Other endpoints
 
 The published [API specification](/api/) documents the remaining stable

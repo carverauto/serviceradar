@@ -1,0 +1,67 @@
+defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
+  use ServiceRadarWebNGWeb.ConnCase, async: true
+
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  setup %{conn: conn} do
+    user = ServiceRadarWebNG.AshTestHelpers.user_fixture()
+    %{conn: log_in_api_user(conn, user)}
+  end
+
+  describe "GET /api/srql/catalog" do
+    test "returns structured catalog with cache headers", %{conn: conn} do
+      conn = get(conn, ~p"/api/srql/catalog")
+      response = json_response(conn, 200)
+
+      assert get_resp_header(conn, "etag") == [Catalog.etag()]
+      assert get_resp_header(conn, "cache-control") == ["private, max-age=300, must-revalidate"]
+      assert is_map(response["entities"])
+      assert is_map(response["entities"]["devices"])
+      assert "hostname" in response["entities"]["devices"]["fields"]["filter"]
+      refute "in:" in response["control_tokens"]
+      assert "time:" in response["control_tokens"]
+      assert ":" in response["operators"]
+      assert response["version"] == String.trim(Catalog.etag(), ~s("))
+    end
+
+    test "returns 304 for a matching If-None-Match", %{conn: conn} do
+      etag = Catalog.etag()
+
+      conn =
+        conn
+        |> put_req_header("if-none-match", etag)
+        |> get(~p"/api/srql/catalog")
+
+      assert response(conn, 304) == ""
+      assert get_resp_header(conn, "etag") == [etag]
+      assert get_resp_header(conn, "cache-control") == ["private, max-age=300, must-revalidate"]
+    end
+
+    test "rejects unauthenticated requests", %{conn: conn} do
+      conn = conn |> recycle() |> get(~p"/api/srql/catalog")
+
+      assert json_response(conn, 401) == %{"error" => "authentication_required"}
+    end
+
+    test "etag changes when the catalog content changes" do
+      base = Catalog.structured()
+      changed = Catalog.structured_from_entities([changed_entity() | Catalog.entities()])
+
+      assert Catalog.etag(changed) != Catalog.etag(base)
+    end
+  end
+
+  defp changed_entity do
+    %{
+      id: "test_entity",
+      label: "Test Entity",
+      route: nil,
+      default_time: "",
+      default_sort_field: "inserted_at",
+      default_sort_dir: "desc",
+      default_filter_field: "name",
+      filter_fields: ["name"],
+      downsample: false
+    }
+  end
+end
