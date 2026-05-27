@@ -108,10 +108,11 @@ management.
   capture sessions that stream pcapng over the existing
   `agent → agent-gateway → core-elx` mTLS transport. Covers the
   session model (request, authorisation, start, stream, stop,
-  audit), per-session BPF filter and snaplen pushdown, max session
-  duration and concurrent session caps, the streaming RPC contract,
-  the `srctl capture` CLI helper that bridges to a local Wireshark,
-  and the RBAC permission set (`agent_capture:remote`).
+  AshPaperTrail-backed audit), per-session BPF filter and snaplen
+  pushdown, max session duration and concurrent session caps, the
+  streaming RPC contract, the `srctl capture` CLI helper that bridges
+  to a local Wireshark, and the RBAC permission set
+  (`agent_capture:remote`).
 
 ### New Rust component
 
@@ -152,7 +153,7 @@ management.
   stream that the agent forwards through `agent-gateway` and `core-elx`
   to the requesting client (typically `srctl capture` piping into
   `wireshark -k -i -`). Strictly opt-in per session, RBAC-gated,
-  audit-logged, time- and byte-bounded.
+  AshPaperTrail-audited, time- and byte-bounded.
 
 ### Remote-capture transport and user flow
 
@@ -224,8 +225,9 @@ End-to-end flow:
 3. `web-ng` dispatches the request to `core-elx` over ERTS RPC.
    `core-elx` authorises via Ash policies
    (`agent_capture:remote` on the target agent's partition), creates
-   the `RemotePacketCaptureSession` record, and writes the audit
-   event. (If a future iteration decides no `core-elx`-side processing
+   the `RemotePacketCaptureSession` record, and writes the audit trail
+   through AshPaperTrail-backed Ash changes. (If a future iteration
+   decides no `core-elx`-side processing
    is needed, `web-ng` may dispatch directly to `agent-gateway` — see
    open question 11 in `design.md`.)
 4. `core-elx` invokes the agent-gateway command bus over ERTS RPC.

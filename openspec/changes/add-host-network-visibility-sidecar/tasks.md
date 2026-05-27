@@ -86,6 +86,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 8.6 Wire compiler output into `AgentConfigResponse.visibility_config`.
 - [x] 8.7 Extend `Serviceradar.Inventory.Device` validation to accept new `os.passive_fingerprint`, `metadata.passive_fingerprint` map keys.
 - [x] 8.8 Ship initial `visibility_enrichment_rules.yaml` pack mapping common p0f / JA4 signatures to `type_id`, `vendor_name`, `os.family`.
+- [ ] 8.9 Enable AshPaperTrail on Ash resources that control packet-observation posture (`VisibilityProfile` and any capture-interface allowlist resource) so profile/allowlist creates, updates, disables, and deletes are auditable with actor, partition, request id, prior value, and new value.
 
 ### 9. [Phase 1] Discovery ingestion integration
 
@@ -232,11 +233,13 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [ ] 24.3 Add Ash actions: `request_capture` (validates user + RBAC + per-tenant caps), `transition_state`, `complete`, `abort`.
 - [ ] 24.4 Add `agent_capture:remote` and `agent_capture:audit_view` permissions to `Serviceradar.Identity.RBAC.Catalog`.
 - [ ] 24.5 Add policies on the resource enforcing the new permissions per partition.
-- [ ] 24.6 Wire every state transition to the audit log capability so all session events appear in the standard audit feed.
+- [ ] 24.6 Enable AshPaperTrail on `RemotePacketCaptureSession`; ensure request, authorise, active, complete, abort, timeout, and deny transitions are performed through Ash actions with version metadata for actor, partition, request id, agent id, target interfaces, BPF filter metadata, duration, snaplen, byte cap, and bytes streamed.
 - [ ] 24.7 Implement a `web-ng` streaming endpoint (Phoenix Channel) that authenticates the client (`add-cli-device-auth`), dispatches the request to `core-elx` over ERTS RPC for RBAC + audit + session-record creation, then proxies pcapng bytes between the client and `core-elx`.
 - [ ] 24.8 Implement the `core-elx` side that brokers between `web-ng` and the `agent-gateway` command bus over ERTS RPC, counts bytes for the session record, and surfaces session state.
 - [ ] 24.9 Implement client-disconnect detection at the `web-ng` edge: on stream close from the client side, propagate via ERTS RPC to `core-elx`, which sends `StopRemoteCaptureSession` to the agent and transitions state to `aborted`.
 - [ ] 24.10 Implement tenant-level cap ceilings: configurable max `duration_s`, `byte_cap`, and concurrent sessions per partition.
+- [ ] 24.11 Emit a durable standard audit event for denied invasive actions that intentionally do not create or mutate an Ash resource, including cross-partition remote capture attempts and malformed requests rejected before session creation.
+- [ ] 24.12 Add tests proving AshPaperTrail versions are written for every `RemotePacketCaptureSession` transition and for packet-observation posture changes; add a denial test proving a standard audit event is written when no session resource is created.
 
 ### 25. [Phase 5] `srctl` Go CLI: rename + device-code auth + capture subcommand
 
@@ -286,6 +289,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [ ] 28.2 E2E test: a user without `agent_capture:remote` is denied with a non-zero exit code and an audit record is written.
 - [ ] 28.3 Cap-enforcement tests: duration overrun, byte overrun, concurrent-session collision.
 - [ ] 28.4 Mid-stream client-disconnect test: `srctl` is killed; verify the agent-side session is terminated within 5 s and the resource state transitions to `aborted`.
+- [ ] 28.5 Auditability E2E: start and stop a remote capture, then verify the standard audit feed renders AshPaperTrail-backed entries for request/start/stop with actor, partition, agent id, interfaces, BPF filter metadata, byte count, and termination reason.
 
 ---
 

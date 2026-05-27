@@ -517,17 +517,32 @@ case), security review (eBPF capability surface).
   role holds it; tenant admins assign it explicitly. A separate
   `agent_capture:audit_view` permission gates viewing of historic
   capture sessions and their byte counts.
-- Every transition of `RemotePacketCaptureSession.state` emits a
-  durable audit record (request, authorise, start, terminate cause,
-  byte total) reusing the existing audit log capability.
+- Ash-owned records for invasive operator actions use
+  **AshPaperTrail** as the audit source of truth wherever the action
+  changes a resource. For this proposal that includes
+  `RemotePacketCaptureSession` and the operator-managed capture
+  posture records that make packet observation possible
+  (`VisibilityProfile` and capture-interface allowlist settings when
+  represented as Ash resources).
+- Every transition of `RemotePacketCaptureSession.state` is performed
+  through Ash actions with AshPaperTrail enabled, so the version trail
+  captures request, authorise, start, terminate cause, byte total,
+  actor, partition, request id, agent id, target interfaces, and the
+  normalized BPF filter metadata needed for investigation.
+- Denials that intentionally do not create a session record (for
+  example cross-tenant target attempts) still write a durable audit
+  event through the standard audit log capability. That event MUST
+  include actor, partition, attempted agent id, requested interface,
+  normalized BPF filter metadata, denial reason, and request id.
 - Sessions are partition-scoped: a user with the permission in
   tenant A cannot start a capture on tenant B's agent even if the
   agents share a gateway.
 - **Alternatives.** None considered — RBAC + audit are mandatory
   for any packet capture surface.
 - **Rationale.** Security review will gate this feature on the
-  audit trail being complete and the permission being
-  separately-grantable.
+  audit trail being complete, implemented through AshPaperTrail where
+  resource state changes, and the permission being separately-
+  grantable.
 
 ### D13. NetFlow ↔ application attribution data flow
 

@@ -11,7 +11,10 @@ record MUST carry `session_id` (ULID), `partition_id`, `agent_id`,
 `timed_out`, `denied`), `bytes_streamed`, and `last_block_at`.
 Sessions MUST be partition-scoped via `Ash.Policy.Authorizer` such
 that a user holding the requesting permission in one tenant cannot
-target an agent in another tenant.
+target an agent in another tenant. The resource MUST enable
+AshPaperTrail (or the project's owned AshPaperTrail wrapper if one is
+standardized before Phase 5) so every create, update, and terminal
+state transition has a durable version record.
 
 #### Scenario: Cross-tenant session is denied
 - **WHEN** a user with `agent_capture:remote` in tenant A submits a
@@ -23,9 +26,49 @@ target an agent in another tenant.
 
 #### Scenario: Every state transition is audit-logged
 - **WHEN** a session moves from any state to any other state
-- **THEN** an audit record is emitted via the standard audit log
-  capability carrying the prior state, new state, transition reason,
-  and bytes streamed at the time of transition
+- **THEN** AshPaperTrail records a version carrying the prior state,
+  new state, transition reason, actor, partition, request id, target
+  agent id, target interface list, BPF filter metadata, and bytes
+  streamed at the time of transition
+- **AND** the standard audit feed can render the same transition from
+  the AshPaperTrail-backed record
+
+### Requirement: Invasive Operator Action Audit Trail
+
+The system SHALL audit any operator-initiated action that starts,
+authorizes, stops, or materially expands packet observation. When the
+action changes an Ash resource, the audit source of truth MUST be
+AshPaperTrail. This includes remote packet capture sessions and
+operator-managed capture posture records such as capture-interface
+allowlists and visibility profiles when those records enable packet
+observation. Denied requests that intentionally do not create or
+change an Ash resource MUST still emit a durable standard audit event.
+
+#### Scenario: Remote capture request is versioned
+- **WHEN** an operator requests a remote capture session
+- **THEN** the `RemotePacketCaptureSession` create action records an
+  AshPaperTrail version with actor id, partition id, agent id,
+  requested interfaces, normalized BPF filter metadata, requested
+  duration, requested snaplen, requested byte cap, and request id
+- **AND** the audit feed exposes a link or identifier for the
+  AshPaperTrail-backed audit record
+
+#### Scenario: Capture posture changes are versioned
+- **WHEN** an operator changes a visibility profile or capture
+  interface allowlist in a way that enables or broadens packet
+  observation
+- **THEN** the corresponding Ash resource action records an
+  AshPaperTrail version containing the prior value, new value, actor
+  id, partition id, and request id
+- **AND** the change is visible to users holding the audit-view
+  permission for that partition
+
+#### Scenario: Denial without resource creation is still audited
+- **WHEN** an operator attempts a cross-tenant capture request that is
+  denied before a `RemotePacketCaptureSession` record is created
+- **THEN** a standard audit event is written with actor id,
+  request id, source partition, attempted target agent id, requested
+  interfaces, normalized BPF filter metadata, and denial reason
 
 ### Requirement: RBAC permissions for remote capture
 
