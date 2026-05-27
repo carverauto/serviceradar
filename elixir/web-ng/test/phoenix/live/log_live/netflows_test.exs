@@ -37,7 +37,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     |> element("button[phx-click=\"nf_reset\"]")
     |> render_click()
 
-    assert_patch(lv, path)
+    path = assert_patch(lv)
     assert String.starts_with?(path, "/flows?")
   end
 

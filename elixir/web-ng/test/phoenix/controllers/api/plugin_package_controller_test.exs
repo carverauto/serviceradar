@@ -1,11 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  import Ash.Expr
   import ServiceRadarWebNG.AshTestHelpers, only: [system_actor: 0]
 
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Storage
+
+  require Ash.Query
 
   @manifest %{
     "id" => "unifi-protect-camera",
@@ -123,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
   defp reload_package(id) do
     PluginPackage
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.filter(expr(id == ^id))
     |> Ash.read_one!(actor: system_actor())
   end
 

@@ -1,7 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Plugs.RateLimitTest do
   use ExUnit.Case, async: false
 
-  import Phoenix.ConnTest
   import Plug.Conn
 
   alias ServiceRadar.Security.RateLimiter

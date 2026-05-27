@@ -282,7 +282,9 @@ defmodule ServiceRadarWebNG.FieldSurveyRawIngestTest do
                prefix: "platform"
              )
 
-    assert %{rows: [[byte_size(payload), "ok"]]} =
+    payload_size = byte_size(payload)
+
+    assert %{rows: [[^payload_size, "ok"]]} =
              Repo.query!(
                """
                SELECT byte_size, decode_status

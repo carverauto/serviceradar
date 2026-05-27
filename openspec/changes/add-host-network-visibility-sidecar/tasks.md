@@ -135,7 +135,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 15.1 `bazel test //rust/netprobe/...` passes (Phase 1 test set).
 - [x] 15.2 `bazel test //go/pkg/agent/sidecar/... //go/pkg/agent/netprobe/...` passes.
 - [x] 15.3 `mix test --only visibility` passes in `elixir/serviceradar_core/`.
-- [ ] 15.4 `mix test --only visibility_profiles_live` passes in `elixir/web-ng/`.
+- [x] 15.4 `mix test --only visibility_profiles_live` passes in `elixir/web-ng/`.
 - [ ] 15.5 E2E suite: enable a profile scoped to `in:devices type:0`, send pcap fixtures through a test agent, assert an Armis-imported device gains `os.passive_fingerprint`.
 - [x] 15.6 `openspec validate add-host-network-visibility-sidecar --strict` passes.
 

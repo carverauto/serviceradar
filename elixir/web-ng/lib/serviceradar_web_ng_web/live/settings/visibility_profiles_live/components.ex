@@ -161,7 +161,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
     assigns =
       assigns
-      |> assign(:device_fields, config.fields)
+      |> assign(:device_fields, device_filter_fields(config))
       |> assign(:filter_ops, [
         {"contains", "contains"},
         {"equals", "equals"},
@@ -432,4 +432,12 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     </label>
     """
   end
+
+  defp device_filter_fields(%{filter_fields: fields}) when is_list(fields) do
+    Enum.map(fields, fn field ->
+      %{name: field, label: Phoenix.Naming.humanize(field)}
+    end)
+  end
+
+  defp device_filter_fields(_), do: []
 end

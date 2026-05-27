@@ -148,8 +148,6 @@ defmodule ServiceRadarWebNGWeb.Plugs.UploadGuardTest do
     %Plug.Upload{path: path, filename: filename, content_type: "application/octet-stream"}
   end
 
-  defp on_exit(fun), do: ExUnit.Callbacks.on_exit(fun)
-
   defp add_param(conn, key, value) do
     %{conn | params: Map.put(conn.params || %{}, key, value)}
   end

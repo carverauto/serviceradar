@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Api.CollectorControllerTest do
     end
   end
 
-  describe "POST /api/admin/collectors/:id/download" do
+  describe "POST /api/admin/collectors/:id/download install script" do
     test "returns a shell-literal-safe install script", %{conn: _conn} do
       {package, token} =
         create_ready_collector_package(:flowgger, %{
