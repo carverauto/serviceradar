@@ -86,6 +86,46 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     |> Phoenix.Component.assign(list_assign_key, results)
   end
 
+  def sync_from_params(socket, params, uri, opts \\ []) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    entity = srql_entity(srql, opts)
+    builder_available = builder_available?(srql)
+
+    default_limit = Keyword.get(opts, :default_limit, 20)
+    max_limit = Keyword.get(opts, :max_limit, 100)
+    limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
+
+    limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
+    builder = build_builder_state(params, srql, entity, limit, builder_available)
+    default_query = default_query_for(builder_available, builder, entity, limit)
+    query = normalize_query_param(Map.get(params, "q"), default_query)
+
+    {builder_supported, builder_sync, builder_state} =
+      parse_builder_state(builder_available, query, builder)
+
+    page_path = uri |> normalize_uri() |> URI.parse() |> Map.get(:path)
+    display_limit = extract_limit_from_srql(query, limit, default_limit, max_limit)
+
+    srql =
+      Map.merge(srql, %{
+        enabled: true,
+        entity: entity,
+        page_path: page_path,
+        query: query,
+        draft: query,
+        error: nil,
+        loading: true,
+        builder_available: builder_available,
+        builder_supported: builder_supported,
+        builder_sync: builder_sync,
+        builder: builder_state
+      })
+
+    socket
+    |> Phoenix.Component.assign(:srql, srql)
+    |> Phoenix.Component.assign(limit_assign_key, display_limit)
+  end
+
   defp normalize_optional_string(nil), do: nil
   defp normalize_optional_string(""), do: nil
   defp normalize_optional_string(value) when is_binary(value), do: value
