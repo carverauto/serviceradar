@@ -16,7 +16,7 @@
 ## 3. SRQL and Query Surfaces
 - [x] 3.1 Expose latest per-agent availability fields to SRQL device queries.
 - [x] 3.2 Add filters for devices available/unavailable from a selected agent.
-- [ ] 3.3 Add filters for primary availability source and source freshness.
+- [x] 3.3 Add filters for primary availability source and source freshness.
 - [x] 3.4 Add tests covering per-agent availability filtering and existing `is_available` compatibility.
 - [x] 3.5 Add SRQL validation and preview support for availability source profile scopes.
 
@@ -36,8 +36,8 @@
 
 ## 6. Verification
 - [x] 6.1 Add ingestion tests for two agents reporting different availability for the same device.
-- [ ] 6.2 Add UI tests or focused LiveView/component tests for the per-agent device detail section.
+- [x] 6.2 Add UI tests or focused LiveView/component tests for the per-agent device detail section.
 - [x] 6.3 Add regression tests ensuring existing single-agent installs keep current `is_available` behavior.
-- [ ] 6.4 Validate against demo/faker data with at least two agents and conflicting sweep outcomes.
+- [x] 6.4 Validate against demo/faker data with at least two agents and conflicting sweep outcomes.
 - [x] 6.5 Run `openspec validate add-per-agent-availability --strict`.
 - [x] 6.6 Add regression coverage for profile precedence, per-device overrides, stale selected-agent rows, and SRQL preview validation.

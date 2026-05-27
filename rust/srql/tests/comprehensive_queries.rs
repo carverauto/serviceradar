@@ -170,6 +170,27 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(body["results"][0]["uid"], "device-alpha")
             })),
         },
+        TestCase {
+            query: "in:devices primary_availability_source:agent-1",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
+            })),
+        },
+        TestCase {
+            query: "in:devices availability_source_fresh_within:last_1h",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
+            })),
+        },
+        TestCase {
+            query: "in:devices availability_source_stale_after:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha")
+            })),
+        },
         // JSONB path queries for os field
         TestCase {
             // os.name:IOS-XE -> device-alpha only

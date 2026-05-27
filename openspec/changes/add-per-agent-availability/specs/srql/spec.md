@@ -23,6 +23,13 @@ SRQL device results SHALL expose enough availability source metadata for UI and 
 - **THEN** the result payload SHALL include the canonical availability value
 - **AND** SHALL include the source identifier for that canonical availability value
 
+#### Scenario: Filter by primary source freshness
+- **GIVEN** a device has primary availability source `agent-intranet`
+- **AND** the latest `agent-intranet` availability observation is recent
+- **WHEN** a client queries `in:devices availability_source_fresh_within:last_1h`
+- **THEN** SRQL SHALL return that device
+- **AND** `in:devices availability_source_stale_after:last_1h` SHALL exclude that device
+
 #### Scenario: Device result includes bounded per-agent summary
 - **GIVEN** a device has latest availability observations from multiple agents
 - **WHEN** a client queries device details through SRQL or a device detail data source backed by SRQL

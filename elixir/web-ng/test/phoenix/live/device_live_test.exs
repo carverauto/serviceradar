@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+  alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   setup %{conn: conn} do
@@ -1645,7 +1646,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability falls back to recent sweep history when canonical rows are absent" do
     html =
-      render_component(&ServiceRadarWebNGWeb.DeviceLive.Show.agent_availability_section/1,
+      render_component(&Show.agent_availability_section/1,
         rows: [],
         device_row: %{},
         sweep_results: %{
@@ -1667,6 +1668,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Available"
     assert html =~ "ICMP ok"
     refute html =~ "No per-agent sweep availability has been recorded"
+  end
+
+  test "agent availability marks canonical profile-derived source" do
+    html =
+      render_component(&Show.agent_availability_section/1,
+        rows: [
+          %{
+            agent_id: "agent-canonical-segment",
+            agent_name: "Segment Agent",
+            is_available: true,
+            checked_at: ~U[2026-05-17 06:42:00Z],
+            response_time_ms: 9,
+            open_ports: [22, 443],
+            sweep_modes_results: %{"icmp" => "success"}
+          },
+          %{
+            agent_id: "agent-other-segment",
+            agent_name: "Other Agent",
+            is_available: false,
+            checked_at: ~U[2026-05-17 06:41:00Z],
+            response_time_ms: nil,
+            open_ports: [],
+            sweep_modes_results: %{"icmp" => "failed"}
+          }
+        ],
+        device_row: %{
+          "availability_source_agent_id" => "agent-canonical-segment",
+          "availability_source_profile_id" => Ecto.UUID.generate()
+        },
+        sweep_results: nil
+      )
+
+    assert html =~ "Canonical source"
+    assert html =~ "profile assigned"
+    assert html =~ "source"
+    assert html =~ "profile"
+    assert html =~ "Segment Agent"
+    assert html =~ "Available"
+    assert html =~ "Other Agent"
+    assert html =~ "Unavailable"
   end
 
   describe "interfaces bulk edit" do
