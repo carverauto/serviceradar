@@ -424,11 +424,12 @@ func (x *Ping) GetSentAtUnixNano() int64 {
 }
 
 type PingAck struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	SentAtUnixNano  int64                  `protobuf:"varint,1,opt,name=sent_at_unix_nano,json=sentAtUnixNano,proto3" json:"sent_at_unix_nano,omitempty"`
-	AckedAtUnixNano int64                  `protobuf:"varint,2,opt,name=acked_at_unix_nano,json=ackedAtUnixNano,proto3" json:"acked_at_unix_nano,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	SentAtUnixNano           int64                  `protobuf:"varint,1,opt,name=sent_at_unix_nano,json=sentAtUnixNano,proto3" json:"sent_at_unix_nano,omitempty"`
+	AckedAtUnixNano          int64                  `protobuf:"varint,2,opt,name=acked_at_unix_nano,json=ackedAtUnixNano,proto3" json:"acked_at_unix_nano,omitempty"`
+	FingerprintEngineVersion string                 `protobuf:"bytes,3,opt,name=fingerprint_engine_version,json=fingerprintEngineVersion,proto3" json:"fingerprint_engine_version,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *PingAck) Reset() {
@@ -473,6 +474,13 @@ func (x *PingAck) GetAckedAtUnixNano() int64 {
 		return x.AckedAtUnixNano
 	}
 	return 0
+}
+
+func (x *PingAck) GetFingerprintEngineVersion() string {
+	if x != nil {
+		return x.FingerprintEngineVersion
+	}
+	return ""
 }
 
 type ErrorFrame struct {
@@ -1292,10 +1300,11 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\vconfig_hash\x18\x01 \x01(\tR\n" +
 	"configHash\"1\n" +
 	"\x04Ping\x12)\n" +
-	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"a\n" +
+	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\x9f\x01\n" +
 	"\aPingAck\x12)\n" +
 	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\x12+\n" +
-	"\x12acked_at_unix_nano\x18\x02 \x01(\x03R\x0fackedAtUnixNano\":\n" +
+	"\x12acked_at_unix_nano\x18\x02 \x01(\x03R\x0fackedAtUnixNano\x12<\n" +
+	"\x1afingerprint_engine_version\x18\x03 \x01(\tR\x18fingerprintEngineVersion\":\n" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
