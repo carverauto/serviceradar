@@ -18,6 +18,7 @@ pub enum AllowlistError {
     #[error("wildcard capture interfaces are not allowed")]
     Wildcard,
     #[error("capture interface '{0}' is not allowlisted")]
+    #[allow(dead_code)]
     NotAllowlisted(String),
 }
 
@@ -31,11 +32,31 @@ impl Default for Config {
 }
 
 impl Config {
+    pub fn validate_capture_interfaces(&self) -> Result<(), AllowlistError> {
+        validate_capture_interfaces(&self.capture_interfaces)
+    }
+
+    #[allow(dead_code)]
     pub fn validate_interface(&self, interface: &str) -> Result<(), AllowlistError> {
         validate_interface(&self.capture_interfaces, interface)
     }
 }
 
+pub fn validate_capture_interfaces(interfaces: &[String]) -> Result<(), AllowlistError> {
+    for interface in interfaces {
+        if interface == "any" {
+            return Err(AllowlistError::AnyInterface);
+        }
+
+        if interface.contains('*') {
+            return Err(AllowlistError::Wildcard);
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
 pub fn validate_interface(allowlist: &[String], interface: &str) -> Result<(), AllowlistError> {
     if interface == "any" {
         return Err(AllowlistError::AnyInterface);
@@ -59,7 +80,7 @@ fn default_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_interface, AllowlistError};
+    use super::{validate_capture_interfaces, validate_interface, AllowlistError};
 
     #[test]
     fn rejects_any_interface() {
@@ -96,5 +117,27 @@ mod tests {
         let allowlist = vec!["eth0".to_string()];
 
         assert_eq!(validate_interface(&allowlist, "eth0"), Ok(()));
+    }
+
+    #[test]
+    fn validates_empty_capture_allowlist() {
+        assert_eq!(validate_capture_interfaces(&[]), Ok(()));
+    }
+
+    #[test]
+    fn validates_capture_allowlist_entries() {
+        let allowlist = vec!["eth0".to_string(), "enp0s1".to_string()];
+
+        assert_eq!(validate_capture_interfaces(&allowlist), Ok(()));
+    }
+
+    #[test]
+    fn rejects_any_in_capture_allowlist() {
+        let allowlist = vec!["any".to_string()];
+
+        assert_eq!(
+            validate_capture_interfaces(&allowlist),
+            Err(AllowlistError::AnyInterface)
+        );
     }
 }

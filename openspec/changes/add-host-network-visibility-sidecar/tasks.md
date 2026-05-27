@@ -26,10 +26,10 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 2.3 Implement Unix-domain-socket server accepting a single agent client; reject concurrent clients.
 - [x] 2.4 Implement length-prefixed protobuf framing per `proto/agent/netprobe/v1/netprobe.proto`.
 - [x] 2.5 Implement `Ping`/`PingAck` and graceful shutdown on `SIGTERM` (flush events, close UDS, exit within 5 s).
-- [ ] 2.6 Implement capability sequencing for Phase 1: assert `CAP_NET_RAW` at start (already available from systemd / pod securityContext); open pcap handles; drop to a non-root UID before serving UDS. `CAP_BPF` / `CAP_PERFMON` assertions land with Phase 3.
+- [x] 2.6 Implement capability sequencing for Phase 1: assert `CAP_NET_RAW` at start (already available from systemd / pod securityContext); open pcap handles; drop to a non-root UID before serving UDS. `CAP_BPF` / `CAP_PERFMON` assertions land with Phase 3.
 - [x] 2.7 Implement the capture-interface allowlist enforcement (refuse `any`, refuse wildcards, refuse not-in-list interfaces).
 - [x] 2.8 Expose Prometheus metrics on a localhost-only HTTP endpoint: `_packets_processed_total`, `_packets_dropped_total`, `_events_emitted_total{stream="fingerprint"}`, `_signature_failures_total`, `_uptime_seconds`.
-- [ ] 2.9 Unit tests for framing, UDS lifecycle, capability sequencing, allowlist enforcement.
+- [x] 2.9 Unit tests for framing, UDS lifecycle, capability sequencing, allowlist enforcement.
 
 ### 3. [Phase 1] `netprobe` — passive fingerprinting
 

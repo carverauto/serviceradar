@@ -1,6 +1,8 @@
 mod capabilities;
+mod capture;
 mod config;
 mod framing;
+mod lifecycle;
 mod metrics;
 mod proto;
 mod server;
@@ -12,8 +14,8 @@ use clap::{Parser, ValueEnum};
 use tokio::sync::watch;
 
 use crate::{
-    capabilities::{assert_phase1_capabilities, drop_privileges},
     config::Config,
+    lifecycle::{initialize_privileged_resources, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
     server::IpcServer,
 };
@@ -64,19 +66,19 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     init_logging(args.log_format);
 
-    if !args.skip_cap_check {
-        assert_phase1_capabilities()?;
-    }
-
     let config = load_config(args.config.as_ref())?;
     if !config.enabled {
         log::info!("netprobe config is disabled; lifecycle IPC remains available");
     }
-    for interface in &config.capture_interfaces {
-        config.validate_interface(interface)?;
-    }
 
-    drop_privileges(args.drop_user.as_deref())?;
+    let mut startup_ops = SystemStartupOps;
+    let _capture_handles = initialize_privileged_resources(
+        &mut startup_ops,
+        &config,
+        args.drop_user.as_deref(),
+        args.skip_cap_check,
+    )?;
+    log::info!("opened {} capture interface(s)", _capture_handles.len());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let metrics = Metrics::new()?;
