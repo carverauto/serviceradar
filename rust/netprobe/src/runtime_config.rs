@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher, BTreeSet, HashMap},
     hash::{Hash, Hasher},
     sync::{Arc, RwLock},
 };
@@ -18,6 +18,7 @@ use crate::{
 #[derive(Clone)]
 pub struct RuntimeConfig {
     inner: Arc<RwLock<VisibilityState>>,
+    capture_interfaces: Arc<Vec<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -67,12 +68,19 @@ impl RuntimeConfig {
                 bindings: HashMap::new(),
                 default_sample_interval_ms: 0,
             })),
+            capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
         }
     }
 
     pub fn apply(&self, config: VisibilityAgentConfig) -> Result<String> {
         validate_capture_interfaces(&config.capture_interfaces)
             .context("invalid capture interface allowlist")?;
+        let requested_capture_interfaces = normalize_capture_interfaces(&config.capture_interfaces);
+        if requested_capture_interfaces.as_slice() != self.capture_interfaces.as_ref().as_slice() {
+            anyhow::bail!(
+                "capture interface changes require a netprobe restart in Phase 1; runtime ApplyConfig cannot alter capture_interfaces"
+            );
+        }
 
         let next = VisibilityState {
             enabled: config.enabled,
@@ -199,6 +207,16 @@ fn all_fingerprints_enabled() -> FingerprintConfig {
     }
 }
 
+fn normalize_capture_interfaces(interfaces: &[String]) -> Vec<String> {
+    interfaces
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
 fn should_emit(
     last_emitted: &mut HashMap<(String, FingerprintProtocol), i64>,
@@ -307,6 +325,38 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_runtime_capture_interface_changes() {
+        let runtime_config = RuntimeConfig::new(&Config {
+            enabled: true,
+            capture_interfaces: vec!["eth0".to_string()],
+        });
+
+        let result = runtime_config.apply(VisibilityAgentConfig {
+            enabled: true,
+            capture_interfaces: vec!["enp0s1".to_string()],
+            ..Default::default()
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_matching_capture_interfaces_in_any_order() {
+        let runtime_config = RuntimeConfig::new(&Config {
+            enabled: true,
+            capture_interfaces: vec!["eth0".to_string(), "enp0s1".to_string()],
+        });
+
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                capture_interfaces: vec!["enp0s1".to_string(), "eth0".to_string()],
+                ..Default::default()
+            })
+            .unwrap();
     }
 
     fn tcp_event(ip: &str, observed_at_unix_nano: i64) -> FingerprintEvent {
