@@ -782,6 +782,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/availability-sources", Settings.AvailabilitySourceProfilesLive, :index)
       live("/settings/networks/credentials", Settings.NetworkCredentialRulesLive, :index)
       live("/settings/networks/credentials/new", Settings.NetworkCredentialRulesLive, :new)
       live("/settings/networks/credentials/:id/edit", Settings.NetworkCredentialRulesLive, :edit)
