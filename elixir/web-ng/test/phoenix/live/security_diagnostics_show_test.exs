@@ -45,6 +45,21 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
     assert html =~ "partial (missing kubernetes.namespace, kubernetes.pod)"
   end
 
+  test "event detail does not classify generic syslog events with blank waf attributes as WAF", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/events/syslog-event-1")
+
+    assert html =~ "UniFi Network has updated to 10.4.57"
+    refute html =~ "WAF Finding"
+    refute html =~ "View source log"
+  end
+
+  test "alert detail derives generic event alert titles from the triggering message", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/alerts/syslog-alert-1")
+
+    assert html =~ "UniFi Network has updated to 10.4.57"
+    refute html =~ "Event: logs.syslog.processed"
+  end
+
   defmodule SRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -67,6 +82,12 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
 
     defp results(query) do
       cond do
+        String.contains?(query, "syslog-event-1") ->
+          [syslog_event()]
+
+        String.contains?(query, "syslog-alert-1") ->
+          [syslog_alert()]
+
         String.contains?(query, ~s(in:events)) ->
           [falco_event()]
 
@@ -76,6 +97,58 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
         true ->
           []
       end
+    end
+
+    defp syslog_event do
+      %{
+        "id" => "syslog-event-1",
+        "time" => "2026-05-26T17:34:18Z",
+        "severity" => "Medium",
+        "message" => syslog_message(),
+        "log_name" => "logs.syslog.processed",
+        "log_provider" => "farm01",
+        "metadata" => %{
+          "serviceradar" => %{
+            "source_log_id" => "2d88cb92-37d7-4e28-904f-d69fa5301b40"
+          }
+        },
+        "unmapped" => %{
+          "log_attributes" => %{
+            "waf" => %{
+              "source" => nil,
+              "rule_id" => nil,
+              "client_ip" => nil,
+              "request_id" => nil,
+              "waf_policy" => nil,
+              "request_path" => nil,
+              "rule_message" => nil,
+              "rule_severity" => nil
+            },
+            "event_type" => nil
+          }
+        }
+      }
+    end
+
+    defp syslog_alert do
+      %{
+        "id" => "syslog-alert-1",
+        "title" => "Event: logs.syslog.processed",
+        "description" => syslog_message(),
+        "severity" => "Medium",
+        "status" => "pending",
+        "triggered_at" => "2026-05-26T17:34:18Z",
+        "event_id" => "syslog-event-1",
+        "metadata" => %{
+          "event_id" => "syslog-event-1",
+          "log_name" => "logs.syslog.processed",
+          "log_provider" => "farm01"
+        }
+      }
+    end
+
+    defp syslog_message do
+      "CEF:0|Ubiquiti|UniFi Network|10.4.57|578|Network Updated|4|UNIFIcategory=Software Updates UNIFIhost=farm01 UNIFIapplication=UniFi Network UNIFIapplicationVersion=10.4.57 UNIFIapplicationPriorVersion=10.3.58 UNIFIutcTime=2026-05-26T22:34:18.940Z msg=UniFi Network has updated to 10.4.57"
     end
 
     defp falco_event do

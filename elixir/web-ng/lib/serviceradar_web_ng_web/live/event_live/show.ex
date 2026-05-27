@@ -541,10 +541,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp waf_event?(event) when is_map(event) do
     waf = waf_payload(event)
+    signal = security_signal(event)
 
     Map.get(event, "log_name") == "security.waf.finding" or
-      get_in(event, ["metadata", "security_signal", "kind"]) == "waf" or
-      (is_map(waf) and map_size(waf) > 0)
+      Map.get(signal, "kind") == "waf" or
+      log_attribute(event, "event_type") == "waf.finding" or
+      meaningful_map?(waf)
   end
 
   defp waf_event?(_), do: false
@@ -588,14 +590,48 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     unmapped = Map.get(event, "unmapped") || %{}
     attrs = Map.get(unmapped, "log_attributes") || %{}
 
-    Map.get(unmapped, "waf") ||
-      Map.get(unmapped, :waf) ||
-      Map.get(attrs, "waf") ||
-      Map.get(attrs, :waf) ||
-      %{}
+    payload =
+      Map.get(unmapped, "waf") ||
+        Map.get(unmapped, :waf) ||
+        Map.get(attrs, "waf") ||
+        Map.get(attrs, :waf)
+
+    meaningful_payload(payload)
   end
 
   defp waf_payload(_), do: %{}
+
+  defp security_signal(event) when is_map(event) do
+    metadata = Map.get(event, "metadata") || Map.get(event, :metadata) || %{}
+    signal = Map.get(metadata, "security_signal") || Map.get(metadata, :security_signal) || %{}
+
+    if is_map(signal), do: signal, else: %{}
+  end
+
+  defp security_signal(_event), do: %{}
+
+  defp log_attribute(event, key) when is_map(event) do
+    unmapped = Map.get(event, "unmapped") || Map.get(event, :unmapped) || %{}
+    attrs = Map.get(unmapped, "log_attributes") || Map.get(unmapped, :log_attributes) || %{}
+
+    if is_map(attrs), do: Map.get(attrs, key) || Map.get(attrs, log_attribute_atom_key(key))
+  end
+
+  defp log_attribute(_event, _key), do: nil
+
+  defp log_attribute_atom_key("event_type"), do: :event_type
+  defp log_attribute_atom_key(_key), do: :__unknown__
+
+  defp meaningful_payload(payload) when is_map(payload) do
+    payload
+    |> Enum.reject(fn {_key, value} -> blank?(value) end)
+    |> Map.new()
+  end
+
+  defp meaningful_payload(_payload), do: %{}
+
+  defp meaningful_map?(map) when is_map(map), do: Enum.any?(map, fn {_key, value} -> not blank?(value) end)
+  defp meaningful_map?(_map), do: false
 
   defp waf_src_ip(event) do
     waf = waf_payload(event)
@@ -779,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp build_related(event, scope) when is_map(event) do
     %{
-      log_id: log_id_from_event(event),
+      log_id: event |> log_id_from_event() |> existing_log_id(scope),
       alert: fetch_alert(event, scope)
     }
   end
@@ -789,6 +825,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     serviceradar = Map.get(metadata, "serviceradar") || Map.get(metadata, :serviceradar) || %{}
 
     Map.get(serviceradar, "source_log_id") || Map.get(serviceradar, :source_log_id)
+  end
+
+  defp existing_log_id(nil, _scope), do: nil
+  defp existing_log_id("", _scope), do: nil
+
+  defp existing_log_id(log_id, scope) when is_binary(log_id) do
+    query = "in:logs id:\"#{escape_value(log_id)}\" limit:1"
+
+    case srql_module().query(query, %{scope: scope}) do
+      {:ok, %{"results" => [_log | _]}} -> log_id
+      _ -> nil
+    end
+  rescue
+    _ -> nil
   end
 
   defp fetch_alert(event, scope) do
