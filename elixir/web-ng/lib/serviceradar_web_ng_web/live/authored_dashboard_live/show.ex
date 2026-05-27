@@ -213,6 +213,41 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
     end
   end
 
+  def handle_event("load_source_query", %{"id" => id}, socket) do
+    case SourceQueries.find_source(socket.assigns.dashboard, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Source query not found")}
+
+      source ->
+        {:noreply,
+         socket
+         |> assign(:source_query_params, SourceQueries.source_params(source))
+         |> assign(:source_query_preview, nil)
+         |> assign_source_query_form()
+         |> put_flash(:info, "Source query loaded")}
+    end
+  end
+
+  def handle_event("remove_source_query", %{"id" => id}, socket) do
+    source = SourceQueries.find_source(socket.assigns.dashboard, id)
+
+    with :ok <- AccessControls.authorize_panel_edit(socket),
+         {:ok, source} <- require_record(source),
+         0 <- source.panel_count,
+         {:ok, dashboard} <- SourceQueries.remove_source(socket.assigns.current_scope, socket.assigns.dashboard, id) do
+      {:noreply,
+       socket
+       |> assign(:dashboard, dashboard)
+       |> put_flash(:info, "Source query removed")}
+    else
+      count when is_integer(count) ->
+        {:noreply, put_flash(socket, :error, "Remove linked panels before deleting this source")}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Source query removal failed: #{format_error(reason)}")}
+    end
+  end
+
   def handle_event("run_source_query", %{"source_query" => params}, socket) do
     with :ok <- AccessControls.authorize_panel_edit(socket),
          params = merge_params(socket.assigns.source_query_params, params),

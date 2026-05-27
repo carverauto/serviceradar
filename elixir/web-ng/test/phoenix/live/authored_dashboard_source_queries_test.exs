@@ -55,6 +55,17 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
   end
 
   describe "outputs_for_preview/1" do
+    test "labels table outputs as detail rows" do
+      [output] =
+        SourceQueries.outputs_for_preview(%{
+          fields: [%{"name" => "name", "type" => "string"}],
+          compatible_visuals: [:table]
+        })
+
+      assert output["label"] == "Detail rows"
+      assert output["intent"] == "detail_rows"
+    end
+
     test "summarizes grouped availability outputs from the returned schema" do
       outputs =
         SourceQueries.outputs_for_preview(%{
@@ -87,23 +98,59 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
   end
 
   describe "templates/0" do
-    test "includes target-group availability templates backed by supported SRQL filters" do
-      template_queries = Map.new(SourceQueries.templates(), &{&1.key, &1.query})
+    test "ships generic starter templates only" do
+      template_queries = Map.new(SourceQueries.generic_templates(), &{&1.key, &1.query})
 
-      assert template_queries["armis_development_availability"] ==
-               ~s|in:devices metadata.armis_tags:%development% stats:"count() as count by is_available"|
+      assert template_queries["device_availability"] ==
+               "in:devices stats:count() as count by is_available limit:25"
 
-      assert template_queries["armis_testing_availability"] ==
-               ~s|in:devices metadata.armis_tags:%testing% stats:"count() as count by is_available"|
+      assert template_queries["device_type_count"] ==
+               "in:devices stats:count() as count by type limit:25"
 
-      assert template_queries["hypervisor_availability"] ==
-               ~s|in:devices type:Hypervisor stats:"count() as count by is_available"|
+      refute Map.has_key?(template_queries, "armis_development_availability")
+      refute Map.has_key?(template_queries, "router_switch_availability")
+    end
+  end
 
-      assert template_queries["workstation_availability"] ==
-               ~s|in:devices type:Workstation stats:"count() as count by is_available"|
+  describe "source_queries/1" do
+    test "reads only the current stored source shape and counts linked panels" do
+      source = %{
+        "id" => "src_one",
+        "name" => "Current source",
+        "srql_query" => "in:devices limit:10",
+        "fields" => [],
+        "sample_rows" => [],
+        "compatible_visuals" => ["table"],
+        "outputs" => [],
+        "updated_at" => "2026-05-26T00:00:00Z"
+      }
 
-      assert template_queries["router_switch_availability"] ==
-               ~s|in:devices type:(Router,Switch) stats:"count() as count by is_available"|
+      legacy_source = %{id: "legacy", name: "Legacy", srql_query: "in:services"}
+
+      dashboard = %{
+        metadata: %{"source_queries" => [source, legacy_source]},
+        panels: [
+          %{metadata: %{"source_query_id" => "src_one"}},
+          %{metadata: %{"source_query_id" => "other"}}
+        ]
+      }
+
+      assert [
+               %{
+                 id: "src_one",
+                 name: "Current source",
+                 srql_query: "in:devices limit:10",
+                 panel_count: 1
+               }
+             ] = SourceQueries.source_queries(dashboard)
+    end
+  end
+
+  describe "field options" do
+    test "does not expose a blank Auto option" do
+      assert SourceQueries.field_options([%{"name" => "count", "type" => "number"}]) == [
+               {"Count (number)", "count"}
+             ]
     end
   end
 

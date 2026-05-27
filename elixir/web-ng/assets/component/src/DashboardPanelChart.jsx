@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef, useState} from "../../node_modules/react/index.js"
+import React, {useEffect, useMemo, useRef, useState} from "react"
 import {
   Area,
   AreaChart,

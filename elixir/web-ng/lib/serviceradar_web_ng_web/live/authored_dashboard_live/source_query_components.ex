@@ -150,7 +150,41 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
             </h4>
             <div class="mt-3 space-y-2">
               <div :for={source <- @source_queries} class="rounded border border-slate-800 p-2">
-                <div class="text-sm font-semibold text-slate-100">{source.name}</div>
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="truncate text-sm font-semibold text-slate-100">{source.name}</div>
+                    <div class="mt-1 text-[11px] text-slate-500">
+                      {source.panel_count} linked {if source.panel_count == 1,
+                        do: "panel",
+                        else: "panels"}
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      class="btn btn-xs"
+                      phx-click="load_source_query"
+                      phx-value-id={source.id}
+                      disabled={!@can_manage?}
+                    >
+                      Load
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-error btn-outline"
+                      phx-click="remove_source_query"
+                      phx-value-id={source.id}
+                      disabled={!@can_manage? or source.panel_count > 0}
+                      title={
+                        if source.panel_count > 0,
+                          do: "Remove linked panels before deleting this source",
+                          else: "Remove source"
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
                 <div class="mt-1 truncate font-mono text-[11px] text-cyan-300">
                   {source.srql_query}
                 </div>

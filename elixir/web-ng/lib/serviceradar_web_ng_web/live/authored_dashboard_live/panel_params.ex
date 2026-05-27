@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
 
   def default do
     %{
-      "dataset_key" => "primary",
+      "dataset_key" => "",
       "title" => "",
       "srql_query" => "",
       "visual_type" => "table",
@@ -74,12 +74,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
   end
 
   def attrs(params) do
+    dataset_key = dataset_key(params)
+
     %{
-      dataset_key: params["dataset_key"],
+      dataset_key: dataset_key,
       title: params["title"],
       srql_query: params["srql_query"],
       visual_type: params["visual_type"],
-      data_binding: data_binding(params),
+      data_binding: data_binding(params, dataset_key),
       display_config: display_config(params),
       visual_config: visual_config(params),
       layout: layout(params),
@@ -182,7 +184,29 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
     }
   end
 
-  defp data_binding(params) do
+  defp dataset_key(params) do
+    params["dataset_key"]
+    |> to_string()
+    |> String.trim()
+    |> case do
+      "" -> generated_dataset_key(params)
+      value -> value
+    end
+  end
+
+  defp generated_dataset_key(params) do
+    seed = Enum.join([params["title"], params["srql_query"], params["visual_type"]], ":")
+
+    hash =
+      :sha256
+      |> :crypto.hash(seed)
+      |> Base.encode16(case: :lower)
+      |> binary_part(0, 10)
+
+    "panel_#{hash}"
+  end
+
+  defp data_binding(params, dataset_key) do
     [
       "value_field",
       "numerator_field",
@@ -196,7 +220,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
       "empty_value"
     ]
     |> Enum.reduce(%{}, fn key, acc -> put_present(acc, key, params[key]) end)
-    |> Map.put("dataset", params["dataset_key"] || "primary")
+    |> Map.put("dataset", dataset_key)
   end
 
   defp display_config(params) do

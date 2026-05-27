@@ -157,7 +157,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     view
     |> form("form[phx-submit='submit_panel_form']", %{
       "panel" => %{
-        "dataset_key" => "services",
         "title" => "Service Series",
         "srql_query" => "series services"
       }
@@ -175,7 +174,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     view
     |> form("form[phx-submit='submit_panel_form']", %{
       "panel" => %{
-        "dataset_key" => "services",
         "title" => "Service Series",
         "srql_query" => "series services",
         "visual_type" => "table"
@@ -184,7 +182,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     |> render_submit()
 
     panels = Dashboards.list_authored_panels(scope, dashboard.id)
-    assert Enum.map(panels, & &1.dataset_key) == ["services"]
+    assert [panel] = panels
+    assert String.starts_with?(panel.dataset_key, "panel_")
     assert Enum.map(panels, & &1.srql_query) == ["series services"]
   end
 
@@ -214,7 +213,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     view
     |> form("form[phx-submit='submit_panel_form']", %{
       "panel" => %{
-        "dataset_key" => "device_availability",
         "title" => "Device Availability",
         "srql_query" => "grouped availability devices"
       }
@@ -288,6 +286,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert panel.builder_state["mode"] == "query_first"
     assert panel.metadata["source_query_id"]
     assert panel.metadata["output_id"]
+    html = render(view)
+    assert html =~ "1 linked panel"
+    assert html =~ "Load"
 
     {:ok, reloaded} = Dashboards.get_authored_dashboard(scope, dashboard.id)
     assert [source] = reloaded.metadata["source_queries"]

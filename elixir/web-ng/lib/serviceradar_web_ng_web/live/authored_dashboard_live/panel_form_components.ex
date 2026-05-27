@@ -38,8 +38,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         </p>
       </div>
 
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <.input field={@form[:dataset_key]} type="text" label="Dataset key" />
+      <div class="grid grid-cols-1 gap-3">
         <.input field={@form[:title]} type="text" label="Panel title" />
       </div>
 

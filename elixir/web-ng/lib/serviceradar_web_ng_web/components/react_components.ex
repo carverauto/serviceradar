@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   def dashboard_panel_chart(assigns) do
     assigns =
       assign(assigns, :props, %{
-        panel: assigns.panel,
+        panel: dashboard_panel_chart_props(assigns.panel),
         rows: assigns.rows,
         fields: assigns.fields,
         trend: assigns.trend
@@ -103,6 +103,17 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       </div>
     </div>
     """
+  end
+
+  defp dashboard_panel_chart_props(panel) do
+    %{
+      id: panel.id,
+      title: panel.title,
+      visual_type: panel.visual_type,
+      data_binding: panel.data_binding || %{},
+      display_config: panel.display_config || %{},
+      visual_config: panel.visual_config || %{}
+    }
   end
 
   attr :id, :string, required: true

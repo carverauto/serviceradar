@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useRef} from "../../node_modules/react/index.js"
+import React, {useEffect, useMemo, useRef} from "react"
 import {GridStack} from "gridstack"
 
 const VISUAL_LABELS = {

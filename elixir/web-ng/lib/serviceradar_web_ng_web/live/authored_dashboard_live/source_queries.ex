@@ -2,15 +2,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   @moduledoc """
   Query-first authoring helpers for authored dashboards.
 
-  Source queries are stored in dashboard metadata so the current panel schema
-  remains backward-compatible while the builder can model reusable SRQL inputs
-  and source-derived visual outputs.
+  Source queries are stored in dashboard metadata and referenced by panels
+  through the source query id recorded in panel metadata.
   """
 
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.LayoutHelpers
 
   @source_key "source_queries"
+  @templates_env "SERVICERADAR_DASHBOARD_SOURCE_TEMPLATES_JSON"
 
   def default_params do
     %{
@@ -25,6 +25,10 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   end
 
   def templates do
+    generic_templates() ++ configured_templates()
+  end
+
+  def generic_templates do
     [
       %{
         key: "device_type_count",
@@ -37,36 +41,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
         label: "Device availability",
         query: "in:devices stats:count() as count by is_available limit:25",
         description: "Grouped availability query for gauge or availability panels."
-      },
-      %{
-        key: "armis_development_availability",
-        label: "Armis development availability",
-        query: ~s|in:devices metadata.armis_tags:%development% stats:"count() as count by is_available"|,
-        description: "Availability gauge source for devices tagged as development in Armis metadata."
-      },
-      %{
-        key: "armis_testing_availability",
-        label: "Armis testing availability",
-        query: ~s|in:devices metadata.armis_tags:%testing% stats:"count() as count by is_available"|,
-        description: "Availability gauge source for devices tagged as testing in Armis metadata."
-      },
-      %{
-        key: "hypervisor_availability",
-        label: "Hypervisor availability",
-        query: ~s|in:devices type:Hypervisor stats:"count() as count by is_available"|,
-        description: "Availability gauge source for discovered hypervisors."
-      },
-      %{
-        key: "workstation_availability",
-        label: "Workstation availability",
-        query: ~s|in:devices type:Workstation stats:"count() as count by is_available"|,
-        description: "Availability gauge source for workstation devices."
-      },
-      %{
-        key: "router_switch_availability",
-        label: "Routers and switches",
-        query: ~s|in:devices type:(Router,Switch) stats:"count() as count by is_available"|,
-        description: "Availability gauge source for routers and switches."
       },
       %{
         key: "service_recent",
@@ -92,14 +66,26 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
     end
   end
 
+  def source_queries(%{metadata: metadata, panels: panels}) do
+    metadata
+    |> source_queries()
+    |> Enum.map(&Map.put(&1, :panel_count, source_panel_count(panels, &1.id)))
+  end
+
   def source_queries(%{metadata: metadata}), do: source_queries(metadata)
 
   def source_queries(metadata) when is_map(metadata) do
     metadata
     |> Map.get(@source_key, [])
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&normalize_source/1)
+    |> case do
+      sources when is_list(sources) ->
+        sources
+        |> Enum.filter(&stored_source?/1)
+        |> Enum.map(&source_from_storage/1)
+
+      _not_sources ->
+        []
+    end
   end
 
   def source_queries(_metadata), do: []
@@ -114,10 +100,37 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
     Map.put(metadata, @source_key, Enum.map(sources, &source_for_storage/1))
   end
 
-  def upsert_source_metadata(_metadata, source), do: upsert_source_metadata(%{}, source)
-
   def persist_source(scope, dashboard, source) do
     metadata = upsert_source_metadata(dashboard.metadata || %{}, source)
+
+    case Dashboards.update_authored_dashboard(scope, dashboard, %{metadata: metadata}) do
+      {:ok, updated_dashboard} -> {:ok, %{updated_dashboard | panels: dashboard.panels || []}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def find_source(dashboard, source_id) do
+    dashboard
+    |> source_queries()
+    |> Enum.find(&(&1.id == source_id))
+  end
+
+  def source_params(nil), do: default_params()
+
+  def source_params(source) do
+    Map.merge(default_params(), %{
+      "name" => source.name,
+      "srql_query" => source.srql_query,
+      "title" => "",
+      "display_label" => "",
+      "unit" => "",
+      "caption" => "",
+      "lookback_days" => "30"
+    })
+  end
+
+  def remove_source(scope, dashboard, source_id) do
+    metadata = remove_source_metadata(dashboard.metadata || %{}, source_id)
 
     case Dashboards.update_authored_dashboard(scope, dashboard, %{metadata: metadata}) do
       {:ok, updated_dashboard} -> {:ok, %{updated_dashboard | panels: dashboard.panels || []}}
@@ -188,7 +201,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   end
 
   def field_options(fields) do
-    [{"Auto", ""} | Enum.map(fields || [], &{field_label(&1), field_name(&1)})]
+    Enum.map(fields || [], &{field_label(&1), field_name(&1)})
   end
 
   def numeric_field_options(fields) do
@@ -227,13 +240,6 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
 
   def all_visual_options do
     Enum.map(Dashboards.authored_visual_options(), &{&1.label, to_string(&1.type)})
-  end
-
-  def selected_visual(value, compatible) do
-    compatible = Enum.map(compatible || [:table], &to_string/1)
-    value = to_string(value || "table")
-
-    if value in compatible, do: value, else: List.first(compatible) || "table"
   end
 
   def preview_fields(%{fields: fields}) when is_list(fields), do: fields
@@ -329,16 +335,60 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
 
   def availability_numerator_field(fields), do: field_named(fields, "ok") || field_named(fields, "available")
 
-  defp normalize_source(source) do
+  defp configured_templates do
+    @templates_env
+    |> System.get_env("")
+    |> String.trim()
+    |> case do
+      "" ->
+        []
+
+      encoded ->
+        case Jason.decode(encoded) do
+          {:ok, templates} when is_list(templates) ->
+            templates
+            |> Enum.filter(&configured_template?/1)
+            |> Enum.map(&template_from_config/1)
+
+          _invalid ->
+            []
+        end
+    end
+  end
+
+  defp configured_template?(template) when is_map(template) do
+    is_binary(template["key"]) and is_binary(template["label"]) and is_binary(template["query"])
+  end
+
+  defp configured_template?(_template), do: false
+
+  defp template_from_config(template) do
     %{
-      id: to_string(source["id"] || source[:id] || source_id(source["srql_query"] || source[:srql_query] || "")),
-      name: to_string(source["name"] || source[:name] || "Source query"),
-      srql_query: to_string(source["srql_query"] || source[:srql_query] || ""),
-      fields: List.wrap(source["fields"] || source[:fields] || []),
-      sample_rows: List.wrap(source["sample_rows"] || source[:sample_rows] || []),
-      compatible_visuals: List.wrap(source["compatible_visuals"] || source[:compatible_visuals] || []),
-      outputs: List.wrap(source["outputs"] || source[:outputs] || []),
-      updated_at: source["updated_at"] || source[:updated_at]
+      key: template["key"],
+      label: template["label"],
+      query: template["query"],
+      description: template["description"] || "Configured dashboard source query template."
+    }
+  end
+
+  defp stored_source?(source) when is_map(source) do
+    is_binary(source["id"]) and is_binary(source["name"]) and is_binary(source["srql_query"]) and
+      is_list(source["fields"]) and is_list(source["compatible_visuals"]) and is_list(source["outputs"])
+  end
+
+  defp stored_source?(_source), do: false
+
+  defp source_from_storage(source) do
+    %{
+      id: source["id"],
+      name: source["name"],
+      srql_query: source["srql_query"],
+      fields: source["fields"],
+      sample_rows: source["sample_rows"] || [],
+      compatible_visuals: source["compatible_visuals"],
+      outputs: source["outputs"],
+      updated_at: source["updated_at"],
+      panel_count: 0
     }
   end
 
@@ -353,6 +403,25 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
       "outputs" => source.outputs,
       "updated_at" => source.updated_at
     }
+  end
+
+  defp remove_source_metadata(metadata, source_id) do
+    sources =
+      metadata
+      |> source_queries()
+      |> Enum.reject(&(&1.id == source_id))
+      |> Enum.map(&source_for_storage/1)
+
+    Map.put(metadata, @source_key, sources)
+  end
+
+  defp source_panel_count(panels, source_id) do
+    panels
+    |> List.wrap()
+    |> Enum.count(fn
+      %{metadata: %{"source_query_id" => ^source_id}} -> true
+      _panel -> false
+    end)
   end
 
   defp source_id(query) do
@@ -389,8 +458,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   defp intent_for_visual(:category), do: "category_breakdown"
   defp intent_for_visual(:status_list), do: "status_grid"
   defp intent_for_visual(:pivot), do: "pivot_table"
-  defp intent_for_visual(:table), do: "row_table"
-  defp intent_for_visual(_visual), do: "row_table"
+  defp intent_for_visual(:table), do: "detail_rows"
+  defp intent_for_visual(_visual), do: "detail_rows"
 
   defp output_label(visual) do
     visual
