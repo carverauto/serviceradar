@@ -24,11 +24,16 @@ defmodule ServiceRadar.Inventory do
   use Ash.Domain,
     extensions: [
       AshJsonApi.Domain,
-      AshAdmin.Domain
+      AshAdmin.Domain,
+      AshPaperTrail.Domain
     ]
 
   admin do
     show?(true)
+  end
+
+  paper_trail do
+    include_versions? true
   end
 
   resources do

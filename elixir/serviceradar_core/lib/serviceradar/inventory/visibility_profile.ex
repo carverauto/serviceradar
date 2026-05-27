@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
   use Ash.Resource,
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
@@ -45,8 +46,20 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     schema "platform"
   end
 
+  paper_trail do
+    primary_key_type :uuid
+    table_name "visibility_profile_versions"
+    mixin {ServiceRadar.Inventory.VisibilityProfile.PaperTrailMixin, :mixin, []}
+    change_tracking_mode :full_diff
+    attributes_as_attributes [:partition_id]
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? true
+    ignore_attributes [:inserted_at, :updated_at]
+  end
+
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     create :create do
       accept @profile_fields
@@ -61,6 +74,10 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
       require_atomic? false
       change &reject_reserved_phase_one_fields/2
       change ValidateSrqlQuery
+    end
+
+    destroy :destroy do
+      require_atomic? false
     end
 
     read :list_available do

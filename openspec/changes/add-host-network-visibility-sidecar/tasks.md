@@ -86,7 +86,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 8.6 Wire compiler output into `AgentConfigResponse.visibility_config`.
 - [x] 8.7 Extend `Serviceradar.Inventory.Device` validation to accept new `os.passive_fingerprint`, `metadata.passive_fingerprint` map keys.
 - [x] 8.8 Ship initial `visibility_enrichment_rules.yaml` pack mapping common p0f / JA4 signatures to `type_id`, `vendor_name`, `os.family`.
-- [ ] 8.9 Enable AshPaperTrail on Ash resources that control packet-observation posture (`VisibilityProfile` and any capture-interface allowlist resource) so profile/allowlist creates, updates, disables, and deletes are auditable with actor, partition, request id, prior value, and new value.
+- [x] 8.9 Enable AshPaperTrail on Ash resources that control packet-observation posture (`VisibilityProfile` and any capture-interface allowlist resource) so profile/allowlist creates, updates, disables, and deletes are auditable with actor, partition, request id, prior value, and new value.
 
 ### 9. [Phase 1] Discovery ingestion integration
 
