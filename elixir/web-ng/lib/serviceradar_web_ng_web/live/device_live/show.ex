@@ -3409,7 +3409,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_remote_access_app, can_remote_access_app?(assigns.current_scope))
-      |> assign(:can_manage_rdp_targets, can_manage_rdp_targets?(assigns.current_scope))
+      |> assign(:can_manage_rdp_targets, can_manage_rdp_targets?(assigns.current_scope, device_row))
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(
         :can_view_northbound_history,
@@ -11174,8 +11174,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     FeatureFlags.remote_access_app_enabled?() and RBAC.can?(scope, "devices.remote_access.app.open")
   end
 
-  defp can_manage_rdp_targets?(scope) do
-    FeatureFlags.remote_access_desktop_rdp_enabled?() and RBAC.can?(scope, "settings.edge.manage")
+  defp can_manage_rdp_targets?(scope, device_row) do
+    FeatureFlags.remote_access_desktop_rdp_enabled?() and windows_device?(device_row) and
+      RBAC.can?(scope, "settings.edge.manage")
   end
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
@@ -11219,18 +11220,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp ssh_capable_device?(device_row) when is_map(device_row) do
     values =
-      [
-        Map.get(device_row, "type"),
-        Map.get(device_row, "device_type"),
-        Map.get(device_row, "os_info"),
-        Map.get(device_row, "os"),
-        metadata_value(device_row, "operating_system"),
-        metadata_value(device_row, "os_name"),
-        metadata_value(device_row, "os_type"),
-        metadata_value(device_row, "sys_descr"),
-        metadata_value(device_row, "snmp_description")
-      ]
-      |> Enum.flat_map(&ssh_capability_strings/1)
+      device_row
+      |> device_identity_values()
       |> Enum.map(&String.downcase/1)
 
     cond do
@@ -11270,6 +11261,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp ssh_capable_device?(_device_row), do: false
+
+  defp windows_device?(nil), do: false
+
+  defp windows_device?(device_row) when is_map(device_row) do
+    device_row
+    |> device_identity_values()
+    |> Enum.map(&String.downcase/1)
+    |> Enum.any?(&String.contains?(&1, "windows"))
+  end
+
+  defp windows_device?(_device_row), do: false
+
+  defp device_identity_values(device_row) when is_map(device_row) do
+    Enum.flat_map(
+      [
+        Map.get(device_row, "type"),
+        Map.get(device_row, "device_type"),
+        Map.get(device_row, "os_info"),
+        Map.get(device_row, "os"),
+        metadata_value(device_row, "operating_system"),
+        metadata_value(device_row, "os_name"),
+        metadata_value(device_row, "os_type"),
+        metadata_value(device_row, "platform"),
+        metadata_value(device_row, "platform_name"),
+        metadata_value(device_row, "sys_descr"),
+        metadata_value(device_row, "snmp_description")
+      ],
+      &ssh_capability_strings/1
+    )
+  end
+
+  defp device_identity_values(_device_row), do: []
 
   defp ssh_capability_strings(nil), do: []
   defp ssh_capability_strings(""), do: []

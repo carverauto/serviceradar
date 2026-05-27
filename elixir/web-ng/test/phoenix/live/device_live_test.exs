@@ -589,6 +589,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "/devices/#{uid}/remote-access/ssh"
   end
 
+  test "hides Enable RDP action for non-Windows devices", %{conn: conn} do
+    with_remote_access_rdp_enabled(true)
+
+    uid = "test-device-rdp-linux-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "linux-rdp-hidden",
+        metadata: %{"operating_system" => "Ubuntu Linux"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    refute html =~ "Enable RDP"
+    refute html =~ "/settings/networks/desktop-targets/new"
+  end
+
+  test "shows Enable RDP action for Windows devices", %{conn: conn} do
+    with_remote_access_rdp_enabled(true)
+
+    uid = "test-device-rdp-windows-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "windows-rdp-enabled",
+        metadata: %{"operating_system" => "Microsoft Windows Server 2022"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    assert html =~ "Enable RDP"
+    assert html =~ "/settings/networks/desktop-targets/new"
+  end
+
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
@@ -2083,6 +2129,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     on_exit(fn ->
       restore_env(:remote_access_ssh_enabled, previous)
+    end)
+  end
+
+  defp with_remote_access_rdp_enabled(enabled?) do
+    previous = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, enabled?)
+
+    on_exit(fn ->
+      restore_env(:remote_access_desktop_rdp_enabled, previous)
     end)
   end
 
