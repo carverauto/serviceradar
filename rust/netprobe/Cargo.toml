@@ -1,0 +1,33 @@
+[package]
+name = "serviceradar-netprobe"
+version = "0.1.0"
+edition = "2021"
+authors = ["ServiceRadar Team"]
+description = "Host network visibility sidecar for ServiceRadar agents"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4", features = ["derive", "env"] }
+env_logger = "0.11"
+etherparse = "0.20.1"
+huginn-net = "1.5"
+log = "0.4"
+nix = { version = "0.31", features = ["signal", "process", "user"] }
+pcap = "2.4.0"
+prometheus = "0.14"
+prost = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+
+[build-dependencies]
+prost-build = "0.13"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bin]]
+name = "serviceradar-netprobe"
+path = "src/main.rs"

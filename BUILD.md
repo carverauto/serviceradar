@@ -34,9 +34,13 @@ bazel --version
 * pkg-config
 * libev-dev 
 * libssl-dev
+* musl-tools
+* musl cross-linkers for netprobe static builds:
+  * `x86_64-linux-musl-gcc`
+  * `aarch64-linux-musl-gcc`
 
 `
-sudo apt install -y git clang-18 build-essential openjdk-25-jdk bubblewrap rsync libgmp-dev liblz4-dev libzstd-dev pkg-config libev-dev libssl-dev
+sudo apt install -y git clang-18 build-essential openjdk-25-jdk bubblewrap rsync libgmp-dev liblz4-dev libzstd-dev pkg-config libev-dev libssl-dev musl-tools
 `
 
 ### Clone the project

@@ -552,7 +552,11 @@ RUST_EDITION = "2021"
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
     edition = RUST_EDITION,
-    extra_target_triples = ["aarch64-unknown-linux-gnu"],
+    extra_target_triples = [
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "x86_64-unknown-linux-musl",
+    ],
     versions = [RUST_DEFAULT_VERSION],
 )
 use_repo(rust, "rust_toolchains")

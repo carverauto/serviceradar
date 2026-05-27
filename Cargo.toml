@@ -9,6 +9,7 @@ members = [
     "rust/trapd",
     "rust/otel",
     "rust/log-collector",
+    "rust/netprobe",
     "rust/consumers/zen",
     "rust/rperf-client",
     "third_party/rust_patches/reqsign-azure-storage-1.0.0",
