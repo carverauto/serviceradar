@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.EventTitle
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpInfo
@@ -4010,7 +4011,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp alert_title(alert) do
-    Map.get(alert, "title") || Map.get(alert, "description") || "Alert"
+    EventTitle.alert_title(alert)
   end
 
   defp format_alert_timestamp(alert) do

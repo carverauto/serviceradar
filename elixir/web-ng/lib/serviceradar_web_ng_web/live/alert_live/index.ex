@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
+  alias ServiceRadar.Observability.EventTitle
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
 
@@ -293,7 +294,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Index do
   end
 
   defp alert_title(alert) do
-    Map.get(alert, "title") || Map.get(alert, "description") || "Alert"
+    EventTitle.alert_title(alert)
   end
 
   defp format_timestamp(alert) do
