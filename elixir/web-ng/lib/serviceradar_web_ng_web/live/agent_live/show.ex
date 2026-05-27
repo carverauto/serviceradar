@@ -353,6 +353,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             capabilities={Map.get(@agent, "capabilities", [])}
             plugin_assignments={@plugin_assignments}
           />
+          <.network_visibility_card :if={host_visibility_capable?(@agent)} agent={@agent} />
           <.gateway_node_info
             :if={@gateway_node_info}
             node_info={@gateway_node_info}
@@ -619,6 +620,74 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
         </div>
       </div>
+    </div>
+    """
+  end
+
+  attr :agent, :map, required: true
+
+  defp network_visibility_card(assigns) do
+    status = netprobe_sidecar_status(assigns.agent)
+
+    assigns =
+      assigns
+      |> assign(:visibility_surfaces, host_visibility_surfaces(assigns.agent))
+      |> assign(:netprobe_status, status)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-eye" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Host Network Visibility</span>
+          <span class="badge badge-primary badge-sm">host-network-visibility</span>
+        </div>
+        <.ui_badge variant={sidecar_status_variant(@netprobe_status["state"])} size="sm">
+          {sidecar_status_label(@netprobe_status["state"])}
+        </.ui_badge>
+      </div>
+      <div class="p-4 space-y-4">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div :for={surface <- @visibility_surfaces} class="rounded-lg bg-base-200/40 p-3">
+            <div class="text-xs uppercase tracking-wide text-base-content/50">{surface.label}</div>
+            <div class="mt-1 text-sm font-semibold">{surface.status}</div>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-base-200 bg-base-200/20 p-3">
+          <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+            Netprobe sidecar
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+            <.agent_visibility_kv label="State" value={@netprobe_status["state"] || "unavailable"} />
+            <.agent_visibility_kv label="PID" value={@netprobe_status["pid"]} mono />
+            <.agent_visibility_kv
+              label="Restarts"
+              value={@netprobe_status["restart_count"] || 0}
+              mono
+            />
+            <.agent_visibility_kv
+              label="Last Health"
+              value={format_timestamp(@netprobe_status["last_health_at"])}
+              mono
+            />
+            <.agent_visibility_kv label="Last Error" value={@netprobe_status["last_error"] || "—"} />
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+
+  defp agent_visibility_kv(assigns) do
+    ~H"""
+    <div>
+      <div class="text-xs text-base-content/50">{@label}</div>
+      <div class={["mt-1 truncate", @mono && "font-mono text-xs"]}>{@value || "—"}</div>
     </div>
     """
   end
@@ -967,6 +1036,100 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     <.ui_badge variant={@variant} size="sm">{@type_name}</.ui_badge>
     """
   end
+
+  defp host_visibility_capable?(agent) when is_map(agent) do
+    agent
+    |> Map.get("capabilities", [])
+    |> Enum.map(&normalize_capability/1)
+    |> Enum.any?(&(&1 == "host-network-visibility" or String.starts_with?(&1, "host-network-visibility.")))
+  end
+
+  defp host_visibility_capable?(_agent), do: false
+
+  defp host_visibility_surfaces(agent) do
+    capabilities =
+      agent
+      |> Map.get("capabilities", [])
+      |> Enum.map(&normalize_capability/1)
+
+    [
+      %{label: "Fingerprint", status: surface_status(capabilities, "fingerprint")},
+      %{label: "DPI", status: surface_status(capabilities, "dpi")},
+      %{label: "Flow Attribution", status: surface_status(capabilities, "flow-attribution")},
+      %{label: "Process Snapshot", status: surface_status(capabilities, "process-snapshot")}
+    ]
+  end
+
+  defp surface_status(capabilities, surface) do
+    cond do
+      "host-network-visibility.#{surface}.enabled" in capabilities ->
+        "enabled"
+
+      "host-network-visibility.#{surface}.unavailable" in capabilities ->
+        "unavailable"
+
+      surface == "flow-attribution" and "host-network-visibility.flow_attribution.unavailable" in capabilities ->
+        "unavailable"
+
+      surface == "process-snapshot" and "host-network-visibility.process_snapshot.unavailable" in capabilities ->
+        "unavailable"
+
+      true ->
+        "unavailable"
+    end
+  end
+
+  defp normalize_capability(capability) do
+    capability
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace("_", "-")
+  end
+
+  defp netprobe_sidecar_status(agent) do
+    sidecars =
+      agent
+      |> metadata_map()
+      |> Map.get("sidecars", Map.get(agent, "sidecars", []))
+      |> List.wrap()
+
+    Enum.find_value(sidecars, default_netprobe_sidecar_status(), fn
+      %{} = sidecar ->
+        name = Map.get(sidecar, "name", Map.get(sidecar, :name))
+
+        if normalize_capability(name) == "netprobe" do
+          stringify_keys(sidecar)
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp default_netprobe_sidecar_status do
+    %{"name" => "netprobe", "state" => "unavailable"}
+  end
+
+  defp metadata_map(agent) when is_map(agent) do
+    case Map.get(agent, "metadata") || Map.get(agent, :metadata) do
+      %{} = metadata -> stringify_keys(metadata)
+      _ -> %{}
+    end
+  end
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp sidecar_status_label(nil), do: "Unavailable"
+  defp sidecar_status_label(""), do: "Unavailable"
+  defp sidecar_status_label(state), do: state |> to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  defp sidecar_status_variant(state) when state in ["healthy", "running"], do: "success"
+  defp sidecar_status_variant(state) when state in ["starting", "restarting"], do: "warning"
+  defp sidecar_status_variant(state) when state in ["unhealthy", "failed", "circuit_open"], do: "error"
+  defp sidecar_status_variant(_state), do: "ghost"
 
   defp format_uptime(nil), do: "—"
 

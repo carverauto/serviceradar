@@ -4137,6 +4137,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
               <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
 
+              <.network_visibility_section :if={is_map(@device_row)} device_row={@device_row} />
+
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.camera_streams_section
@@ -5157,6 +5159,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  attr(:device_row, :map, required: true)
+
+  defp network_visibility_section(assigns) do
+    fingerprints = passive_fingerprint_rows(assigns.device_row)
+
+    assigns =
+      assigns
+      |> assign(:fingerprints, fingerprints)
+      |> assign(:has_fingerprints, fingerprints != [])
+
+    ~H"""
+    <div :if={@has_fingerprints} class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-eye" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Network Visibility</span>
+          <span class="badge badge-ghost badge-sm">Passive fingerprint</span>
+        </div>
+      </div>
+
+      <div class="p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div
+          :for={fingerprint <- @fingerprints}
+          class="rounded-lg border border-base-200 bg-base-200/20 p-3"
+        >
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              {fingerprint.protocol}
+            </span>
+            <span :if={fingerprint.source} class="badge badge-ghost badge-xs">
+              {fingerprint.source}
+            </span>
+          </div>
+          <div class="space-y-1.5 text-sm">
+            <.metadata_kv
+              :for={item <- fingerprint.items}
+              label={item.label}
+              value={item.value}
+              mono={item.mono}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   defp metadata_summary_groups(row) do
     metadata = row_metadata(row)
 
@@ -5333,6 +5382,77 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         href: Keyword.get(opts, :href),
         external_href: Keyword.get(opts, :external_href)
       }
+    end
+  end
+
+  defp passive_fingerprint_rows(row) when is_map(row) do
+    metadata = row_metadata(row)
+    nested = metadata_lookup(metadata, "passive_fingerprint") || %{}
+    os_payload = passive_os_payload(row, metadata)
+
+    Enum.reject(
+      [
+        passive_protocol_row("TCP", passive_protocol_payload(metadata, nested, "tcp"), [
+          metadata_item("OS family", passive_value(metadata, nested, "tcp", "os_family")),
+          metadata_item("OS name", passive_value(metadata, nested, "tcp", "os_name")),
+          metadata_item("Signature", passive_value(metadata, nested, "tcp", "signature"), mono: true),
+          metadata_item("Confidence", passive_value(metadata, nested, "tcp", "confidence")),
+          metadata_item("OS source", metadata_lookup(os_payload, "source"))
+        ]),
+        passive_protocol_row("TLS", passive_protocol_payload(metadata, nested, "tls"), [
+          metadata_item("JA4", passive_value(metadata, nested, "tls", "ja4"), mono: true),
+          metadata_item("JA4S", passive_value(metadata, nested, "tls", "ja4s"), mono: true),
+          metadata_item("SNI", passive_value(metadata, nested, "tls", "sni_redacted"))
+        ]),
+        passive_protocol_row("HTTP", passive_protocol_payload(metadata, nested, "http"), [
+          metadata_item("Server", passive_value(metadata, nested, "http", "server")),
+          metadata_item("User agent", passive_value(metadata, nested, "http", "user_agent")),
+          metadata_item("Accept language", passive_value(metadata, nested, "http", "accept_language"))
+        ])
+      ],
+      &is_nil/1
+    )
+  end
+
+  defp passive_fingerprint_rows(_row), do: []
+
+  defp passive_protocol_row(protocol, payload, items) do
+    items = Enum.reject(items, &is_nil/1)
+
+    if items == [] do
+      nil
+    else
+      %{
+        protocol: protocol,
+        source: metadata_lookup(payload, "source"),
+        items: items
+      }
+    end
+  end
+
+  defp passive_protocol_payload(_metadata, nested, protocol) when is_map(nested) do
+    case Map.get(nested, protocol) || Map.get(nested, passive_protocol_atom(protocol)) do
+      payload when is_map(payload) -> payload
+      _ -> %{}
+    end
+  end
+
+  defp passive_protocol_atom("tcp"), do: :tcp
+  defp passive_protocol_atom("tls"), do: :tls
+  defp passive_protocol_atom("http"), do: :http
+  defp passive_protocol_atom(_), do: nil
+
+  defp passive_value(metadata, nested, protocol, key) do
+    metadata_lookup(passive_protocol_payload(metadata, nested, protocol), key) ||
+      metadata_lookup(metadata, "passive_fingerprint.#{protocol}.#{key}")
+  end
+
+  defp passive_os_payload(row, metadata) do
+    os = Map.get(row, "os") || Map.get(row, "os_info") || %{}
+
+    case os do
+      %{} = os_map -> metadata_lookup(os_map, "passive_fingerprint") || %{}
+      _ -> metadata_lookup(metadata, "os.passive_fingerprint") || %{}
     end
   end
 
