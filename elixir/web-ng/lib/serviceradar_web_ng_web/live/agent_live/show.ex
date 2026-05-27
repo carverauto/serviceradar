@@ -1068,12 +1068,6 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       "host-network-visibility.#{surface}.unavailable" in capabilities ->
         "unavailable"
 
-      surface == "flow-attribution" and "host-network-visibility.flow_attribution.unavailable" in capabilities ->
-        "unavailable"
-
-      surface == "process-snapshot" and "host-network-visibility.process_snapshot.unavailable" in capabilities ->
-        "unavailable"
-
       true ->
         "unavailable"
     end
