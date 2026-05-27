@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.81
+
+Dashboard authoring UX, SRQL-driven visuals, and ingestion recovery.
+
+## Whats New
+
+**1.2.81**
+- Reworked authored dashboard creation around query-first source queries, schema-compatible visual choices, typed output bindings, safer panel editing, Recharts-backed chart containment, and operator-facing gauge/trend labels.
+- Added dashboard authoring coverage and examples for target-group availability, pivot-style outputs, bucket/downsample trend patterns, and guided visual validation across SRQL result schemas.
+- Split large dashboard LiveView and SRQL query modules into smaller helpers/components, tightened dashboard canvas state handling, and documented self-authored dashboard workflows in the user docs.
+- Fixed canonical sweep availability hysteresis so device/service availability status is derived consistently from the latest canonical sweep signals.
+- Hardened Armis northbound orphan and stale job handling so stuck executions can self-heal and enqueue correctly.
+- Added a reusable demo CNPG local web-ng testing skill for running Phoenix against live demo data without fragile one-off setup.
+
 # ServiceRadar v1.2.80
 
 Dashboard authoring canvas and topology snapshot recovery.
