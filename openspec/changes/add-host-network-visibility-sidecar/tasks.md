@@ -50,15 +50,15 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 5. [Phase 1] Agent sidecar runtime (`go/pkg/agent/sidecar/`)
 
-- [ ] 5.1 Create `manager.go` defining `Manager` that owns `[]Sidecar`, exposes `Start(ctx)` / `Stop(ctx)`.
-- [ ] 5.2 Define `Sidecar` interface: `Name()`, `BinaryPath()`, `Args(socketPath, configPath string) []string`, `OnHealthy(client)`, `OnUnhealthy(err)`.
-- [ ] 5.3 Implement process supervision via `exec.CommandContext`, structured logger passthrough tagged `sidecar=<name>` + `pid=<pid>`.
-- [ ] 5.4 Implement exponential restart back-off (1s → 60s cap); per-minute restart-cap circuit breaker.
-- [ ] 5.5 Implement health probe loop (5 s default); mark unhealthy after 3 consecutive failures.
+- [x] 5.1 Create `manager.go` defining `Manager` that owns `[]Sidecar`, exposes `Start(ctx)` / `Stop(ctx)`.
+- [x] 5.2 Define `Sidecar` interface: `Name()`, `BinaryPath()`, `Args(socketPath, configPath string) []string`, `OnHealthy(client)`, `OnUnhealthy(err)`.
+- [x] 5.3 Implement process supervision via `exec.CommandContext`, structured logger passthrough tagged `sidecar=<name>` + `pid=<pid>`.
+- [x] 5.4 Implement exponential restart back-off (1s → 60s cap); per-minute restart-cap circuit breaker.
+- [x] 5.5 Implement health probe loop (5 s default); mark unhealthy after 3 consecutive failures.
 - [ ] 5.6 Surface sidecar state into `StatusResponse` (`name`, `state`, `pid`, `last_health_at`, `restart_count`, `last_error`).
-- [ ] 5.7 Implement graceful shutdown: SIGTERM → 5 s grace → SIGKILL.
-- [ ] 5.8 Unit-test the manager with a fake `Sidecar` and a fake child script.
-- [ ] 5.9 README at `go/pkg/agent/sidecar/README.md` documenting the contract for future sidecars.
+- [x] 5.7 Implement graceful shutdown: SIGTERM → 5 s grace → SIGKILL.
+- [x] 5.8 Unit-test the manager with a fake `Sidecar` and a fake child script.
+- [x] 5.9 README at `go/pkg/agent/sidecar/README.md` documenting the contract for future sidecars.
 
 ### 6. [Phase 1] `netprobe` Go bridge (`go/pkg/agent/netprobe/`)
 
