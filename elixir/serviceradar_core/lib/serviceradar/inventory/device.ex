@@ -564,7 +564,7 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :os, :map do
       default %{}
       public? true
-      description "Operating system info (OCSF OS object)"
+      description "Operating system info (OCSF OS object), including passive_fingerprint evidence"
     end
 
     attribute :hw_info, :map do
@@ -662,7 +662,7 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :metadata, :map do
       default %{}
       public? true
-      description "Additional metadata"
+      description "Additional metadata, including protocol-specific passive_fingerprint evidence"
     end
 
     # Group assignment

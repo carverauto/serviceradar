@@ -84,7 +84,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 8.4 Create `lib/serviceradar/agent_config/compilers/visibility_compiler.ex` using `SrqlTargetResolver.resolve_for_device/2`. Compile only the fingerprint surface in Phase 1.
 - [x] 8.5 Unit tests for compiler: priority ordering, default scope `in:devices`, disabled profile handling.
 - [x] 8.6 Wire compiler output into `AgentConfigResponse.visibility_config`.
-- [ ] 8.7 Extend `Serviceradar.Inventory.Device` validation to accept new `os.passive_fingerprint`, `metadata.passive_fingerprint` map keys.
+- [x] 8.7 Extend `Serviceradar.Inventory.Device` validation to accept new `os.passive_fingerprint`, `metadata.passive_fingerprint` map keys.
 - [ ] 8.8 Ship initial `visibility_enrichment_rules.yaml` pack mapping common p0f / JA4 signatures to `type_id`, `vendor_name`, `os.family`.
 
 ### 9. [Phase 1] Discovery ingestion integration
