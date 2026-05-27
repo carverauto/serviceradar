@@ -1078,7 +1078,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp include_agent_identifier?(update, ids) do
-    ids.agent_id not in [nil, ""] and not mapper_like_source?(update)
+    ids.agent_id not in [nil, ""] and not observer_agent_source?(update)
   end
 
   defp include_mac_identifier?(update) do
@@ -1096,6 +1096,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       identity_source in ["mapper_ip_seed", "mapper_primary_mac_seed"]
   end
 
+  defp observer_agent_source?(update) do
+    source = String.downcase(update.source || "")
+
+    mapper_like_source?(update) or source in ["snmp", "snmp-metrics", "snmp_metrics"]
+  end
+
   defp mapper_primary_mac?(metadata) when is_map(metadata) do
     kind =
       metadata
@@ -1111,8 +1117,8 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp effective_identifiers(update) do
     ids = IdentityReconciler.extract_strong_identifiers(update)
 
-    if mapper_like_source?(update) do
-      # Mapper agent_id identifies the scanner, not the discovered endpoint.
+    if observer_agent_source?(update) do
+      # Observer agent_id identifies the scanner/poller, not the discovered endpoint.
       %{ids | agent_id: nil}
     else
       ids
@@ -2065,7 +2071,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   end
 
   defp has_non_mac_identifier?(update, ids) do
-    source_has_agent_identity? = not mapper_like_source?(update)
+    source_has_agent_identity? = not observer_agent_source?(update)
 
     (source_has_agent_identity? and ids.agent_id not in [nil, ""]) or
       ids.integration_id not in [nil, ""] or

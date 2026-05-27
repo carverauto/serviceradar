@@ -140,8 +140,8 @@
 .srql-input {
   position: relative;
   z-index: 1;
-  color: #0f172a;
-  caret-color: #0f172a;
+  color: var(--color-base-content);
+  caret-color: var(--color-base-content);
   font-family: var(--srql-font-family);
   font-size: var(--srql-font-size);
   line-height: var(--srql-line-height);
