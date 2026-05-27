@@ -42,13 +42,13 @@
 
 ## 6. Tests
 
-- [ ] 6.1 LiveView/Wallaby test: navbar input opens dropdown on Tab in `in:dev`, completes to `in:devices`
-- [ ] 6.2 LiveView/Wallaby test: typing `in:device` renders the `device` substring with class `srql-token--unknown`
-- [ ] 6.3 LiveView/Wallaby test: clicking on `devices` in `in:devices` opens the dropdown listing entities
-- [ ] 6.4 Regression test: rich mode (`@rich={true}`) still renders Monaco
-- [ ] 6.5 Visual regression / snapshot test: idle navbar input geometry matches baseline
+- [x] 6.1 Playwright test: navbar input opens dropdown on Tab in `in:dev`, completes to `in:devices`
+- [x] 6.2 Playwright test: typing `in:device` renders the `device` substring with class `srql-token--unknown`
+- [x] 6.3 Playwright test: clicking on `devices` in `in:devices` opens the dropdown listing entities
+- [x] 6.4 Regression test: rich mode (`@rich={true}`) still renders Monaco
+- [x] 6.5 Visual regression / snapshot test: idle navbar input geometry matches baseline
 
 ## 7. Documentation
 
-- [ ] 7.1 Document the `/api/srql/catalog` endpoint shape in `openspec/specs/srql/spec.md` (final spec update on archive)
-- [ ] 7.2 Add a short note to plugin/dashboard authoring docs that the catalog JSON is the canonical client-side reference
+- [x] 7.1 Document the `/api/srql/catalog` endpoint shape in API docs; final spec update remains part of OpenSpec archive
+- [x] 7.2 Add a short note to plugin/dashboard authoring docs that the catalog JSON is the canonical client-side reference

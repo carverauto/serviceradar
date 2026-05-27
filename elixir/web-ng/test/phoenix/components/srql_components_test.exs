@@ -1,0 +1,39 @@
+defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
+  use ExUnit.Case, async: true
+
+  import Phoenix.LiveViewTest
+
+  alias ServiceRadarWebNGWeb.SRQLComponents
+
+  test "compact editor keeps the SRQLInput hook and datalist fallback" do
+    html =
+      render_component(&SRQLComponents.srql_editor/1,
+        id: "query",
+        name: "q",
+        value: "in:devices",
+        compact: true
+      )
+
+    assert html =~ ~s(phx-hook="SRQLInput")
+    assert html =~ ~s(data-srql-input-overlay)
+    assert html =~ ~s(<datalist id="query-completions">)
+    refute html =~ ~s(phx-hook="SRQLEditor")
+  end
+
+  test "rich editor still renders the Monaco-backed SRQLEditor hook" do
+    html =
+      render_component(&SRQLComponents.srql_editor/1,
+        id: "rich-query",
+        name: "q",
+        value: "in:devices",
+        rich: true
+      )
+
+    assert html =~ ~s(id="rich-query-input")
+    assert html =~ ~s(id="rich-query")
+    assert html =~ ~s(phx-hook="SRQLEditor")
+    assert html =~ ~s(data-input-id="rich-query-input")
+    assert html =~ ~s(data-completions=)
+    refute html =~ ~s(phx-hook="SRQLInput")
+  end
+end

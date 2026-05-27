@@ -30,6 +30,12 @@ guidance update on the developer portal as the SDK evolves; the main docs
 focus on operating ServiceRadar deployments rather than building plugins
 against them.
 
+Custom dashboard packages that provide SRQL editing or query-building UI should
+fetch `GET /api/srql/catalog` from the host ServiceRadar deployment for entity,
+field, control-token, and operator metadata. Treat that catalog JSON as the
+canonical client-side reference rather than shipping a separate SRQL field map
+inside the package.
+
 ## Related ServiceRadar Docs
 
 - [SRQL Reference](./srql-language-reference.md) — the query language that
