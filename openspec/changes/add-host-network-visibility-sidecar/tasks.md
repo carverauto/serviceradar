@@ -34,7 +34,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 ### 3. [Phase 1] `netprobe` — passive fingerprinting
 
 - [x] 3.1 Integrate `huginn-net` for TCP p0f-style analysis on the configured capture interfaces.
-- [ ] 3.2 Integrate TLS JA4 / JA4S extraction.
+- [x] 3.2 Integrate TLS JA4 / JA4S extraction.
 - [x] 3.3 Integrate HTTP header signature extraction limited to non-payload headers (`Server`, `User-Agent`, `Accept-Language`).
 - [x] 3.4 Implement per-(IP, protocol) sample-interval rate limiting honouring `sample_interval_ms`.
 - [x] 3.5 Emit `FingerprintEvent` records on the dedicated server-streamed channel.

@@ -318,15 +318,15 @@ mod tests {
         wait_for_event_receiver(&event_tx).await;
 
         let mut engine = crate::fingerprint::FingerprintEngine::phase1().unwrap();
-        for event in engine.analyze_packet("eth0", 789, &tls_client_hello_packet()) {
+        for event in engine.analyze_packet("eth0", 789, &tls_server_hello_packet()) {
             event_tx.send(event).unwrap();
         }
 
         let (event, tls) = read_tls_fixture_event(&mut client).await;
-        assert_eq!(event.ip, "192.0.2.22");
+        assert_eq!(event.ip, "198.51.100.40");
         assert_eq!(event.interface_name, "eth0");
-        assert!(tls.ja4.starts_with("t12i"));
-        assert_eq!(tls.ja4s, "");
+        assert_eq!(tls.ja4, "");
+        assert_eq!(tls.ja4s, "t1302h2_1301_b9a491fefe05");
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
@@ -428,34 +428,41 @@ mod tests {
     }
 
     #[cfg(feature = "pcap-capture")]
-    fn tls_client_hello_packet() -> Vec<u8> {
+    fn tls_server_hello_packet() -> Vec<u8> {
         ipv4_tcp_packet(
-            [192, 0, 2, 22],
             [198, 51, 100, 40],
-            49_153,
+            [192, 0, 2, 22],
             443,
-            &tls_client_hello_payload(),
+            49_153,
+            &tls_server_hello_payload(),
         )
     }
 
     #[cfg(feature = "pcap-capture")]
-    fn tls_client_hello_payload() -> Vec<u8> {
-        let cipher_suites = [0x1301u16, 0x1302u16];
+    fn tls_server_hello_payload() -> Vec<u8> {
         let mut body = Vec::new();
         body.extend_from_slice(&[0x03, 0x03]);
         body.extend_from_slice(&[0u8; 32]);
         body.push(0x00);
-        body.extend_from_slice(&((cipher_suites.len() * 2) as u16).to_be_bytes());
-        for suite in cipher_suites {
-            body.extend_from_slice(&suite.to_be_bytes());
-        }
-        body.push(0x01);
+        body.extend_from_slice(&0x1301u16.to_be_bytes());
         body.push(0x00);
-        body.extend_from_slice(&0u16.to_be_bytes());
+
+        let mut extensions = Vec::new();
+        extensions.extend_from_slice(&0x002bu16.to_be_bytes());
+        extensions.extend_from_slice(&2u16.to_be_bytes());
+        extensions.extend_from_slice(&0x0304u16.to_be_bytes());
+        extensions.extend_from_slice(&0x0010u16.to_be_bytes());
+        extensions.extend_from_slice(&5u16.to_be_bytes());
+        extensions.extend_from_slice(&3u16.to_be_bytes());
+        extensions.push(2);
+        extensions.extend_from_slice(b"h2");
+
+        body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+        body.extend_from_slice(&extensions);
 
         let body_len = body.len() as u32;
         let mut handshake = vec![
-            0x01,
+            0x02,
             ((body_len >> 16) & 0xff) as u8,
             ((body_len >> 8) & 0xff) as u8,
             (body_len & 0xff) as u8,

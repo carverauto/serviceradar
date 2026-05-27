@@ -8,6 +8,8 @@ mod metrics;
 mod proto;
 mod runtime_config;
 mod server;
+#[cfg(feature = "pcap-capture")]
+mod tls_server;
 
 use std::{
     path::PathBuf,

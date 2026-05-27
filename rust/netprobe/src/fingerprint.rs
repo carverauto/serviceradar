@@ -95,6 +95,14 @@ impl FingerprintEngine {
             ));
         }
 
+        if let Some(tls_server) = crate::tls_server::fingerprint(packet) {
+            events.push(event_from_tls_server(
+                interface_name,
+                observed_at_unix_nano,
+                tls_server,
+            ));
+        }
+
         events
     }
 }
@@ -271,6 +279,25 @@ fn event_from_tls_client(
 }
 
 #[cfg(feature = "pcap-capture")]
+fn event_from_tls_server(
+    interface_name: &str,
+    observed_at_unix_nano: i64,
+    tls_server: crate::tls_server::TlsServerFingerprint,
+) -> FingerprintEvent {
+    FingerprintEvent {
+        ip: tls_server.source_ip.to_string(),
+        profile_id: String::new(),
+        interface_name: interface_name.to_string(),
+        observed_at_unix_nano,
+        evidence: Some(fingerprint_event::Evidence::Tls(TlsFingerprint {
+            ja4: String::new(),
+            ja4s: tls_server.ja4s,
+            sni_redacted: String::new(),
+        })),
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
 fn redact_sni_presence(sni: Option<&str>) -> &'static str {
     match sni {
         Some("") | None => "",
@@ -339,6 +366,7 @@ mod tests {
             http_request_packet(),
             http_response_packet(),
             tls_client_hello_packet(),
+            tls_server_hello_packet(),
         ]);
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(&fixture).unwrap();
@@ -377,14 +405,28 @@ mod tests {
         assert_eq!(event.ip, "198.51.100.40");
         assert_eq!(http.user_agent, "");
 
-        let tls = events.iter().find_map(|event| match &event.evidence {
-            Some(fingerprint_event::Evidence::Tls(tls)) => Some((event, tls)),
+        let tls_client = events.iter().find_map(|event| match &event.evidence {
+            Some(fingerprint_event::Evidence::Tls(tls)) if !tls.ja4.is_empty() => {
+                Some((event, tls))
+            }
             _ => None,
         });
-        let (event, tls) = tls.expect("expected TLS ClientHello fingerprint event");
+        let (event, tls) = tls_client.expect("expected TLS ClientHello fingerprint event");
         assert_eq!(event.ip, "192.0.2.22");
         assert!(tls.ja4.starts_with("t12i"));
         assert_eq!(tls.ja4s, "");
+        assert_eq!(tls.sni_redacted, "");
+
+        let tls_server = events.iter().find_map(|event| match &event.evidence {
+            Some(fingerprint_event::Evidence::Tls(tls)) if !tls.ja4s.is_empty() => {
+                Some((event, tls))
+            }
+            _ => None,
+        });
+        let (event, tls) = tls_server.expect("expected TLS ServerHello fingerprint event");
+        assert_eq!(event.ip, "198.51.100.40");
+        assert_eq!(tls.ja4, "");
+        assert_eq!(tls.ja4s, "t1302h2_1301_b9a491fefe05");
         assert_eq!(tls.sni_redacted, "");
     }
 
@@ -466,6 +508,53 @@ mod tests {
         let body_len = body.len() as u32;
         let mut handshake = vec![
             0x01,
+            ((body_len >> 16) & 0xff) as u8,
+            ((body_len >> 8) & 0xff) as u8,
+            (body_len & 0xff) as u8,
+        ];
+        handshake.extend_from_slice(&body);
+
+        let record_len = handshake.len() as u16;
+        let mut record = vec![0x16, 0x03, 0x03];
+        record.extend_from_slice(&record_len.to_be_bytes());
+        record.extend_from_slice(&handshake);
+        record
+    }
+
+    fn tls_server_hello_packet() -> Vec<u8> {
+        ipv4_tcp_packet(
+            [198, 51, 100, 40],
+            [192, 0, 2, 22],
+            443,
+            49_153,
+            &tls_server_hello_payload(),
+        )
+    }
+
+    fn tls_server_hello_payload() -> Vec<u8> {
+        let mut body = Vec::new();
+        body.extend_from_slice(&[0x03, 0x03]);
+        body.extend_from_slice(&[0u8; 32]);
+        body.push(0x00);
+        body.extend_from_slice(&0x1301u16.to_be_bytes());
+        body.push(0x00);
+
+        let mut extensions = Vec::new();
+        extensions.extend_from_slice(&0x002bu16.to_be_bytes());
+        extensions.extend_from_slice(&2u16.to_be_bytes());
+        extensions.extend_from_slice(&0x0304u16.to_be_bytes());
+        extensions.extend_from_slice(&0x0010u16.to_be_bytes());
+        extensions.extend_from_slice(&5u16.to_be_bytes());
+        extensions.extend_from_slice(&3u16.to_be_bytes());
+        extensions.push(2);
+        extensions.extend_from_slice(b"h2");
+
+        body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
+        body.extend_from_slice(&extensions);
+
+        let body_len = body.len() as u32;
+        let mut handshake = vec![
+            0x02,
             ((body_len >> 16) & 0xff) as u8,
             ((body_len >> 8) & 0xff) as u8,
             (body_len & 0xff) as u8,
