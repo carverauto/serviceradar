@@ -59,6 +59,22 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayloadTest do
   end
 
   @tag :visibility
+  test "marks observed protocols when payload fields are redacted to empty values" do
+    metadata = %{
+      "passive_fingerprint" => %{
+        "tls" => %{}
+      },
+      "passive_fingerprint.http.server" => " "
+    }
+
+    enriched = PassiveFingerprintPayload.enrich_metadata(metadata)
+
+    assert enriched["passive_fingerprint"]["tls"] == %{"observed" => true}
+    assert enriched["passive_fingerprint"]["http"] == %{"observed" => true}
+    refute Map.has_key?(enriched["passive_fingerprint"], "tcp")
+  end
+
+  @tag :visibility
   test "keeps sparse OS evidence when only family is observed" do
     metadata = %{
       "passive_fingerprint" => %{

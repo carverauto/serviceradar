@@ -1572,8 +1572,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp infer_os(metadata, vendor_name, classification)
-
   defp infer_os(metadata, vendor_name, classification) when is_map(metadata) do
     explicit_name =
       get_string(metadata, [

@@ -3,6 +3,7 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayload do
 
   @base "passive_fingerprint"
   @huginn_source "huginn-net"
+  @protocol_atoms %{"tcp" => :tcp, "tls" => :tls, "http" => :http}
 
   @spec enrich_metadata(map()) :: map()
   def enrich_metadata(metadata) when is_map(metadata) do
@@ -10,9 +11,9 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayload do
 
     enriched =
       nested
-      |> put_protocol("tcp", tcp_payload(metadata, nested))
-      |> put_protocol("tls", tls_payload(metadata, nested))
-      |> put_protocol("http", http_payload(metadata, nested))
+      |> put_protocol("tcp", tcp_payload(metadata, nested), metadata)
+      |> put_protocol("tls", tls_payload(metadata, nested), metadata)
+      |> put_protocol("http", http_payload(metadata, nested), metadata)
 
     if map_size(enriched) == 0 do
       metadata
@@ -113,8 +114,34 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayload do
     |> maybe_put("observed_at", observed_at)
   end
 
-  defp put_protocol(nested, _protocol, payload) when map_size(payload) == 0, do: nested
-  defp put_protocol(nested, protocol, payload), do: Map.put(nested, protocol, payload)
+  defp put_protocol(nested, protocol, payload, metadata) when map_size(payload) == 0 do
+    if protocol_observed?(nested, metadata, protocol) do
+      Map.put(nested, protocol, %{"observed" => true})
+    else
+      nested
+    end
+  end
+
+  defp put_protocol(nested, protocol, payload, _metadata), do: Map.put(nested, protocol, payload)
+
+  defp protocol_observed?(nested, metadata, protocol) do
+    Map.has_key?(nested, protocol) ||
+      Map.has_key?(nested, Map.fetch!(@protocol_atoms, protocol)) ||
+      flat_protocol_observed?(metadata, protocol)
+  end
+
+  defp flat_protocol_observed?(metadata, protocol) when is_map(metadata) do
+    prefix = "#{@base}.#{protocol}."
+
+    metadata
+    |> Map.keys()
+    |> Enum.any?(fn
+      key when is_binary(key) -> String.starts_with?(key, prefix)
+      _key -> false
+    end)
+  end
+
+  defp flat_protocol_observed?(_metadata, _protocol), do: false
 
   defp passive_string(metadata, nested_protocol, suffix, nested_keys) do
     get_string(metadata, ["#{@base}.#{suffix}"]) || get_string(nested_protocol, nested_keys)
