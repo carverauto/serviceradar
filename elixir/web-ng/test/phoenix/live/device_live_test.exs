@@ -72,7 +72,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     Repo.insert_all("device_agent_availability", [
       %{
-        id: Ecto.UUID.generate(),
+        id: Ecto.UUID.bingenerate(),
         device_uid: uid,
         agent_id: "agent-live-#{unique}",
         agent_name: "live-agent",
@@ -93,6 +93,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ hostname
     assert html =~ "Online"
     refute html =~ "Offline"
+    refute html =~ "Source: any fresh agent"
+  end
+
+  test "device list marks only registered agent devices with bolt", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-source-agent-#{unique}"
+    hostname = "source-agent-host-#{unique}"
+    agent_uid = "test-device-real-agent-#{unique}"
+    agent_hostname = "real-agent-host-#{unique}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: hostname,
+        agent_id: "collector-agent-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: agent_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: agent_hostname,
+        agent_id: "registered-agent-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    Repo.insert_all("ocsf_agents", [
+      %{
+        uid: "registered-agent-#{unique}",
+        name: "Registered Agent #{unique}",
+        type_id: 0,
+        device_uid: agent_uid,
+        host: agent_hostname,
+        capabilities: ["icmp"],
+        status: "connected",
+        is_healthy: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z],
+        created_time: ~U[2100-01-01 00:00:00Z],
+        modified_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
+
+    html = render_until(view, hostname, 5_000)
+
+    assert html =~ hostname
+    assert source_row = table_row_for(html, hostname)
+    refute source_row =~ "hero-bolt"
+
+    {:ok, agent_view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{agent_hostname} limit:10"}}")
+
+    agent_html = render_until_row_contains(agent_view, agent_hostname, "hero-bolt", 5_000)
+
+    assert agent_html =~ agent_hostname
+    assert agent_row = table_row_for(agent_html, agent_hostname)
+    assert agent_row =~ "hero-bolt"
   end
 
   test "navigates to the device details page after adding a device", %{conn: conn} do
@@ -996,7 +1063,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert candidate_html =~ "pve01"
   end
 
-  test "marks SNMP fallback-derived classification in list and details views", %{conn: conn} do
+  test "keeps SNMP fallback-derived classification out of noisy list badges", %{conn: conn} do
     uid = "test-device-snmp-fallback-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -1019,7 +1086,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, _list_view, list_html} = live(conn, ~p"/devices?limit=10")
-    assert list_html =~ "SNMP Fallback"
+    assert list_html =~ "fallback-router"
+    refute list_html =~ "SNMP Fallback"
+    refute list_html =~ "Fallback"
 
     {:ok, _details_view, details_html} = live(conn, ~p"/devices/#{uid}")
     assert details_html =~ "Classification"
@@ -2625,6 +2694,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   defp render_until(view, expected, timeout_ms \\ 2_000) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms
     render_until(view, expected, deadline, nil)
+  end
+
+  defp table_row_for(html, needle) do
+    ~r/<tr\b.*?<\/tr>/s
+    |> Regex.scan(html)
+    |> Enum.map(&List.first/1)
+    |> Enum.find(&String.contains?(&1, needle))
+  end
+
+  defp render_until_row_contains(view, needle, expected, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    render_until_row_contains(view, needle, expected, deadline, nil)
+  end
+
+  defp render_until_row_contains(view, needle, expected, deadline, last_html) do
+    html = render(view)
+    row = table_row_for(html, needle)
+
+    cond do
+      is_binary(row) and row =~ expected ->
+        html
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        last_html || html
+
+      true ->
+        Process.sleep(50)
+        render_until_row_contains(view, needle, expected, deadline, html)
+    end
   end
 
   defp render_until(view, expected, deadline, last_html) do

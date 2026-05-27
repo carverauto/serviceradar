@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
@@ -58,6 +59,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:sysmon_profiles_by_device, %{})
+     |> assign(:agent_device_uids, MapSet.new())
      |> assign(:device_enrichment_task, nil)
      |> assign(:device_stats_task, nil)
      |> assign(:device_refresh_timer, nil)
@@ -808,6 +810,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
          snmp_presence: enrichments.snmp_presence,
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
+         agent_device_uids: enrichments.agent_device_uids,
          total_device_count: enrichments.total_device_count
        )}
     else
@@ -835,6 +838,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     effective_availability_by_device = load_effective_availability(devices, scope)
     {snmp_presence, sysmon_presence} = load_metric_presence(srql, devices, scope)
     sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, devices)
+    agent_device_uids = load_agent_device_uids(devices, scope)
     total_device_count = get_total_matching_count(scope, query)
 
     %{
@@ -844,8 +848,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: sysmon_profiles_by_device,
+      agent_device_uids: agent_device_uids,
       total_device_count: total_device_count
     }
+  end
+
+  defp load_agent_device_uids(devices, _scope) do
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
+      |> Enum.filter(&present_text?/1)
+      |> Enum.uniq()
+
+    if device_uids == [] do
+      MapSet.new()
+    else
+      case Repo.query(
+             """
+             SELECT DISTINCT device_uid
+             FROM platform.ocsf_agents
+             WHERE device_uid = ANY($1::text[])
+             """,
+             [device_uids]
+           ) do
+        {:ok, %{rows: rows}} ->
+          rows
+          |> Enum.map(fn [device_uid] -> device_uid end)
+          |> Enum.filter(&present_text?/1)
+          |> MapSet.new()
+
+        _ ->
+          MapSet.new()
+      end
+    end
+  rescue
+    reason ->
+      Logger.warning("Failed to load agent device markers: #{inspect(reason)}")
+      MapSet.new()
   end
 
   defp load_availability_source_agent_options(scope) do
@@ -963,11 +1003,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     cond do
       is_binary(agent_id) and is_binary(profile_id) -> "Profile source: #{short_id(agent_id)}"
       is_binary(agent_id) -> "Manual source: #{short_id(agent_id)}"
-      true -> "Source: any fresh agent"
+      true -> nil
     end
   end
 
-  defp availability_source_summary(_row), do: "Source: any fresh agent"
+  defp availability_source_summary(_row), do: nil
+
+  defp agent_device_row?(row, agent_device_uids) when is_map(row) do
+    device_uid = Map.get(row, "uid") || Map.get(row, "id")
+    present_text?(device_uid) and MapSet.member?(agent_device_uids, device_uid)
+  end
+
+  defp agent_device_row?(_row, _agent_device_uids), do: false
 
   defp short_id(value) when is_binary(value) and byte_size(value) > 20 do
     String.slice(value, 0, 17) <> "..."
@@ -1766,7 +1813,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <% snmp_fallback = snmp_fallback_derived?(row) %>
+                  <% availability_source = availability_source_summary(row) %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -1781,12 +1828,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="max-w-[18rem]">
                       <div class="flex items-center gap-2 min-w-0">
                         <div class="flex items-center gap-2 min-w-0">
-                          <.icon
-                            :if={agent_device_row?(row)}
-                            name="hero-bolt"
-                            class="size-3 text-accent shrink-0"
-                            title="Agent device"
-                          />
                           <.link
                             :if={is_binary(device_uid)}
                             navigate={~p"/devices/#{device_uid}"}
@@ -1795,6 +1836,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                           >
                             {Map.get(row, "hostname") || device_uid}
                           </.link>
+                          <.icon
+                            :if={agent_device_row?(row, @agent_device_uids)}
+                            name="hero-bolt"
+                            class="w-4 h-4 text-warning shrink-0"
+                            title="Agent device"
+                          />
                           <span :if={not is_binary(device_uid)} class="truncate text-sm">
                             {Map.get(row, "hostname") || "—"}
                           </span>
@@ -1812,13 +1859,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       <.device_type_badge
                         type={device_type_value(row)}
                         type_id={Map.get(row, "type_id")}
-                        snmp_fallback={snmp_fallback}
                       />
                     </td>
                     <td class="text-xs max-w-[8rem] truncate">
                       {Map.get(row, "vendor_name") || "—"}
                       <span
-                        :if={snmp_fallback and present_text?(Map.get(row, "vendor_name"))}
+                        :if={
+                          snmp_fallback_derived?(row) and present_text?(Map.get(row, "vendor_name"))
+                        }
                         class="badge badge-ghost badge-xs ml-1"
                       >
                         SNMP
@@ -1826,20 +1874,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     </td>
                     <td class="text-xs max-w-[12rem] truncate">
                       {display_model(Map.get(row, "model"))}
-                      <span
-                        :if={snmp_fallback and display_model(Map.get(row, "model")) != "—"}
-                        class="badge badge-ghost badge-xs ml-1"
-                      >
-                        Fallback
-                      </span>
                     </td>
                     <td class="text-xs">
                       <div class="flex flex-col gap-1">
                         <.availability_badge available={
                           effective_availability(row, @effective_availability_by_device)
                         } />
-                        <span class="max-w-40 truncate text-[0.68rem] text-base-content/50">
-                          {availability_source_summary(row)}
+                        <span
+                          :if={availability_source}
+                          class="max-w-40 truncate text-[0.68rem] text-base-content/50"
+                        >
+                          {availability_source}
                         </span>
                       </div>
                     </td>
@@ -2728,7 +2773,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   attr(:type, :string, default: nil)
   attr(:type_id, :integer, default: nil)
-  attr(:snmp_fallback, :boolean, default: false)
 
   def device_type_badge(assigns) do
     label = device_type_label(assigns.type, assigns.type_id)
@@ -2743,9 +2787,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     <div class="flex items-center gap-1.5" title={"Type ID: #{@type_id}"}>
       <.icon :if={@icon} name={@icon} class="size-3.5 text-base-content/60" />
       <span class="text-base-content/80">{@label}</span>
-      <span :if={@snmp_fallback and @label != "—"} class="badge badge-ghost badge-xs">
-        SNMP Fallback
-      </span>
     </div>
     """
   end
@@ -3403,24 +3444,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp latency_ms(_), do: 0.0
-
-  defp agent_device_row?(row) when is_map(row) do
-    has_agent_list?(agent_list(row)) or
-      present_text?(device_row_value(row, "agent_id", :agent_id))
-  end
-
-  defp agent_list(row) when is_map(row),
-    do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
-
-  defp has_agent_list?(items) do
-    items
-    |> List.wrap()
-    |> Enum.any?(&is_map/1)
-  end
-
-  defp device_row_value(row, string_key, atom_key) do
-    Map.get(row, string_key) || Map.get(row, atom_key)
-  end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
