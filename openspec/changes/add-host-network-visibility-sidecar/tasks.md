@@ -126,8 +126,8 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 14. [Phase 1] Documentation
 
-- [ ] 14.1 Operator runbook `docs/agent/netprobe.md`: enabling profiles, capture-interface allowlist, troubleshooting (exit codes, restart back-off, dropped-events counter). Phase 1 scope only.
-- [ ] 14.2 Privacy note documenting what is and is not captured.
+- [x] 14.1 Operator runbook `docs/docs/netprobe.md`: enabling profiles, capture-interface allowlist, troubleshooting (exit codes, restart back-off, dropped-events counter). Phase 1 scope only.
+- [x] 14.2 Privacy note documenting what is and is not captured.
 
 ### 15. [Phase 1] Validation
 
