@@ -12,7 +12,12 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.SysmonProfiles.Changes.ValidateSrqlQuery
+
+  @visibility_read_check {ActorHasPermission, permission: "visibility_profiles:read"}
+  @visibility_write_check {ActorHasPermission, permission: "visibility_profiles:write"}
+  @visibility_delete_check {ActorHasPermission, permission: "visibility_profiles:delete"}
 
   @profile_fields [
     :name,
@@ -85,8 +90,9 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     import ServiceRadar.Policies
 
     system_bypass()
-    admin_action_type([:create, :update, :destroy])
-    read_viewer_plus()
+    read_with_permission(@visibility_read_check)
+    action_type_with_permission([:create, :update], @visibility_write_check)
+    action_type_with_permission(:destroy, @visibility_delete_check)
   end
 
   attributes do
