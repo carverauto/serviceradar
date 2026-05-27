@@ -254,6 +254,7 @@ use_repo(buildbuddy_toolchain_ext, "buildbuddy_toolchain")
 
 register_toolchains(
     "//build/toolchains:rbe_cc_toolchain",
+    "//build/toolchains:rbe_cc_toolchain_arm64_musl_static",
     "//build/toolchains:rbe_cc_toolchain_arm64",
 )
 

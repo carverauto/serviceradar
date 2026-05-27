@@ -38,13 +38,15 @@ ensure_base_build_tools() {
   require_cmd cmake
   require_cmd flex
   require_cmd bison
+  require_cmd file
+  require_cmd readelf
 }
 
 case "${profile}" in
   base|bazel-build)
     ensure_base_build_tools
     if ((${#missing[@]})); then
-      install_as_root build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison || true
+      install_as_root build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison file binutils || true
     fi
     ;;
   service-build)
@@ -53,7 +55,7 @@ case "${profile}" in
     require_cmd rpm2cpio
     require_cmd psql
     if ((${#missing[@]})); then
-      install_as_root build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison rpm rpm2cpio postgresql-client || true
+      install_as_root build-essential pkg-config libssl-dev protobuf-compiler cmake flex bison file binutils rpm rpm2cpio postgresql-client || true
     fi
     ;;
   release-rpm)
