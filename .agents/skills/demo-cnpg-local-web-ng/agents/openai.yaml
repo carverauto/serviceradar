@@ -1,0 +1,6 @@
+interface:
+  display_name: "Demo CNPG Local Web-NG"
+  short_description: "Run web-ng locally against live demo CNPG"
+  default_prompt: "Use $demo-cnpg-local-web-ng to start local web-ng against the live demo CNPG database and validate it with Playwright."
+policy:
+  allow_implicit_invocation: true
