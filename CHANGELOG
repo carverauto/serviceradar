@@ -1,3 +1,18 @@
+# ServiceRadar v1.2.82
+
+SRQL search, canonical availability, and issue-view recovery.
+
+## Whats New
+
+**1.2.82**
+- Enhanced the shared SRQL search input with stronger query editing behavior, coverage, and docs for SRQL-enabled web workflows.
+- Fixed dashboard issue views so authored dashboard SRQL topbars preserve dashboard slugs and direct dashboard IDs.
+- Hid Windows-only RDP setup actions from non-Windows device issue views.
+- Added availability source profiles and canonical per-agent availability handling so device status can be sourced from the intended network segment.
+- Restored event-backed alert details so issue views can open the source event context reliably.
+- Fixed Proxmox candidate metadata rendering on device issue views.
+- Restored device logs tabs and full observability links for syslog-backed devices whose log rows identify the host by inventory aliases instead of canonical device UID.
+
 # ServiceRadar v1.2.81
 
 Dashboard authoring UX, SRQL-driven visuals, and ingestion recovery.
