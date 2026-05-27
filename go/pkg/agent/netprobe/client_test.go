@@ -210,6 +210,25 @@ func TestClientDropsFingerprintEventsOnBackpressure(t *testing.T) {
 	<-serverDone
 }
 
+func TestClientCloseClosesEventsFromReadLoop(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer serverConn.Close()
+
+	client := NewClient(clientConn, 4)
+	client.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	select {
+	case _, ok := <-client.Events():
+		if ok {
+			t.Fatal("Events() remained open after Close()")
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for Events() to close")
+	}
+}
+
 func handleTestFrame(t *testing.T, conn net.Conn, handler func(*netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame) {
 	t.Helper()
 

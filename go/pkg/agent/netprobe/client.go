@@ -266,6 +266,8 @@ func (c *Client) writeRequest(frame *netprobepb.NetprobeFrame) error {
 }
 
 func (c *Client) readLoop() {
+	defer close(c.events)
+
 	for {
 		frame, err := readFrame(c.conn)
 		if err != nil {
@@ -328,7 +330,6 @@ func (c *Client) closeWithError(err error) {
 		}
 		c.pendingMu.Unlock()
 
-		close(c.events)
 		close(c.done)
 	})
 }
