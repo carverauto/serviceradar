@@ -3,10 +3,10 @@ async (page) => {
   const baseUrl = env.PLAYWRIGHT_BASE_URL || "http://localhost:4000"
   const email = env.PLAYWRIGHT_AUTH_EMAIL
   const password = env.PLAYWRIGHT_AUTH_PASSWORD
-
-  if (!email || !password) {
-    throw new Error("Set PLAYWRIGHT_AUTH_EMAIL and PLAYWRIGHT_AUTH_PASSWORD before running this matrix.")
-  }
+  const currentPath = page.url().replace(/^[a-z]+:\/\/[^/]+/i, "").split(/[?#]/)[0]
+  const dashboardPath =
+    env.PLAYWRIGHT_DASHBOARD_PATH ||
+    (currentPath.startsWith("/dashboard/") ? currentPath : "/dashboard/1000001")
 
   const cases = [
     {name: "service rows", query: "in:services time:last_1h sort:timestamp:desc limit:25", absent: ["availability", "gauge"]},
@@ -32,7 +32,7 @@ async (page) => {
     {name: "otel traces", query: "in:otel_traces time:last_24h limit:25", absent: ["availability", "gauge"]},
     {name: "otel trace summary", query: "in:otel_traces time:last_24h rollup_stats:summary", present: ["stat", "gauge"]},
     {name: "otel metrics", query: "in:otel_metrics time:last_24h limit:25", absent: ["availability", "gauge"]},
-    {name: "otel metric summary", query: "in:otel_metrics time:last_24h rollup_stats:summary", present: ["gauge", "line", "bar"]},
+    {name: "otel metric summary", query: "in:otel_metrics time:last_24h rollup_stats:summary", present: ["line", "bar"], absent: ["availability", "gauge"]},
     {name: "wifi sites", query: "in:wifi_sites limit:25", absent: ["availability", "gauge"]},
     {name: "wifi access points", query: "in:wifi_aps limit:25", absent: ["availability", "gauge"]},
   ]
@@ -41,6 +41,10 @@ async (page) => {
     await page.goto(`${baseUrl}${targetPath}`, {waitUntil: "domcontentloaded", timeout: 30_000})
 
     if (page.url().includes("/users/log-in")) {
+      if (!email || !password) {
+        throw new Error("Set PLAYWRIGHT_AUTH_EMAIL and PLAYWRIGHT_AUTH_PASSWORD before running this matrix.")
+      }
+
       await page.getByRole("textbox", {name: "Email"}).fill(email)
       await page.getByRole("textbox", {name: "Password"}).fill(password)
       await page.getByRole("button", {name: "Sign in"}).click()
@@ -56,9 +60,10 @@ async (page) => {
     }, query)
   }
 
-  await ensureLoggedIn("/dashboard/1000001")
-  await page.waitForURL(/\/dashboard\/1000001/, {timeout: 15_000})
+  await ensureLoggedIn(dashboardPath)
+  await page.waitForURL(`**${dashboardPath}`, {timeout: 15_000})
   await page.getByRole("button", {name: "Settings", exact: true}).click()
+  await page.waitForTimeout(2500)
 
   const results = []
 

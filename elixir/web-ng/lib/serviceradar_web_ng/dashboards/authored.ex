@@ -1336,8 +1336,30 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
 
   defp gauge_compatible?(rows, fields) do
     availability_compatible?(rows, fields) or
-      (stat_compatible?(rows, fields) and Enum.any?(fields, &(&1.type == :number)))
+      (stat_compatible?(rows, fields) and Enum.any?(fields, &gauge_metric_field?/1))
   end
+
+  defp gauge_metric_field?(%{type: :number, name: name}) when is_binary(name) do
+    normalized = String.downcase(name)
+
+    normalized in [
+      "value",
+      "total",
+      "count",
+      "current",
+      "target",
+      "ok",
+      "available",
+      "error",
+      "errors",
+      "warning",
+      "critical",
+      "unknown",
+      "availability_pct"
+    ] or String.ends_with?(normalized, "_pct") or String.ends_with?(normalized, "_percent")
+  end
+
+  defp gauge_metric_field?(_field), do: false
 
   defp grouped_availability_binding?(binding, fields) do
     names = MapSet.new(Enum.map(fields, & &1.name))

@@ -317,6 +317,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     %{
       id: panel.id,
       title: panel.title || "Panel",
+      srql_query: panel.srql_query || "",
       visual_type: to_string(panel.visual_type || :line),
       data_binding: panel.data_binding || %{},
       display_config: panel.display_config || %{},

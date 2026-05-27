@@ -109,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
     %{
       id: panel.id,
       title: panel.title,
+      srql_query: Map.get(panel, :srql_query) || Map.get(panel, "srql_query"),
       visual_type: panel.visual_type,
       data_binding: panel.data_binding || %{},
       display_config: panel.display_config || %{},

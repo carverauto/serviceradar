@@ -113,6 +113,21 @@ function countLabel(count, singular, plural = `${singular}s`) {
   return Number(count) === 1 ? singular : plural
 }
 
+function entityLabel(panel, fallback = "item") {
+  const source =
+    panel?.display_config?.entity_label ||
+    panel?.display_config?.noun ||
+    panel?.srql_query ||
+    ""
+  const match = String(source).match(/\bin:([a-zA-Z_][\w-]*)/u)
+  const entity = match?.[1]
+
+  if (!entity) return fallback
+  if (entity.endsWith("ies")) return entity.slice(0, -3) + "y"
+  if (entity.endsWith("s")) return entity.slice(0, -1)
+  return entity
+}
+
 function gaugeTone(panel, percent) {
   const thresholds = Array.isArray(panel?.display_config?.thresholds)
     ? panel.display_config.thresholds
@@ -186,10 +201,11 @@ function gaugeDatum(rows, fields, panel) {
     panel?.display_config?.denominator_label ||
     panel?.display_config?.total_label ||
     (visual === "availability" ? countLabel(denominator, "monitored", "monitored") : metricLabel(denominatorField, "target"))
+  const subject = entityLabel(panel)
   const contextLabel =
     panel?.display_config?.context_label ||
     (visual === "availability"
-      ? `${formatValue(numerator)} of ${formatValue(denominator)} ${countLabel(denominator, "service")} available`
+      ? `${formatValue(numerator)} of ${formatValue(denominator)} ${countLabel(denominator, subject)} available`
       : `${formatValue(numerator)} of ${formatValue(denominator)} ${denominatorLabel.toLowerCase()}`)
 
   return {

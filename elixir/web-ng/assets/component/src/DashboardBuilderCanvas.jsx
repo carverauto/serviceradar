@@ -123,6 +123,27 @@ function numericValue(value) {
   return Number.isFinite(next) ? next : null
 }
 
+function booleanish(value) {
+  if (value === true || value === "true") return true
+  if (value === false || value === "false") return false
+  return null
+}
+
+function countLabel(count, singular, plural = `${singular}s`) {
+  return Number(count) === 1 ? singular : plural
+}
+
+function entityLabel(panel, fallback = "item") {
+  const source = panel.display_config?.entity_label || panel.display_config?.noun || panel.srql_query || ""
+  const match = String(source).match(/\bin:([a-zA-Z_][\w-]*)/u)
+  const entity = match?.[1]
+
+  if (!entity) return fallback
+  if (entity.endsWith("ies")) return entity.slice(0, -3) + "y"
+  if (entity.endsWith("s")) return entity.slice(0, -1)
+  return entity
+}
+
 function panelFields(panel) {
   return panel.preview?.fields || panel.field_metadata?.fields || []
 }
@@ -135,6 +156,30 @@ function firstField(fields, type) {
   return fields.find(field => field.type === type)?.name || fields[0]?.name || null
 }
 
+function groupedAvailability(rows, valueField, labelField) {
+  if (!valueField || !labelField) return null
+
+  const normalizedLabel = String(labelField).toLowerCase()
+  if (!["is_available", "available", "availability"].includes(normalizedLabel)) return null
+
+  let numerator = 0
+  let denominator = 0
+  let matched = false
+
+  rows.forEach(row => {
+    const value = numericValue(valueAt(row, valueField))
+    const available = booleanish(valueAt(row, labelField))
+
+    if (value === null || available === null) return
+
+    matched = true
+    denominator += value
+    if (available) numerator += value
+  })
+
+  return matched ? {numerator, denominator} : null
+}
+
 function MiniVisual({panel}) {
   const rows = panelRows(panel)
   const fields = panelFields(panel)
@@ -143,9 +188,11 @@ function MiniVisual({panel}) {
 
   if (["stat", "count", "gauge", "availability"].includes(visual)) {
     const valueField = binding.value_field || binding.numerator_field || firstField(fields, "number")
+    const labelField = binding.label_field || binding.row_field || firstField(fields, "string")
     const denominatorField = binding.denominator_field || fields.find(field => ["total", "count"].includes(field.name))?.name
-    const raw = numericValue(valueAt(rows[0], valueField)) || 0
-    const denominator = numericValue(valueAt(rows[0], denominatorField))
+    const availability = groupedAvailability(rows, valueField, labelField)
+    const raw = availability?.numerator ?? numericValue(valueAt(rows[0], valueField)) ?? 0
+    const denominator = availability?.denominator ?? numericValue(valueAt(rows[0], denominatorField))
     const displayValue =
       ["gauge", "availability"].includes(visual) && denominator > 0
         ? Math.max(0, Math.min(100, (raw / denominator) * 100)).toFixed(1)
@@ -164,7 +211,7 @@ function MiniVisual({panel}) {
         </div>
         {denominator > 0 && ["gauge", "availability"].includes(visual) ? (
           <div className="truncate text-[11px] text-slate-500">
-            {visual === "availability" ? `${raw} of ${denominator} available` : `${raw} of ${denominator}`}
+            {visual === "availability" ? `${raw} of ${denominator} ${countLabel(denominator, entityLabel(panel))} available` : `${raw} of ${denominator}`}
           </div>
         ) : null}
         {["gauge", "availability"].includes(visual) ? (
