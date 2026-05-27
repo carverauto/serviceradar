@@ -734,6 +734,8 @@ agent:
     btfPath: /sys/kernel/btf/vmlinux
     cgroupPath: /sys/fs/cgroup
     cgroupReadOnly: false
+  netprobe:
+    enabled: false
   gatewayAddress: ""
   partitionId: "default"
   pushInterval: "30s"

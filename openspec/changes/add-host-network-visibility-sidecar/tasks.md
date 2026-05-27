@@ -117,11 +117,11 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 13. [Phase 1] Packaging
 
-- [ ] 13.1 Add `//rust/netprobe:netprobe` to `build/packaging/agent/BUILD.bazel` `pkg_files` (rename to `serviceradar-netprobe`, mode `0755`).
-- [ ] 13.2 Update `build/packaging/packages.bzl` `PACKAGES["agent"]` to include the sidecar at `/usr/local/lib/serviceradar/bin/`.
-- [ ] 13.3 deb/rpm postinst applies `setcap cap_net_raw+ep` to the sidecar binary (Phase 1 capability set; eBPF caps land with Phase 3).
-- [ ] 13.4 Add `//rust/netprobe:netprobe` to `docker/images/BUILD.bazel` `agent_image_amd64` (and arm64 variant) file map.
-- [ ] 13.5 Add a `netprobe.enabled` toggle under `helm/serviceradar/values.yaml` (default false).
+- [x] 13.1 Add `//rust/netprobe:netprobe` to `build/packaging/agent/BUILD.bazel` `pkg_files` (rename to `serviceradar-netprobe`, mode `0755`).
+- [x] 13.2 Update `build/packaging/packages.bzl` `PACKAGES["agent"]` to include the sidecar at `/usr/local/lib/serviceradar/bin/`.
+- [x] 13.3 deb/rpm postinst applies `setcap cap_net_raw+ep` to the sidecar binary (Phase 1 capability set; eBPF caps land with Phase 3).
+- [x] 13.4 Add `//rust/netprobe:netprobe` to `docker/images/BUILD.bazel` `agent_image_amd64` file map. No arm64 agent image target currently exists in `docker/images/BUILD.bazel`.
+- [x] 13.5 Add a `netprobe.enabled` toggle under `helm/serviceradar/values.yaml` (default false).
 - [ ] 13.6 Verify the resulting agent OCI image starts the sidecar on a Kind cluster and emits fingerprint events for a deliberately-crafted test packet.
 
 ### 14. [Phase 1] Documentation
@@ -132,11 +132,11 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 ### 15. [Phase 1] Validation
 
 - [ ] 15.1 `bazel test //rust/netprobe/...` passes (Phase 1 test set).
-- [ ] 15.2 `bazel test //go/pkg/agent/sidecar/... //go/pkg/agent/netprobe/...` passes.
-- [ ] 15.3 `mix test --only visibility` passes in `elixir/serviceradar_core/`.
+- [x] 15.2 `bazel test //go/pkg/agent/sidecar/... //go/pkg/agent/netprobe/...` passes.
+- [x] 15.3 `mix test --only visibility` passes in `elixir/serviceradar_core/`.
 - [ ] 15.4 `mix test --only visibility_profiles_live` passes in `elixir/web-ng/`.
 - [ ] 15.5 E2E suite: enable a profile scoped to `in:devices type:0`, send pcap fixtures through a test agent, assert an Armis-imported device gains `os.passive_fingerprint`.
-- [ ] 15.6 `openspec validate add-host-network-visibility-sidecar --strict` passes.
+- [x] 15.6 `openspec validate add-host-network-visibility-sidecar --strict` passes.
 
 ---
 

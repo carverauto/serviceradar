@@ -41,7 +41,7 @@ PACKAGES = {
         "architecture": "amd64",
         "section": "utils",
         "priority": "optional",
-        "deb_depends": ["systemd"],
+        "deb_depends": ["systemd", "libcap2-bin"],
         "rpm_requires": ["systemd", "libcap"],
         "binary": {
             "target": "//go/cmd/agent:agent",
@@ -61,6 +61,11 @@ PACKAGES = {
             {
                 "src": "//go/cmd/cli:cli",
                 "dest": "/usr/local/bin/serviceradar-cli",
+                "mode": "0755",
+            },
+            {
+                "src": "//rust/netprobe:netprobe",
+                "dest": "/usr/local/lib/serviceradar/bin/serviceradar-netprobe",
                 "mode": "0755",
             },
             {
