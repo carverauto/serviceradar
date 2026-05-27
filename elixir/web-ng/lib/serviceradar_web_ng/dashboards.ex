@@ -169,6 +169,12 @@ defmodule ServiceRadarWebNG.Dashboards do
       {:slug, value} ->
         fuzzy_match?(row["slug"], value)
 
+      {:dashboard_ref, value} ->
+        fuzzy_match?(row["dashboard_ref"], value)
+
+      {:id, value} ->
+        fuzzy_match?(row["id"], value)
+
       {:type, value} ->
         fuzzy_match?(row["type"], value)
 
@@ -198,6 +204,8 @@ defmodule ServiceRadarWebNG.Dashboards do
   defp dashboard_query_filter("description:" <> value), do: [{:description, clean_srql_value(value)}]
 
   defp dashboard_query_filter("slug:" <> value), do: [{:slug, clean_srql_value(value)}]
+  defp dashboard_query_filter("dashboard_ref:" <> value), do: [{:dashboard_ref, clean_srql_value(value)}]
+  defp dashboard_query_filter("id:" <> value), do: [{:id, clean_srql_value(value)}]
   defp dashboard_query_filter("type:" <> value), do: [{:type, clean_srql_value(value)}]
   defp dashboard_query_filter("status:" <> value), do: [{:status, clean_srql_value(value)}]
   defp dashboard_query_filter(value), do: [{:text, clean_srql_value(value)}]

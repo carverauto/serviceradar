@@ -76,7 +76,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "title",
       default_sort_dir: "asc",
       default_filter_field: "title",
-      filter_fields: ["title", "description", "slug", "type", "status"],
+      filter_fields: ["title", "description", "slug", "dashboard_ref", "id", "type", "status"],
       downsample: false
     },
     %{
