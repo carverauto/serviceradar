@@ -167,17 +167,19 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp passive_fingerprint_identifier(metadata) when is_map(metadata) do
     tokens =
       [
-        passive_value(metadata, "tcp", "p0f_signature"),
-        passive_value(metadata, "tcp", "signature"),
-        passive_value(metadata, "tcp", "os_family"),
-        passive_value(metadata, "tcp", "os_name"),
-        passive_value(metadata, "tls", "ja4"),
-        passive_value(metadata, "tls", "ja4s"),
-        passive_value(metadata, "http", "server"),
-        passive_value(metadata, "http", "user_agent")
+        {"tcp.signature",
+         passive_value(metadata, "tcp", "p0f_signature") ||
+           passive_value(metadata, "tcp", "signature")},
+        {"tcp.os_family", passive_value(metadata, "tcp", "os_family")},
+        {"tcp.os_name", passive_value(metadata, "tcp", "os_name")},
+        {"tls.ja4", passive_value(metadata, "tls", "ja4")},
+        {"tls.ja4s", passive_value(metadata, "tls", "ja4s")},
+        {"http.server", passive_value(metadata, "http", "server")},
+        {"http.user_agent", passive_value(metadata, "http", "user_agent")}
       ]
-      |> Enum.map(&normalize_passive_token/1)
-      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn {field, value} -> {field, normalize_passive_token(value)} end)
+      |> Enum.reject(fn {_field, value} -> is_nil(value) end)
+      |> Enum.map(fn {field, value} -> "#{field}=#{value}" end)
       |> Enum.uniq()
 
     case tokens do

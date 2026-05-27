@@ -109,4 +109,39 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerPassiveFingerprintTest do
 
     assert flat_ids.passive_fingerprint == nested_ids.passive_fingerprint
   end
+
+  @tag :visibility
+  test "passive fingerprint hash keeps field context for swapped values" do
+    ids_a =
+      IdentityReconciler.extract_strong_identifiers(%{
+        device_id: nil,
+        ip: "",
+        mac: nil,
+        partition: "default",
+        metadata: %{
+          "passive_fingerprint" => %{
+            "tls" => %{"ja4" => "shared-a"},
+            "http" => %{"server" => "shared-b"}
+          }
+        }
+      })
+
+    ids_b =
+      IdentityReconciler.extract_strong_identifiers(%{
+        device_id: nil,
+        ip: "",
+        mac: nil,
+        partition: "default",
+        metadata: %{
+          "passive_fingerprint" => %{
+            "tls" => %{"ja4" => "shared-b"},
+            "http" => %{"server" => "shared-a"}
+          }
+        }
+      })
+
+    assert String.starts_with?(ids_a.passive_fingerprint, "sha256:")
+    assert String.starts_with?(ids_b.passive_fingerprint, "sha256:")
+    refute ids_a.passive_fingerprint == ids_b.passive_fingerprint
+  end
 end

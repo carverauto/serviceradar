@@ -57,4 +57,20 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayloadTest do
     assert enriched["passive_fingerprint"]["tls"]["ja4"] == "t13d1516h2_8daaf6152771_b0da82dd1658"
     assert enriched["passive_fingerprint"]["http"]["server"] == "apache"
   end
+
+  @tag :visibility
+  test "keeps sparse OS evidence when only family is observed" do
+    metadata = %{
+      "passive_fingerprint" => %{
+        "tcp" => %{"os_family" => "linux"}
+      }
+    }
+
+    os = PassiveFingerprintPayload.enrich_os(%{}, metadata)
+
+    assert os["passive_fingerprint"] == %{
+             "family" => "linux",
+             "source" => "huginn-net"
+           }
+  end
 end

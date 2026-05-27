@@ -94,8 +94,13 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayload do
     |> maybe_put("source", @huginn_source)
     |> maybe_put("observed_at", observed_at(metadata, tcp))
     |> case do
-      payload when map_size(payload) > 2 -> payload
-      _ -> nil
+      payload
+      when is_map_key(payload, "family") or is_map_key(payload, "version") or
+             is_map_key(payload, "confidence") ->
+        payload
+
+      _ ->
+        nil
     end
   end
 
