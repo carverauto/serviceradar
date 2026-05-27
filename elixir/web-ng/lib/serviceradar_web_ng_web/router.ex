@@ -711,6 +711,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
+      live("/devices/wifi", DeviceLive.Wifi, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)

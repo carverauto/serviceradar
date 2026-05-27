@@ -152,16 +152,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     raw_query = normalize_param_to_string(extract_param(params, "q")) || ""
     query = String.trim(raw_query)
     query = if query == "", do: to_string(srql[:query] || ""), else: query
-    query = shortcut_query(query)
+
+    query =
+      query
+      |> shortcut_query()
+      |> sanitize_query()
 
     limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
     limit = Map.get(socket.assigns, limit_assign_key)
 
     # Extract entity from query and determine the target route
-    target_path = entity_route_from_query(query, fallback_path)
+    {target_path, route_params} = route_target_for_query(query, fallback_path)
     current_path = srql[:page_path] || fallback_path
 
-    nav_params = Map.merge(extra_params, %{"q" => query, "limit" => limit})
+    nav_params = navigation_params(extra_params, route_params, target_path, current_path, query, limit)
 
     socket
     |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
@@ -315,17 +319,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     if builder_available?(srql) do
       # Build query from current builder state
       builder = Map.get(srql, :builder, %{})
-      query = Builder.build(builder)
+      query = builder |> Builder.build() |> sanitize_query()
 
       limit_assign_key = Keyword.get(opts, :limit_assign_key, :limit)
       limit = Map.get(socket.assigns, limit_assign_key)
 
       # Extract entity from builder and determine the target route
       queried_entity = Map.get(builder, "entity", "devices")
-      target_path = Catalog.entity(queried_entity)[:route] || fallback_path
+      {target_path, route_params} = route_target_for_entity(queried_entity, fallback_path)
       current_path = srql[:page_path] || fallback_path
 
-      nav_params = Map.merge(extra_params, %{"q" => query, "limit" => limit})
+      nav_params = navigation_params(extra_params, route_params, target_path, current_path, query, limit)
 
       # Close builder and navigate with the new query
       socket
@@ -381,16 +385,42 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     |> String.replace("\"", "\\\"")
   end
 
-  # Extracts entity from SRQL query and returns the appropriate route
-  defp entity_route_from_query(query, fallback_path) when is_binary(query) do
-    case Regex.run(~r/(?:^|\s)in:(\S+)/, query) do
-      [_, entity] ->
-        Catalog.entity(entity)[:route] || fallback_path
-
-      _ ->
-        fallback_path
-    end
+  def route_for_query(query, fallback_path) when is_binary(query) do
+    {path, _params} = route_target_for_query(query, fallback_path)
+    path
   end
+
+  def route_for_query(_query, fallback_path), do: fallback_path
+
+  def route_target_for_query(query, fallback_path) when is_binary(query) do
+    query
+    |> entity_from_query()
+    |> route_target_for_entity(fallback_path)
+  end
+
+  def route_target_for_query(_query, fallback_path), do: {fallback_path, %{}}
+
+  def route_target_for_entity(entity, fallback_path) when is_binary(entity) do
+    config = Catalog.entity(entity)
+
+    {
+      Map.get(config, :route) || fallback_path,
+      config |> Map.get(:route_params, %{}) |> normalize_extra_params()
+    }
+  end
+
+  def route_target_for_entity(_entity, fallback_path), do: {fallback_path, %{}}
+
+  def sanitize_query(query) when is_binary(query) do
+    tokens = tokenize_query(query)
+    entity = entity_from_tokens(tokens)
+
+    tokens
+    |> Enum.reject(&invalid_entity_filter_token?(&1, entity))
+    |> Enum.join(" ")
+  end
+
+  def sanitize_query(query), do: query
 
   # Navigates to target path - uses push_patch if same path, push_navigate if different
   defp navigate_to_path(socket, target_path, current_path, params) do
@@ -400,6 +430,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       Phoenix.LiveView.push_patch(socket, to: url)
     else
       Phoenix.LiveView.push_navigate(socket, to: url)
+    end
+  end
+
+  defp navigation_params(extra_params, route_params, target_path, current_path, query, limit) do
+    extra_params
+    |> scoped_extra_params(route_params, target_path, current_path)
+    |> Map.merge(route_params)
+    |> Map.merge(%{"q" => query, "limit" => limit})
+  end
+
+  defp scoped_extra_params(extra_params, route_params, target_path, current_path) do
+    route_tab = Map.get(route_params, "tab")
+    extra_tab = Map.get(extra_params, "tab")
+
+    cond do
+      target_path != current_path -> %{}
+      is_binary(route_tab) and extra_tab not in [nil, route_tab] -> %{}
+      true -> extra_params
     end
   end
 
@@ -457,6 +505,106 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp normalize_param_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_param_to_string(value) when is_map(value), do: inspect(value)
   defp normalize_param_to_string(value), do: inspect(value)
+
+  defp tokenize_query(query) when is_binary(query) do
+    {tokens_rev, current, _in_quotes, _escaped} =
+      query
+      |> String.trim()
+      |> String.graphemes()
+      |> Enum.reduce({[], "", false, false}, fn ch, {tokens_rev, current, in_quotes, escaped} ->
+        cond do
+          escaped ->
+            {tokens_rev, current <> ch, in_quotes, false}
+
+          ch == "\\" ->
+            {tokens_rev, current <> ch, in_quotes, true}
+
+          ch == "\"" ->
+            {tokens_rev, current <> ch, not in_quotes, false}
+
+          String.match?(ch, ~r/\s/) and not in_quotes ->
+            push_query_token(tokens_rev, current, in_quotes)
+
+          true ->
+            {tokens_rev, current <> ch, in_quotes, false}
+        end
+      end)
+
+    tokens_rev
+    |> finalize_query_tokens(current)
+    |> Enum.reverse()
+  end
+
+  defp push_query_token(tokens_rev, "", in_quotes), do: {tokens_rev, "", in_quotes, false}
+  defp push_query_token(tokens_rev, current, in_quotes), do: {[current | tokens_rev], "", in_quotes, false}
+  defp finalize_query_tokens(tokens_rev, ""), do: tokens_rev
+  defp finalize_query_tokens(tokens_rev, current), do: [current | tokens_rev]
+
+  defp entity_from_tokens(tokens) when is_list(tokens) do
+    Enum.find_value(tokens, "devices", fn
+      "in:" <> entity when entity != "" -> entity
+      _ -> nil
+    end)
+  end
+
+  defp entity_from_query(query) when is_binary(query) do
+    Enum.find_value(tokenize_query(query), fn
+      "in:" <> entity when entity != "" -> entity
+      _ -> nil
+    end)
+  end
+
+  @srql_control_fields ~w(in limit sort time bucket agg value_field series stats group by)
+
+  defp invalid_entity_filter_token?(token, entity) when is_binary(token) do
+    case token_field(token) do
+      nil ->
+        false
+
+      field ->
+        field not in @srql_control_fields and field in known_catalog_filter_fields() and
+          field not in allowed_entity_filter_fields(entity)
+    end
+  end
+
+  defp invalid_entity_filter_token?(_token, _entity), do: false
+
+  defp token_field("!" <> token), do: token_field(token)
+
+  defp token_field(token) when is_binary(token) do
+    case String.split(token, ":", parts: 2) do
+      [field, _value] when field != "" -> field
+      _ -> nil
+    end
+  end
+
+  defp allowed_entity_filter_fields(entity) do
+    config = Catalog.entity(entity)
+
+    config
+    |> catalog_filter_fields()
+    |> Enum.uniq()
+  end
+
+  defp known_catalog_filter_fields do
+    Catalog.entities()
+    |> Enum.flat_map(&catalog_filter_fields/1)
+    |> Enum.uniq()
+  end
+
+  defp catalog_filter_fields(config) when is_map(config) do
+    [
+      Map.get(config, :filter_fields, []),
+      Map.get(config, :boolean_fields, []),
+      Map.get(config, :array_fields, []),
+      Map.get(config, :numeric_fields, []),
+      Map.get(config, :series_fields, []),
+      Map.get(config, :stats_fields, []),
+      Map.get(config, :value_fields, [])
+    ]
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
+  end
 
   defp get_scope(socket) do
     Map.get(socket.assigns, :current_scope)
