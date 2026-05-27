@@ -91,8 +91,8 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 	if !resp.GetAvailable() {
 		t.Fatal("agent capability status should be available")
 	}
-	if got := resp.GetSidecars(); len(got) != 1 || got[0].GetName() != "netprobe" {
-		t.Fatalf("sidecars = %#v, want netprobe status", got)
+	if got := resp.GetSidecars(); len(got) != 0 {
+		t.Fatalf("proto sidecars = %#v, want sidecars only in capability payload", got)
 	}
 
 	var payload agentCapabilityStatusPayload
@@ -108,6 +108,7 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 		payload.HostNetworkVisibility.ProcessSnapshot != "unavailable" {
 		t.Fatalf("unexpected unavailable surfaces: %#v", payload.HostNetworkVisibility)
 	}
+
 	if len(payload.Sidecars) != 1 || payload.Sidecars[0].GetName() != "netprobe" {
 		t.Fatalf("payload sidecars = %#v, want netprobe status", payload.Sidecars)
 	}

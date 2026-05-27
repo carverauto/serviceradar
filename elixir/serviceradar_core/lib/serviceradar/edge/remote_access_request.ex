@@ -50,6 +50,7 @@ defmodule ServiceRadar.Edge.RemoteAccessRequest do
     table "remote_access_requests"
     repo ServiceRadar.Repo
     schema "platform"
+    identity_wheres_to_sql unique_bound_session: "session_id IS NOT NULL"
   end
 
   state_machine do

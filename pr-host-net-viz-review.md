@@ -28,10 +28,13 @@ longer open.
 | Pass 3 Mi-25 | Resolved | `8b1e59ec7` | Removed the redundant `infer_os/3` function head. |
 | Pass 3 Mi-28 | Resolved | `33639d344` | Discovery-source registration now checks the exact `host-network-visibility.fingerprint.enabled` capability. |
 | Pass 3 Mi-29 | Resolved | `e79e980d4` | Removed unreachable underscore-form Agent Detail capability fallbacks. |
-| Pass 3 M-11 | Resolved | this commit | Phase 1 spec/docs now describe the libpcap-enabled dynamic Linux package, deb/rpm declare libpcap, and the Alpine agent rootfs bundles glibc/libpcap while musl static remains a build target. |
-| Pass 3 Mi-27 | Resolved | this commit | VisibilityProfile create/update rejects reserved DPI, flow attribution, and process snapshot fields until later phases. |
-| Pass 3 Mi-30 | Resolved | this commit | `register_identifiers/3` no longer persists passive fingerprint hashes as `DeviceIdentifier` rows. |
-| Pass 3 Mi-31 | Resolved | this commit | Visibility profile migration now uses `:integer` for `priority`, matching the Ash resource. |
+| Pass 3 M-11 | Resolved | `1d8b28731` | Phase 1 spec/docs now describe the libpcap-enabled dynamic Linux package, deb/rpm declare libpcap, and the Alpine agent rootfs bundles glibc/libpcap while musl static remains a build target. |
+| Pass 3 Mi-27 | Resolved | `1d8b28731` | VisibilityProfile create/update rejects reserved DPI, flow attribution, and process snapshot fields until later phases. |
+| Pass 3 Mi-30 | Resolved | `1d8b28731` | `register_identifiers/3` no longer persists passive fingerprint hashes as `DeviceIdentifier` rows. |
+| Pass 3 Mi-31 | Resolved | `1d8b28731` | Visibility profile migration now uses `:integer` for `priority`, matching the Ash resource. |
+| Pass 3 M-13 | Investigated | current batch | Added the missing `identity_wheres_to_sql` metadata that blocked Ash codegen at `RemoteAccessRequest`; `mix ash.codegen add_visibility_profile --dry-run` now runs but reveals broad pre-existing snapshot drift outside this proposal, so the VisibilityProfile migration remains open for a dedicated Ash migration cleanup. |
+| Pass 3 N-13 | Resolved | current batch | Agent capability status keeps sidecar state only in the JSON `Message` payload used by `GatewayServiceStatus` and no longer also sets `StatusResponse.Sidecars`. |
+| Pass 3 N-14 | Resolved | current batch | Agent postinstall now emits one canonical netprobe capability remediation message for both `setcap` failure paths. |
 
 ---
 

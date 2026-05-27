@@ -1954,7 +1954,6 @@ func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto
 		Message:     payload,
 		ServiceName: agentCapabilityServiceName,
 		ServiceType: agentCapabilityServiceType,
-		Sidecars:    sidecars,
 	}
 }
 
