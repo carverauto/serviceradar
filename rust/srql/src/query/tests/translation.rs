@@ -46,6 +46,13 @@ fn translate_param_arity_matches_sql_placeholders() {
                 mode: None,
             },
             QueryRequest {
+                query: r#"in:logs device_id:"sr:device-1" time:last_24h sort:timestamp:desc"#.to_string(),
+                limit: Some(50),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
                 query: "in:interfaces time:last_24h ip_addresses:(10.0.0.1,10.0.0.2) sort:timestamp:asc".to_string(),
                 limit: Some(5),
                 cursor: None,
@@ -114,6 +121,31 @@ fn translate_includes_visualization_metadata() {
             .any(|s| matches!(s.kind, viz::VizKind::Timeseries)),
         "expected timeseries suggestion, got: {:?}",
         viz.suggestions
+    );
+}
+
+#[test]
+fn translate_logs_device_id_resolves_inventory_aliases() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: r#"in:logs device_id:"sr:device-1" time:last_24h sort:timestamp:desc"#.to_string(),
+        limit: Some(50),
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response.sql.contains("platform.ocsf_devices"),
+        "device-scoped logs should resolve inventory aliases, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("\"host\""),
+        "device-scoped logs should match syslog host attributes, got: {}",
+        response.sql
     );
 }
 
