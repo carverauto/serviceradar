@@ -1281,8 +1281,18 @@ type SweepScannerStats struct {
 	Protocol      string `protobuf:"bytes,17,opt,name=protocol,proto3" json:"protocol,omitempty"`                                // "tcp", "icmp", etc.
 	AddressFamily string `protobuf:"bytes,18,opt,name=address_family,json=addressFamily,proto3" json:"address_family,omitempty"` // "ipv4", "ipv6", or "dual_stack"
 	ScannerPath   string `protobuf:"bytes,19,opt,name=scanner_path,json=scannerPath,proto3" json:"scanner_path,omitempty"`       // "raw_syn", "tcp_connect", etc.
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// TCP connect statistics
+	DialsStarted       uint64 `protobuf:"varint,20,opt,name=dials_started,json=dialsStarted,proto3" json:"dials_started,omitempty"`                     // Total full TCP connect dials started
+	DialsSucceeded     uint64 `protobuf:"varint,21,opt,name=dials_succeeded,json=dialsSucceeded,proto3" json:"dials_succeeded,omitempty"`               // Full TCP connect dials that established
+	DialTimeouts       uint64 `protobuf:"varint,22,opt,name=dial_timeouts,json=dialTimeouts,proto3" json:"dial_timeouts,omitempty"`                     // Dial attempts that timed out
+	DialResets         uint64 `protobuf:"varint,23,opt,name=dial_resets,json=dialResets,proto3" json:"dial_resets,omitempty"`                           // Dial attempts refused or reset
+	DialResourceErrors uint64 `protobuf:"varint,24,opt,name=dial_resource_errors,json=dialResourceErrors,proto3" json:"dial_resource_errors,omitempty"` // Local fd/port/buffer pressure errors
+	ActiveDials        uint64 `protobuf:"varint,25,opt,name=active_dials,json=activeDials,proto3" json:"active_dials,omitempty"`                        // Current full TCP connect dials
+	MaxActiveDials     uint64 `protobuf:"varint,26,opt,name=max_active_dials,json=maxActiveDials,proto3" json:"max_active_dials,omitempty"`             // High-water mark of active dials
+	QueueDepth         uint64 `protobuf:"varint,27,opt,name=queue_depth,json=queueDepth,proto3" json:"queue_depth,omitempty"`                           // Latest scanner input queue depth
+	MaxQueueDepth      uint64 `protobuf:"varint,28,opt,name=max_queue_depth,json=maxQueueDepth,proto3" json:"max_queue_depth,omitempty"`                // High-water mark of input queue depth
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SweepScannerStats) Reset() {
@@ -1446,6 +1456,69 @@ func (x *SweepScannerStats) GetScannerPath() string {
 		return x.ScannerPath
 	}
 	return ""
+}
+
+func (x *SweepScannerStats) GetDialsStarted() uint64 {
+	if x != nil {
+		return x.DialsStarted
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetDialsSucceeded() uint64 {
+	if x != nil {
+		return x.DialsSucceeded
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetDialTimeouts() uint64 {
+	if x != nil {
+		return x.DialTimeouts
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetDialResets() uint64 {
+	if x != nil {
+		return x.DialResets
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetDialResourceErrors() uint64 {
+	if x != nil {
+		return x.DialResourceErrors
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetActiveDials() uint64 {
+	if x != nil {
+		return x.ActiveDials
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetMaxActiveDials() uint64 {
+	if x != nil {
+		return x.MaxActiveDials
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetQueueDepth() uint64 {
+	if x != nil {
+		return x.QueueDepth
+	}
+	return 0
+}
+
+func (x *SweepScannerStats) GetMaxQueueDepth() uint64 {
+	if x != nil {
+		return x.MaxQueueDepth
+	}
+	return 0
 }
 
 // GatewayStatusRequest is sent by agents to push their status to the gateway.
@@ -5383,7 +5456,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vIN_PROGRESS\x10\x02\x12\r\n" +
 	"\tCOMPLETED\x10\x03\x12\n" +
 	"\n" +
-	"\x06FAILED\x10\x04\"\xd3\x06\n" +
+	"\x06FAILED\x10\x04\"\xaf\t\n" +
 	"\x11SweepScannerStats\x12!\n" +
 	"\fpackets_sent\x18\x01 \x01(\x04R\vpacketsSent\x12!\n" +
 	"\fpackets_recv\x18\x02 \x01(\x04R\vpacketsRecv\x12'\n" +
@@ -5404,7 +5477,18 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x18source_port_wait_time_ms\x18\x10 \x01(\x04R\x14sourcePortWaitTimeMs\x12\x1a\n" +
 	"\bprotocol\x18\x11 \x01(\tR\bprotocol\x12%\n" +
 	"\x0eaddress_family\x18\x12 \x01(\tR\raddressFamily\x12!\n" +
-	"\fscanner_path\x18\x13 \x01(\tR\vscannerPath\"\x92\x03\n" +
+	"\fscanner_path\x18\x13 \x01(\tR\vscannerPath\x12#\n" +
+	"\rdials_started\x18\x14 \x01(\x04R\fdialsStarted\x12'\n" +
+	"\x0fdials_succeeded\x18\x15 \x01(\x04R\x0edialsSucceeded\x12#\n" +
+	"\rdial_timeouts\x18\x16 \x01(\x04R\fdialTimeouts\x12\x1f\n" +
+	"\vdial_resets\x18\x17 \x01(\x04R\n" +
+	"dialResets\x120\n" +
+	"\x14dial_resource_errors\x18\x18 \x01(\x04R\x12dialResourceErrors\x12!\n" +
+	"\factive_dials\x18\x19 \x01(\x04R\vactiveDials\x12(\n" +
+	"\x10max_active_dials\x18\x1a \x01(\x04R\x0emaxActiveDials\x12\x1f\n" +
+	"\vqueue_depth\x18\x1b \x01(\x04R\n" +
+	"queueDepth\x12&\n" +
+	"\x0fmax_queue_depth\x18\x1c \x01(\x04R\rmaxQueueDepth\"\x92\x03\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +

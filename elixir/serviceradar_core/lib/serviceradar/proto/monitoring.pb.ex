@@ -278,6 +278,18 @@ defmodule Monitoring.SweepScannerStats do
   field(:source_port_waits, 14, type: :uint64, json_name: "sourcePortWaits")
   field(:rate_limit_wait_time_ms, 15, type: :uint64, json_name: "rateLimitWaitTimeMs")
   field(:source_port_wait_time_ms, 16, type: :uint64, json_name: "sourcePortWaitTimeMs")
+  field(:protocol, 17, type: :string)
+  field(:address_family, 18, type: :string, json_name: "addressFamily")
+  field(:scanner_path, 19, type: :string, json_name: "scannerPath")
+  field(:dials_started, 20, type: :uint64, json_name: "dialsStarted")
+  field(:dials_succeeded, 21, type: :uint64, json_name: "dialsSucceeded")
+  field(:dial_timeouts, 22, type: :uint64, json_name: "dialTimeouts")
+  field(:dial_resets, 23, type: :uint64, json_name: "dialResets")
+  field(:dial_resource_errors, 24, type: :uint64, json_name: "dialResourceErrors")
+  field(:active_dials, 25, type: :uint64, json_name: "activeDials")
+  field(:max_active_dials, 26, type: :uint64, json_name: "maxActiveDials")
+  field(:queue_depth, 27, type: :uint64, json_name: "queueDepth")
+  field(:max_queue_depth, 28, type: :uint64, json_name: "maxQueueDepth")
 end
 
 defmodule Monitoring.GatewayStatusRequest do

@@ -427,6 +427,15 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			RateLimitWaitTimeMs:  scannerStats.RateLimitWaitTimeMs,
 			SourcePortWaitTimeMs: scannerStats.SourcePortWaitTimeMs,
 			RxDropRatePercent:    scannerStats.RxDropRatePercent,
+			DialsStarted:         scannerStats.DialsStarted,
+			DialsSucceeded:       scannerStats.DialsSucceeded,
+			DialTimeouts:         scannerStats.DialTimeouts,
+			DialResets:           scannerStats.DialResets,
+			DialResourceErrors:   scannerStats.DialResourceErrors,
+			ActiveDials:          scannerStats.ActiveDials,
+			MaxActiveDials:       scannerStats.MaxActiveDials,
+			QueueDepth:           scannerStats.QueueDepth,
+			MaxQueueDepth:        scannerStats.MaxQueueDepth,
 		}
 	}
 

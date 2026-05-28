@@ -184,6 +184,17 @@ message SweepScannerStats {
   string protocol = 17;       // "tcp", "icmp", etc.
   string address_family = 18; // "ipv4", "ipv6", or "dual_stack"
   string scanner_path = 19;   // "raw_syn", "tcp_connect", etc.
+
+  // TCP connect statistics
+  uint64 dials_started = 20;         // Total full TCP connect dials started
+  uint64 dials_succeeded = 21;       // Full TCP connect dials that established
+  uint64 dial_timeouts = 22;         // Dial attempts that timed out
+  uint64 dial_resets = 23;           // Dial attempts refused or reset
+  uint64 dial_resource_errors = 24;  // Local fd/port/buffer pressure errors
+  uint64 active_dials = 25;          // Current full TCP connect dials
+  uint64 max_active_dials = 26;      // High-water mark of active dials
+  uint64 queue_depth = 27;           // Latest scanner input queue depth
+  uint64 max_queue_depth = 28;       // High-water mark of input queue depth
 }
 
 
