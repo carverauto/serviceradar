@@ -48,6 +48,7 @@ impl AgentService for ZenAgentService {
             response_time: start.elapsed().as_nanos() as i64,
             agent_id: req.agent_id,
             gateway_id: req.gateway_id,
+            sidecars: vec![],
         }))
     }
 
