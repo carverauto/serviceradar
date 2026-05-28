@@ -176,7 +176,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 18.5 Author `kprobe/tcp_rcv_state_process` (or kernel-version equivalent) that extracts SYN TCP options (`ttl`, `window_size`, `mss`, `options_layout`, `quirks`, `ip_version`, `window_scale`, `payload_class`) at connection setup and emits one perf-RB event per new connection.
 - [x] 18.6 Author socket-lifecycle kprobes: `tcp_connect`, `inet_csk_accept`, `tcp_close`, `udp_sendmsg`, `udp_recvmsg`, plus `tracepoint/sock/inet_sock_set_state` backfill. Populate `flow_to_pid` and `process_info` BPF maps.
 - [ ] 18.7 Define BPF maps with explicit capacity bounds: `flow_table` (default 65,536 entries per interface, LRU), `flow_to_pid`, `process_info`, `interface_allowlist`. All pinned under `/sys/fs/bpf/serviceradar/netprobe/` with `0700` perms.
-- [ ] 18.8 Implement AF_XDP ring binding per allowlisted interface. Default per-flow packet redirect budget = 16. Userspace consumes via a dedicated tokio task per interface.
+- [ ] 18.8 Implement AF_XDP ring binding per allowlisted interface. Default per-flow packet redirect budget = 16. **Userspace consumer is a dedicated OS thread per interface (`std::thread::spawn`), pinned via `sched_setaffinity` to a core local to the interface's IRQ affinity** — NOT a tokio task. Thread runs a busy-poll loop with adaptive backoff (default 10 µs → 1 ms when idle). The consumer communicates with the tokio main loop via a SPSC channel (`flume` or `crossbeam-channel`, implementer's choice). See `design.md` D4d for rationale; `design.md` D4e explains why this is a thread-per-core decision, not a full compio migration.
 - [ ] 18.9 Implement the userspace classifier that consumes the AF_XDP ring, runs the existing 9-dissector pack (relocated from `dpi.rs`'s pcap-driven loop), writes `classified_as` back to flow_table via BPF map syscall.
 - [ ] 18.10 Rewire the userspace huginn-net matcher to consume the SYN-signature perf RB stream. One match per connection; no per-packet work.
 - [ ] 18.11 Userspace map readers correlating 5-tuples to PIDs via the eBPF maps + `/proc` enrichment for `comm`, redacted `cmdline`, UID, container_id.
@@ -187,6 +187,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [ ] 18.16 BPF program verifier CI: load every TC and kprobe program against a kernel-5.8 fixture; assert successful verification. Repeat for 5.15 and 6.x stable.
 - [ ] 18.17 Kernel-too-old CI: run netprobe on a 5.4 kernel image; assert it exits cleanly with `host-network-visibility = unavailable` advertised.
 - [ ] 18.18 Flow-cache hit-rate assertion: under the §18.15 workload, assert `flow_table` hit ratio > 95% (> 95% of packets short-circuit in-kernel and never reach userspace).
+- [ ] 18.19 Replace `tokio::sync::broadcast` for `FingerprintEvent` and `DpiEvent` IPC fan-out with per-consumer SPSC channels (`flume` or `crossbeam-channel`). The IPC server's single-client gate already guarantees one subscriber, so the SPMC fan-out shape is unnecessary overhead. Pool the `prost::Message::encode_to_vec` buffer per consumer thread so steady-state event encoding produces zero allocations after warmup; expose `serviceradar_netprobe_encode_buffer_reuses_total` so we can confirm steady-state allocation-free behavior in CI.
 
 ### 19. [Phase 3] libpcap deletion + packaging + UI surfaces
 

@@ -273,14 +273,78 @@ case), security review (eBPF capability surface).
   perf-event ring buffers for the L7-classification packet path
   because it supports zero-copy and large frame sizes; the perf RB
   remains the right tool for fixed-size structured events (SYN
-  signatures, socket-lifecycle events, flow counters). Userspace
-  consumes the AF_XDP ring on a dedicated tokio task per interface.
-- **Alternatives.** Single perf ring buffer for both packet data and
-  events — works but loses zero-copy and conflates packet-rate
-  pressure with event-rate pressure. AF_XDP keeps the two concerns
-  separated.
+  signatures, socket-lifecycle events, flow counters). **Userspace
+  consumes the AF_XDP ring on a dedicated OS thread per interface,
+  pinned via `sched_setaffinity` to a core local to the interface's
+  IRQ affinity (NUMA-aware where applicable).** The consumer thread
+  runs a busy-poll loop with a short adaptive backoff (default 10 µs
+  → 1 ms when idle) and communicates with the tokio main loop via a
+  SPSC channel (`flume` or `crossbeam-channel`, implementer's
+  choice).
+- **Alternatives.** (a) AF_XDP ring polled by a tokio task — rejected
+  because tokio's work-stealing scheduler can migrate the task off
+  the IRQ-local core, defeating NUMA / L1-L2 cache locality. The
+  point of AF_XDP is to bypass the kernel socket layer; bouncing the
+  consumer between cores wastes most of that win. (b) Single perf
+  ring buffer for both packet data and events — works but loses
+  zero-copy and conflates packet-rate pressure with event-rate
+  pressure. AF_XDP keeps the two concerns separated.
 - **Rationale.** Same pattern Datadog uses for its NPM packet-sample
-  path; same pattern Cilium uses for socket-redirect handling.
+  path; same pattern Cilium uses for socket-redirect handling. The
+  dedicated-OS-thread + CPU-pinning pattern is what makes AF_XDP's
+  zero-copy promise actually translate into measured CPU reduction.
+
+### D4e. Runtime model: tokio for control plane, dedicated threads for hot data
+
+- **Decision.** Keep tokio's work-stealing pool for the control plane
+  (IPC `accept` loop, `ApplyConfig` request/response, health probe,
+  Prometheus metrics endpoint, BPF map allocation, kprobe attachment)
+  and use dedicated OS threads with `sched_setaffinity` pinning for
+  the latency-sensitive AF_XDP consumers (D4d). Replace
+  `tokio::sync::broadcast` for `FingerprintEvent` and `DpiEvent` IPC
+  fan-out with per-consumer SPSC channels (`flume` or
+  `crossbeam-channel`); the IPC server's single-client gate already
+  guarantees one subscriber. Pool the `prost` encode buffer per
+  consumer thread so steady-state event encoding produces zero
+  allocations after warmup.
+- **Alternatives considered — full compio / io_uring migration.**
+  iggy-style thread-per-core + completion-based I/O is a clean
+  architectural fit for IO-heavy workloads (message brokers,
+  log-structured storage) where millions of small reads/writes per
+  second amortise the io_uring submission-queue batching benefits.
+  netprobe's hot paths are different:
+  - AF_XDP rings sidestep both readiness and completion models —
+    they're a shared memory ring polled directly via mmap, not driven
+    through `read()` / `write()` syscalls. Whether userspace runs a
+    tokio runtime or a compio runtime doesn't affect the AF_XDP
+    consumer's syscall pattern.
+  - BPF map syscalls (`bpf(BPF_MAP_UPDATE_ELEM, ...)`) are not yet
+    reachable through io_uring's submission queue (kernel-ABI gap as
+    of 6.x). compio cannot accelerate them.
+  - UDS writes to the agent at 100–10k events/sec on a typical host
+    do not approach the syscall-pressure regime where io_uring
+    earns its keep (iggy's workload is several orders of magnitude
+    higher).
+  - tokio ecosystem compatibility matters: OpenTelemetry context
+    propagation, `tonic` if we ever need full gRPC, `hyper` for
+    metrics, all assume tokio. compio's ecosystem is smaller.
+  - `AsyncWrite` ownership ergonomics: completion-based runtimes
+    require buffer ownership / lifetime gymnastics that don't match
+    our existing `prost::encode_to_vec` framing layer.
+
+  The thread-per-core *execution* benefits (cache locality, NUMA
+  alignment, no work-stealing migration on the hot path) apply to
+  AF_XDP consumers and we capture them via D4d's pinned-OS-thread
+  decision. The io_uring *I/O model* benefits don't materially apply
+  to our syscall mix. Hybrid wins ~80% of the iggy-style architecture
+  benefit for ~20% of the migration cost.
+- **Rationale.** The two axes — I/O model (readiness vs completion)
+  and execution model (work-stealing vs thread-per-core) — are
+  orthogonal. Thread-per-core for hot data is the win that matters
+  for netprobe; io_uring is overkill at our event rates. If Phase 3
+  benchmarks (§18.15) show us bound by runtime overhead rather than
+  algorithm cost, revisit the full compio migration as a Phase 7+
+  architecture refresh.
 
 ### D5. eBPF programs and capability requirements (expanded)
 
