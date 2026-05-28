@@ -116,25 +116,72 @@ profile changes propagate through the agent config delivery path.
   from that interface within one config-apply cycle
 - **AND** flow_table entries scoped to that interface are evicted
 
-### Requirement: Passive fingerprinting via huginn-net
+### Requirement: Passive OS fingerprinting via a license-clean stack
 
-`serviceradar-netprobe` SHALL implement passive OS / device
-fingerprinting using `huginn-net` for TCP p0f-style analysis, plus
-JA4/JA4S extraction for TLS handshakes and minimal header analysis for
-HTTP. Each protocol analyzer MUST be independently toggleable from the
-per-device binding in `VisibilityAgentConfig`.
+`serviceradar-netprobe` SHALL produce OS / device fingerprints using
+a license-clean signature stack with no dependency on
+FoxIO-License-1.1 or patent-pending methods. The p0f canonical TCP
+fingerprint MUST be computed inside the eBPF kprobe and emitted to
+userspace as a fixed-length byte string; this is the primary
+classifier. JA4 (base, TLS ClientHello, BSD-3-Clause, patent-disclaimed
+by FoxIO) MUST be computed in userspace from the DPI TLS dissector
+output. HASSH (SSH KEXINIT, BSD-3-Clause) MUST be computed in userspace
+from the DPI SSH dissector output. The compiled-in `p0f` corpus
+(`P0fSignature → OsMatch { name, version_range, confidence }`) is the
+primary OS classifier; ensemble confidence MUST be boosted when JA4
+or HASSH co-observe a flow and agree with the p0f match on OS family.
+Each signature MUST be independently toggleable from the per-device
+binding in `VisibilityAgentConfig`. `huginn-net` MUST NOT be linked
+into the default `serviceradar-netprobe` build. JA4T, JA4H, JA4S,
+JA4SSH, JA4X, JA4L, and JA4LS MUST NOT be implemented in
+`serviceradar-netprobe` because their FoxIO License 1.1 terms
+prohibit commercial-product resale without an OEM license.
 
 #### Scenario: Per-protocol fingerprint toggles honoured
 - **WHEN** a device binding enables only `fingerprint.tcp`
-- **THEN** the sidecar performs TCP fingerprinting only for that
-  device's observed flows
-- **AND** does not emit TLS or HTTP fingerprint events for the same
-  device IP
+- **THEN** the sidecar emits `FingerprintEvent` records carrying the
+  p0f canonical signature and p0f match for that device's observed
+  SYNs
+- **AND** does not compute or emit JA4 or HASSH for the same device IP
 
-#### Scenario: Fingerprint engine version reported in Ping reply
+#### Scenario: p0f-only fingerprint for ping-only devices
+- **WHEN** a discovered device only exchanges TCP SYN handshakes with
+  the agent host (no TLS or SSH traffic observed)
+- **THEN** the emitted `FingerprintEvent` carries the p0f signature
+  and p0f-matched `os_match`
+- **AND** the `confidence` field reflects single-signature p0f
+  confidence (no ensemble boost)
+- **AND** the JA4 and HASSH fields are absent
+
+#### Scenario: Ensemble boost when p0f and JA4 agree
+- **WHEN** the same flow produces a p0f match (`linux`) and a JA4
+  match (`linux`)
+- **THEN** the emitted `FingerprintEvent` carries both signatures
+- **AND** the `confidence` field is boosted above the p0f-only baseline
+  by the ensemble matcher
+- **AND** the matched OS reflects the agreed family
+
+#### Scenario: Ensemble boost when p0f and HASSH agree on SSH endpoint
+- **WHEN** the same SSH endpoint produces a p0f match (`linux`) on its
+  TCP SYN and a HASSH match (`linux`) on its KEXINIT
+- **THEN** the emitted `FingerprintEvent` carries both signatures
+- **AND** the `confidence` field is boosted above the p0f-only baseline
+
+#### Scenario: No p0f match surfaces as unknown
+- **WHEN** the kprobe emits a p0f canonical signature that has no
+  entry in the compiled-in `p0f.fp` + `serviceradar-additions.fp`
+  corpus
+- **THEN** the `FingerprintEvent` carries the p0f signature with
+  `os_match = unknown` and confidence 0
+- **AND** the `unknown` counter is incremented for operator visibility
+- **AND** the raw signature is logged to the metrics endpoint at debug
+  level so operators can curate `serviceradar-additions.fp` additions
+
+#### Scenario: Corpus revisions reported in Ping reply
 - **WHEN** the agent issues `Ping` to the sidecar
-- **THEN** the `PingAck` reply includes the compiled `huginn-net` crate
-  version
+- **THEN** the `PingAck` reply includes the `p0f.fp` corpus revision,
+  the `serviceradar-additions.fp` revision, and the JA4-base spec
+  revision the sidecar was built against
 
 ### Requirement: Deep packet inspection with privacy-by-default
 

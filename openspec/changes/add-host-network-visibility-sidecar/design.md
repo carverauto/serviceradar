@@ -776,6 +776,150 @@ case), security review (eBPF capability surface).
   on `flow-collector` for ingestion correctness, and keeps `netprobe`
   focused on host-level observation.
 
+### D14. OS fingerprinting technique: license-clean stack (p0f-in-eBPF + JA4 base + HASSH)
+
+- **Decision.** `serviceradar-netprobe` SHALL produce OS / device
+  fingerprints using a **license-clean signature stack** with no
+  dependency on FoxIO-License-1.1 / patent-pending methods. The stack:
+
+  1. **p0f-canonical TCP fingerprint, computed inside the eBPF
+     kprobe.** Primary layer. Covers every observed TCP SYN. The §18.5
+     SYN kprobe already extracts TTL / window / MSS / options layout /
+     scale / quirks / pclass — exactly the p0f signature inputs.
+     Encoding the canonical p0f form (`ver:ttl:olen:mss:wsize,scale:olayout:quirks:pclass`)
+     in the kprobe and emitting it via ring buffer means userspace
+     never re-parses the packet; the userspace classifier is a
+     compile-time `phf::Map<P0fSignatureKey, P0fLabel>` lookup over the
+     vendored corpus.
+  2. **JA4 (base, TLS ClientHello), computed in userspace.** Secondary
+     layer for TLS-visible devices. JA4 base is BSD-3-Clause and
+     FoxIO has publicly stated "no patent claims and is not planning
+     to pursue patent coverage" for it. Safe for commercial use.
+     Computed in userspace from the TLS ClientHello extracted by the
+     existing DPI TLS dissector.
+  3. **HASSH (SSH KEXINIT), computed in userspace.** Secondary layer
+     for SSH-visible devices. BSD-3-Clause, Salesforce / Ben Reardon
+     (2018), no patent issues. Computed in userspace from the SSH
+     KEXINIT field lists extracted by the existing DPI SSH dissector.
+  4. **In-house ServiceRadar canonical formats (optional, deferred).**
+     For TLS-server fingerprinting (the JA4S equivalent), HTTP request
+     fingerprinting (the JA4H equivalent), and any other surface
+     where we want hashed-field fingerprints, ServiceRadar defines its
+     own canonical-string format under our own license. The patent
+     claim FoxIO has filed is on the *specific* JA4+ canonical forms;
+     a differently-defined canonical hash of the same underlying
+     fields is not encumbered. Deferred to a later Phase 2.x
+     amendment; not required for the discovery-scope use case.
+
+  The `huginn-net` crate is removed from `netprobe`'s dependency set
+  (§31.10). The p0f canonical encoder, the JA4-base encoder, and the
+  HASSH encoder are all hand-rolled in-tree.
+- **Licensing audit (the reason we do not adopt JA4+).**
+  - **JA4 (base, TLS ClientHello)** — BSD-3-Clause. FoxIO explicit
+    no-patent stance. **Used.**
+  - **JA4T** (TCP) — FoxIO License 1.1, patent pending. The
+    monetization clause and patent posture make it incompatible with
+    ServiceRadar's commercial sale. **Not used.** p0f is the
+    public-domain substitute and our primary need anyway, since
+    most fingerprintable traffic crossing the agent host is
+    TCP-without-TLS.
+  - **JA4H** (HTTP) — FoxIO 1.1, patent pending. **Not used.**
+    Replaced by an in-house HTTP canonical format if/when we need
+    HTTP fingerprinting (Phase 2.x amendment, optional).
+  - **JA4S** (TLS ServerHello) — FoxIO 1.1, patent pending.
+    **Not used.** Replaced by an in-house TLS-server canonical
+    format if/when needed (Phase 2.x, optional).
+  - **JA4SSH** — FoxIO 1.1, patent pending. **Not used.** HASSH
+    (BSD-3) is the license-clean substitute.
+  - **JA4X** (X.509) — FoxIO 1.1, patent pending. **Not used.**
+    Not in scope for our use case.
+  - **JA4L / JA4LS** (latency) — FoxIO 1.1, patent pending. **Not
+    used.** Not in scope.
+
+  This split is exactly per FoxIO's published licensing terms (JA4
+  the base method is open, BSD-3, patent-disclaimed; the rest of the
+  JA4+ family requires an OEM license for resale-in-product use).
+- **Alternatives considered.**
+  - **`huginn-net` + p0f signatures (the original Phase 1 plan).**
+    Rejected. huginn-net's API is tightly coupled to its libpcap
+    capture loop, which we are eliminating in Phase 3 (§19.1–§19.3).
+    We retain the *signature corpus* p0f produced (public domain) but
+    drop the implementation crate. ServiceRadar's in-tree parser is
+    ~300 LOC, single file, zero deps.
+  - **Full JA4+ ensemble (JA4T / JA4H / JA4S / JA4SSH).** Rejected
+    on licensing grounds. FoxIO License 1.1 prohibits commercial
+    use without an OEM license; all methods are patent pending.
+    ServiceRadar is a commercial product; the monetization clause
+    bites us. The technical benefit over a p0f-in-kernel +
+    JA4-base + HASSH stack does not justify either paying FoxIO
+    indefinitely or accepting patent exposure.
+  - **Datadog NPM / Cisco Secure Workload style: TCP fingerprinting
+    in userspace from libpcap.** Rejected. The kernel kprobe already
+    sees every TCP SYN at the socket layer; computing the canonical
+    fingerprint there saves userspace re-parsing and removes
+    `bpf_probe_read_kernel` round-trips. No major NPM vendor does
+    p0f-in-kernel today; doing it there is a real differentiator.
+  - **Active fingerprinting (Nmap-style OS detection).** Rejected for
+    the continuous capture path. Active probing is reserved for the
+    `serviceradar-mapper` discovery pipeline; `netprobe` remains a
+    passive observer. The two pipelines feed the same
+    `IP Alias Resolution`-bound device record.
+- **Rationale.**
+  - **License-clean for commercial sale.** Every component of the
+    fingerprint stack is BSD-3 or public domain. No FoxIO OEM
+    licensing required. No patent exposure. ServiceRadar can ship,
+    sell, and update the fingerprint stack without an external
+    licensing dependency.
+  - **TCP is the dominant fingerprintable signal anyway.** The user
+    has confirmed the discovery scope is "fingerprint discoverable
+    devices for inventory," which is overwhelmingly TCP traffic
+    (port scans, discovery probes, network management protocols).
+    p0f covers this case fully. TLS/SSH/HTTP fingerprints are
+    confidence boosters when applicable, not the primary signal.
+  - **p0f-in-eBPF is novel.** Computing the p0f canonical form
+    inside a kernel kprobe and matching against a compiled-in
+    `phf::Map` of p0f signatures is genuinely new ground. No
+    existing tool does this; certainly no commercial NPM vendor
+    does. Same architectural win as we'd get with JA4T, without
+    the licensing cost.
+  - **20 years of p0f signatures.** The public-domain `p0f.fp`
+    corpus has 20 years of fingerprints from across the OS / device
+    spectrum. While upstream is effectively frozen since 2014,
+    the corpus still covers an enormous range, particularly the
+    legacy / embedded gear that modern signature databases under-cover.
+    ServiceRadar additions land in `serviceradar-additions.fp`
+    over time as we encounter signatures upstream lacks.
+  - **IPv6 covered.** Modern p0f.fp signatures include IPv6 entries;
+    where they don't, ServiceRadar additions can fill the gap. The
+    kprobe encodes both IPv4 and IPv6 SYN observations.
+  - **JA4 base (BSD-3) gets us modern TLS fingerprinting.** TLS
+    libraries are updated about once a year per FoxIO's own
+    documentation; JA4 base tracks those changes via community
+    contributions. Patent-disclaimed, license-clean, well-maintained.
+- **Trade-offs.**
+  - **No JA4T → OS lookup table.** We don't get to use the
+    FoxIO-curated JA4T → OS database. p0f.fp is our substitute;
+    coverage shape is different (broader for legacy, narrower for
+    fine-grained modern OS-version discrimination). Acceptable for
+    the inventory-discovery use case.
+  - **In-house TLS-server / HTTP fingerprints are deferred.** If we
+    decide later that the JA4S / JA4H equivalents matter for
+    confidence boosting, we have to design + implement our own
+    canonical formats under our own license. Not free, but not
+    blocking Phase 1 either.
+  - **Upstream p0f corpus is frozen.** Net-new signatures land in
+    `serviceradar-additions.fp` — that's a maintenance burden we
+    carry rather than upstream. Acceptable; the format is simple
+    and additions are low-effort.
+- **Implementation surface.** Phase 1 amendment §31 in `tasks.md`
+  lays out the work: p0f corpus vendoring, the `#![no_std]` p0f
+  canonical encoder for the kprobe, the userspace JA4-base encoder,
+  the userspace HASSH encoder, the ensemble matcher (p0f primary,
+  JA4 / HASSH as confidence boosters), proto-schema migration of
+  `FingerprintEvent`, removal of `huginn-net` from `Cargo.toml`,
+  rewrite of §18.10 onto the p0f lookup table, and the curation
+  workflow for `serviceradar-additions.fp`.
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |

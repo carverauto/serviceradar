@@ -11,9 +11,22 @@ runs:
    appliances, and integration-imported devices (Armis, NetBox) have no
    OS or vendor evidence beyond what the importing system already
    supplied. Issue
-   [#3423](https://forgejo/issues/3423) covers this gap and its
-   accompanying PRD pins the implementation to passive p0f / JA4 / HTTP
-   fingerprinting.
+   [#3423](https://forgejo/issues/3423) covers this gap. ServiceRadar's
+   answer is a **license-clean signature stack** (see D14): the
+   public-domain p0f canonical fingerprint computed inside the eBPF
+   kprobe as the primary classifier, paired with JA4 base
+   (BSD-3-Clause, patent-disclaimed by FoxIO) for TLS ClientHello and
+   HASSH (BSD-3-Clause) for SSH as confidence-boosting signals. The
+   `huginn-net` crate is dropped from the dependency set; the p0f
+   signature corpus is retained in-tree, vendored under
+   `rust/netprobe/p0f-corpus/`, with our own ~300 LOC `p0f.fp` parser
+   and a curation path for ServiceRadar additions. The encumbered
+   parts of FoxIO's JA4+ family (JA4T, JA4H, JA4S, JA4SSH, JA4X) are
+   explicitly *not* used — their FoxIO License 1.1 terms and
+   patent-pending posture are incompatible with ServiceRadar's
+   commercial sale. Computing p0f canonical form in-kernel is
+   genuinely ahead of the current commercial state of the art for
+   passive OS fingerprinting.
 2. **NetFlow records are anonymous at the endpoint.** The existing
    `flow-collector` ingests sFlow / NetFlow from switches, but a record
    like `192.0.2.10:51234 → 198.51.100.5:443, 10 MB` does not tell an
@@ -57,8 +70,11 @@ and one set of operator-facing profiles. It supersedes the earlier
 
 Rust was chosen because:
 
-- `huginn-net` (TCP p0f, HTTP, TLS-JA4) is already a maintained Rust
-  crate.
+- `aya` is the pure-Rust eBPF runtime that lets the same workspace own
+  both the kernel-side programs (`#![no_std]`) and the userspace loader
+  / classifier without a C toolchain at build time. JA4T canonical-form
+  encoding inside the SYN kprobe is feasible because `aya-ebpf` permits
+  a small `no_std` JA4T encoder, callable directly from the probe body.
 - The most mature host-level protocol-dissection + eBPF
   process-attribution reference implementation we found —
   [rustnet](https://github.com/domcyrus/rustnet) — is Rust, and its
@@ -76,10 +92,17 @@ Rust was chosen because:
 
 `netprobe` will not depend on rustnet as a crate (it is structured as a
 TUI binary, not a library). Instead this change extracts the patterns
-ServiceRadar needs into `netprobe` directly, depending on the same
-underlying crates rustnet itself uses — `huginn-net` for fingerprinting,
-`aya` (preferred) or `libbpf-rs` for eBPF, and `etherparse` /
-`pktparse-rs` for parsing.
+ServiceRadar needs into `netprobe` directly. The original Phase 1 plan
+pinned passive fingerprinting to the `huginn-net` crate (p0f-style TCP
+analysis + JA4/JA4S extraction); the amendment in D14 replaces that
+with a self-contained **license-clean fingerprint stack**: the p0f
+canonical TCP fingerprint computed inside the eBPF SYN kprobe (primary
+classifier, public-domain corpus + ServiceRadar curated additions),
+plus JA4 base (BSD-3, TLS ClientHello) and HASSH (BSD-3, SSH KEXINIT)
+encoded in userspace as confidence boosters when the corresponding DPI
+dissectors fire. `huginn-net` is removed entirely. `aya` is the eBPF
+runtime; `etherparse` / `pktparse-rs` handle userspace L3/L4 framing
+for the DPI dissector path.
 
 The change also lands the first ServiceRadar agent component that
 supervises a co-located native sidecar. The supervision pattern is
