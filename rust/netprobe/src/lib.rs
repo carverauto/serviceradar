@@ -24,6 +24,8 @@ pub mod kernel;
 pub mod lifecycle;
 pub mod metrics;
 #[allow(dead_code)]
+pub mod muonfp;
+#[allow(dead_code)]
 pub mod os_matcher;
 #[allow(dead_code)]
 pub mod p0f_corpus;

@@ -28,6 +28,8 @@ mod kernel;
 mod lifecycle;
 mod metrics;
 #[allow(dead_code)]
+mod muonfp;
+#[allow(dead_code)]
 mod os_matcher;
 #[allow(dead_code)]
 mod p0f_corpus;
