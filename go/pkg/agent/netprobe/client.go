@@ -36,6 +36,7 @@ const (
 	EventStreamFingerprint   = "fingerprint"
 	EventStreamDPI           = "dpi"
 	EventStreamFlowAttr      = "flow_attribution"
+	EventStreamProcessSnap   = "process_snapshot"
 	EventDropBackpressure    = "backpressure"
 )
 
@@ -82,10 +83,11 @@ type Client struct {
 	pendingMu sync.Mutex
 	pending   map[uint64]chan response
 
-	events     chan *netprobepb.FingerprintEvent
-	dpiEvents  chan *netprobepb.DpiEvent
-	flowEvents chan *netprobepb.FlowAttributionEvent
-	done       chan struct{}
+	events           chan *netprobepb.FingerprintEvent
+	dpiEvents        chan *netprobepb.DpiEvent
+	flowEvents       chan *netprobepb.FlowAttributionEvent
+	processSnapshots chan *netprobepb.ProcessSnapshot
+	done             chan struct{}
 
 	closeOnce sync.Once
 	closeErr  atomic.Value
@@ -99,6 +101,7 @@ type Client struct {
 	droppedFingerprintEvents atomic.Uint64
 	droppedDPIEvents         atomic.Uint64
 	droppedFlowEvents        atomic.Uint64
+	droppedProcessSnapshots  atomic.Uint64
 	eventDropRecorder        EventDropRecorder
 }
 
@@ -120,12 +123,13 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	}
 
 	c := &Client{
-		conn:       conn,
-		pending:    make(map[uint64]chan response),
-		events:     make(chan *netprobepb.FingerprintEvent, eventBuffer),
-		dpiEvents:  make(chan *netprobepb.DpiEvent, eventBuffer),
-		flowEvents: make(chan *netprobepb.FlowAttributionEvent, eventBuffer),
-		done:       make(chan struct{}),
+		conn:             conn,
+		pending:          make(map[uint64]chan response),
+		events:           make(chan *netprobepb.FingerprintEvent, eventBuffer),
+		dpiEvents:        make(chan *netprobepb.DpiEvent, eventBuffer),
+		flowEvents:       make(chan *netprobepb.FlowAttributionEvent, eventBuffer),
+		processSnapshots: make(chan *netprobepb.ProcessSnapshot, eventBuffer),
+		done:             make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -135,6 +139,7 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 		close(c.events)
 		close(c.dpiEvents)
 		close(c.flowEvents)
+		close(c.processSnapshots)
 
 		return c
 	}
@@ -202,6 +207,11 @@ func (c *Client) FlowAttributionEvents() <-chan *netprobepb.FlowAttributionEvent
 	return c.flowEvents
 }
 
+// ProcessSnapshots returns the bounded stream of process snapshots from netprobe.
+func (c *Client) ProcessSnapshots() <-chan *netprobepb.ProcessSnapshot {
+	return c.processSnapshots
+}
+
 // DrainFingerprintEvents invokes handler for each streamed fingerprint event.
 func (c *Client) DrainFingerprintEvents(ctx context.Context, handler func(context.Context, *netprobepb.FingerprintEvent) error) error {
 	for {
@@ -247,6 +257,23 @@ func (c *Client) DrainFlowAttributionEvents(ctx context.Context, handler func(co
 				return c.closeError()
 			}
 			if err := handler(ctx, event); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// DrainProcessSnapshots invokes handler for each streamed process snapshot.
+func (c *Client) DrainProcessSnapshots(ctx context.Context, handler func(context.Context, *netprobepb.ProcessSnapshot) error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case snapshot, ok := <-c.processSnapshots:
+			if !ok {
+				return c.closeError()
+			}
+			if err := handler(ctx, snapshot); err != nil {
 				return err
 			}
 		}
@@ -311,6 +338,11 @@ func (c *Client) DroppedDPIEvents() uint64 {
 // DroppedFlowAttributionEvents returns flow attribution events dropped because the downstream consumer was slow.
 func (c *Client) DroppedFlowAttributionEvents() uint64 {
 	return c.droppedFlowEvents.Load()
+}
+
+// DroppedProcessSnapshots returns process snapshots dropped because the downstream consumer was slow.
+func (c *Client) DroppedProcessSnapshots() uint64 {
+	return c.droppedProcessSnapshots.Load()
 }
 
 // Close closes the IPC connection and unblocks pending requests.
@@ -385,6 +417,7 @@ func (c *Client) readLoop() {
 	defer close(c.events)
 	defer close(c.dpiEvents)
 	defer close(c.flowEvents)
+	defer close(c.processSnapshots)
 
 	for {
 		frame, err := readFrame(c.conn)
@@ -418,6 +451,13 @@ func (c *Client) readLoop() {
 					c.recordEventDrop(EventStreamFlowAttr, EventDropBackpressure)
 				}
 			}
+			if snapshot := frame.GetProcessSnapshot(); snapshot != nil {
+				select {
+				case c.processSnapshots <- snapshot:
+				default:
+					c.recordEventDrop(EventStreamProcessSnap, EventDropBackpressure)
+				}
+			}
 			continue
 		}
 
@@ -441,6 +481,9 @@ func (c *Client) recordEventDrop(stream, reason string) {
 	}
 	if stream == EventStreamFlowAttr && reason == EventDropBackpressure {
 		c.droppedFlowEvents.Add(1)
+	}
+	if stream == EventStreamProcessSnap && reason == EventDropBackpressure {
+		c.droppedProcessSnapshots.Add(1)
 	}
 	if c.eventDropRecorder != nil {
 		c.eventDropRecorder.IncEventDrop(stream, reason)

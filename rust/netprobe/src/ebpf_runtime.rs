@@ -6,7 +6,7 @@ use aya::{
 };
 use tokio::sync::broadcast;
 
-use std::{io, path::Path, sync::Arc};
+use std::{io, path::Path, sync::Arc, time::Duration};
 
 use crate::{
     af_xdp::{self, DEFAULT_REDIRECT_BUDGET},
@@ -16,7 +16,7 @@ use crate::{
     ebpf_loader::load_netprobe_ebpf,
     fingerprint::P0fSignatureRuntime,
     metrics::Metrics,
-    proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent},
+    proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot},
     runtime_config::{DpiEventGate, FingerprintEventGate},
 };
 
@@ -50,6 +50,7 @@ impl NetprobeEbpfRuntime {
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
         dpi_events: broadcast::Sender<DpiEvent>,
         flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+        process_snapshots: broadcast::Sender<ProcessSnapshot>,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
@@ -67,7 +68,9 @@ impl NetprobeEbpfRuntime {
         let attribution_runtime = FlowAttributionRuntime::start(
             attribution_reader,
             flow_attribution_events,
+            process_snapshots,
             metrics.clone(),
+            process_snapshot_interval(config),
         )?;
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let classifier_runtime = AfXdpClassifierRuntime::start_from_ebpf(
@@ -87,6 +90,11 @@ impl NetprobeEbpfRuntime {
             _ebpf: ebpf,
         })
     }
+}
+
+fn process_snapshot_interval(config: &Config) -> Option<Duration> {
+    (config.process_snapshot_interval_s > 0)
+        .then(|| Duration::from_secs(config.process_snapshot_interval_s))
 }
 
 fn fingerprint_interface_name(config: &Config) -> String {

@@ -58,6 +58,7 @@ type Sidecar struct {
 	events        chan *netprobepb.FingerprintEvent
 	dpiEvents     chan *netprobepb.DpiEvent
 	flowEvents    chan *netprobepb.FlowAttributionEvent
+	processSnaps  chan *netprobepb.ProcessSnapshot
 	healthy       atomic.Bool
 	unhealthy     atomic.Bool
 	runningAsRoot atomic.Bool
@@ -80,10 +81,11 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 	}
 
 	return &Sidecar{
-		cfg:        cfg,
-		events:     make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
-		dpiEvents:  make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
-		flowEvents: make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
+		cfg:          cfg,
+		events:       make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
+		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
+		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
 	}
 }
 
@@ -233,6 +235,26 @@ func (s *Sidecar) DrainFlowAttributionEvents(max int) []*netprobepb.FlowAttribut
 	return events
 }
 
+func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
+	}
+
+	snapshots := make([]*netprobepb.ProcessSnapshot, 0, max)
+	for len(snapshots) < max {
+		select {
+		case snapshot := <-s.processSnaps:
+			if snapshot != nil {
+				snapshots = append(snapshots, snapshot)
+			}
+		default:
+			return snapshots
+		}
+	}
+
+	return snapshots
+}
+
 func (s *Sidecar) currentClient() *Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -264,7 +286,7 @@ func (s *Sidecar) setClient(client *Client) {
 
 func (s *Sidecar) forwardEvents(client *Client) {
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		for event := range client.Events() {
@@ -290,6 +312,15 @@ func (s *Sidecar) forwardEvents(client *Client) {
 		for event := range client.FlowAttributionEvents() {
 			select {
 			case s.flowEvents <- event:
+			default:
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for snapshot := range client.ProcessSnapshots() {
+			select {
+			case s.processSnaps <- snapshot:
 			default:
 			}
 		}

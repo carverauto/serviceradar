@@ -570,15 +570,16 @@ func (x *ErrorFrame) GetMessage() string {
 }
 
 type VisibilityAgentConfig struct {
-	state                   protoimpl.MessageState `protogen:"open.v1"`
-	Enabled                 bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	CaptureInterfaces       []string               `protobuf:"bytes,2,rep,name=capture_interfaces,json=captureInterfaces,proto3" json:"capture_interfaces,omitempty"`
-	DeviceBindings          []*DeviceBinding       `protobuf:"bytes,3,rep,name=device_bindings,json=deviceBindings,proto3" json:"device_bindings,omitempty"`
-	DefaultSampleIntervalMs uint32                 `protobuf:"varint,4,opt,name=default_sample_interval_ms,json=defaultSampleIntervalMs,proto3" json:"default_sample_interval_ms,omitempty"`
-	Dpi                     *DpiConfig             `protobuf:"bytes,20,opt,name=dpi,proto3" json:"dpi,omitempty"`
-	FlowTableMaxEntries     uint32                 `protobuf:"varint,40,opt,name=flow_table_max_entries,json=flowTableMaxEntries,proto3" json:"flow_table_max_entries,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Enabled                  bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	CaptureInterfaces        []string               `protobuf:"bytes,2,rep,name=capture_interfaces,json=captureInterfaces,proto3" json:"capture_interfaces,omitempty"`
+	DeviceBindings           []*DeviceBinding       `protobuf:"bytes,3,rep,name=device_bindings,json=deviceBindings,proto3" json:"device_bindings,omitempty"`
+	DefaultSampleIntervalMs  uint32                 `protobuf:"varint,4,opt,name=default_sample_interval_ms,json=defaultSampleIntervalMs,proto3" json:"default_sample_interval_ms,omitempty"`
+	Dpi                      *DpiConfig             `protobuf:"bytes,20,opt,name=dpi,proto3" json:"dpi,omitempty"`
+	FlowTableMaxEntries      uint32                 `protobuf:"varint,40,opt,name=flow_table_max_entries,json=flowTableMaxEntries,proto3" json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS uint32                 `protobuf:"varint,41,opt,name=process_snapshot_interval_s,json=processSnapshotIntervalS,proto3" json:"process_snapshot_interval_s,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *VisibilityAgentConfig) Reset() {
@@ -649,6 +650,13 @@ func (x *VisibilityAgentConfig) GetDpi() *DpiConfig {
 func (x *VisibilityAgentConfig) GetFlowTableMaxEntries() uint32 {
 	if x != nil {
 		return x.FlowTableMaxEntries
+	}
+	return 0
+}
+
+func (x *VisibilityAgentConfig) GetProcessSnapshotIntervalS() uint32 {
+	if x != nil {
+		return x.ProcessSnapshotIntervalS
 	}
 	return 0
 }
@@ -1950,9 +1958,12 @@ func (x *FlowAttributionEvent) GetNewState() int32 {
 }
 
 type ProcessSnapshot struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState  `protogen:"open.v1"`
+	Fingerprint        string                  `protobuf:"bytes,1,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	ObservedAtUnixNano int64                   `protobuf:"varint,2,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	Entries            []*ProcessSnapshotEntry `protobuf:"bytes,3,rep,name=entries,proto3" json:"entries,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *ProcessSnapshot) Reset() {
@@ -1985,6 +1996,143 @@ func (*ProcessSnapshot) Descriptor() ([]byte, []int) {
 	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{21}
 }
 
+func (x *ProcessSnapshot) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
+
+func (x *ProcessSnapshot) GetObservedAtUnixNano() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNano
+	}
+	return 0
+}
+
+func (x *ProcessSnapshot) GetEntries() []*ProcessSnapshotEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+type ProcessSnapshotEntry struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	LocalIp           string                 `protobuf:"bytes,1,opt,name=local_ip,json=localIp,proto3" json:"local_ip,omitempty"`
+	LocalPort         uint32                 `protobuf:"varint,2,opt,name=local_port,json=localPort,proto3" json:"local_port,omitempty"`
+	TransportProtocol string                 `protobuf:"bytes,3,opt,name=transport_protocol,json=transportProtocol,proto3" json:"transport_protocol,omitempty"`
+	Pid               uint32                 `protobuf:"varint,4,opt,name=pid,proto3" json:"pid,omitempty"`
+	Tgid              uint32                 `protobuf:"varint,5,opt,name=tgid,proto3" json:"tgid,omitempty"`
+	Uid               uint32                 `protobuf:"varint,6,opt,name=uid,proto3" json:"uid,omitempty"`
+	Gid               uint32                 `protobuf:"varint,7,opt,name=gid,proto3" json:"gid,omitempty"`
+	Comm              string                 `protobuf:"bytes,8,opt,name=comm,proto3" json:"comm,omitempty"`
+	RedactedCmdline   []string               `protobuf:"bytes,9,rep,name=redacted_cmdline,json=redactedCmdline,proto3" json:"redacted_cmdline,omitempty"`
+	ContainerId       string                 `protobuf:"bytes,10,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ProcessSnapshotEntry) Reset() {
+	*x = ProcessSnapshotEntry{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProcessSnapshotEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProcessSnapshotEntry) ProtoMessage() {}
+
+func (x *ProcessSnapshotEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProcessSnapshotEntry.ProtoReflect.Descriptor instead.
+func (*ProcessSnapshotEntry) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *ProcessSnapshotEntry) GetLocalIp() string {
+	if x != nil {
+		return x.LocalIp
+	}
+	return ""
+}
+
+func (x *ProcessSnapshotEntry) GetLocalPort() uint32 {
+	if x != nil {
+		return x.LocalPort
+	}
+	return 0
+}
+
+func (x *ProcessSnapshotEntry) GetTransportProtocol() string {
+	if x != nil {
+		return x.TransportProtocol
+	}
+	return ""
+}
+
+func (x *ProcessSnapshotEntry) GetPid() uint32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *ProcessSnapshotEntry) GetTgid() uint32 {
+	if x != nil {
+		return x.Tgid
+	}
+	return 0
+}
+
+func (x *ProcessSnapshotEntry) GetUid() uint32 {
+	if x != nil {
+		return x.Uid
+	}
+	return 0
+}
+
+func (x *ProcessSnapshotEntry) GetGid() uint32 {
+	if x != nil {
+		return x.Gid
+	}
+	return 0
+}
+
+func (x *ProcessSnapshotEntry) GetComm() string {
+	if x != nil {
+		return x.Comm
+	}
+	return ""
+}
+
+func (x *ProcessSnapshotEntry) GetRedactedCmdline() []string {
+	if x != nil {
+		return x.RedactedCmdline
+	}
+	return nil
+}
+
+func (x *ProcessSnapshotEntry) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
 type ExternalFlowRecord struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1993,7 +2141,7 @@ type ExternalFlowRecord struct {
 
 func (x *ExternalFlowRecord) Reset() {
 	*x = ExternalFlowRecord{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2005,7 +2153,7 @@ func (x *ExternalFlowRecord) String() string {
 func (*ExternalFlowRecord) ProtoMessage() {}
 
 func (x *ExternalFlowRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2018,7 +2166,7 @@ func (x *ExternalFlowRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalFlowRecord.ProtoReflect.Descriptor instead.
 func (*ExternalFlowRecord) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{22}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{23}
 }
 
 type StartRemoteCapture struct {
@@ -2029,7 +2177,7 @@ type StartRemoteCapture struct {
 
 func (x *StartRemoteCapture) Reset() {
 	*x = StartRemoteCapture{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2041,7 +2189,7 @@ func (x *StartRemoteCapture) String() string {
 func (*StartRemoteCapture) ProtoMessage() {}
 
 func (x *StartRemoteCapture) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2054,7 +2202,7 @@ func (x *StartRemoteCapture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRemoteCapture.ProtoReflect.Descriptor instead.
 func (*StartRemoteCapture) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{23}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{24}
 }
 
 type PcapngBlock struct {
@@ -2065,7 +2213,7 @@ type PcapngBlock struct {
 
 func (x *PcapngBlock) Reset() {
 	*x = PcapngBlock{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2077,7 +2225,7 @@ func (x *PcapngBlock) String() string {
 func (*PcapngBlock) ProtoMessage() {}
 
 func (x *PcapngBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2090,7 +2238,7 @@ func (x *PcapngBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PcapngBlock.ProtoReflect.Descriptor instead.
 func (*PcapngBlock) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{24}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{25}
 }
 
 var File_agent_netprobe_v1_netprobe_proto protoreflect.FileDescriptor
@@ -2132,14 +2280,15 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\x9c\x03\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\xbe\x03\n" +
 	"\x15VisibilityAgentConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12-\n" +
 	"\x12capture_interfaces\x18\x02 \x03(\tR\x11captureInterfaces\x12V\n" +
 	"\x0fdevice_bindings\x18\x03 \x03(\v2-.serviceradar.agent.netprobe.v1.DeviceBindingR\x0edeviceBindings\x12;\n" +
 	"\x1adefault_sample_interval_ms\x18\x04 \x01(\rR\x17defaultSampleIntervalMs\x12;\n" +
 	"\x03dpi\x18\x14 \x01(\v2).serviceradar.agent.netprobe.v1.DpiConfigR\x03dpi\x123\n" +
-	"\x16flow_table_max_entries\x18( \x01(\rR\x13flowTableMaxEntriesJ\x04\b\x15\x10(R\x10flow_attributionR\x1bprocess_snapshot_interval_s\"\xa1\x02\n" +
+	"\x16flow_table_max_entries\x18( \x01(\rR\x13flowTableMaxEntries\x12=\n" +
+	"\x1bprocess_snapshot_interval_s\x18) \x01(\rR\x18processSnapshotIntervalSJ\x04\b\x15\x10(R\x10flow_attribution\"\xa1\x02\n" +
 	"\rDeviceBinding\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x1d\n" +
 	"\n" +
@@ -2267,8 +2416,24 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"event_kind\x18\x0f \x01(\rR\teventKind\x12\x1b\n" +
 	"\told_state\x18\x10 \x01(\x05R\boldState\x12\x1b\n" +
-	"\tnew_state\x18\x11 \x01(\x05R\bnewState\"\x11\n" +
-	"\x0fProcessSnapshot\"\x14\n" +
+	"\tnew_state\x18\x11 \x01(\x05R\bnewState\"\xb6\x01\n" +
+	"\x0fProcessSnapshot\x12 \n" +
+	"\vfingerprint\x18\x01 \x01(\tR\vfingerprint\x121\n" +
+	"\x15observed_at_unix_nano\x18\x02 \x01(\x03R\x12observedAtUnixNano\x12N\n" +
+	"\aentries\x18\x03 \x03(\v24.serviceradar.agent.netprobe.v1.ProcessSnapshotEntryR\aentries\"\xab\x02\n" +
+	"\x14ProcessSnapshotEntry\x12\x19\n" +
+	"\blocal_ip\x18\x01 \x01(\tR\alocalIp\x12\x1d\n" +
+	"\n" +
+	"local_port\x18\x02 \x01(\rR\tlocalPort\x12-\n" +
+	"\x12transport_protocol\x18\x03 \x01(\tR\x11transportProtocol\x12\x10\n" +
+	"\x03pid\x18\x04 \x01(\rR\x03pid\x12\x12\n" +
+	"\x04tgid\x18\x05 \x01(\rR\x04tgid\x12\x10\n" +
+	"\x03uid\x18\x06 \x01(\rR\x03uid\x12\x10\n" +
+	"\x03gid\x18\a \x01(\rR\x03gid\x12\x12\n" +
+	"\x04comm\x18\b \x01(\tR\x04comm\x12)\n" +
+	"\x10redacted_cmdline\x18\t \x03(\tR\x0fredactedCmdline\x12!\n" +
+	"\fcontainer_id\x18\n" +
+	" \x01(\tR\vcontainerId\"\x14\n" +
 	"\x12ExternalFlowRecord\"\x14\n" +
 	"\x12StartRemoteCapture\"\r\n" +
 	"\vPcapngBlockBGZEgithub.com/carverauto/serviceradar/proto/agent/netprobe/v1;netprobepbb\x06proto3"
@@ -2285,7 +2450,7 @@ func file_agent_netprobe_v1_netprobe_proto_rawDescGZIP() []byte {
 	return file_agent_netprobe_v1_netprobe_proto_rawDescData
 }
 
-var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
+var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
 var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(*NetprobeFrame)(nil),           // 0: serviceradar.agent.netprobe.v1.NetprobeFrame
 	(*ApplyConfig)(nil),             // 1: serviceradar.agent.netprobe.v1.ApplyConfig
@@ -2309,9 +2474,10 @@ var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(*DpiEvent)(nil),                // 19: serviceradar.agent.netprobe.v1.DpiEvent
 	(*FlowAttributionEvent)(nil),    // 20: serviceradar.agent.netprobe.v1.FlowAttributionEvent
 	(*ProcessSnapshot)(nil),         // 21: serviceradar.agent.netprobe.v1.ProcessSnapshot
-	(*ExternalFlowRecord)(nil),      // 22: serviceradar.agent.netprobe.v1.ExternalFlowRecord
-	(*StartRemoteCapture)(nil),      // 23: serviceradar.agent.netprobe.v1.StartRemoteCapture
-	(*PcapngBlock)(nil),             // 24: serviceradar.agent.netprobe.v1.PcapngBlock
+	(*ProcessSnapshotEntry)(nil),    // 22: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	(*ExternalFlowRecord)(nil),      // 23: serviceradar.agent.netprobe.v1.ExternalFlowRecord
+	(*StartRemoteCapture)(nil),      // 24: serviceradar.agent.netprobe.v1.StartRemoteCapture
+	(*PcapngBlock)(nil),             // 25: serviceradar.agent.netprobe.v1.PcapngBlock
 }
 var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.agent.netprobe.v1.NetprobeFrame.apply_config:type_name -> serviceradar.agent.netprobe.v1.ApplyConfig
@@ -2323,9 +2489,9 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	19, // 6: serviceradar.agent.netprobe.v1.NetprobeFrame.dpi_event:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
 	20, // 7: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_event:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
 	21, // 8: serviceradar.agent.netprobe.v1.NetprobeFrame.process_snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
-	22, // 9: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_record:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowRecord
-	23, // 10: serviceradar.agent.netprobe.v1.NetprobeFrame.start_remote_capture:type_name -> serviceradar.agent.netprobe.v1.StartRemoteCapture
-	24, // 11: serviceradar.agent.netprobe.v1.NetprobeFrame.pcapng_block:type_name -> serviceradar.agent.netprobe.v1.PcapngBlock
+	23, // 9: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_record:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowRecord
+	24, // 10: serviceradar.agent.netprobe.v1.NetprobeFrame.start_remote_capture:type_name -> serviceradar.agent.netprobe.v1.StartRemoteCapture
+	25, // 11: serviceradar.agent.netprobe.v1.NetprobeFrame.pcapng_block:type_name -> serviceradar.agent.netprobe.v1.PcapngBlock
 	6,  // 12: serviceradar.agent.netprobe.v1.ApplyConfig.config:type_name -> serviceradar.agent.netprobe.v1.VisibilityAgentConfig
 	7,  // 13: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.device_bindings:type_name -> serviceradar.agent.netprobe.v1.DeviceBinding
 	9,  // 14: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
@@ -2340,11 +2506,12 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	13, // 23: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
 	14, // 24: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
 	15, // 25: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	26, // [26:26] is the sub-list for method output_type
-	26, // [26:26] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	22, // 26: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_agent_netprobe_v1_netprobe_proto_init() }
@@ -2378,7 +2545,7 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_netprobe_v1_netprobe_proto_rawDesc), len(file_agent_netprobe_v1_netprobe_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   25,
+			NumMessages:   26,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

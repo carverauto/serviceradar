@@ -23,7 +23,7 @@ use crate::{
     metrics::Metrics,
     proto::netprobe::{
         netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, FingerprintEvent, FlowAttributionEvent,
-        NetprobeFrame, PingAck,
+        NetprobeFrame, PingAck, ProcessSnapshot,
     },
     runtime_config::RuntimeConfig,
 };
@@ -34,6 +34,7 @@ pub struct IpcServer {
     fingerprint_events: broadcast::Sender<FingerprintEvent>,
     dpi_events: broadcast::Sender<DpiEvent>,
     flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+    process_snapshots: broadcast::Sender<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 }
@@ -44,6 +45,7 @@ impl IpcServer {
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
         dpi_events: broadcast::Sender<DpiEvent>,
         flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+        process_snapshots: broadcast::Sender<ProcessSnapshot>,
         runtime_config: RuntimeConfig,
         metrics: Metrics,
     ) -> Self {
@@ -53,6 +55,7 @@ impl IpcServer {
             fingerprint_events,
             dpi_events,
             flow_attribution_events,
+            process_snapshots,
             runtime_config,
             metrics,
         }
@@ -83,11 +86,12 @@ impl IpcServer {
                     let fingerprint_rx = self.fingerprint_events.subscribe();
                     let dpi_rx = self.dpi_events.subscribe();
                     let flow_attribution_rx = self.flow_attribution_events.subscribe();
+                    let process_snapshot_rx = self.process_snapshots.subscribe();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
                     tokio::spawn(async move {
                         let _guard = ActiveClientGuard(active_client);
-                        let result = handle_client(stream, fingerprint_rx, dpi_rx, flow_attribution_rx, runtime_config, metrics).await;
+                        let result = handle_client(stream, fingerprint_rx, dpi_rx, flow_attribution_rx, process_snapshot_rx, runtime_config, metrics).await;
                         if let Err(err) = result {
                             log::warn!("netprobe IPC client disconnected with error: {err:#}");
                         }
@@ -137,6 +141,7 @@ async fn handle_client(
     mut fingerprint_events: broadcast::Receiver<FingerprintEvent>,
     mut dpi_events: broadcast::Receiver<DpiEvent>,
     mut flow_attribution_events: broadcast::Receiver<FlowAttributionEvent>,
+    mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 ) -> Result<()> {
@@ -199,6 +204,24 @@ async fn handle_client(
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
                         log::warn!("netprobe IPC client lagged; skipped {skipped} flow attribution event(s)");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Ok(());
+                    }
+                }
+            }
+            snapshot = process_snapshots.recv() => {
+                match snapshot {
+                    Ok(snapshot) => {
+                        let frame = NetprobeFrame {
+                            sequence: 0,
+                            payload: Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)),
+                        };
+                        write_frame(&mut writer, &frame).await?;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        metrics.inc_process_snapshot_events_dropped("lagged_receiver", skipped);
+                        log::warn!("netprobe IPC client lagged; skipped {skipped} process snapshot(s)");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         return Ok(());
@@ -278,7 +301,8 @@ mod tests {
         metrics::Metrics,
         proto::netprobe::{
             fingerprint_event, netprobe_frame, ApplyConfig, DpiEvent, FingerprintEvent,
-            FlowAttributionEvent, NetprobeFrame, Ping, TcpFingerprint, VisibilityAgentConfig,
+            FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot, TcpFingerprint,
+            VisibilityAgentConfig,
         },
         runtime_config::RuntimeConfig,
     };
@@ -291,11 +315,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx,
             dpi_tx,
             flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -340,11 +366,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx,
             dpi_tx,
             flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -372,11 +400,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx.clone(),
             dpi_tx,
             flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -408,11 +438,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx,
             dpi_tx.clone(),
             flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -444,11 +476,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx,
             dpi_tx,
             flow_tx.clone(),
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -472,6 +506,44 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
+    #[tokio::test]
+    async fn streams_process_snapshots_to_connected_client() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (event_tx, _) = broadcast::channel(16);
+        let (dpi_tx, _) = broadcast::channel(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_tx,
+            dpi_tx,
+            flow_tx,
+            process_tx.clone(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&process_tx).await;
+        process_tx.send(process_snapshot()).unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)) = response.payload else {
+            panic!("expected process snapshot");
+        };
+        assert_eq!(snapshot.fingerprint, "fp-1");
+        assert_eq!(snapshot.entries.len(), 1);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
     #[cfg(feature = "pcap-capture")]
     #[tokio::test]
     async fn streams_fixture_traffic_events_to_connected_client() {
@@ -481,11 +553,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx.clone(),
             dpi_tx,
             flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -519,11 +593,13 @@ mod tests {
         let (event_tx, _) = broadcast::channel(16);
         let (dpi_tx, _) = broadcast::channel(16);
         let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_tx,
             dpi_tx,
             flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -650,6 +726,25 @@ mod tests {
             ],
             observed_at_unix_nano: 123,
             ..Default::default()
+        }
+    }
+
+    fn process_snapshot() -> ProcessSnapshot {
+        ProcessSnapshot {
+            fingerprint: "fp-1".to_string(),
+            observed_at_unix_nano: 123,
+            entries: vec![crate::proto::netprobe::ProcessSnapshotEntry {
+                local_ip: "192.0.2.10".to_string(),
+                local_port: 443,
+                transport_protocol: "tcp".to_string(),
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1000,
+                comm: "nginx".to_string(),
+                redacted_cmdline: vec!["/usr/sbin/nginx".to_string()],
+                ..Default::default()
+            }],
         }
     }
 

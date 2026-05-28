@@ -1,4 +1,5 @@
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
@@ -7,17 +8,16 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::{
-    collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::af_xdp_classifier::FlowKey;
-use crate::proto::netprobe::FlowAttributionEvent;
+use crate::proto::netprobe::{FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry};
 
 #[cfg(target_os = "linux")]
 use crate::metrics::Metrics;
@@ -124,6 +124,83 @@ impl ProcfsEnricher {
             last_seen_ns: record.last_seen_ns,
         }
     }
+
+    fn process_details_for_pid(
+        &self,
+        pid: u32,
+        process_info: &HashMap<u32, ProcessInfoRecord>,
+    ) -> Option<ProcessDetails> {
+        if let Some(record) = process_info.get(&pid) {
+            return Some(self.process_details(record));
+        }
+
+        let (uid, gid) = read_status_ids(&self.root, pid).unwrap_or_default();
+        Some(ProcessDetails {
+            pid,
+            tgid: pid,
+            uid,
+            gid,
+            comm: read_comm(&self.root, pid).unwrap_or_default(),
+            cmdline: redacted_cmdline(&self.root, pid),
+            container_id: container_id(&self.root, pid),
+            last_seen_ns: 0,
+        })
+    }
+
+    fn process_snapshot(
+        &self,
+        process_info: &HashMap<u32, ProcessInfoRecord>,
+        observed_at_unix_nano: i64,
+    ) -> ProcessSnapshot {
+        let sockets = listening_sockets(&self.root);
+        let wanted_inodes = sockets.iter().map(|socket| socket.inode).collect();
+        let owners = socket_owners(&self.root, wanted_inodes);
+        let mut entries = Vec::new();
+
+        for socket in sockets {
+            let Some(pids) = owners.get(&socket.inode) else {
+                continue;
+            };
+            for pid in pids {
+                let Some(process) = self.process_details_for_pid(*pid, process_info) else {
+                    continue;
+                };
+                entries.push(ProcessSnapshotEntry {
+                    local_ip: socket.local_ip.to_string(),
+                    local_port: u32::from(socket.local_port),
+                    transport_protocol: socket.transport_protocol.clone(),
+                    pid: process.pid,
+                    tgid: process.tgid,
+                    uid: process.uid,
+                    gid: process.gid,
+                    comm: process.comm,
+                    redacted_cmdline: process.cmdline,
+                    container_id: process.container_id.unwrap_or_default(),
+                });
+            }
+        }
+
+        entries.sort_by(|left, right| {
+            (
+                &left.transport_protocol,
+                &left.local_ip,
+                left.local_port,
+                left.pid,
+            )
+                .cmp(&(
+                    &right.transport_protocol,
+                    &right.local_ip,
+                    right.local_port,
+                    right.pid,
+                ))
+        });
+
+        ProcessSnapshot {
+            fingerprint: snapshot_fingerprint(&entries),
+            observed_at_unix_nano,
+            entries,
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -164,6 +241,15 @@ impl AyaAttributionReader {
             })
             .collect()
     }
+
+    fn process_snapshot(&self) -> ProcessSnapshot {
+        self.procfs
+            .process_snapshot(&self.process_info_records(), now_unix_nano())
+    }
+
+    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord> {
+        self.process_info.iter().filter_map(Result::ok).collect()
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -179,7 +265,9 @@ impl FlowAttributionRuntime {
     pub fn start(
         reader: AyaAttributionReader,
         tx: tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+        process_snapshot_tx: tokio::sync::broadcast::Sender<ProcessSnapshot>,
         metrics: Metrics,
+        process_snapshot_interval: Option<Duration>,
     ) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
@@ -187,8 +275,17 @@ impl FlowAttributionRuntime {
             .name("netprobe-flow-attribution-map-reader".to_owned())
             .spawn(move || {
                 let mut seen = HashSet::new();
+                let mut last_process_snapshot =
+                    process_snapshot_interval.map(|interval| Instant::now() - interval);
                 while !stop_worker.load(Ordering::Relaxed) {
                     emit_snapshot(&reader, &tx, &metrics, &mut seen);
+                    if let Some(interval) = process_snapshot_interval {
+                        let last = last_process_snapshot.get_or_insert_with(Instant::now);
+                        if last.elapsed() >= interval {
+                            emit_process_snapshot(&reader, &process_snapshot_tx, &metrics);
+                            *last = Instant::now();
+                        }
+                    }
                     thread::sleep(FLOW_ATTRIBUTION_POLL_INTERVAL);
                 }
             })?;
@@ -231,6 +328,19 @@ fn emit_snapshot(
         if tx.send(event).is_err() {
             metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn emit_process_snapshot(
+    reader: &AyaAttributionReader,
+    tx: &tokio::sync::broadcast::Sender<ProcessSnapshot>,
+    metrics: &Metrics,
+) {
+    let snapshot = reader.process_snapshot();
+    metrics.inc_process_snapshot_events();
+    if tx.send(snapshot).is_err() {
+        metrics.inc_process_snapshot_events_dropped("no_receiver", 1);
     }
 }
 
@@ -370,6 +480,183 @@ fn now_unix_nano() -> i64 {
         .unwrap_or_default()
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ListeningSocket {
+    inode: u64,
+    local_ip: IpAddr,
+    local_port: u16,
+    transport_protocol: String,
+}
+
+fn listening_sockets(proc_root: &Path) -> Vec<ListeningSocket> {
+    let mut sockets = Vec::new();
+    sockets.extend(read_proc_net_sockets(proc_root, "tcp", false, "tcp"));
+    sockets.extend(read_proc_net_sockets(proc_root, "tcp6", true, "tcp"));
+    sockets.extend(read_proc_net_sockets(proc_root, "udp", false, "udp"));
+    sockets.extend(read_proc_net_sockets(proc_root, "udp6", true, "udp"));
+    sockets
+}
+
+fn read_proc_net_sockets(
+    proc_root: &Path,
+    file_name: &str,
+    ipv6: bool,
+    protocol: &str,
+) -> Vec<ListeningSocket> {
+    let Ok(contents) = fs::read_to_string(proc_root.join("net").join(file_name)) else {
+        return Vec::new();
+    };
+
+    contents
+        .lines()
+        .skip(1)
+        .filter_map(|line| parse_proc_net_socket(line, ipv6, protocol))
+        .collect()
+}
+
+fn parse_proc_net_socket(line: &str, ipv6: bool, protocol: &str) -> Option<ListeningSocket> {
+    let fields = line.split_whitespace().collect::<Vec<_>>();
+    let local_address = *fields.get(1)?;
+    let state = *fields.get(3)?;
+    if protocol == "tcp" && state != "0A" {
+        return None;
+    }
+
+    let inode = fields.get(9)?.parse().ok()?;
+    let (local_ip, local_port) = parse_proc_net_endpoint(local_address, ipv6)?;
+    if protocol == "udp" && local_port == 0 {
+        return None;
+    }
+
+    Some(ListeningSocket {
+        inode,
+        local_ip,
+        local_port,
+        transport_protocol: protocol.to_string(),
+    })
+}
+
+fn parse_proc_net_endpoint(value: &str, ipv6: bool) -> Option<(IpAddr, u16)> {
+    let (addr_hex, port_hex) = value.split_once(':')?;
+    let port = u16::from_str_radix(port_hex, 16).ok()?;
+    let ip = if ipv6 {
+        IpAddr::V6(parse_proc_net_ipv6(addr_hex)?)
+    } else {
+        IpAddr::V4(parse_proc_net_ipv4(addr_hex)?)
+    };
+    Some((ip, port))
+}
+
+fn parse_proc_net_ipv4(value: &str) -> Option<Ipv4Addr> {
+    if value.len() != 8 {
+        return None;
+    }
+    let raw = u32::from_str_radix(value, 16).ok()?.to_le_bytes();
+    Some(Ipv4Addr::new(raw[0], raw[1], raw[2], raw[3]))
+}
+
+fn parse_proc_net_ipv6(value: &str) -> Option<Ipv6Addr> {
+    if value.len() != 32 {
+        return None;
+    }
+    let mut bytes = [0u8; 16];
+    for index in 0..16 {
+        bytes[index] = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    for chunk in bytes.chunks_exact_mut(4) {
+        chunk.reverse();
+    }
+    Some(Ipv6Addr::from(bytes))
+}
+
+fn socket_owners(proc_root: &Path, wanted_inodes: HashSet<u64>) -> HashMap<u64, Vec<u32>> {
+    let mut owners: HashMap<u64, Vec<u32>> = HashMap::new();
+    if wanted_inodes.is_empty() {
+        return owners;
+    }
+
+    let Ok(entries) = fs::read_dir(proc_root) else {
+        return owners;
+    };
+
+    for entry in entries.filter_map(Result::ok) {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|value| value.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let fd_dir = entry.path().join("fd");
+        let Ok(fds) = fs::read_dir(fd_dir) else {
+            continue;
+        };
+        for fd in fds.filter_map(Result::ok) {
+            let Ok(target) = fs::read_link(fd.path()) else {
+                continue;
+            };
+            let Some(inode) = socket_inode_from_link(&target) else {
+                continue;
+            };
+            if wanted_inodes.contains(&inode) {
+                owners.entry(inode).or_default().push(pid);
+            }
+        }
+    }
+
+    owners
+}
+
+fn socket_inode_from_link(path: &Path) -> Option<u64> {
+    let value = path.to_str()?;
+    let inode = value.strip_prefix("socket:[")?.strip_suffix(']')?;
+    inode.parse().ok()
+}
+
+fn read_status_ids(proc_root: &Path, pid: u32) -> Option<(u32, u32)> {
+    let status = fs::read_to_string(proc_root.join(pid.to_string()).join("status")).ok()?;
+    let mut uid = None;
+    let mut gid = None;
+
+    for line in status.lines() {
+        if let Some(value) = line.strip_prefix("Uid:") {
+            uid = value.split_whitespace().next()?.parse().ok();
+        }
+        if let Some(value) = line.strip_prefix("Gid:") {
+            gid = value.split_whitespace().next()?.parse().ok();
+        }
+    }
+
+    Some((uid.unwrap_or_default(), gid.unwrap_or_default()))
+}
+
+fn read_comm(proc_root: &Path, pid: u32) -> Option<String> {
+    fs::read_to_string(proc_root.join(pid.to_string()).join("comm"))
+        .ok()
+        .map(|value| value.trim_end_matches('\n').to_string())
+}
+
+fn snapshot_fingerprint(entries: &[ProcessSnapshotEntry]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for entry in entries {
+        hash_bytes(&mut hash, entry.transport_protocol.as_bytes());
+        hash_bytes(&mut hash, entry.local_ip.as_bytes());
+        hash_bytes(&mut hash, &entry.local_port.to_le_bytes());
+        hash_bytes(&mut hash, &entry.pid.to_le_bytes());
+        hash_bytes(&mut hash, entry.comm.as_bytes());
+    }
+    format!("{hash:016x}")
+}
+
+fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
+    for byte in bytes {
+        *hash ^= u64::from(*byte);
+        *hash = hash.wrapping_mul(0x100000001b3);
+    }
+    *hash ^= 0xff;
+    *hash = hash.wrapping_mul(0x100000001b3);
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -481,6 +768,61 @@ mod tests {
         assert_eq!(event.comm, "curl");
         assert_eq!(event.redacted_cmdline.len(), 2);
         assert_eq!(event.observed_at_unix_nano, 123_456);
+    }
+
+    #[test]
+    fn parses_proc_net_tcp_listener() {
+        let socket = super::parse_proc_net_socket(
+            "0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 4242 1 0000000000000000 100 0 0 10 0",
+            false,
+            "tcp",
+        )
+        .unwrap();
+
+        assert_eq!(socket.local_ip.to_string(), "127.0.0.1");
+        assert_eq!(socket.local_port, 8080);
+        assert_eq!(socket.inode, 4242);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn process_snapshot_lists_procfs_socket_owner_with_stable_fingerprint() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("net")).unwrap();
+        fs::write(
+            root.path().join("net/tcp"),
+            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 4242 1 0000000000000000 100 0 0 10 0\n",
+        )
+        .unwrap();
+
+        let pid_dir = root.path().join("123");
+        fs::create_dir_all(pid_dir.join("fd")).unwrap();
+        fs::write(pid_dir.join("cmdline"), b"/usr/bin/app\0--secret\0").unwrap();
+        fs::write(pid_dir.join("cgroup"), "").unwrap();
+        fs::write(pid_dir.join("comm"), "app\n").unwrap();
+        fs::write(
+            pid_dir.join("status"),
+            "Uid:\t1000\t1000\t1000\t1000\nGid:\t1001\t1001\t1001\t1001\n",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink("socket:[4242]", pid_dir.join("fd/3")).unwrap();
+
+        let snapshot = ProcfsEnricher::with_root(root.path())
+            .process_snapshot(&std::collections::HashMap::new(), 123);
+        let snapshot_again = ProcfsEnricher::with_root(root.path())
+            .process_snapshot(&std::collections::HashMap::new(), 456);
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].local_ip, "127.0.0.1");
+        assert_eq!(snapshot.entries[0].local_port, 8080);
+        assert_eq!(snapshot.entries[0].pid, 123);
+        assert_eq!(snapshot.entries[0].uid, 1000);
+        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 2);
+        assert_eq!(snapshot.fingerprint, snapshot_again.fingerprint);
+        assert_ne!(
+            snapshot.observed_at_unix_nano,
+            snapshot_again.observed_at_unix_nano
+        );
     }
 
     fn temp_proc(pid: &str, cmdline: &[u8], cgroup: &str) -> tempfile::TempDir {

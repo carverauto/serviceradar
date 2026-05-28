@@ -4,6 +4,7 @@ use serde::Deserialize;
 use thiserror::Error;
 
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
+pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 30;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -13,6 +14,9 @@ pub struct Config {
     pub capture_interfaces: Vec<String>,
     #[serde(default)]
     pub flow_table_max_entries: u32,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[serde(default = "default_process_snapshot_interval_s")]
+    pub process_snapshot_interval_s: u64,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -34,6 +38,7 @@ impl Default for Config {
             enabled: true,
             capture_interfaces: Vec::new(),
             flow_table_max_entries: 0,
+            process_snapshot_interval_s: DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
         }
     }
 }
@@ -104,6 +109,10 @@ pub fn validate_interface(allowlist: &[String], interface: &str) -> Result<(), A
 
 fn default_enabled() -> bool {
     true
+}
+
+fn default_process_snapshot_interval_s() -> u64 {
+    DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S
 }
 
 #[cfg(test)]

@@ -127,6 +127,7 @@ async fn main() -> Result<()> {
     let (fingerprint_event_tx, _) = broadcast::channel(4096);
     let (dpi_event_tx, _) = broadcast::channel(4096);
     let (flow_attribution_event_tx, _) = broadcast::channel(4096);
+    let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
     let fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
@@ -154,6 +155,7 @@ async fn main() -> Result<()> {
                 fingerprint_event_tx.clone(),
                 dpi_event_tx.clone(),
                 flow_attribution_event_tx.clone(),
+                process_snapshot_tx.clone(),
                 Arc::clone(&fingerprint_gate),
                 Arc::clone(&dpi_gate),
             )
@@ -196,6 +198,7 @@ async fn main() -> Result<()> {
             fingerprint_event_tx,
             dpi_event_tx,
             flow_attribution_event_tx,
+            process_snapshot_tx,
             runtime_config,
             metrics,
         )

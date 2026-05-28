@@ -81,9 +81,10 @@ message VisibilityAgentConfig {
   uint32 default_sample_interval_ms = 4;
   DpiConfig dpi = 20;
   uint32 flow_table_max_entries = 40;
+  uint32 process_snapshot_interval_s = 41;
 
   reserved 21 to 39;
-  reserved "flow_attribution", "process_snapshot_interval_s";
+  reserved "flow_attribution";
 }
 
 message DeviceBinding {
@@ -232,7 +233,22 @@ message FlowAttributionEvent {
 }
 
 message ProcessSnapshot {
-  // TODO(add-host-network-visibility-sidecar Phase 3): define process fields.
+  string fingerprint = 1;
+  int64 observed_at_unix_nano = 2;
+  repeated ProcessSnapshotEntry entries = 3;
+}
+
+message ProcessSnapshotEntry {
+  string local_ip = 1;
+  uint32 local_port = 2;
+  string transport_protocol = 3;
+  uint32 pid = 4;
+  uint32 tgid = 5;
+  uint32 uid = 6;
+  uint32 gid = 7;
+  string comm = 8;
+  repeated string redacted_cmdline = 9;
+  string container_id = 10;
 }
 
 message ExternalFlowRecord {

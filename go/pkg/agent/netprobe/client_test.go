@@ -90,6 +90,14 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 		if err != nil {
 			t.Errorf("write flow attribution event frame: %v", err)
 		}
+		err = writeFrame(serverConn, &netprobepb.NetprobeFrame{
+			Payload: &netprobepb.NetprobeFrame_ProcessSnapshot{
+				ProcessSnapshot: &netprobepb.ProcessSnapshot{Fingerprint: "fp-1"},
+			},
+		})
+		if err != nil {
+			t.Errorf("write process snapshot frame: %v", err)
+		}
 	}()
 
 	client := NewClient(clientConn, 4)
@@ -148,6 +156,14 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for flow attribution event")
+	}
+	select {
+	case snapshot := <-client.ProcessSnapshots():
+		if snapshot.GetFingerprint() != "fp-1" {
+			t.Fatalf("process snapshot fingerprint = %q, want fp-1", snapshot.GetFingerprint())
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for process snapshot")
 	}
 
 	_ = client.Close()
@@ -279,6 +295,71 @@ func TestClientDropsFlowAttributionEventsOnBackpressure(t *testing.T) {
 		t.Fatalf("DroppedFlowAttributionEvents() = %d, want 1", got)
 	}
 	recorder.assertOne(t, EventStreamFlowAttr, EventDropBackpressure)
+
+	_ = client.Close()
+	<-serverDone
+}
+
+func TestClientDropsProcessSnapshotsOnBackpressure(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	recorder := &testEventDropRecorder{}
+	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
+	defer func() { _ = client.Close() }()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		for i := 0; i < 2; i++ {
+			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+				Payload: &netprobepb.NetprobeFrame_ProcessSnapshot{
+					ProcessSnapshot: &netprobepb.ProcessSnapshot{Fingerprint: "fp"},
+				},
+			})
+			if err != nil {
+				t.Errorf("write process snapshot frame %d: %v", i, err)
+				return
+			}
+		}
+		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+			ping := frame.GetPing()
+			if ping == nil {
+				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
+				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
+			}
+			return &netprobepb.NetprobeFrame{
+				Sequence: frame.GetSequence(),
+				Payload: &netprobepb.NetprobeFrame_PingAck{
+					PingAck: &netprobepb.PingAck{SentAtUnixNano: ping.GetSentAtUnixNano()},
+				},
+			}
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	waitFor(t, ctx, func() bool {
+		return client.DroppedProcessSnapshots() == 1
+	})
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("Ping() after backpressure error = %v", err)
+	}
+
+	select {
+	case snapshot := <-client.ProcessSnapshots():
+		if snapshot.GetFingerprint() != "fp" {
+			t.Fatalf("queued process snapshot fingerprint = %q, want fp", snapshot.GetFingerprint())
+		}
+	default:
+		t.Fatal("expected first process snapshot to remain queued")
+	}
+
+	if got := client.DroppedProcessSnapshots(); got != 1 {
+		t.Fatalf("DroppedProcessSnapshots() = %d, want 1", got)
+	}
+	recorder.assertOne(t, EventStreamProcessSnap, EventDropBackpressure)
 
 	_ = client.Close()
 	<-serverDone
@@ -436,6 +517,14 @@ func TestClientNilConnectionClosesSafely(t *testing.T) {
 		}
 	default:
 		t.Fatal("FlowAttributionEvents() was not closed for nil connection")
+	}
+	select {
+	case _, ok := <-client.ProcessSnapshots():
+		if ok {
+			t.Fatal("ProcessSnapshots() remained open after nil connection")
+		}
+	default:
+		t.Fatal("ProcessSnapshots() was not closed for nil connection")
 	}
 }
 
