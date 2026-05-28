@@ -76,11 +76,17 @@ artifact by the agent's architecture.
 - **AND** SHALL NOT deliver an artifact for a different architecture
 
 ### Requirement: Add-on Supervision Models
-The framework SHALL support supervision models `config-toggle`, `agent-sidecar`
-(a long-lived child supervised over a per-add-on Unix-domain socket with health
-checks, restart backoff, and a circuit breaker), `systemd-service`, `systemd-timer`
-(a scheduled oneshot whose output the agent ingests), and `ephemeral-helper` (spawned
-per session/job). Enabling or disabling one add-on SHALL NOT disrupt other add-ons.
+The framework SHALL support supervision models `config-toggle`, `agent-sidecar`,
+`systemd-service`, `systemd-timer` (a scheduled oneshot whose output the agent
+ingests), and `ephemeral-helper` (spawned per session/job). The `agent-sidecar`
+model SHALL run each add-on as an isolated subprocess that communicates with the
+agent over gRPC on a restricted local transport with mutual TLS, using the
+subprocess-plus-gRPC plugin mechanism (HashiCorp go-plugin); the agent SHALL manage
+the plugin lifecycle with health checks, restart backoff, and a circuit breaker.
+Add-on plugins MAY be implemented in any language that serves the gRPC contract
+(for example Go or Rust). The framework SHALL NOT load add-ons in-process via the Go
+standard library `plugin` mechanism. Enabling or disabling one add-on SHALL NOT
+disrupt other add-ons.
 
 #### Scenario: Disabling one add-on does not affect others
 - **GIVEN** an agent running two enabled add-ons
@@ -89,10 +95,39 @@ per session/job). Enabling or disabling one add-on SHALL NOT disrupt other add-o
 - **AND** the other add-on SHALL continue running uninterrupted
 
 #### Scenario: Supervised sidecar restarts within bounds
-- **GIVEN** an `agent-sidecar` add-on whose child process exits unexpectedly
+- **GIVEN** an `agent-sidecar` add-on whose subprocess exits unexpectedly
 - **WHEN** the supervisor detects the exit
-- **THEN** it SHALL restart the child with bounded backoff
+- **THEN** it SHALL restart the subprocess with bounded backoff
 - **AND** SHALL stop restarting and report a degraded state if a restart rate threshold is exceeded
+
+#### Scenario: Add-on subprocess crash does not crash the agent
+- **GIVEN** an `agent-sidecar` add-on that panics or crashes
+- **WHEN** the subprocess terminates abnormally
+- **THEN** the agent process SHALL remain running
+- **AND** SHALL report the add-on as unhealthy and attempt bounded restart
+
+#### Scenario: Polyglot plugin over the gRPC contract
+- **GIVEN** an `agent-sidecar` add-on implemented in a non-Go language that serves the add-on gRPC contract and handshake
+- **WHEN** the agent launches and connects to it
+- **THEN** the agent SHALL supervise and communicate with it identically to a Go add-on
+
+### Requirement: Add-on Dependency Isolation
+Adding or enabling an add-on SHALL NOT grow the base `serviceradar-agent` binary's
+dependency set or size. The base agent SHALL interact with `agent-sidecar` add-ons
+only through the plugin gRPC interface and SHALL NOT import an add-on's
+implementation package. The build SHALL enforce this isolation.
+
+#### Scenario: Base agent does not import add-on implementation packages
+- **GIVEN** a new add-on added to the repository
+- **WHEN** the base agent's transitive package set is computed for a build
+- **THEN** it SHALL NOT include the add-on's implementation packages or their dependencies
+- **AND** the base agent's binary size SHALL NOT increase as a result of adding the add-on
+
+#### Scenario: Build rejects an add-on dependency leaking into the base agent
+- **GIVEN** a change that causes the base agent to import an add-on implementation package
+- **WHEN** the dependency-isolation check runs in CI
+- **THEN** the check SHALL fail
+- **AND** SHALL identify the offending import path
 
 ### Requirement: Add-on Catalog And Approval
 The control plane SHALL maintain a catalog of available add-ons as reviewable

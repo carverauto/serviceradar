@@ -62,3 +62,28 @@ add-ons without a ServiceRadar-specific registry API.
 - **WHEN** the control plane importer lists available add-ons
 - **THEN** it SHALL read the index from the release asset
 - **AND** SHALL resolve each add-on's per-architecture artifacts for verification and mirroring
+
+### Requirement: Binary size and dependency hygiene
+The agent and Go add-on builds SHALL preserve binary-size optimizations and SHALL
+guard against regressions. Builds SHALL keep method dead-code elimination enabled and
+SHALL fail if a dependency disables it. Builds SHALL forbid importing the Go standard
+library `plugin` package (which forces dynamic linking and disables dead-code
+elimination). The build SHALL track per-artifact binary sizes across releases and
+flag significant regressions.
+
+#### Scenario: Dead-code elimination stays enabled
+- **GIVEN** an agent or Go add-on build
+- **WHEN** the build's dead-code-elimination guard runs
+- **THEN** method dead-code elimination SHALL be enabled
+- **AND** the build SHALL fail with the offending call chain if a dependency has disabled it
+
+#### Scenario: Stdlib plugin import is rejected
+- **GIVEN** a change that imports the Go standard library `plugin` package into an agent or add-on build
+- **WHEN** the build hygiene check runs
+- **THEN** the check SHALL fail
+- **AND** SHALL identify the import
+
+#### Scenario: Binary size regression is flagged
+- **GIVEN** a built agent or add-on artifact
+- **WHEN** its size is compared against the recorded baseline
+- **THEN** a significant size increase SHALL be flagged for review

@@ -16,18 +16,28 @@ hand:
   rides the signed runtime-push rail as an ephemeral per-session helper.
 
 Three capabilities, three packaging stories, three enablement mechanisms, and no
-operator-facing way to choose what runs where. Meanwhile the **WASM plugin system**
-already solved the adjacent problem well: a manifest (`plugin.yaml` +
-`config.schema.json`), an in-repo inventory (`build/wasm_plugins/plugin_inventory.bzl`),
-Bazel-built signed bundles, a Cosign + ed25519 signing pipeline keyed entirely from
-the runtime secret store, a discovery index published as a release asset, a
+operator-facing way to choose what runs where. The **WASM plugin system** already
+solved the adjacent problem well — manifest + `config.schema.json`, in-repo
+inventory, Bazel-built signed bundles, a Cosign + ed25519 signing pipeline keyed
+from the runtime secret store, a discovery index published as a release asset, a
 verify-then-mirror importer, a staged→approved catalog (`PluginPackage`), per-agent
 `PluginAssignment`, a schema-driven config form (`PluginConfigForm`), and delivery
 through `AgentConfigGenerator` (`plugin_config` proto field 11).
 
-This change generalizes that proven shape into a **native add-on framework** so that
-adding a new optional agent capability is a declarative, signed, discoverable
-operation — not a bespoke integration.
+This change generalizes that proven shape into a **native add-on framework** for the
+capabilities that are a poor fit for a WASM sandbox (native binaries, sidecars,
+privileged or polyglot components). Two further inputs shaped the design:
+
+- **Datadog's Agent binary-size work** (referenced in issue #3425). Their bloat came
+  from transitively pulling a feature's *entire dependency tree* into a binary even
+  when the feature is off; their fixes are build tags and package isolation. For us,
+  this makes "compiled-in, toggled at runtime" the worst case for size, and makes
+  **out-of-process plugins** the right default — they keep the base agent's
+  dependency set (and size) from growing as capabilities are added.
+- **HashiCorp `go-plugin`** as the chosen runtime substrate for the out-of-process
+  model: a mature (MPL-2.0), widely deployed (Terraform, Vault, Nomad, Boundary)
+  subprocess-over-gRPC plugin framework whose gRPC mode supports **polyglot plugins**
+  (Go and Rust alike).
 
 ## Goals
 - One contract an add-on author targets so their capability becomes a selectable,
@@ -35,21 +45,21 @@ operation — not a bespoke integration.
 - A clean **base vs. add-on** boundary: base `serviceradar-agent` carries only the
   core agent; optional capabilities are separate signed artifacts, dormant until
   selected.
+- **Keep the base agent small.** Adding an add-on MUST NOT grow the base agent's
+  dependency set or binary size.
 - **Operator-driven targeting**: the UI decides which agents/cohort an add-on is
   pushed to.
-- A **delivery-agnostic catalog/UI layer**: the way an add-on's bits reach an agent
-  (compiled-in toggle, pushed signed tarball, OS package) is an implementation
-  detail behind the manifest; the catalog and UI never change when an add-on's
-  delivery model changes.
+- A **delivery-agnostic catalog/UI layer**: how an add-on's bits reach an agent and
+  how it is supervised are implementation details behind the manifest; the catalog
+  and UI never change when an add-on's delivery model changes.
 - Reuse the WASM signing/discovery/verification rails rather than inventing a second
   trust system.
 - Accurate **desired vs. observed** reconciliation: agents report what is installed,
   active, or degraded per add-on.
 
 ## Non-Goals
-- Replacing the WASM plugin system. Add-ons cover native binaries/sidecars that are
-  a poor fit for a WASM sandbox; WASM plugins remain the path for sandboxed,
-  portable extensions.
+- Replacing the WASM plugin system. WASM plugins remain the path for sandboxed,
+  portable extensions; add-ons cover native/polyglot/privileged capabilities.
 - Extracting remote-access into a sidecar (see "Decision: remote-access stays
   compiled-in").
 - Producing arm64 builds in this change. The manifest and contract are arch-aware so
@@ -76,37 +86,41 @@ Mirrors `plugin.yaml`; the author also ships a `config.schema.json` (JSON Schema
 reused verbatim by `PluginConfigForm` to render the config UI).
 
 ```yaml
-id: bumblebee                      # stable kebab-case identifier
-name: Bumblebee Exposure Scanner
-version: 0.2.0                      # semver, independent of the agent version
-description: Read-only developer-endpoint exposure scanner.
+id: fingerprintd                   # stable kebab-case identifier
+name: OS Fingerprinting
+version: 0.1.0                     # semver, independent of the agent version
+description: Passive p0f/JA4 host fingerprinting sidecar.
 kind: native                       # discriminator vs. wasm
-delivery: os-package               # compiled-in | pushed-artifact | os-package
-supervision: systemd-timer         # config-toggle | agent-sidecar |
+delivery: pushed-artifact          # compiled-in | pushed-artifact | os-package
+supervision: agent-sidecar         # config-toggle | agent-sidecar (go-plugin) |
                                    #   systemd-service | systemd-timer |
                                    #   ephemeral-helper
-capabilities: [bumblebee]          # capability strings the agent advertises when active
+language: rust                     # go | rust (informs SDK/handshake helper)
+capabilities: [fingerprint]        # capability strings the agent advertises when active
 requires:
   base_agent: ">=1.2.0"            # base-agent version floor (compatibility gate)
   platforms: [linux]               # GOOS allow-list
-  os_capabilities: []              # e.g. CAP_BPF, CAP_NET_RAW -> setcap + systemd hardening
-  run_as: root                     # privilege envelope surfaced in the UI
+  os_capabilities: [CAP_BPF, CAP_NET_RAW]  # -> setcap + systemd/sandbox hardening
+  run_as: serviceradar             # privilege envelope surfaced in the UI
+plugin:                            # for supervision: agent-sidecar
+  protocol: grpc                   # go-plugin gRPC protocol
+  app_protocol_version: 1          # go-plugin app protocol version (compat negotiation)
+  services: [Fingerprint]          # gRPC services the plugin serves
 artifacts:                         # required for pushed-artifact / os-package delivery
   - { os: linux, arch: amd64, object_key: "...", sha256: "...", signature_ref: "..." }
   - { os: linux, arch: arm64, object_key: "...", sha256: "...", signature_ref: "..." }
 exec:
-  binary: serviceradar-bumblebee-scan
+  binary: serviceradar-fingerprintd
   install_path: /usr/local/lib/serviceradar/bin
-  systemd_units: [serviceradar-bumblebee-scan.service, serviceradar-bumblebee-scan.timer]
 state_dirs:
-  - { path: /var/lib/serviceradar/bumblebee, owner: root, mode: "0750" }
+  - { path: /var/lib/serviceradar/fingerprintd, owner: serviceradar, mode: "0750" }
 config_schema: config.schema.json
 ```
 
-Authoring checklist (mirrors the WASM plugin author flow): create
-`addons/<id>/` with `addon.yaml`, `config.schema.json`, sources/`BUILD.bazel`; add
-one entry to `build/native_addons/addon_inventory.bzl`. Build, signing, indexing,
-and release are then automatic.
+Authoring checklist (mirrors the WASM plugin author flow): create `addons/<id>/`
+with `addon.yaml`, `config.schema.json`, sources/`BUILD.bazel`; add one entry to
+`build/native_addons/addon_inventory.bzl`. Build, signing, indexing, and release are
+then automatic.
 
 ## Delivery × supervision models
 `delivery` answers "how do the bits get to the agent host"; `supervision` answers
@@ -115,20 +129,80 @@ both, behind a single indirection so the catalog/UI never sees the difference.
 
 | delivery        | what happens on enable                                                                 | typical supervision      |
 |-----------------|----------------------------------------------------------------------------------------|--------------------------|
-| `compiled-in`   | flip a config flag; the capability is already in the base agent binary                  | `config-toggle`          |
+| `compiled-in`   | flip a config flag; the capability is already in the base agent binary (legacy/coupled only) | `config-toggle`     |
 | `pushed-artifact` | fetch the signed per-arch tarball via the runtime-push rail (`release_runtime.go` + `agent-updater`), verify sha256 + signature, stage under a versioned dir, apply file capabilities per `requires.os_capabilities`, activate | `agent-sidecar`, `systemd-service`, `systemd-timer`, `ephemeral-helper` |
 | `os-package`    | rely on a separately installed deb/rpm; enable then toggles config + activates the unit | `systemd-timer`, `systemd-service` |
 
 Supervision models:
 - **`config-toggle`** — compiled-in capability; enable/disable is purely config.
-- **`agent-sidecar`** — long-lived child supervised by the generalized
-  `go/pkg/agent/sidecar` manager over a per-add-on UDS (health ping, restart
-  backoff, circuit breaker). This is the in-flight `agent-sidecar-runtime`
-  capability, consumed here.
+- **`agent-sidecar`** — a separate plugin **subprocess** managed via HashiCorp
+  `go-plugin`: the agent (go-plugin *client*) launches the add-on binary, performs
+  the handshake, and speaks **gRPC** over a local transport. Lifecycle, health,
+  graceful shutdown, and restart are handled by the generalized
+  `go/pkg/agent/sidecar` manager wrapping go-plugin clients (one per add-on), with
+  restart backoff and a circuit breaker layered on top. This is the in-flight
+  `agent-sidecar-runtime` capability, refactored onto go-plugin and consumed here.
 - **`systemd-service`** — long-lived OS-managed unit.
 - **`systemd-timer`** — scheduled oneshot writing a spool the agent ingests
   (Bumblebee model).
 - **`ephemeral-helper`** — spawned per session/job over stdio (RDP adapter model).
+
+### Decision: out-of-process plugins are the default
+New native capabilities SHOULD ship as **out-of-process plugins** (`pushed-artifact`
+or `os-package` delivery, `agent-sidecar` supervision), not compiled into the base
+agent. Rationale (Datadog): a separate plugin binary is its own compilation unit, so
+the base agent **never imports the add-on's Go packages** and its dependency set and
+size do not grow as capabilities are added — while still being runtime-selectable.
+`compiled-in` is reserved for capabilities too coupled to the agent to extract
+(today: remote-access).
+
+## Out-of-process plugins via HashiCorp go-plugin
+The `agent-sidecar` model is implemented with `github.com/hashicorp/go-plugin`:
+
+- **Subprocess + gRPC.** The agent launches each add-on as a child process; they
+  communicate over gRPC. go-plugin handles the handshake (magic-cookie guard against
+  accidental exec), protocol/version negotiation (`VersionedPlugins` /
+  `app_protocol_version`), graceful shutdown, plugin stdout/stderr capture, and
+  managed cleanup of orphaned plugin processes.
+- **Local transport with mutual TLS.** Plugins listen on a **Unix-domain socket**
+  under a restricted directory (not loopback TCP), and host↔plugin gRPC uses
+  go-plugin **AutoMTLS** (ephemeral per-launch certificates). This gives a private,
+  authenticated channel without minting a SPIFFE identity for each add-on.
+- **Polyglot.** gRPC plugins can be written in any language that implements the
+  go-plugin handshake and serves the gRPC contract. Go add-ons use go-plugin's server
+  helper directly; **Rust add-ons** (e.g. `fingerprintd`) implement the go-plugin
+  handshake line and serve the same gRPC service on the Unix socket. The agent never
+  cares which language a plugin is written in.
+- **Bidirectional services.** go-plugin's broker lets a plugin call back into the
+  agent (host services), giving native add-ons the same "host capability" ergonomics
+  WASM plugins have (`submit_result`, `get_config`, `log`) — a unified host-services
+  contract across both systems.
+- **Not the stdlib `plugin` package.** HashiCorp go-plugin does NOT use Go's
+  `-buildmode=plugin`/`.so` loading; it does not import the stdlib `plugin` package
+  and therefore does not disable method dead-code elimination (see Build hygiene).
+  Crash isolation, independent versioning, and runtime reload all come for free
+  because each plugin is its own process.
+
+## Binary size & dependency hygiene (lessons from Datadog)
+First-class because ServiceRadar agents run on edge/size-sensitive hosts:
+
+- **Dependency isolation (the core guardrail).** The base agent SHALL reference
+  add-ons only through the go-plugin client / gRPC interface and SHALL NOT import any
+  add-on's implementation package. CI enforces this with `go list`/`goda`: the base
+  agent's transitive package set must not grow when an add-on is added.
+- **Method dead-code elimination.** The agent and Go add-on binaries are built with
+  method DCE enabled, with a `whydeadcode` check in CI so a dependency cannot
+  silently re-disable it (Datadog's ~20% win).
+- **No stdlib `plugin`.** Importing Go's stdlib `plugin` package is forbidden in
+  agent/add-on builds — it forces dynamic linking and disables DCE (Datadog's 245 MiB
+  containerd lesson). go-plugin is used instead.
+- **Size budget.** Per-artifact binary sizes are tracked across releases (e.g. via
+  `go-size-analyzer`) with a regression gate, since size is an edge requirement.
+- **Optional build flavors (open).** Build-tag-gated agent flavors (a lean "edge"
+  build excluding heavy compiled-in capabilities like remote-access vs. a "full"
+  build) compose with runtime selection — the flavor decides what is *available*
+  (already surfaced via capability advertisement), the UI decides what is *enabled*.
+  See open questions; not committed in this change.
 
 ## Reference consumers (validate every model; migrated post-landing)
 - **remote-access** → `delivery: compiled-in`, `supervision: config-toggle`
@@ -137,19 +211,20 @@ Supervision models:
 - **Bumblebee** → `delivery: os-package` (or `pushed-artifact`),
   `supervision: systemd-timer`. Validates the timer/spool model.
 - **fingerprintd / netprobe** → `delivery: pushed-artifact`,
-  `supervision: agent-sidecar`. Validates the UDS sidecar model.
+  `supervision: agent-sidecar` (go-plugin gRPC, Rust plugin). Validates the
+  out-of-process plugin model.
 
 ## Signing & discovery (reuse the WASM rails)
 - Build emits, per add-on, a deterministic bundle per `(os, arch)` plus a
   `metadata.json` and `sha256`, via a `build/native_addons/addon_inventory.bzl`
   inventory analogous to `plugin_inventory.bzl`.
-- **Two signatures**, reusing the existing payload-agnostic tooling:
-  Cosign/Sigstore over the OCI digest (`scripts/cosign_common.sh`) and an ed25519
-  upload-signature (`build/wasm_plugins/upload_signature_tool.go`). Keys come only
-  from the runtime secret store / env (`COSIGN_KEY_REF` e.g.
-  `hashivault://cosign-native-addons`, `PLUGIN_UPLOAD_SIGNING_*`). **No private keys
-  in source**; only public trust material is committed. A distinct signing-key id
-  for native add-ons lets trust be scoped/revoked independently of WASM plugins.
+- **Two signatures**, reusing the existing payload-agnostic tooling: Cosign/Sigstore
+  over the OCI digest (`scripts/cosign_common.sh`) and an ed25519 upload-signature
+  (`build/wasm_plugins/upload_signature_tool.go`). Keys come only from the runtime
+  secret store / env (`COSIGN_KEY_REF` e.g. `hashivault://cosign-native-addons`,
+  `PLUGIN_UPLOAD_SIGNING_*`). **No private keys in source**; only public trust
+  material is committed. A distinct signing-key id for native add-ons lets trust be
+  scoped/revoked independently of WASM plugins.
 - A `serviceradar-native-addon-index.json` is generated and published as a release
   asset, with per-arch digests. The importer reuses the verify-then-mirror pipeline
   (trusted-host allowlist, bounded fetch, digest + Cosign + upload-signature checks),
@@ -170,9 +245,9 @@ Supervision models:
 - **Decision — separate resources, shared plumbing.** Native add-ons get their own
   `AddonPackage`/`AddonAssignment` rather than overloading `PluginPackage` with a
   `kind` discriminator, because native fields (per-arch artifacts, supervision,
-  privilege/OS-capabilities) would pollute the WASM-shaped schema and its
-  state-machine semantics differ (a long-lived service restarts on upgrade vs. a
-  reloaded WASM module). They **share** the importer/verification modules, the
+  privilege/OS-capabilities) would pollute the WASM-shaped schema and the
+  state-machine semantics differ (a long-lived plugin process restarts on upgrade vs.
+  a reloaded WASM module). They **share** the importer/verification modules, the
   `PluginConfigForm` schema→form renderer, and the Edge Ops discovery panel.
 
 ## Delivery into agent config
@@ -195,51 +270,80 @@ Supervision models:
   StatusResponse and `SidecarStatus`). For example, fingerprintd reports
   `unavailable` when CAP_BPF cannot be acquired.
 - `AgentConfigResponse` only includes an add-on's config section when the feature set
-  is enabled for that agent **and** the agent advertises (or, for
-  `pushed-artifact`, can be delivered) the capability — so base-package agents never
-  receive sections they cannot run.
+  is enabled for that agent **and** the agent advertises (or, for `pushed-artifact`,
+  can be delivered) the capability — so base-package agents never receive sections
+  they cannot run.
 - The UI reconciles operator-desired assignments against agent-observed state and
   surfaces drift (selected-but-unsupported, installed-but-unhealthy).
 
 ## Security & privilege
 - All config/delivery is mTLS-only and agent-initiated; identity is cert-derived
-  (tenant from issuer CA, component/partition from CN). Add-on artifacts add a
-  second integrity layer (sha256 + Cosign + upload-signature) verified before
-  activation, since a native binary runs with host privileges and has no WASM
-  sandbox.
+  (tenant from issuer CA, component/partition from CN). Add-on artifacts add a second
+  integrity layer (sha256 + Cosign + upload-signature) verified before activation,
+  since a native binary runs with host privileges and has no WASM sandbox.
+- Host↔plugin traffic uses a restricted Unix socket plus go-plugin AutoMTLS, so the
+  agent↔add-on channel is private and authenticated without per-add-on SPIFFE
+  identities.
 - The manifest's `requires.os_capabilities` and `run_as` drive both file
   capabilities (applied by the root-owned `agent-updater` at activation, not the
-  non-root agent) and `systemd` hardening directives. The UI surfaces "this add-on
-  needs elevated privileges" from the same declarations.
-- File-capability provisioning at runtime (when a feature is toggled on after
-  install, without a package reinstall) is performed by the existing root-owned
-  updater helper; in containers, required capabilities remain pod-spec-time and the
-  add-on reports `unavailable` if they were not granted.
+  non-root agent) and process hardening. The UI surfaces "this add-on needs elevated
+  privileges" from the same declarations.
+- File-capability provisioning at runtime (when a feature is toggled on after install,
+  without a package reinstall) is performed by the root-owned updater helper; in
+  containers, required capabilities remain pod-spec-time and the add-on reports
+  `unavailable` if they were not granted.
 
 ## Decision: remote-access stays compiled-in
-Extracting remote-access into a sidecar is out of scope. It is ~8k LOC of
-in-process agent code plus ~4.7k LOC of glue, multiplexed onto the agent's single
-mTLS/SPIFFE gateway control stream with per-frame HMAC bound to the agent's
-`agentID`, and an in-process eBPF recorder — and it is ~99% complete and hardened.
-The sidecar rail is UDS + health-check only (no SVID, no gateway channel), so
-extraction would require minting a separate identity or proxying every frame
-through the agent. Instead, remote-access is exposed as a `compiled-in` +
-`config-toggle` feature set now; because the catalog/UI layer is delivery-agnostic,
-a future extraction would not change the operator experience.
+Extracting remote-access into a sidecar is out of scope. It is ~8k LOC of in-process
+agent code plus ~4.7k LOC of glue, multiplexed onto the agent's single mTLS/SPIFFE
+gateway control stream with per-frame HMAC bound to the agent's `agentID`, and an
+in-process eBPF recorder — and it is ~99% complete and hardened. Instead it is exposed
+as a `compiled-in` + `config-toggle` feature set now; because the catalog/UI layer is
+delivery-agnostic, a future extraction would not change the operator experience. The
+optional build-flavor lever (above) can exclude its weight from a lean edge build in
+the meantime.
 
 ## Relationship to `agent-sidecar-runtime` and WASM
 - The in-flight `agent-sidecar-runtime` (from `add-host-network-visibility-sidecar`)
-  is the implementation of the `agent-sidecar` supervision model. This change
-  defines the selection/catalog/lifecycle contract above it and does not duplicate
-  or re-specify the UDS supervisor. The supervisor is generalized from a fixed
-  boot-time sidecar list with wholesale start/stop to per-add-on dynamic
-  registration with independent enable/disable.
+  is refactored to become the go-plugin-backed implementation of the `agent-sidecar`
+  supervision model. This change defines the selection/catalog/lifecycle contract
+  above it; the supervisor is generalized from a fixed boot-time sidecar list with
+  wholesale start/stop to per-add-on dynamic registration with independent
+  enable/disable, each backed by a go-plugin client.
 - WASM plugins remain a separate, complementary system. The line: a WASM plugin is a
   sandboxed, portable module loaded into the agent's runtime; an add-on is a native
   binary/sidecar/timer that needs host execution, OS capabilities, or a language
   toolchain a WASM sandbox cannot host.
 
+## Native add-on SDK
+A first-party SDK lowers the authoring bar, parallel to the WASM `serviceradar-sdk-go`:
+
+- **Go SDK** — wraps go-plugin's server boilerplate (handshake, gRPC serving over the
+  Unix socket, AutoMTLS, health, config decode from the typed assignment, result
+  submission via host services) so a Go add-on is a manifest plus a service
+  implementation.
+- **Rust helper** — a documented handshake + gRPC-contract crate (or guidance) so
+  Rust add-ons like `fingerprintd` interoperate with the agent's go-plugin client
+  identically.
+
+## Rejected alternatives
+- **Go stdlib `plugin` (`-buildmode=plugin` / `.so`).** Rejected: importing it
+  disables method dead-code elimination and forces dynamic linking (Datadog's 245 MiB
+  lesson); same-process so a plugin crash kills the agent; requires the exact same Go
+  toolchain and dependency versions as the host; no reload; Linux/macOS only; Go-only
+  (no Rust). It contradicts both the size and the isolation/polyglot goals.
+- **Hand-rolled gRPC-over-UDS without a framework.** Considered. Workable and
+  framework-free, but go-plugin already provides handshake, version negotiation,
+  AutoMTLS, managed cleanup, and bidirectional host services that we would otherwise
+  reimplement. We adopt go-plugin and keep the gRPC service contract explicit so Rust
+  plugins remain first-class.
+
 ## Risks and mitigations
+- **New dependency (`hashicorp/go-plugin`, MPL-2.0).** Mature and widely deployed;
+  MPL-2.0 is file-level copyleft and broadly compatible with the project's OSS
+  posture (verify before merge).
+- **Rust plugin interop.** Rust add-ons must implement the go-plugin handshake;
+  mitigate with the SDK's documented contract + a reference Rust plugin.
 - **Two catalogs (WASM + add-on) drift in UX.** Mitigate by sharing the importer,
   config-form, and discovery LiveView components; only the resource schema differs.
 - **Per-arch artifact matrix.** The index lists one entry per `(addon, version,
@@ -248,20 +352,17 @@ a future extraction would not change the operator experience.
 - **Runtime privilege provisioning.** File caps applied by the root-owned updater at
   activation; container deployments report `unavailable` rather than silently
   degrading.
-- **Coordination churn with in-flight changes.** This change only defines the
-  contract; Bumblebee/netprobe/remote-access conform in follow-ups owned by the
-  maintainer, decoupled from this change's landing.
-- **Long-lived service upgrade/rollback.** Reuse the staged-release/`current`
-  symlink/rollback semantics; define restart-on-upgrade for `systemd-service` /
-  `agent-sidecar` add-ons.
+- **Coordination churn with in-flight changes.** This change defines the contract;
+  Bumblebee/netprobe/remote-access conform in follow-ups owned by the maintainer.
 
 ## Open questions
 - Bundle vs. OS package as the canonical delivery for privileged add-ons: prefer
-  signed `pushed-artifact` tarballs (uniform with WASM, runtime-toggleable) or keep
-  deb/rpm for host-package-manager parity? The contract supports both; which is the
-  default for new add-ons?
+  signed `pushed-artifact` tarballs (uniform, runtime-toggleable) or keep deb/rpm for
+  host-package-manager parity? The contract supports both; which is the default?
 - Should feature-set bundles be first-class catalog resources or purely a UI-side
   grouping over add-ons in v1?
+- Build flavors: in scope here, or a fast-follow? (Touches the base agent build, not
+  just the framework.)
 - Distinct `COSIGN_KEY_REF`/upload-signing key id for native add-ons (recommended)
   vs. reusing the WASM keys?
 - Cohort targeting reuse: extend `AgentReleaseManager` cohorts/compatibility-preview,

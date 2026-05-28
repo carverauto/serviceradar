@@ -31,11 +31,22 @@ rewritten here.
   package SHALL contain only the core agent; every optional capability ships as a
   separately built, signed add-on artifact and stays dormant until selected.
 - Support three **delivery models** — `compiled-in` (config toggle on a capability
-  already in the base agent), `pushed-artifact` (signed per-arch tarball delivered
-  over the existing runtime-push rail), and `os-package` (deb/rpm) — and the
-  matching **supervision models** — `config-toggle`, `agent-sidecar`
-  (UDS-supervised child process), `systemd-service`, `systemd-timer`, and
-  `ephemeral-helper`.
+  already in the base agent; reserved for legacy/coupled capabilities), `pushed-artifact`
+  (signed per-arch tarball delivered over the existing runtime-push rail), and
+  `os-package` (deb/rpm) — and the matching **supervision models** — `config-toggle`,
+  `agent-sidecar`, `systemd-service`, `systemd-timer`, and `ephemeral-helper`.
+- Default new native capabilities to **out-of-process plugins** so the base agent
+  stays small: the `agent-sidecar` model is implemented with **HashiCorp `go-plugin`**
+  (subprocess + gRPC, polyglot — Go and Rust), and the base agent SHALL reference
+  add-ons only through the plugin interface, never importing an add-on's packages
+  (CI-enforced dependency isolation). The Go stdlib `plugin` package is explicitly
+  rejected.
+- Apply **binary-size hygiene** (Datadog Agent lessons): enable method dead-code
+  elimination with a `whydeadcode` guard, forbid the stdlib `plugin` import, and gate
+  per-artifact size regressions.
+- Provide a first-party **native add-on SDK** (Go server helper over go-plugin +
+  documented Rust handshake/contract) so authoring an add-on is a manifest plus a
+  service implementation.
 - Reuse the WASM plugin **signing and discovery rails** verbatim where possible
   (Cosign over the OCI digest + an ed25519 upload-signature, signing keys sourced
   from the runtime secret store / environment with **no keys committed to source**,
@@ -58,17 +69,23 @@ rewritten here.
   `agent-registry`.
 - **Affected code (subsequent implementation):** `build/native_addons/` inventory
   + Bazel rules; reuse of `scripts/cosign_common.sh` and the upload-signature
-  tooling; an add-on assignment message in `proto/monitoring.proto`;
-  `elixir/serviceradar_core` Ash resources (`AddonPackage`/`AddonAssignment`) and
-  `AgentConfigGenerator`; the web-ng importer, Edge Ops LiveView, and reuse of
-  `PluginConfigForm`; a `go/pkg/agent` add-on manager plus a generalized
-  `go/pkg/agent/sidecar` manager; and `go/cmd/agent-updater` artifact activation
-  with file-capability application.
-- **Coordination:** generalizes the in-flight `agent-sidecar-runtime` capability
-  (from `add-host-network-visibility-sidecar`) as the `agent-sidecar` supervision
-  model, and supersedes Bumblebee's ad-hoc "native capability bundle" language.
-  Bumblebee, host-network-visibility/netprobe, and remote-access are the reference
-  consumers and are conformed to this contract in follow-up changes.
+  tooling; an add-on assignment message + a gRPC add-on service contract in
+  `proto/`; a new `hashicorp/go-plugin` dependency and a native add-on SDK
+  (Go server helper + Rust handshake contract); `elixir/serviceradar_core` Ash
+  resources (`AddonPackage`/`AddonAssignment`) and `AgentConfigGenerator`; the
+  web-ng importer, Edge Ops LiveView, and reuse of `PluginConfigForm`; a
+  `go/pkg/agent` add-on manager plus the generalized `go/pkg/agent/sidecar` manager
+  wrapping go-plugin clients; `go/cmd/agent-updater` artifact activation with
+  file-capability application; and CI dependency-isolation + size + dead-code-elimination
+  gates.
+- **Coordination:** generalizes and refactors the in-flight `agent-sidecar-runtime`
+  capability (from `add-host-network-visibility-sidecar`) onto `go-plugin` as the
+  `agent-sidecar` supervision model, and supersedes Bumblebee's ad-hoc "native
+  capability bundle" language. Bumblebee, host-network-visibility/netprobe, and
+  remote-access are the reference consumers and are conformed to this contract in
+  follow-up changes.
+- **New external dependency:** `github.com/hashicorp/go-plugin` (MPL-2.0) — verify
+  license acceptability before merge.
 - **Complementary to** the WASM `wasm-plugin-system`: this framework covers
   non-WASM native capabilities and does not replace WASM plugins.
 - Out of scope: producing arm64 toolchain builds (the manifest and contract are

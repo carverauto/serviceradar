@@ -27,6 +27,11 @@
   publish it as a release asset; add a release-job presence assertion.
 - [ ] 2.5 Verify-before-release job (digest + Cosign + upload-signature).
 - [ ] 2.6 Confirm no signing keys/secrets are committed; only public trust material.
+- [ ] 2.7 Build hygiene: keep method dead-code elimination enabled with a
+  `whydeadcode` guard; forbid importing the Go stdlib `plugin` package in agent/add-on
+  builds; add a per-artifact binary-size regression gate (`go-size-analyzer`).
+- [ ] 2.8 Dependency-isolation CI gate: assert (via `go list`/`goda`) that the base
+  agent's transitive package set does not include any add-on implementation package.
 
 ## 3. Base / add-on packaging boundary
 - [ ] 3.1 Carve the base `serviceradar-agent` package to contain only the core
@@ -64,16 +69,31 @@
 ## 6. Agent-side delivery & supervision
 - [ ] 6.1 Agent add-on manager: dispatch an assignment to its delivery model
   (config-toggle / pushed-artifact fetch+verify+activate / os-package activate).
-- [ ] 6.2 Generalize `go/pkg/agent/sidecar/manager.go` from a fixed boot-time list +
-  wholesale start/stop to per-add-on dynamic registration with independent
-  enable/disable.
-- [ ] 6.3 `pushed-artifact` activation: reuse `release_runtime.go` staged-dir +
+- [ ] 6.2 Adopt `github.com/hashicorp/go-plugin` for the `agent-sidecar` model;
+  define the add-on gRPC service contract + handshake (magic cookie,
+  `VersionedPlugins` / app protocol version) in `proto/`.
+- [ ] 6.3 Refactor/generalize `go/pkg/agent/sidecar/manager.go` to manage one
+  go-plugin client per add-on with per-add-on dynamic registration and independent
+  enable/disable (replacing the fixed boot-time list + wholesale start/stop and the
+  bespoke framed-protobuf UDS protocol).
+- [ ] 6.4 Configure go-plugin transport: Unix-domain socket under a restricted dir +
+  AutoMTLS for host↔plugin gRPC; layer health checks, restart backoff, and circuit
+  breaker on top.
+- [ ] 6.5 `pushed-artifact` activation: reuse `release_runtime.go` staged-dir +
   `current`-symlink + rollback; verify sha256 + signature; apply file capabilities
   per `requires.os_capabilities` via the root-owned `agent-updater`.
-- [ ] 6.4 Wire the supervision models: `agent-sidecar` (UDS), `systemd-service`,
-  `systemd-timer` (spool ingest), `ephemeral-helper`, `config-toggle`.
-- [ ] 6.5 Last-known-good cache + local override for add-on assignments (mirror the
+- [ ] 6.6 Wire the remaining supervision models: `systemd-service`, `systemd-timer`
+  (spool ingest), `ephemeral-helper`, `config-toggle`.
+- [ ] 6.7 Last-known-good cache + local override for add-on assignments (mirror the
   existing config override/cache pattern).
+
+## 6b. Native add-on SDK
+- [ ] 6b.1 Go SDK wrapping go-plugin server boilerplate (handshake, gRPC serving over
+  UDS, AutoMTLS, health, config decode from the typed assignment, result submission
+  via host services).
+- [ ] 6b.2 Rust handshake + gRPC-contract helper/crate (or documented contract) so
+  Rust add-ons (e.g. `fingerprintd`) interoperate with the agent's go-plugin client.
+- [ ] 6b.3 Reference add-on (one Go, one Rust) proving the SDK + contract end to end.
 
 ## 7. Reporting & reconciliation
 - [ ] 7.1 Extend the `agent_capabilities` StatusResponse + `SidecarStatus` to report
