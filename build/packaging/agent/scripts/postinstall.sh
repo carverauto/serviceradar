@@ -17,6 +17,7 @@ mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
 mkdir -p /var/lib/serviceradar/agent/versions
 mkdir -p /var/lib/serviceradar/agent/tmp
+mkdir -p /etc/serviceradar/sidecars
 
 
 # Create checkers/sweep directory if it doesnt already exist
@@ -27,8 +28,10 @@ if [ -f /etc/serviceradar/agent.json ]; then
     chown serviceradar:serviceradar /etc/serviceradar/agent.json
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
+chown -R serviceradar:serviceradar /etc/serviceradar/sidecars
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /etc/serviceradar/
+chmod 750 /etc/serviceradar/sidecars
 chmod 755 /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar/cache
 chmod 755 /var/lib/serviceradar/agent

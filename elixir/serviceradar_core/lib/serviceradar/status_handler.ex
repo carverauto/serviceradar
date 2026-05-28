@@ -2,7 +2,8 @@ defmodule ServiceRadar.StatusHandler do
   @moduledoc """
   Handles service status updates forwarded from agent-gateway.
 
-  Results payloads are routed to ResultsRouter when available.
+  Results payloads are routed to ResultsRouter when available, except passive
+  netprobe inventory updates which enqueue directly for inventory ingestion.
   """
 
   use GenServer
@@ -44,6 +45,12 @@ defmodule ServiceRadar.StatusHandler do
     {:noreply, state}
   end
 
+  defp process(%{source: source, service_type: service_type} = status)
+       when source in ["results", :results] and
+              service_type in ["passive-netprobe", "passive_netprobe", :passive_netprobe] do
+    schedule_sync_ingestion(status)
+  end
+
   defp process(%{source: source} = status)
        when source in [
               "results",
@@ -69,6 +76,11 @@ defmodule ServiceRadar.StatusHandler do
 
   defp process_legacy_results(%{service_type: "sync"} = status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
+    schedule_sync_ingestion(status)
+  end
+
+  defp process_legacy_results(%{service_type: service_type} = status)
+       when service_type in ["passive-netprobe", "passive_netprobe", :passive_netprobe] do
     schedule_sync_ingestion(status)
   end
 

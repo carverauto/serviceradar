@@ -229,6 +229,26 @@ func TestClientCloseClosesEventsFromReadLoop(t *testing.T) {
 	}
 }
 
+func TestClientNilConnectionClosesSafely(t *testing.T) {
+	client := NewClient(nil, 4)
+
+	if err := client.Ping(context.Background()); !errors.Is(err, ErrNilConnection) {
+		t.Fatalf("Ping() error = %v, want %v", err, ErrNilConnection)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	select {
+	case _, ok := <-client.Events():
+		if ok {
+			t.Fatal("Events() remained open after nil connection")
+		}
+	default:
+		t.Fatal("Events() was not closed for nil connection")
+	}
+}
+
 func handleTestFrame(t *testing.T, conn net.Conn, handler func(*netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame) {
 	t.Helper()
 

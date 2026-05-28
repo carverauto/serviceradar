@@ -7,6 +7,8 @@ Type=simple
 User=serviceradar
 WorkingDirectory=/var/lib/serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
+RuntimeDirectory=serviceradar
+RuntimeDirectoryMode=0700
 Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
 Environment="KV_SEC_MODE=mtls"
