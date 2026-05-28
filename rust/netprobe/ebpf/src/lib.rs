@@ -32,7 +32,6 @@ const TCP_SYN_QUIRK_MALFORMED_OPTIONS: u32 = 1 << 0;
 const TCP_PAYLOAD_CLASS_EMPTY: u8 = 0;
 const TCP_PAYLOAD_CLASS_NON_EMPTY: u8 = 1;
 
-const SKB_IIF_OFFSET: usize = 144;
 const SKB_TRANSPORT_HEADER_OFFSET: usize = 178;
 const SKB_NETWORK_HEADER_OFFSET: usize = 180;
 const SKB_HEAD_OFFSET: usize = 192;
@@ -42,7 +41,10 @@ const FLOW_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
 const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
 const INTERFACE_ALLOWLIST_MAX_ENTRIES: u32 = 1_024;
 const XSK_MAX_QUEUES: u32 = 1024;
+const XSK_DEFAULT_QUEUE_COUNT: u32 = 1;
 const FLOW_REDIRECT_BUDGET: u32 = 16;
+const FLOW_ENDPOINT_A: u8 = 1;
+const FLOW_ENDPOINT_B: u8 = 2;
 
 const EVENT_TCP_CONNECT: u16 = 1;
 const EVENT_TCP_ACCEPT: u16 = 2;
@@ -106,7 +108,6 @@ pub struct FlowAttributionRecord {
 #[repr(C)]
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct FlowKey {
-    pub interface_index: u32,
     pub address_family: u16,
     pub transport_protocol: u16,
     pub endpoint_a_port: u16,
@@ -115,12 +116,18 @@ pub struct FlowKey {
     pub endpoint_b_addr: [u8; 16],
 }
 
+struct CanonicalFlowKey {
+    key: FlowKey,
+    source_endpoint: u8,
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct FlowTableEntry {
     pub classified_as: u32,
-    pub packets_seen: u32,
+    pub packets_seen: u64,
     pub packets_redirected: u32,
+    pub reserved: u32,
     pub last_seen_ns: u64,
 }
 
@@ -137,6 +144,8 @@ pub struct FlowPidRecord {
     pub last_seen_ns: u64,
     pub old_state: i32,
     pub new_state: i32,
+    pub local_endpoint: u8,
+    pub reserved: [u8; 7],
 }
 
 #[repr(C)]
@@ -158,7 +167,7 @@ pub struct InterfaceConfig {
     pub enabled: u32,
     pub redirect_budget: u32,
     pub flags: u32,
-    pub reserved: u32,
+    pub xsk_queue_count: u32,
 }
 
 #[repr(C)]
@@ -406,8 +415,12 @@ fn emit_event(
         comm: ctx.command().unwrap_or([0; 16]),
     };
 
-    record_process_info(&record);
-    record_flow_pid(&record);
+    if event_kind == EVENT_TCP_CLOSE {
+        remove_flow_pid(&record);
+    } else {
+        record_process_info(&record);
+        record_flow_pid(&record);
+    }
 
     let _ = FLOW_EVENTS.output(&record, 0);
 }
@@ -428,7 +441,7 @@ fn record_process_info(record: &FlowAttributionRecord) {
 }
 
 fn record_flow_pid(record: &FlowAttributionRecord) {
-    let Some(flow_key) = flow_key_from_tuple(&record.tuple) else {
+    let Some(canonical_flow) = flow_key_from_tuple(&record.tuple) else {
         return;
     };
 
@@ -443,12 +456,22 @@ fn record_flow_pid(record: &FlowAttributionRecord) {
         last_seen_ns: now_ns(),
         old_state: record.old_state,
         new_state: record.new_state,
+        local_endpoint: canonical_flow.source_endpoint,
+        reserved: [0; 7],
     };
 
-    let _ = FLOW_TO_PID.insert(&flow_key, &pid, BPF_ANY as u64);
+    let _ = FLOW_TO_PID.insert(&canonical_flow.key, &pid, BPF_ANY as u64);
 }
 
-fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<FlowKey> {
+fn remove_flow_pid(record: &FlowAttributionRecord) {
+    let Some(canonical_flow) = flow_key_from_tuple(&record.tuple) else {
+        return;
+    };
+
+    let _ = FLOW_TO_PID.remove(&canonical_flow.key);
+}
+
+fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     if tuple.family != AF_INET && tuple.family != AF_INET6 {
         return None;
     }
@@ -457,7 +480,6 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<FlowKey> {
     }
 
     Some(canonical_flow_key(
-        0,
         tuple.family,
         tuple.protocol,
         tuple.source_addr,
@@ -496,7 +518,7 @@ fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
 
         if entry.packets_redirected < redirect_budget {
             entry.packets_redirected = entry.packets_redirected.saturating_add(1);
-            return redirect_to_af_xdp(&ctx);
+            return redirect_to_af_xdp(&flow_key, &interface_config);
         }
 
         return TC_ACT_OK as i32;
@@ -506,11 +528,12 @@ fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
         classified_as: 0,
         packets_seen: 1,
         packets_redirected: 1,
+        reserved: 0,
         last_seen_ns: now,
     };
     let _ = FLOW_TABLE.insert(&flow_key, &entry, BPF_ANY as u64);
 
-    redirect_to_af_xdp(&ctx)
+    redirect_to_af_xdp(&flow_key, &interface_config)
 }
 
 fn interface_config(interface_index: u32) -> Option<InterfaceConfig> {
@@ -524,8 +547,8 @@ fn interface_config(interface_index: u32) -> Option<InterfaceConfig> {
     Some(*config)
 }
 
-fn redirect_to_af_xdp(ctx: &TcContext) -> i32 {
-    let queue = skb_queue_mapping(ctx);
+fn redirect_to_af_xdp(flow_key: &FlowKey, interface_config: &InterfaceConfig) -> i32 {
+    let queue = xsk_queue_for_flow(flow_key, interface_config.xsk_queue_count);
     XSK_SOCKETS
         .redirect(queue, TC_ACT_OK as u64)
         .unwrap_or(TC_ACT_OK as u32) as i32
@@ -553,7 +576,6 @@ fn parse_tcp_syn_signature_from_skb(
     let head = read_kernel_at::<*const u8>(skb, SKB_HEAD_OFFSET)?;
     let network_offset = usize::from(read_kernel_at::<u16>(skb, SKB_NETWORK_HEADER_OFFSET)?);
     let transport_offset = usize::from(read_kernel_at::<u16>(skb, SKB_TRANSPORT_HEADER_OFFSET)?);
-    let interface_index = read_kernel_at::<u32>(skb, SKB_IIF_OFFSET).unwrap_or_default();
 
     let version = read_packet_u8(head, network_offset)? >> 4;
     match version {
@@ -561,14 +583,12 @@ fn parse_tcp_syn_signature_from_skb(
             head,
             network_offset,
             transport_offset,
-            interface_index,
             observed_ns,
         ),
         6 => parse_ipv6_tcp_syn_signature_from_skb(
             head,
             network_offset,
             transport_offset,
-            interface_index,
             observed_ns,
         ),
         _ => None,
@@ -579,7 +599,6 @@ fn parse_ipv4_tcp_syn_signature_from_skb(
     head: *const u8,
     ip_offset: usize,
     tcp_offset: usize,
-    interface_index: u32,
     observed_ns: u64,
 ) -> Option<TcpSynSignatureRecord> {
     let version_ihl = read_packet_u8(head, ip_offset)?;
@@ -605,14 +624,14 @@ fn parse_ipv4_tcp_syn_signature_from_skb(
     let source_port = read_packet_be_u16(head, tcp_offset)?;
     let destination_port = read_packet_be_u16(head, tcp_offset + 2)?;
     let flow_key = canonical_flow_key(
-        interface_index,
         AF_INET,
         IPPROTO_TCP,
         source,
         destination,
         source_port,
         destination_port,
-    );
+    )
+    .key;
 
     parse_tcp_syn_header(
         head,
@@ -629,7 +648,6 @@ fn parse_ipv6_tcp_syn_signature_from_skb(
     head: *const u8,
     ip_offset: usize,
     tcp_offset: usize,
-    interface_index: u32,
     observed_ns: u64,
 ) -> Option<TcpSynSignatureRecord> {
     if read_packet_u8(head, ip_offset)? >> 4 != 6 {
@@ -647,14 +665,14 @@ fn parse_ipv6_tcp_syn_signature_from_skb(
     let source_port = read_packet_be_u16(head, tcp_offset)?;
     let destination_port = read_packet_be_u16(head, tcp_offset + 2)?;
     let flow_key = canonical_flow_key(
-        interface_index,
         AF_INET6,
         IPPROTO_TCP,
         source,
         destination,
         source_port,
         destination_port,
-    );
+    )
+    .key;
 
     parse_tcp_syn_header(
         head,
@@ -806,15 +824,17 @@ fn parse_ipv4_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
 
     let source_port = load_be_u16(ctx, transport_offset)?;
     let destination_port = load_be_u16(ctx, transport_offset + 2)?;
-    Some(canonical_flow_key(
-        skb_interface_index(ctx),
-        AF_INET,
-        u16::from(protocol),
-        source,
-        destination,
-        source_port,
-        destination_port,
-    ))
+    Some(
+        canonical_flow_key(
+            AF_INET,
+            u16::from(protocol),
+            source,
+            destination,
+            source_port,
+            destination_port,
+        )
+        .key,
+    )
 }
 
 fn parse_ipv6_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
@@ -843,26 +863,27 @@ fn parse_ipv6_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
 
     let source_port = load_be_u16(ctx, transport_offset)?;
     let destination_port = load_be_u16(ctx, transport_offset + 2)?;
-    Some(canonical_flow_key(
-        skb_interface_index(ctx),
-        AF_INET6,
-        u16::from(protocol),
-        source,
-        destination,
-        source_port,
-        destination_port,
-    ))
+    Some(
+        canonical_flow_key(
+            AF_INET6,
+            u16::from(protocol),
+            source,
+            destination,
+            source_port,
+            destination_port,
+        )
+        .key,
+    )
 }
 
 fn canonical_flow_key(
-    interface_index: u32,
     address_family: u16,
     transport_protocol: u16,
     source_addr: [u8; 16],
     destination_addr: [u8; 16],
     source_port: u16,
     destination_port: u16,
-) -> FlowKey {
+) -> CanonicalFlowKey {
     let source_first = endpoint_less_or_equal(
         &source_addr,
         source_port,
@@ -870,24 +891,28 @@ fn canonical_flow_key(
         destination_port,
     );
     if source_first {
-        FlowKey {
-            interface_index,
-            address_family,
-            transport_protocol,
-            endpoint_a_port: source_port,
-            endpoint_b_port: destination_port,
-            endpoint_a_addr: source_addr,
-            endpoint_b_addr: destination_addr,
+        CanonicalFlowKey {
+            key: FlowKey {
+                address_family,
+                transport_protocol,
+                endpoint_a_port: source_port,
+                endpoint_b_port: destination_port,
+                endpoint_a_addr: source_addr,
+                endpoint_b_addr: destination_addr,
+            },
+            source_endpoint: FLOW_ENDPOINT_A,
         }
     } else {
-        FlowKey {
-            interface_index,
-            address_family,
-            transport_protocol,
-            endpoint_a_port: destination_port,
-            endpoint_b_port: source_port,
-            endpoint_a_addr: destination_addr,
-            endpoint_b_addr: source_addr,
+        CanonicalFlowKey {
+            key: FlowKey {
+                address_family,
+                transport_protocol,
+                endpoint_a_port: destination_port,
+                endpoint_b_port: source_port,
+                endpoint_a_addr: destination_addr,
+                endpoint_b_addr: source_addr,
+            },
+            source_endpoint: FLOW_ENDPOINT_B,
         }
     }
 }
@@ -910,6 +935,49 @@ fn endpoint_less_or_equal(
     }
 
     left_port <= right_port
+}
+
+fn xsk_queue_for_flow(flow_key: &FlowKey, configured_queue_count: u32) -> u32 {
+    let queue_count = normalized_xsk_queue_count(configured_queue_count);
+    if queue_count <= 1 {
+        return 0;
+    }
+
+    flow_hash(flow_key) % queue_count
+}
+
+fn normalized_xsk_queue_count(configured_queue_count: u32) -> u32 {
+    if configured_queue_count == 0 {
+        XSK_DEFAULT_QUEUE_COUNT
+    } else if configured_queue_count > XSK_MAX_QUEUES {
+        XSK_MAX_QUEUES
+    } else {
+        configured_queue_count
+    }
+}
+
+fn flow_hash(flow_key: &FlowKey) -> u32 {
+    let mut hash = 0x811c9dc5u32;
+    hash = fnv1a_u16(hash, flow_key.address_family);
+    hash = fnv1a_u16(hash, flow_key.transport_protocol);
+    hash = fnv1a_u16(hash, flow_key.endpoint_a_port);
+    hash = fnv1a_u16(hash, flow_key.endpoint_b_port);
+    hash = fnv1a_bytes(hash, &flow_key.endpoint_a_addr);
+    fnv1a_bytes(hash, &flow_key.endpoint_b_addr)
+}
+
+fn fnv1a_u16(hash: u32, value: u16) -> u32 {
+    fnv1a_bytes(hash, &value.to_be_bytes())
+}
+
+fn fnv1a_bytes(mut hash: u32, bytes: &[u8]) -> u32 {
+    let mut index = 0usize;
+    while index < bytes.len() {
+        hash ^= u32::from(bytes[index]);
+        hash = hash.wrapping_mul(0x0100_0193);
+        index += 1;
+    }
+    hash
 }
 
 fn load_u8(ctx: &TcContext, offset: usize) -> Option<u8> {
@@ -965,12 +1033,6 @@ fn skb_interface_index(ctx: &TcContext) -> u32 {
     }
 }
 
-fn skb_queue_mapping(ctx: &TcContext) -> u32 {
-    // SAFETY: TcContext owns the `__sk_buff` pointer for the lifetime of this
-    // classifier invocation; queue_mapping is scalar SKB metadata.
-    unsafe { (*ctx.skb.skb).queue_mapping }
-}
-
 fn now_ns() -> u64 {
     // SAFETY: Kernel helper has no pointer arguments and is valid for TC and
     // tracing program types.
@@ -986,5 +1048,7 @@ fn trace_read<T: Copy>(ctx: &TracePointContext, offset: usize) -> Result<T, i64>
 
 #[panic_handler]
 fn panic(_info: &PanicInfo<'_>) -> ! {
+    // eBPF programs cannot unwind; spinning satisfies the panic ABI while the
+    // verifier rejects any path that would rely on stack unwinding.
     loop {}
 }

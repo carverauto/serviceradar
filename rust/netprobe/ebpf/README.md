@@ -31,25 +31,31 @@ populates the pinned `flow_to_pid` map for later userspace joins.
 
 Pinned map capacity bounds are fixed in the eBPF object:
 
-- `flow_table`: 65,536 LRU entries.
+- `flow_table`: 65,536 global LRU entries until the loader grows this at load
+  time in the remaining Phase 3 work.
 - `flow_to_pid`: 1,048,576 LRU entries.
 - `process_info`: 8,192 hash entries.
 - `interface_allowlist`: 1,024 hash entries.
 
-The userspace startup path creates `/sys/fs/bpf/serviceradar/netprobe` with
-mode `0700` before privilege drop. The later loader work pins these maps under
-that directory.
+The userspace startup path creates `/sys/fs/bpf/serviceradar/netprobe` and
+chmods both `/sys/fs/bpf/serviceradar` and the `netprobe` leaf to mode `0700`
+before privilege drop. The later loader work pins these maps under that
+directory.
 
 TCP SYN signatures are emitted to the `tcp_syn_signatures` ring buffer. The
 record carries TTL/hop-limit, window size, MSS, TCP option kind layout, quirks,
 IP version, window scale, and payload class for the userspace huginn-net
 matcher.
 
-The `flow_table` map uses a canonical 5-tuple key with the lexicographically
-smaller endpoint first, so both directions of a connection share one entry. A
-zero `classified_as` means the first `FLOW_REDIRECT_BUDGET` packets are still
-redirected to AF_XDP for userspace classification; nonzero values are treated as
-classified and stay in-kernel.
+The `flow_table` and `flow_to_pid` maps use the same canonical 5-tuple key with
+the lexicographically smaller endpoint first, so both directions of a connection
+share one entry and socket-layer kprobes can join with TC-written flow state.
+`FlowPidRecord.local_endpoint` preserves which canonical endpoint belongs to the
+local process. A zero `classified_as` means the first `FLOW_REDIRECT_BUDGET`
+packets are still redirected to AF_XDP for userspace classification; nonzero
+values are treated as classified and stay in-kernel. TC ingress AF_XDP redirect
+uses a deterministic flow hash modulo the configured XSK queue count instead of
+`skb->queue_mapping`, which is egress-only metadata on many kernels.
 
 `include/vmlinux.h` is generated from Ubuntu 20.04 `5.8.0-23-generic` BTF, the
 earliest supported kernel floor for the Phase 3 CO-RE work. See the

@@ -69,10 +69,22 @@ fn prepare_bpf_pin_directory(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to create BPF pin directory {}", path.display()))?;
 
     #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-        .with_context(|| format!("failed to chmod BPF pin directory {}", path.display()))?;
+    for dir in bpf_pin_directory_chain(path) {
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))
+            .with_context(|| format!("failed to chmod BPF pin directory {}", dir.display()))?;
+    }
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn bpf_pin_directory_chain(path: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::with_capacity(2);
+    if let Some(parent) = path.parent() {
+        dirs.push(parent.to_path_buf());
+    }
+    dirs.push(path.to_path_buf());
+    dirs
 }
 
 #[cfg(test)]
