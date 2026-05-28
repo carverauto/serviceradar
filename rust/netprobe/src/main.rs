@@ -2,6 +2,8 @@
 mod af_xdp;
 #[allow(dead_code)]
 mod af_xdp_classifier;
+#[allow(dead_code)]
+mod attribution;
 mod capabilities;
 mod capture;
 mod config;

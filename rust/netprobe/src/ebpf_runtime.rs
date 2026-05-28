@@ -11,6 +11,7 @@ use std::{io, path::Path, sync::Arc};
 use crate::{
     af_xdp::{self, DEFAULT_REDIRECT_BUDGET},
     af_xdp_classifier::AfXdpClassifierRuntime,
+    attribution::AyaAttributionReader,
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
     fingerprint::P0fSignatureRuntime,
@@ -36,6 +37,7 @@ unsafe impl aya::Pod for InterfaceConfig {}
 pub struct NetprobeEbpfRuntime {
     _classifier_runtime: AfXdpClassifierRuntime,
     _p0f_runtime: P0fSignatureRuntime,
+    _attribution_reader: AyaAttributionReader,
     _interface_allowlist: AyaHashMap<aya::maps::MapData, u32, InterfaceConfig>,
     _ebpf: Ebpf,
 }
@@ -60,6 +62,7 @@ impl NetprobeEbpfRuntime {
             fingerprint_gate,
             metrics.clone(),
         )?;
+        let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let classifier_runtime = AfXdpClassifierRuntime::start_from_ebpf(
             &config.capture_interfaces,
@@ -73,6 +76,7 @@ impl NetprobeEbpfRuntime {
         Ok(Self {
             _classifier_runtime: classifier_runtime,
             _p0f_runtime: p0f_runtime,
+            _attribution_reader: attribution_reader,
             _interface_allowlist: interface_allowlist,
             _ebpf: ebpf,
         })
