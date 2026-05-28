@@ -85,6 +85,7 @@ defmodule ServiceRadar.Inventory.Device do
     :tags,
     :is_available,
     :availability_source_agent_id,
+    :availability_source_profile_id,
     :metadata
   ]
   @device_update_fields [
@@ -118,6 +119,7 @@ defmodule ServiceRadar.Inventory.Device do
     :discovery_sources,
     :is_available,
     :availability_source_agent_id,
+    :availability_source_profile_id,
     :tags,
     :metadata,
     :group_id,
@@ -139,7 +141,7 @@ defmodule ServiceRadar.Inventory.Device do
   ]
   @group_fields [:group_id]
   @availability_fields [:is_available]
-  @availability_source_fields [:availability_source_agent_id]
+  @availability_source_fields [:availability_source_agent_id, :availability_source_profile_id]
   @soft_delete_fields [:deleted_reason, :deleted_by]
 
   postgres do
@@ -659,6 +661,12 @@ defmodule ServiceRadar.Inventory.Device do
       description "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior"
     end
 
+    attribute :availability_source_profile_id, :uuid do
+      public? true
+
+      description "Availability source profile that assigned the canonical source; nil means manual override or legacy fallback"
+    end
+
     attribute :metadata, :map do
       default %{}
       public? true
@@ -692,6 +700,15 @@ defmodule ServiceRadar.Inventory.Device do
       destination_attribute :device_uid
       public? true
       description "Latest availability reported by each agent for this device"
+    end
+
+    belongs_to :availability_source_profile, ServiceRadar.Inventory.AvailabilitySourceProfile do
+      source_attribute :availability_source_profile_id
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? true
+      public? true
+      description "Profile that assigned the canonical availability source"
     end
 
     belongs_to :group, ServiceRadar.Inventory.DeviceGroup do

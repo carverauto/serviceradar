@@ -1198,7 +1198,19 @@ func applyJobOptionsMetadata(job *DiscoveryJob, metadata map[string]string) {
 		if value == "" {
 			continue
 		}
+		if jobOptionShouldStayOperational(key) {
+			continue
+		}
 		metadata[key] = value
+	}
+}
+
+func jobOptionShouldStayOperational(key string) bool {
+	switch strings.TrimSpace(strings.ToLower(key)) {
+	case proxmoxCandidateProbeOption:
+		return true
+	default:
+		return false
 	}
 }
 

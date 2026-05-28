@@ -485,6 +485,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp operations_page_title("/dashboard"), do: "Unified Operations Dashboard"
   defp operations_page_title("/dashboards"), do: "Dashboards"
+  defp operations_page_title("/devices/wifi"), do: "WiFi Inventory"
   defp operations_page_title("/cameras"), do: "Camera Multiview"
   defp operations_page_title("/topology"), do: "Topology"
   defp operations_page_title("/events"), do: "Events"

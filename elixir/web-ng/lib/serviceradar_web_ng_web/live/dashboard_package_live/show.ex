@@ -30,7 +30,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:frame_query_overrides, %{})
       |> assign(:dashboard_catalog_limit, @dashboard_search_limit)
       |> assign(:host_payload_json, "{}")
-      |> assign_dashboard_search_srql()
+      |> assign_dashboard_search_srql(dashboard_reference_query(route_slug))
 
     {:ok, socket}
   end
@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:package, package)
       |> assign(:page_title, instance.name)
       |> assign(:query_text, first_frame_query(data_frames))
-      |> assign_dashboard_search_srql()
+      |> assign_dashboard_search_srql(dashboard_reference_query(instance.route_slug))
       |> assign(
         :host_payload_json,
         Jason.encode!(host_payload(instance, package, data_frames, frames, mapbox, socket.assigns.frame_query_overrides))
@@ -267,8 +267,21 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     end
   end
 
-  defp assign_dashboard_search_srql(socket) do
-    assign_dashboard_search_srql(socket, @dashboard_search_query)
+  defp dashboard_reference_query(dashboard_ref) do
+    dashboard_ref = dashboard_ref |> to_string() |> String.trim()
+
+    if dashboard_ref == "" do
+      @dashboard_search_query
+    else
+      "in:dashboards dashboard_ref:#{escape_srql_value(dashboard_ref)} limit:#{@dashboard_search_limit}"
+    end
+  end
+
+  defp escape_srql_value(value) do
+    value
+    |> to_string()
+    |> String.replace("\\", "\\\\")
+    |> String.replace(" ", "\\ ")
   end
 
   defp assign_dashboard_search_srql(socket, query) do

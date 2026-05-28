@@ -319,6 +319,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:api_auth)
 
     post("/query", QueryController, :execute)
+    get("/srql/catalog", SrqlCatalogController, :show)
     get("/devices", DeviceController, :index)
     get("/devices/ocsf/export", DeviceController, :ocsf_export)
     get("/devices/:uid", DeviceController, :show)
@@ -710,6 +711,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/devices", DeviceLive.Index, :index)
+      live("/devices/wifi", DeviceLive.Wifi, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)
@@ -781,6 +783,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/discovery/new", Settings.NetworksLive.Index, :new_mapper_job)
       live("/settings/networks/discovery/:id/edit", Settings.NetworksLive.Index, :edit_mapper_job)
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
+      live("/settings/networks/availability-sources", Settings.AvailabilitySourceProfilesLive, :index)
       live("/settings/networks/visibility-profiles", Settings.VisibilityProfilesLive.Index, :index)
       live("/settings/networks/visibility-profiles/new", Settings.VisibilityProfilesLive.Index, :new_profile)
       live("/settings/networks/visibility-profiles/:id/edit", Settings.VisibilityProfilesLive.Index, :edit_profile)

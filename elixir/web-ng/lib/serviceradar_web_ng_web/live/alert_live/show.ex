@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Observability.EventTitle
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -98,7 +100,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       <div class="mt-6 pt-6 border-t border-base-200 space-y-3">
         <div>
           <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">Title</span>
-          <p class="text-sm font-semibold">{Map.get(@alert, "title") || "Alert"}</p>
+          <p class="text-sm font-semibold">{EventTitle.alert_title(@alert)}</p>
         </div>
         <div :if={has_value?(@alert, "description")}>
           <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">

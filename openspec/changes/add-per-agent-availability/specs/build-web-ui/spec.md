@@ -41,3 +41,23 @@ The UI SHALL allow authorized operators to choose the primary availability sourc
 - **GIVEN** an operator selects multiple devices in the inventory
 - **WHEN** they choose a primary availability source agent from bulk actions
 - **THEN** the selected devices SHALL use that agent as their primary availability source
+
+### Requirement: Settings UI manages availability source profiles
+The settings UI SHALL allow authorized operators to create, preview, enable, disable, reorder, and delete availability source profiles that bind an SRQL device scope to a canonical availability agent.
+
+#### Scenario: Create profile from SRQL scope
+- **GIVEN** an operator opens availability source profile settings
+- **WHEN** they enter a name, an SRQL device query, and a selected agent
+- **THEN** the UI SHALL validate the SRQL query
+- **AND** show a preview count and representative matching devices before saving
+
+#### Scenario: Profile precedence is visible
+- **GIVEN** multiple enabled profiles exist
+- **WHEN** an operator views the profile list
+- **THEN** the UI SHALL show each profile's precedence, enabled state, selected agent, and current match count
+- **AND** allow authorized operators to change precedence deterministically
+
+#### Scenario: Preview profile effect
+- **GIVEN** a profile matches devices that currently use another canonical availability source
+- **WHEN** an operator previews the profile
+- **THEN** the UI SHALL show that the profile would change the effective source for those devices unless a per-device override applies

@@ -31,6 +31,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.WebhookNotifier
+  alias ServiceRadar.Observability.EventTitle
 
   require Logger
 
@@ -265,7 +266,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       {:ok, :skipped}
     else
       severity = alert_severity(event, alert_config)
-      title = override_string(alert_config, "title") || default_event_title(event)
+      title = override_string(alert_config, "title") || EventTitle.event_title(event)
       description = override_string(alert_config, "description") || Map.get(event, :message)
 
       attrs = %{
@@ -519,16 +520,6 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
       "warn" -> :warning
       "info" -> :info
       _ -> :warning
-    end
-  end
-
-  defp default_event_title(event) do
-    log_name = Map.get(event, :log_name)
-
-    if is_binary(log_name) and log_name != "" do
-      "Event: #{log_name}"
-    else
-      "Event Triggered"
     end
   end
 

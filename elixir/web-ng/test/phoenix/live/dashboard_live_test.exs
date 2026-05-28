@@ -85,10 +85,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     create_dashboard_instance!(route_slug)
 
     {:ok, view, _html} = live(conn, ~p"/dashboards/#{route_slug}")
+    expected_query = "in:dashboards dashboard_ref:#{route_slug} limit:100"
+
+    assert has_element?(view, "#srql-query-bar input[name='q'][value='#{expected_query}']")
 
     html = render_click(view, "srql_builder_toggle", %{})
 
-    assert has_element?(view, "#srql-query-bar input[name='q'][value='in:dashboards limit:100']")
+    assert has_element?(view, "#srql-query-bar input[name='q'][value='#{expected_query}']")
     assert html =~ "Entity"
     refute html =~ "can't be fully represented"
     refute html =~ "can’t be fully represented"

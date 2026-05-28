@@ -726,7 +726,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp finalize_success(source, run, result, actor, finish_run, update_source, record_event) do
-    metadata = %{batch_count: result.batch_count, errors: serialize_errors(result.errors)}
+    metadata =
+      source
+      |> availability_source_run_metadata()
+      |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
 
     with {:ok, finished_run} <-
            finish_run.(
@@ -749,7 +752,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp finalize_error(source, run, result, actor, finish_run, update_source, record_event) do
-    metadata = %{batch_count: result.batch_count, errors: serialize_errors(result.errors)}
+    metadata =
+      source
+      |> availability_source_run_metadata()
+      |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
+
     error_message = summarize_errors(result.errors)
 
     if result.updated_count > 0 do
@@ -905,7 +912,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           "skipped_count" => result.skipped_count,
           "error_count" => result.error_count,
           "batch_count" => result.batch_count,
-          "custom_field" => custom_field(source)
+          "custom_field" => custom_field(source),
+          "availability_source_agent_id" => availability_source_agent_id(source) || "canonical"
         },
         "error_message",
         Map.get(result, :error_message)
@@ -1016,11 +1024,26 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           integration_source_id: Map.fetch!(source, :id),
           run_type: :armis_northbound,
           oban_job_id: oban_job_id,
-          metadata: %{}
+          metadata: availability_source_run_metadata(source)
         },
         actor: actor
       )
       |> Ash.create(actor: actor)
+    end
+  end
+
+  defp availability_source_run_metadata(source) do
+    source
+    |> availability_source_agent_id()
+    |> case do
+      agent_id when is_binary(agent_id) and agent_id != "" ->
+        %{
+          "availability_source" => "selected_agent",
+          "availability_source_agent_id" => agent_id
+        }
+
+      _ ->
+        %{"availability_source" => "canonical"}
     end
   end
 

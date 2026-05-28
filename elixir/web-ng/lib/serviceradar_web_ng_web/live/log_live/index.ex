@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.EventTitle
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpInfo
@@ -132,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     tab = normalize_tab(Map.get(params, "tab"), path)
     params = maybe_apply_netflow_nf_state(params, tab)
     {entity, _list_key} = tab_entity(tab)
-    {default_limit, _max_limit} = tab_limits(tab)
+    {default_limit, max_limit} = tab_limits(tab)
     params = maybe_default_netflows_query(params, tab)
     netflow_compact? = truthy_param?(Map.get(params, "compact"))
     netflow_talker_cidr = parse_netflow_talker_cidr(Map.get(params, "talker_cidr"))
@@ -173,6 +174,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_auto_open, netflow_auto_open)
         |> assign(:netflow_viz_state, netflow_viz_state)
         |> ensure_srql_entity(entity, default_limit)
+        |> SRQLPage.sync_from_params(params, uri,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
       else
         socket
         |> assign(:active_tab, tab)
@@ -222,6 +227,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_auto_open, netflow_auto_open)
         |> assign(:netflow_viz_state, netflow_viz_state)
         |> ensure_srql_entity(entity, default_limit)
+        |> SRQLPage.sync_from_params(params, uri,
+          default_limit: default_limit,
+          max_limit: max_limit
+        )
       end
 
     socket =
@@ -4010,7 +4019,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp alert_title(alert) do
-    Map.get(alert, "title") || Map.get(alert, "description") || "Alert"
+    EventTitle.alert_title(alert)
   end
 
   defp format_alert_timestamp(alert) do

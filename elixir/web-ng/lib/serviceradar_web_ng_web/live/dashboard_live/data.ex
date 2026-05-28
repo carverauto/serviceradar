@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   @moduledoc false
 
+  alias ServiceRadar.Observability.EventTitle
   alias ServiceRadarWebNG.FieldSurveyDashboardPlaylist
   alias ServiceRadarWebNG.FieldSurveyFloorplan
   alias ServiceRadarWebNG.Graph, as: AgeGraph
@@ -2164,7 +2165,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
           Enum.map(rows, fn [id, title, description, severity, status, source_type, device_uid, observed_at] ->
             %{
               id: id,
-              title: first_present([title, description, "Untitled alert"]),
+              title: EventTitle.alert_title(%{"title" => title, "description" => description}),
               description: description,
               severity: severity,
               status: status,
@@ -3071,12 +3072,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
   defp format_alert_time(%DateTime{} = value), do: Calendar.strftime(value, "%H:%M")
   defp format_alert_time(%NaiveDateTime{} = value), do: value |> DateTime.from_naive!("Etc/UTC") |> format_alert_time()
   defp format_alert_time(_), do: ""
-
-  defp first_present(values) do
-    Enum.find_value(values, fn value ->
-      if present?(value), do: to_string(value)
-    end)
-  end
 
   defp bucket_label(%DateTime{} = bucket), do: DateTime.to_iso8601(bucket)
   defp bucket_label(%NaiveDateTime{} = bucket), do: bucket |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()

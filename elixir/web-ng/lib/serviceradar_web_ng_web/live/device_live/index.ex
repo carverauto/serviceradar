@@ -12,8 +12,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias Ash.Error.Invalid
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
@@ -37,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   @presence_window "last_24h"
   @presence_bucket "24h"
   @presence_device_cap 200
+  @agent_availability_fresh_seconds 2 * 60 * 60
   @device_pubsub_refresh_debounce_ms 1_000
 
   @impl true
@@ -51,9 +55,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:devices, [])
      |> assign(:icmp_sparklines, %{})
      |> assign(:icmp_error, nil)
+     |> assign(:effective_availability_by_device, %{})
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:sysmon_profiles_by_device, %{})
+     |> assign(:agent_device_uids, MapSet.new())
      |> assign(:device_enrichment_task, nil)
      |> assign(:device_stats_task, nil)
      |> assign(:device_refresh_timer, nil)
@@ -86,7 +92,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:northbound_launch_action, nil)
      |> assign(:show_bulk_edit_modal, false)
      |> assign(:show_bulk_delete_modal, false)
+     |> assign(:show_bulk_availability_source_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
+     |> assign(
+       :availability_source_agent_options,
+       load_availability_source_agent_options(socket.assigns.current_scope)
+     )
      |> assign(:breakdown_modal, nil)
      |> assign(:breakdown_search, "")
      # Device management modals
@@ -542,6 +554,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
+  def handle_event("open_bulk_availability_source_modal", _params, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
+      {:noreply, assign(socket, :show_bulk_availability_source_modal, true)}
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
+    end
+  end
+
   def handle_event("close_bulk_edit_modal", _params, socket) do
     {:noreply,
      socket
@@ -551,6 +571,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   def handle_event("close_bulk_delete_modal", _params, socket) do
     {:noreply, assign(socket, :show_bulk_delete_modal, false)}
+  end
+
+  def handle_event("close_bulk_availability_source_modal", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:show_bulk_availability_source_modal, false)
+     |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))}
   end
 
   def handle_event("toggle_select_all_matching", _params, socket) do
@@ -580,6 +607,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   def handle_event("apply_bulk_tags", %{"bulk" => params}, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
       apply_bulk_tags(params, socket)
+    else
+      {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
+    end
+  end
+
+  def handle_event("apply_bulk_availability_source", %{"availability_source" => params}, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "devices.bulk_edit") do
+      apply_bulk_availability_source(params, socket)
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to bulk edit devices")}
     end
@@ -693,6 +728,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     assign(socket,
       icmp_sparklines: %{},
       icmp_error: nil,
+      effective_availability_by_device: %{},
       snmp_presence: %{},
       sysmon_presence: %{},
       sysmon_profiles_by_device: %{},
@@ -766,9 +802,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
        assign(socket,
          icmp_sparklines: enrichments.icmp_sparklines,
          icmp_error: enrichments.icmp_error,
+         effective_availability_by_device: enrichments.effective_availability_by_device,
          snmp_presence: enrichments.snmp_presence,
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,
+         agent_device_uids: enrichments.agent_device_uids,
          total_device_count: enrichments.total_device_count
        )}
     else
@@ -793,19 +831,184 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     srql = srql_module()
 
     {icmp_sparklines, icmp_error} = load_icmp_sparklines(srql, devices, scope)
+    effective_availability_by_device = load_effective_availability(devices, scope)
     {snmp_presence, sysmon_presence} = load_metric_presence(srql, devices, scope)
     sysmon_profiles_by_device = load_sysmon_profiles_for_devices(scope, devices)
+    agent_device_uids = load_agent_device_uids(devices, scope)
     total_device_count = get_total_matching_count(scope, query)
 
     %{
       icmp_sparklines: icmp_sparklines,
       icmp_error: icmp_error,
+      effective_availability_by_device: effective_availability_by_device,
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: sysmon_profiles_by_device,
+      agent_device_uids: agent_device_uids,
       total_device_count: total_device_count
     }
   end
+
+  defp load_agent_device_uids(devices, _scope) do
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
+      |> Enum.filter(&present_text?/1)
+      |> Enum.uniq()
+
+    if device_uids == [] do
+      MapSet.new()
+    else
+      case Repo.query(
+             """
+             SELECT DISTINCT device_uid
+             FROM platform.ocsf_agents
+             WHERE device_uid = ANY($1::text[])
+             """,
+             [device_uids]
+           ) do
+        {:ok, %{rows: rows}} ->
+          rows
+          |> Enum.map(fn [device_uid] -> device_uid end)
+          |> Enum.filter(&present_text?/1)
+          |> MapSet.new()
+
+        _ ->
+          MapSet.new()
+      end
+    end
+  rescue
+    reason ->
+      Logger.warning("Failed to load agent device markers: #{inspect(reason)}")
+      MapSet.new()
+  end
+
+  defp load_availability_source_agent_options(scope) do
+    Agent
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(uid: :asc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, %{results: agents}} -> agents
+      {:ok, agents} when is_list(agents) -> agents
+      _ -> []
+    end
+    |> Enum.map(fn agent ->
+      display = agent.name || agent.host || agent.uid
+      {"#{display} (#{agent.uid})", agent.uid}
+    end)
+  rescue
+    reason ->
+      Logger.warning("Failed to load availability source agents: #{inspect(reason)}")
+      []
+  end
+
+  defp load_effective_availability(devices, scope) do
+    device_uids =
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    if device_uids == [] do
+      %{}
+    else
+      rows =
+        DeviceAgentAvailability
+        |> Ash.Query.for_read(:read, %{}, scope: scope)
+        |> Ash.Query.filter(device_uid in ^device_uids)
+        |> Ash.Query.sort(checked_at: :desc, agent_id: :asc)
+        |> Ash.read!(scope: scope)
+
+      rows_by_device = Enum.group_by(rows, & &1.device_uid)
+
+      devices
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn device, acc ->
+        uid = Map.get(device, "uid") || Map.get(device, "id")
+        availability_rows = Map.get(rows_by_device, uid, [])
+
+        case effective_availability_from_rows(device, availability_rows) do
+          nil -> acc
+          value -> Map.put(acc, uid, value)
+        end
+      end)
+    end
+  rescue
+    reason ->
+      Logger.warning("Failed to load effective device availability: #{inspect(reason)}")
+      %{}
+  end
+
+  defp effective_availability_from_rows(_device, []), do: nil
+
+  defp effective_availability_from_rows(device, rows) do
+    fresh_rows = Enum.filter(rows, &agent_availability_fresh?/1)
+
+    if fresh_rows == [] do
+      nil
+    else
+      effective_availability_from_fresh_rows(device, fresh_rows)
+    end
+  end
+
+  defp effective_availability_from_fresh_rows(device, rows) do
+    source_agent_id =
+      device
+      |> Map.get("availability_source_agent_id")
+      |> blank_to_nil()
+
+    if is_binary(source_agent_id) do
+      rows
+      |> Enum.find(&(&1.agent_id == source_agent_id))
+      |> case do
+        nil -> nil
+        row -> row.is_available == true
+      end
+    else
+      Enum.any?(rows, &(&1.is_available == true))
+    end
+  end
+
+  defp agent_availability_fresh?(row) do
+    cutoff = DateTime.add(DateTime.utc_now(), -@agent_availability_fresh_seconds, :second)
+
+    case Map.get(row, :checked_at) do
+      %DateTime{} = observed_at -> DateTime.after?(observed_at, cutoff)
+      _ -> false
+    end
+  end
+
+  defp effective_availability(row, effective_availability_by_device) when is_map(row) do
+    uid = Map.get(row, "uid") || Map.get(row, "id")
+
+    case Map.fetch(effective_availability_by_device, uid) do
+      {:ok, value} -> value
+      :error -> Map.get(row, "is_available")
+    end
+  end
+
+  defp effective_availability(_row, _effective_availability_by_device), do: nil
+
+  defp agent_device_row?(row, agent_device_uids) when is_map(row) do
+    device_uid = Map.get(row, "uid") || Map.get(row, "id")
+    present_text?(device_uid) and MapSet.member?(agent_device_uids, device_uid)
+  end
+
+  defp agent_device_row?(_row, _agent_device_uids), do: false
+
+  defp blank_to_nil(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
 
   defp import_csv_preview(socket) do
     case socket.assigns.csv_preview do
@@ -862,6 +1065,91 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
            |> assign(:bulk_edit_form, to_form(params, as: :bulk))
            |> put_flash(:error, "Failed to apply tags: #{reason}")}
       end
+    end
+  end
+
+  defp apply_bulk_availability_source(params, socket) do
+    scope = socket.assigns.current_scope
+    agent_id = params |> Map.get("agent_id", "") |> blank_to_nil()
+
+    case apply_availability_source_to_devices(scope, socket, agent_id) do
+      {:ok, count} ->
+        label =
+          if is_binary(agent_id),
+            do: "Set availability source",
+            else: "Cleared availability source"
+
+        path =
+          device_list_path(
+            Map.get(socket.assigns.srql || %{}, :query, ""),
+            socket.assigns.limit
+          )
+
+        {:noreply,
+         socket
+         |> assign(:show_bulk_availability_source_modal, false)
+         |> assign(
+           :availability_source_form,
+           to_form(%{"agent_id" => ""}, as: :availability_source)
+         )
+         |> assign(:selected_devices, MapSet.new())
+         |> assign(:select_all_matching, false)
+         |> assign(:total_matching_count, nil)
+         |> put_flash(:info, "#{label} for #{count} device(s)")
+         |> push_patch(to: path)}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:availability_source_form, to_form(params, as: :availability_source))
+         |> put_flash(:error, "Failed to set availability source: #{reason}")}
+    end
+  end
+
+  defp apply_availability_source_to_devices(scope, socket, agent_id) do
+    cond do
+      socket.assigns.select_all_matching and
+          not is_integer(socket.assigns.total_matching_count) ->
+        {:error, "Unable to determine selection size. Please try again."}
+
+      socket.assigns.select_all_matching and socket.assigns.total_matching_count > 10_000 ->
+        {:error, "Too many devices selected. Narrow your filters and try again."}
+
+      true ->
+        case get_selected_uids(socket) do
+          [] -> {:error, "No devices selected"}
+          uids -> update_availability_source_for_uids(scope, uids, agent_id)
+        end
+    end
+  end
+
+  defp update_availability_source_for_uids(scope, uids, agent_id) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.filter(uid in ^uids)
+
+    case Ash.count(query, scope: scope) do
+      {:ok, existing_count} ->
+        requested_count = length(uids)
+
+        result =
+          Ash.bulk_update(
+            query,
+            :set_availability_source,
+            %{
+              availability_source_agent_id: agent_id,
+              availability_source_profile_id: nil
+            },
+            scope: scope,
+            return_records?: false,
+            return_errors?: true
+          )
+
+        handle_bulk_update_result(result, existing_count, requested_count)
+
+      {:error, error} ->
+        {:error, format_changeset_errors(error)}
     end
   end
 
@@ -1397,6 +1685,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
               <.icon name="hero-tag" class="size-4" /> Bulk Edit
             </.ui_button>
             <.ui_button
+              :if={RBAC.can?(@current_scope, "devices.bulk_edit")}
+              variant="outline"
+              size="sm"
+              phx-click="open_bulk_availability_source_modal"
+            >
+              <.icon name="hero-signal" class="size-4" /> Set Source
+            </.ui_button>
+            <.ui_button
               :if={RBAC.can?(@current_scope, "devices.bulk_delete")}
               variant="outline"
               class="btn-error"
@@ -1494,7 +1790,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <% snmp_fallback = snmp_fallback_derived?(row) %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -1509,12 +1804,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     <td class="max-w-[18rem]">
                       <div class="flex items-center gap-2 min-w-0">
                         <div class="flex items-center gap-2 min-w-0">
-                          <.icon
-                            :if={agent_device_row?(row)}
-                            name="hero-bolt"
-                            class="size-3 text-accent shrink-0"
-                            title="Agent device"
-                          />
                           <.link
                             :if={is_binary(device_uid)}
                             navigate={~p"/devices/#{device_uid}"}
@@ -1523,6 +1812,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                           >
                             {Map.get(row, "hostname") || device_uid}
                           </.link>
+                          <.icon
+                            :if={agent_device_row?(row, @agent_device_uids)}
+                            name="hero-bolt"
+                            class="w-4 h-4 text-warning shrink-0"
+                            title="Agent device"
+                          />
                           <span :if={not is_binary(device_uid)} class="truncate text-sm">
                             {Map.get(row, "hostname") || "—"}
                           </span>
@@ -1540,13 +1835,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       <.device_type_badge
                         type={device_type_value(row)}
                         type_id={Map.get(row, "type_id")}
-                        snmp_fallback={snmp_fallback}
                       />
                     </td>
                     <td class="text-xs max-w-[8rem] truncate">
                       {Map.get(row, "vendor_name") || "—"}
                       <span
-                        :if={snmp_fallback and present_text?(Map.get(row, "vendor_name"))}
+                        :if={
+                          snmp_fallback_derived?(row) and present_text?(Map.get(row, "vendor_name"))
+                        }
                         class="badge badge-ghost badge-xs ml-1"
                       >
                         SNMP
@@ -1554,15 +1850,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     </td>
                     <td class="text-xs max-w-[12rem] truncate">
                       {display_model(Map.get(row, "model"))}
-                      <span
-                        :if={snmp_fallback and display_model(Map.get(row, "model")) != "—"}
-                        class="badge badge-ghost badge-xs ml-1"
-                      >
-                        Fallback
-                      </span>
                     </td>
                     <td class="text-xs">
-                      <.availability_badge available={Map.get(row, "is_available")} />
+                      <.availability_badge available={
+                        effective_availability(row, @effective_availability_by_device)
+                      } />
                     </td>
                     <td class="text-xs">
                       <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
@@ -1629,6 +1921,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     <!-- Bulk Delete Modal -->
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}
+        selected_count={@effective_count}
+      />
+
+      <.bulk_availability_source_modal
+        :if={@show_bulk_availability_source_modal}
+        form={@availability_source_form}
+        agent_options={@availability_source_agent_options}
         selected_count={@effective_count}
       />
 
@@ -2040,6 +2339,64 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     """
   end
 
+  attr(:form, :any, required: true)
+  attr(:agent_options, :list, required: true)
+  attr(:selected_count, :integer, required: true)
+
+  defp bulk_availability_source_modal(assigns) do
+    ~H"""
+    <dialog id="bulk_availability_source_modal" class="modal modal-open">
+      <div class="modal-box max-w-lg">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            phx-click="close_bulk_availability_source_modal"
+          >
+            <.icon name="hero-x-mark" class="size-4" />
+          </button>
+        </form>
+
+        <h3 class="text-lg font-bold">Set Availability Source</h3>
+        <p class="py-2 text-sm text-base-content/70">
+          Select the canonical agent for {@selected_count} selected device(s), or clear the
+          override to use fallback evaluation.
+        </p>
+
+        <.form
+          for={@form}
+          id="bulk-availability-source-form"
+          phx-submit="apply_bulk_availability_source"
+          class="space-y-4"
+        >
+          <.input
+            field={@form[:agent_id]}
+            type="select"
+            label="Canonical agent"
+            prompt="Fallback: any fresh agent"
+            options={@agent_options}
+          />
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              phx-click="close_bulk_availability_source_modal"
+              class="btn btn-ghost"
+            >
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+              <.icon name="hero-check" class="size-4" /> Apply
+            </button>
+          </div>
+        </.form>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button phx-click="close_bulk_availability_source_modal">close</button>
+      </form>
+    </dialog>
+    """
+  end
+
   # Device Stats Cards Component
   attr(:stats, :map, required: true)
   attr(:loading, :boolean, default: false)
@@ -2384,7 +2741,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   attr(:type, :string, default: nil)
   attr(:type_id, :integer, default: nil)
-  attr(:snmp_fallback, :boolean, default: false)
 
   def device_type_badge(assigns) do
     label = device_type_label(assigns.type, assigns.type_id)
@@ -2399,9 +2755,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     <div class="flex items-center gap-1.5" title={"Type ID: #{@type_id}"}>
       <.icon :if={@icon} name={@icon} class="size-3.5 text-base-content/60" />
       <span class="text-base-content/80">{@label}</span>
-      <span :if={@snmp_fallback and @label != "—"} class="badge badge-ghost badge-xs">
-        SNMP Fallback
-      </span>
     </div>
     """
   end
@@ -3059,23 +3412,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp latency_ms(_), do: 0.0
-
-  defp agent_device_row?(row) when is_map(row) do
-    has_agent_list?(agent_list(row)) or
-      present_text?(device_row_value(row, "agent_id", :agent_id))
-  end
-
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
-
-  defp has_agent_list?(items) do
-    items
-    |> List.wrap()
-    |> Enum.any?(&is_map/1)
-  end
-
-  defp device_row_value(row, string_key, atom_key) do
-    Map.get(row, string_key) || Map.get(row, atom_key)
-  end
 
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)

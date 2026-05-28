@@ -800,6 +800,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             <span class="mx-1">•</span>
                             {source.northbound_last_skipped_count || 0} skipped
                           </div>
+                          <div class="mt-1 max-w-[180px] truncate text-xs text-base-content/60">
+                            {availability_source_display(source)}
+                          </div>
                           <%= if source.northbound_last_error_message do %>
                             <div
                               class="text-xs text-error/80 max-w-[180px] truncate"
@@ -1611,6 +1614,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 </div>
                 <div class="font-mono text-sm">{custom_fields_display(@source.custom_fields)}</div>
               </div>
+              <div>
+                <div class="text-xs uppercase tracking-wide text-base-content/60">
+                  Availability Source
+                </div>
+                <div class="font-mono text-sm">{availability_source_display(@source)}</div>
+              </div>
             </div>
 
             <div class="grid grid-cols-3 gap-4">
@@ -1653,6 +1662,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       <tr class="text-xs uppercase tracking-wide text-base-content/60">
                         <th>Started</th>
                         <th>Status</th>
+                        <th>Source</th>
                         <th>Updated</th>
                         <th>Skipped</th>
                         <th>Errors</th>
@@ -1665,6 +1675,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             {format_datetime(run.started_at)}
                           </td>
                           <td><.run_status_badge status={run.status} /></td>
+                          <td class="font-mono text-xs text-base-content/70">
+                            {run_availability_source_display(run)}
+                          </td>
                           <td class="text-xs text-base-content/70">{run.updated_count || 0}</td>
                           <td class="text-xs text-base-content/70">{run.skipped_count || 0}</td>
                           <td class="text-xs text-base-content/70">
@@ -1872,6 +1885,25 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   end
 
   defp custom_fields_display(_), do: "-"
+
+  defp availability_source_display(source) do
+    source
+    |> Map.get(:northbound_availability_source_agent_id)
+    |> case do
+      agent_id when is_binary(agent_id) and agent_id != "" -> agent_id
+      _ -> "canonical"
+    end
+  end
+
+  defp run_availability_source_display(run) do
+    metadata = Map.get(run, :metadata) || %{}
+
+    Map.get(metadata, "availability_source_agent_id") ||
+      Map.get(metadata, :availability_source_agent_id) ||
+      Map.get(metadata, "availability_source") ||
+      Map.get(metadata, :availability_source) ||
+      "canonical"
+  end
 
   # Data access helpers
 

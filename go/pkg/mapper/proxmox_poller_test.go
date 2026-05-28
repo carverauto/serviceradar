@@ -163,3 +163,20 @@ func TestProxmoxCandidateSeedsFromJobUsesKnownDeviceIPs(t *testing.T) {
 
 	assert.Equal(t, []string{"192.0.2.10", "192.0.2.11"}, proxmoxCandidateSeedsFromJob(job))
 }
+
+func TestApplyJobOptionsMetadataSkipsProxmoxCandidateProbeOption(t *testing.T) {
+	job := &DiscoveryJob{
+		Params: &DiscoveryParams{
+			Options: map[string]string{
+				"mapper_job_name":           "tonka01",
+				proxmoxCandidateProbeOption: "true",
+			},
+		},
+	}
+	metadata := map[string]string{}
+
+	applyJobOptionsMetadata(job, metadata)
+
+	assert.Equal(t, "tonka01", metadata["mapper_job_name"])
+	assert.NotContains(t, metadata, proxmoxCandidateProbeOption)
+}

@@ -49,23 +49,50 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     ~H"""
     <div class={["fieldset mb-2", @class]}>
       <label :if={@label} for={@id} class="label mb-1">{@label}</label>
-      <input
+      <div
         :if={@compact}
-        id={@id}
-        type="text"
-        name={@name}
-        value={@value}
-        list={"#{@id}-completions"}
-        phx-debounce="150"
-        class={[
-          "input input-sm w-full font-mono text-xs",
-          "rounded-lg border-base-300 bg-base-100",
-          "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
-          @editor_class
+        class="relative srql-input-frame"
+        data-srql-input-frame
+        style={[
+          "--srql-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;",
+          "--srql-font-size: 0.75rem;",
+          "--srql-line-height: 1rem;",
+          "--srql-padding-inline: 0.75rem;",
+          "--srql-padding-block: 0.375rem;"
         ]}
-        disabled={@disabled}
-        {@rest}
-      />
+      >
+        <input
+          id={@id}
+          type="text"
+          name={@name}
+          value={@value}
+          list={"#{@id}-completions"}
+          phx-hook="SRQLInput"
+          phx-debounce="150"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          class={[
+            "input input-sm w-full font-mono text-xs",
+            "rounded-lg border-base-300 bg-base-100",
+            "focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30",
+            "srql-input",
+            @editor_class
+          ]}
+          disabled={@disabled}
+          {@rest}
+        />
+        <div class="srql-input-overlay" data-srql-input-overlay aria-hidden="true"></div>
+        <ul
+          class="srql-dropdown hidden"
+          data-srql-input-dropdown
+          role="listbox"
+          aria-label="SRQL completions"
+        >
+        </ul>
+        <div class="srql-hint hidden" data-srql-input-hint aria-hidden="true"></div>
+      </div>
       <datalist :if={@compact} id={"#{@id}-completions"}>
         <option :for={completion <- @completion_values} value={completion}></option>
       </datalist>

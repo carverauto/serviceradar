@@ -2,6 +2,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -521,6 +522,104 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert device_after_failures.is_available
     assert device_after_failures.metadata["sweep_consecutive_failures"] == 0
     assert is_binary(device_after_failures.metadata["sweep_last_available_at"])
+  end
+
+  test "per-agent availability prevents unreachable aliases from marking canonical device unavailable",
+       %{
+         actor: actor
+       } do
+    unique_id = Ash.UUID.generate()
+    private_ip = unique_ip("per-agent-private-#{unique_id}")
+    public_ip = unique_ip("per-agent-public-#{unique_id}")
+    device_uid = "device-per-agent-availability-#{unique_id}"
+    reachable_agent_id = "agent-reachable-#{unique_id}"
+    unreachable_agent_id = "agent-unreachable-#{unique_id}"
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: device_uid,
+          ip: private_ip,
+          hostname: "per-agent-availability-#{unique_id}",
+          discovery_sources: ["sweep"],
+          is_available: false,
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, alias_state} =
+      DeviceAliasState.create_detected(
+        %{
+          device_id: device_uid,
+          partition: "default",
+          alias_type: :ip,
+          alias_value: public_ip,
+          metadata: %{}
+        },
+        actor: actor
+      )
+
+    assert {:ok, _confirmed_alias} =
+             DeviceAliasState.record_sighting(alias_state, %{confirm_threshold: 1}, actor: actor)
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Per-Agent Availability #{unique_id}",
+          partition: "partition-per-agent-availability-#{unique_id}",
+          interval: "15m"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => private_ip, "available" => true, "port_results" => []}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: reachable_agent_id,
+               config_version: "available-#{unique_id}"
+             )
+
+    failed_result = %{
+      "host_ip" => public_ip,
+      "available" => false,
+      "port_results" => [],
+      "icmp_status" => %{"available" => false}
+    }
+
+    for attempt <- 1..2 do
+      assert {:ok, _stats} =
+               SweepResultsIngestor.ingest_results([failed_result], Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: unreachable_agent_id,
+                 config_version: "failed-alias-#{attempt}-#{unique_id}"
+               )
+    end
+
+    {:ok, device_after_failures} = Device.get_by_ip(private_ip, false, actor: actor)
+    device_after_failures = single_result(device_after_failures)
+
+    assert device_after_failures.is_available
+    assert device_after_failures.metadata["sweep_consecutive_failures"] == 0
+
+    {:ok, reachable_row} =
+      DeviceAgentAvailability.get_by_device_agent(device_uid, reachable_agent_id, actor: actor)
+
+    {:ok, unreachable_row} =
+      DeviceAgentAvailability.get_by_device_agent(device_uid, unreachable_agent_id, actor: actor)
+
+    assert reachable_row.is_available
+    refute unreachable_row.is_available
   end
 
   test "ingest results creates provisional devices for available unknown sweep hosts", %{

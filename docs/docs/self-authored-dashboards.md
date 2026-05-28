@@ -94,6 +94,11 @@ Use the [SRQL Cookbook](./srql-cookbook.md) and
 [SRQL Reference](./srql-language-reference.md) for entity names, filters,
 aggregations, and bucket syntax.
 
+Dashboard authoring clients should use `GET /api/srql/catalog` as the canonical
+SRQL catalog for entity, field, control-token, and operator completions. Avoid
+copying SRQL field lists into browser code or dashboard packages; the catalog
+keeps authoring hints aligned with the server-side SRQL surface.
+
 ## Visualization types
 
 The dashboard builder can offer visualizations based on query output shape:

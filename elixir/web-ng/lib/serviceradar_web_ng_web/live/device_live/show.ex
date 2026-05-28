@@ -941,7 +941,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:srql, srql)
        |> assign(supplemental_assigns)
        |> maybe_load_mtr_for_active_tab(active_tab)
-       |> maybe_reload_logs_for_active_tab(active_tab, uid, normalize_cursor(Map.get(params, "cursor")))
+       |> maybe_reload_logs_for_active_tab(
+         active_tab,
+         uid,
+         normalize_cursor(Map.get(params, "cursor"))
+       )
        |> maybe_begin_flow_background_loads(
          active_tab,
          uid,
@@ -1514,7 +1518,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         result =
           device
           |> Ash.Changeset.for_update(:set_availability_source, %{
-            availability_source_agent_id: availability_source_agent_id
+            availability_source_agent_id: availability_source_agent_id,
+            availability_source_profile_id: nil
           })
           |> Ash.update(scope: scope)
 
@@ -3409,7 +3414,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_console, can_console_device?(assigns.current_scope))
       |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
       |> assign(:can_remote_access_app, can_remote_access_app?(assigns.current_scope))
-      |> assign(:can_manage_rdp_targets, can_manage_rdp_targets?(assigns.current_scope))
+      |> assign(
+        :can_manage_rdp_targets,
+        can_manage_rdp_targets?(assigns.current_scope, device_row)
+      )
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(
         :can_view_northbound_history,
@@ -4878,7 +4886,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_put_armis_device_url(metadata, sync_service_id, scope)
        when is_map(metadata) and is_binary(sync_service_id) and sync_service_id != "" do
-    armis_id = metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"])
+    armis_id =
+      metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"])
 
     if metadata_lookup(metadata, "integration_type") == "armis" and present?(armis_id) do
       case IntegrationSource.get_by_id(sync_service_id, scope: scope) do
@@ -5238,14 +5247,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         ),
         metadata_group("SNMP", "hero-radio", [
           metadata_item("Name", metadata_first_value(metadata, ["snmp_name", "sys_name"])),
-          metadata_item("Location", metadata_first_value(metadata, ["snmp_location", "sys_location"])),
-          metadata_item("Contact", metadata_first_value(metadata, ["snmp_owner", "sys_owner", "sys_contact"])),
+          metadata_item(
+            "Location",
+            metadata_first_value(metadata, ["snmp_location", "sys_location"])
+          ),
+          metadata_item(
+            "Contact",
+            metadata_first_value(metadata, ["snmp_owner", "sys_owner", "sys_contact"])
+          ),
           metadata_item("Object ID", metadata_lookup(metadata, "sys_object_id"), mono: true),
           metadata_item(
             "Uptime",
             metadata_uptime(metadata_first_value(metadata, ["uptime", "sys_uptime", "snmp_uptime"]))
           ),
-          metadata_item("Description", metadata_first_value(metadata, ["snmp_description", "sys_descr"]))
+          metadata_item(
+            "Description",
+            metadata_first_value(metadata, ["snmp_description", "sys_descr"])
+          )
         ]),
         metadata_vendor_group(
           "MikroTik",
@@ -5256,12 +5274,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           ],
           ["mikrotik_api_names", "mikrotik_api_urls"]
         ),
-        metadata_group("Proxmox", "hero-cube-transparent", [
-          metadata_item("Candidate probe", metadata_lookup(metadata, "proxmox_candidate_probe_enabled"))
-        ]),
+        proxmox_metadata_group(metadata),
         metadata_group("Discovery", "hero-map", [
           metadata_item("Discovery ID", metadata_lookup(metadata, "discovery_id"), mono: true),
-          metadata_item("Discovery time", metadata_timestamp(metadata_lookup(metadata, "discovery_time")), mono: true),
+          metadata_item(
+            "Discovery time",
+            metadata_timestamp(metadata_lookup(metadata, "discovery_time")),
+            mono: true
+          ),
           metadata_item("Mapper job", metadata_lookup(metadata, "mapper_job_name")),
           metadata_item("Mapper job ID", metadata_lookup(metadata, "mapper_job_id"), mono: true)
         ]),
@@ -5273,21 +5293,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         metadata_group("Armis", "hero-shield-check", [
           metadata_item(
             "Device ID",
-            metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"]),
+            metadata_first_value(metadata, [
+              "armis_device_id",
+              "source_device_id",
+              "integration_id"
+            ]),
             mono: true,
             external_href: metadata_lookup(metadata, "armis_device_url")
           ),
-          metadata_item("Type", metadata_first_value(metadata, ["armis_type", "device_type", "type"])),
-          metadata_item("Category", metadata_first_value(metadata, ["armis_category", "category"])),
-          metadata_item("Boundaries", metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])),
+          metadata_item(
+            "Type",
+            metadata_first_value(metadata, ["armis_type", "device_type", "type"])
+          ),
+          metadata_item(
+            "Category",
+            metadata_first_value(metadata, ["armis_category", "category"])
+          ),
+          metadata_item(
+            "Boundaries",
+            metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
+          ),
           metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
-          metadata_item("Risk score", metadata_first_value(metadata, ["armis_risk_score", "risk_score"])),
-          metadata_item("Tags", metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])),
-          metadata_item("Visibility", metadata_first_value(metadata, ["armis_visibility", "visibility"])),
-          metadata_item("Purdue level", metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])),
+          metadata_item(
+            "Risk score",
+            metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
+          ),
+          metadata_item(
+            "Tags",
+            metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
+          ),
+          metadata_item(
+            "Visibility",
+            metadata_first_value(metadata, ["armis_visibility", "visibility"])
+          ),
+          metadata_item(
+            "Purdue level",
+            metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
+          ),
           metadata_item(
             "Serial numbers",
-            metadata_first_value(metadata, ["armis_serial_numbers", "serial_numbers", "serial_number"])
+            metadata_first_value(metadata, [
+              "armis_serial_numbers",
+              "serial_numbers",
+              "serial_number"
+            ])
           )
         ]),
         metadata_group("NetBox", "hero-server-stack", [
@@ -5300,10 +5349,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             "Tenant",
             summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
           ),
-          metadata_item("Role", metadata_first_value(metadata, ["device_role", "role", "device_role_name"])),
+          metadata_item(
+            "Role",
+            metadata_first_value(metadata, ["device_role", "role", "device_role_name"])
+          ),
           metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
-          metadata_item("Platform", metadata_first_value(metadata, ["platform", "platform_name"])),
-          metadata_item("Rack", summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))),
+          metadata_item(
+            "Platform",
+            metadata_first_value(metadata, ["platform", "platform_name"])
+          ),
+          metadata_item(
+            "Rack",
+            summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
+          ),
           metadata_item(
             "Location",
             summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
@@ -5337,6 +5395,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     else
       metadata_group(title, icon, [])
     end
+  end
+
+  defp proxmox_metadata_group(metadata) when is_map(metadata) do
+    if proxmox_metadata_evidence?(metadata) do
+      metadata_group("Proxmox", "hero-cube-transparent", [
+        metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
+        metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
+        metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
+        metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
+        metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
+      ])
+    else
+      metadata_group("Proxmox", "hero-cube-transparent", [])
+    end
+  end
+
+  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [])
+
+  defp proxmox_metadata_evidence?(metadata) when is_map(metadata) do
+    truthy?(metadata_lookup(metadata, "proxmox_candidate")) or
+      metadata_present?(metadata_lookup(metadata, "proxmox_candidate_evidence")) or
+      metadata_source_evidence?(metadata, ["proxmox_candidate", "proxmox_api"])
   end
 
   defp metadata_source_evidence?(metadata, source_keys) when is_map(metadata) and is_list(source_keys) do
@@ -5591,7 +5671,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     is_trusted = Map.get(assigns.device_row, "is_trusted")
     is_active = device_active_state(assigns.device_row, metadata)
     has_hw = map_present?(hw_info)
-    has_compliance = compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant)
+
+    has_compliance =
+      compliance_present?(risk_level, risk_score, is_active, is_managed, is_compliant)
+
     has_any = has_hw or has_compliance
 
     assigns
@@ -5641,9 +5724,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp normalize_bool(value) when is_binary(value) do
     case value |> String.trim() |> String.downcase() do
-      value when value in ["true", "yes", "y", "1", "active", "in_service", "in-service"] -> true
-      value when value in ["false", "no", "n", "0", "inactive", "out_of_service", "out-of-service"] -> false
-      _ -> nil
+      value when value in ["true", "yes", "y", "1", "active", "in_service", "in-service"] ->
+        true
+
+      value
+      when value in ["false", "no", "n", "0", "inactive", "out_of_service", "out-of-service"] ->
+        false
+
+      _ ->
+        nil
     end
   end
 
@@ -8976,11 +9065,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def agent_availability_section(assigns) do
     primary_agent_id = device_availability_source_agent_id(assigns.device_row)
-    {display_rows, availability_source} = availability_display_rows(assigns.rows, assigns.sweep_results)
+    source_profile_id = device_availability_source_profile_id(assigns.device_row)
+
+    {display_rows, availability_source} =
+      availability_display_rows(assigns.rows, assigns.sweep_results)
 
     assigns =
       assigns
       |> assign(:primary_agent_id, primary_agent_id)
+      |> assign(:source_profile_id, source_profile_id)
       |> assign(:display_rows, display_rows)
       |> assign(:availability_source, availability_source)
       |> assign(:row_count, length(display_rows))
@@ -8993,6 +9086,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <.icon name="hero-map-pin" class="size-4 text-primary" />
             <span class="text-sm font-semibold">Agent Availability</span>
             <span :if={@row_count > 0} class="text-xs text-base-content/50">({@row_count})</span>
+            <span :if={present?(@source_profile_id)} class="badge badge-info badge-xs">
+              profile assigned
+            </span>
           </div>
           <form
             :if={@availability_source == :canonical}
@@ -9056,6 +9152,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                       >
                         source
                       </span>
+                      <span
+                        :if={
+                          @availability_source == :canonical and row.agent_id == @primary_agent_id and
+                            present?(@source_profile_id)
+                        }
+                        class="badge badge-info badge-xs"
+                      >
+                        profile
+                      </span>
                     </div>
                   </td>
                   <td>
@@ -9090,6 +9195,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp device_availability_source_agent_id(_), do: nil
+
+  defp device_availability_source_profile_id(device_row) when is_map(device_row) do
+    Map.get(device_row, "availability_source_profile_id") ||
+      Map.get(device_row, :availability_source_profile_id)
+  end
+
+  defp device_availability_source_profile_id(_), do: nil
 
   defp availability_display_rows(rows, _sweep_results) when is_list(rows) and rows != [] do
     {rows, :canonical}
@@ -11291,11 +11403,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp can_remote_access_app?(scope) do
-    FeatureFlags.remote_access_app_enabled?() and RBAC.can?(scope, "devices.remote_access.app.open")
+    FeatureFlags.remote_access_app_enabled?() and
+      RBAC.can?(scope, "devices.remote_access.app.open")
   end
 
-  defp can_manage_rdp_targets?(scope) do
-    FeatureFlags.remote_access_desktop_rdp_enabled?() and RBAC.can?(scope, "settings.edge.manage")
+  defp can_manage_rdp_targets?(scope, device_row) do
+    FeatureFlags.remote_access_desktop_rdp_enabled?() and windows_device?(device_row) and
+      RBAC.can?(scope, "settings.edge.manage")
   end
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
@@ -11339,18 +11453,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp ssh_capable_device?(device_row) when is_map(device_row) do
     values =
-      [
-        Map.get(device_row, "type"),
-        Map.get(device_row, "device_type"),
-        Map.get(device_row, "os_info"),
-        Map.get(device_row, "os"),
-        metadata_value(device_row, "operating_system"),
-        metadata_value(device_row, "os_name"),
-        metadata_value(device_row, "os_type"),
-        metadata_value(device_row, "sys_descr"),
-        metadata_value(device_row, "snmp_description")
-      ]
-      |> Enum.flat_map(&ssh_capability_strings/1)
+      device_row
+      |> device_identity_values()
       |> Enum.map(&String.downcase/1)
 
     cond do
@@ -11390,6 +11494,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp ssh_capable_device?(_device_row), do: false
+
+  defp windows_device?(nil), do: false
+
+  defp windows_device?(device_row) when is_map(device_row) do
+    device_row
+    |> device_identity_values()
+    |> Enum.map(&String.downcase/1)
+    |> Enum.any?(&String.contains?(&1, "windows"))
+  end
+
+  defp windows_device?(_device_row), do: false
+
+  defp device_identity_values(device_row) when is_map(device_row) do
+    Enum.flat_map(
+      [
+        Map.get(device_row, "type"),
+        Map.get(device_row, "device_type"),
+        Map.get(device_row, "os_info"),
+        Map.get(device_row, "os"),
+        metadata_value(device_row, "operating_system"),
+        metadata_value(device_row, "os_name"),
+        metadata_value(device_row, "os_type"),
+        metadata_value(device_row, "platform"),
+        metadata_value(device_row, "platform_name"),
+        metadata_value(device_row, "sys_descr"),
+        metadata_value(device_row, "snmp_description")
+      ],
+      &ssh_capability_strings/1
+    )
+  end
+
+  defp device_identity_values(_device_row), do: []
 
   defp ssh_capability_strings(nil), do: []
   defp ssh_capability_strings(""), do: []
@@ -12040,6 +12176,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     else
       {:error, reason} ->
         action = if active?, do: "return device to service", else: "mark device out of service"
+
         Logger.error("Device active lifecycle update failed for #{device_uid}: #{inspect(reason)}")
 
         {:noreply, put_flash(socket, :error, "Failed to #{action}: #{format_ash_error(reason)}")}
@@ -12047,5 +12184,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp set_device_active_state(device, true, scope), do: Device.mark_active(device, scope: scope)
+
   defp set_device_active_state(device, false, scope), do: Device.mark_inactive(device, scope: scope)
 end

@@ -1,3 +1,32 @@
+# ServiceRadar v1.2.83
+
+Device inventory classification and SRQL catalog routing recovery.
+
+## Whats New
+
+**1.2.83**
+- Fixed device agent classification so routers and other inventory devices are not marked as ServiceRadar agents unless they have a valid matching agent identity.
+- Pruned invalid agent device identifiers during migration so stale agent markers no longer leak into the device list.
+- Removed noisy fallback/source labels from device list status, type, and model columns while preserving the real agent lightning marker for actual agents.
+- Fixed SRQL catalog routing so searches execute on product-owned routes instead of customer-owned dashboard slugs.
+- Added a product-owned `/devices/wifi` WiFi inventory view for WiFi sites, snapshots, access points, controllers, RADIUS groups, fleet history, and site references.
+- Fixed SRQL input contrast in dark and light themes.
+
+# ServiceRadar v1.2.82
+
+SRQL search, canonical availability, and issue-view recovery.
+
+## Whats New
+
+**1.2.82**
+- Enhanced the shared SRQL search input with stronger query editing behavior, coverage, and docs for SRQL-enabled web workflows.
+- Fixed dashboard issue views so authored dashboard SRQL topbars preserve dashboard slugs and direct dashboard IDs.
+- Hid Windows-only RDP setup actions from non-Windows device issue views.
+- Added availability source profiles and canonical per-agent availability handling so device status can be sourced from the intended network segment.
+- Restored event-backed alert details so issue views can open the source event context reliably.
+- Fixed Proxmox candidate metadata rendering on device issue views.
+- Restored device logs tabs and full observability links for syslog-backed devices whose log rows identify the host by inventory aliases instead of canonical device UID.
+
 # ServiceRadar v1.2.81
 
 Dashboard authoring UX, SRQL-driven visuals, and ingestion recovery.

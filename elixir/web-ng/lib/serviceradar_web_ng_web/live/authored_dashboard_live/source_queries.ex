@@ -159,7 +159,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
 
     preview
     |> compatible_visuals()
-    |> Enum.reject(&(&1 == :table and length(fields) == 0))
+    |> Enum.reject(&(&1 == :table and Enum.empty?(fields)))
     |> Enum.map(&output_for_visual(&1, fields))
   end
 

@@ -372,6 +372,11 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             active: String.starts_with?(path, "/settings/networks/device-enrichment")
           },
           %{
+            label: "Availability Sources",
+            navigate: ~p"/settings/networks/availability-sources",
+            active: String.starts_with?(path, "/settings/networks/availability-sources")
+          },
+          %{
             label: "Visibility Profiles",
             navigate: ~p"/settings/networks/visibility-profiles",
             active: String.starts_with?(path, "/settings/networks/visibility-profiles")
@@ -437,6 +442,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       String.starts_with?(path, "/settings/networks") and
       not String.starts_with?(path, "/settings/networks/discovery") and
       not String.starts_with?(path, "/settings/networks/device-enrichment") and
+      not String.starts_with?(path, "/settings/networks/availability-sources") and
       not String.starts_with?(path, "/settings/networks/visibility-profiles") and
       not String.starts_with?(path, "/settings/networks/credentials") and
       not String.starts_with?(path, "/settings/networks/host-keys") and
@@ -575,7 +581,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           %{
             label: "Plugins",
             navigate: ~p"/settings/agents/plugins",
-            active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
+            active:
+              String.starts_with?(path, "/settings/agents/plugins") or
+                String.starts_with?(path, "/admin/plugins"),
             show: can_plugins
           }
         ],
@@ -644,7 +652,9 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         %{
           label: "Plugins",
           href: ~p"/settings/agents/plugins",
-          active: String.starts_with?(path, "/settings/agents/plugins") or String.starts_with?(path, "/admin/plugins"),
+          active:
+            String.starts_with?(path, "/settings/agents/plugins") or
+              String.starts_with?(path, "/admin/plugins"),
           show: can_plugins
         }
       ],

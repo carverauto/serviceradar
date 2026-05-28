@@ -50,5 +50,32 @@ defmodule ServiceRadar.Inventory.SyncIngestorAgentIdTest do
       assert {:ok, [identifier]} = Ash.read(query, actor: actor)
       assert identifier.confidence == :strong
     end
+
+    test "SNMP source treats agent_id as reporting agent, not device identity", %{actor: actor} do
+      agent_id = "snmp-poller-#{System.unique_integer([:positive])}"
+      ip = "10.51.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+
+      update = %{
+        "ip" => ip,
+        "hostname" => "snmp-router-test",
+        "source" => "snmp",
+        "agent_id" => agent_id,
+        "metadata" => %{
+          "device_role" => "router",
+          "sys_name" => "snmp-router-test"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      query =
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+          identifier_type: :agent_id,
+          identifier_value: agent_id,
+          partition: "default"
+        })
+
+      assert {:ok, []} = Ash.read(query, actor: actor)
+    end
   end
 end

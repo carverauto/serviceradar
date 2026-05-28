@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
+  alias ServiceRadarWebNGWeb.DeviceLive.Show
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   setup %{conn: conn} do
@@ -49,6 +50,150 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ uid
     assert html =~ "test-host"
     assert html =~ "in:devices"
+  end
+
+  test "device list SRQL submit routes catalog entity changes and drops stale filters", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
+
+    view
+    |> form("#srql-query-bar", %{q: "in:bmp_events include_inactive:true router_ip:192.0.2.1"})
+    |> render_submit()
+
+    assert_redirect(
+      view,
+      ~p"/observability/bmp?#{%{q: "in:bmp_events router_ip:192.0.2.1", limit: 20}}"
+    )
+  end
+
+  test "device list SRQL submit routes WiFi catalog entities to WiFi inventory", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
+
+    view
+    |> form("#srql-query-bar", %{q: "in:wifi_sites site_code:ZZC"})
+    |> render_submit()
+
+    assert_redirect(view, ~p"/devices/wifi?#{%{q: "in:wifi_sites site_code:ZZC", limit: 20}}")
+  end
+
+  test "renders WiFi inventory view", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/devices/wifi?#{%{q: "in:wifi_sites limit:10", limit: 10}}")
+
+    assert html =~ "WiFi Inventory"
+    assert html =~ "WiFi Sites"
+    assert html =~ "in:wifi_sites"
+  end
+
+  test "device list status uses per-agent availability fallback", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-agent-availability-#{unique}"
+    hostname = "agent-available-host-#{unique}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: hostname,
+        is_available: false,
+        availability_source_agent_id: "agent-live-#{unique}",
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    Repo.insert_all("device_agent_availability", [
+      %{
+        id: Ecto.UUID.bingenerate(),
+        device_uid: uid,
+        agent_id: "agent-live-#{unique}",
+        agent_name: "live-agent",
+        is_available: true,
+        checked_at: now,
+        response_time_ms: 8,
+        open_ports: [],
+        sweep_modes_results: %{"icmp" => "success"},
+        metadata: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
+    html = render_until(view, "Online", 5_000)
+
+    assert html =~ hostname
+    assert html =~ "Online"
+    refute html =~ "Offline"
+    refute html =~ "Source: any fresh agent"
+    refute html =~ "Manual source:"
+    refute html =~ "agent-live-#{unique}"
+  end
+
+  test "device list marks only registered agent devices with bolt", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-source-agent-#{unique}"
+    hostname = "source-agent-host-#{unique}"
+    agent_uid = "test-device-real-agent-#{unique}"
+    agent_hostname = "real-agent-host-#{unique}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: hostname,
+        agent_id: "collector-agent-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: agent_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: agent_hostname,
+        agent_id: "registered-agent-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    Repo.insert_all("ocsf_agents", [
+      %{
+        uid: "registered-agent-#{unique}",
+        name: "Registered Agent #{unique}",
+        type_id: 0,
+        device_uid: agent_uid,
+        host: agent_hostname,
+        capabilities: ["icmp"],
+        status: "connected",
+        is_healthy: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z],
+        created_time: ~U[2100-01-01 00:00:00Z],
+        modified_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
+
+    html = render_until(view, hostname, 5_000)
+
+    assert html =~ hostname
+    assert source_row = table_row_for(html, hostname)
+    refute source_row =~ "hero-bolt"
+
+    {:ok, agent_view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{agent_hostname} limit:10"}}")
+
+    agent_html = render_until_row_contains(agent_view, agent_hostname, "hero-bolt", 5_000)
+
+    assert agent_html =~ agent_hostname
+    assert agent_row = table_row_for(agent_html, agent_hostname)
+    assert agent_row =~ "hero-bolt"
   end
 
   test "navigates to the device details page after adding a device", %{conn: conn} do
@@ -589,6 +734,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "/devices/#{uid}/remote-access/ssh"
   end
 
+  test "hides Enable RDP action for non-Windows devices", %{conn: conn} do
+    with_remote_access_rdp_enabled(true)
+
+    uid = "test-device-rdp-linux-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "linux-rdp-hidden",
+        metadata: %{"operating_system" => "Ubuntu Linux"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    refute html =~ "Enable RDP"
+    refute html =~ "/settings/networks/desktop-targets/new"
+  end
+
+  test "shows Enable RDP action for Windows devices", %{conn: conn} do
+    with_remote_access_rdp_enabled(true)
+
+    uid = "test-device-rdp-windows-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 1,
+        type: "Server",
+        hostname: "windows-rdp-enabled",
+        metadata: %{"operating_system" => "Microsoft Windows Server 2022"},
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices/#{uid}")
+    assert html =~ "Enable RDP"
+    assert html =~ "/settings/networks/desktop-targets/new"
+  end
+
   test "auto-refreshes device details when the viewed device is updated", %{
     conn: conn,
     scope: scope
@@ -833,12 +1024,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Armis"
     assert html =~ "NetBox"
     assert html =~ "SNMP"
-    assert html =~ "Proxmox"
     assert html =~ "Dusk UniFi"
     assert html =~ "gateway"
     assert html =~ "Tablet"
-    assert html =~ "Candidate probe"
-    assert html =~ "Yes"
+    refute html =~ "Proxmox"
+    refute html =~ "Candidate probe"
     assert html =~ "aruba-24g-02"
     assert html =~ "Minnetonka, MN"
     assert html =~ ".1.3.6.1.4.1.11.2.3.7.11.153"
@@ -870,7 +1060,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     refute html =~ "raw-integration-id"
   end
 
-  test "marks SNMP fallback-derived classification in list and details views", %{conn: conn} do
+  test "metadata summary renders Proxmox only for device-level candidate evidence" do
+    generic_html =
+      render_component(&Show.metadata_summary_section/1,
+        device_row: %{
+          "metadata" => %{
+            "source" => "snmp",
+            "sys_name" => "tonka01",
+            "proxmox_candidate_probe_enabled" => "true"
+          }
+        }
+      )
+
+    refute generic_html =~ "Proxmox"
+    refute generic_html =~ "Candidate probe"
+
+    candidate_html =
+      render_component(&Show.metadata_summary_section/1,
+        device_row: %{
+          "metadata" => %{
+            "source" => "proxmox-candidate",
+            "proxmox_candidate" => "true",
+            "proxmox_candidate_evidence" => "pve_web_fingerprint",
+            "proxmox_candidate_service" => "pve-web-ui",
+            "proxmox_candidate_port" => "8006",
+            "proxmox_candidate_title" => "pve01"
+          }
+        }
+      )
+
+    assert candidate_html =~ "Proxmox"
+    assert candidate_html =~ "Candidate"
+    assert candidate_html =~ "pve_web_fingerprint"
+    assert candidate_html =~ "pve-web-ui"
+    assert candidate_html =~ "8006"
+    assert candidate_html =~ "pve01"
+  end
+
+  test "keeps SNMP fallback-derived classification out of noisy list badges", %{conn: conn} do
     uid = "test-device-snmp-fallback-#{System.unique_integer([:positive])}"
 
     Repo.insert_all("ocsf_devices", [
@@ -893,7 +1120,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     ])
 
     {:ok, _list_view, list_html} = live(conn, ~p"/devices?limit=10")
-    assert list_html =~ "SNMP Fallback"
+    assert list_html =~ "fallback-router"
+    refute list_html =~ "SNMP Fallback"
+    refute list_html =~ "Fallback"
 
     {:ok, _details_view, details_html} = live(conn, ~p"/devices/#{uid}")
     assert details_html =~ "Classification"
@@ -1556,7 +1785,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "agent availability falls back to recent sweep history when canonical rows are absent" do
     html =
-      render_component(&ServiceRadarWebNGWeb.DeviceLive.Show.agent_availability_section/1,
+      render_component(&Show.agent_availability_section/1,
         rows: [],
         device_row: %{},
         sweep_results: %{
@@ -1578,6 +1807,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Available"
     assert html =~ "ICMP ok"
     refute html =~ "No per-agent sweep availability has been recorded"
+  end
+
+  test "agent availability marks canonical profile-derived source" do
+    html =
+      render_component(&Show.agent_availability_section/1,
+        rows: [
+          %{
+            agent_id: "agent-canonical-segment",
+            agent_name: "Segment Agent",
+            is_available: true,
+            checked_at: ~U[2026-05-17 06:42:00Z],
+            response_time_ms: 9,
+            open_ports: [22, 443],
+            sweep_modes_results: %{"icmp" => "success"}
+          },
+          %{
+            agent_id: "agent-other-segment",
+            agent_name: "Other Agent",
+            is_available: false,
+            checked_at: ~U[2026-05-17 06:41:00Z],
+            response_time_ms: nil,
+            open_ports: [],
+            sweep_modes_results: %{"icmp" => "failed"}
+          }
+        ],
+        device_row: %{
+          "availability_source_agent_id" => "agent-canonical-segment",
+          "availability_source_profile_id" => Ecto.UUID.generate()
+        },
+        sweep_results: nil
+      )
+
+    assert html =~ "Canonical source"
+    assert html =~ "profile assigned"
+    assert html =~ "source"
+    assert html =~ "profile"
+    assert html =~ "Segment Agent"
+    assert html =~ "Available"
+    assert html =~ "Other Agent"
+    assert html =~ "Unavailable"
   end
 
   describe "interfaces bulk edit" do
@@ -2086,6 +2355,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     end)
   end
 
+  defp with_remote_access_rdp_enabled(enabled?) do
+    previous = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)
+    Application.put_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled, enabled?)
+
+    on_exit(fn ->
+      restore_env(:remote_access_desktop_rdp_enabled, previous)
+    end)
+  end
+
   defp insert_camera_source!(device_uid, attrs \\ %{}) do
     {:ok, source} =
       CameraSource.create_source(
@@ -2450,6 +2728,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   defp render_until(view, expected, timeout_ms \\ 2_000) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms
     render_until(view, expected, deadline, nil)
+  end
+
+  defp table_row_for(html, needle) do
+    ~r/<tr\b.*?<\/tr>/s
+    |> Regex.scan(html)
+    |> Enum.map(&List.first/1)
+    |> Enum.find(&String.contains?(&1, needle))
+  end
+
+  defp render_until_row_contains(view, needle, expected, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    render_until_row_contains(view, needle, expected, deadline, nil)
+  end
+
+  defp render_until_row_contains(view, needle, expected, deadline, last_html) do
+    html = render(view)
+    row = table_row_for(html, needle)
+
+    cond do
+      is_binary(row) and row =~ expected ->
+        html
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        last_html || html
+
+      true ->
+        Process.sleep(50)
+        render_until_row_contains(view, needle, expected, deadline, html)
+    end
   end
 
   defp render_until(view, expected, deadline, last_html) do
