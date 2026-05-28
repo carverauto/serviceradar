@@ -489,8 +489,17 @@ func scanSidecarLogs(wg *sync.WaitGroup, r io.Reader, log zerolog.Logger, isErr 
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		if isExpectedLogPipeClose(err) {
+			return
+		}
 		log.Warn().Err(err).Msg("sidecar log scanner failed")
 	}
+}
+
+func isExpectedLogPipeClose(err error) bool {
+	return errors.Is(err, os.ErrClosed) ||
+		errors.Is(err, io.ErrClosedPipe) ||
+		strings.Contains(err.Error(), "file already closed")
 }
 
 func applyDefaults(cfg Config) Config {

@@ -17,6 +17,7 @@ RUN set -eux; \
       perl \
       pkg-config \
       protobuf-compiler \
+      libpcap-dev \
       libssl-dev \
       libncurses-dev \
       libreadline-dev \

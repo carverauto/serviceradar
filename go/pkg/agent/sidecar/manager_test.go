@@ -19,6 +19,7 @@ package sidecar
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -72,9 +73,7 @@ while true; do sleep 1; done
 	assertDirMode(t, filepath.Join(dir, "run"), 0o700)
 	assertDirMode(t, filepath.Join(dir, "run", "netprobe"), 0o700)
 
-	if healthy.Load() == 0 {
-		t.Fatal("expected OnHealthy to be called")
-	}
+	waitForCondition(t, "OnHealthy callback", func() bool { return healthy.Load() > 0 })
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer stopCancel()
@@ -221,16 +220,29 @@ func assertDirMode(t *testing.T, path string, want os.FileMode) {
 func waitForStatus(t *testing.T, mgr *Manager, name string, accept func(Status) bool) {
 	t.Helper()
 
+	waitForCondition(t, "status", func() bool {
+		status := statusByName(t, mgr, name)
+		return accept(status)
+	}, func() string {
+		return fmt.Sprintf("%+v", statusByName(t, mgr, name))
+	})
+}
+
+func waitForCondition(t *testing.T, label string, accept func() bool, details ...func() string) {
+	t.Helper()
+
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		status := statusByName(t, mgr, name)
-		if accept(status) {
+		if accept() {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	t.Fatalf("timed out waiting for status; last status: %+v", statusByName(t, mgr, name))
+	if len(details) > 0 && details[0] != nil {
+		t.Fatalf("timed out waiting for %s; last value: %s", label, details[0]())
+	}
+	t.Fatalf("timed out waiting for %s", label)
 }
 
 func statusByName(t *testing.T, mgr *Manager, name string) Status {
