@@ -28,6 +28,10 @@ func TestParseVisibilityConfig(t *testing.T) {
 		CaptureInterfaces:       []string{" en0 ", "", "eth1"},
 		BinaryOverrides:         &monitoringpb.VisibilityBinaryOverrides{Path: " /tmp/netprobe "},
 		DefaultSampleIntervalMs: 250,
+		Dpi: &monitoringpb.VisibilityDpiConfig{
+			Enabled:   true,
+			Protocols: []string{" dns ", "", "tls"},
+		},
 		DeviceBindings: []*monitoringpb.VisibilityDeviceBinding{
 			nil,
 			{
@@ -39,6 +43,10 @@ func TestParseVisibilityConfig(t *testing.T) {
 					Tcp:  true,
 					Tls:  true,
 					Http: false,
+				},
+				Dpi: &monitoringpb.VisibilityDpiConfig{
+					Enabled:   true,
+					Protocols: []string{" dns "},
 				},
 			},
 		},
@@ -61,6 +69,12 @@ func TestParseVisibilityConfig(t *testing.T) {
 	if cfg.GetDefaultSampleIntervalMs() != 250 {
 		t.Fatalf("DefaultSampleIntervalMs = %d, want 250", cfg.GetDefaultSampleIntervalMs())
 	}
+	if !cfg.GetDpi().GetEnabled() {
+		t.Fatal("DPI enabled = false, want true")
+	}
+	if got := cfg.GetDpi().GetProtocols(); len(got) != 3 || got[0] != "dns" || got[1] != "" || got[2] != "tls" {
+		t.Fatalf("DPI protocols = %#v, want [dns \"\" tls]", got)
+	}
 	if len(cfg.GetDeviceBindings()) != 1 {
 		t.Fatalf("DeviceBindings = %d, want 1", len(cfg.GetDeviceBindings()))
 	}
@@ -80,6 +94,9 @@ func TestParseVisibilityConfig(t *testing.T) {
 	}
 	if !binding.GetFingerprint().GetTcp() || !binding.GetFingerprint().GetTls() || binding.GetFingerprint().GetHttp() {
 		t.Fatalf("binding Fingerprint = %#v, want tcp/tls true and http false", binding.GetFingerprint())
+	}
+	if !binding.GetDpi().GetEnabled() || len(binding.GetDpi().GetProtocols()) != 1 || binding.GetDpi().GetProtocols()[0] != "dns" {
+		t.Fatalf("binding DPI = %#v, want enabled dns", binding.GetDpi())
 	}
 }
 

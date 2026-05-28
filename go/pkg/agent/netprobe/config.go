@@ -50,6 +50,7 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 		NetprobeConfig: &netprobepb.VisibilityAgentConfig{
 			Enabled:                 cfg.GetEnabled(),
 			CaptureInterfaces:       trimStrings(cfg.GetCaptureInterfaces()),
+			Dpi:                     parseDPIConfig(cfg.GetDpi()),
 			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
 			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
@@ -102,6 +103,7 @@ func parseDeviceBindings(bindings []*monitoringpb.VisibilityDeviceBinding) []*ne
 			ProfileId:        strings.TrimSpace(binding.GetProfileId()),
 			ProfileName:      strings.TrimSpace(binding.GetProfileName()),
 			Fingerprint:      parseFingerprintConfig(binding.GetFingerprint()),
+			Dpi:              parseDPIConfig(binding.GetDpi()),
 			SampleIntervalMs: binding.GetSampleIntervalMs(),
 		})
 	}
@@ -118,6 +120,17 @@ func parseFingerprintConfig(cfg *monitoringpb.VisibilityFingerprintConfig) *netp
 		Tcp:  cfg.GetTcp(),
 		Tls:  cfg.GetTls(),
 		Http: cfg.GetHttp(),
+	}
+}
+
+func parseDPIConfig(cfg *monitoringpb.VisibilityDpiConfig) *netprobepb.DpiConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	return &netprobepb.DpiConfig{
+		Enabled:   cfg.GetEnabled(),
+		Protocols: trimStrings(cfg.GetProtocols()),
 	}
 }
 

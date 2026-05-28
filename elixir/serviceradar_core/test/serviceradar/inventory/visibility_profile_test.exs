@@ -4,7 +4,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfileTest do
   alias ServiceRadar.Inventory.VisibilityProfile
 
   @tag :visibility
-  test "rejects reserved later-phase network visibility fields" do
+  test "allows DPI and rejects later-phase network visibility fields" do
     attrs = %{
       name: "Reserved Phase Fields",
       target_query: "in:devices",
@@ -17,7 +17,9 @@ defmodule ServiceRadar.Inventory.VisibilityProfileTest do
 
     refute changeset.valid?
 
-    for field <- [:dpi, :flow_attribution, :process_snapshot_interval_s] do
+    refute Enum.any?(changeset.errors, &(&1.field == :dpi))
+
+    for field <- [:flow_attribution, :process_snapshot_interval_s] do
       assert Enum.any?(changeset.errors, &(&1.field == field))
     end
   end

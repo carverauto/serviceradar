@@ -33,6 +33,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       assert config["capture_interfaces"] == []
       assert config["binary_overrides"] == %{}
       assert config["device_bindings"] == []
+      assert config["dpi"] == %{"enabled" => false, "protocols" => []}
       assert config["default_sample_interval_ms"] == 0
     end
   end
@@ -77,12 +78,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       assert config["enabled"] == true
       assert config["default_sample_interval_ms"] == 60_000
       assert config["capture_interfaces"] == ["eth0"]
+      assert config["dpi"] == %{"enabled" => false, "protocols" => []}
 
       assert [
                %{
                  "ip" => "192.0.2.10",
                  "profile_name" => "High Priority",
                  "fingerprint" => %{"tcp" => false, "tls" => true, "http" => true},
+                 "dpi" => %{"enabled" => false, "protocols" => []},
                  "sample_interval_ms" => 60_000
                }
              ] = config["device_bindings"]
@@ -137,6 +140,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
 
   describe "compile_profile/3" do
     @tag :visibility
+    test "normalizes DPI protocol list and aliases" do
+      config =
+        VisibilityCompiler.compile_profile(
+          profile("DPI Visibility", 20, %{"tcp" => true},
+            dpi: %{"enabled" => true, "protocols" => ["DNS", "http/1.x", "unknown"], :ssh => true}
+          ),
+          "10.1.2.3"
+        )
+
+      assert config["dpi"] == %{"enabled" => true, "protocols" => ["dns", "http1", "ssh"]}
+
+      assert [
+               %{
+                 "dpi" => %{"enabled" => true, "protocols" => ["dns", "http1", "ssh"]}
+               }
+             ] = config["device_bindings"]
+    end
+
+    @tag :visibility
     test "normalizes fingerprint and operator supplied sidecar settings" do
       config =
         VisibilityCompiler.compile_profile(
@@ -171,6 +193,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       target_query: Keyword.get(opts, :target_query, "in:devices"),
       priority: priority,
       fingerprint: fingerprint,
+      dpi: Keyword.get(opts, :dpi),
       capture_interfaces: Keyword.get(opts, :capture_interfaces, ["eth0"]),
       sample_interval_ms: Keyword.get(opts, :sample_interval_ms, 60_000),
       retention_days: 30,

@@ -36,7 +36,6 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     :partition_id
   ]
   @reserved_phase_one_fields [
-    :dpi,
     :flow_attribution,
     :process_snapshot_interval_s
   ]
@@ -174,7 +173,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     attribute :dpi, :map do
       allow_nil? true
       public? true
-      description "Reserved DPI configuration for later phases"
+      description "DPI protocol configuration; payloads, URIs, and DNS names are never captured"
     end
 
     attribute :flow_attribution, :map do

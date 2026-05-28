@@ -2,9 +2,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
   @moduledoc """
   Compiler for host network visibility configuration.
 
-  Phase 1 only emits passive fingerprint bindings. DPI, flow attribution,
-  and process snapshot controls are reserved in the profile and protobuf
-  schemas for later phases.
+  Emits passive fingerprint and DPI protocol bindings. Flow attribution and
+  process snapshot controls are reserved for later phases.
   """
 
   @behaviour ServiceRadar.AgentConfig.Compiler
@@ -83,6 +82,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
       "profile_id" => to_string(profile.id || ""),
       "profile_name" => profile.name || "",
       "fingerprint" => normalize_fingerprint(profile.fingerprint),
+      "dpi" => normalize_dpi(profile.dpi),
       "sample_interval_ms" => profile.sample_interval_ms || @default_sample_interval_ms
     }
 
@@ -91,6 +91,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
       "capture_interfaces" => capture_interfaces(profile, opts),
       "binary_overrides" => binary_overrides(opts),
       "device_bindings" => [binding],
+      "dpi" => normalize_dpi(profile.dpi),
       "default_sample_interval_ms" => profile.sample_interval_ms || @default_sample_interval_ms
     }
   end
@@ -102,6 +103,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
       "capture_interfaces" => capture_interfaces(opts),
       "binary_overrides" => binary_overrides(opts),
       "device_bindings" => [],
+      "dpi" => normalize_dpi(nil),
       "default_sample_interval_ms" => @default_sample_interval_ms
     }
   end
@@ -146,6 +148,65 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
   defp normalize_fingerprint(_fingerprint) do
     %{"tcp" => true, "tls" => true, "http" => true}
   end
+
+  defp normalize_dpi(dpi) when is_map(dpi) do
+    protocols =
+      normalize_dpi_protocols(Map.get(dpi, "protocols", Map.get(dpi, :protocols, [])), dpi)
+
+    %{
+      "enabled" => Map.get(dpi, "enabled", Map.get(dpi, :enabled, protocols != [])) == true,
+      "protocols" => protocols
+    }
+  end
+
+  defp normalize_dpi(_dpi), do: %{"enabled" => false, "protocols" => []}
+
+  @dpi_protocol_aliases %{
+    "http" => "http1",
+    "http/1" => "http1",
+    "http/1.x" => "http1",
+    "http1" => "http1",
+    "http2" => "http2",
+    "http/2" => "http2",
+    "tls" => "tls",
+    "dns" => "dns",
+    "ssh" => "ssh",
+    "ftp" => "ftp",
+    "quic" => "quic",
+    "mqtt" => "mqtt",
+    "bittorrent" => "bittorrent"
+  }
+  @dpi_protocols @dpi_protocol_aliases |> Map.values() |> Enum.uniq()
+
+  defp normalize_dpi_protocols(protocols, dpi) do
+    explicit =
+      protocols
+      |> List.wrap()
+      |> Enum.flat_map(&normalize_dpi_protocol/1)
+
+    toggled =
+      Enum.filter(@dpi_protocols, fn protocol ->
+        Map.get(dpi, protocol) == true or
+          Enum.any?(dpi, fn {key, value} -> to_string(key) == protocol and value == true end)
+      end)
+
+    Enum.uniq(explicit ++ toggled)
+  end
+
+  defp normalize_dpi_protocol(protocol) when is_binary(protocol) do
+    key =
+      protocol
+      |> String.trim()
+      |> String.downcase()
+      |> String.replace("_", "-")
+
+    case Map.fetch(@dpi_protocol_aliases, key) do
+      {:ok, protocol} -> [protocol]
+      :error -> []
+    end
+  end
+
+  defp normalize_dpi_protocol(_protocol), do: []
 
   defp boolean_value(map, "tcp"), do: Map.get(map, "tcp", Map.get(map, :tcp, false)) == true
   defp boolean_value(map, "tls"), do: Map.get(map, "tls", Map.get(map, :tls, false)) == true

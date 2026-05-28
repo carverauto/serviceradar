@@ -1341,6 +1341,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       "capture_interfaces" => [],
       "binary_overrides" => %{},
       "device_bindings" => [],
+      "dpi" => %{"enabled" => false, "protocols" => []},
       "default_sample_interval_ms" => 0
     }
   end
@@ -1357,6 +1358,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         |> Map.get("device_bindings", [])
         |> List.wrap()
         |> Enum.map(&build_visibility_device_binding/1),
+      dpi: build_visibility_dpi_config(Map.get(config, "dpi")),
       default_sample_interval_ms: Map.get(config, "default_sample_interval_ms", 0) || 0
     }
   end
@@ -1379,6 +1381,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       profile_id: Map.get(binding, "profile_id", "") || "",
       profile_name: Map.get(binding, "profile_name", "") || "",
       fingerprint: build_visibility_fingerprint_config(Map.get(binding, "fingerprint")),
+      dpi: build_visibility_dpi_config(Map.get(binding, "dpi")),
       sample_interval_ms: Map.get(binding, "sample_interval_ms", 0) || 0
     }
   end
@@ -1394,6 +1397,26 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp build_visibility_fingerprint_config(_), do: nil
+
+  defp build_visibility_dpi_config(dpi) when is_map(dpi) do
+    %Monitoring.VisibilityDpiConfig{
+      enabled: Map.get(dpi, "enabled", false) == true,
+      protocols:
+        dpi
+        |> Map.get("protocols", [])
+        |> List.wrap()
+        |> Enum.flat_map(fn
+          protocol when is_binary(protocol) ->
+            protocol = String.trim(protocol)
+            if protocol == "", do: [], else: [protocol]
+
+          _ ->
+            []
+        end)
+    }
+  end
+
+  defp build_visibility_dpi_config(_), do: nil
 
   defp resolve_agent_device_uid(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do
