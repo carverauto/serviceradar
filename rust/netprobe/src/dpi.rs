@@ -88,19 +88,24 @@ impl DpiPipeline {
             return Vec::new();
         };
 
-        for dissector in &self.dissectors {
-            if let Some(confidence) = (dissector.classify)(&flow, payload) {
-                return vec![event_from_match(
+        self.dissectors
+            .iter()
+            .filter_map(|dissector| {
+                (dissector.classify)(&flow, payload).map(|confidence| (dissector, confidence))
+            })
+            .max_by(|(_left, left_confidence), (_right, right_confidence)| {
+                left_confidence.total_cmp(right_confidence)
+            })
+            .map(|(dissector, confidence)| {
+                vec![event_from_match(
                     interface_name,
                     observed_at_unix_nano,
                     &flow,
                     dissector,
                     confidence,
-                )];
-            }
-        }
-
-        Vec::new()
+                )]
+            })
+            .unwrap_or_default()
     }
 }
 
@@ -196,10 +201,6 @@ fn classify_http1(flow: &Flow, payload: &[u8]) -> Option<f32> {
         return Some(0.95);
     }
 
-    if flow.source_port == 80 || flow.destination_port == 80 {
-        return Some(0.55);
-    }
-
     None
 }
 
@@ -280,10 +281,26 @@ fn tls_client_hello_has_sni(payload: &[u8]) -> bool {
 }
 
 fn classify_dns(flow: &Flow, payload: &[u8]) -> Option<f32> {
-    if flow.transport_protocol != "udp" || payload.len() < 12 {
+    match flow.transport_protocol {
+        "udp" => classify_dns_message(flow, payload),
+        "tcp" => {
+            if payload.len() < 14 {
+                return None;
+            }
+            let message_len = u16::from_be_bytes([payload[0], payload[1]]) as usize;
+            if message_len < 12 || payload.len() < 2 + message_len {
+                return None;
+            }
+            classify_dns_message(flow, &payload[2..2 + message_len])
+        }
+        _ => None,
+    }
+}
+
+fn classify_dns_message(flow: &Flow, payload: &[u8]) -> Option<f32> {
+    if payload.len() < 12 {
         return None;
     }
-
     let qdcount = u16::from_be_bytes([payload[4], payload[5]]);
     let ancount = u16::from_be_bytes([payload[6], payload[7]]);
     let nscount = u16::from_be_bytes([payload[8], payload[9]]);
@@ -296,11 +313,11 @@ fn classify_dns(flow: &Flow, payload: &[u8]) -> Option<f32> {
         return None;
     }
 
-    if flow.source_port == 53 || flow.destination_port == 53 {
-        Some(0.95)
+    Some(if flow.source_port == 53 || flow.destination_port == 53 {
+        0.95
     } else {
-        Some(0.70)
-    }
+        0.70
+    })
 }
 
 fn classify_ssh(flow: &Flow, payload: &[u8]) -> Option<f32> {
@@ -324,10 +341,6 @@ fn classify_ftp(flow: &Flow, payload: &[u8]) -> Option<f32> {
     {
         return Some(0.90);
     }
-    if flow.source_port == 21 || flow.destination_port == 21 {
-        return Some(0.55);
-    }
-
     None
 }
 
@@ -338,8 +351,6 @@ fn classify_quic(flow: &Flow, payload: &[u8]) -> Option<f32> {
     let version = u32::from_be_bytes([payload[1], payload[2], payload[3], payload[4]]);
     if version == 0 {
         Some(0.98)
-    } else if flow.source_port == 443 || flow.destination_port == 443 {
-        Some(0.70)
     } else {
         None
     }
@@ -351,25 +362,44 @@ fn classify_mqtt(flow: &Flow, payload: &[u8]) -> Option<f32> {
     }
 
     let packet_type = payload[0] >> 4;
-    if !(1..=14).contains(&packet_type) || !has_valid_mqtt_remaining_length(&payload[1..]) {
+    if packet_type != 1 {
         return None;
     }
-    if payload.windows(4).any(|window| window == b"MQTT") {
+
+    let (_remaining_len, used) = mqtt_remaining_length(&payload[1..])?;
+    let protocol_offset = 1 + used;
+    if payload.len() < protocol_offset + 2 {
+        return None;
+    }
+    let protocol_len =
+        u16::from_be_bytes([payload[protocol_offset], payload[protocol_offset + 1]]) as usize;
+    let protocol_start = protocol_offset + 2;
+    let protocol_end = protocol_start + protocol_len;
+    if payload.len() < protocol_end {
+        return None;
+    }
+
+    if &payload[protocol_start..protocol_end] == b"MQTT"
+        || &payload[protocol_start..protocol_end] == b"MQIsdp"
+    {
         Some(0.95)
-    } else if flow.source_port == 1883 || flow.destination_port == 1883 {
-        Some(0.65)
     } else {
         None
     }
 }
 
-fn has_valid_mqtt_remaining_length(bytes: &[u8]) -> bool {
+fn mqtt_remaining_length(bytes: &[u8]) -> Option<(usize, usize)> {
+    let mut value = 0usize;
+    let mut multiplier = 1usize;
+
     for (idx, byte) in bytes.iter().take(4).enumerate() {
+        value = value.saturating_add(usize::from(byte & 0x7f).saturating_mul(multiplier));
         if byte & 0x80 == 0 {
-            return idx < 4;
+            return Some((value, idx + 1));
         }
+        multiplier = multiplier.saturating_mul(128);
     }
-    false
+    None
 }
 
 fn classify_bittorrent(flow: &Flow, payload: &[u8]) -> Option<f32> {
@@ -383,6 +413,7 @@ fn classify_bittorrent(flow: &Flow, payload: &[u8]) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::DpiPipeline;
+    use prost::Message;
 
     struct DpiCase {
         protocol: &'static str,
@@ -457,6 +488,42 @@ mod tests {
         let encoded = format!("{:?}", events[0]);
         assert!(!encoded.contains("top-secret"));
         assert!(!encoded.contains("internal"));
+
+        let encoded = events[0].encode_to_vec();
+        assert!(!encoded
+            .windows(b"top-secret".len())
+            .any(|w| w == b"top-secret"));
+        assert!(!encoded.windows(b"internal".len()).any(|w| w == b"internal"));
+    }
+
+    #[test]
+    fn rejects_port_only_dpi_false_positives() {
+        let pipeline = DpiPipeline::phase2();
+        let cases = [
+            tcp_packet(49152, 80, b"opaque binary protocol"),
+            tcp_packet(49152, 21, b"opaque binary protocol"),
+            udp_packet(49152, 443, &[0x80, 0, 0, 0, 1, 1]),
+            tcp_packet(49152, 1883, b"\x10\x10random MQTT literal"),
+        ];
+
+        for packet in cases {
+            assert!(pipeline.analyze_packet("eth0", 123, &packet).is_empty());
+        }
+    }
+
+    #[test]
+    fn classifies_dns_over_tcp_length_prefixed_messages() {
+        let pipeline = DpiPipeline::phase2();
+        let dns = dns_query_header();
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&(dns.len() as u16).to_be_bytes());
+        payload.extend_from_slice(&dns);
+
+        let events = pipeline.analyze_packet("eth0", 123, &tcp_packet(49152, 53, &payload));
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].protocol, "dns");
+        assert_eq!(events[0].dissector_id, "dns_header");
     }
 
     fn tcp_packet(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<u8> {

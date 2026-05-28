@@ -147,10 +147,13 @@ message DpiEvent {
   uint32 destination_port = 4;
   string transport_protocol = 5;
   string protocol = 6;
+  // Confidence is normalized to 0.0..1.0. Values below 0.6 are weak signals,
+  // 0.6..0.84 are medium signals, and 0.85+ are strong structural matches.
   float confidence = 7;
   int64 observed_at_unix_nano = 8;
   string interface_name = 9;
   string profile_id = 10;
+  // Dissector identifier naming the heuristic that produced this event.
   string dissector_id = 11;
 }
 

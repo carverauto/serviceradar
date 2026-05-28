@@ -1,6 +1,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use anyhow::{Context, Result};
@@ -46,6 +46,17 @@ enum FingerprintProtocol {
     Http,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+struct DpiEventKey {
+    source_ip: String,
+    destination_ip: String,
+    source_port: u32,
+    destination_port: u32,
+    transport_protocol: String,
+    protocol: String,
+}
+
 #[derive(Clone, Debug)]
 #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
 struct EventDecision {
@@ -64,6 +75,8 @@ pub struct FingerprintEventGate {
 pub struct DpiEventGate {
     #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
     config: RuntimeConfig,
+    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    last_emitted: Mutex<HashMap<DpiEventKey, i64>>,
 }
 
 impl RuntimeConfig {
@@ -158,14 +171,18 @@ impl RuntimeConfig {
             return EventDecision {
                 enabled: dpi_protocol_enabled(&state.default_dpi, &protocol),
                 profile_id: String::new(),
-                sample_interval_ms: 0,
+                sample_interval_ms: state.default_sample_interval_ms,
             };
         };
 
         EventDecision {
             enabled: dpi_protocol_enabled(&binding.dpi, &protocol),
             profile_id: binding.profile_id.clone(),
-            sample_interval_ms: 0,
+            sample_interval_ms: if binding.sample_interval_ms == 0 {
+                state.default_sample_interval_ms
+            } else {
+                binding.sample_interval_ms
+            },
         }
     }
 }
@@ -203,13 +220,27 @@ impl FingerprintEventGate {
 
 impl DpiEventGate {
     pub fn new(config: RuntimeConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            last_emitted: Mutex::new(HashMap::new()),
+        }
     }
 
     #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
     pub fn filter(&self, mut event: DpiEvent) -> Option<DpiEvent> {
         let decision = self.config.dpi_decision_for(&event);
         if !decision.enabled {
+            return None;
+        }
+
+        if !should_emit_dpi(
+            &mut self
+                .last_emitted
+                .lock()
+                .expect("dpi event gate lock poisoned"),
+            &event,
+            decision.sample_interval_ms,
+        ) {
             return None;
         }
 
@@ -315,6 +346,68 @@ fn should_emit(
 
     last_emitted.insert(key, observed_at_unix_nano);
     true
+}
+
+#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+fn should_emit_dpi(
+    last_emitted: &mut HashMap<DpiEventKey, i64>,
+    event: &DpiEvent,
+    sample_interval_ms: u32,
+) -> bool {
+    if sample_interval_ms == 0 {
+        return true;
+    }
+
+    let key = dpi_event_key(event);
+    let minimum_interval_nanos = i64::from(sample_interval_ms) * 1_000_000;
+    if let Some(last_seen) = last_emitted.get(&key) {
+        if event.observed_at_unix_nano.saturating_sub(*last_seen) < minimum_interval_nanos {
+            return false;
+        }
+    }
+
+    last_emitted.insert(key, event.observed_at_unix_nano);
+    true
+}
+
+#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+fn dpi_event_key(event: &DpiEvent) -> DpiEventKey {
+    let forward = (
+        event.source_ip.as_str(),
+        event.source_port,
+        event.destination_ip.as_str(),
+        event.destination_port,
+    );
+    let reverse = (
+        event.destination_ip.as_str(),
+        event.destination_port,
+        event.source_ip.as_str(),
+        event.source_port,
+    );
+    let (source_ip, source_port, destination_ip, destination_port) = if forward <= reverse {
+        (
+            event.source_ip.clone(),
+            event.source_port,
+            event.destination_ip.clone(),
+            event.destination_port,
+        )
+    } else {
+        (
+            event.destination_ip.clone(),
+            event.destination_port,
+            event.source_ip.clone(),
+            event.source_port,
+        )
+    };
+
+    DpiEventKey {
+        source_ip,
+        destination_ip,
+        source_port,
+        destination_port,
+        transport_protocol: event.transport_protocol.clone(),
+        protocol: normalize_dpi_protocol(&event.protocol),
+    }
 }
 
 fn config_hash(config: &VisibilityAgentConfig) -> String {
@@ -449,6 +542,45 @@ mod tests {
     }
 
     #[test]
+    fn dpi_gate_honors_sample_interval_per_canonical_flow_protocol() {
+        let runtime_config = RuntimeConfig::new(&Config::default());
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                default_sample_interval_ms: 1_000,
+                device_bindings: vec![DeviceBinding {
+                    ip: "192.0.2.10".to_string(),
+                    profile_id: "profile-1".to_string(),
+                    dpi: Some(DpiConfig {
+                        enabled: true,
+                        protocols: vec!["dns".to_string()],
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let gate = DpiEventGate::new(runtime_config);
+
+        assert!(gate
+            .filter(dpi_event_at("192.0.2.10", "dns", 1_000))
+            .is_some());
+        assert!(gate
+            .filter(dpi_event_at("192.0.2.10", "dns", 500_000_000))
+            .is_none());
+
+        let mut reverse = dpi_event_at("198.51.100.20", "dns", 600_000_000);
+        reverse.destination_ip = "192.0.2.10".to_string();
+        reverse.source_port = 53;
+        reverse.destination_port = 49_152;
+        assert!(gate.filter(reverse).is_none());
+
+        assert!(gate
+            .filter(dpi_event_at("192.0.2.10", "dns", 1_100_000_000))
+            .is_some());
+    }
+
+    #[test]
     fn dpi_gate_defaults_to_disabled() {
         let runtime_config = RuntimeConfig::new(&Config::default());
         runtime_config
@@ -500,6 +632,10 @@ mod tests {
     }
 
     fn dpi_event(ip: &str, protocol: &str) -> DpiEvent {
+        dpi_event_at(ip, protocol, 123)
+    }
+
+    fn dpi_event_at(ip: &str, protocol: &str, observed_at_unix_nano: i64) -> DpiEvent {
         DpiEvent {
             source_ip: ip.to_string(),
             destination_ip: "198.51.100.20".to_string(),
@@ -508,7 +644,7 @@ mod tests {
             transport_protocol: "udp".to_string(),
             protocol: protocol.to_string(),
             confidence: 0.95,
-            observed_at_unix_nano: 123,
+            observed_at_unix_nano,
             interface_name: "eth0".to_string(),
             dissector_id: "dns_header".to_string(),
             ..Default::default()
