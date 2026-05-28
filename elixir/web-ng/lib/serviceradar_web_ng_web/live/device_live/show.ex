@@ -623,6 +623,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          "flows",
          "logs",
          "profiles",
+         "process-listeners",
          "sysmon",
          "mtr",
          "guests"
@@ -3469,6 +3470,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
             <li :if={@active_tab == "logs"} class="text-base-content/70">Logs</li>
             <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
+            <li :if={@active_tab == "process-listeners"} class="text-base-content/70">
+              Process Listeners
+            </li>
             <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
             <li :if={@active_tab == "mtr"} class="text-base-content/70">MTR Diagnostics</li>
           </ul>
@@ -4139,6 +4143,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
             </button>
             <button
+              :if={process_listeners_tab_visible?(@device_row)}
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="process-listeners"
+              class={["tab", @active_tab == "process-listeners" && "tab-active"]}
+            >
+              <.icon name="hero-command-line" class="size-4 mr-1.5" /> Process Listeners
+            </button>
+            <button
               :if={@has_mtr}
               type="button"
               phx-click="switch_tab"
@@ -4366,7 +4379,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               />
             </div>
           </div>
-          
+
+    <!-- Process Listeners Tab Content -->
+          <div :if={@active_tab == "process-listeners"}>
+            <.process_listeners_tab_content device_row={@device_row} />
+          </div>
+
     <!-- MTR Diagnostics Tab Content -->
           <div :if={@active_tab == "mtr"}>
             <% mtr_dashboard = mtr_trace_dashboard(@mtr_traces, @mtr_pending_jobs, @mtr_trends) %>
@@ -5251,6 +5269,93 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
+  attr(:device_row, :map, required: true)
+
+  def process_listeners_tab_content(assigns) do
+    snapshot = process_listener_snapshot(assigns.device_row)
+    rows = Map.get(snapshot, :entries, [])
+
+    assigns =
+      assigns
+      |> assign(:snapshot, snapshot)
+      |> assign(:rows, rows)
+      |> assign(:row_count, length(rows))
+      |> assign(:agent_host, agent_device?(assigns.device_row))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="border-b border-base-200 px-4 py-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-command-line" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Process Listeners</span>
+            <span :if={@row_count > 0} class="badge badge-ghost badge-sm">
+              {@row_count} sockets
+            </span>
+          </div>
+          <div
+            :if={metadata_present?(@snapshot.fingerprint) or metadata_present?(@snapshot.observed_at)}
+            class="flex flex-wrap items-center gap-2 text-xs text-base-content/60"
+          >
+            <span :if={metadata_present?(@snapshot.fingerprint)} class="font-mono">
+              {@snapshot.fingerprint}
+            </span>
+            <span :if={metadata_present?(@snapshot.observed_at)} class="font-mono">
+              {@snapshot.observed_at}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div :if={not @agent_host and @row_count == 0} class="px-4 py-8 text-sm text-base-content/70">
+        Process listener snapshots are available on devices linked to a ServiceRadar agent.
+      </div>
+
+      <div :if={@agent_host and @row_count == 0} class="px-4 py-8 text-sm text-base-content/70">
+        No local process listener snapshot has been reported for this agent host yet.
+      </div>
+
+      <div :if={@row_count > 0} class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Endpoint</th>
+              <th>Protocol</th>
+              <th>Process</th>
+              <th>PID</th>
+              <th>UID/GID</th>
+              <th>Container</th>
+              <th>Command</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @rows}>
+              <td class="font-mono text-xs">{process_listener_endpoint(row)}</td>
+              <td>
+                <span class="badge badge-outline badge-sm uppercase">
+                  {default_display(row.transport_protocol)}
+                </span>
+              </td>
+              <td class="font-medium">{default_display(row.comm)}</td>
+              <td class="font-mono text-xs">
+                {default_display(row.pid)}
+                <span :if={row.tgid != nil and row.tgid != row.pid} class="text-base-content/50">
+                  / {row.tgid}
+                </span>
+              </td>
+              <td class="font-mono text-xs">{process_listener_uid_gid(row)}</td>
+              <td class="font-mono text-xs">{process_listener_container(row.container_id)}</td>
+              <td class="max-w-xl break-words font-mono text-xs">
+                {process_listener_cmdline(row.redacted_cmdline)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
   defp metadata_summary_groups(row) do
     metadata = row_metadata(row)
 
@@ -5635,9 +5740,202 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp process_listeners_tab_visible?(row) when is_map(row) do
+    agent_device?(row) or process_listener_rows(row) != []
+  end
+
+  defp process_listeners_tab_visible?(_row), do: false
+
+  defp process_listener_snapshot(row) when is_map(row) do
+    metadata = row_metadata(row)
+
+    payload =
+      metadata
+      |> metadata_lookup("local_processes")
+      |> decode_metadata_payload()
+
+    entries =
+      payload
+      |> process_listener_payload_entries(metadata)
+      |> Enum.map(&process_listener_entry/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.sort_by(fn row ->
+        {row.transport_protocol || "", row.local_ip || "", row.local_port || 0, row.pid || 0}
+      end)
+
+    %{
+      fingerprint:
+        metadata_lookup(payload, "fingerprint") ||
+          metadata_lookup(metadata, "local_processes.fingerprint"),
+      observed_at: process_listener_observed_at(payload, metadata),
+      entries: entries
+    }
+  end
+
+  defp process_listener_snapshot(_row), do: %{fingerprint: nil, observed_at: nil, entries: []}
+
+  defp process_listener_rows(row), do: row |> process_listener_snapshot() |> Map.get(:entries, [])
+
+  defp process_listener_payload_entries(payload, metadata) when is_map(payload) do
+    entries =
+      metadata_lookup(payload, "entries") ||
+        metadata_lookup(metadata, "local_processes.entries") ||
+        []
+
+    entries
+    |> decode_metadata_payload()
+    |> List.wrap()
+  end
+
+  defp process_listener_payload_entries(payload, _metadata) when is_list(payload), do: payload
+  defp process_listener_payload_entries(_payload, _metadata), do: []
+
+  defp process_listener_entry(entry) when is_map(entry) do
+    %{
+      local_ip: process_listener_value(entry, ["local_ip", "localIp"]),
+      local_port: process_listener_integer(process_listener_value(entry, ["local_port", "localPort"])),
+      transport_protocol:
+        entry
+        |> process_listener_value(["transport_protocol", "transportProtocol"])
+        |> process_listener_protocol(),
+      pid: process_listener_integer(process_listener_value(entry, ["pid"])),
+      tgid: process_listener_integer(process_listener_value(entry, ["tgid"])),
+      uid: process_listener_integer(process_listener_value(entry, ["uid"])),
+      gid: process_listener_integer(process_listener_value(entry, ["gid"])),
+      comm: process_listener_value(entry, ["comm"]),
+      redacted_cmdline:
+        entry
+        |> process_listener_value(["redacted_cmdline", "redactedCmdline"])
+        |> process_listener_cmdline_parts(),
+      container_id: process_listener_value(entry, ["container_id", "containerId"])
+    }
+  end
+
+  defp process_listener_entry(_entry), do: nil
+
+  defp process_listener_value(map, keys) when is_map(map) and is_list(keys) do
+    Enum.find_value(keys, fn key ->
+      Map.get(map, key) || process_listener_atom_value(map, key)
+    end)
+  end
+
+  defp process_listener_atom_value(map, key) when is_binary(key) do
+    Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp process_listener_integer(value) when is_integer(value), do: value
+
+  defp process_listener_integer(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> Integer.parse()
+    |> case do
+      {integer, ""} -> integer
+      _ -> nil
+    end
+  end
+
+  defp process_listener_integer(_value), do: nil
+
+  defp process_listener_protocol(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.upcase()
+  end
+
+  defp process_listener_protocol(_value), do: nil
+
+  defp process_listener_observed_at(payload, metadata) do
+    metadata_lookup(payload, "observed_at") ||
+      metadata_lookup(metadata, "local_processes.observed_at") ||
+      process_listener_unix_nano_timestamp(
+        metadata_lookup(payload, "observed_at_unix_nano") ||
+          metadata_lookup(payload, "observedAtUnixNano") ||
+          metadata_lookup(metadata, "local_processes.observed_at_unix_nano")
+      )
+  end
+
+  defp process_listener_unix_nano_timestamp(nil), do: nil
+
+  defp process_listener_unix_nano_timestamp(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> Integer.parse()
+    |> case do
+      {integer, ""} -> process_listener_unix_nano_timestamp(integer)
+      _ -> nil
+    end
+  end
+
+  defp process_listener_unix_nano_timestamp(value) when is_integer(value) do
+    case DateTime.from_unix(value, :nanosecond) do
+      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> nil
+    end
+  end
+
+  defp process_listener_unix_nano_timestamp(_value), do: nil
+
+  defp process_listener_cmdline_parts(value) when is_list(value) do
+    value
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(String.trim(&1) == ""))
+  end
+
+  defp process_listener_cmdline_parts(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> process_listener_cmdline_parts(decoded)
+      _ -> [value]
+    end
+  end
+
+  defp process_listener_cmdline_parts(_value), do: []
+
+  defp process_listener_endpoint(row) do
+    ip = row.local_ip || "—"
+    port = row.local_port || "—"
+
+    if is_binary(ip) and String.contains?(ip, ":") do
+      "[#{ip}]:#{port}"
+    else
+      "#{ip}:#{port}"
+    end
+  end
+
+  defp process_listener_uid_gid(row) do
+    uid = row.uid || "—"
+    gid = row.gid || "—"
+    "#{uid}/#{gid}"
+  end
+
+  defp process_listener_container(nil), do: "—"
+  defp process_listener_container(""), do: "—"
+  defp process_listener_container(value) when is_binary(value), do: String.slice(value, 0, 12)
+  defp process_listener_container(value), do: to_string(value)
+
+  defp process_listener_cmdline([]), do: "—"
+  defp process_listener_cmdline(parts) when is_list(parts), do: Enum.join(parts, " ")
+  defp process_listener_cmdline(value), do: default_display(value)
+
+  defp decode_metadata_payload(nil), do: %{}
+  defp decode_metadata_payload(value) when is_map(value) or is_list(value), do: value
+
+  defp decode_metadata_payload(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} -> decoded
+      _ -> %{}
+    end
+  end
+
+  defp decode_metadata_payload(_value), do: %{}
+
   defp metadata_lookup(metadata, key) when is_map(metadata) do
     Map.get(metadata, key)
   end
+
+  defp metadata_lookup(_metadata, _key), do: nil
 
   defp metadata_timestamp(nil), do: nil
 

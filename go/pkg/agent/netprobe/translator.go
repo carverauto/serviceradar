@@ -17,6 +17,7 @@
 package netprobe
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -37,8 +38,11 @@ const (
 var (
 	ErrNilFingerprintEvent     = errors.New("netprobe fingerprint event is nil")
 	ErrNilDPIEvent             = errors.New("netprobe DPI event is nil")
+	ErrNilProcessSnapshot      = errors.New("netprobe process snapshot is nil")
 	ErrFingerprintEventMissing = errors.New("netprobe fingerprint event is missing required fields")
 	ErrDPIEventMissing         = errors.New("netprobe DPI event is missing required fields")
+	ErrProcessSnapshotMissing  = errors.New("netprobe process snapshot is missing required fields")
+	ErrProcessSnapshotMetadata = errors.New("netprobe process snapshot metadata marshal failed")
 )
 
 // TranslationOptions carries agent-local context that is not present on the IPC event.
@@ -47,6 +51,26 @@ type TranslationOptions struct {
 	GatewayID    string
 	CollectorIP  string
 	ProfileNames map[string]string
+}
+
+type processSnapshotMetadata struct {
+	Fingerprint        string                         `json:"fingerprint,omitempty"`
+	ObservedAtUnixNano int64                          `json:"observed_at_unix_nano,omitempty"`
+	ObservedAt         string                         `json:"observed_at,omitempty"`
+	Entries            []processSnapshotEntryMetadata `json:"entries"`
+}
+
+type processSnapshotEntryMetadata struct {
+	LocalIP           string   `json:"local_ip,omitempty"`
+	LocalPort         uint32   `json:"local_port,omitempty"`
+	TransportProtocol string   `json:"transport_protocol,omitempty"`
+	PID               uint32   `json:"pid,omitempty"`
+	TGID              uint32   `json:"tgid,omitempty"`
+	UID               uint32   `json:"uid,omitempty"`
+	GID               uint32   `json:"gid,omitempty"`
+	Comm              string   `json:"comm,omitempty"`
+	RedactedCmdline   []string `json:"redacted_cmdline,omitempty"`
+	ContainerID       string   `json:"container_id,omitempty"`
 }
 
 // FingerprintEventToDiscoveredDevice converts a passive netprobe event into a discovery device record.
@@ -112,6 +136,28 @@ func DpiEventToDiscoveredDevice(event *netprobepb.DpiEvent, opts TranslationOpti
 	}
 
 	metadata := dpiMetadata(event, opts, ip, protocol)
+
+	return &discoverypb.DiscoveredDevice{
+		Ip:       ip,
+		Metadata: metadata,
+	}, nil
+}
+
+// ProcessSnapshotToDiscoveredDevice converts a local process snapshot into a
+// passive-netprobe metadata update for the agent-host device.
+func ProcessSnapshotToDiscoveredDevice(snapshot *netprobepb.ProcessSnapshot, opts TranslationOptions) (*discoverypb.DiscoveredDevice, error) {
+	if snapshot == nil {
+		return nil, ErrNilProcessSnapshot
+	}
+	ip := strings.TrimSpace(opts.CollectorIP)
+	if ip == "" {
+		return nil, fmt.Errorf("%w: collector_ip", ErrProcessSnapshotMissing)
+	}
+
+	metadata, err := processSnapshotMetadataMap(snapshot, opts, ip)
+	if err != nil {
+		return nil, err
+	}
 
 	return &discoverypb.DiscoveredDevice{
 		Ip:       ip,
@@ -207,6 +253,76 @@ func dpiMetadata(event *netprobepb.DpiEvent, opts TranslationOptions, ip string,
 	}
 
 	return metadata
+}
+
+func processSnapshotMetadataMap(snapshot *netprobepb.ProcessSnapshot, opts TranslationOptions, ip string) (map[string]string, error) {
+	source := string(models.DiscoverySourcePassiveNetprobe)
+	observed := observedAtUnixNano(snapshot.GetObservedAtUnixNano())
+	observedText := ""
+	if !observed.IsZero() {
+		observedText = observed.Format(time.RFC3339Nano)
+	}
+
+	payload := processSnapshotMetadata{
+		Fingerprint:        strings.TrimSpace(snapshot.GetFingerprint()),
+		ObservedAtUnixNano: snapshot.GetObservedAtUnixNano(),
+		ObservedAt:         observedText,
+		Entries:            processSnapshotEntries(snapshot.GetEntries()),
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrProcessSnapshotMetadata, err)
+	}
+
+	metadata := map[string]string{
+		metadataDiscoverySource:                 source,
+		"source":                                source,
+		"local_processes":                       string(payloadJSON),
+		"local_processes.fingerprint":           payload.Fingerprint,
+		"local_processes.entry_count":           strconv.Itoa(len(payload.Entries)),
+		"local_processes.observed_at":           observedText,
+		"local_processes.observed_at_unix_nano": strconv.FormatInt(snapshot.GetObservedAtUnixNano(), 10),
+		"_alias_last_seen_ip":                   ip,
+	}
+
+	if agentID := strings.TrimSpace(opts.AgentID); agentID != "" {
+		metadata["agent_id"] = agentID
+	}
+	if gatewayID := strings.TrimSpace(opts.GatewayID); gatewayID != "" {
+		metadata["gateway_id"] = gatewayID
+	}
+	if observedText != "" {
+		metadata["_alias_last_seen_at"] = observedText
+		metadata["ip_alias:"+ip] = observedText
+	} else {
+		metadata["ip_alias:"+ip] = ""
+	}
+
+	return metadata, nil
+}
+
+func processSnapshotEntries(entries []*netprobepb.ProcessSnapshotEntry) []processSnapshotEntryMetadata {
+	out := make([]processSnapshotEntryMetadata, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		out = append(out, processSnapshotEntryMetadata{
+			LocalIP:           strings.TrimSpace(entry.GetLocalIp()),
+			LocalPort:         entry.GetLocalPort(),
+			TransportProtocol: strings.ToLower(strings.TrimSpace(entry.GetTransportProtocol())),
+			PID:               entry.GetPid(),
+			TGID:              entry.GetTgid(),
+			UID:               entry.GetUid(),
+			GID:               entry.GetGid(),
+			Comm:              strings.TrimSpace(entry.GetComm()),
+			RedactedCmdline:   append([]string(nil), entry.GetRedactedCmdline()...),
+			ContainerID:       strings.TrimSpace(entry.GetContainerId()),
+		})
+	}
+
+	return out
 }
 
 func addEvidenceMetadata(metadata map[string]string, event *netprobepb.FingerprintEvent) error {

@@ -1097,6 +1097,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert candidate_html =~ "pve01"
   end
 
+  test "process listeners tab renders agent-host local process snapshots" do
+    html =
+      render_component(&Show.process_listeners_tab_content/1,
+        device_row: %{
+          "agent_list" => [%{"uid" => "agent-1", "name" => "agent-1"}],
+          "metadata" => %{
+            "local_processes" =>
+              Jason.encode!(%{
+                "fingerprint" => "snapshot-1",
+                "observed_at_unix_nano" => 1_779_963_904_000_000_123,
+                "entries" => [
+                  %{
+                    "local_ip" => "127.0.0.1",
+                    "local_port" => 5432,
+                    "transport_protocol" => "tcp",
+                    "pid" => 4242,
+                    "tgid" => 4242,
+                    "uid" => 26,
+                    "gid" => 26,
+                    "comm" => "postgres",
+                    "redacted_cmdline" => ["postgres", "--config=redacted"],
+                    "container_id" => "container-abc123456"
+                  }
+                ]
+              })
+          }
+        }
+      )
+
+    assert html =~ "Process Listeners"
+    assert html =~ "snapshot-1"
+    assert html =~ "1 sockets"
+    assert html =~ "127.0.0.1:5432"
+    assert html =~ "TCP"
+    assert html =~ "postgres"
+    assert html =~ "4242"
+    assert html =~ "26/26"
+    assert html =~ "container-abc"
+    assert html =~ "--config=redacted"
+  end
+
   test "keeps SNMP fallback-derived classification out of noisy list badges", %{conn: conn} do
     uid = "test-device-snmp-fallback-#{System.unique_integer([:positive])}"
 

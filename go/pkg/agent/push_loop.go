@@ -3223,7 +3223,8 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 
 	fingerprintEvents := netprobeSidecar.DrainEvents(1000)
 	dpiEvents := netprobeSidecar.DrainDPIEvents(1000)
-	if len(fingerprintEvents) == 0 && len(dpiEvents) == 0 {
+	processSnapshots := netprobeSidecar.DrainProcessSnapshots(1000)
+	if len(fingerprintEvents) == 0 && len(dpiEvents) == 0 && len(processSnapshots) == 0 {
 		return false
 	}
 
@@ -3232,7 +3233,7 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		GatewayID:   p.gateway.GetGatewayID(),
 		CollectorIP: collectorIP,
 	}
-	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents))
+	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents)+len(processSnapshots))
 	for _, event := range fingerprintEvents {
 		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
 		if err != nil {
@@ -3255,6 +3256,24 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		device, err := agentnetprobe.DpiEventToDiscoveredDevice(event, opts)
 		if err != nil {
 			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe DPI event")
+			continue
+		}
+
+		update := map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   agentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     string(models.DiscoverySourcePassiveNetprobe),
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		updates = append(updates, update)
+	}
+	for _, snapshot := range processSnapshots {
+		device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(snapshot, opts)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
 			continue
 		}
 
@@ -3310,6 +3329,7 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	p.logger.Info().
 		Int("fingerprint_event_count", len(fingerprintEvents)).
 		Int("dpi_event_count", len(dpiEvents)).
+		Int("process_snapshot_count", len(processSnapshots)).
 		Int("update_count", len(updates)).
 		Msg("Streamed netprobe results to gateway")
 

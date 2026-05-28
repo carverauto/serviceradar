@@ -201,7 +201,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 19.8 Extend deb/rpm postinst to add `cap_bpf,cap_perfmon` to the sidecar binary's file capabilities (in addition to existing `cap_net_raw`).
 - [x] 19.9 Extend `helm/serviceradar/templates/agent.yaml` `securityContext.capabilities.add` with `BPF` and `PERFMON`.
 - [x] 19.10 Extend the Visibility Profile UI with the flow-attribution and process-snapshot sections (replace Phase 1 placeholder copy).
-- [ ] 19.11 Add the "Process Listeners" tab to Device Detail for agent-host devices.
+- [x] 19.11 Add the "Process Listeners" tab to Device Detail for agent-host devices.
 - [ ] 19.12 Surface kernel BPF support state on the Agent Detail page (`available` / `unavailable` only; no `degraded`).
 - [ ] 19.13 Full E2E: enable a profile scoped to `in:devices type:0` with `dpi.protocols = ["tls", "dns"]` on a real kernel-5.15 host; send pcap fixtures; assert (a) flow_table entries populate, (b) DPI events emit for first N packets per flow and stop after classification, (c) p0f signature-ring OS match fires once per connection, (d) Armis-imported device gains `os.passive_fingerprint`, (e) `metadata.dpi.tls.count` increments.
 

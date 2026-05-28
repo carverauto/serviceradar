@@ -216,6 +216,58 @@ func TestDpiEventToDiscoveredDevice(t *testing.T) {
 	}
 }
 
+func TestProcessSnapshotToDiscoveredDevice(t *testing.T) {
+	observed := time.Date(2026, 5, 28, 16, 5, 4, 123, time.UTC)
+	device, err := ProcessSnapshotToDiscoveredDevice(&netprobepb.ProcessSnapshot{
+		Fingerprint:        "snapshot-1",
+		ObservedAtUnixNano: observed.UnixNano(),
+		Entries: []*netprobepb.ProcessSnapshotEntry{
+			{
+				LocalIp:           "127.0.0.1",
+				LocalPort:         5432,
+				TransportProtocol: "tcp",
+				Pid:               4242,
+				Tgid:              4242,
+				Uid:               26,
+				Gid:               26,
+				Comm:              "postgres",
+				RedactedCmdline:   []string{"postgres", "--config=redacted"},
+				ContainerId:       "container-abc123",
+			},
+		},
+	}, TranslationOptions{
+		AgentID:     "agent-1",
+		GatewayID:   "gateway-1",
+		CollectorIP: testFingerprintIP,
+	})
+	if err != nil {
+		t.Fatalf("ProcessSnapshotToDiscoveredDevice() error = %v", err)
+	}
+
+	if device.GetIp() != testFingerprintIP {
+		t.Fatalf("device IP = %q, want %s", device.GetIp(), testFingerprintIP)
+	}
+
+	metadata := device.GetMetadata()
+	assertMetadata(t, metadata, "local_processes.fingerprint", "snapshot-1")
+	assertMetadata(t, metadata, "local_processes.entry_count", "1")
+	assertMetadata(t, metadata, "local_processes.observed_at", "2026-05-28T16:05:04.000000123Z")
+	assertMetadata(t, metadata, "_alias_last_seen_ip", testFingerprintIP)
+	assertMetadata(t, metadata, "_alias_last_seen_at", "2026-05-28T16:05:04.000000123Z")
+
+	payload := metadata["local_processes"]
+	for _, want := range []string{
+		`"local_ip":"127.0.0.1"`,
+		`"local_port":5432`,
+		`"comm":"postgres"`,
+		`"redacted_cmdline":["postgres","--config=redacted"]`,
+	} {
+		if !strings.Contains(payload, want) {
+			t.Fatalf("local_processes payload missing %s: %s", want, payload)
+		}
+	}
+}
+
 func TestDpiEventToDiscoveredDeviceValidation(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -232,6 +284,27 @@ func TestDpiEventToDiscoveredDeviceValidation(t *testing.T) {
 			_, err := DpiEventToDiscoveredDevice(tt.event, TranslationOptions{})
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("DpiEventToDiscoveredDevice() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcessSnapshotToDiscoveredDeviceValidation(t *testing.T) {
+	tests := []struct {
+		name     string
+		snapshot *netprobepb.ProcessSnapshot
+		opts     TranslationOptions
+		want     error
+	}{
+		{name: "nil", snapshot: nil, opts: TranslationOptions{CollectorIP: testFingerprintIP}, want: ErrNilProcessSnapshot},
+		{name: "missing collector", snapshot: &netprobepb.ProcessSnapshot{}, opts: TranslationOptions{}, want: ErrProcessSnapshotMissing},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ProcessSnapshotToDiscoveredDevice(tt.snapshot, tt.opts)
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("ProcessSnapshotToDiscoveredDevice() error = %v, want %v", err, tt.want)
 			}
 		})
 	}
