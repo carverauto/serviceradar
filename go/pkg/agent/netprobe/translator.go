@@ -30,12 +30,15 @@ import (
 
 const (
 	metadataDiscoverySource        = "discovery_source"
+	metadataDPIBase                = "dpi"
 	metadataPassiveFingerprintBase = "passive_fingerprint"
 )
 
 var (
 	ErrNilFingerprintEvent     = errors.New("netprobe fingerprint event is nil")
+	ErrNilDPIEvent             = errors.New("netprobe DPI event is nil")
 	ErrFingerprintEventMissing = errors.New("netprobe fingerprint event is missing required fields")
+	ErrDPIEventMissing         = errors.New("netprobe DPI event is missing required fields")
 )
 
 // TranslationOptions carries agent-local context that is not present on the IPC event.
@@ -94,6 +97,28 @@ func FingerprintEventsToResults(events []*netprobepb.FingerprintEvent, opts Tran
 	return result, nil
 }
 
+// DpiEventToDiscoveredDevice converts a privacy-redacted DPI event into a discovery device record.
+func DpiEventToDiscoveredDevice(event *netprobepb.DpiEvent, opts TranslationOptions) (*discoverypb.DiscoveredDevice, error) {
+	if event == nil {
+		return nil, ErrNilDPIEvent
+	}
+	protocol := strings.ToLower(strings.TrimSpace(event.GetProtocol()))
+	if protocol == "" {
+		return nil, fmt.Errorf("%w: protocol", ErrDPIEventMissing)
+	}
+	ip := dpiDeviceIP(event, opts)
+	if ip == "" {
+		return nil, fmt.Errorf("%w: ip", ErrDPIEventMissing)
+	}
+
+	metadata := dpiMetadata(event, opts, ip, protocol)
+
+	return &discoverypb.DiscoveredDevice{
+		Ip:       ip,
+		Metadata: metadata,
+	}, nil
+}
+
 func baseMetadata(event *netprobepb.FingerprintEvent, opts TranslationOptions, ip string) map[string]string {
 	source := string(models.DiscoverySourcePassiveNetprobe)
 	metadata := map[string]string{
@@ -121,6 +146,60 @@ func baseMetadata(event *netprobepb.FingerprintEvent, opts TranslationOptions, i
 		timestamp := observed.Format(time.RFC3339Nano)
 		metadata[metadataPassiveFingerprintBase+".observed_at"] = timestamp
 		metadata[metadataPassiveFingerprintBase+".observed_at_unix_nano"] = strconv.FormatInt(event.GetObservedAtUnixNano(), 10)
+		metadata["_alias_last_seen_at"] = timestamp
+		metadata["ip_alias:"+ip] = timestamp
+	} else {
+		metadata["ip_alias:"+ip] = ""
+	}
+
+	return metadata
+}
+
+func dpiDeviceIP(event *netprobepb.DpiEvent, opts TranslationOptions) string {
+	collectorIP := strings.TrimSpace(opts.CollectorIP)
+	sourceIP := strings.TrimSpace(event.GetSourceIp())
+	destinationIP := strings.TrimSpace(event.GetDestinationIp())
+
+	if collectorIP != "" && (collectorIP == sourceIP || collectorIP == destinationIP) {
+		return collectorIP
+	}
+	if sourceIP != "" {
+		return sourceIP
+	}
+
+	return destinationIP
+}
+
+func dpiMetadata(event *netprobepb.DpiEvent, opts TranslationOptions, ip string, protocol string) map[string]string {
+	source := string(models.DiscoverySourcePassiveNetprobe)
+	metadata := map[string]string{
+		metadataDiscoverySource:                          source,
+		"source":                                         source,
+		metadataDPIBase + ".source":                      source,
+		metadataDPIBase + ".profile_id":                  strings.TrimSpace(event.GetProfileId()),
+		metadataDPIBase + ".interface":                   strings.TrimSpace(event.GetInterfaceName()),
+		metadataDPIBase + ".protocol":                    protocol,
+		metadataDPIBase + "." + protocol + ".count":      "1",
+		metadataDPIBase + "." + protocol + ".confidence": strconv.FormatFloat(float64(event.GetConfidence()), 'f', 3, 32),
+		"_alias_last_seen_ip":                            ip,
+	}
+
+	if agentID := strings.TrimSpace(opts.AgentID); agentID != "" {
+		metadata["agent_id"] = agentID
+	}
+	if gatewayID := strings.TrimSpace(opts.GatewayID); gatewayID != "" {
+		metadata["gateway_id"] = gatewayID
+	}
+	if collectorIP := strings.TrimSpace(opts.CollectorIP); collectorIP != "" {
+		metadata["_alias_collector_ip"] = collectorIP
+	}
+	if profileName := strings.TrimSpace(opts.ProfileNames[strings.TrimSpace(event.GetProfileId())]); profileName != "" {
+		metadata[metadataDPIBase+".profile_name"] = profileName
+	}
+	if observed := observedAtUnixNano(event.GetObservedAtUnixNano()); !observed.IsZero() {
+		timestamp := observed.Format(time.RFC3339Nano)
+		metadata[metadataDPIBase+"."+protocol+".last_observed_at"] = timestamp
+		metadata[metadataDPIBase+".observed_at"] = timestamp
 		metadata["_alias_last_seen_at"] = timestamp
 		metadata["ip_alias:"+ip] = timestamp
 	} else {
@@ -185,7 +264,10 @@ func profileName(event *netprobepb.FingerprintEvent, opts TranslationOptions) st
 }
 
 func observedAt(event *netprobepb.FingerprintEvent) time.Time {
-	nano := event.GetObservedAtUnixNano()
+	return observedAtUnixNano(event.GetObservedAtUnixNano())
+}
+
+func observedAtUnixNano(nano int64) time.Time {
 	if nano <= 0 {
 		return time.Time{}
 	}

@@ -34,6 +34,7 @@ const defaultEventBuffer = 1024
 const (
 	MetricEventsDroppedTotal = "netprobe_events_dropped_total"
 	EventStreamFingerprint   = "fingerprint"
+	EventStreamDPI           = "dpi"
 	EventDropBackpressure    = "backpressure"
 )
 
@@ -79,8 +80,9 @@ type Client struct {
 	pendingMu sync.Mutex
 	pending   map[uint64]chan response
 
-	events chan *netprobepb.FingerprintEvent
-	done   chan struct{}
+	events    chan *netprobepb.FingerprintEvent
+	dpiEvents chan *netprobepb.DpiEvent
+	done      chan struct{}
 
 	closeOnce sync.Once
 	closeErr  atomic.Value
@@ -89,6 +91,7 @@ type Client struct {
 	lastRunningAsRoot atomic.Bool
 
 	droppedFingerprintEvents atomic.Uint64
+	droppedDPIEvents         atomic.Uint64
 	eventDropRecorder        EventDropRecorder
 }
 
@@ -110,10 +113,11 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	}
 
 	c := &Client{
-		conn:    conn,
-		pending: make(map[uint64]chan response),
-		events:  make(chan *netprobepb.FingerprintEvent, eventBuffer),
-		done:    make(chan struct{}),
+		conn:      conn,
+		pending:   make(map[uint64]chan response),
+		events:    make(chan *netprobepb.FingerprintEvent, eventBuffer),
+		dpiEvents: make(chan *netprobepb.DpiEvent, eventBuffer),
+		done:      make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -169,6 +173,11 @@ func (c *Client) Events() <-chan *netprobepb.FingerprintEvent {
 	return c.events
 }
 
+// DpiEvents returns the bounded stream of DPI events from netprobe.
+func (c *Client) DpiEvents() <-chan *netprobepb.DpiEvent {
+	return c.dpiEvents
+}
+
 // DrainFingerprintEvents invokes handler for each streamed fingerprint event.
 func (c *Client) DrainFingerprintEvents(ctx context.Context, handler func(context.Context, *netprobepb.FingerprintEvent) error) error {
 	for {
@@ -176,6 +185,23 @@ func (c *Client) DrainFingerprintEvents(ctx context.Context, handler func(contex
 		case <-ctx.Done():
 			return ctx.Err()
 		case event, ok := <-c.events:
+			if !ok {
+				return c.closeError()
+			}
+			if err := handler(ctx, event); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// DrainDPIEvents invokes handler for each streamed DPI event.
+func (c *Client) DrainDPIEvents(ctx context.Context, handler func(context.Context, *netprobepb.DpiEvent) error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-c.dpiEvents:
 			if !ok {
 				return c.closeError()
 			}
@@ -204,6 +230,11 @@ func (c *Client) RunningAsRoot() bool {
 // DroppedFingerprintEvents returns events dropped because the downstream consumer was slow.
 func (c *Client) DroppedFingerprintEvents() uint64 {
 	return c.droppedFingerprintEvents.Load()
+}
+
+// DroppedDPIEvents returns DPI events dropped because the downstream consumer was slow.
+func (c *Client) DroppedDPIEvents() uint64 {
+	return c.droppedDPIEvents.Load()
 }
 
 // Close closes the IPC connection and unblocks pending requests.
@@ -273,6 +304,7 @@ func (c *Client) writeRequest(frame *netprobepb.NetprobeFrame) error {
 
 func (c *Client) readLoop() {
 	defer close(c.events)
+	defer close(c.dpiEvents)
 
 	for {
 		frame, err := readFrame(c.conn)
@@ -292,6 +324,13 @@ func (c *Client) readLoop() {
 					c.recordEventDrop(EventStreamFingerprint, EventDropBackpressure)
 				}
 			}
+			if event := frame.GetDpiEvent(); event != nil {
+				select {
+				case c.dpiEvents <- event:
+				default:
+					c.recordEventDrop(EventStreamDPI, EventDropBackpressure)
+				}
+			}
 			continue
 		}
 
@@ -309,6 +348,9 @@ func (c *Client) readLoop() {
 func (c *Client) recordEventDrop(stream, reason string) {
 	if stream == EventStreamFingerprint && reason == EventDropBackpressure {
 		c.droppedFingerprintEvents.Add(1)
+	}
+	if stream == EventStreamDPI && reason == EventDropBackpressure {
+		c.droppedDPIEvents.Add(1)
 	}
 	if c.eventDropRecorder != nil {
 		c.eventDropRecorder.IncEventDrop(stream, reason)

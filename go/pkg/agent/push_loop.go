@@ -3221,8 +3221,9 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		return false
 	}
 
-	events := netprobeSidecar.DrainEvents(1000)
-	if len(events) == 0 {
+	fingerprintEvents := netprobeSidecar.DrainEvents(1000)
+	dpiEvents := netprobeSidecar.DrainDPIEvents(1000)
+	if len(fingerprintEvents) == 0 && len(dpiEvents) == 0 {
 		return false
 	}
 
@@ -3231,11 +3232,29 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		GatewayID:   p.gateway.GetGatewayID(),
 		CollectorIP: collectorIP,
 	}
-	updates := make([]map[string]any, 0, len(events))
-	for _, event := range events {
+	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents))
+	for _, event := range fingerprintEvents {
 		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
 		if err != nil {
 			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe fingerprint event")
+			continue
+		}
+
+		update := map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   agentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     string(models.DiscoverySourcePassiveNetprobe),
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		updates = append(updates, update)
+	}
+	for _, event := range dpiEvents {
+		device, err := agentnetprobe.DpiEventToDiscoveredDevice(event, opts)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe DPI event")
 			continue
 		}
 
@@ -3288,7 +3307,11 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		return false
 	}
 
-	p.logger.Info().Int("event_count", len(updates)).Msg("Streamed netprobe results to gateway")
+	p.logger.Info().
+		Int("fingerprint_event_count", len(fingerprintEvents)).
+		Int("dpi_event_count", len(dpiEvents)).
+		Int("update_count", len(updates)).
+		Msg("Streamed netprobe results to gateway")
 
 	return true
 }

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DpiPayload
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.PassiveFingerprintPayload
@@ -1196,6 +1197,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
       |> merge_boundary_names_metadata()
       |> PassiveFingerprintPayload.enrich_metadata()
+      |> DpiPayload.enrich_metadata()
 
     os =
       update

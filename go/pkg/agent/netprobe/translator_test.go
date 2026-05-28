@@ -18,6 +18,7 @@ package netprobe
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,6 +171,70 @@ func TestFingerprintEventsToResults(t *testing.T) {
 	assertMetadata(t, result.GetMetadata(), "discovery_source", string(models.DiscoverySourcePassiveNetprobe))
 	assertMetadata(t, result.GetMetadata(), "agent_id", "agent-a")
 	assertMetadata(t, result.GetDevices()[0].GetMetadata(), "passive_fingerprint.http.server", "apache")
+}
+
+func TestDpiEventToDiscoveredDevice(t *testing.T) {
+	device, err := DpiEventToDiscoveredDevice(&netprobepb.DpiEvent{
+		SourceIp:           testFingerprintIP,
+		DestinationIp:      "198.51.100.20",
+		SourcePort:         49152,
+		DestinationPort:    53,
+		TransportProtocol:  "udp",
+		Protocol:           "dns",
+		Confidence:         0.92,
+		ObservedAtUnixNano: time.Date(2026, 5, 27, 14, 30, 1, 0, time.UTC).UnixNano(),
+		InterfaceName:      "eth0",
+		ProfileId:          "profile-1",
+		DissectorId:        "dns_header",
+	}, TranslationOptions{
+		AgentID:      "agent-1",
+		GatewayID:    "gateway-1",
+		CollectorIP:  testFingerprintIP,
+		ProfileNames: map[string]string{"profile-1": "DNS Sensors"},
+	})
+	if err != nil {
+		t.Fatalf("DpiEventToDiscoveredDevice() error = %v", err)
+	}
+
+	if device.GetIp() != testFingerprintIP {
+		t.Fatalf("device IP = %q, want %s", device.GetIp(), testFingerprintIP)
+	}
+	metadata := device.GetMetadata()
+	assertMetadata(t, metadata, "dpi.source", "passive-netprobe")
+	assertMetadata(t, metadata, "dpi.profile_id", "profile-1")
+	assertMetadata(t, metadata, "dpi.profile_name", "DNS Sensors")
+	assertMetadata(t, metadata, "dpi.interface", "eth0")
+	assertMetadata(t, metadata, "dpi.protocol", "dns")
+	assertMetadata(t, metadata, "dpi.dns.count", "1")
+	assertMetadata(t, metadata, "dpi.dns.confidence", "0.920")
+	assertMetadata(t, metadata, "dpi.dns.last_observed_at", "2026-05-27T14:30:01Z")
+
+	for key := range metadata {
+		if strings.Contains(key, "source_port") || strings.Contains(key, "destination_port") {
+			t.Fatalf("metadata stored flow tuple field %q", key)
+		}
+	}
+}
+
+func TestDpiEventToDiscoveredDeviceValidation(t *testing.T) {
+	tests := []struct {
+		name  string
+		event *netprobepb.DpiEvent
+		want  error
+	}{
+		{name: "nil", event: nil, want: ErrNilDPIEvent},
+		{name: "missing protocol", event: &netprobepb.DpiEvent{SourceIp: testFingerprintIP}, want: ErrDPIEventMissing},
+		{name: "missing ip", event: &netprobepb.DpiEvent{Protocol: "dns"}, want: ErrDPIEventMissing},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := DpiEventToDiscoveredDevice(tt.event, TranslationOptions{})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("DpiEventToDiscoveredDevice() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
 }
 
 func TestFingerprintEventToDiscoveredDeviceValidation(t *testing.T) {

@@ -410,6 +410,41 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.os["passive_fingerprint"]["version"] == "Linux 5.x"
   end
 
+  @tag :visibility
+  test "normalizes passive netprobe DPI evidence onto canonical device metadata", %{actor: actor} do
+    ip = unique_ip()
+
+    dpi_update = %{
+      "ip" => ip,
+      "source" => "passive-netprobe",
+      "metadata" => %{
+        "dpi.source" => "passive-netprobe",
+        "dpi.profile_id" => "dpi-hosts",
+        "dpi.interface" => "eth0",
+        "dpi.protocol" => "dns",
+        "dpi.dns.count" => "1",
+        "dpi.dns.confidence" => "0.920",
+        "dpi.dns.last_observed_at" => "2026-05-27T14:30:01Z",
+        "_alias_last_seen_ip" => ip,
+        "ip_alias:#{ip}" => "2026-05-27T14:30:01Z"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([dpi_update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert "passive-netprobe" in device.discovery_sources
+
+    assert device.metadata["dpi"]["dns"] == %{
+             "count" => 1,
+             "confidence" => 0.92,
+             "last_observed_at" => "2026-05-27T14:30:01Z"
+           }
+
+    refute Map.has_key?(device.metadata["dpi"]["dns"], "source_port")
+    refute Map.has_key?(device.metadata["dpi"]["dns"], "destination_port")
+  end
+
   test "replaces placeholder type with integration metadata alias", %{actor: actor} do
     ip = unique_ip()
     existing_uid = "sr:" <> Ecto.UUID.generate()

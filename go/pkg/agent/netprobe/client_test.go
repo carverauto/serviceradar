@@ -71,6 +71,14 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 		if err != nil {
 			t.Errorf("write event frame: %v", err)
 		}
+		err = writeFrame(serverConn, &netprobepb.NetprobeFrame{
+			Payload: &netprobepb.NetprobeFrame_DpiEvent{
+				DpiEvent: &netprobepb.DpiEvent{Protocol: "dns"},
+			},
+		})
+		if err != nil {
+			t.Errorf("write DPI event frame: %v", err)
+		}
 	}()
 
 	client := NewClient(clientConn, 4)
@@ -105,6 +113,79 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for fingerprint event")
 	}
+	select {
+	case event := <-client.DpiEvents():
+		if event.GetProtocol() != "dns" {
+			t.Fatalf("DPI event protocol = %q, want dns", event.GetProtocol())
+		}
+	case <-ctx.Done():
+		t.Fatal("timed out waiting for DPI event")
+	}
+
+	_ = client.Close()
+	<-serverDone
+}
+
+func TestClientDropsDPIEventsOnBackpressure(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	recorder := &testEventDropRecorder{}
+	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
+	defer func() { _ = client.Close() }()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		for i := 0; i < 2; i++ {
+			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+				Payload: &netprobepb.NetprobeFrame_DpiEvent{
+					DpiEvent: &netprobepb.DpiEvent{Protocol: "dns"},
+				},
+			})
+			if err != nil {
+				t.Errorf("write DPI event frame %d: %v", i, err)
+				return
+			}
+		}
+		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+			ping := frame.GetPing()
+			if ping == nil {
+				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
+				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
+			}
+			return &netprobepb.NetprobeFrame{
+				Sequence: frame.GetSequence(),
+				Payload: &netprobepb.NetprobeFrame_PingAck{
+					PingAck: &netprobepb.PingAck{SentAtUnixNano: ping.GetSentAtUnixNano()},
+				},
+			}
+		})
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	waitFor(t, ctx, func() bool {
+		return client.DroppedDPIEvents() == 1
+	})
+	if err := client.Ping(ctx); err != nil {
+		t.Fatalf("Ping() after backpressure error = %v", err)
+	}
+
+	select {
+	case event := <-client.DpiEvents():
+		if event.GetProtocol() != "dns" {
+			t.Fatalf("queued DPI event protocol = %q, want dns", event.GetProtocol())
+		}
+	default:
+		t.Fatal("expected first DPI event to remain queued")
+	}
+
+	if got := client.DroppedDPIEvents(); got != 1 {
+		t.Fatalf("DroppedDPIEvents() = %d, want 1", got)
+	}
+	recorder.assertOne(t, EventStreamDPI, EventDropBackpressure)
 
 	_ = client.Close()
 	<-serverDone

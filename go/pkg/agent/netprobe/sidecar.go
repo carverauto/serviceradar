@@ -56,6 +56,7 @@ type Sidecar struct {
 	client        *Client
 	eventClient   *Client
 	events        chan *netprobepb.FingerprintEvent
+	dpiEvents     chan *netprobepb.DpiEvent
 	healthy       atomic.Bool
 	unhealthy     atomic.Bool
 	runningAsRoot atomic.Bool
@@ -78,8 +79,9 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 	}
 
 	return &Sidecar{
-		cfg:    cfg,
-		events: make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+		cfg:       cfg,
+		events:    make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+		dpiEvents: make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
 	}
 }
 
@@ -189,6 +191,26 @@ func (s *Sidecar) DrainEvents(max int) []*netprobepb.FingerprintEvent {
 	return events
 }
 
+func (s *Sidecar) DrainDPIEvents(max int) []*netprobepb.DpiEvent {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
+	}
+
+	events := make([]*netprobepb.DpiEvent, 0, max)
+	for len(events) < max {
+		select {
+		case event := <-s.dpiEvents:
+			if event != nil {
+				events = append(events, event)
+			}
+		default:
+			return events
+		}
+	}
+
+	return events
+}
+
 func (s *Sidecar) currentClient() *Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -219,14 +241,29 @@ func (s *Sidecar) setClient(client *Client) {
 }
 
 func (s *Sidecar) forwardEvents(client *Client) {
-	for event := range client.Events() {
-		select {
-		case s.events <- event:
-		default:
-			// Keep the manager/IPC reader non-blocking; client-level drop metrics
-			// already cover drops before this fan-in point.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for event := range client.Events() {
+			select {
+			case s.events <- event:
+			default:
+				// Keep the manager/IPC reader non-blocking; client-level drop metrics
+				// already cover drops before this fan-in point.
+			}
 		}
-	}
+	}()
+	go func() {
+		defer wg.Done()
+		for event := range client.DpiEvents() {
+			select {
+			case s.dpiEvents <- event:
+			default:
+			}
+		}
+	}()
+	wg.Wait()
 
 	s.mu.Lock()
 	if s.client == client {
