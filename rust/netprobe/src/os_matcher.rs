@@ -2,13 +2,16 @@ use crate::p0f_corpus::P0fLabel;
 use crate::p0f_matcher::P0fMatch;
 
 const P0F_BASE_CONFIDENCE: f32 = 0.72;
+const MUONFP_BASE_CONFIDENCE: f32 = 0.70;
+const MUONFP_AGREEMENT_MULTIPLIER: f32 = 1.12;
 const JA4_AGREEMENT_MULTIPLIER: f32 = 1.15;
 const HASSH_AGREEMENT_MULTIPLIER: f32 = 1.15;
 const MAX_CONFIDENCE: f32 = 0.95;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OsMatchInput {
-    pub p0f: P0fObservation,
+    pub p0f: Option<P0fObservation>,
+    pub muonfp: Option<MuonFpObservation>,
     pub ja4: Option<FingerprintObservation>,
     pub hassh: Option<FingerprintObservation>,
 }
@@ -17,6 +20,15 @@ pub struct OsMatchInput {
 pub struct P0fObservation {
     pub signature: String,
     pub matched: P0fMatch,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MuonFpObservation {
+    pub signature: String,
+    pub label: Option<String>,
+    pub os_family: String,
+    pub name: String,
+    pub version_range: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +42,7 @@ pub struct FingerprintObservation {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FingerprintSignal {
+    MuonFp,
     Ja4,
     Hassh,
 }
@@ -41,8 +54,10 @@ pub struct OsMatch {
     pub version_range: Option<String>,
     pub confidence: f32,
     pub agreement_count: u32,
-    pub p0f_signature: String,
-    pub p0f_label: P0fLabel,
+    pub p0f_signature: Option<String>,
+    pub p0f_label: Option<P0fLabel>,
+    pub muonfp_signature: Option<String>,
+    pub muonfp_label: Option<String>,
     pub agreeing_signals: Vec<SignalAgreement>,
     pub disagreements: Vec<SignalDisagreement>,
 }
@@ -64,16 +79,16 @@ pub struct SignalDisagreement {
     pub version_range: Option<String>,
 }
 
-pub fn evaluate(input: OsMatchInput) -> OsMatch {
-    let p0f_family = family_from_p0f_label(&input.p0f.matched.label);
-    let mut confidence = P0F_BASE_CONFIDENCE;
-    let mut agreement_count = 1;
+pub fn evaluate(input: OsMatchInput) -> Option<OsMatch> {
+    let primary = primary_tcp_observation(&input)?;
+    let mut confidence = primary.base_confidence;
+    let mut agreement_count = 1u32;
     let mut agreeing_signals = Vec::new();
     let mut disagreements = Vec::new();
 
-    for observation in [input.ja4, input.hassh].into_iter().flatten() {
-        if normalized_family(&observation.os_family) == p0f_family {
-            confidence *= multiplier(observation.signal);
+    for observation in auxiliary_observations(&input) {
+        if observation.family == primary.os_family {
+            confidence *= observation.multiplier;
             agreement_count += 1;
             agreeing_signals.push(SignalAgreement {
                 signal: observation.signal,
@@ -85,28 +100,40 @@ pub fn evaluate(input: OsMatchInput) -> OsMatch {
             disagreements.push(SignalDisagreement {
                 signal: observation.signal,
                 signature: observation.signature,
-                observed_family: normalized_family(&observation.os_family),
+                observed_family: observation.family,
                 observed_name: observation.name,
                 version_range: observation.version_range,
             });
         }
     }
 
-    OsMatch {
-        os_family: p0f_family,
-        name: input.p0f.matched.label.name.clone(),
-        version_range: input.p0f.matched.label.flavor.clone(),
+    Some(OsMatch {
+        os_family: primary.os_family,
+        name: primary.name,
+        version_range: primary.version_range,
         confidence: confidence.min(MAX_CONFIDENCE),
         agreement_count,
-        p0f_signature: input.p0f.signature,
-        p0f_label: input.p0f.matched.label,
+        p0f_signature: input
+            .p0f
+            .as_ref()
+            .map(|observation| observation.signature.clone()),
+        p0f_label: input
+            .p0f
+            .as_ref()
+            .map(|observation| observation.matched.label.clone()),
+        muonfp_signature: input
+            .muonfp
+            .as_ref()
+            .map(|observation| observation.signature.clone()),
+        muonfp_label: input.muonfp.and_then(|observation| observation.label),
         agreeing_signals,
         disagreements,
-    }
+    })
 }
 
 fn multiplier(signal: FingerprintSignal) -> f32 {
     match signal {
+        FingerprintSignal::MuonFp => MUONFP_AGREEMENT_MULTIPLIER,
         FingerprintSignal::Ja4 => JA4_AGREEMENT_MULTIPLIER,
         FingerprintSignal::Hassh => HASSH_AGREEMENT_MULTIPLIER,
     }
@@ -131,11 +158,79 @@ fn normalized_family(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace('_', " ")
 }
 
+#[derive(Debug)]
+struct TcpPrimary {
+    os_family: String,
+    name: String,
+    version_range: Option<String>,
+    base_confidence: f32,
+}
+
+#[derive(Debug)]
+struct AuxiliaryObservation {
+    signal: FingerprintSignal,
+    signature: String,
+    family: String,
+    name: String,
+    version_range: Option<String>,
+    multiplier: f32,
+}
+
+fn primary_tcp_observation(input: &OsMatchInput) -> Option<TcpPrimary> {
+    if let Some(p0f) = &input.p0f {
+        let label = &p0f.matched.label;
+        return Some(TcpPrimary {
+            os_family: family_from_p0f_label(label),
+            name: label.name.clone(),
+            version_range: label.flavor.clone(),
+            base_confidence: P0F_BASE_CONFIDENCE,
+        });
+    }
+
+    input.muonfp.as_ref().map(|muonfp| TcpPrimary {
+        os_family: normalized_family(&muonfp.os_family),
+        name: muonfp.name.clone(),
+        version_range: muonfp.version_range.clone(),
+        base_confidence: MUONFP_BASE_CONFIDENCE,
+    })
+}
+
+fn auxiliary_observations(input: &OsMatchInput) -> Vec<AuxiliaryObservation> {
+    let mut observations = Vec::new();
+
+    if input.p0f.is_some() {
+        if let Some(muonfp) = &input.muonfp {
+            observations.push(AuxiliaryObservation {
+                signal: FingerprintSignal::MuonFp,
+                signature: muonfp.signature.clone(),
+                family: normalized_family(&muonfp.os_family),
+                name: muonfp.name.clone(),
+                version_range: muonfp.version_range.clone(),
+                multiplier: multiplier(FingerprintSignal::MuonFp),
+            });
+        }
+    }
+
+    for observation in [&input.ja4, &input.hassh].into_iter().flatten() {
+        observations.push(AuxiliaryObservation {
+            signal: observation.signal,
+            signature: observation.signature.clone(),
+            family: normalized_family(&observation.os_family),
+            name: observation.name.clone(),
+            version_range: observation.version_range.clone(),
+            multiplier: multiplier(observation.signal),
+        });
+    }
+
+    observations
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        evaluate, FingerprintObservation, FingerprintSignal, OsMatchInput, P0fObservation,
-        HASSH_AGREEMENT_MULTIPLIER, JA4_AGREEMENT_MULTIPLIER, MAX_CONFIDENCE, P0F_BASE_CONFIDENCE,
+        evaluate, FingerprintObservation, FingerprintSignal, MuonFpObservation, OsMatchInput,
+        P0fObservation, HASSH_AGREEMENT_MULTIPLIER, JA4_AGREEMENT_MULTIPLIER,
+        MUONFP_AGREEMENT_MULTIPLIER, MUONFP_BASE_CONFIDENCE, P0F_BASE_CONFIDENCE,
     };
     use crate::p0f_corpus::P0fLabel;
     use crate::p0f_matcher::P0fMatch;
@@ -143,10 +238,12 @@ mod tests {
     #[test]
     fn emits_p0f_match_without_auxiliary_signals() {
         let matched = evaluate(OsMatchInput {
-            p0f: p0f_observation("Linux", Some("3.11 and newer")),
+            p0f: Some(p0f_observation("Linux", Some("3.11 and newer"))),
+            muonfp: None,
             ja4: None,
             hassh: None,
-        });
+        })
+        .unwrap();
 
         assert_eq!(matched.os_family, "linux");
         assert_eq!(matched.name, "Linux");
@@ -160,10 +257,12 @@ mod tests {
     #[test]
     fn boosts_confidence_when_ja4_agrees() {
         let matched = evaluate(OsMatchInput {
-            p0f: p0f_observation("Linux", None),
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: None,
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
             hassh: None,
-        });
+        })
+        .unwrap();
 
         assert_eq!(matched.agreement_count, 2);
         assert_eq!(matched.agreeing_signals[0].signal, FingerprintSignal::Ja4);
@@ -176,10 +275,12 @@ mod tests {
     #[test]
     fn boosts_confidence_when_hassh_agrees() {
         let matched = evaluate(OsMatchInput {
-            p0f: p0f_observation("Linux", None),
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: None,
             ja4: None,
             hassh: Some(auxiliary(FingerprintSignal::Hassh, "linux")),
-        });
+        })
+        .unwrap();
 
         assert_eq!(matched.agreement_count, 2);
         assert_eq!(matched.agreeing_signals[0].signal, FingerprintSignal::Hassh);
@@ -190,24 +291,83 @@ mod tests {
     }
 
     #[test]
+    fn boosts_confidence_when_muonfp_agrees() {
+        let matched = evaluate(OsMatchInput {
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: Some(muonfp_observation("linux")),
+            ja4: None,
+            hassh: None,
+        })
+        .unwrap();
+
+        assert_eq!(matched.agreement_count, 2);
+        assert_eq!(
+            matched.agreeing_signals[0].signal,
+            FingerprintSignal::MuonFp
+        );
+        assert_eq!(
+            matched.confidence,
+            P0F_BASE_CONFIDENCE * MUONFP_AGREEMENT_MULTIPLIER
+        );
+        assert_eq!(matched.muonfp_signature.as_deref(), Some("64240:2-4:1460:"));
+        assert_eq!(
+            matched.muonfp_label.as_deref(),
+            Some("linux synthetic rule")
+        );
+    }
+
+    #[test]
+    fn emits_muonfp_match_without_p0f() {
+        let matched = evaluate(OsMatchInput {
+            p0f: None,
+            muonfp: Some(muonfp_observation("linux")),
+            ja4: None,
+            hassh: None,
+        })
+        .unwrap();
+
+        assert_eq!(matched.os_family, "linux");
+        assert_eq!(matched.name, "MuonFP linux");
+        assert_eq!(matched.agreement_count, 1);
+        assert_eq!(matched.confidence, MUONFP_BASE_CONFIDENCE);
+        assert!(matched.p0f_signature.is_none());
+        assert!(matched.p0f_label.is_none());
+    }
+
+    #[test]
+    fn returns_none_without_tcp_match() {
+        assert!(evaluate(OsMatchInput {
+            p0f: None,
+            muonfp: None,
+            ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
+            hassh: None,
+        })
+        .is_none());
+    }
+
+    #[test]
     fn caps_confidence_when_all_signals_agree() {
         let matched = evaluate(OsMatchInput {
-            p0f: p0f_observation("Linux", None),
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: Some(muonfp_observation("linux")),
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
             hassh: Some(auxiliary(FingerprintSignal::Hassh, "linux")),
-        });
+        })
+        .unwrap();
 
-        assert_eq!(matched.agreement_count, 3);
-        assert_eq!(matched.confidence, MAX_CONFIDENCE);
+        assert_eq!(matched.agreement_count, 4);
+        assert!(matched.confidence <= super::MAX_CONFIDENCE);
     }
 
     #[test]
     fn preserves_disagreement_metadata() {
         let matched = evaluate(OsMatchInput {
-            p0f: p0f_observation("Linux", None),
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: None,
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "windows")),
             hassh: None,
-        });
+        })
+        .unwrap();
 
         assert_eq!(matched.os_family, "linux");
         assert_eq!(matched.agreement_count, 1);
@@ -219,23 +379,44 @@ mod tests {
     }
 
     #[test]
+    fn preserves_p0f_muonfp_disagreement_metadata() {
+        let matched = evaluate(OsMatchInput {
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: Some(muonfp_observation("windows")),
+            ja4: None,
+            hassh: None,
+        })
+        .unwrap();
+
+        assert_eq!(matched.os_family, "linux");
+        assert_eq!(matched.agreement_count, 1);
+        assert_eq!(matched.disagreements.len(), 1);
+        assert_eq!(matched.disagreements[0].signal, FingerprintSignal::MuonFp);
+        assert_eq!(matched.disagreements[0].observed_family, "windows");
+    }
+
+    #[test]
     fn normalizes_common_p0f_families() {
         assert_eq!(
             evaluate(OsMatchInput {
-                p0f: p0f_observation("Mac OS X", Some("14.x")),
+                p0f: Some(p0f_observation("Mac OS X", Some("14.x"))),
+                muonfp: None,
                 ja4: Some(auxiliary(FingerprintSignal::Ja4, "macos")),
                 hassh: None,
             })
+            .unwrap()
             .os_family,
             "macos"
         );
 
         assert_eq!(
             evaluate(OsMatchInput {
-                p0f: p0f_observation("Windows", Some("11")),
+                p0f: Some(p0f_observation("Windows", Some("11"))),
+                muonfp: None,
                 ja4: Some(auxiliary(FingerprintSignal::Ja4, "windows")),
                 hassh: None,
             })
+            .unwrap()
             .os_family,
             "windows"
         );
@@ -260,12 +441,23 @@ mod tests {
         FingerprintObservation {
             signal,
             signature: match signal {
+                FingerprintSignal::MuonFp => "64240:2-4:1460:",
                 FingerprintSignal::Ja4 => "t13d1516h2_8daaf6152771_e5627efa2ab1",
                 FingerprintSignal::Hassh => "06046964c022c6407d15a27b12a6a4fb",
             }
             .to_string(),
             os_family: os_family.to_string(),
             name: format!("{os_family} auxiliary match"),
+            version_range: Some("test range".to_string()),
+        }
+    }
+
+    fn muonfp_observation(os_family: &str) -> MuonFpObservation {
+        MuonFpObservation {
+            signature: "64240:2-4:1460:".to_string(),
+            label: Some(format!("{os_family} synthetic rule")),
+            os_family: os_family.to_string(),
+            name: format!("MuonFP {os_family}"),
             version_range: Some("test range".to_string()),
         }
     }

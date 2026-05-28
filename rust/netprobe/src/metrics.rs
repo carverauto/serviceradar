@@ -16,6 +16,7 @@ pub struct Metrics {
     events_emitted_total: IntCounterVec,
     events_dropped_total: IntCounterVec,
     signature_failures_total: IntCounter,
+    p0f_vs_muonfp_disagreement_total: IntCounter,
     encode_buffer_reuses_total: IntCounter,
     #[allow(dead_code)]
     sampling_budget: IntGauge,
@@ -46,6 +47,10 @@ impl Metrics {
             "netprobe_signature_failures_total",
             "Signature failures",
         ))?;
+        let p0f_vs_muonfp_disagreement_total = IntCounter::with_opts(Opts::new(
+            "p0f_vs_muonfp_disagreement_total",
+            "TCP-axis OS family disagreements between p0f and MuonFP",
+        ))?;
         let encode_buffer_reuses_total = IntCounter::with_opts(Opts::new(
             "serviceradar_netprobe_encode_buffer_reuses_total",
             "IPC protobuf encode buffer reuses after warmup",
@@ -64,6 +69,7 @@ impl Metrics {
         registry.register(Box::new(events_emitted_total.clone()))?;
         registry.register(Box::new(events_dropped_total.clone()))?;
         registry.register(Box::new(signature_failures_total.clone()))?;
+        registry.register(Box::new(p0f_vs_muonfp_disagreement_total.clone()))?;
         registry.register(Box::new(encode_buffer_reuses_total.clone()))?;
         registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
@@ -75,6 +81,7 @@ impl Metrics {
             events_emitted_total,
             events_dropped_total,
             signature_failures_total,
+            p0f_vs_muonfp_disagreement_total,
             encode_buffer_reuses_total,
             sampling_budget,
             uptime_seconds,
@@ -157,6 +164,11 @@ impl Metrics {
     #[allow(dead_code)]
     pub fn inc_signature_failures(&self) {
         self.signature_failures_total.inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_p0f_vs_muonfp_disagreement(&self) {
+        self.p0f_vs_muonfp_disagreement_total.inc();
     }
 
     pub fn inc_encode_buffer_reuses(&self) {

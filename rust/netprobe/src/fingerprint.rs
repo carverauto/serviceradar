@@ -607,13 +607,15 @@ fn license_clean_p0f_event_with_accumulated(
             auxiliary_observation(FingerprintSignal::Hassh, pair.client.md5.clone(), &matched)
         });
     let os_match = os_matcher::evaluate(OsMatchInput {
-        p0f: P0fObservation {
+        p0f: Some(P0fObservation {
             signature: p0f_signature,
             matched,
-        },
+        }),
+        muonfp: None,
         ja4: ja4_observation.clone(),
         hassh: hassh_observation.clone(),
-    });
+    })
+    .expect("p0f observation is present");
     let ja4 = accumulated
         .as_ref()
         .and_then(|fingerprint| fingerprint.ja4.clone())
@@ -642,13 +644,16 @@ fn license_clean_p0f_event_with_accumulated(
         interface_name,
         observed_at_unix_nano,
         LicenseCleanFingerprint {
-            p0f_signature: os_match.p0f_signature.clone(),
-            p0f_match: Some(P0fFingerprintMatch {
-                label: os_match.p0f_label.raw.clone(),
-                name: os_match.p0f_label.name.clone(),
-                version_flavor: os_match.p0f_label.flavor.clone().unwrap_or_default(),
-                os_family: os_match.os_family.clone(),
-            }),
+            p0f_signature: os_match.p0f_signature.clone().unwrap_or_default(),
+            p0f_match: os_match
+                .p0f_label
+                .as_ref()
+                .map(|label| P0fFingerprintMatch {
+                    label: label.raw.clone(),
+                    name: label.name.clone(),
+                    version_flavor: label.flavor.clone().unwrap_or_default(),
+                    os_family: os_matcher::family_from_p0f_label(label),
+                }),
             ja4,
             ja4_match: ja4_observation.as_ref().map(proto_fingerprint_match),
             hassh,
@@ -1076,6 +1081,7 @@ fn proto_disagreement(disagreement: &SignalDisagreement) -> FingerprintDisagreem
 #[allow(dead_code)]
 fn signal_name(signal: FingerprintSignal) -> &'static str {
     match signal {
+        FingerprintSignal::MuonFp => "muonfp",
         FingerprintSignal::Ja4 => "ja4",
         FingerprintSignal::Hassh => "hassh",
     }
