@@ -606,30 +606,37 @@ correlate elevated `events_dropped` counters with intentional sampling.
 The `serviceradar-agent` sweep service SHALL provide an opt-in
 active-banner-grab phase that runs after the existing SYN half-open
 scanner identifies live `(host, port)` pairs. The phase MUST open a
-full 3-way TCP connect (and TLS handshake for HTTPS-class ports) to
-each selected target, send a protocol-appropriate probe if needed,
-read up to `max_banner_bytes` of response, close the connection, and
-emit a `BannerObservation` record. Each `BannerObservation` MUST be
-forwarded to the running `netprobe` sidecar via a new
-`MatchBanner(BannerObservation) → BannerMatch` IPC method. Netprobe
-MUST match the banner against its compiled-in Recog corpus and emit
-the result on its existing `FingerprintEvents` stream tagged with
-`source = sweep_active`. The phase MUST be configured per
-`SweepProfile` and MUST be disabled by default. The phase MUST honour
-a configurable per-protocol port allowlist, per-host rate limit,
-global concurrency cap, per-cycle probe budget, probe-rate budget,
-minimum re-probe interval, connect timeout, and read timeout. The
-phase MUST NOT run against ports not in the profile's banner-grab port
-allowlist. The phase MUST treat banner grabbing as a bounded
-enrichment pass over SYN-confirmed open ports, not as a second
-subnet-wide scanner: once `max_probes_per_cycle` is exhausted, any
-remaining eligible candidates are deferred to later cycles without
-marking the host or port failed. The phase MUST gracefully treat
-connection reset, read timeout, and partial banner as "no banner"
-without retrying aggressively. For HTTPS-class probes the phase MUST
-capture both the TLS certificate fingerprint (cleartext-observable)
-and the HTTP `Server:` header (extracted after TLS termination using
-`InsecureSkipVerify` for fingerprinting purposes only).
+full 3-way TCP connect to each selected target, send a
+protocol-appropriate probe if needed, read up to `max_banner_bytes` of
+cleartext or pre-auth response payload, close the connection, and emit
+a `BannerObservation` record. Successful observations MUST be forwarded
+to the running `netprobe` sidecar via a batched
+`MatchBanners(BannerBatch) → BannerMatchBatch` IPC method. Netprobe
+MUST match the supplied observation bytes against its compiled-in Recog
+and Satori corpora and return matched labels; the agent MUST then emit
+or forward `FingerprintEvent` records tagged with
+`source = sweep_active` through the normal discovery ingestion path.
+Passive eBPF observation of the sweep service's sockets MAY provide
+additional correlation signals, but the active banner-grab feature MUST
+NOT depend on passive sniffing for classification. HTTPS/TLS
+fingerprint axes remain part of the passive TLS/SSL fingerprint
+pipeline and are not implemented by decrypting HTTPS responses in the
+banner-grab phase.
+
+The phase MUST be configured per `SweepProfile` and MUST be disabled
+by default. The phase MUST honour a configurable per-protocol port
+allowlist, per-host rate limit, global concurrency cap, optional
+probe-rate limit, bounded candidate queue, bounded match-batch queue,
+minimum re-probe interval, connect timeout, and read timeout. The phase
+MUST NOT run against ports not in the profile's banner-grab port
+allowlist. The phase MUST treat banner grabbing as a streaming
+enrichment pipeline over SYN-confirmed open ports, not as an in-memory
+second scanner: resource use MUST remain bounded by configured
+concurrency, queue, timeout, and batch-size limits while allowing the
+phase to process every eligible candidate when the operator chooses to
+pay the elapsed-time and outbound-traffic cost. The phase MUST
+gracefully treat connection reset, read timeout, and partial banner as
+"no banner" without retrying aggressively.
 
 #### Scenario: Banner grab disabled by default
 - **WHEN** a new `SweepProfile` is created via the API or UI
@@ -639,7 +646,7 @@ and the HTTP `Server:` header (extracted after TLS termination using
 
 #### Scenario: Banner grab fires only against confirmed-live targets
 - **WHEN** a sweep profile has `banner_grab.enabled = true` and ports
-  `[22, 80, 443]` in its allowlist
+  `[22, 80]` in its allowlist
 - **AND** the SYN scan against a /24 subnet identifies 12 live hosts
   with port 22 open and 8 live hosts with port 80 open
 - **THEN** the banner-grab phase issues 20 outbound 3-way TCP
@@ -648,32 +655,26 @@ and the HTTP `Server:` header (extracted after TLS termination using
   did not respond to the SYN scan
 - **AND** does NOT probe any other port on any host
 
-#### Scenario: HTTPS banner grab captures both cert and Server header
-- **WHEN** the banner-grab phase probes `192.0.2.10:443` via HTTPS
-- **THEN** the phase performs a TLS handshake with
-  `InsecureSkipVerify = true`
-- **AND** captures the server certificate Subject CN, SAN, Issuer,
-  cipher suite, and ALPN choice into
-  `BannerObservation.tls_cert_summary`
-- **AND** sends `HEAD / HTTP/1.0\r\n\r\n` over the established TLS
-  connection
-- **AND** reads up to `max_banner_bytes` of decrypted response
-- **AND** captures the HTTP `Server:` header value into
-  `BannerObservation.banner_bytes`
+#### Scenario: HTTPS is not actively decrypted by banner grab
+- **WHEN** the SYN scan finds port 443 open on `192.0.2.10`
+- **AND** the sweep profile has no cleartext banner protocol allowlist
+  entry for that port
+- **THEN** the banner-grab phase does not perform a TLS handshake or
+  send `HEAD /` over TLS
+- **AND** TLS / SSL classification for that endpoint is left to the
+  passive TLS fingerprint pipeline
 
-#### Scenario: BannerObservation routed to netprobe for matching
-- **WHEN** a banner-grab probe successfully captures a banner from
-  `192.0.2.10:22`
+#### Scenario: Banner observations routed to netprobe for matching
+- **WHEN** banner-grab probes capture 256 SSH / HTTP observations
 - **AND** netprobe is running and healthy on the agent host
-- **THEN** the agent invokes
-  `MatchBanner(BannerObservation { host: "192.0.2.10", port: 22,
-  protocol: "ssh", banner_bytes: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.4\r\n",
-  ... })` over the existing UDS
-- **AND** netprobe matches the banner against the Recog SSH-banner
-  corpus
-- **AND** netprobe emits a `FingerprintEvent` on its
-  `FingerprintEvents` stream carrying the matched label and
-  `source = sweep_active`
+- **THEN** the agent invokes `MatchBanners(BannerBatch { observations:
+  [...] })` over the existing UDS
+- **AND** netprobe matches each observation against Recog and Satori
+  without opening outbound sockets
+- **AND** netprobe returns one `BannerMatch` per observation with the
+  input sequence preserved
+- **AND** the agent emits or forwards `FingerprintEvent` records carrying
+  the matched labels and `source = sweep_active`
 
 #### Scenario: Banner grab gracefully handles unresponsive endpoints
 - **WHEN** a banner-grab probe to a live port establishes the
@@ -685,29 +686,30 @@ and the HTTP `Server:` header (extracted after TLS termination using
   `sweep_banner_grab_empty_response_total` counter
 - **AND** does NOT retry the probe within the same sweep cycle
 
-#### Scenario: Rate-limit ceiling enforced
+#### Scenario: Concurrency and rate ceilings are enforced without dropping candidates
 - **WHEN** a sweep profile has `banner_grab.max_global_concurrency = 256`
 - **AND** `banner_grab.max_probe_rate_per_second = 200`
 - **AND** the SYN scan identifies 5,000 live `(host, port)` pairs
 - **THEN** the banner-grab phase processes at most 256 probes
   in-flight at any time
-- **AND** completes the full 5,000-probe set across multiple batches
-- **AND** never exceeds 256 concurrent outbound TCP connects from
-  the banner-grab subsystem
 - **AND** starts no more than 200 new banner-grab probes per second
+- **AND** eventually attempts all 5,000 eligible candidates unless the
+  sweep is cancelled, the agent stops, or the operator-configured
+  freshness / backoff gates skip a candidate
 
-#### Scenario: Large inventory preserves SYN-scan latency
-- **WHEN** the SYN half-open scanner identifies 50,000 live
+#### Scenario: Large inventory stays bounded while processing all eligible candidates
+- **WHEN** the SYN half-open scanner identifies 1,000,000 live
   allowlisted `(host, port)` pairs in a large inventory
-- **AND** `banner_grab.max_probes_per_cycle = 5,000`
-- **THEN** the banner-grab phase attempts at most 5,000 full TCP
-  handshakes during that sweep cycle
-- **AND** records the remaining 45,000 candidates as deferred, not
-  failed
-- **AND** the sweep service can publish the SYN-scan reachability
-  result without waiting for those deferred banner-grab candidates
-- **AND** subsequent cycles select deferred candidates by stable hash
-  or cursor so the same hosts are not repeatedly preferred
+- **AND** `banner_grab.max_global_concurrency = 2048`
+- **AND** `banner_grab.max_candidate_queue = 8192`
+- **AND** `banner_grab.match_batch_size = 256`
+- **THEN** the banner-grab phase never has more than 2048 active
+  outbound probe sockets
+- **AND** never buffers more than 8192 pending candidates in memory
+- **AND** sends successful observations to netprobe in bounded batches
+  instead of one IPC request per banner
+- **AND** can continue until every eligible candidate is attempted
+  without materializing a 1,000,000-entry worklist in memory
 
 #### Scenario: Fresh banner results are not reprobed every cycle
 - **WHEN** a target `192.0.2.10:22` produced a banner match 30 minutes
