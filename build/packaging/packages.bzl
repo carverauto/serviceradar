@@ -93,6 +93,52 @@ PACKAGES = {
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
     },
+    "bumblebee-scan": {
+        "package_name": "serviceradar-bumblebee-scan",
+        "description": "Optional ServiceRadar Bumblebee root scanner add-on",
+        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+        "architecture": "amd64",
+        "section": "utils",
+        "priority": "optional",
+        "deb_depends": ["systemd", "serviceradar-agent"],
+        "rpm_requires": ["systemd", "serviceradar-agent"],
+        "files": [
+            {
+                "src": "//go/cmd/bumblebee-scan:bumblebee_scan",
+                "dest": "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+                "mode": "0755",
+            },
+            {
+                "src": "config/bumblebee-scan.json",
+                "dest": "/etc/serviceradar/bumblebee-scan.json",
+                "mode": "0640",
+                "rpm_filetag": "config(noreplace)",
+            },
+            {
+                "src": "systemd/serviceradar-bumblebee-scan.service",
+                "dest": "/lib/systemd/system/serviceradar-bumblebee-scan.service",
+                "mode": "0644",
+            },
+            {
+                "src": "systemd/serviceradar-bumblebee-scan.timer",
+                "dest": "/lib/systemd/system/serviceradar-bumblebee-scan.timer",
+                "mode": "0644",
+            },
+        ],
+        "directories": [
+            {"path": "/var/lib/serviceradar/bumblebee", "mode": "0750"},
+            {"path": "/var/lib/serviceradar/bumblebee/cache", "mode": "0750"},
+            {"path": "/var/lib/serviceradar/bumblebee/catalog", "mode": "0750"},
+            {"path": "/var/lib/serviceradar/bumblebee/spool", "mode": "0750"},
+            {"path": "/var/lib/serviceradar/bumblebee/spool/runs", "mode": "0750"},
+            {"path": "/var/lib/serviceradar/bumblebee/tmp", "mode": "0750"},
+        ],
+        "postinst": "scripts/postinstall.sh",
+        "prerm": "scripts/preremove.sh",
+        "conffiles": [
+            "/etc/serviceradar/bumblebee-scan.json",
+        ],
+    },
     "core-elx": {
         "package_name": "serviceradar-core-elx",
         "description": "ServiceRadar Core Elixir service (core-elx)",

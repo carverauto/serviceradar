@@ -35,10 +35,12 @@ minimal for operations groups that do not want privileged local exposure
 scanning on every agent host.
 
 Bumblebee should be deployed as an explicit native capability add-on through
-Edge Ops feature-set deployment. The add-on is expected to carry the root helper,
+Edge Ops feature-set deployment. On Linux this add-on is packaged as
+`serviceradar-bumblebee-scan`; it carries the root helper,
 `serviceradar-bumblebee-scan.service`, `serviceradar-bumblebee-scan.timer`, the
 scanner config, and the `/var/lib/serviceradar/bumblebee` state directory
-ownership/permissions. The main agent remains the same binary and only reports
+ownership/permissions. The package reloads systemd but does not enable or start
+the timer by default. The main agent remains the same binary and only reports
 Bumblebee posture when its optional `bumblebee` config is enabled.
 
 The helper vendors the pinned Bumblebee scanner implementation and runs it
@@ -50,6 +52,14 @@ no shell-out to another scanner binary.
 When the native capability add-on is installed, its root scanner config lives at
 `/etc/serviceradar/bumblebee-scan.json`. It should be disabled until Edge Ops or
 a local operator explicitly enables it.
+
+Install the Linux add-on only on hosts approved for privileged local scanning:
+
+```bash
+sudo apt install serviceradar-bumblebee-scan
+# or
+sudo dnf install serviceradar-bumblebee-scan
+```
 
 Set the scanner config to enabled and use the reporting agent ID:
 

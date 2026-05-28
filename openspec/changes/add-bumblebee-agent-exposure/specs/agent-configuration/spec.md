@@ -55,6 +55,7 @@ The system SHALL run full-system Bumblebee scans through a dedicated root-owned 
 - **WHEN** the add-on is installed on a Linux host
 - **THEN** it SHALL install the root-owned scanner helper, scanner config, systemd service, systemd timer, and spool directory permissions
 - **AND** the existing non-root `serviceradar-agent` SHALL report the sanitized spool without requiring a different agent package
+- **AND** the add-on SHALL NOT enable or start the timer until Edge Ops or a local operator explicitly activates the capability
 
 #### Scenario: Non-root agent ingests sanitized output
 - **GIVEN** the root-owned scanner service completes a Bumblebee scan

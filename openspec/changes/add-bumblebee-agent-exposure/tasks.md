@@ -15,7 +15,7 @@
 - [ ] 3.1 Extend agent config protobufs and config compilers with opt-in Bumblebee profile settings.
 - [x] 3.2 Add local Bumblebee config override and cache paths under the agent filesystem conventions.
 - [x] 3.3 Add scanner-service root discovery for current user, all local user homes, `/root`, and explicit operator roots with bounded allow/deny policy.
-- [ ] 3.4 Package the pinned Bumblebee scanner service, systemd unit/timer, and non-root-readable sanitized output spool as an optional native capability bundle for Linux; define the macOS launchd equivalent or mark macOS as follow-up.
+- [x] 3.4 Package the pinned Bumblebee scanner service, systemd unit/timer, and non-root-readable sanitized output spool as an optional native capability bundle for Linux; macOS launchd packaging is follow-up.
 - [x] 3.5 Keep the base `serviceradar-agent` package from installing or enabling Bumblebee root components by default.
 
 ## 4. Agent Execution And Ingest
