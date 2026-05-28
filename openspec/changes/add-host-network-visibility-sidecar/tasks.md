@@ -167,7 +167,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 18. [Phase 3] eBPF programs
 
-- [ ] 18.1 Add `aya`, `aya-ebpf`, `aya-log`, `procfs` to `Cargo.toml`.
+- [x] 18.1 Add `aya`, `aya-ebpf`, `aya-log`, `procfs` to `Cargo.toml`.
 - [ ] 18.2 Author eBPF programs under `rust/netprobe/ebpf/` (kprobes on `tcp_connect`, `inet_csk_accept`, `tcp_close`, UDP sendmsg/recvmsg, `inet_sock_set_state`).
 - [ ] 18.3 Pin BPF maps under `/sys/fs/bpf/serviceradar/netprobe/` with `0700` perms so restart reattaches.
 - [ ] 18.4 Implement userspace map readers correlating 5-tuples to PIDs via `procfs`.

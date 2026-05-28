@@ -27,8 +27,18 @@ NETPROBE_DEPS = crate_deps([
 ]) + select({
     "//build/platforms:target_linux_aarch64_musl": [],
     "//build/platforms:target_linux_x86_64_musl": [],
-    "//build/platforms:target_linux_arm64": crate_deps(["pcap"]) + ["//third_party/libpcap:pcap"],
-    "//build/platforms:target_linux_x86_64": crate_deps(["pcap"]) + ["//third_party/libpcap:pcap"],
+    "//build/platforms:target_linux_arm64": crate_deps([
+        "aya",
+        "aya-log",
+        "pcap",
+        "procfs",
+    ]) + ["//third_party/libpcap:pcap"],
+    "//build/platforms:target_linux_x86_64": crate_deps([
+        "aya",
+        "aya-log",
+        "pcap",
+        "procfs",
+    ]) + ["//third_party/libpcap:pcap"],
     "//conditions:default": crate_deps(["pcap"]),
 }) + [
     ":build_script",
