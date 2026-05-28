@@ -920,6 +920,120 @@ case), security review (eBPF capability surface).
   rewrite of §18.10 onto the p0f lookup table, and the curation
   workflow for `serviceradar-additions.fp`.
 
+### D15. Multi-corpus fingerprint ensemble (MuonFP + Recog + Satori)
+
+- **Decision.** D14's license-clean stack (p0f + JA4-base + HASSH) is
+  the *foundation*. Layered on top of it, `serviceradar-netprobe`
+  SHALL incorporate three additional permissively-licensed corpora to
+  expand fingerprint coverage by an order of magnitude:
+
+  1. **MuonFP** (Censys, MIT) — a second TCP SYN fingerprint matcher,
+     **parallel** to p0f (not a replacement). Modern corpus actively
+     maintained against current OS releases; complements p0f's
+     legacy-strong / modern-thin coverage shape.
+  2. **Recog** (Rapid7, BSD-2-Clause-Views) — ~15,000+ banner /
+     service-string fingerprints. Pattern-matched against output of
+     the existing DPI dissectors: HTTP `Server:` header, SSH banner,
+     FTP / Telnet / SMB / SNMP / SIP / RDP / DNS banner strings. Each
+     fingerprint maps to OS / vendor / product / version. This is the
+     single biggest corpus addition and the dominant accuracy lever.
+  3. **Satori** (CrowdStrike SIG, BSD-3-Clause) — ~1,000+ DHCP option
+     fingerprints. Pattern-matched against DHCP DISCOVER / REQUEST
+     options observed via a new Phase 2 DHCP DPI dissector. Highly
+     device-class-precise (printers, IP phones, IoT devices, network
+     gear) when DHCP traffic is observable.
+
+  The ensemble matcher fuses all observable axes — TCP SYN, TLS
+  ClientHello, SSH KEXINIT, HTTP banner, SSH banner, SMB / FTP /
+  Telnet / SNMP banners, DHCP options — into one `OsMatch` per
+  device, with confidence weighted by *corpus agreement count*. A
+  device producing matching p0f + MuonFP + Recog-HTTP + JA4 all
+  agreeing on `Ubuntu 22.04` gets the highest confidence tier; a
+  device producing only p0f gets the lowest.
+
+  Combined corpus reach: ~17,000+ license-clean fingerprints across
+  ~8 independent observation axes. For context, huginn-net's p0f-only
+  reach is ~400. This is the "big database" direction.
+- **License audit of the new corpora.**
+  - **MuonFP** — MIT, Censys publicly ships it without a FoxIO OEM
+    agreement (so far as is externally visible). We adopt it under
+    MIT and document the assumption that Censys's posture covers
+    derivative commercial use. Quarterly licensing review per the
+    §31.13 CI lint.
+  - **Recog** — BSD-2-Clause-Views (Rapid7's modified BSD-2 retaining
+    Rapid7 attribution requirements). Permissive for commercial use;
+    requires LICENSE / NOTICE preservation. Used by Metasploit Pro
+    and InsightVM commercially, so the licensing is well-tested at
+    Rapid7's own commercial scale.
+  - **Satori** — BSD-3-Clause. CrowdStrike SIG's standard permissive
+    license. No restrictions.
+- **Alternatives considered (and rejected).**
+  - **Nmap `nmap-os-db`** (~6,000 active OS fingerprints). Rejected
+    on licensing grounds. Nmap Public Source License is a modified
+    GPLv2 with redistribution restrictions; not commercial-compatible.
+    Rapid7 fought this exact battle over Metasploit's Nmap bundling
+    in 2009 and lost. Do not bundle.
+  - **Fingerbank** (Akamai / Inverse, ~50k+ DHCP/MAC fingerprints).
+    Rejected on licensing grounds. Free tier non-commercial only;
+    commercial use requires paid API key, which doesn't fit our
+    embedded-in-the-product model. Satori covers the DHCP axis under
+    a permissive license at smaller but adequate scale.
+  - **PRADS** signature DB. Rejected — GPLv2 viral.
+  - **Shodan corpus.** Rejected — closed commercial.
+- **Rationale.**
+  - **Corpus size is the dominant accuracy lever.** Going from ~400
+    signatures (huginn-net's p0f) to ~17,000+ across multiple axes is
+    a far bigger accuracy win than any algorithmic improvement we can
+    make to a single canonical-form encoder.
+  - **Independent axes shrink false positives.** Three corpora
+    matching the same OS family with three different observable
+    surfaces (TCP + HTTP banner + SSH banner) yields far higher
+    confidence than three different signatures over the same
+    surface. The ensemble explicitly rewards cross-axis agreement.
+  - **All three corpora are actively maintained.** Recog merges
+    Rapid7's research output, Satori tracks current device releases,
+    MuonFP tracks modern OSes — together they keep ServiceRadar's
+    fingerprint surface current without huginn-net's frozen-2014
+    baggage.
+  - **No new packet-capture surface required for Recog.** The Phase 2
+    DPI dissectors (HTTP, TLS, SSH, FTP, etc.) already extract the
+    banner strings Recog patterns match against. The integration is
+    "consume what we already see" — Recog matchers fire from the
+    dissector callbacks, no additional kernel work.
+- **Trade-offs.**
+  - **Recog XML format requires a parser.** The Recog corpus is XML
+    with embedded regex patterns. ~400 LOC Rust using `quick-xml`,
+    with compile-time regex codegen via `regex-automata` so runtime
+    matching is allocation-free finite-automata work. Build-time
+    cost: ~30s incremental rebuild on a typical dev machine when the
+    corpus version changes.
+  - **DHCP observability is L2-bounded.** Satori only fires when the
+    agent sees DHCP traffic, which means the agent must be on the
+    same broadcast domain as the device being discovered (or sitting
+    behind a DHCP relay that mirrors traffic). Acceptable for the
+    common deployment shape but worth documenting; UI surfaces the
+    `dhcp_observed` flag per device so operators know the limitation.
+  - **Binary size impact.** Compiled Recog (~15k regex patterns into
+    `regex-automata` DFAs) adds ~2-4 MiB to the static musl binary.
+    p0f + MuonFP + Satori combined add another ~500 KiB. Total
+    fingerprint surface adds ~3-5 MiB. Acceptable on agents running
+    on 4+ GB hosts; flagged in the §32 validation gate so we catch
+    if compression / DFA-minimization options become available.
+  - **Recog upstream cadence.** Rapid7 ships Recog updates roughly
+    monthly. We track an upstream pinned release and bump it
+    quarterly; net-new ServiceRadar additions land in
+    `serviceradar-recog-additions.xml` between bumps.
+- **Implementation surface.** Phase 1 amendment §32 in `tasks.md`
+  lays out the work: vendor MuonFP / Recog / Satori corpora, build
+  the Recog XML → compile-time regex-DFA codegen, build the Satori
+  parser, add a Phase-2 DHCP DPI dissector (~150 LOC) so Satori has
+  observable input, wire MuonFP into the kprobe as a parallel TCP
+  signature, extend the §31.9 ensemble matcher to fuse all axes,
+  extend the `LicenseCleanFingerprint` proto to carry the additional
+  match labels, extend `PingAck` to report all corpus revisions, and
+  extend the §31.13 CI license-lint with an allowlist that catches
+  unauthorized corpus additions.
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |

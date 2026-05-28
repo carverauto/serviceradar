@@ -12,21 +12,25 @@ runs:
    OS or vendor evidence beyond what the importing system already
    supplied. Issue
    [#3423](https://forgejo/issues/3423) covers this gap. ServiceRadar's
-   answer is a **license-clean signature stack** (see D14): the
-   public-domain p0f canonical fingerprint computed inside the eBPF
-   kprobe as the primary classifier, paired with JA4 base
-   (BSD-3-Clause, patent-disclaimed by FoxIO) for TLS ClientHello and
-   HASSH (BSD-3-Clause) for SSH as confidence-boosting signals. The
-   `huginn-net` crate is dropped from the dependency set; the p0f
-   signature corpus is retained in-tree, vendored under
-   `rust/netprobe/p0f-corpus/`, with our own ~300 LOC `p0f.fp` parser
-   and a curation path for ServiceRadar additions. The encumbered
-   parts of FoxIO's JA4+ family (JA4T, JA4H, JA4S, JA4SSH, JA4X) are
-   explicitly *not* used — their FoxIO License 1.1 terms and
-   patent-pending posture are incompatible with ServiceRadar's
-   commercial sale. Computing p0f canonical form in-kernel is
-   genuinely ahead of the current commercial state of the art for
-   passive OS fingerprinting.
+   answer is a **license-clean multi-corpus fingerprint ensemble**
+   (see D14 + D15): the public-domain p0f canonical fingerprint
+   computed inside the eBPF kprobe as the foundation, supplemented by
+   five permissively-licensed corpora — MuonFP (Censys, MIT) as a
+   parallel TCP signature; Recog (Rapid7, BSD-2-Clause-Views) for
+   HTTP / SSH / SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner
+   fingerprints; Satori (CrowdStrike SIG, BSD-3-Clause) for DHCP
+   option fingerprints; JA4 base (BSD-3, FoxIO patent-disclaimed) for
+   TLS ClientHello; and HASSH (BSD-3) for SSH KEXINIT. Combined corpus
+   reach: ~17,000+ fingerprints across ~8 independent observation
+   axes, vs huginn-net's p0f-only ~400. The `huginn-net` crate is
+   dropped from the dependency set. The encumbered parts of FoxIO's
+   JA4+ family (JA4T, JA4H, JA4S, JA4SSH, JA4X) are explicitly *not*
+   used — their FoxIO License 1.1 terms and patent-pending posture
+   are incompatible with ServiceRadar's commercial sale. Computing
+   p0f canonical form in-kernel is genuinely ahead of the current
+   commercial state of the art for passive OS fingerprinting; the
+   multi-corpus ensemble on top of it pushes accuracy further by
+   layering independent observation axes.
 2. **NetFlow records are anonymous at the endpoint.** The existing
    `flow-collector` ingests sFlow / NetFlow from switches, but a record
    like `192.0.2.10:51234 → 198.51.100.5:443, 10 MB` does not tell an

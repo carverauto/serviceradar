@@ -180,8 +180,78 @@ prohibit commercial-product resale without an OEM license.
 #### Scenario: Corpus revisions reported in Ping reply
 - **WHEN** the agent issues `Ping` to the sidecar
 - **THEN** the `PingAck` reply includes the `p0f.fp` corpus revision,
-  the `serviceradar-additions.fp` revision, and the JA4-base spec
-  revision the sidecar was built against
+  the `serviceradar-additions.fp` revision, the MuonFP corpus
+  revision, the Recog corpus revision, the Satori corpus revision,
+  and the JA4-base spec revision the sidecar was built against
+
+### Requirement: Multi-corpus banner and DHCP fingerprint ensemble
+
+`serviceradar-netprobe` SHALL additionally classify observed devices
+using three permissively-licensed corpora layered on top of the
+license-clean stack: MuonFP (TCP, MIT) as a parallel TCP signature
+matcher to p0f; Recog (banners, BSD-2-Clause-Views) for HTTP `Server`,
+SSH banner, SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner strings
+extracted by the existing DPI dissectors; and Satori (DHCP, BSD-3) for
+DHCP DISCOVER / REQUEST option fingerprints extracted by a new DHCP
+DPI dissector. Recog patterns MUST be compiled at build time into
+finite-automata via `regex-automata` so runtime matching is
+allocation-free. The OS-match ensemble matcher MUST fuse all observable
+axes (TCP SYN, TLS ClientHello, SSH KEXINIT, HTTP banner, SSH banner,
+SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banners, DHCP options) and
+MUST weight final confidence by the number of corpora agreeing on the
+same OS family. No additional packet-capture surface beyond the
+existing DPI dissectors is permitted; Recog and Satori consume what
+the dissectors already see.
+
+#### Scenario: HTTP Server header matched against Recog
+- **WHEN** the DPI HTTP/1 dissector extracts a `Server:` header value
+  matching a pattern in the compiled-in Recog corpus
+- **THEN** the emitted `FingerprintEvent` carries the matched Recog
+  label (e.g., `os.product = Ubuntu`, `os.version = 22.04`,
+  `service.product = Apache`, `service.version = 2.4.52`)
+- **AND** if the Recog match agrees with the p0f match on OS family,
+  the ensemble confidence is boosted above either-alone baseline
+
+#### Scenario: SSH banner matched against Recog
+- **WHEN** the DPI SSH dissector extracts the SSH protocol banner
+  string (e.g., `SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.4`) matching a
+  Recog pattern
+- **THEN** the emitted `FingerprintEvent` carries the matched Recog
+  label including OS distribution + version
+- **AND** if HASSH on the same flow agrees on OS family, ensemble
+  confidence is boosted further
+
+#### Scenario: DHCP options matched against Satori
+- **WHEN** the new DHCP DPI dissector extracts the DHCP option-list
+  fingerprint from a DISCOVER or REQUEST packet matching a Satori
+  signature
+- **THEN** the emitted `FingerprintEvent` carries the matched Satori
+  label (device class, vendor, OS-family hint)
+- **AND** the `dhcp_observed = true` flag is set on the device record
+  so operators know DHCP-axis fingerprinting was active
+
+#### Scenario: MuonFP parallel TCP signature boosts confidence
+- **WHEN** the same SYN produces both a p0f match (`linux`) and a
+  MuonFP match (`linux`)
+- **THEN** the emitted `FingerprintEvent` carries both signatures
+- **AND** the TCP-axis confidence is boosted above either-alone
+  baseline
+
+#### Scenario: Full-ensemble cross-axis agreement
+- **WHEN** the same device produces matching p0f (TCP), MuonFP (TCP),
+  Recog-HTTP-banner, JA4 (TLS), HASSH (SSH), and Satori (DHCP) all
+  agreeing on the same OS family
+- **THEN** the emitted `FingerprintEvent` carries all six signatures
+- **AND** the `os_match.confidence` is at the highest ensemble tier
+- **AND** the `agreement_count` is 6
+
+#### Scenario: Recog and Satori absent without observable input
+- **WHEN** a device produces only TCP SYN traffic (no HTTP, TLS, SSH,
+  or DHCP observed)
+- **THEN** the emitted `FingerprintEvent` carries only the p0f /
+  MuonFP TCP-axis signatures
+- **AND** the Recog and Satori match fields are absent
+- **AND** the `dhcp_observed` flag is false
 
 ### Requirement: Deep packet inspection with privacy-by-default
 
