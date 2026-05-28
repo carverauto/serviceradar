@@ -46,10 +46,8 @@ const (
 	StateStopped     State = "stopped"
 	StateStarting    State = "starting"
 	StateRunning     State = "running"
-	StateHealthy     State = "healthy"
 	StateUnhealthy   State = "unhealthy"
 	StateRestarting  State = "restarting"
-	StateFailed      State = "failed"
 	StateCircuitOpen State = "circuit_open"
 )
 

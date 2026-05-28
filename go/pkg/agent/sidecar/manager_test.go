@@ -59,7 +59,7 @@ while true; do sleep 1; done
 	}
 
 	waitForStatus(t, mgr, "netprobe", func(status Status) bool {
-		return status.State == StateHealthy && status.PID > 0
+		return status.State == StateRunning && status.PID > 0
 	})
 	status := statusByName(t, mgr, "netprobe")
 	if got, want := status.SocketPath, filepath.Join(dir, "run", "netprobe", "ipc.sock"); got != want {

@@ -26,7 +26,7 @@ func TestToProtoStatuses(t *testing.T) {
 
 	got := ToProtoStatuses([]Status{{
 		Name:         "netprobe",
-		State:        StateHealthy,
+		State:        StateRunning,
 		PID:          1234,
 		LastHealthAt: lastHealth,
 		RestartCount: 2,
@@ -40,8 +40,8 @@ func TestToProtoStatuses(t *testing.T) {
 	if status.GetName() != "netprobe" {
 		t.Fatalf("Name = %q, want netprobe", status.GetName())
 	}
-	if status.GetState() != string(StateHealthy) {
-		t.Fatalf("State = %q, want %q", status.GetState(), StateHealthy)
+	if status.GetState() != string(StateRunning) {
+		t.Fatalf("State = %q, want %q", status.GetState(), StateRunning)
 	}
 	if status.GetPid() != 1234 {
 		t.Fatalf("Pid = %d, want 1234", status.GetPid())

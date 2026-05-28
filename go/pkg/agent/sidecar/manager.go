@@ -425,7 +425,7 @@ func (m *Manager) setHealthy(name string, pid int) {
 	if !ok {
 		return
 	}
-	rec.status.State = StateHealthy
+	rec.status.State = StateRunning
 	rec.status.PID = pid
 	rec.status.LastHealthAt = time.Now().UTC()
 	rec.status.LastError = ""

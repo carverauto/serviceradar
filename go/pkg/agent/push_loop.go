@@ -3741,7 +3741,7 @@ func hasHealthyNetprobeSidecar(sidecars []*proto.SidecarStatus) bool {
 		if status == nil {
 			continue
 		}
-		if strings.EqualFold(status.GetName(), "netprobe") && status.GetState() == string(sidecar.StateHealthy) {
+		if strings.EqualFold(status.GetName(), "netprobe") && status.GetState() == string(sidecar.StateRunning) {
 			return true
 		}
 	}

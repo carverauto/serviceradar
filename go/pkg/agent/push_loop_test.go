@@ -80,7 +80,7 @@ func TestBuildStatusSignatureDetectsAvailabilityChange(t *testing.T) {
 
 func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars(t *testing.T) {
 	sidecars := []*proto.SidecarStatus{
-		{Name: "netprobe", State: "healthy", Pid: 1234, RestartCount: 1},
+		{Name: "netprobe", State: "running", Pid: 1234, RestartCount: 1},
 	}
 
 	resp := buildAgentCapabilityStatusResponse(
@@ -143,7 +143,7 @@ func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 		&Server{
 			config: &ServerConfig{AgentID: "agent-1", Partition: "default"},
 			sidecarStatus: fakeSidecarStatusProvider{
-				statuses: []sidecar.Status{{Name: "netprobe", State: sidecar.StateHealthy, PID: 4321}},
+				statuses: []sidecar.Status{{Name: "netprobe", State: sidecar.StateRunning, PID: 4321}},
 			},
 		},
 		nil,
