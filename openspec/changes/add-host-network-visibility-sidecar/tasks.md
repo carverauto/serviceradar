@@ -152,7 +152,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 16.5 Activate the `DpiEvents` stream channel (placeholder reserved in Phase 1).
 - [x] 16.6 Emit `DpiEvent` records carrying `{5-tuple, protocol, confidence, observed_at}` only.
 - [x] 16.7 Per-protocol toggles honour `VisibilityProfile.dpi.protocols`.
-- [ ] 16.8 Unit tests per dissector with PCAP fixtures.
+- [x] 16.8 Unit tests per dissector with PCAP fixtures.
 
 ### 17. [Phase 2] DPI ingestion + storage + UI
 

@@ -384,46 +384,60 @@ fn classify_bittorrent(flow: &Flow, payload: &[u8]) -> Option<f32> {
 mod tests {
     use super::DpiPipeline;
 
+    struct DpiCase {
+        protocol: &'static str,
+        dissector_id: &'static str,
+        packet: Vec<u8>,
+    }
+
     #[test]
     fn classifies_phase2_protocols_without_payload_fields() {
-        let cases = [
-            (
-                "http1",
-                tcp_packet(49152, 80, b"GET /secret HTTP/1.1\r\nHost: example\r\n\r\n"),
-            ),
-            (
-                "http2",
-                tcp_packet(49152, 8080, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"),
-            ),
-            ("tls", tcp_packet(49152, 443, &tls_client_hello_with_sni())),
-            ("dns", udp_packet(49152, 53, &dns_query_header())),
-            ("ssh", tcp_packet(22, 49152, b"SSH-2.0-OpenSSH_9.9\r\n")),
-            ("ftp", tcp_packet(21, 49152, b"220 ready\r\n")),
-            ("quic", udp_packet(443, 49152, &[0x80, 0, 0, 0, 0, 1])),
-            ("mqtt", tcp_packet(49152, 1883, &mqtt_connect_header())),
-            (
-                "bittorrent",
-                tcp_packet(
-                    49152,
-                    6881,
-                    b"\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00",
-                ),
-            ),
-        ];
         let pipeline = DpiPipeline::phase2();
 
-        for (want_protocol, packet) in cases {
-            let events = pipeline.analyze_packet("eth0", 123, &packet);
+        for case in dpi_cases() {
+            let events = pipeline.analyze_packet("eth0", 123, &case.packet);
 
-            assert_eq!(events.len(), 1, "expected one event for {want_protocol}");
+            assert_eq!(events.len(), 1, "expected one event for {}", case.protocol);
             let event = &events[0];
-            assert_eq!(event.protocol, want_protocol);
+            assert_eq!(event.protocol, case.protocol);
+            assert_eq!(event.dissector_id, case.dissector_id);
             assert_eq!(event.source_ip, "192.0.2.10");
             assert_eq!(event.destination_ip, "198.51.100.20");
             assert_eq!(event.interface_name, "eth0");
             assert_eq!(event.observed_at_unix_nano, 123);
             assert!(event.confidence > 0.5);
-            assert!(!event.dissector_id.is_empty());
+        }
+    }
+
+    #[cfg(feature = "pcap-capture")]
+    #[test]
+    fn classifies_each_phase2_protocol_from_pcap_fixtures() {
+        use std::io::Write;
+
+        let pipeline = DpiPipeline::phase2();
+
+        for case in dpi_cases() {
+            let mut file = tempfile::NamedTempFile::new().unwrap();
+            file.write_all(&fixture_pcap(&[case.packet])).unwrap();
+
+            let mut capture = pcap::Capture::from_file(file.path()).unwrap();
+            let packet = capture.next_packet().unwrap();
+            let events = pipeline.analyze_packet("eth0", 456, packet.data);
+
+            assert_eq!(
+                events.len(),
+                1,
+                "expected one pcap fixture event for {}",
+                case.protocol
+            );
+            let event = &events[0];
+            assert_eq!(event.protocol, case.protocol);
+            assert_eq!(event.dissector_id, case.dissector_id);
+            assert_eq!(event.source_ip, "192.0.2.10");
+            assert_eq!(event.destination_ip, "198.51.100.20");
+            assert_eq!(event.interface_name, "eth0");
+            assert_eq!(event.observed_at_unix_nano, 456);
+            assert!(event.confidence > 0.5);
         }
     }
 
@@ -451,6 +465,60 @@ mod tests {
 
     fn udp_packet(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<u8> {
         ipv4_packet(17, source_port, destination_port, payload)
+    }
+
+    fn dpi_cases() -> Vec<DpiCase> {
+        vec![
+            DpiCase {
+                protocol: "http1",
+                dissector_id: "http1_start_line",
+                packet: tcp_packet(49152, 80, b"GET /secret HTTP/1.1\r\nHost: example\r\n\r\n"),
+            },
+            DpiCase {
+                protocol: "http2",
+                dissector_id: "http2_cleartext_preface",
+                packet: tcp_packet(49152, 8080, b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"),
+            },
+            DpiCase {
+                protocol: "tls",
+                dissector_id: "tls_sni",
+                packet: tcp_packet(49152, 443, &tls_client_hello_with_sni()),
+            },
+            DpiCase {
+                protocol: "dns",
+                dissector_id: "dns_header",
+                packet: udp_packet(49152, 53, &dns_query_header()),
+            },
+            DpiCase {
+                protocol: "ssh",
+                dissector_id: "ssh_banner",
+                packet: tcp_packet(22, 49152, b"SSH-2.0-OpenSSH_9.9\r\n"),
+            },
+            DpiCase {
+                protocol: "ftp",
+                dissector_id: "ftp_control",
+                packet: tcp_packet(21, 49152, b"220 ready\r\n"),
+            },
+            DpiCase {
+                protocol: "quic",
+                dissector_id: "quic_version_negotiation",
+                packet: udp_packet(443, 49152, &[0x80, 0, 0, 0, 0, 1]),
+            },
+            DpiCase {
+                protocol: "mqtt",
+                dissector_id: "mqtt_fixed_header",
+                packet: tcp_packet(49152, 1883, &mqtt_connect_header()),
+            },
+            DpiCase {
+                protocol: "bittorrent",
+                dissector_id: "bittorrent_handshake",
+                packet: tcp_packet(
+                    49152,
+                    6881,
+                    b"\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00",
+                ),
+            },
+        ]
     }
 
     fn ipv4_packet(
@@ -557,5 +625,27 @@ mod tests {
         packet.extend_from_slice(b"MQTT");
         packet.extend_from_slice(&[0x04, 0x02, 0x00, 0x3c]);
         packet
+    }
+
+    #[cfg(feature = "pcap-capture")]
+    fn fixture_pcap(packets: &[Vec<u8>]) -> Vec<u8> {
+        let mut pcap = Vec::new();
+        pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
+        pcap.extend_from_slice(&2u16.to_le_bytes());
+        pcap.extend_from_slice(&4u16.to_le_bytes());
+        pcap.extend_from_slice(&0i32.to_le_bytes());
+        pcap.extend_from_slice(&0u32.to_le_bytes());
+        pcap.extend_from_slice(&65_535u32.to_le_bytes());
+        pcap.extend_from_slice(&101u32.to_le_bytes());
+
+        for packet in packets {
+            pcap.extend_from_slice(&1u32.to_le_bytes());
+            pcap.extend_from_slice(&0u32.to_le_bytes());
+            pcap.extend_from_slice(&(packet.len() as u32).to_le_bytes());
+            pcap.extend_from_slice(&(packet.len() as u32).to_le_bytes());
+            pcap.extend_from_slice(packet);
+        }
+
+        pcap
     }
 }
