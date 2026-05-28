@@ -67,6 +67,18 @@ operator UX. One sidecar plus one streaming-RPC surface — wrapped in
 ServiceRadar's existing RBAC, audit, and mTLS transport — gives all
 four use cases for the cost of one.
 
+Closing the inventory-discovery gap further, the change also adds an
+**active banner-grab phase** to the existing sweep service
+(`go/pkg/scan/`, where the lightning-fast SYN half-open scanner
+already lives). Sweep finds live `(host, port)` pairs today but
+captures no application-layer evidence; the new phase, opt-in per
+`SweepProfile`, completes a 3-way handshake against confirmed-live
+targets and forwards the captured banner to netprobe via a new
+`MatchBanner` IPC method so the §32 Recog corpus does the matching.
+This pairs the lightning-fast reachability scan with on-demand
+application-layer fingerprinting without duplicating the corpus or
+adding cross-language regex codegen — see D16 for details.
+
 This change introduces a single Rust sidecar — `netprobe` — bundled with
 `serviceradar-agent` and supervised by it, that provides all three
 capabilities through one IPC contract, one capability bundle, one socket,

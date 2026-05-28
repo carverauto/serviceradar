@@ -587,6 +587,123 @@ correlate elevated `events_dropped` counters with intentional sampling.
   configured default
 - **AND** the metric reflects the restored value
 
+### Requirement: Active banner-grab phase in the sweep service
+
+The `serviceradar-agent` sweep service SHALL provide an opt-in
+active-banner-grab phase that runs after the existing SYN half-open
+scanner identifies live `(host, port)` pairs. The phase MUST open a
+full 3-way TCP connect (and TLS handshake for HTTPS-class ports) to
+each selected target, send a protocol-appropriate probe if needed,
+read up to `max_banner_bytes` of response, close the connection, and
+emit a `BannerObservation` record. Each `BannerObservation` MUST be
+forwarded to the running `netprobe` sidecar via a new
+`MatchBanner(BannerObservation) → BannerMatch` IPC method. Netprobe
+MUST match the banner against its compiled-in Recog corpus and emit
+the result on its existing `FingerprintEvents` stream tagged with
+`source = sweep_active`. The phase MUST be configured per
+`SweepProfile` and MUST be disabled by default. The phase MUST honour
+a configurable per-protocol port allowlist, per-host rate limit,
+global concurrency cap, connect timeout, and read timeout. The phase
+MUST NOT run against ports not in the profile's banner-grab port
+allowlist. The phase MUST gracefully treat connection reset, read
+timeout, and partial banner as "no banner" without retrying
+aggressively. For HTTPS-class probes the phase MUST capture both the
+TLS certificate fingerprint (cleartext-observable) and the
+HTTP `Server:` header (extracted after TLS termination using
+`InsecureSkipVerify` for fingerprinting purposes only).
+
+#### Scenario: Banner grab disabled by default
+- **WHEN** a new `SweepProfile` is created via the API or UI
+- **THEN** `banner_grab.enabled` defaults to `false`
+- **AND** the sweep service performs only SYN half-open scanning
+- **AND** no banner-grab traffic leaves the agent host
+
+#### Scenario: Banner grab fires only against confirmed-live targets
+- **WHEN** a sweep profile has `banner_grab.enabled = true` and ports
+  `[22, 80, 443]` in its allowlist
+- **AND** the SYN scan against a /24 subnet identifies 12 live hosts
+  with port 22 open and 8 live hosts with port 80 open
+- **THEN** the banner-grab phase issues 20 outbound 3-way TCP
+  connects (12 to port 22 + 8 to port 80)
+- **AND** does NOT probe ports 22 or 80 on the 244 other hosts that
+  did not respond to the SYN scan
+- **AND** does NOT probe any other port on any host
+
+#### Scenario: HTTPS banner grab captures both cert and Server header
+- **WHEN** the banner-grab phase probes `192.0.2.10:443` via HTTPS
+- **THEN** the phase performs a TLS handshake with
+  `InsecureSkipVerify = true`
+- **AND** captures the server certificate Subject CN, SAN, Issuer,
+  cipher suite, and ALPN choice into
+  `BannerObservation.tls_cert_summary`
+- **AND** sends `HEAD / HTTP/1.0\r\n\r\n` over the established TLS
+  connection
+- **AND** reads up to `max_banner_bytes` of decrypted response
+- **AND** captures the HTTP `Server:` header value into
+  `BannerObservation.banner_bytes`
+
+#### Scenario: BannerObservation routed to netprobe for matching
+- **WHEN** a banner-grab probe successfully captures a banner from
+  `192.0.2.10:22`
+- **AND** netprobe is running and healthy on the agent host
+- **THEN** the agent invokes
+  `MatchBanner(BannerObservation { host: "192.0.2.10", port: 22,
+  protocol: "ssh", banner_bytes: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.4\r\n",
+  ... })` over the existing UDS
+- **AND** netprobe matches the banner against the Recog SSH-banner
+  corpus
+- **AND** netprobe emits a `FingerprintEvent` on its
+  `FingerprintEvents` stream carrying the matched label and
+  `source = sweep_active`
+
+#### Scenario: Banner grab gracefully handles unresponsive endpoints
+- **WHEN** a banner-grab probe to a live port establishes the
+  3-way connect but the remote endpoint does not send a banner
+  within `read_timeout_ms`
+- **THEN** the phase closes the connection
+- **AND** emits no `BannerObservation` for that target
+- **AND** increments a per-job
+  `sweep_banner_grab_empty_response_total` counter
+- **AND** does NOT retry the probe within the same sweep cycle
+
+#### Scenario: Rate-limit ceiling enforced
+- **WHEN** a sweep profile has `banner_grab.max_global_concurrency = 256`
+- **AND** the SYN scan identifies 5,000 live `(host, port)` pairs
+- **THEN** the banner-grab phase processes at most 256 probes
+  in-flight at any time
+- **AND** completes the full 5,000-probe set across multiple batches
+- **AND** never exceeds 256 concurrent outbound TCP connects from
+  the banner-grab subsystem
+
+#### Scenario: Capability advertised based on netprobe availability
+- **WHEN** a sweep profile has banner-grab enabled
+- **AND** netprobe sidecar is running and healthy
+- **AND** netprobe reports the Recog corpus is loaded successfully
+- **THEN** the agent advertises `sweep.banner_grab = available`
+- **WHEN** any of the above conditions are not met
+- **THEN** the agent advertises `sweep.banner_grab = unavailable`
+  with a reason field (e.g., `netprobe_unhealthy`, `corpus_not_loaded`)
+- **AND** the banner-grab phase does NOT run for that profile
+
+#### Scenario: Banner-grab job recorded in audit trail
+- **WHEN** a banner-grab phase completes for a sweep job
+- **THEN** an AshPaperTrail entry is created on the parent sweep
+  job record summarising the phase: probe count, banner-match
+  count, empty-response count, error count, total bytes received
+- **AND** the entry names the actor that triggered the sweep
+  (operator or system)
+- **AND** individual probe outcomes are logged at info via the
+  structured logger but NOT individually audit-trailed (to keep
+  audit volume sane)
+
+#### Scenario: Banner grab refuses non-allowlisted ports
+- **WHEN** a sweep profile has `banner_grab.ports.http = [80, 8080]`
+- **AND** the SYN scan finds port 8000 open on a host
+- **THEN** the banner-grab phase does NOT probe port 8000 on that
+  host
+- **AND** the host record reflects the SYN-scan finding (port 8000
+  open) but carries no banner-grab data for that port
+
 ### Requirement: Opt-in capture of payload-identifying fields
 
 `serviceradar-netprobe` SHALL extract and emit payload-identifying

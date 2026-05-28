@@ -1036,6 +1036,180 @@ case), security review (eBPF capability surface).
   extend the §31.13 CI license-lint with an allowlist that catches
   unauthorized corpus additions.
 
+### D16. Active banner-grab phase in the sweep service
+
+- **Decision.** ServiceRadar SHALL add a new **active banner-grab
+  phase** to the existing **sweep service** (`go/pkg/scan/`,
+  not the SNMP/API-focused mapper at `go/pkg/mapper/`). The phase
+  runs immediately after the existing SYN half-open scanner
+  (`go/pkg/scan/syn_scanner.go`) identifies live `(host, port)`
+  pairs, against those confirmed-live targets only, opt-in per
+  `SweepProfile`.
+
+  For each selected `(host, port)`, the phase opens a full 3-way TCP
+  connect (and a TLS handshake for HTTPS-class targets), sends a
+  protocol-appropriate probe if needed, reads up to `max_banner_bytes`
+  of response payload, closes the connection, and emits a
+  `BannerObservation { host, port, protocol, banner_bytes,
+  tls_cert_summary, observed_at, source = sweep_active }` record. The
+  agent forwards each `BannerObservation` to the running `netprobe`
+  sidecar over the existing UDS via a new IPC method
+  `MatchBanner(BannerObservation) → BannerMatch`. Netprobe runs the
+  §32 Recog matcher against the banner string and the Satori matcher
+  against any DHCP option list (if probe-discovered), then emits the
+  result on its existing `FingerprintEvents` stream tagged with
+  `source = sweep_active`. The agent ingests those events the same
+  way it ingests passive netprobe fingerprints — `DeviceDiscoveryIngestor`
+  (Elixir) joins them to the canonical device via `IP Alias Resolution`.
+
+  All fingerprint matching stays in netprobe (Rust); the corpus stays
+  in `rust/netprobe/` per §32. No corpus duplication, no shared
+  Rust/Go crate, no cgo. Mapper and the SNMP polling code are
+  unaffected — the new phase is additive to sweep only.
+- **Why sweep, not mapper.**
+  - The user's "lightning-fast TCP SYN half-open scanner" is in
+    `go/pkg/scan/syn_scanner.go`, used by the **sweep service**.
+    `go/pkg/mapper/` does SNMP / API / topology discovery against
+    *already-known* device IPs, not subnet-wide port discovery.
+  - The banner-grab phase consumes SYN-scan output (live
+    `(host, port)` pairs). That output is produced by sweep, not
+    mapper. Coupling banner grab to sweep keeps the dependency
+    direction sane.
+  - Mapper's SNMP `sysDescr.0` collection already provides an OS hint
+    for SNMP-reachable devices; banner grab fills the gap for devices
+    that don't speak SNMP but do expose a TCP service (Windows
+    workstations, IoT appliances, application servers, network gear
+    without SNMP enabled).
+- **Why active probing alongside passive observation.**
+  - Passive observation in netprobe only sees banners from devices
+    that *already* send traffic across the agent NIC. For LAN
+    inventory discovery, most target devices never talk to the agent
+    host; their banners are never observed passively. Recog's
+    ~15,000 banner-axis fingerprints (per §32) stay dormant without
+    an active path.
+  - The active banner-grab phase deliberately triggers responses
+    from confirmed-live devices and routes those responses through
+    the agent's discovery pipeline (and, for HTTPS where the body is
+    encrypted, decodes them in-process before forwarding to netprobe
+    for matching).
+  - Together they form a discovery-axis ensemble: SYN scan
+    (reachability) + banner grab (application-layer fingerprint) +
+    passive observation (everything else that happens to cross the
+    NIC) + SNMP/API (for managed devices) feed the same canonical
+    device record.
+- **HTTPS handling.**
+  - For plaintext protocols (HTTP, SSH, FTP, Telnet, SMTP, NTP,
+    DNS-version, SMB, RDP), the response banner is on the wire in
+    cleartext. The banner-grab phase reads it directly from the
+    socket and forwards as `BannerObservation`.
+  - For HTTPS, the response body (including the HTTP `Server:`
+    header) is encrypted. Two fingerprint surfaces remain available
+    and the phase MUST exercise both:
+    1. **TLS-cert fingerprint.** The TLS handshake's `Certificate`
+       message is cleartext-visible. The banner-grab phase extracts
+       cert Subject CN / SAN / Issuer / NotBefore / NotAfter /
+       cipher choice / ALPN list and includes them in the
+       `BannerObservation.tls_cert_summary` field. Recog has
+       cert-axis patterns (Microsoft IIS certs, Apache mod_ssl
+       defaults, common appliance certs all have characteristic
+       Subject/Issuer patterns); these provide the bulk of HTTPS
+       fingerprint coverage.
+    2. **TLS-terminated Server header.** The banner-grab phase
+       completes the TLS handshake itself using a permissive
+       `tls.Config{InsecureSkipVerify: true}` (we are identifying,
+       not authenticating), sends `HEAD / HTTP/1.0\r\n\r\n` over
+       the secure connection, reads the decrypted response, and
+       extracts the `Server:` header. This is added to
+       `BannerObservation.banner_bytes` so the same Recog matcher
+       handles it as for plain HTTP.
+  - Both surfaces feed the same netprobe IPC; the ensemble matcher
+    in netprobe consumes them naturally.
+- **Per-protocol probe modules.** Implemented in
+  `go/pkg/scan/banner_grab/<protocol>.go`. Each module exports a
+  function with the signature
+  `Probe(ctx, host, port, opts) (BannerObservation, error)`.
+  Phase-1 protocol set:
+  | Protocol | Default ports | Probe behaviour |
+  |---|---|---|
+  | SSH | 22 | Connect, read first 256 bytes (server sends banner first) |
+  | HTTP | 80, 8080, 8000, 8888 | Connect, send `HEAD /`, read response headers |
+  | HTTPS | 443, 8443 | TLS handshake + cert capture + `HEAD /` over TLS |
+  | SMB | 445 | Connect, send NEGOTIATE PROTOCOL request |
+  | FTP | 21 | Connect, read first 256 bytes (banner sent first) |
+  | Telnet | 23 | Connect, read first 256 bytes |
+  | SMTP | 25, 587 | Connect, read first 256 bytes (banner sent first) |
+  | NTP | 123/UDP | Send mode-6 readvar, read response |
+  | DNS-version | 53/TCP | Query `version.bind` CHAOS TXT |
+  | RDP | 3389 | Send X.224 connection request, capture response |
+- **Out of scope for Phase-1 banner grab.**
+  - SNMP community-string probing (already covered by mapper's
+    credentialed SNMP poll path).
+  - IPMI, Redfish, or any other credentialed probe surface.
+  - Aggressive port-scan modes (scan-all-1-65535-then-banner-every-hit).
+    The phase only probes ports the profile explicitly lists.
+- **Alternatives considered (and rejected).**
+  - **Banner grab in mapper.** Rejected. Mapper does
+    SNMP/API/topology against known devices; sweep produces the
+    live `(host, port)` set the banner-grab phase consumes. Putting
+    banner grab in mapper inverts the dependency direction.
+  - **Banner grab in netprobe (Rust).** Rejected. Netprobe is a
+    passive observer + IPC matcher; making it open outbound TCP
+    connections would conflate two roles and require new
+    capabilities (outbound TCP from a sidecar that today only
+    listens and observes). Sweep already does outbound TCP for the
+    SYN scan; banner grab is the natural extension of that surface.
+  - **Cross-language regex codegen (emit both Rust and Go Recog
+    matchers from a shared corpus).** Rejected. Each Recog rebuild
+    would have to regenerate two matcher trees; CI cost roughly
+    doubles. The new `MatchBanner` IPC method on netprobe is
+    cheaper at runtime (sub-microsecond UDS round-trip for a
+    few-hundred-byte payload) and leaves the corpus as a single
+    source of truth in `rust/netprobe/`.
+  - **Send raw banner bytes to core-elx for matching there.**
+    Rejected. Core-elx already has plenty of work; the agent has
+    netprobe running on it with the corpus already; matching at
+    the agent edge is cheaper and faster, and the agent → gateway
+    payload stays compact (matched labels, not raw banner bytes).
+- **Trade-offs.**
+  - **IDS / IPS visibility.** A 3-way connect-then-disconnect to a
+    closed-after-banner port looks like a port scan to host-based
+    monitoring. Operators may need to whitelist the agent's source
+    IP in their security tooling. Documented in the operator
+    runbook.
+  - **Some devices reset on unauthenticated probes.** Treat
+    connection reset, read timeout, or partial banner as "no
+    banner" rather than scan failure; do not retry aggressively.
+  - **HTTPS `InsecureSkipVerify` for banner grab.** This is correct
+    for fingerprinting (we are identifying the device, not
+    authenticating to it) but operators may flag it as a security
+    concern. Documented behaviour: banner grab disables cert
+    verification for the discovery purpose; the canonical device
+    record records the cert details for separate operator review
+    (e.g., "expired cert detected on 192.0.2.10:443").
+  - **Audit-trail volume.** Each banner-grab probe generates an
+    AshPaperTrail entry. On a /24 with 20 probed ports × every
+    `interval`, that's 5,000+ audit entries per sweep cycle. Audit
+    is per-sweep-job, not per-probe, to keep volume sane —
+    individual probes log via the structured logger at info level,
+    aggregate counts roll into the per-job AshPaperTrail entry.
+- **Operator UX.** The `SweepProfile` editor (web-ng) gains a new
+  "Banner grab" section: enable toggle, protocol checkboxes, per-protocol
+  port lists, timeouts, max_banner_bytes, concurrency caps. Disabled by
+  default. A "preview" panel shows the example outbound traffic a single
+  banner-grab cycle would generate.
+- **Capability advertisement.** Agent advertises
+  `sweep.banner_grab = available` when (a) sweep profile has the
+  banner_grab toggle on, (b) netprobe is running and healthy, and
+  (c) netprobe reports the §32 Recog corpus is loaded.
+  Otherwise `sweep.banner_grab = unavailable` with reason.
+- **Implementation surface.** Phase 1 amendment §33 in `tasks.md`
+  lays out the work: extend `SweepProfile` Ash resource, plumb new
+  fields through Elixir compiler → gateway config → Go parser,
+  implement the banner-grab phase in `go/pkg/scan/banner_grab/`,
+  per-protocol probe modules, the new `MatchBanner` IPC method on
+  netprobe, rate-limit + concurrency caps, audit + RBAC, web-ng UI
+  extension, and validation gate.
+
 ## Risks / Trade-offs
 
 | Risk | Mitigation |
