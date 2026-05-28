@@ -1,5 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+pub mod dhcp;
+
 use etherparse::{NetHeaders, PacketHeaders, TransportHeader};
 
 use crate::{
@@ -57,6 +59,16 @@ impl DpiPipeline {
                     id: "dns_header",
                     protocol: "dns",
                     classify: classify_dns,
+                },
+                Dissector {
+                    id: "dhcp_options",
+                    protocol: "dhcp",
+                    classify: classify_dhcp,
+                },
+                Dissector {
+                    id: "dhcpv6_options",
+                    protocol: "dhcpv6",
+                    classify: classify_dhcpv6,
                 },
                 Dissector {
                     id: "ssh_banner",
@@ -350,6 +362,34 @@ fn classify_dns_message(flow: &Flow, payload: &[u8]) -> Option<f32> {
     })
 }
 
+fn classify_dhcp(flow: &Flow, payload: &[u8]) -> Option<f32> {
+    if flow.transport_protocol != "udp" {
+        return None;
+    }
+    if !matches!(
+        (flow.source_port, flow.destination_port),
+        (67, 68) | (68, 67)
+    ) {
+        return None;
+    }
+
+    dhcp::parse_dhcpv4(payload).map(|_| 0.98)
+}
+
+fn classify_dhcpv6(flow: &Flow, payload: &[u8]) -> Option<f32> {
+    if flow.transport_protocol != "udp" {
+        return None;
+    }
+    if !matches!(
+        (flow.source_port, flow.destination_port),
+        (546, 547) | (547, 546)
+    ) {
+        return None;
+    }
+
+    dhcp::parse_dhcpv6(payload).map(|_| 0.98)
+}
+
 fn classify_ssh(flow: &Flow, payload: &[u8]) -> Option<f32> {
     if flow.transport_protocol == "tcp" && payload.starts_with(b"SSH-") {
         Some(0.98)
@@ -587,6 +627,16 @@ mod tests {
                 packet: udp_packet(49152, 53, &dns_query_header()),
             },
             DpiCase {
+                protocol: "dhcp",
+                dissector_id: "dhcp_options",
+                packet: udp_packet(68, 67, &dhcp_discover()),
+            },
+            DpiCase {
+                protocol: "dhcpv6",
+                dissector_id: "dhcpv6_options",
+                packet: udp_packet(546, 547, &dhcpv6_solicit()),
+            },
+            DpiCase {
                 protocol: "ssh",
                 dissector_id: "ssh_banner",
                 packet: tcp_packet(22, 49152, b"SSH-2.0-OpenSSH_9.9\r\n"),
@@ -721,6 +771,32 @@ mod tests {
         let mut packet = vec![0x10, 0x0c, 0x00, 0x04];
         packet.extend_from_slice(b"MQTT");
         packet.extend_from_slice(&[0x04, 0x02, 0x00, 0x3c]);
+        packet
+    }
+
+    fn dhcp_discover() -> Vec<u8> {
+        let mut packet = vec![0u8; 240];
+        packet[0] = 1;
+        packet[1] = 1;
+        packet[2] = 6;
+        packet[236..240].copy_from_slice(&[99, 130, 83, 99]);
+        packet.extend_from_slice(&[53, 1, 1]);
+        packet.extend_from_slice(&[55, 4, 1, 3, 6, 15]);
+        packet.extend_from_slice(&[60, 19]);
+        packet.extend_from_slice(b"secret-vendor-class");
+        packet.push(255);
+        packet
+    }
+
+    fn dhcpv6_solicit() -> Vec<u8> {
+        let mut packet = vec![1, 0xaa, 0xbb, 0xcc];
+        packet.extend_from_slice(&6u16.to_be_bytes());
+        packet.extend_from_slice(&4u16.to_be_bytes());
+        packet.extend_from_slice(&23u16.to_be_bytes());
+        packet.extend_from_slice(&24u16.to_be_bytes());
+        packet.extend_from_slice(&16u16.to_be_bytes());
+        packet.extend_from_slice(&13u16.to_be_bytes());
+        packet.extend_from_slice(b"secret-vendor");
         packet
     }
 
