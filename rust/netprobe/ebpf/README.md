@@ -8,11 +8,11 @@ tasks.
 Programs:
 
 - `netprobe_tc_ingress`: TC ingress classifier for flow-table lookup and
-  first-packet AF_XDP redirection.
+  first-packet AF_XDP redirection. It also emits TCP SYN option signatures from
+  verifier-bounds-checked packet loads, avoiding kernel `struct sk_buff` layout
+  offsets.
 - `netprobe_tc_egress`: TC egress classifier with the same canonical flow-table
   behavior for reverse-direction traffic.
-- `tcp_rcv_state_process`: kprobe for SYN-time TCP option signatures; emits
-  one `TcpSynSignatureRecord` for SYN packets seen at connection setup.
 - `tcp_connect`: kprobe for outbound TCP connect attempts.
 - `inet_csk_accept`: kretprobe for accepted inbound TCP sockets.
 - `tcp_close`: kprobe for TCP socket close.
@@ -29,10 +29,11 @@ Socket lifecycle hooks also refresh the pinned `process_info` map keyed by TGID.
 The `sock/inet_sock_set_state` tracepoint backfill has the full 5-tuple and
 populates the pinned `flow_to_pid` map for later userspace joins.
 
-Pinned map capacity bounds are fixed in the eBPF object:
+Pinned map capacity bounds are explicit in the eBPF object:
 
-- `flow_table`: 65,536 global LRU entries until the loader grows this at load
-  time in the remaining Phase 3 work.
+- `flow_table`: 65,536 LRU entries per interface slot, with 16 interface slots
+  in the object default. The Phase 3 loader should override `max_entries` before
+  load to `65,536 * allowlisted_interface_count` once the allowlist is known.
 - `flow_to_pid`: 1,048,576 LRU entries.
 - `process_info`: 8,192 hash entries.
 - `interface_allowlist`: 1,024 hash entries.
@@ -47,15 +48,18 @@ record carries TTL/hop-limit, window size, MSS, TCP option kind layout, quirks,
 IP version, window scale, and payload class for the userspace huginn-net
 matcher.
 
-The `flow_table` and `flow_to_pid` maps use the same canonical 5-tuple key with
-the lexicographically smaller endpoint first, so both directions of a connection
-share one entry and socket-layer kprobes can join with TC-written flow state.
-`FlowPidRecord.local_endpoint` preserves which canonical endpoint belongs to the
-local process. A zero `classified_as` means the first `FLOW_REDIRECT_BUDGET`
-packets are still redirected to AF_XDP for userspace classification; nonzero
-values are treated as classified and stay in-kernel. TC ingress AF_XDP redirect
-uses a deterministic flow hash modulo the configured XSK queue count instead of
-`skb->queue_mapping`, which is egress-only metadata on many kernels.
+The `flow_table` key is `(interface_index, canonical 5-tuple)` so flow-cache
+pressure is scoped to the interface that owns the TC attachment. The `flow_to_pid`
+map remains keyed by canonical 5-tuple alone so socket-layer kprobes and TC
+programs can join without an unavailable ifindex. Canonical 5-tuples place the
+lexicographically smaller endpoint first, so both directions of a connection
+share one logical flow; `FlowPidRecord.local_endpoint` preserves which canonical
+endpoint belongs to the local process. A zero `classified_as` means the first
+`FLOW_REDIRECT_BUDGET` packets are still redirected to AF_XDP for userspace
+classification; nonzero values are treated as classified and stay in-kernel. TC
+ingress AF_XDP redirect uses a deterministic flow hash modulo the configured XSK
+queue count instead of `skb->queue_mapping`, which is egress-only metadata on
+many kernels.
 
 `include/vmlinux.h` is generated from Ubuntu 20.04 `5.8.0-23-generic` BTF, the
 earliest supported kernel floor for the Phase 3 CO-RE work. See the
