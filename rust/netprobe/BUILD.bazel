@@ -70,7 +70,10 @@ cargo_build_script(
     ],
     edition = "2021",
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps(["prost-build"]),
+    deps = crate_deps([
+        "aya-build",
+        "prost-build",
+    ]),
 )
 
 rust_binary(

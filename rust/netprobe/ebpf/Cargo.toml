@@ -3,18 +3,11 @@ name = "serviceradar-netprobe-ebpf"
 version = "0.1.0"
 edition = "2021"
 publish = false
-
-[workspace]
+autolib = false
 
 [dependencies]
 aya-ebpf = "0.1.1"
 
-[lib]
+[[bin]]
+name = "netprobe-ebpf"
 path = "src/lib.rs"
-crate-type = ["staticlib"]
-
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
