@@ -495,20 +495,14 @@ and reversible on its own:
   minimal Visibility Profile list+edit UI; agent advertises
   `host-network-visibility = enabled` for fingerprint and
   `unavailable` for other surfaces. **Closes Forgejo #3423.**
-- **Phase 2 — DPI dissectors + performance backstops (in progress).**
-  Add dissectors (HTTP/1, HTTP/2, TLS-SNI, DNS, SSH, FTP, QUIC, MQTT,
-  BitTorrent), `DpiEvent` stream, device `metadata.dpi` map, DPI UI
-  panel. **Phase 2 also lands the libpcap-stopgap performance
-  mitigations** before Phase 3 ships the eBPF rewrite: flow-cache
-  short-circuit on classified 5-tuples, kernel-side libpcap BPF
-  filter that drops non-interesting traffic before it reaches
-  userspace, adaptive sampling under sustained CPU pressure, an
-  opt-in capture path for TLS SNI hostname / DNS query name / HTTP
-  Host header gated by `VisibilityProfile.dpi.capture.*` flags and
-  audited via AshPaperTrail, and an operator-runbook update with
-  CPU-budget guidance and recommended fleet-deployment posture
-  ("default profile ships with `dpi.protocols = []`; enable DPI
-  per-device for tier-0 services where labelling matters").
+- **Phase 2 — DPI dissectors (shipped 2026-05-27).** Adds dissectors
+  (HTTP/1, HTTP/2, TLS-SNI, DNS, SSH, FTP, QUIC, MQTT, BitTorrent),
+  `DpiEvent` stream, device `metadata.dpi` map, DPI UI panel. The
+  libpcap-userspace capture path that backs Phase 1 and Phase 2 is
+  understood to be a stopgap. **No performance backstops are landed
+  on the libpcap path**; that work would be deleted by Phase 3
+  anyway. Customers concerned about Phase 2 CPU cost wait for the
+  Phase 3 eBPF cutover.
 - **Phase 3 — Replace libpcap with kernel-side eBPF (the strategic
   pivot).** This phase rewrites the continuous capture path from
   libpcap-userspace to a kernel-eBPF golden path that matches
@@ -558,11 +552,12 @@ and reversible on its own:
   Workload labelling cookbook, Grafana dashboard for eBPF map
   occupancy / sampling budget / flow_table hit ratio.
 
-Phase 1 has shipped. Phase 2 §16.1–§16.7 (dissectors) have shipped;
-Phase 2 cheap-win backstops are next. Phase 3 is the architectural
-pivot and the single most important phase for fleet-wide deployment
-viability — its work is what unlocks the customer use case at
-acceptable CPU cost.
+Phase 1 has shipped. Phase 2 dissectors have shipped. Phase 3 is the
+next active phase and the single most important phase for fleet-wide
+deployment viability — its work is what unlocks the customer use case
+at acceptable CPU cost. No interim libpcap-path optimisation is
+planned; the Phase 3 eBPF cutover is the only customer-perf
+deliverable in flight.
 
 ### Non-goals
 

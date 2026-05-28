@@ -161,29 +161,6 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 17.3 Extend the Visibility Profile UI with the DPI section (replace the Phase 1 placeholder).
 - [x] 17.4 Extend the Network Visibility panel on Device Detail to render the DPI section.
 
-### 17a. [Phase 2] Performance backstops on the libpcap path (cheap wins; lands before Phase 3)
-
-This section captures the must-land mitigations for the libpcap-stopgap continuous capture path so customers can deploy Phase 1/2 to busy hosts safely while Phase 3 (eBPF rewrite) is in flight. All work is on the existing libpcap path — Phase 3 deletes the libpcap path entirely, but until then these backstops are the difference between "deployable" and "unworkable" for the fleet customer.
-
-- [ ] 17.5 Implement an in-memory flow-classification cache (canonical 5-tuple → `{classified_as, packets_seen, last_seen}`) in `rust/netprobe/src/dpi.rs`. After ~16 packets of stable classification, short-circuit the dissector chain for subsequent packets. LRU eviction at fixed capacity; periodic TTL sweep (default 5 minutes).
-- [ ] 17.6 Install a kernel-side libpcap BPF filter on the capture handle approximating "interesting packets" (TCP SYN/SYN-ACK, common L7 entry ports, DNS, ICMP). Tunable via a `VisibilityProfile.capture_bpf_extra_ports` attribute so operators can broaden coverage on tier-0 hosts.
-- [ ] 17.7 Implement adaptive sampling: track sliding-window CPU usage; under sustained pressure (default > 5% of one core for 30s), drop to 1-in-N at the capture worker. Expose `serviceradar_netprobe_sampling_rate` metric. Bounded so we never drop more than 75% of packets.
-- [ ] 17.8 Update `docs/docs/netprobe.md` operator runbook with: quantified CPU expectations per workload profile; recommended fleet-default posture (`dpi.protocols = []` in default profile, enable DPI per-device); pressure-relief steps when `events_dropped_total{reason="lagged_receiver"}` climbs; explicit note that Phase 3 will replace the libpcap path with eBPF and these backstops are stopgap.
-
-### 17b. [Phase 2] Opt-in capture of payload-identifying fields
-
-Closes the spec promise of opt-in TLS SNI / DNS query-name / HTTP Host / HTTP URI capture. Implementation lives on the libpcap dissector path now; Phase 3 carries it forward into the AF_XDP userspace classifier without API change.
-
-- [ ] 17.9 Extend `DpiConfig` proto with a `DpiCaptureOptions capture` sub-message: `bool tls_sni`, `bool dns_query_name`, `bool http_host`, `bool http_request_uri`. All default false.
-- [ ] 17.10 Plumb the new sub-message through Elixir `visibility_compiler.ex`, Go `netprobe/config.go`, and Rust `runtime_config.rs`. Per-binding override mirrors the existing fingerprint / dpi-protocols precedence rules.
-- [ ] 17.11 Extend `dpi.rs` `classify_tls` to read the SNI extension's host_name field (parser already walks past it for the presence check) and copy the bytes into `DpiEvent.tls_sni` only when the controlling binding's `capture.tls_sni = true`. Otherwise omit the field.
-- [ ] 17.12 Extend `dpi.rs` `classify_dns` with a length-prefixed QNAME parser; populate `DpiEvent.dns_query_name` only when binding opt-in is set. Hard cap on QNAME length (255 bytes per RFC 1035) to bound parsing.
-- [ ] 17.13 Extend `dpi.rs` `classify_http1` to scan request headers for `Host:` and the request line for the URI path; populate `DpiEvent.http_host` and `DpiEvent.http_request_uri` only when their respective binding opt-ins are set. URI capture is the narrowest-scope opt-in; body capture remains forbidden under all paths.
-- [ ] 17.14 Extend `VisibilityProfile` Ash resource with the `dpi.capture.*` flags. Validate `capture.http_request_uri = true` requires `capture.http_host = true` (the URI without Host context is operationally useless and a privacy footgun).
-- [ ] 17.15 Wire the new capture toggles into the LiveView form with explicit warning copy: "Capturing TLS SNI hostnames / DNS query names / HTTP Host headers writes payload-derived data to inventory. AshPaperTrail records every change for audit."
-- [ ] 17.16 Add Playwright coverage for the opt-in capture toggles, including the URI-requires-Host validation rule.
-- [ ] 17.17 Add Rust tests asserting that emitted `DpiEvent` bytes contain no SNI / DNS / Host bytes when the corresponding opt-in is off, and DO contain them when on. Test both directions via Prost round-trip, not just Debug.
-
 ---
 
 ## Phase 3 — Kernel-side eBPF rewrite (capture + attribution + libpcap deletion)
@@ -216,18 +193,16 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [ ] 19.1 Delete the libpcap capture worker in `rust/netprobe/src/capture.rs`; replace with the AF_XDP consumer from §18.9.
 - [ ] 19.2 Delete the per-packet huginn-net invocation from the capture worker (replaced by §18.10).
 - [ ] 19.3 Delete the per-packet DPI dispatch from the capture worker (replaced by §18.9).
-- [ ] 19.4 Delete the Phase 2 in-memory flow-cache (§17.5) — the eBPF flow_table map subsumes it.
-- [ ] 19.5 Delete the Phase 2 libpcap BPF filter setup (§17.6) — TC programs are the new filter.
-- [ ] 19.6 Port the Phase 2 adaptive sampler (§17.7) from the capture worker to the AF_XDP ring consumer (still useful; same threshold).
-- [ ] 19.7 Move `pcap = { optional = true }` behind a `remote-capture` Cargo feature. The default build no longer includes libpcap.
-- [ ] 19.8 Update deb/rpm packaging: move `libpcap0.8` / `libpcap` from `deb_depends` / `rpm_requires` to `Recommends`.
-- [ ] 19.9 Verify `ldd /usr/local/lib/serviceradar/bin/serviceradar-netprobe` does not show `libpcap.so` in the default `release` build profile. Add a CI assertion.
-- [ ] 19.10 Extend deb/rpm postinst to add `cap_bpf,cap_perfmon` to the sidecar binary's file capabilities (in addition to existing `cap_net_raw`).
-- [ ] 19.11 Extend `helm/serviceradar/templates/agent.yaml` `securityContext.capabilities.add` with `BPF` and `PERFMON`.
-- [ ] 19.12 Extend the Visibility Profile UI with the flow-attribution and process-snapshot sections (replace Phase 1 placeholder copy).
-- [ ] 19.13 Add the "Process Listeners" tab to Device Detail for agent-host devices.
-- [ ] 19.14 Surface kernel BPF support state on the Agent Detail page (`available` / `unavailable` only; no `degraded`).
-- [ ] 19.15 Full E2E: enable a profile scoped to `in:devices type:0` with `dpi.protocols = ["tls", "dns"]` on a real kernel-5.15 host; send pcap fixtures; assert (a) flow_table entries populate, (b) DPI events emit for first N packets per flow and stop after classification, (c) huginn-net SYN match fires once per connection, (d) Armis-imported device gains `os.passive_fingerprint`, (e) `metadata.dpi.tls.count` increments.
+- [ ] 19.4 Implement adaptive sampling on the AF_XDP consumer (per the `Adaptive sampling under sustained CPU pressure` requirement): sliding-window CPU metric; under sustained pressure (default > 5% of one core for 30s), reduce the per-flow packet redirect budget toward 1. Expose `serviceradar_netprobe_sampling_budget` metric.
+- [ ] 19.5 Move `pcap = { optional = true }` behind a `remote-capture` Cargo feature. The default build no longer includes libpcap.
+- [ ] 19.6 Update deb/rpm packaging: move `libpcap0.8` / `libpcap` from `deb_depends` / `rpm_requires` to `Recommends`.
+- [ ] 19.7 Verify `ldd /usr/local/lib/serviceradar/bin/serviceradar-netprobe` does not show `libpcap.so` in the default `release` build profile. Add a CI assertion.
+- [ ] 19.8 Extend deb/rpm postinst to add `cap_bpf,cap_perfmon` to the sidecar binary's file capabilities (in addition to existing `cap_net_raw`).
+- [ ] 19.9 Extend `helm/serviceradar/templates/agent.yaml` `securityContext.capabilities.add` with `BPF` and `PERFMON`.
+- [ ] 19.10 Extend the Visibility Profile UI with the flow-attribution and process-snapshot sections (replace Phase 1 placeholder copy).
+- [ ] 19.11 Add the "Process Listeners" tab to Device Detail for agent-host devices.
+- [ ] 19.12 Surface kernel BPF support state on the Agent Detail page (`available` / `unavailable` only; no `degraded`).
+- [ ] 19.13 Full E2E: enable a profile scoped to `in:devices type:0` with `dpi.protocols = ["tls", "dns"]` on a real kernel-5.15 host; send pcap fixtures; assert (a) flow_table entries populate, (b) DPI events emit for first N packets per flow and stop after classification, (c) huginn-net SYN match fires once per connection, (d) Armis-imported device gains `os.passive_fingerprint`, (e) `metadata.dpi.tls.count` increments.
 
 ---
 
