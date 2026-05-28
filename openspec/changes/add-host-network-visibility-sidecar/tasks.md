@@ -199,7 +199,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 19.6 Update deb/rpm packaging: move `libpcap0.8` / `libpcap` from `deb_depends` / `rpm_requires` to `Recommends`.
 - [x] 19.7 Verify `ldd /usr/local/lib/serviceradar/bin/serviceradar-netprobe` does not show `libpcap.so` in the default `release` build profile. Add a CI assertion.
 - [x] 19.8 Extend deb/rpm postinst to add `cap_bpf,cap_perfmon` to the sidecar binary's file capabilities (in addition to existing `cap_net_raw`).
-- [ ] 19.9 Extend `helm/serviceradar/templates/agent.yaml` `securityContext.capabilities.add` with `BPF` and `PERFMON`.
+- [x] 19.9 Extend `helm/serviceradar/templates/agent.yaml` `securityContext.capabilities.add` with `BPF` and `PERFMON`.
 - [ ] 19.10 Extend the Visibility Profile UI with the flow-attribution and process-snapshot sections (replace Phase 1 placeholder copy).
 - [ ] 19.11 Add the "Process Listeners" tab to Device Detail for agent-host devices.
 - [ ] 19.12 Surface kernel BPF support state on the Agent Detail page (`available` / `unavailable` only; no `degraded`).
