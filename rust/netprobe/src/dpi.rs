@@ -6,7 +6,7 @@ use etherparse::{NetHeaders, PacketHeaders, TransportHeader};
 
 use crate::{
     af_xdp_classifier::{canonical_flow_key, transport_protocol},
-    fingerprint::FingerprintAccumulator,
+    fingerprint::{DpiPayloadContext, FingerprintAccumulator},
     proto::netprobe::DpiEvent,
 };
 
@@ -116,7 +116,16 @@ impl DpiPipeline {
         };
         if let Some(accumulator) = fingerprint_accumulator {
             if let Some(flow_key) = flow_key(&flow) {
-                accumulator.observe_dpi_payload(flow_key, payload, observed_at_unix_nano);
+                accumulator.observe_dpi_payload_with_context(
+                    DpiPayloadContext {
+                        flow_key,
+                        source_port: flow.source_port,
+                        destination_port: flow.destination_port,
+                        transport_protocol: flow.transport_protocol,
+                    },
+                    payload,
+                    observed_at_unix_nano,
+                );
             }
         }
 

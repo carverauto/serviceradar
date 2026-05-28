@@ -28,6 +28,7 @@ use crate::proto::netprobe::{
 };
 #[cfg(feature = "remote-capture")]
 use crate::proto::netprobe::{HttpFingerprint, TcpFingerprint, TlsFingerprint};
+use crate::recog::{self, RecogLabel, RecogService};
 use crate::{
     af_xdp_classifier::FlowKey,
     os_matcher::{self, FingerprintSignal, OsMatchInput, P0fObservation, SignalDisagreement},
@@ -67,10 +68,25 @@ pub struct FingerprintAccumulator {
     inner: Arc<Mutex<HashMap<FlowKey, AccumulatedFingerprint>>>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DpiPayloadContext {
+    pub flow_key: FlowKey,
+    pub source_port: u16,
+    pub destination_port: u16,
+    pub transport_protocol: &'static str,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecogObservation {
+    pub service: RecogService,
+    pub label: RecogLabel,
+}
+
 #[derive(Clone, Debug, Default)]
 struct AccumulatedFingerprint {
     ja4: Option<String>,
     hassh: Option<hassh::HasshPair>,
+    recog_matches: Vec<RecogObservation>,
     last_observed_ns: u64,
 }
 
@@ -81,9 +97,28 @@ impl FingerprintAccumulator {
         payload: &[u8],
         observed_at_unix_nano: i64,
     ) {
+        self.observe_dpi_payload_with_context(
+            DpiPayloadContext {
+                flow_key,
+                source_port: 0,
+                destination_port: 0,
+                transport_protocol: "",
+            },
+            payload,
+            observed_at_unix_nano,
+        );
+    }
+
+    pub fn observe_dpi_payload_with_context(
+        &self,
+        context: DpiPayloadContext,
+        payload: &[u8],
+        observed_at_unix_nano: i64,
+    ) {
         let ja4 = crate::ja4::fingerprint_tls_client_hello(payload);
         let hassh = hassh::fingerprint_ssh_kexinit(payload);
-        if ja4.is_none() && hassh.is_none() {
+        let recog_matches = recog_observations(payload, context);
+        if ja4.is_none() && hassh.is_none() && recog_matches.is_empty() {
             return;
         }
 
@@ -93,7 +128,7 @@ impl FingerprintAccumulator {
             .lock()
             .expect("fingerprint accumulator lock poisoned");
         retain_recent(&mut inner, observed_ns);
-        let entry = inner.entry(flow_key).or_default();
+        let entry = inner.entry(context.flow_key).or_default();
         entry.last_observed_ns = observed_ns;
         if let Some(ja4) = ja4 {
             entry.ja4 = Some(ja4);
@@ -101,6 +136,7 @@ impl FingerprintAccumulator {
         if let Some(hassh) = hassh {
             entry.hassh = Some(hassh);
         }
+        upsert_recog_matches(entry, recog_matches);
     }
 
     fn snapshot(&self, flow_key: &FlowKey, observed_ns: u64) -> Option<AccumulatedFingerprint> {
@@ -118,6 +154,217 @@ fn retain_recent(inner: &mut HashMap<FlowKey, AccumulatedFingerprint>, observed_
         observed_ns.saturating_sub(value.last_observed_ns) <= FINGERPRINT_ACCUMULATOR_TTL_NS
     });
 }
+
+fn upsert_recog_matches(entry: &mut AccumulatedFingerprint, recog_matches: Vec<RecogObservation>) {
+    for matched in recog_matches {
+        if let Some(existing) = entry
+            .recog_matches
+            .iter_mut()
+            .find(|existing| existing.service == matched.service)
+        {
+            *existing = matched;
+        } else {
+            entry.recog_matches.push(matched);
+        }
+    }
+}
+
+fn recog_observations(payload: &[u8], context: DpiPayloadContext) -> Vec<RecogObservation> {
+    let mut observations = Vec::new();
+
+    if let Some(server) = http_response_server_banner(payload) {
+        push_recog_match(&mut observations, RecogService::HttpServer, server);
+    }
+    if let Some(ssh) = ssh_banner(payload) {
+        push_recog_match(&mut observations, RecogService::SshBanner, ssh);
+    }
+    if context.transport_protocol == "tcp" && has_port(context, 21) {
+        if let Some(ftp) = status_line_banner(payload) {
+            push_recog_match(&mut observations, RecogService::FtpBanner, ftp);
+        }
+    }
+    if context.transport_protocol == "tcp" && has_port(context, 23) {
+        if let Some(telnet) = first_text_line(payload) {
+            push_recog_match(&mut observations, RecogService::TelnetBanner, telnet);
+        }
+    }
+    if has_port(context, 5060) {
+        if let Some(sip) = sip_banner(payload) {
+            push_recog_match(&mut observations, RecogService::SipBanner, sip);
+        }
+    }
+    if has_port(context, 53) {
+        if let Some(dns_version) = dns_version_bind_banner(payload) {
+            push_recog_match(&mut observations, RecogService::DnsVersion, dns_version);
+        }
+    }
+
+    observations
+}
+
+fn push_recog_match(observations: &mut Vec<RecogObservation>, service: RecogService, banner: &str) {
+    if let Some(label) = recog::match_recog(service, banner) {
+        observations.push(RecogObservation { service, label });
+    }
+}
+
+fn has_port(context: DpiPayloadContext, port: u16) -> bool {
+    context.source_port == port || context.destination_port == port
+}
+
+fn http_response_server_banner(payload: &[u8]) -> Option<&str> {
+    let headers = http_text_headers(payload)?;
+    if !headers.first_line.starts_with("HTTP/") {
+        return None;
+    }
+    header_value_ref(headers.headers, "server")
+}
+
+fn sip_banner(payload: &[u8]) -> Option<&str> {
+    let headers = http_text_headers(payload)?;
+    if !headers.first_line.starts_with("SIP/2.0") && !headers.first_line.ends_with(" SIP/2.0") {
+        return None;
+    }
+
+    header_value_ref(headers.headers, "server")
+        .or_else(|| header_value_ref(headers.headers, "user-agent"))
+}
+
+struct TextHeaders<'a> {
+    first_line: &'a str,
+    headers: &'a str,
+}
+
+fn http_text_headers(payload: &[u8]) -> Option<TextHeaders<'_>> {
+    let text = std::str::from_utf8(payload).ok()?;
+    let end = text.find("\r\n\r\n").or_else(|| text.find("\n\n"))?;
+    let head = &text[..end];
+    let (first_line, headers) = head.split_once('\n').unwrap_or((head, ""));
+    Some(TextHeaders {
+        first_line: first_line.trim_end_matches('\r'),
+        headers,
+    })
+}
+
+fn header_value_ref<'a>(headers: &'a str, name: &str) -> Option<&'a str> {
+    headers
+        .lines()
+        .filter_map(|line| line.trim_end_matches('\r').split_once(':'))
+        .find(|(header_name, _value)| header_name.eq_ignore_ascii_case(name))
+        .map(|(_header_name, value)| value.trim())
+        .filter(|value| !value.is_empty())
+}
+
+fn ssh_banner(payload: &[u8]) -> Option<&str> {
+    let line = first_text_line(payload)?;
+    line.strip_prefix("SSH-2.0-")
+        .or_else(|| line.strip_prefix("SSH-1.99-"))
+        .or_else(|| line.strip_prefix("SSH-1.5-"))
+        .or(Some(line))
+}
+
+fn status_line_banner(payload: &[u8]) -> Option<&str> {
+    let line = first_text_line(payload)?;
+    let Some(rest) = line.get(3..) else {
+        return Some(line);
+    };
+    if line
+        .as_bytes()
+        .get(..3)
+        .is_some_and(|code| code.iter().all(u8::is_ascii_digit))
+    {
+        Some(rest.trim_start())
+    } else {
+        Some(line)
+    }
+}
+
+fn first_text_line(payload: &[u8]) -> Option<&str> {
+    let text = std::str::from_utf8(payload).ok()?;
+    text.lines()
+        .next()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+}
+
+fn dns_version_bind_banner(payload: &[u8]) -> Option<&str> {
+    let message = dns_message_slice(payload)?;
+    if message.len() < 12 {
+        return None;
+    }
+    let qdcount = u16::from_be_bytes([message[4], message[5]]) as usize;
+    let ancount = u16::from_be_bytes([message[6], message[7]]) as usize;
+    if ancount == 0 {
+        return None;
+    }
+
+    let mut offset = 12;
+    for _ in 0..qdcount {
+        skip_dns_name(message, &mut offset)?;
+        offset = offset.checked_add(4)?;
+        if offset > message.len() {
+            return None;
+        }
+    }
+
+    for _ in 0..ancount {
+        skip_dns_name(message, &mut offset)?;
+        if offset + 10 > message.len() {
+            return None;
+        }
+        let rr_type = u16::from_be_bytes([message[offset], message[offset + 1]]);
+        let rr_class = u16::from_be_bytes([message[offset + 2], message[offset + 3]]);
+        offset += 8;
+        let rdlen = u16::from_be_bytes([message[offset], message[offset + 1]]) as usize;
+        offset += 2;
+        if offset + rdlen > message.len() {
+            return None;
+        }
+        if rr_type == 16 && rr_class == 3 && rdlen > 1 {
+            let txt_len = usize::from(message[offset]);
+            if txt_len < rdlen {
+                return std::str::from_utf8(&message[offset + 1..offset + 1 + txt_len]).ok();
+            }
+        }
+        offset += rdlen;
+    }
+
+    None
+}
+
+fn dns_message_slice(payload: &[u8]) -> Option<&[u8]> {
+    if payload.len() >= 14 {
+        let tcp_len = u16::from_be_bytes([payload[0], payload[1]]) as usize;
+        if tcp_len + 2 <= payload.len() && tcp_len >= 12 {
+            return payload.get(2..2 + tcp_len);
+        }
+    }
+    Some(payload)
+}
+
+fn skip_dns_name(message: &[u8], offset: &mut usize) -> Option<()> {
+    let mut jumps = 0usize;
+    loop {
+        let len = *message.get(*offset)?;
+        if len & 0xc0 == 0xc0 {
+            *offset = offset.checked_add(2)?;
+            return Some(());
+        }
+        *offset = offset.checked_add(1)?;
+        if len == 0 {
+            return Some(());
+        }
+        if len & 0xc0 != 0 || jumps > message.len() {
+            return None;
+        }
+        *offset = offset.checked_add(usize::from(len))?;
+        if *offset > message.len() {
+            return None;
+        }
+        jumps += 1;
+    }
+}
+
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 const P0F_SIGNATURES_MAP: &str = "p0f_signatures";
@@ -638,6 +885,10 @@ fn license_clean_p0f_event_with_accumulated(
                 .map(|pair| pair.server.md5.clone())
         })
         .unwrap_or_default();
+    let _recog_match_count = accumulated
+        .as_ref()
+        .map(|fingerprint| fingerprint.recog_matches.len())
+        .unwrap_or_default();
 
     license_clean_event(
         ip,
@@ -1119,11 +1370,13 @@ fn source_ip(headers: &NetHeaders) -> Option<IpAddr> {
 #[cfg(test)]
 mod p0f_ring_tests {
     use super::{
-        parse_p0f_ring_record, source_ip_from_flow_key, FingerprintAccumulator, P0fSignatureEngine,
-        AF_INET, EVENT_VERSION, FLOW_ENDPOINT_A, FLOW_ENDPOINT_B, P0F_RING_RECORD_LEN,
+        parse_p0f_ring_record, source_ip_from_flow_key, DpiPayloadContext, FingerprintAccumulator,
+        P0fSignatureEngine, AF_INET, EVENT_VERSION, FLOW_ENDPOINT_A, FLOW_ENDPOINT_B,
+        P0F_RING_RECORD_LEN,
     };
     use crate::af_xdp_classifier::FlowKey;
     use crate::proto::netprobe::fingerprint_event;
+    use crate::recog::RecogService;
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
@@ -1255,6 +1508,88 @@ mod p0f_ring_tests {
     }
 
     #[test]
+    fn accumulates_recog_http_server_match_without_payload_bytes() {
+        let flow_key = fixture_flow_key(80, 49_152);
+        let accumulator = FingerprintAccumulator::default();
+
+        accumulator.observe_dpi_payload_with_context(
+            DpiPayloadContext {
+                flow_key,
+                source_port: 80,
+                destination_port: 49_152,
+                transport_protocol: "tcp",
+            },
+            b"HTTP/1.1 200 OK\r\nServer: Apache/2.4.58 (Ubuntu)\r\nContent-Length: 0\r\n\r\n",
+            124,
+        );
+
+        let snapshot = accumulator
+            .snapshot(&flow_key, 124)
+            .expect("expected accumulated Recog match");
+        let matched = snapshot
+            .recog_matches
+            .iter()
+            .find(|matched| matched.service == RecogService::HttpServer)
+            .expect("expected HTTP-server Recog match");
+
+        assert_eq!(matched.label.product.as_deref(), Some("HTTPD"));
+        assert_eq!(matched.label.version.as_deref(), Some("2.4.58"));
+        assert!(!format!("{snapshot:?}").contains("HTTP/1.1 200 OK"));
+    }
+
+    #[test]
+    fn accumulates_recog_ssh_and_ftp_banner_matches() {
+        let ssh_flow_key = fixture_flow_key(22, 49_152);
+        let ftp_flow_key = fixture_flow_key(21, 49_153);
+        let accumulator = FingerprintAccumulator::default();
+
+        accumulator.observe_dpi_payload_with_context(
+            DpiPayloadContext {
+                flow_key: ssh_flow_key,
+                source_port: 22,
+                destination_port: 49_152,
+                transport_protocol: "tcp",
+            },
+            b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10\r\n",
+            124,
+        );
+        accumulator.observe_dpi_payload_with_context(
+            DpiPayloadContext {
+                flow_key: ftp_flow_key,
+                source_port: 21,
+                destination_port: 49_153,
+                transport_protocol: "tcp",
+            },
+            b"220 foo.bar Microsoft FTP Service (Version 5.0).\r\n",
+            124,
+        );
+
+        let ssh_snapshot = accumulator
+            .snapshot(&ssh_flow_key, 124)
+            .expect("expected SSH Recog match");
+        let ftp_snapshot = accumulator
+            .snapshot(&ftp_flow_key, 124)
+            .expect("expected FTP Recog match");
+
+        assert_eq!(
+            ssh_snapshot
+                .recog_matches
+                .iter()
+                .find(|matched| matched.service == RecogService::SshBanner)
+                .and_then(|matched| matched.label.product.as_deref()),
+            Some("OpenSSH")
+        );
+        assert_eq!(
+            ftp_snapshot
+                .recog_matches
+                .iter()
+                .find(|matched| matched.service == RecogService::FtpBanner)
+                .and_then(|matched| matched.label.os_family.as_deref()),
+            Some("Windows")
+        );
+    }
+
+    #[test]
     fn rejects_malformed_p0f_ring_records() {
         assert!(parse_p0f_ring_record(&[0; P0F_RING_RECORD_LEN - 1]).is_none());
 
@@ -1268,21 +1603,22 @@ mod p0f_ring_tests {
         let mut bytes = vec![0u8; P0F_RING_RECORD_LEN];
         bytes[0..2].copy_from_slice(&EVENT_VERSION.to_ne_bytes());
         bytes[2] = source_endpoint;
-        write_flow_key(
-            &mut bytes[8..48],
-            FlowKey {
-                address_family: AF_INET,
-                transport_protocol: 6,
-                endpoint_a_port: 443,
-                endpoint_b_port: 51_234,
-                endpoint_a_addr: ipv4_addr([192, 0, 2, 10]),
-                endpoint_b_addr: ipv4_addr([198, 51, 100, 20]),
-            },
-        );
+        write_flow_key(&mut bytes[8..48], fixture_flow_key(443, 51_234));
         bytes[48..56].copy_from_slice(&123u64.to_ne_bytes());
         bytes[56..56 + signature.len()].copy_from_slice(signature.as_bytes());
         bytes[152] = signature.len() as u8;
         bytes
+    }
+
+    fn fixture_flow_key(endpoint_a_port: u16, endpoint_b_port: u16) -> FlowKey {
+        FlowKey {
+            address_family: AF_INET,
+            transport_protocol: 6,
+            endpoint_a_port,
+            endpoint_b_port,
+            endpoint_a_addr: ipv4_addr([192, 0, 2, 10]),
+            endpoint_b_addr: ipv4_addr([198, 51, 100, 20]),
+        }
     }
 
     fn write_flow_key(bytes: &mut [u8], flow_key: FlowKey) {
