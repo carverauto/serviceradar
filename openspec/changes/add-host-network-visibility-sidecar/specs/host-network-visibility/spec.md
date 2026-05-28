@@ -638,6 +638,15 @@ pay the elapsed-time and outbound-traffic cost. The phase MUST
 gracefully treat connection reset, read timeout, and partial banner as
 "no banner" without retrying aggressively.
 
+Before banner grab is enabled for fleet-scale sweeps, the Go
+full-connect engine that opens outbound TCP sockets MUST have a
+repeatable benchmark / profiling harness covering at least 50k-host and
+1M-candidate synthetic workloads. The implementation MUST avoid an
+unbounded target slice, result buffer, goroutine count, or active socket
+set on those workloads and MUST expose counters for active dials, dial
+rate, queue depth, timeouts, connection resets, and resource-exhaustion
+errors.
+
 #### Scenario: Banner grab disabled by default
 - **WHEN** a new `SweepProfile` is created via the API or UI
 - **THEN** `banner_grab.enabled` defaults to `false`
@@ -710,6 +719,22 @@ gracefully treat connection reset, read timeout, and partial banner as
   instead of one IPC request per banner
 - **AND** can continue until every eligible candidate is attempted
   without materializing a 1,000,000-entry worklist in memory
+
+#### Scenario: Full-connect scanner avoids historical multi-hour regressions
+- **WHEN** the Go full-connect benchmark runs a synthetic 50,000-host
+  sweep across the representative banner-grab port set
+- **AND** it runs a synthetic 1,000,000-candidate workload with a
+  deterministic fake dialer or loopback harness
+- **THEN** memory remains bounded by configured concurrency, queue, and
+  batch-size limits rather than total target count
+- **AND** active sockets never exceed the configured global
+  concurrency cap
+- **AND** the benchmark report records elapsed time, throughput,
+  timeout distribution, reset count, and resource-exhaustion errors
+  for the current defaults
+- **AND** the banner-grab implementation uses the benchmarked
+  streaming full-connect path rather than the historical low-throughput
+  path that produced multi-hour 50k-host scans
 
 #### Scenario: Fresh banner results are not reprobed every cycle
 - **WHEN** a target `192.0.2.10:22` produced a banner match 30 minutes

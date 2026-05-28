@@ -1155,6 +1155,33 @@ case), security review (eBPF capability surface).
   The price of exhaustive active probing is elapsed time and outbound
   connection volume, not unbounded agent memory, goroutines, sockets, or
   Rust IPC requests.
+- **Go TCP-connect performance audit.** Banner grab depends on the
+  Go agent's full-connect behaviour, so the current TCP connect path
+  MUST be measured before the banner-grab phase is enabled at fleet
+  scale. The existing `go/pkg/scan/tcp_scanner.go` implementation is a
+  fixed worker pool around `net.Dialer.DialContext` with a default
+  5-second timeout and 500-worker concurrency. That is materially better
+  than the historical low-concurrency path, but the scanner still exposes
+  a slice-based `Scan(ctx, []Target)` API, buffers results to
+  `len(tcpTargets)`, and lacks a 50k / 1M-target benchmark proving that
+  target generation, result buffering, goroutine count, file descriptor
+  pressure, ephemeral-port pressure, timeout distribution, and retry /
+  backoff behaviour stay bounded.
+
+  Before §33 wires banner grabbing into the sweep service, the Go side
+  MUST add a benchmark and tuning pass for full TCP connects. The pass
+  should compare the historical configuration that produced multi-hour
+  50k-host scans against the current defaults and the banner-grab
+  defaults, using a deterministic fake dialer or loopback harness so CI
+  does not require a real 50k-host network. The desired shape is a
+  streaming full-connect engine whose memory is O(concurrency + bounded
+  queues + batch size), not O(total candidates), with concurrency and
+  start-rate caps derived from operator config and clamped by observed
+  host limits such as `ulimit -n` and the ephemeral port range when those
+  limits are available. Telemetry should expose active dials, dial start
+  rate, queue depth, timeout count, reset count, and resource-exhaustion
+  errors so operators can tune profiles instead of rediscovering the old
+  19-hour failure mode in production.
 - **Why sweep, not mapper.**
   - The user's "lightning-fast TCP SYN half-open scanner" is in
     `go/pkg/scan/syn_scanner.go`, used by the **sweep service**.
