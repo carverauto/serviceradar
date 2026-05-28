@@ -702,6 +702,28 @@ defmodule ServiceRadar.Inventory.Device do
       description "Latest availability reported by each agent for this device"
     end
 
+    has_many :risk_contributions, ServiceRadar.Inventory.DeviceRiskContribution do
+      source_attribute :uid
+      destination_attribute :device_uid
+      public? true
+      description "Source-specific risk contributions used to derive inventory-visible risk"
+    end
+
+    has_many :bumblebee_postures, ServiceRadar.Inventory.BumblebeeDevicePosture do
+      source_attribute :uid
+      destination_attribute :device_uid
+      public? true
+
+      description "Bumblebee developer endpoint exposure posture for agents associated with this device"
+    end
+
+    has_many :bumblebee_findings, ServiceRadar.Inventory.BumblebeeFinding do
+      source_attribute :uid
+      destination_attribute :device_uid
+      public? true
+      description "Bumblebee exposure findings associated with this device"
+    end
+
     belongs_to :availability_source_profile, ServiceRadar.Inventory.AvailabilitySourceProfile do
       source_attribute :availability_source_profile_id
       destination_attribute :id

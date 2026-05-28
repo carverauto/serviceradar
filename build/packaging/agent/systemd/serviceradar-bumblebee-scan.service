@@ -1,0 +1,20 @@
+[Unit]
+Description=ServiceRadar Bumblebee Root Scanner
+Documentation=https://docs.serviceradar.cloud/
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=serviceradar
+UMask=0027
+WorkingDirectory=/var/lib/serviceradar/bumblebee
+Environment="HOME=/var/lib/serviceradar/bumblebee"
+Environment="XDG_CACHE_HOME=/var/lib/serviceradar/bumblebee/cache"
+ExecStart=/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan -config /etc/serviceradar/bumblebee-scan.json
+Nice=10
+IOSchedulingClass=best-effort
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/serviceradar/bumblebee

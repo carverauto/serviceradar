@@ -69,8 +69,19 @@ PACKAGES = {
                 "mode": "0755",
             },
             {
+                "src": "//go/cmd/bumblebee-scan:bumblebee_scan",
+                "dest": "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
+                "mode": "0755",
+            },
+            {
                 "src": "config/agent.json",
                 "dest": "/etc/serviceradar/agent.json",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+            {
+                "src": "config/bumblebee-scan.json",
+                "dest": "/etc/serviceradar/bumblebee-scan.json",
                 "mode": "0644",
                 "rpm_filetag": "config(noreplace)",
             },
@@ -81,6 +92,16 @@ PACKAGES = {
                 "rpm_filetag": "config(noreplace)",
                 "allow_empty": True,
             },
+            {
+                "src": "systemd/serviceradar-bumblebee-scan.service",
+                "dest": "/lib/systemd/system/serviceradar-bumblebee-scan.service",
+                "mode": "0644",
+            },
+            {
+                "src": "systemd/serviceradar-bumblebee-scan.timer",
+                "dest": "/lib/systemd/system/serviceradar-bumblebee-scan.timer",
+                "mode": "0644",
+            },
         ],
         "systemd": {
             "src": "systemd/serviceradar-agent.service",
@@ -90,6 +111,7 @@ PACKAGES = {
         "prerm": "scripts/preremove.sh",
         "conffiles": [
             "/etc/serviceradar/agent.json",
+            "/etc/serviceradar/bumblebee-scan.json",
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
     },

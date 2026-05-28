@@ -37,6 +37,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
+  alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -245,6 +246,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sysmon_config = load_sysmon_config(agent_id)
     snmp_config = load_snmp_config(agent_id)
     visibility_config = load_visibility_config(agent_id)
+    bumblebee_config = load_bumblebee_config(agent_id)
     plugin_assignments = load_plugin_assignments(agent_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
 
@@ -261,6 +263,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sysmon_config,
       snmp_config,
       visibility_config,
+      bumblebee_config,
       plugin_config
     )
   end
@@ -785,6 +788,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          visibility_config,
+         bumblebee_config,
          plugin_config
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
@@ -796,6 +800,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sync_payload
       |> Map.put("sweep", sweep_config)
       |> Map.put("mapper", mapper_config)
+      |> Map.put("bumblebee", bumblebee_config)
 
     # Compute version hash from all config components
     config_version =
@@ -805,6 +810,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sysmon_config,
         snmp_config,
         visibility_config,
+        bumblebee_config,
         plugin_assignments,
         plugin_engine_limits
       )
@@ -899,6 +905,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          visibility_config,
+         bumblebee_config,
          plugin_assignments,
          plugin_engine_limits
        ) do
@@ -916,6 +923,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sysmon: stable_config_fragment(sysmon_config),
       snmp: stable_config_fragment(snmp_config),
       visibility: stable_config_fragment(visibility_config),
+      bumblebee: stable_config_fragment(bumblebee_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits
     }
@@ -1235,6 +1243,32 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         )
 
         disabled_visibility_config()
+    end
+  end
+
+  defp load_bumblebee_config(agent_id) do
+    actor = SystemActor.system(:bumblebee_config_loader)
+
+    case BumblebeeCatalogSnapshot
+         |> Ash.Query.for_read(:active, %{}, actor: actor)
+         |> Ash.read_one(actor: actor) do
+      {:ok, %BumblebeeCatalogSnapshot{} = snapshot} ->
+        %{
+          "enabled" => true,
+          "agent_id" => agent_id,
+          "catalog" => %{
+            "snapshot_ref" => snapshot.snapshot_ref,
+            "catalog_version" => snapshot.catalog_version,
+            "source_revision" => snapshot.source_revision,
+            "object_key" => snapshot.object_key,
+            "sha256" => snapshot.content_sha256,
+            "size_bytes" => snapshot.object_size_bytes,
+            "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
+          }
+        }
+
+      _ ->
+        %{"enabled" => false}
     end
   end
 

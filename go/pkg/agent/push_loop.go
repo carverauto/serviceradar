@@ -41,6 +41,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
+	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -1902,7 +1903,18 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
 				continue
 			}
-			converted := p.convertToGatewayStatus(status, svc.Name(), sweepType)
+			serviceType := sweepType
+			source := "status"
+			if routing, ok := svc.(StatusRoutingProvider); ok {
+				if value := strings.TrimSpace(routing.StatusServiceType()); value != "" {
+					serviceType = value
+				}
+				if value := strings.TrimSpace(routing.StatusSource()); value != "" {
+					source = value
+				}
+			}
+
+			converted := p.convertToGatewayStatusWithSource(status, svc.Name(), serviceType, source)
 			if converted == nil {
 				p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
 				continue
@@ -1995,6 +2007,15 @@ func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 
 // convertToGatewayStatus converts a StatusResponse to a GatewayServiceStatus.
 func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceName, serviceType string) *proto.GatewayServiceStatus {
+	return p.convertToGatewayStatusWithSource(resp, serviceName, serviceType, "status")
+}
+
+func (p *PushLoop) convertToGatewayStatusWithSource(
+	resp *proto.StatusResponse,
+	serviceName string,
+	serviceType string,
+	source string,
+) *proto.GatewayServiceStatus {
 	if resp == nil {
 		return nil
 	}
@@ -2015,7 +2036,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		AgentId:      agentID,
 		GatewayId:    gatewayID,
 		Partition:    partition,
-		Source:       "status",
+		Source:       source,
 		KvStoreId:    kvStoreID,
 	}
 }
@@ -2833,6 +2854,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	p.applySweepConfig(configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
+	p.applyBumblebeeConfig(ctx, configResp.ConfigJson)
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
@@ -2875,6 +2897,47 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		Msg("Applied new config from gateway")
 
 	return true
+}
+
+func (p *PushLoop) applyBumblebeeConfig(ctx context.Context, configJSON []byte) {
+	cfg, err := parseGatewayBumblebeeConfig(configJSON)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to parse Bumblebee config from gateway")
+		return
+	}
+	if cfg == nil || !cfg.Enabled || cfg.Catalog == nil {
+		return
+	}
+
+	p.server.mu.RLock()
+	objectStore := p.server.objectStore
+	serverConfig := p.server.config
+	p.server.mu.RUnlock()
+
+	catalogPath := bumblebee.DefaultConfig().CatalogPath
+	tmpDir := bumblebee.DefaultConfig().TmpDir
+	if serverConfig != nil && serverConfig.Bumblebee != nil {
+		catalogPath = serverConfig.Bumblebee.effectiveCatalogPath()
+		tmpDir = serverConfig.Bumblebee.effectiveTmpDir()
+	}
+
+	result, err := bumblebee.StageCatalogAssignment(ctx, objectStore, catalogPath, tmpDir, *cfg.Catalog)
+	if err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("snapshot_ref", cfg.Catalog.SnapshotRef).
+			Str("object_key", cfg.Catalog.ObjectKey).
+			Msg("Failed to stage Bumblebee catalog assignment")
+		return
+	}
+
+	if result.Changed {
+		p.logger.Info().
+			Str("snapshot_ref", result.SnapshotRef).
+			Str("path", result.Path).
+			Str("sha256", result.SHA256).
+			Msg("Staged Bumblebee catalog assignment")
+	}
 }
 
 func (p *PushLoop) applyMapperConfig(configJSON []byte) {
@@ -3645,6 +3708,7 @@ type agentCapabilityOptions struct {
 	enhancedBPF                             bool
 	desktopRDP                              bool
 	hostNetworkVisibilityFingerprintEnabled bool
+	bumblebee                               bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
@@ -3683,6 +3747,7 @@ func getAgentCapabilitiesForSidecars(cfg *ServerConfig, sidecars []*proto.Sideca
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
+		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
 	})
 }
 
@@ -3712,6 +3777,10 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled)
 	} else {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintUnavailable)
+	}
+
+	if options.bumblebee {
+		capabilities = append(capabilities, "bumblebee")
 	}
 
 	if options.enhancedBPF {

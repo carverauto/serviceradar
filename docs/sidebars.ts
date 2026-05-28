@@ -43,6 +43,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'network-sweeps', label: 'Network Sweeps'},
         {type: 'doc', id: 'syn-scanner-tuning', label: 'SYN Scanner Tuning'},
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
+        {type: 'doc', id: 'bumblebee', label: 'Bumblebee Exposure Scanning'},
         {type: 'doc', id: 'netprobe', label: 'Host Network Visibility'},
         {type: 'doc', id: 'rperf', label: 'Network Performance Testing'},
       ],

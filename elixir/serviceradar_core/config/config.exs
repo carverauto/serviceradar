@@ -52,6 +52,13 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+config :serviceradar_core, ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker,
+  enabled: false,
+  timeout_ms: 30_000,
+  reschedule_seconds: 86_400,
+  failure_reschedule_seconds: 3_600,
+  max_entries: 250_000
+
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
 
@@ -99,6 +106,9 @@ config :serviceradar_core, :plugin_storage,
 
 config :serviceradar_core,
   age_graph_name: "platform_graph"
+
+config :serviceradar_core,
+  bumblebee_catalog_refresh_enabled: false
 
 # Cluster configuration (disabled by default)
 config :serviceradar_core,
@@ -187,17 +197,18 @@ config :spark,
         :identities
       ]
     ],
+    # Settings → Audit → History allow-list. Sets which AshPaperTrail-
+    # enabled resources surface on the cross-resource history page.
     "Ash.Domain": [
       section_order: [:resources, :policies, :authorization, :domain, :execution]
     ]
   ]
 
-# Settings → Audit → History allow-list. Sets which AshPaperTrail-
-# enabled resources surface on the cross-resource history page.
-
 # Import environment specific config
 # The module defaults to the full list of AshPaperTrail-enabled
 # resources; uncomment + edit to scope tighter or to exclude a
+
+config :swoosh, :api_client, false
 
 # Disable Swoosh API client (not needed for Local adapter)
 # high-write-volume resource (e.g. PlaybookRun during a busy
@@ -209,7 +220,5 @@ config :spark,
 #     ServiceRadar.Credentials.NetworkCredentialRule,
 #     ServiceRadar.Security.AuthLockout
 #   ]
-
-config :swoosh, :api_client, false
 
 import_config "#{config_env()}.exs"

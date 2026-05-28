@@ -16,12 +16,14 @@ pkg_files(
     name = "agent_release_runtime_files",
     srcs = [
         "//go/cmd/agent",
+        "//go/cmd/bumblebee-scan:bumblebee_scan",
         "//rust/netprobe",
     ],
     attributes = pkg_attributes(mode = "0755"),
     prefix = "/",
     renames = {
         "//go/cmd/agent": "serviceradar-agent",
+        "//go/cmd/bumblebee-scan:bumblebee_scan": "serviceradar-bumblebee-scan",
         "//rust/netprobe": "serviceradar-netprobe",
     },
 )
@@ -37,6 +39,7 @@ pkg_files(
     name = "agent_rdp_release_runtime_files",
     srcs = [
         "//go/cmd/agent",
+        "//go/cmd/bumblebee-scan:bumblebee_scan",
         "//rust/netprobe",
         "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental",
     ],
@@ -44,6 +47,7 @@ pkg_files(
     prefix = "/",
     renames = {
         "//go/cmd/agent": "serviceradar-agent",
+        "//go/cmd/bumblebee-scan:bumblebee_scan": "serviceradar-bumblebee-scan",
         "//rust/netprobe": "serviceradar-netprobe",
         "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental": "serviceradar-rdp-adapter",
     },
