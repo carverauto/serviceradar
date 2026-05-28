@@ -24,7 +24,7 @@ use crate::event_queue::EventSender;
 use crate::hassh;
 use crate::proto::netprobe::{
     fingerprint_event, FingerprintDisagreement, FingerprintEvent, FingerprintMatch,
-    LicenseCleanFingerprint, OsMatch as ProtoOsMatch, P0fFingerprintMatch,
+    LicenseCleanFingerprint, OsMatch as ProtoOsMatch, P0fFingerprintMatch, RecogFingerprintMatch,
 };
 #[cfg(feature = "remote-capture")]
 use crate::proto::netprobe::{HttpFingerprint, TcpFingerprint, TlsFingerprint};
@@ -898,6 +898,20 @@ fn license_clean_p0f_event_with_accumulated(
                 .map(|pair| pair.server.md5.clone())
         })
         .unwrap_or_default();
+    let recog_http = recog_proto_match(accumulated.as_ref(), RecogService::HttpServer);
+    let recog_ssh = recog_proto_match(accumulated.as_ref(), RecogService::SshBanner);
+    let recog_smb = recog_proto_match(accumulated.as_ref(), RecogService::SmbVersion);
+    let recog_ftp = recog_proto_match(accumulated.as_ref(), RecogService::FtpBanner);
+    let recog_telnet = recog_proto_match(accumulated.as_ref(), RecogService::TelnetBanner);
+    let recog_snmp = recog_proto_match(accumulated.as_ref(), RecogService::SnmpBanner);
+    let recog_sip = recog_proto_match(accumulated.as_ref(), RecogService::SipBanner);
+    let recog_rdp = recog_proto_match(accumulated.as_ref(), RecogService::RdpBanner);
+    let recog_dns = recog_proto_match(accumulated.as_ref(), RecogService::DnsVersion);
+    let http_observed = recog_http.is_some();
+    let ssh_observed = recog_ssh.is_some();
+    let smb_observed = recog_smb.is_some();
+    let dns_observed = recog_dns.is_some();
+    let sip_observed = recog_sip.is_some();
     license_clean_event(
         ip,
         interface_name,
@@ -920,6 +934,29 @@ fn license_clean_p0f_event_with_accumulated(
             hassh_match: hassh_observation.as_ref().map(proto_fingerprint_match),
             os_match: Some(proto_os_match(&os_match)),
             agreement_count: os_match.agreement_count,
+            muonfp: None,
+            recog_http,
+            recog_ssh,
+            recog_smb,
+            recog_ftp,
+            recog_telnet,
+            recog_snmp,
+            recog_sip,
+            recog_rdp,
+            recog_dns,
+            satori_matches: Vec::new(),
+            tcp_observed: true,
+            ja4_observed: ja4_observation.is_some(),
+            hassh_observed: hassh_observation.is_some(),
+            dhcp_observed: false,
+            dhcpv6_observed: false,
+            http_observed,
+            ssh_observed,
+            smb_observed,
+            dns_observed,
+            icmp_observed: false,
+            ntp_observed: false,
+            sip_observed,
         },
     )
 }
@@ -970,6 +1007,32 @@ fn recog_signal(service: RecogService) -> FingerprintSignal {
         RecogService::RdpBanner => FingerprintSignal::RecogRdp,
         RecogService::DnsVersion => FingerprintSignal::RecogDns,
     }
+}
+
+fn recog_proto_match(
+    fingerprint: Option<&AccumulatedFingerprint>,
+    service: RecogService,
+) -> Option<RecogFingerprintMatch> {
+    let label = &fingerprint?
+        .recog_matches
+        .iter()
+        .find(|observation| observation.service == service)?
+        .label;
+
+    Some(RecogFingerprintMatch {
+        product: label
+            .product
+            .clone()
+            .or_else(|| label.hardware_product.clone())
+            .or_else(|| label.vendor.clone())
+            .unwrap_or_default(),
+        version: label
+            .version
+            .clone()
+            .or_else(|| label.os_version.clone())
+            .unwrap_or_default(),
+        os_family: label.os_family.clone().unwrap_or_default(),
+    })
 }
 
 fn auxiliary_observation(
@@ -1535,6 +1598,8 @@ mod p0f_ring_tests {
             Some("linux")
         );
         assert_eq!(fingerprint.agreement_count, 2);
+        assert!(fingerprint.tcp_observed);
+        assert!(fingerprint.ja4_observed);
         assert!(
             fingerprint
                 .os_match
@@ -1611,6 +1676,15 @@ mod p0f_ring_tests {
             panic!("expected license-clean fingerprint");
         };
         assert_eq!(fingerprint.agreement_count, 2);
+        assert!(fingerprint.tcp_observed);
+        assert!(fingerprint.ssh_observed);
+        assert_eq!(
+            fingerprint
+                .recog_ssh
+                .as_ref()
+                .map(|matched| matched.product.as_str()),
+            Some("OpenSSH")
+        );
         assert!(
             fingerprint
                 .os_match

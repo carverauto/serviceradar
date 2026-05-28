@@ -128,6 +128,8 @@ message FingerprintEvent {
 }
 
 message LicenseCleanFingerprint {
+  // Version 2 extends the original p0f / JA4 / HASSH shape with
+  // multi-corpus evidence fields. Fields 1-9 remain the v1 carrier shape.
   string p0f_signature = 1;
   P0fFingerprintMatch p0f_match = 2;
   string ja4 = 3;
@@ -137,6 +139,29 @@ message LicenseCleanFingerprint {
   FingerprintMatch hassh_match = 7;
   OsMatch os_match = 8;
   uint32 agreement_count = 9;
+  MuonFpFingerprintMatch muonfp = 10;
+  RecogFingerprintMatch recog_http = 11;
+  RecogFingerprintMatch recog_ssh = 12;
+  RecogFingerprintMatch recog_smb = 13;
+  RecogFingerprintMatch recog_ftp = 14;
+  RecogFingerprintMatch recog_telnet = 15;
+  RecogFingerprintMatch recog_snmp = 16;
+  RecogFingerprintMatch recog_sip = 17;
+  RecogFingerprintMatch recog_rdp = 18;
+  RecogFingerprintMatch recog_dns = 19;
+  repeated SatoriFingerprintMatch satori_matches = 20;
+  bool tcp_observed = 21;
+  bool ja4_observed = 22;
+  bool hassh_observed = 23;
+  bool dhcp_observed = 24;
+  bool dhcpv6_observed = 25;
+  bool http_observed = 26;
+  bool ssh_observed = 27;
+  bool smb_observed = 28;
+  bool dns_observed = 29;
+  bool icmp_observed = 30;
+  bool ntp_observed = 31;
+  bool sip_observed = 32;
 }
 
 message P0fFingerprintMatch {
@@ -144,6 +169,25 @@ message P0fFingerprintMatch {
   string name = 2;
   string version_flavor = 3;
   string os_family = 4;
+}
+
+message MuonFpFingerprintMatch {
+  string signature = 1;
+  string label = 2;
+}
+
+message RecogFingerprintMatch {
+  string product = 1;
+  string version = 2;
+  string os_family = 3;
+}
+
+message SatoriFingerprintMatch {
+  string axis = 1;
+  string signature = 2;
+  string label = 3;
+  string device_class = 4;
+  string os_family = 5;
 }
 
 message FingerprintMatch {

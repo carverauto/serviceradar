@@ -1019,16 +1019,41 @@ func (*FingerprintEvent_Http) isFingerprintEvent_Evidence() {}
 func (*FingerprintEvent_LicenseClean) isFingerprintEvent_Evidence() {}
 
 type LicenseCleanFingerprint struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	P0FSignature   string                 `protobuf:"bytes,1,opt,name=p0f_signature,json=p0fSignature,proto3" json:"p0f_signature,omitempty"`
-	P0FMatch       *P0FFingerprintMatch   `protobuf:"bytes,2,opt,name=p0f_match,json=p0fMatch,proto3" json:"p0f_match,omitempty"`
-	Ja4            string                 `protobuf:"bytes,3,opt,name=ja4,proto3" json:"ja4,omitempty"`
-	Ja4Match       *FingerprintMatch      `protobuf:"bytes,4,opt,name=ja4_match,json=ja4Match,proto3" json:"ja4_match,omitempty"`
-	Hassh          string                 `protobuf:"bytes,5,opt,name=hassh,proto3" json:"hassh,omitempty"`
-	HasshServer    string                 `protobuf:"bytes,6,opt,name=hassh_server,json=hasshServer,proto3" json:"hassh_server,omitempty"`
-	HasshMatch     *FingerprintMatch      `protobuf:"bytes,7,opt,name=hassh_match,json=hasshMatch,proto3" json:"hassh_match,omitempty"`
-	OsMatch        *OsMatch               `protobuf:"bytes,8,opt,name=os_match,json=osMatch,proto3" json:"os_match,omitempty"`
-	AgreementCount uint32                 `protobuf:"varint,9,opt,name=agreement_count,json=agreementCount,proto3" json:"agreement_count,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Version 2 extends the original p0f / JA4 / HASSH shape with
+	// multi-corpus evidence fields. Fields 1-9 remain the v1 carrier shape.
+	P0FSignature   string                    `protobuf:"bytes,1,opt,name=p0f_signature,json=p0fSignature,proto3" json:"p0f_signature,omitempty"`
+	P0FMatch       *P0FFingerprintMatch      `protobuf:"bytes,2,opt,name=p0f_match,json=p0fMatch,proto3" json:"p0f_match,omitempty"`
+	Ja4            string                    `protobuf:"bytes,3,opt,name=ja4,proto3" json:"ja4,omitempty"`
+	Ja4Match       *FingerprintMatch         `protobuf:"bytes,4,opt,name=ja4_match,json=ja4Match,proto3" json:"ja4_match,omitempty"`
+	Hassh          string                    `protobuf:"bytes,5,opt,name=hassh,proto3" json:"hassh,omitempty"`
+	HasshServer    string                    `protobuf:"bytes,6,opt,name=hassh_server,json=hasshServer,proto3" json:"hassh_server,omitempty"`
+	HasshMatch     *FingerprintMatch         `protobuf:"bytes,7,opt,name=hassh_match,json=hasshMatch,proto3" json:"hassh_match,omitempty"`
+	OsMatch        *OsMatch                  `protobuf:"bytes,8,opt,name=os_match,json=osMatch,proto3" json:"os_match,omitempty"`
+	AgreementCount uint32                    `protobuf:"varint,9,opt,name=agreement_count,json=agreementCount,proto3" json:"agreement_count,omitempty"`
+	Muonfp         *MuonFpFingerprintMatch   `protobuf:"bytes,10,opt,name=muonfp,proto3" json:"muonfp,omitempty"`
+	RecogHttp      *RecogFingerprintMatch    `protobuf:"bytes,11,opt,name=recog_http,json=recogHttp,proto3" json:"recog_http,omitempty"`
+	RecogSsh       *RecogFingerprintMatch    `protobuf:"bytes,12,opt,name=recog_ssh,json=recogSsh,proto3" json:"recog_ssh,omitempty"`
+	RecogSmb       *RecogFingerprintMatch    `protobuf:"bytes,13,opt,name=recog_smb,json=recogSmb,proto3" json:"recog_smb,omitempty"`
+	RecogFtp       *RecogFingerprintMatch    `protobuf:"bytes,14,opt,name=recog_ftp,json=recogFtp,proto3" json:"recog_ftp,omitempty"`
+	RecogTelnet    *RecogFingerprintMatch    `protobuf:"bytes,15,opt,name=recog_telnet,json=recogTelnet,proto3" json:"recog_telnet,omitempty"`
+	RecogSnmp      *RecogFingerprintMatch    `protobuf:"bytes,16,opt,name=recog_snmp,json=recogSnmp,proto3" json:"recog_snmp,omitempty"`
+	RecogSip       *RecogFingerprintMatch    `protobuf:"bytes,17,opt,name=recog_sip,json=recogSip,proto3" json:"recog_sip,omitempty"`
+	RecogRdp       *RecogFingerprintMatch    `protobuf:"bytes,18,opt,name=recog_rdp,json=recogRdp,proto3" json:"recog_rdp,omitempty"`
+	RecogDns       *RecogFingerprintMatch    `protobuf:"bytes,19,opt,name=recog_dns,json=recogDns,proto3" json:"recog_dns,omitempty"`
+	SatoriMatches  []*SatoriFingerprintMatch `protobuf:"bytes,20,rep,name=satori_matches,json=satoriMatches,proto3" json:"satori_matches,omitempty"`
+	TcpObserved    bool                      `protobuf:"varint,21,opt,name=tcp_observed,json=tcpObserved,proto3" json:"tcp_observed,omitempty"`
+	Ja4Observed    bool                      `protobuf:"varint,22,opt,name=ja4_observed,json=ja4Observed,proto3" json:"ja4_observed,omitempty"`
+	HasshObserved  bool                      `protobuf:"varint,23,opt,name=hassh_observed,json=hasshObserved,proto3" json:"hassh_observed,omitempty"`
+	DhcpObserved   bool                      `protobuf:"varint,24,opt,name=dhcp_observed,json=dhcpObserved,proto3" json:"dhcp_observed,omitempty"`
+	Dhcpv6Observed bool                      `protobuf:"varint,25,opt,name=dhcpv6_observed,json=dhcpv6Observed,proto3" json:"dhcpv6_observed,omitempty"`
+	HttpObserved   bool                      `protobuf:"varint,26,opt,name=http_observed,json=httpObserved,proto3" json:"http_observed,omitempty"`
+	SshObserved    bool                      `protobuf:"varint,27,opt,name=ssh_observed,json=sshObserved,proto3" json:"ssh_observed,omitempty"`
+	SmbObserved    bool                      `protobuf:"varint,28,opt,name=smb_observed,json=smbObserved,proto3" json:"smb_observed,omitempty"`
+	DnsObserved    bool                      `protobuf:"varint,29,opt,name=dns_observed,json=dnsObserved,proto3" json:"dns_observed,omitempty"`
+	IcmpObserved   bool                      `protobuf:"varint,30,opt,name=icmp_observed,json=icmpObserved,proto3" json:"icmp_observed,omitempty"`
+	NtpObserved    bool                      `protobuf:"varint,31,opt,name=ntp_observed,json=ntpObserved,proto3" json:"ntp_observed,omitempty"`
+	SipObserved    bool                      `protobuf:"varint,32,opt,name=sip_observed,json=sipObserved,proto3" json:"sip_observed,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1126,6 +1151,167 @@ func (x *LicenseCleanFingerprint) GetAgreementCount() uint32 {
 	return 0
 }
 
+func (x *LicenseCleanFingerprint) GetMuonfp() *MuonFpFingerprintMatch {
+	if x != nil {
+		return x.Muonfp
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogHttp() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogHttp
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogSsh() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogSsh
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogSmb() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogSmb
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogFtp() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogFtp
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogTelnet() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogTelnet
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogSnmp() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogSnmp
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogSip() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogSip
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogRdp() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogRdp
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogDns() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogDns
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetSatoriMatches() []*SatoriFingerprintMatch {
+	if x != nil {
+		return x.SatoriMatches
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetTcpObserved() bool {
+	if x != nil {
+		return x.TcpObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetJa4Observed() bool {
+	if x != nil {
+		return x.Ja4Observed
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetHasshObserved() bool {
+	if x != nil {
+		return x.HasshObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetDhcpObserved() bool {
+	if x != nil {
+		return x.DhcpObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetDhcpv6Observed() bool {
+	if x != nil {
+		return x.Dhcpv6Observed
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetHttpObserved() bool {
+	if x != nil {
+		return x.HttpObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetSshObserved() bool {
+	if x != nil {
+		return x.SshObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetSmbObserved() bool {
+	if x != nil {
+		return x.SmbObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetDnsObserved() bool {
+	if x != nil {
+		return x.DnsObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetIcmpObserved() bool {
+	if x != nil {
+		return x.IcmpObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetNtpObserved() bool {
+	if x != nil {
+		return x.NtpObserved
+	}
+	return false
+}
+
+func (x *LicenseCleanFingerprint) GetSipObserved() bool {
+	if x != nil {
+		return x.SipObserved
+	}
+	return false
+}
+
 type P0FFingerprintMatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Label         string                 `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
@@ -1194,6 +1380,194 @@ func (x *P0FFingerprintMatch) GetOsFamily() string {
 	return ""
 }
 
+type MuonFpFingerprintMatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Signature     string                 `protobuf:"bytes,1,opt,name=signature,proto3" json:"signature,omitempty"`
+	Label         string                 `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MuonFpFingerprintMatch) Reset() {
+	*x = MuonFpFingerprintMatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MuonFpFingerprintMatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MuonFpFingerprintMatch) ProtoMessage() {}
+
+func (x *MuonFpFingerprintMatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MuonFpFingerprintMatch.ProtoReflect.Descriptor instead.
+func (*MuonFpFingerprintMatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *MuonFpFingerprintMatch) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *MuonFpFingerprintMatch) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+type RecogFingerprintMatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Product       string                 `protobuf:"bytes,1,opt,name=product,proto3" json:"product,omitempty"`
+	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
+	OsFamily      string                 `protobuf:"bytes,3,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RecogFingerprintMatch) Reset() {
+	*x = RecogFingerprintMatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RecogFingerprintMatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RecogFingerprintMatch) ProtoMessage() {}
+
+func (x *RecogFingerprintMatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RecogFingerprintMatch.ProtoReflect.Descriptor instead.
+func (*RecogFingerprintMatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *RecogFingerprintMatch) GetProduct() string {
+	if x != nil {
+		return x.Product
+	}
+	return ""
+}
+
+func (x *RecogFingerprintMatch) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *RecogFingerprintMatch) GetOsFamily() string {
+	if x != nil {
+		return x.OsFamily
+	}
+	return ""
+}
+
+type SatoriFingerprintMatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Axis          string                 `protobuf:"bytes,1,opt,name=axis,proto3" json:"axis,omitempty"`
+	Signature     string                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	Label         string                 `protobuf:"bytes,3,opt,name=label,proto3" json:"label,omitempty"`
+	DeviceClass   string                 `protobuf:"bytes,4,opt,name=device_class,json=deviceClass,proto3" json:"device_class,omitempty"`
+	OsFamily      string                 `protobuf:"bytes,5,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SatoriFingerprintMatch) Reset() {
+	*x = SatoriFingerprintMatch{}
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SatoriFingerprintMatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SatoriFingerprintMatch) ProtoMessage() {}
+
+func (x *SatoriFingerprintMatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SatoriFingerprintMatch.ProtoReflect.Descriptor instead.
+func (*SatoriFingerprintMatch) Descriptor() ([]byte, []int) {
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *SatoriFingerprintMatch) GetAxis() string {
+	if x != nil {
+		return x.Axis
+	}
+	return ""
+}
+
+func (x *SatoriFingerprintMatch) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *SatoriFingerprintMatch) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *SatoriFingerprintMatch) GetDeviceClass() string {
+	if x != nil {
+		return x.DeviceClass
+	}
+	return ""
+}
+
+func (x *SatoriFingerprintMatch) GetOsFamily() string {
+	if x != nil {
+		return x.OsFamily
+	}
+	return ""
+}
+
 type FingerprintMatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -1205,7 +1579,7 @@ type FingerprintMatch struct {
 
 func (x *FingerprintMatch) Reset() {
 	*x = FingerprintMatch{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[13]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1217,7 +1591,7 @@ func (x *FingerprintMatch) String() string {
 func (*FingerprintMatch) ProtoMessage() {}
 
 func (x *FingerprintMatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[13]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1230,7 +1604,7 @@ func (x *FingerprintMatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FingerprintMatch.ProtoReflect.Descriptor instead.
 func (*FingerprintMatch) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{13}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *FingerprintMatch) GetName() string {
@@ -1267,7 +1641,7 @@ type OsMatch struct {
 
 func (x *OsMatch) Reset() {
 	*x = OsMatch{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[14]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1279,7 +1653,7 @@ func (x *OsMatch) String() string {
 func (*OsMatch) ProtoMessage() {}
 
 func (x *OsMatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[14]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1292,7 +1666,7 @@ func (x *OsMatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OsMatch.ProtoReflect.Descriptor instead.
 func (*OsMatch) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{14}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *OsMatch) GetName() string {
@@ -1343,7 +1717,7 @@ type FingerprintDisagreement struct {
 
 func (x *FingerprintDisagreement) Reset() {
 	*x = FingerprintDisagreement{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[15]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1355,7 +1729,7 @@ func (x *FingerprintDisagreement) String() string {
 func (*FingerprintDisagreement) ProtoMessage() {}
 
 func (x *FingerprintDisagreement) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[15]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1368,7 +1742,7 @@ func (x *FingerprintDisagreement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FingerprintDisagreement.ProtoReflect.Descriptor instead.
 func (*FingerprintDisagreement) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{15}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *FingerprintDisagreement) GetSignal() string {
@@ -1426,7 +1800,7 @@ type TcpFingerprint struct {
 
 func (x *TcpFingerprint) Reset() {
 	*x = TcpFingerprint{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[16]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1438,7 +1812,7 @@ func (x *TcpFingerprint) String() string {
 func (*TcpFingerprint) ProtoMessage() {}
 
 func (x *TcpFingerprint) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[16]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1451,7 +1825,7 @@ func (x *TcpFingerprint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TcpFingerprint.ProtoReflect.Descriptor instead.
 func (*TcpFingerprint) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{16}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *TcpFingerprint) GetSignature() string {
@@ -1549,7 +1923,7 @@ type TlsFingerprint struct {
 
 func (x *TlsFingerprint) Reset() {
 	*x = TlsFingerprint{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[17]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1561,7 +1935,7 @@ func (x *TlsFingerprint) String() string {
 func (*TlsFingerprint) ProtoMessage() {}
 
 func (x *TlsFingerprint) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[17]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1574,7 +1948,7 @@ func (x *TlsFingerprint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TlsFingerprint.ProtoReflect.Descriptor instead.
 func (*TlsFingerprint) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{17}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *TlsFingerprint) GetJa4() string {
@@ -1609,7 +1983,7 @@ type HttpFingerprint struct {
 
 func (x *HttpFingerprint) Reset() {
 	*x = HttpFingerprint{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[18]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1621,7 +1995,7 @@ func (x *HttpFingerprint) String() string {
 func (*HttpFingerprint) ProtoMessage() {}
 
 func (x *HttpFingerprint) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[18]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1634,7 +2008,7 @@ func (x *HttpFingerprint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HttpFingerprint.ProtoReflect.Descriptor instead.
 func (*HttpFingerprint) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{18}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *HttpFingerprint) GetUserAgent() string {
@@ -1680,7 +2054,7 @@ type DpiEvent struct {
 
 func (x *DpiEvent) Reset() {
 	*x = DpiEvent{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[19]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1692,7 +2066,7 @@ func (x *DpiEvent) String() string {
 func (*DpiEvent) ProtoMessage() {}
 
 func (x *DpiEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[19]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1705,7 +2079,7 @@ func (x *DpiEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DpiEvent.ProtoReflect.Descriptor instead.
 func (*DpiEvent) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{19}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *DpiEvent) GetSourceIp() string {
@@ -1810,7 +2184,7 @@ type FlowAttributionEvent struct {
 
 func (x *FlowAttributionEvent) Reset() {
 	*x = FlowAttributionEvent{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[20]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1822,7 +2196,7 @@ func (x *FlowAttributionEvent) String() string {
 func (*FlowAttributionEvent) ProtoMessage() {}
 
 func (x *FlowAttributionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[20]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1835,7 +2209,7 @@ func (x *FlowAttributionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowAttributionEvent.ProtoReflect.Descriptor instead.
 func (*FlowAttributionEvent) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{20}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FlowAttributionEvent) GetLocalIp() string {
@@ -1968,7 +2342,7 @@ type ProcessSnapshot struct {
 
 func (x *ProcessSnapshot) Reset() {
 	*x = ProcessSnapshot{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[21]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1980,7 +2354,7 @@ func (x *ProcessSnapshot) String() string {
 func (*ProcessSnapshot) ProtoMessage() {}
 
 func (x *ProcessSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[21]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1993,7 +2367,7 @@ func (x *ProcessSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessSnapshot.ProtoReflect.Descriptor instead.
 func (*ProcessSnapshot) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{21}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *ProcessSnapshot) GetFingerprint() string {
@@ -2035,7 +2409,7 @@ type ProcessSnapshotEntry struct {
 
 func (x *ProcessSnapshotEntry) Reset() {
 	*x = ProcessSnapshotEntry{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2047,7 +2421,7 @@ func (x *ProcessSnapshotEntry) String() string {
 func (*ProcessSnapshotEntry) ProtoMessage() {}
 
 func (x *ProcessSnapshotEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[22]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2060,7 +2434,7 @@ func (x *ProcessSnapshotEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProcessSnapshotEntry.ProtoReflect.Descriptor instead.
 func (*ProcessSnapshotEntry) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{22}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ProcessSnapshotEntry) GetLocalIp() string {
@@ -2141,7 +2515,7 @@ type ExternalFlowRecord struct {
 
 func (x *ExternalFlowRecord) Reset() {
 	*x = ExternalFlowRecord{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2153,7 +2527,7 @@ func (x *ExternalFlowRecord) String() string {
 func (*ExternalFlowRecord) ProtoMessage() {}
 
 func (x *ExternalFlowRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[23]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2166,7 +2540,7 @@ func (x *ExternalFlowRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExternalFlowRecord.ProtoReflect.Descriptor instead.
 func (*ExternalFlowRecord) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{23}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{26}
 }
 
 type StartRemoteCapture struct {
@@ -2177,7 +2551,7 @@ type StartRemoteCapture struct {
 
 func (x *StartRemoteCapture) Reset() {
 	*x = StartRemoteCapture{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2189,7 +2563,7 @@ func (x *StartRemoteCapture) String() string {
 func (*StartRemoteCapture) ProtoMessage() {}
 
 func (x *StartRemoteCapture) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[24]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2202,7 +2576,7 @@ func (x *StartRemoteCapture) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartRemoteCapture.ProtoReflect.Descriptor instead.
 func (*StartRemoteCapture) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{24}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{27}
 }
 
 type PcapngBlock struct {
@@ -2213,7 +2587,7 @@ type PcapngBlock struct {
 
 func (x *PcapngBlock) Reset() {
 	*x = PcapngBlock{}
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[25]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2225,7 +2599,7 @@ func (x *PcapngBlock) String() string {
 func (*PcapngBlock) ProtoMessage() {}
 
 func (x *PcapngBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[25]
+	mi := &file_agent_netprobe_v1_netprobe_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2238,7 +2612,7 @@ func (x *PcapngBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PcapngBlock.ProtoReflect.Descriptor instead.
 func (*PcapngBlock) Descriptor() ([]byte, []int) {
-	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{25}
+	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{28}
 }
 
 var File_agent_netprobe_v1_netprobe_proto protoreflect.FileDescriptor
@@ -2316,7 +2690,7 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x04http\x18\f \x01(\v2/.serviceradar.agent.netprobe.v1.HttpFingerprintB\x02\x18\x01H\x00R\x04http\x12^\n" +
 	"\rlicense_clean\x18\r \x01(\v27.serviceradar.agent.netprobe.v1.LicenseCleanFingerprintH\x00R\flicenseCleanB\n" +
 	"\n" +
-	"\bevidence\"\xea\x03\n" +
+	"\bevidence\"\xcb\x0e\n" +
 	"\x17LicenseCleanFingerprint\x12#\n" +
 	"\rp0f_signature\x18\x01 \x01(\tR\fp0fSignature\x12P\n" +
 	"\tp0f_match\x18\x02 \x01(\v23.serviceradar.agent.netprobe.v1.P0fFingerprintMatchR\bp0fMatch\x12\x10\n" +
@@ -2327,12 +2701,51 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\vhassh_match\x18\a \x01(\v20.serviceradar.agent.netprobe.v1.FingerprintMatchR\n" +
 	"hasshMatch\x12B\n" +
 	"\bos_match\x18\b \x01(\v2'.serviceradar.agent.netprobe.v1.OsMatchR\aosMatch\x12'\n" +
-	"\x0fagreement_count\x18\t \x01(\rR\x0eagreementCount\"\x83\x01\n" +
+	"\x0fagreement_count\x18\t \x01(\rR\x0eagreementCount\x12N\n" +
+	"\x06muonfp\x18\n" +
+	" \x01(\v26.serviceradar.agent.netprobe.v1.MuonFpFingerprintMatchR\x06muonfp\x12T\n" +
+	"\n" +
+	"recog_http\x18\v \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\trecogHttp\x12R\n" +
+	"\trecog_ssh\x18\f \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogSsh\x12R\n" +
+	"\trecog_smb\x18\r \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogSmb\x12R\n" +
+	"\trecog_ftp\x18\x0e \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogFtp\x12X\n" +
+	"\frecog_telnet\x18\x0f \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\vrecogTelnet\x12T\n" +
+	"\n" +
+	"recog_snmp\x18\x10 \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\trecogSnmp\x12R\n" +
+	"\trecog_sip\x18\x11 \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogSip\x12R\n" +
+	"\trecog_rdp\x18\x12 \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogRdp\x12R\n" +
+	"\trecog_dns\x18\x13 \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogDns\x12]\n" +
+	"\x0esatori_matches\x18\x14 \x03(\v26.serviceradar.agent.netprobe.v1.SatoriFingerprintMatchR\rsatoriMatches\x12!\n" +
+	"\ftcp_observed\x18\x15 \x01(\bR\vtcpObserved\x12!\n" +
+	"\fja4_observed\x18\x16 \x01(\bR\vja4Observed\x12%\n" +
+	"\x0ehassh_observed\x18\x17 \x01(\bR\rhasshObserved\x12#\n" +
+	"\rdhcp_observed\x18\x18 \x01(\bR\fdhcpObserved\x12'\n" +
+	"\x0fdhcpv6_observed\x18\x19 \x01(\bR\x0edhcpv6Observed\x12#\n" +
+	"\rhttp_observed\x18\x1a \x01(\bR\fhttpObserved\x12!\n" +
+	"\fssh_observed\x18\x1b \x01(\bR\vsshObserved\x12!\n" +
+	"\fsmb_observed\x18\x1c \x01(\bR\vsmbObserved\x12!\n" +
+	"\fdns_observed\x18\x1d \x01(\bR\vdnsObserved\x12#\n" +
+	"\ricmp_observed\x18\x1e \x01(\bR\ficmpObserved\x12!\n" +
+	"\fntp_observed\x18\x1f \x01(\bR\vntpObserved\x12!\n" +
+	"\fsip_observed\x18  \x01(\bR\vsipObserved\"\x83\x01\n" +
 	"\x13P0fFingerprintMatch\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
 	"\x0eversion_flavor\x18\x03 \x01(\tR\rversionFlavor\x12\x1b\n" +
-	"\tos_family\x18\x04 \x01(\tR\bosFamily\"h\n" +
+	"\tos_family\x18\x04 \x01(\tR\bosFamily\"L\n" +
+	"\x16MuonFpFingerprintMatch\x12\x1c\n" +
+	"\tsignature\x18\x01 \x01(\tR\tsignature\x12\x14\n" +
+	"\x05label\x18\x02 \x01(\tR\x05label\"h\n" +
+	"\x15RecogFingerprintMatch\x12\x18\n" +
+	"\aproduct\x18\x01 \x01(\tR\aproduct\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion\x12\x1b\n" +
+	"\tos_family\x18\x03 \x01(\tR\bosFamily\"\xa0\x01\n" +
+	"\x16SatoriFingerprintMatch\x12\x12\n" +
+	"\x04axis\x18\x01 \x01(\tR\x04axis\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\tR\tsignature\x12\x14\n" +
+	"\x05label\x18\x03 \x01(\tR\x05label\x12!\n" +
+	"\fdevice_class\x18\x04 \x01(\tR\vdeviceClass\x12\x1b\n" +
+	"\tos_family\x18\x05 \x01(\tR\bosFamily\"h\n" +
 	"\x10FingerprintMatch\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12#\n" +
 	"\rversion_range\x18\x02 \x01(\tR\fversionRange\x12\x1b\n" +
@@ -2450,7 +2863,7 @@ func file_agent_netprobe_v1_netprobe_proto_rawDescGZIP() []byte {
 	return file_agent_netprobe_v1_netprobe_proto_rawDescData
 }
 
-var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_agent_netprobe_v1_netprobe_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(*NetprobeFrame)(nil),           // 0: serviceradar.agent.netprobe.v1.NetprobeFrame
 	(*ApplyConfig)(nil),             // 1: serviceradar.agent.netprobe.v1.ApplyConfig
@@ -2465,19 +2878,22 @@ var file_agent_netprobe_v1_netprobe_proto_goTypes = []any{
 	(*FingerprintEvent)(nil),        // 10: serviceradar.agent.netprobe.v1.FingerprintEvent
 	(*LicenseCleanFingerprint)(nil), // 11: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
 	(*P0FFingerprintMatch)(nil),     // 12: serviceradar.agent.netprobe.v1.P0fFingerprintMatch
-	(*FingerprintMatch)(nil),        // 13: serviceradar.agent.netprobe.v1.FingerprintMatch
-	(*OsMatch)(nil),                 // 14: serviceradar.agent.netprobe.v1.OsMatch
-	(*FingerprintDisagreement)(nil), // 15: serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	(*TcpFingerprint)(nil),          // 16: serviceradar.agent.netprobe.v1.TcpFingerprint
-	(*TlsFingerprint)(nil),          // 17: serviceradar.agent.netprobe.v1.TlsFingerprint
-	(*HttpFingerprint)(nil),         // 18: serviceradar.agent.netprobe.v1.HttpFingerprint
-	(*DpiEvent)(nil),                // 19: serviceradar.agent.netprobe.v1.DpiEvent
-	(*FlowAttributionEvent)(nil),    // 20: serviceradar.agent.netprobe.v1.FlowAttributionEvent
-	(*ProcessSnapshot)(nil),         // 21: serviceradar.agent.netprobe.v1.ProcessSnapshot
-	(*ProcessSnapshotEntry)(nil),    // 22: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
-	(*ExternalFlowRecord)(nil),      // 23: serviceradar.agent.netprobe.v1.ExternalFlowRecord
-	(*StartRemoteCapture)(nil),      // 24: serviceradar.agent.netprobe.v1.StartRemoteCapture
-	(*PcapngBlock)(nil),             // 25: serviceradar.agent.netprobe.v1.PcapngBlock
+	(*MuonFpFingerprintMatch)(nil),  // 13: serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
+	(*RecogFingerprintMatch)(nil),   // 14: serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	(*SatoriFingerprintMatch)(nil),  // 15: serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
+	(*FingerprintMatch)(nil),        // 16: serviceradar.agent.netprobe.v1.FingerprintMatch
+	(*OsMatch)(nil),                 // 17: serviceradar.agent.netprobe.v1.OsMatch
+	(*FingerprintDisagreement)(nil), // 18: serviceradar.agent.netprobe.v1.FingerprintDisagreement
+	(*TcpFingerprint)(nil),          // 19: serviceradar.agent.netprobe.v1.TcpFingerprint
+	(*TlsFingerprint)(nil),          // 20: serviceradar.agent.netprobe.v1.TlsFingerprint
+	(*HttpFingerprint)(nil),         // 21: serviceradar.agent.netprobe.v1.HttpFingerprint
+	(*DpiEvent)(nil),                // 22: serviceradar.agent.netprobe.v1.DpiEvent
+	(*FlowAttributionEvent)(nil),    // 23: serviceradar.agent.netprobe.v1.FlowAttributionEvent
+	(*ProcessSnapshot)(nil),         // 24: serviceradar.agent.netprobe.v1.ProcessSnapshot
+	(*ProcessSnapshotEntry)(nil),    // 25: serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	(*ExternalFlowRecord)(nil),      // 26: serviceradar.agent.netprobe.v1.ExternalFlowRecord
+	(*StartRemoteCapture)(nil),      // 27: serviceradar.agent.netprobe.v1.StartRemoteCapture
+	(*PcapngBlock)(nil),             // 28: serviceradar.agent.netprobe.v1.PcapngBlock
 }
 var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.agent.netprobe.v1.NetprobeFrame.apply_config:type_name -> serviceradar.agent.netprobe.v1.ApplyConfig
@@ -2486,32 +2902,43 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	4,  // 3: serviceradar.agent.netprobe.v1.NetprobeFrame.ping_ack:type_name -> serviceradar.agent.netprobe.v1.PingAck
 	10, // 4: serviceradar.agent.netprobe.v1.NetprobeFrame.fingerprint_event:type_name -> serviceradar.agent.netprobe.v1.FingerprintEvent
 	5,  // 5: serviceradar.agent.netprobe.v1.NetprobeFrame.error:type_name -> serviceradar.agent.netprobe.v1.ErrorFrame
-	19, // 6: serviceradar.agent.netprobe.v1.NetprobeFrame.dpi_event:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
-	20, // 7: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_event:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
-	21, // 8: serviceradar.agent.netprobe.v1.NetprobeFrame.process_snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
-	23, // 9: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_record:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowRecord
-	24, // 10: serviceradar.agent.netprobe.v1.NetprobeFrame.start_remote_capture:type_name -> serviceradar.agent.netprobe.v1.StartRemoteCapture
-	25, // 11: serviceradar.agent.netprobe.v1.NetprobeFrame.pcapng_block:type_name -> serviceradar.agent.netprobe.v1.PcapngBlock
+	22, // 6: serviceradar.agent.netprobe.v1.NetprobeFrame.dpi_event:type_name -> serviceradar.agent.netprobe.v1.DpiEvent
+	23, // 7: serviceradar.agent.netprobe.v1.NetprobeFrame.flow_attribution_event:type_name -> serviceradar.agent.netprobe.v1.FlowAttributionEvent
+	24, // 8: serviceradar.agent.netprobe.v1.NetprobeFrame.process_snapshot:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshot
+	26, // 9: serviceradar.agent.netprobe.v1.NetprobeFrame.external_flow_record:type_name -> serviceradar.agent.netprobe.v1.ExternalFlowRecord
+	27, // 10: serviceradar.agent.netprobe.v1.NetprobeFrame.start_remote_capture:type_name -> serviceradar.agent.netprobe.v1.StartRemoteCapture
+	28, // 11: serviceradar.agent.netprobe.v1.NetprobeFrame.pcapng_block:type_name -> serviceradar.agent.netprobe.v1.PcapngBlock
 	6,  // 12: serviceradar.agent.netprobe.v1.ApplyConfig.config:type_name -> serviceradar.agent.netprobe.v1.VisibilityAgentConfig
 	7,  // 13: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.device_bindings:type_name -> serviceradar.agent.netprobe.v1.DeviceBinding
 	9,  // 14: serviceradar.agent.netprobe.v1.VisibilityAgentConfig.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
 	8,  // 15: serviceradar.agent.netprobe.v1.DeviceBinding.fingerprint:type_name -> serviceradar.agent.netprobe.v1.FingerprintConfig
 	9,  // 16: serviceradar.agent.netprobe.v1.DeviceBinding.dpi:type_name -> serviceradar.agent.netprobe.v1.DpiConfig
-	16, // 17: serviceradar.agent.netprobe.v1.FingerprintEvent.tcp:type_name -> serviceradar.agent.netprobe.v1.TcpFingerprint
-	17, // 18: serviceradar.agent.netprobe.v1.FingerprintEvent.tls:type_name -> serviceradar.agent.netprobe.v1.TlsFingerprint
-	18, // 19: serviceradar.agent.netprobe.v1.FingerprintEvent.http:type_name -> serviceradar.agent.netprobe.v1.HttpFingerprint
+	19, // 17: serviceradar.agent.netprobe.v1.FingerprintEvent.tcp:type_name -> serviceradar.agent.netprobe.v1.TcpFingerprint
+	20, // 18: serviceradar.agent.netprobe.v1.FingerprintEvent.tls:type_name -> serviceradar.agent.netprobe.v1.TlsFingerprint
+	21, // 19: serviceradar.agent.netprobe.v1.FingerprintEvent.http:type_name -> serviceradar.agent.netprobe.v1.HttpFingerprint
 	11, // 20: serviceradar.agent.netprobe.v1.FingerprintEvent.license_clean:type_name -> serviceradar.agent.netprobe.v1.LicenseCleanFingerprint
 	12, // 21: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.p0f_match:type_name -> serviceradar.agent.netprobe.v1.P0fFingerprintMatch
-	13, // 22: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.ja4_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
-	13, // 23: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
-	14, // 24: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
-	15, // 25: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	22, // 26: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
-	27, // [27:27] is the sub-list for method output_type
-	27, // [27:27] is the sub-list for method input_type
-	27, // [27:27] is the sub-list for extension type_name
-	27, // [27:27] is the sub-list for extension extendee
-	0,  // [0:27] is the sub-list for field type_name
+	16, // 22: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.ja4_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
+	16, // 23: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.hassh_match:type_name -> serviceradar.agent.netprobe.v1.FingerprintMatch
+	17, // 24: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.os_match:type_name -> serviceradar.agent.netprobe.v1.OsMatch
+	13, // 25: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.muonfp:type_name -> serviceradar.agent.netprobe.v1.MuonFpFingerprintMatch
+	14, // 26: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_http:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 27: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ssh:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 28: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smb:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 29: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ftp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 30: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_telnet:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 31: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_snmp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 32: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_sip:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 33: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_rdp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 34: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_dns:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	15, // 35: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.satori_matches:type_name -> serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
+	18, // 36: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
+	25, // 37: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	38, // [38:38] is the sub-list for method output_type
+	38, // [38:38] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_agent_netprobe_v1_netprobe_proto_init() }
@@ -2545,7 +2972,7 @@ func file_agent_netprobe_v1_netprobe_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_netprobe_v1_netprobe_proto_rawDesc), len(file_agent_netprobe_v1_netprobe_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   26,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
