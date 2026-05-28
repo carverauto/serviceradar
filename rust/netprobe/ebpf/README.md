@@ -25,6 +25,10 @@ Events are emitted to the `flow_events` ring buffer. The userspace loader should
 pin maps under `/sys/fs/bpf/serviceradar/netprobe/` and consume
 `FlowAttributionRecord` by version.
 
+Socket lifecycle hooks also refresh the pinned `process_info` map keyed by TGID.
+The `sock/inet_sock_set_state` tracepoint backfill has the full 5-tuple and
+populates the pinned `flow_to_pid` map for later userspace joins.
+
 TCP SYN signatures are emitted to the `tcp_syn_signatures` ring buffer. The
 record carries TTL/hop-limit, window size, MSS, TCP option kind layout, quirks,
 IP version, window scale, and payload class for the userspace huginn-net

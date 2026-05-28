@@ -5,7 +5,7 @@ use aya_ebpf::{
     bindings::{BPF_ANY, TC_ACT_OK},
     helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel},
     macros::{classifier, kprobe, kretprobe, map, tracepoint},
-    maps::{LruHashMap, RingBuf, XskMap},
+    maps::{HashMap as BpfHashMap, LruHashMap, RingBuf, XskMap},
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext},
     EbpfContext,
 };
@@ -38,6 +38,8 @@ const SKB_NETWORK_HEADER_OFFSET: usize = 180;
 const SKB_HEAD_OFFSET: usize = 192;
 
 const FLOW_TABLE_MAX_ENTRIES: u32 = 65_536;
+const FLOW_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
+const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
 const XSK_MAX_QUEUES: u32 = 1024;
 const FLOW_REDIRECT_BUDGET: u32 = 16;
 
@@ -123,6 +125,34 @@ pub struct FlowTableEntry {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct FlowPidRecord {
+    pub version: u16,
+    pub event_kind: u16,
+    pub pid: u32,
+    pub tgid: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub socket_address: u64,
+    pub last_seen_ns: u64,
+    pub old_state: i32,
+    pub new_state: i32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct ProcessInfoRecord {
+    pub version: u16,
+    pub reserved: u16,
+    pub pid: u32,
+    pub tgid: u32,
+    pub uid: u32,
+    pub gid: u32,
+    pub last_seen_ns: u64,
+    pub comm: [u8; 16],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub struct TcpSynSignatureRecord {
     pub version: u16,
     pub ip_version: u16,
@@ -147,6 +177,14 @@ static TCP_SYN_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
 #[map(name = "flow_table")]
 static FLOW_TABLE: LruHashMap<FlowKey, FlowTableEntry> =
     LruHashMap::pinned(FLOW_TABLE_MAX_ENTRIES, 0);
+
+#[map(name = "flow_to_pid")]
+static FLOW_TO_PID: LruHashMap<FlowKey, FlowPidRecord> =
+    LruHashMap::pinned(FLOW_TO_PID_MAX_ENTRIES, 0);
+
+#[map(name = "process_info")]
+static PROCESS_INFO: BpfHashMap<u32, ProcessInfoRecord> =
+    BpfHashMap::pinned(PROCESS_INFO_MAX_ENTRIES, 0);
 
 #[map(name = "xsk_sockets")]
 static XSK_SOCKETS: XskMap = XskMap::pinned(XSK_MAX_QUEUES, 0);
@@ -354,7 +392,65 @@ fn emit_event(
         comm: ctx.command().unwrap_or([0; 16]),
     };
 
+    record_process_info(&record);
+    record_flow_pid(&record);
+
     let _ = FLOW_EVENTS.output(&record, 0);
+}
+
+fn record_process_info(record: &FlowAttributionRecord) {
+    let process = ProcessInfoRecord {
+        version: EVENT_VERSION,
+        reserved: 0,
+        pid: record.pid,
+        tgid: record.tgid,
+        uid: record.uid,
+        gid: record.gid,
+        last_seen_ns: now_ns(),
+        comm: record.comm,
+    };
+
+    let _ = PROCESS_INFO.insert(&record.tgid, &process, BPF_ANY as u64);
+}
+
+fn record_flow_pid(record: &FlowAttributionRecord) {
+    let Some(flow_key) = flow_key_from_tuple(&record.tuple) else {
+        return;
+    };
+
+    let pid = FlowPidRecord {
+        version: EVENT_VERSION,
+        event_kind: record.event_kind,
+        pid: record.pid,
+        tgid: record.tgid,
+        uid: record.uid,
+        gid: record.gid,
+        socket_address: record.socket_address,
+        last_seen_ns: now_ns(),
+        old_state: record.old_state,
+        new_state: record.new_state,
+    };
+
+    let _ = FLOW_TO_PID.insert(&flow_key, &pid, BPF_ANY as u64);
+}
+
+fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<FlowKey> {
+    if tuple.family != AF_INET && tuple.family != AF_INET6 {
+        return None;
+    }
+    if tuple.protocol != IPPROTO_TCP && tuple.protocol != IPPROTO_UDP {
+        return None;
+    }
+
+    Some(canonical_flow_key(
+        0,
+        tuple.family,
+        tuple.protocol,
+        tuple.source_addr,
+        tuple.destination_addr,
+        tuple.source_port,
+        tuple.destination_port,
+    ))
 }
 
 fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
