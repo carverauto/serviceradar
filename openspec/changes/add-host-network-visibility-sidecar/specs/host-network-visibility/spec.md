@@ -183,20 +183,21 @@ commercial-product resale without an OEM license.
 - **WHEN** the agent issues `Ping` to the sidecar
 - **THEN** the `PingAck` reply includes the `p0f.fp` corpus revision,
   the `serviceradar-additions.fp` revision, the MuonFP corpus
-  revision, the Recog corpus revision, the Satori corpus revision,
+  revision, the Recog corpus revision, the Satori DHCP corpus revision,
   and the JA4-base spec revision the sidecar was built against
 
 ### Requirement: Multi-corpus banner and DHCP fingerprint ensemble
 
 `serviceradar-netprobe` SHALL additionally classify observed devices
-using three permissively-licensed corpora layered on top of the
+using separately licensed corpora layered on top of the
 license-clean stack: MuonFP (TCP, MIT) as a parallel TCP signature
 matcher to p0f; Recog (banners, BSD-2-Clause-Views) for HTTP `Server`,
 SSH banner, SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner strings
-extracted by the existing DPI dissectors; and Satori (DHCP, BSD-3) for
-DHCP DISCOVER / REQUEST option fingerprints extracted by a new DHCP
-DPI dissector. Recog patterns MUST be compiled at build time into
-finite-automata via `regex-automata` so runtime matching is
+extracted by the existing DPI dissectors; and Satori DHCP/DHCPv6 XML
+(GPLv2, shipped with notices/source as a separate replaceable data
+corpus) for DHCP DISCOVER / REQUEST option fingerprints extracted by a
+new DHCP DPI dissector. Recog patterns MUST be compiled at build time
+into finite-automata via `regex-automata` so runtime matching is
 allocation-free. The OS-match ensemble matcher MUST fuse all observable
 axes (TCP SYN, TLS ClientHello, SSH KEXINIT, HTTP banner, SSH banner,
 SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banners, DHCP options) and

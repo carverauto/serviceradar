@@ -12,14 +12,15 @@ runs:
    OS or vendor evidence beyond what the importing system already
    supplied. Issue
    [#3423](https://forgejo/issues/3423) covers this gap. ServiceRadar's
-   answer is a **license-clean multi-corpus fingerprint ensemble**
+   answer is a **license-audited multi-corpus fingerprint ensemble**
    (see D14 + D15): the p0f canonical TCP fingerprint computed inside
    the eBPF kprobe as the foundation, backed by the upstream LGPL-2.1
    p0f corpus shipped as a separate replaceable data file, supplemented by
-   five permissively-licensed corpora — MuonFP (Censys, MIT) as a
+   five separately licensed additions — MuonFP (Censys, MIT) as a
    parallel TCP signature; Recog (Rapid7, BSD-2-Clause-Views) for
    HTTP / SSH / SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner
-   fingerprints; Satori (CrowdStrike SIG, BSD-3-Clause) for DHCP
+   fingerprints; Satori DHCP/DHCPv6 fingerprint XML (GPLv2, shipped as
+   a separate replaceable data corpus with notices preserved) for DHCP
    option fingerprints; JA4 base (BSD-3, FoxIO patent-disclaimed) for
    TLS ClientHello; and HASSH (BSD-3) for SSH KEXINIT. Combined corpus
    reach: ~17,000+ fingerprints across ~8 independent observation

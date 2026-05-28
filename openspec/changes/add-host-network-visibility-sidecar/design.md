@@ -928,7 +928,7 @@ case), security review (eBPF capability surface).
 
 - **Decision.** D14's license-clean stack (p0f + JA4-base + HASSH) is
   the *foundation*. Layered on top of it, `serviceradar-netprobe`
-  SHALL incorporate three additional permissively-licensed corpora to
+  SHALL incorporate three additional corpora to
   expand fingerprint coverage by an order of magnitude:
 
   1. **MuonFP** (Censys, MIT) — a second TCP SYN fingerprint matcher,
@@ -941,11 +941,12 @@ case), security review (eBPF capability surface).
      FTP / Telnet / SMB / SNMP / SIP / RDP / DNS banner strings. Each
      fingerprint maps to OS / vendor / product / version. This is the
      single biggest corpus addition and the dominant accuracy lever.
-  3. **Satori** (CrowdStrike SIG, BSD-3-Clause) — ~1,000+ DHCP option
-     fingerprints. Pattern-matched against DHCP DISCOVER / REQUEST
-     options observed via a new Phase 2 DHCP DPI dissector. Highly
-     device-class-precise (printers, IP phones, IoT devices, network
-     gear) when DHCP traffic is observable.
+  3. **Satori DHCP/DHCPv6 XML** (xnih/satori, GPLv2) — ~500 DHCP
+     option fingerprints shipped as a separate replaceable data corpus
+     under `rust/netprobe/satori-corpus/`. Pattern-matched against DHCP
+     DISCOVER / REQUEST options observed via a new Phase 2 DHCP DPI
+     dissector. Only the XML database files are vendored; the Python
+     runtime, pcap code, and SSL/JA4 implementation are not used.
 
   The ensemble matcher fuses all observable axes — TCP SYN, TLS
   ClientHello, SSH KEXINIT, HTTP banner, SSH banner, SMB / FTP /
@@ -955,7 +956,7 @@ case), security review (eBPF capability surface).
   agreeing on `Ubuntu 22.04` gets the highest confidence tier; a
   device producing only p0f gets the lowest.
 
-  Combined corpus reach: ~17,000+ license-clean fingerprints across
+  Combined corpus reach: ~17,000+ fingerprints across
   ~8 independent observation axes. For context, huginn-net's p0f-only
   reach is ~400. This is the "big database" direction.
 - **License audit of the new corpora.**
@@ -969,8 +970,14 @@ case), security review (eBPF capability surface).
     requires LICENSE / NOTICE preservation. Used by Metasploit Pro
     and InsightVM commercially, so the licensing is well-tested at
     Rapid7's own commercial scale.
-  - **Satori** — BSD-3-Clause. CrowdStrike SIG's standard permissive
-    license. No restrictions.
+  - **Satori DHCP/DHCPv6 XML** — GPLv2 at the maintained
+    `https://github.com/xnih/satori` upstream. ServiceRadar vendors only
+    `fingerprints/dhcp.xml` and `fingerprints/dhcpv6.xml`, plus the
+    upstream README and GPLv2 license text, as a separate replaceable
+    data corpus. ServiceRadar parser/matcher code is independently
+    authored and remains Apache-2.0. Any ServiceRadar-authored
+    additions must live in separate files under ServiceRadar's license
+    rather than modifying upstream GPLv2 XML in place.
 - **Alternatives considered (and rejected).**
   - **Nmap `nmap-os-db`** (~6,000 active OS fingerprints). Rejected
     on licensing grounds. Nmap Public Source License is a modified
@@ -980,8 +987,8 @@ case), security review (eBPF capability surface).
   - **Fingerbank** (Akamai / Inverse, ~50k+ DHCP/MAC fingerprints).
     Rejected on licensing grounds. Free tier non-commercial only;
     commercial use requires paid API key, which doesn't fit our
-    embedded-in-the-product model. Satori covers the DHCP axis under
-    a permissive license at smaller but adequate scale.
+    embedded-in-the-product model. Satori covers the DHCP axis under a
+    GPLv2 data-corpus model at smaller but adequate scale.
   - **PRADS** signature DB. Rejected — GPLv2 viral.
   - **Shodan corpus.** Rejected — closed commercial.
 - **Rationale.**
@@ -1011,6 +1018,10 @@ case), security review (eBPF capability surface).
     matching is allocation-free finite-automata work. Build-time
     cost: ~30s incremental rebuild on a typical dev machine when the
     corpus version changes.
+  - **Satori is GPLv2 data.** The Satori corpus is shipped with GPLv2
+    notices and its preferred-source XML intact. Operators can replace
+    the XML files. ServiceRadar code must treat the corpus as data and
+    must not copy or translate the Python implementation.
   - **DHCP observability is L2-bounded.** Satori only fires when the
     agent sees DHCP traffic, which means the agent must be on the
     same broadcast domain as the device being discovered (or sitting
@@ -1030,7 +1041,7 @@ case), security review (eBPF capability surface).
 - **Implementation surface.** Phase 1 amendment §32 in `tasks.md`
   lays out the work: vendor MuonFP / Recog / Satori corpora, build
   the Recog XML → compile-time regex-DFA codegen, build the Satori
-  parser, add a Phase-2 DHCP DPI dissector (~150 LOC) so Satori has
+  XML parser, add a Phase-2 DHCP DPI dissector (~150 LOC) so Satori has
   observable input, wire MuonFP into the kprobe as a parallel TCP
   signature, extend the §31.9 ensemble matcher to fuse all axes,
   extend the `LicenseCleanFingerprint` proto to carry the additional
