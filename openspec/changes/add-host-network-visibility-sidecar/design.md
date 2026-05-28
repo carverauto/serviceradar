@@ -1085,6 +1085,40 @@ case), security review (eBPF capability surface).
   in `rust/netprobe/` per §32. No corpus duplication, no shared
   Rust/Go crate, no cgo. Mapper and the SNMP polling code are
   unaffected — the new phase is additive to sweep only.
+- **Large-inventory performance model.** Banner grab is a **budgeted
+  enrichment pass**, not a second exhaustive scanner. The SYN half-open
+  scanner remains the only subnet-wide fast path; it can scan
+  20k-100k hosts quickly because it does not complete TCP handshakes.
+  Banner grab runs after that fast path completes and consumes only
+  SYN-confirmed open `(host, port)` candidates that are both
+  profile-allowlisted and eligible under the banner-grab scheduler.
+
+  The scheduler MUST apply all of the following before any 3-way
+  connect is attempted:
+  1. **Candidate gate.** Drop candidates whose port is not in the
+     active profile's banner-grab allowlist.
+  2. **Freshness gate.** Skip candidates whose previous banner result
+     is still fresh. Default `min_reprobe_interval_s = 86400`
+     (24 hours). Newly observed open ports and operator-requested
+     refreshes bypass this gate.
+  3. **Error backoff.** Skip candidates that recently produced
+     connection reset, timeout, or empty-response outcomes until their
+     per-target backoff expires.
+  4. **Probe budget.** Stop after `max_probes_per_cycle` selected
+     candidates, default 5,000. Remaining eligible candidates are
+     deferred, not failed.
+  5. **Rate budget.** Enforce `max_probe_rate_per_second`, default
+     200, in addition to the existing global concurrency and per-host
+     rate limits.
+  6. **Deterministic fairness.** Select candidates by a stable
+     `(profile_id, sweep_cycle, host, port)` hash or persisted cursor so
+     huge inventories make progress across cycles without repeatedly
+     probing the same prefix first.
+
+  This keeps the customer-visible sweep latency anchored to the SYN
+  scanner. Banner grab may continue as a bounded follow-up phase or
+  defer work to later cycles, but it MUST NOT hold the core
+  reachability result hostage behind 100k full TCP handshakes.
 - **Why sweep, not mapper.**
   - The user's "lightning-fast TCP SYN half-open scanner" is in
     `go/pkg/scan/syn_scanner.go`, used by the **sweep service**.
@@ -1198,6 +1232,14 @@ case), security review (eBPF capability surface).
   - **Some devices reset on unauthenticated probes.** Treat
     connection reset, read timeout, or partial banner as "no
     banner" rather than scan failure; do not retry aggressively.
+  - **Handshake cost at fleet scale.** A full TCP connect consumes
+    target accept-queue capacity, agent ephemeral ports, kernel socket
+    memory, IDS / IPS attention, and wall-clock time. Even with
+    256-way concurrency, probing 100k hosts can become seconds to
+    minutes of active traffic depending on timeout behaviour. The
+    scheduler's freshness gate, probe budget, rate budget, and
+    deterministic deferral are mandatory guardrails, not tuning
+    niceties.
   - **HTTPS `InsecureSkipVerify` for banner grab.** This is correct
     for fingerprinting (we are identifying the device, not
     authenticating to it) but operators may flag it as a security
@@ -1205,17 +1247,18 @@ case), security review (eBPF capability surface).
     verification for the discovery purpose; the canonical device
     record records the cert details for separate operator review
     (e.g., "expired cert detected on 192.0.2.10:443").
-  - **Audit-trail volume.** Each banner-grab probe generates an
-    AshPaperTrail entry. On a /24 with 20 probed ports × every
-    `interval`, that's 5,000+ audit entries per sweep cycle. Audit
-    is per-sweep-job, not per-probe, to keep volume sane —
-    individual probes log via the structured logger at info level,
-    aggregate counts roll into the per-job AshPaperTrail entry.
+  - **Audit-trail volume.** Per-probe AshPaperTrail entries would be
+    explosive on large inventories. Audit is per-sweep-job, not
+    per-probe, to keep volume sane — individual probes log via the
+    structured logger at info level, aggregate counts roll into the
+    per-job AshPaperTrail entry.
 - **Operator UX.** The `SweepProfile` editor (web-ng) gains a new
   "Banner grab" section: enable toggle, protocol checkboxes, per-protocol
-  port lists, timeouts, max_banner_bytes, concurrency caps. Disabled by
-  default. A "preview" panel shows the example outbound traffic a single
-  banner-grab cycle would generate.
+  port lists, timeouts, max_banner_bytes, concurrency caps, probe budget,
+  probe-rate budget, and re-probe interval. Disabled by default. A
+  "preview" panel shows the estimated outbound traffic a single
+  banner-grab cycle would generate, including the number of candidates
+  that will be deferred by the configured budget.
 - **Capability advertisement.** Agent advertises
   `sweep.banner_grab = available` when (a) sweep profile has the
   banner_grab toggle on, (b) netprobe is running and healthy, and

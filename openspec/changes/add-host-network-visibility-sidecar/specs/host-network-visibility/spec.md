@@ -617,13 +617,18 @@ the result on its existing `FingerprintEvents` stream tagged with
 `source = sweep_active`. The phase MUST be configured per
 `SweepProfile` and MUST be disabled by default. The phase MUST honour
 a configurable per-protocol port allowlist, per-host rate limit,
-global concurrency cap, connect timeout, and read timeout. The phase
-MUST NOT run against ports not in the profile's banner-grab port
-allowlist. The phase MUST gracefully treat connection reset, read
-timeout, and partial banner as "no banner" without retrying
-aggressively. For HTTPS-class probes the phase MUST capture both the
-TLS certificate fingerprint (cleartext-observable) and the
-HTTP `Server:` header (extracted after TLS termination using
+global concurrency cap, per-cycle probe budget, probe-rate budget,
+minimum re-probe interval, connect timeout, and read timeout. The
+phase MUST NOT run against ports not in the profile's banner-grab port
+allowlist. The phase MUST treat banner grabbing as a bounded
+enrichment pass over SYN-confirmed open ports, not as a second
+subnet-wide scanner: once `max_probes_per_cycle` is exhausted, any
+remaining eligible candidates are deferred to later cycles without
+marking the host or port failed. The phase MUST gracefully treat
+connection reset, read timeout, and partial banner as "no banner"
+without retrying aggressively. For HTTPS-class probes the phase MUST
+capture both the TLS certificate fingerprint (cleartext-observable)
+and the HTTP `Server:` header (extracted after TLS termination using
 `InsecureSkipVerify` for fingerprinting purposes only).
 
 #### Scenario: Banner grab disabled by default
@@ -682,12 +687,37 @@ HTTP `Server:` header (extracted after TLS termination using
 
 #### Scenario: Rate-limit ceiling enforced
 - **WHEN** a sweep profile has `banner_grab.max_global_concurrency = 256`
+- **AND** `banner_grab.max_probe_rate_per_second = 200`
 - **AND** the SYN scan identifies 5,000 live `(host, port)` pairs
 - **THEN** the banner-grab phase processes at most 256 probes
   in-flight at any time
 - **AND** completes the full 5,000-probe set across multiple batches
 - **AND** never exceeds 256 concurrent outbound TCP connects from
   the banner-grab subsystem
+- **AND** starts no more than 200 new banner-grab probes per second
+
+#### Scenario: Large inventory preserves SYN-scan latency
+- **WHEN** the SYN half-open scanner identifies 50,000 live
+  allowlisted `(host, port)` pairs in a large inventory
+- **AND** `banner_grab.max_probes_per_cycle = 5,000`
+- **THEN** the banner-grab phase attempts at most 5,000 full TCP
+  handshakes during that sweep cycle
+- **AND** records the remaining 45,000 candidates as deferred, not
+  failed
+- **AND** the sweep service can publish the SYN-scan reachability
+  result without waiting for those deferred banner-grab candidates
+- **AND** subsequent cycles select deferred candidates by stable hash
+  or cursor so the same hosts are not repeatedly preferred
+
+#### Scenario: Fresh banner results are not reprobed every cycle
+- **WHEN** a target `192.0.2.10:22` produced a banner match 30 minutes
+  ago
+- **AND** the sweep profile has
+  `banner_grab.min_reprobe_interval_s = 86400`
+- **THEN** the banner-grab scheduler skips that target in the current
+  sweep cycle
+- **AND** the existing banner result remains attached to the canonical
+  device record until it expires or the operator requests a refresh
 
 #### Scenario: Capability advertised based on netprobe availability
 - **WHEN** a sweep profile has banner-grab enabled
