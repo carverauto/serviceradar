@@ -110,6 +110,10 @@ mod linux {
         pub fn streams(&self) -> &[AfXdpStream] {
             &self.streams
         }
+
+        pub fn take_streams(&mut self) -> Vec<AfXdpStream> {
+            std::mem::take(&mut self.streams)
+        }
     }
 
     impl Drop for AfXdpConsumers {
@@ -650,6 +654,10 @@ mod non_linux {
 
         pub fn streams(&self) -> &[AfXdpStream] {
             &self.streams
+        }
+
+        pub fn take_streams(&mut self) -> Vec<AfXdpStream> {
+            std::mem::take(&mut self.streams)
         }
     }
 }

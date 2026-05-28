@@ -85,7 +85,7 @@ pub fn parse_tls_client_hello(payload: &[u8]) -> Option<Ja4ClientHello> {
 
     let cipher_len = u16::from_be_bytes([payload[offset], payload[offset + 1]]) as usize;
     offset += 2;
-    if cipher_len % 2 != 0 || offset + cipher_len > handshake_end {
+    if cipher_len & 1 != 0 || offset + cipher_len > handshake_end {
         return None;
     }
     let cipher_suites = payload[offset..offset + cipher_len]

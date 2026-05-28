@@ -269,7 +269,6 @@ fn bindings_by_ip(bindings: &[DeviceBinding]) -> HashMap<String, BindingState> {
                 profile_id: binding.profile_id.clone(),
                 fingerprint: binding
                     .fingerprint
-                    .clone()
                     .unwrap_or_else(default_fingerprints_disabled),
                 dpi: binding.dpi.clone().unwrap_or_else(default_dpi_disabled),
                 sample_interval_ms: binding.sample_interval_ms,

@@ -156,7 +156,7 @@ fn tcp_syn_observation(packet: &[u8]) -> Option<TcpSynObservation> {
     } else {
         "+"
     };
-    let (options_layout, mss, window_scale, option_quirks) = tcp_options(&tcp);
+    let (options_layout, mss, window_scale, option_quirks) = tcp_options(tcp);
     let mut quirks = ip_meta.quirks;
     quirks.extend(option_quirks);
 

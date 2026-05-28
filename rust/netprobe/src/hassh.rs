@@ -188,7 +188,7 @@ fn parse_binary_packet(packet: &[u8]) -> Option<SshKexInit> {
     }
 
     let packet_len = u32::from_be_bytes(packet[0..4].try_into().ok()?) as usize;
-    if packet_len < 2 || packet_len > MAX_SSH_PACKET_LEN {
+    if !(2..=MAX_SSH_PACKET_LEN).contains(&packet_len) {
         return None;
     }
     let packet_end = 4usize.checked_add(packet_len)?;

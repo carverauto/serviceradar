@@ -1,12 +1,23 @@
-use std::net::{IpAddr, Ipv4Addr};
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::{self, JoinHandle},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossbeam_channel::TryRecvError;
+use tokio::sync::broadcast;
 
 use crate::{
-    af_xdp::{AfXdpPacket, AfXdpStream},
+    af_xdp::{AfXdpConsumers, AfXdpPacket, AfXdpStream},
     dpi::DpiPipeline,
+    metrics::Metrics,
     proto::netprobe::DpiEvent,
+    runtime_config::DpiEventGate,
 };
 
 const AF_INET: u16 = 2;
@@ -14,6 +25,7 @@ const AF_INET6: u16 = 10;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
 const FLOW_TABLE_ENTRY_CLASSIFYING: u32 = 0;
+const CLASSIFIER_IDLE_SLEEP: Duration = Duration::from_millis(1);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -121,14 +133,14 @@ where
 }
 
 #[cfg(target_os = "linux")]
-pub struct AyaFlowTableWriter<'a> {
-    map: aya::maps::HashMap<&'a mut aya::maps::MapData, FlowTableKey, FlowTableEntry>,
+pub struct AyaFlowTableWriter {
+    map: aya::maps::HashMap<aya::maps::MapData, FlowTableKey, FlowTableEntry>,
 }
 
 #[cfg(target_os = "linux")]
-impl<'a> AyaFlowTableWriter<'a> {
-    pub fn from_ebpf(ebpf: &'a mut aya::Ebpf) -> Result<Self> {
-        let map = ebpf.map_mut("flow_table").ok_or_else(|| {
+impl AyaFlowTableWriter {
+    pub fn from_ebpf(ebpf: &mut aya::Ebpf) -> Result<Self> {
+        let map = ebpf.take_map("flow_table").ok_or_else(|| {
             anyhow::anyhow!("flow_table map is missing from netprobe eBPF object")
         })?;
         Ok(Self {
@@ -138,7 +150,7 @@ impl<'a> AyaFlowTableWriter<'a> {
 }
 
 #[cfg(target_os = "linux")]
-impl FlowTableWriter for AyaFlowTableWriter<'_> {
+impl FlowTableWriter for AyaFlowTableWriter {
     fn update_classification(
         &mut self,
         key: FlowTableKey,
@@ -157,6 +169,135 @@ impl FlowTableWriter for AyaFlowTableWriter<'_> {
         self.map.insert(key, entry, 0)?;
         Ok(())
     }
+}
+
+pub struct AfXdpClassifierRuntime {
+    stop: Arc<AtomicBool>,
+    classifier_thread: Option<JoinHandle<()>>,
+    _consumers: AfXdpConsumers,
+}
+
+impl AfXdpClassifierRuntime {
+    pub fn start<W>(
+        interfaces: &[String],
+        flow_table: W,
+        metrics: Metrics,
+        dpi_events: broadcast::Sender<DpiEvent>,
+        dpi_gate: Arc<DpiEventGate>,
+    ) -> Result<Self>
+    where
+        W: FlowTableWriter + Send + 'static,
+    {
+        let mut consumers = AfXdpConsumers::start(interfaces)
+            .context("failed to start AF_XDP interface consumers")?;
+        let streams = consumers.take_streams();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_classifier = Arc::clone(&stop);
+        let classifier_thread = thread::Builder::new()
+            .name("netprobe-af-xdp-classifier".to_owned())
+            .spawn(move || {
+                run_classifier_loop(
+                    streams,
+                    flow_table,
+                    metrics,
+                    dpi_events,
+                    dpi_gate,
+                    stop_classifier,
+                );
+            })
+            .context("failed to spawn AF_XDP classifier thread")?;
+
+        Ok(Self {
+            stop,
+            classifier_thread: Some(classifier_thread),
+            _consumers: consumers,
+        })
+    }
+}
+
+impl Drop for AfXdpClassifierRuntime {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.classifier_thread.take() {
+            if thread.join().is_err() {
+                log::warn!("AF_XDP classifier thread panicked during shutdown");
+            }
+        }
+    }
+}
+
+fn run_classifier_loop<W>(
+    streams: Vec<AfXdpStream>,
+    flow_table: W,
+    metrics: Metrics,
+    dpi_events: broadcast::Sender<DpiEvent>,
+    dpi_gate: Arc<DpiEventGate>,
+    stop: Arc<AtomicBool>,
+) where
+    W: FlowTableWriter,
+{
+    let mut classifier = AfXdpClassifier::new(flow_table);
+    while !stop.load(Ordering::Relaxed) {
+        match classify_streams_once(
+            &mut classifier,
+            &streams,
+            now_unix_nano(),
+            &metrics,
+            &dpi_events,
+            &dpi_gate,
+        ) {
+            Ok(0) => thread::sleep(CLASSIFIER_IDLE_SLEEP),
+            Ok(_) => {}
+            Err(err) => {
+                metrics.inc_packets_dropped();
+                log::warn!("AF_XDP classifier iteration failed: {err:#}");
+                thread::sleep(CLASSIFIER_IDLE_SLEEP);
+            }
+        }
+    }
+}
+
+fn classify_streams_once<W>(
+    classifier: &mut AfXdpClassifier<W>,
+    streams: &[AfXdpStream],
+    observed_at_unix_nano: i64,
+    metrics: &Metrics,
+    dpi_events: &broadcast::Sender<DpiEvent>,
+    dpi_gate: &DpiEventGate,
+) -> Result<usize>
+where
+    W: FlowTableWriter,
+{
+    let mut packets_classified = 0usize;
+    for stream in streams {
+        let Some(events) = classifier.classify_next_from_stream(stream, observed_at_unix_nano)?
+        else {
+            continue;
+        };
+        packets_classified = packets_classified.saturating_add(1);
+        metrics.inc_packets_processed();
+        for event in events {
+            let Some(event) = dpi_gate.filter(event) else {
+                continue;
+            };
+            let event_interface = event.interface_name.clone();
+            let event_protocol = event.protocol.clone();
+            metrics.inc_dpi_events();
+            if dpi_events.send(event).is_err() {
+                log::debug!(
+                    "dropping AF_XDP DPI event with no active IPC receiver for {}",
+                    event_interface
+                );
+            }
+            log::debug!(
+                "observed AF_XDP DPI protocol {} on {}",
+                event_protocol,
+                event_interface
+            );
+        }
+    }
+
+    Ok(packets_classified)
 }
 
 fn flow_table_key_from_event(interface_index: u32, event: &DpiEvent) -> Option<FlowTableKey> {
@@ -269,18 +410,36 @@ fn fnv1a(bytes: &[u8]) -> u32 {
     hash
 }
 
+fn now_unix_nano() -> i64 {
+    let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return 0;
+    };
+
+    let nanos = i128::from(duration.as_secs())
+        .saturating_mul(1_000_000_000)
+        .saturating_add(i128::from(duration.subsec_nanos()));
+    nanos.min(i128::from(i64::MAX)) as i64
+}
+
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{collections::HashMap, sync::Arc};
 
     use anyhow::Result;
     use crossbeam_channel::bounded;
+    use tokio::sync::broadcast;
 
     use super::{
-        classified_as, AfXdpClassifier, FlowTableEntry, FlowTableKey, FlowTableWriter, AF_INET,
-        IPPROTO_TCP,
+        classified_as, classify_streams_once, AfXdpClassifier, FlowTableEntry, FlowTableKey,
+        FlowTableWriter, AF_INET, IPPROTO_TCP,
     };
     use crate::af_xdp::{AfXdpConsumerConfig, AfXdpPacket, AfXdpStream};
+    use crate::{
+        config::Config,
+        metrics::Metrics,
+        proto::netprobe::{DpiConfig, VisibilityAgentConfig},
+        runtime_config::{DpiEventGate, RuntimeConfig},
+    };
 
     #[derive(Default)]
     struct RecordingFlowTable {
@@ -387,6 +546,59 @@ mod tests {
             .classify_next_from_stream(&stream, 789)
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn classify_streams_once_emits_gated_dpi_event() {
+        let (tx, rx) = bounded(1);
+        tx.send(AfXdpPacket {
+            interface: "eth0".to_owned(),
+            ifindex: 7,
+            queue_id: 0,
+            data: tcp_packet(22, 49152, b"SSH-2.0-OpenSSH_9.9\r\n"),
+        })
+        .unwrap();
+        let stream = AfXdpStream {
+            config: AfXdpConsumerConfig {
+                interface: "eth0".to_owned(),
+                ifindex: 7,
+                queue_id: 0,
+                preferred_core: None,
+                redirect_budget: 16,
+            },
+            receiver: rx,
+        };
+        let runtime_config = RuntimeConfig::new(&Config::default());
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                dpi: Some(DpiConfig {
+                    enabled: true,
+                    protocols: vec!["ssh".to_string()],
+                }),
+                ..Default::default()
+            })
+            .unwrap();
+        let gate = DpiEventGate::new(runtime_config);
+        let metrics = Metrics::new().unwrap();
+        let (event_tx, mut event_rx) = broadcast::channel(4);
+        let mut classifier = AfXdpClassifier::new(RecordingFlowTable::default());
+
+        let classified = classify_streams_once(
+            &mut classifier,
+            &[stream],
+            456,
+            &metrics,
+            &event_tx,
+            &Arc::new(gate),
+        )
+        .unwrap();
+
+        assert_eq!(classified, 1);
+        let event = event_rx.try_recv().unwrap();
+        assert_eq!(event.protocol, "ssh");
+        assert_eq!(event.interface_name, "eth0");
+        assert_eq!(classifier.flow_table.entries.len(), 1);
     }
 
     fn tcp_packet(source_port: u16, destination_port: u16, payload: &[u8]) -> Vec<u8> {

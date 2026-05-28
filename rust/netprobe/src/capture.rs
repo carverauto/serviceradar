@@ -281,7 +281,7 @@ impl CaptureOpener for PcapCaptureOpener {
 
 #[cfg(feature = "pcap-capture")]
 fn packet_observed_at_unix_nano(packet: &pcap::Packet<'_>) -> Option<i64> {
-    let seconds = i64::from(packet.header.ts.tv_sec);
+    let seconds = packet.header.ts.tv_sec;
     let micros = i64::from(packet.header.ts.tv_usec);
     if seconds < 0 || !(0..1_000_000).contains(&micros) {
         return None;
