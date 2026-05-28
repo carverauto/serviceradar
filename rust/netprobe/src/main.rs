@@ -10,6 +10,8 @@ mod fingerprint;
 mod framing;
 mod lifecycle;
 mod metrics;
+#[allow(dead_code)]
+mod p0f_corpus;
 mod proto;
 mod runtime_config;
 mod server;
