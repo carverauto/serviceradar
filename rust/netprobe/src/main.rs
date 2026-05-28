@@ -1,5 +1,7 @@
 #[allow(dead_code, unused_imports)]
 mod af_xdp;
+#[allow(dead_code)]
+mod af_xdp_classifier;
 mod capabilities;
 mod capture;
 mod config;
