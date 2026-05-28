@@ -13,6 +13,7 @@ pcap-capture = ["dep:pcap"]
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive", "env"] }
+crossbeam-channel = "0.5"
 env_logger = "0.11"
 etherparse = "0.20.1"
 huginn-net = "=1.7.3"

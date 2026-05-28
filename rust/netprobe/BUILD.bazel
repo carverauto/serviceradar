@@ -13,6 +13,7 @@ NETPROBE_FEATURES = select({
 NETPROBE_DEPS = crate_deps([
     "anyhow",
     "clap",
+    "crossbeam-channel",
     "env_logger",
     "etherparse",
     "huginn-net",
