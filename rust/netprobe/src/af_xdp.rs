@@ -114,10 +114,7 @@ mod linux {
 
     impl AfXdpConsumers {
         pub fn start(interfaces: &[String]) -> Result<Self> {
-            let interfaces = interfaces
-                .iter()
-                .map(|interface| resolve_interface(interface))
-                .collect::<Result<Vec<_>>>()?;
+            let interfaces = resolve_interfaces(interfaces)?;
             Self::start_resolved(&interfaces)
         }
 
@@ -132,10 +129,7 @@ mod linux {
             interfaces: &[String],
             xsk_registry: Arc<dyn XskSocketRegistry>,
         ) -> Result<Self> {
-            let interfaces = interfaces
-                .iter()
-                .map(|interface| resolve_interface(interface))
-                .collect::<Result<Vec<_>>>()?;
+            let interfaces = resolve_interfaces(interfaces)?;
             Self::start_resolved_with_registry(&interfaces, xsk_registry)
         }
 
@@ -811,6 +805,13 @@ mod linux {
         })
     }
 
+    pub fn resolve_interfaces(interfaces: &[String]) -> Result<Vec<AfXdpInterface>> {
+        interfaces
+            .iter()
+            .map(|interface| resolve_interface(interface))
+            .collect()
+    }
+
     fn default_queue_count() -> NonZeroU32 {
         NonZeroU32::new(1).expect("one is non-zero")
     }
@@ -1133,6 +1134,8 @@ mod non_linux {
     use anyhow::Result;
     use crossbeam_channel::Receiver;
 
+    pub const DEFAULT_REDIRECT_BUDGET: u32 = 16;
+
     #[derive(Debug)]
     pub struct AfXdpPacket {
         pub interface: String,
@@ -1203,16 +1206,21 @@ mod non_linux {
             std::mem::take(&mut self.streams)
         }
     }
+
+    pub fn resolve_interfaces(_interfaces: &[String]) -> Result<Vec<AfXdpInterface>> {
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(target_os = "linux")]
 pub use linux::{
-    AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream,
-    AyaXskSocketRegistry, NoopXskSocketRegistry, XskSocketRegistry,
+    resolve_interfaces, AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket,
+    AfXdpStream, AyaXskSocketRegistry, NoopXskSocketRegistry, XskSocketRegistry,
+    DEFAULT_REDIRECT_BUDGET,
 };
 
 #[cfg(not(target_os = "linux"))]
 pub use non_linux::{
-    AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream,
-    NoopXskSocketRegistry, XskSocketRegistry,
+    resolve_interfaces, AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket,
+    AfXdpStream, NoopXskSocketRegistry, XskSocketRegistry, DEFAULT_REDIRECT_BUDGET,
 };

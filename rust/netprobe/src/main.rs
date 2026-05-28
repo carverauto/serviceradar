@@ -8,6 +8,9 @@ mod config;
 mod dpi;
 #[cfg(target_os = "linux")]
 mod ebpf_loader;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod ebpf_runtime;
 mod fingerprint;
 mod framing;
 #[allow(dead_code)]
