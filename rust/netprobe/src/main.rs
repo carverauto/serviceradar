@@ -50,6 +50,9 @@ use crate::{
     server::IpcServer,
 };
 
+#[cfg(target_os = "linux")]
+use crate::lifecycle::{drop_runtime_privileges, prepare_ebpf_privileged_resources};
+
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -58,6 +61,9 @@ struct Args {
 
     #[arg(long, env = "SERVICERADAR_NETPROBE_CONFIG")]
     config: Option<PathBuf>,
+
+    #[arg(long, env = "SERVICERADAR_NETPROBE_EBPF_OBJECT")]
+    ebpf_object: Option<PathBuf>,
 
     #[arg(
         long,
@@ -98,6 +104,13 @@ enum LogFormat {
     Json,
 }
 
+#[allow(dead_code)]
+enum VisibilityRuntime {
+    Pcap(CaptureWorkers),
+    #[cfg(target_os = "linux")]
+    Ebpf(ebpf_runtime::NetprobeEbpfRuntime),
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -108,16 +121,6 @@ async fn main() -> Result<()> {
         log::info!("netprobe config is disabled; lifecycle IPC remains available");
     }
 
-    let mut startup_ops = SystemStartupOps;
-    let capture_handles = initialize_privileged_resources(
-        &mut startup_ops,
-        &config,
-        args.drop_user.as_deref(),
-        args.skip_cap_check,
-        args.allow_root,
-    )?;
-    log::info!("opened {} capture interface(s)", capture_handles.len());
-
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (fingerprint_event_tx, _) = broadcast::channel(4096);
     let (dpi_event_tx, _) = broadcast::channel(4096);
@@ -127,15 +130,55 @@ async fn main() -> Result<()> {
     )));
     let dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
     let metrics = Metrics::new()?;
-    let _capture_workers = CaptureWorkers::start(
-        capture_handles,
-        metrics.clone(),
-        fingerprint_event_tx.clone(),
-        dpi_event_tx.clone(),
-        fingerprint_gate,
-        dpi_gate,
-    )
-    .context("failed to start capture workers")?;
+    let mut startup_ops = SystemStartupOps;
+    let _visibility_runtime = if args.ebpf_object.is_some() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            anyhow::bail!("--ebpf-object is only supported on Linux");
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let ebpf_object = args
+                .ebpf_object
+                .as_deref()
+                .expect("checked ebpf_object is present");
+            prepare_ebpf_privileged_resources(&mut startup_ops, &config, args.skip_cap_check)?;
+            let runtime = ebpf_runtime::NetprobeEbpfRuntime::start(
+                ebpf_object,
+                &config,
+                metrics.clone(),
+                dpi_event_tx.clone(),
+                Arc::clone(&dpi_gate),
+            )
+            .context("failed to start eBPF/AF_XDP visibility runtime")?;
+            drop_runtime_privileges(&mut startup_ops, args.drop_user.as_deref(), args.allow_root)?;
+            log::info!(
+                "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
+                config.capture_interfaces.len()
+            );
+            VisibilityRuntime::Ebpf(runtime)
+        }
+    } else {
+        let capture_handles = initialize_privileged_resources(
+            &mut startup_ops,
+            &config,
+            args.drop_user.as_deref(),
+            args.skip_cap_check,
+            args.allow_root,
+        )?;
+        log::info!("opened {} pcap capture interface(s)", capture_handles.len());
+        let capture_workers = CaptureWorkers::start(
+            capture_handles,
+            metrics.clone(),
+            fingerprint_event_tx.clone(),
+            dpi_event_tx.clone(),
+            Arc::clone(&fingerprint_gate),
+            Arc::clone(&dpi_gate),
+        )
+        .context("failed to start pcap capture workers")?;
+        VisibilityRuntime::Pcap(capture_workers)
+    };
     let metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
         metrics.clone(),

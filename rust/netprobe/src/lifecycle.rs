@@ -64,6 +64,31 @@ where
     Ok(captures)
 }
 
+#[cfg(target_os = "linux")]
+pub fn prepare_ebpf_privileged_resources<O>(
+    ops: &mut O,
+    config: &Config,
+    skip_cap_check: bool,
+) -> Result<()>
+where
+    O: StartupOps,
+{
+    if config.enabled && !skip_cap_check {
+        ops.assert_phase1_capabilities()?;
+        ops.prepare_bpf_pin_directory(&PathBuf::from(DEFAULT_BPF_PIN_DIR))?;
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+pub fn drop_runtime_privileges<O>(ops: &mut O, user: Option<&str>, allow_root: bool) -> Result<()>
+where
+    O: StartupOps,
+{
+    ops.drop_privileges(user, allow_root)
+}
+
 fn prepare_bpf_pin_directory(path: &Path) -> Result<()> {
     fs::create_dir_all(path)
         .with_context(|| format!("failed to create BPF pin directory {}", path.display()))?;
