@@ -40,7 +40,7 @@ func (s statsCapabilityScanner) Stop() error {
 }
 
 func (s statsCapabilityScanner) GetStats() scan.ScannerStats {
-	return scan.ScannerStats{PacketsSent: 5}
+	return scan.ScannerStats{PacketsSent: 5, DialsStarted: 7}
 }
 
 func (s statsCapabilityScanner) Capabilities() scan.ScannerCapabilities {
@@ -71,6 +71,30 @@ func TestGetScannerStatsLabelsRawSYNIPv4(t *testing.T) {
 	}
 	if stats.PacketsSent != 5 {
 		t.Fatalf("packets sent = %d, want 5", stats.PacketsSent)
+	}
+}
+
+func TestGetScannerStatsLabelsTCPConnect(t *testing.T) {
+	t.Parallel()
+
+	sweeper := &NetworkSweeper{
+		tcpScanner: statsCapabilityScanner{
+			caps: scan.ScannerCapabilities{TCPConnectIPv4: true, TCPConnectIPv6: true},
+		},
+	}
+
+	stats := sweeper.GetScannerStats()
+	if stats == nil {
+		t.Fatal("expected scanner stats")
+	}
+	if stats.AddressFamily != addressFamilyDualStack {
+		t.Fatalf("address family = %q, want %s", stats.AddressFamily, addressFamilyDualStack)
+	}
+	if stats.ScannerPath != scannerPathTCPConnect {
+		t.Fatalf("scanner path = %q, want %s", stats.ScannerPath, scannerPathTCPConnect)
+	}
+	if stats.DialsStarted != 7 {
+		t.Fatalf("dials started = %d, want 7", stats.DialsStarted)
 	}
 }
 

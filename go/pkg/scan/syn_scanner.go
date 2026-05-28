@@ -203,6 +203,17 @@ type ScannerStats struct {
 
 	// Timing statistics (in nanoseconds, for precision)
 	LastStatsReset int64 // Timestamp of last stats reset (UnixNano)
+
+	// TCP connect statistics
+	DialsStarted       uint64 // Total full TCP connect dials started
+	DialsSucceeded     uint64 // Total full TCP connect dials that established
+	DialTimeouts       uint64 // Dial attempts that timed out
+	DialResets         uint64 // Dial attempts refused or reset by remote endpoint
+	DialResourceErrors uint64 // Dial attempts blocked by local fd/port/buffer pressure
+	ActiveDials        uint64 // Current in-flight full TCP connect dials
+	MaxActiveDials     uint64 // High-water mark of in-flight full TCP connect dials
+	QueueDepth         uint64 // Latest observed scanner input queue depth
+	MaxQueueDepth      uint64 // High-water mark of scanner input queue depth
 }
 
 // GetStats returns a snapshot of scanner performance statistics

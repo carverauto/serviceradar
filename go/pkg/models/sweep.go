@@ -350,4 +350,15 @@ type ScannerStats struct {
 
 	// Computed metrics
 	RxDropRatePercent float64 `json:"rx_drop_rate_percent"`
+
+	// TCP connect statistics
+	DialsStarted       uint64 `json:"dials_started"`
+	DialsSucceeded     uint64 `json:"dials_succeeded"`
+	DialTimeouts       uint64 `json:"dial_timeouts"`
+	DialResets         uint64 `json:"dial_resets"`
+	DialResourceErrors uint64 `json:"dial_resource_errors"`
+	ActiveDials        uint64 `json:"active_dials"`
+	MaxActiveDials     uint64 `json:"max_active_dials"`
+	QueueDepth         uint64 `json:"queue_depth"`
+	MaxQueueDepth      uint64 `json:"max_queue_depth"`
 }

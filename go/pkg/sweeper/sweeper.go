@@ -51,6 +51,7 @@ const (
 	addressFamilyUnknown         = "unknown"
 	scannerProtocolTCP           = "tcp"
 	scannerPathRawSYN            = "raw_syn"
+	scannerPathTCPConnect        = "tcp_connect"
 	scannerPathTCPConnectIPv6SYN = "tcp_connect_ipv6_raw_syn_fallback"
 )
 
@@ -616,7 +617,7 @@ func (s *NetworkSweeper) GetConfig() models.Config {
 	return *s.config
 }
 
-// GetScannerStats returns aggregated scanner statistics from the TCP SYN scanner.
+// GetScannerStats returns aggregated scanner statistics from the TCP scanner.
 // Returns nil if the scanner doesn't support statistics.
 func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	s.mu.RLock()
@@ -626,6 +627,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
 		scanStats := statsProvider.GetStats()
 		addressFamily := scannerStatsAddressFamily(s.tcpScanner)
+		scannerPath := scannerStatsPath(s.tcpScanner)
 
 		// Calculate drop rate
 		var rxDropRate float64
@@ -636,7 +638,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		return &models.ScannerStats{
 			Protocol:             scannerProtocolTCP,
 			AddressFamily:        addressFamily,
-			ScannerPath:          scannerPathRawSYN,
+			ScannerPath:          scannerPath,
 			PacketsSent:          scanStats.PacketsSent,
 			PacketsRecv:          scanStats.PacketsRecv,
 			PacketsDropped:       scanStats.PacketsDropped,
@@ -653,6 +655,15 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 			RateLimitWaitTimeMs:  scanStats.RateLimitWaitNanos / uint64(time.Millisecond),
 			SourcePortWaitTimeMs: scanStats.SourcePortWaitNanos / uint64(time.Millisecond),
 			RxDropRatePercent:    rxDropRate,
+			DialsStarted:         scanStats.DialsStarted,
+			DialsSucceeded:       scanStats.DialsSucceeded,
+			DialTimeouts:         scanStats.DialTimeouts,
+			DialResets:           scanStats.DialResets,
+			DialResourceErrors:   scanStats.DialResourceErrors,
+			ActiveDials:          scanStats.ActiveDials,
+			MaxActiveDials:       scanStats.MaxActiveDials,
+			QueueDepth:           scanStats.QueueDepth,
+			MaxQueueDepth:        scanStats.MaxQueueDepth,
 		}
 	}
 
@@ -2112,6 +2123,29 @@ func scannerStatsAddressFamily(scanner scan.Scanner) string {
 		default:
 			return addressFamilyIPv4
 		}
+	}
+
+	if caps.TCPConnectIPv4 || caps.TCPConnectIPv6 {
+		switch {
+		case caps.TCPConnectIPv4 && caps.TCPConnectIPv6:
+			return addressFamilyDualStack
+		case caps.TCPConnectIPv6:
+			return addressFamilyIPv6
+		default:
+			return addressFamilyIPv4
+		}
+	}
+
+	return addressFamilyUnknown
+}
+
+func scannerStatsPath(scanner scan.Scanner) string {
+	caps := scannerCapabilities(scanner)
+	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
+		return scannerPathRawSYN
+	}
+	if caps.TCPConnectIPv4 || caps.TCPConnectIPv6 {
+		return scannerPathTCPConnect
 	}
 
 	return addressFamilyUnknown

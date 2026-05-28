@@ -18,9 +18,12 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -33,6 +36,7 @@ type TCPSweeper struct {
 	cancel      context.CancelFunc
 	logger      logger.Logger
 	dialContext dialContextFunc
+	stats       ScannerStats
 }
 
 var _ Scanner = (*TCPSweeper)(nil)
@@ -107,6 +111,7 @@ func (s *TCPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan 
 			case <-scanCtx.Done():
 				return
 			case workCh <- t:
+				s.recordQueueDepth(len(workCh))
 			}
 		}
 	}()
@@ -190,6 +195,8 @@ func (s *TCPSweeper) streamWorker(ctx context.Context, targets <-chan models.Tar
 				return
 			}
 
+			s.recordQueueDepth(len(targets))
+
 			if target.Mode != models.ModeTCP && target.Mode != models.ModeTCPConnect {
 				continue
 			}
@@ -231,8 +238,15 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 
 	start := time.Now()
 
+	activeDials := atomic.AddUint64(&s.stats.ActiveDials, 1)
+	atomic.AddUint64(&s.stats.DialsStarted, 1)
+	recordMaxUint64(&s.stats.MaxActiveDials, activeDials)
+
+	defer atomic.AddUint64(&s.stats.ActiveDials, ^uint64(0))
+
 	conn, err := s.dial(probeCtx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
+		s.recordDialError(probeCtx, err)
 		// Enhanced error handling with context awareness
 		if probeCtx.Err() != nil {
 			// Context error (timeout or cancellation)
@@ -242,6 +256,8 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 		return false, time.Since(start), err
 	}
 
+	atomic.AddUint64(&s.stats.DialsSucceeded, 1)
+
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
@@ -250,6 +266,73 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 	}(conn)
 
 	return true, time.Since(start), nil
+}
+
+func (s *TCPSweeper) GetStats() ScannerStats {
+	return ScannerStats{
+		DialsStarted:       atomic.LoadUint64(&s.stats.DialsStarted),
+		DialsSucceeded:     atomic.LoadUint64(&s.stats.DialsSucceeded),
+		DialTimeouts:       atomic.LoadUint64(&s.stats.DialTimeouts),
+		DialResets:         atomic.LoadUint64(&s.stats.DialResets),
+		DialResourceErrors: atomic.LoadUint64(&s.stats.DialResourceErrors),
+		ActiveDials:        atomic.LoadUint64(&s.stats.ActiveDials),
+		MaxActiveDials:     atomic.LoadUint64(&s.stats.MaxActiveDials),
+		QueueDepth:         atomic.LoadUint64(&s.stats.QueueDepth),
+		MaxQueueDepth:      atomic.LoadUint64(&s.stats.MaxQueueDepth),
+		LastStatsReset:     atomic.LoadInt64(&s.stats.LastStatsReset),
+	}
+}
+
+func (s *TCPSweeper) recordDialError(ctx context.Context, err error) {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		isTimeoutError(err) {
+		atomic.AddUint64(&s.stats.DialTimeouts, 1)
+	}
+
+	errorText := strings.ToLower(err.Error())
+
+	if strings.Contains(errorText, "connection reset") ||
+		strings.Contains(errorText, "connection refused") ||
+		strings.Contains(errorText, "reset by peer") {
+		atomic.AddUint64(&s.stats.DialResets, 1)
+	}
+
+	if strings.Contains(errorText, "too many open files") ||
+		strings.Contains(errorText, "cannot assign requested address") ||
+		strings.Contains(errorText, "address already in use") ||
+		strings.Contains(errorText, "no buffer space available") {
+		atomic.AddUint64(&s.stats.DialResourceErrors, 1)
+	}
+}
+
+func (s *TCPSweeper) recordQueueDepth(depth int) {
+	if depth < 0 {
+		return
+	}
+
+	value := uint64(depth)
+	atomic.StoreUint64(&s.stats.QueueDepth, value)
+	recordMaxUint64(&s.stats.MaxQueueDepth, value)
+}
+
+func isTimeoutError(err error) bool {
+	var netErr net.Error
+
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func recordMaxUint64(max *uint64, candidate uint64) {
+	for {
+		current := atomic.LoadUint64(max)
+		if candidate <= current {
+			return
+		}
+
+		if atomic.CompareAndSwapUint64(max, current, candidate) {
+			return
+		}
+	}
 }
 
 func (s *TCPSweeper) dial(ctx context.Context, network, address string) (net.Conn, error) {
