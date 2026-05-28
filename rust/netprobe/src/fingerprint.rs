@@ -1,11 +1,12 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    sync::{Arc, Mutex},
+};
 
 #[cfg(target_os = "linux")]
 use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -18,11 +19,10 @@ use anyhow::Result;
 #[cfg(feature = "pcap-capture")]
 use etherparse::{NetHeaders, PacketHeaders, TcpHeader, TcpOptionElement, TransportHeader};
 
-#[cfg(feature = "pcap-capture")]
 use crate::hassh;
 use crate::proto::netprobe::{
-    fingerprint_event, FingerprintDisagreement, FingerprintEvent, LicenseCleanFingerprint,
-    OsMatch as ProtoOsMatch, P0fFingerprintMatch,
+    fingerprint_event, FingerprintDisagreement, FingerprintEvent, FingerprintMatch,
+    LicenseCleanFingerprint, OsMatch as ProtoOsMatch, P0fFingerprintMatch,
 };
 #[cfg(feature = "pcap-capture")]
 use crate::proto::netprobe::{HttpFingerprint, TcpFingerprint, TlsFingerprint};
@@ -36,6 +36,7 @@ use crate::{metrics::Metrics, runtime_config::FingerprintEventGate};
 
 #[cfg(target_os = "linux")]
 const P0F_RING_IDLE_SLEEP: Duration = Duration::from_millis(1);
+const FINGERPRINT_ACCUMULATOR_TTL_NS: u64 = 30_000_000_000;
 
 pub const FINGERPRINT_ENGINE_VERSION: &str = "serviceradar-license-clean/1";
 pub const P0F_CORPUS_REVISION: &str =
@@ -58,6 +59,63 @@ const FLOW_ENDPOINT_B: u8 = 2;
 const P0F_SIGNATURE_MAX_LEN: usize = 96;
 #[allow(dead_code)]
 const P0F_RING_RECORD_LEN: usize = 160;
+
+#[derive(Clone, Debug, Default)]
+pub struct FingerprintAccumulator {
+    inner: Arc<Mutex<HashMap<FlowKey, AccumulatedFingerprint>>>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct AccumulatedFingerprint {
+    ja4: Option<String>,
+    hassh: Option<hassh::HasshPair>,
+    last_observed_ns: u64,
+}
+
+impl FingerprintAccumulator {
+    pub fn observe_dpi_payload(
+        &self,
+        flow_key: FlowKey,
+        payload: &[u8],
+        observed_at_unix_nano: i64,
+    ) {
+        let ja4 = crate::ja4::fingerprint_tls_client_hello(payload);
+        let hassh = hassh::fingerprint_ssh_kexinit(payload);
+        if ja4.is_none() && hassh.is_none() {
+            return;
+        }
+
+        let observed_ns = observed_at_unix_nano.max(0) as u64;
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("fingerprint accumulator lock poisoned");
+        retain_recent(&mut inner, observed_ns);
+        let entry = inner.entry(flow_key).or_default();
+        entry.last_observed_ns = observed_ns;
+        if let Some(ja4) = ja4 {
+            entry.ja4 = Some(ja4);
+        }
+        if let Some(hassh) = hassh {
+            entry.hassh = Some(hassh);
+        }
+    }
+
+    fn snapshot(&self, flow_key: &FlowKey, observed_ns: u64) -> Option<AccumulatedFingerprint> {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("fingerprint accumulator lock poisoned");
+        retain_recent(&mut inner, observed_ns);
+        inner.get(flow_key).cloned()
+    }
+}
+
+fn retain_recent(inner: &mut HashMap<FlowKey, AccumulatedFingerprint>, observed_ns: u64) {
+    inner.retain(|_key, value| {
+        observed_ns.saturating_sub(value.last_observed_ns) <= FINGERPRINT_ACCUMULATOR_TTL_NS
+    });
+}
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 const P0F_SIGNATURES_MAP: &str = "p0f_signatures";
@@ -515,14 +573,67 @@ fn license_clean_p0f_event(
     p0f_signature: String,
     matched: P0fMatch,
 ) -> FingerprintEvent {
+    license_clean_p0f_event_with_accumulated(
+        ip,
+        interface_name,
+        observed_at_unix_nano,
+        p0f_signature,
+        matched,
+        None,
+    )
+}
+
+#[allow(dead_code)]
+fn license_clean_p0f_event_with_accumulated(
+    ip: IpAddr,
+    interface_name: &str,
+    observed_at_unix_nano: i64,
+    p0f_signature: String,
+    matched: P0fMatch,
+    accumulated: Option<AccumulatedFingerprint>,
+) -> FingerprintEvent {
+    let ja4_observation = accumulated
+        .as_ref()
+        .and_then(|fingerprint| fingerprint.ja4.as_ref())
+        .map(|signature| {
+            auxiliary_observation(FingerprintSignal::Ja4, signature.clone(), &matched)
+        });
+    let hassh_observation = accumulated
+        .as_ref()
+        .and_then(|fingerprint| fingerprint.hassh.as_ref())
+        .map(|pair| {
+            auxiliary_observation(FingerprintSignal::Hassh, pair.client.md5.clone(), &matched)
+        });
     let os_match = os_matcher::evaluate(OsMatchInput {
         p0f: P0fObservation {
             signature: p0f_signature,
             matched,
         },
-        ja4: None,
-        hassh: None,
+        ja4: ja4_observation.clone(),
+        hassh: hassh_observation.clone(),
     });
+    let ja4 = accumulated
+        .as_ref()
+        .and_then(|fingerprint| fingerprint.ja4.clone())
+        .unwrap_or_default();
+    let hassh = accumulated
+        .as_ref()
+        .and_then(|fingerprint| {
+            fingerprint
+                .hassh
+                .as_ref()
+                .map(|pair| pair.client.md5.clone())
+        })
+        .unwrap_or_default();
+    let hassh_server = accumulated
+        .as_ref()
+        .and_then(|fingerprint| {
+            fingerprint
+                .hassh
+                .as_ref()
+                .map(|pair| pair.server.md5.clone())
+        })
+        .unwrap_or_default();
 
     license_clean_event(
         ip,
@@ -536,11 +647,29 @@ fn license_clean_p0f_event(
                 version_flavor: os_match.p0f_label.flavor.clone().unwrap_or_default(),
                 os_family: os_match.os_family.clone(),
             }),
+            ja4,
+            ja4_match: ja4_observation.as_ref().map(proto_fingerprint_match),
+            hassh,
+            hassh_server,
+            hassh_match: hassh_observation.as_ref().map(proto_fingerprint_match),
             os_match: Some(proto_os_match(&os_match)),
             agreement_count: os_match.agreement_count,
-            ..Default::default()
         },
     )
+}
+
+fn auxiliary_observation(
+    signal: FingerprintSignal,
+    signature: String,
+    matched: &P0fMatch,
+) -> os_matcher::FingerprintObservation {
+    os_matcher::FingerprintObservation {
+        signal,
+        signature,
+        os_family: os_matcher::family_from_p0f_label(&matched.label),
+        name: matched.label.name.clone(),
+        version_range: matched.label.flavor.clone(),
+    }
 }
 
 #[allow(dead_code)]
@@ -571,6 +700,15 @@ impl P0fSignatureEngine {
         interface_name: &str,
         record: &P0fRingRecord,
     ) -> Option<FingerprintEvent> {
+        self.event_from_ring_record_with_accumulator(interface_name, record, None)
+    }
+
+    fn event_from_ring_record_with_accumulator(
+        &self,
+        interface_name: &str,
+        record: &P0fRingRecord,
+        accumulator: Option<&FingerprintAccumulator>,
+    ) -> Option<FingerprintEvent> {
         if record.version != EVENT_VERSION {
             log::warn!(
                 "dropping unsupported p0f signature record version {}",
@@ -591,13 +729,16 @@ impl P0fSignatureEngine {
             }
         };
         let source_ip = source_ip_from_flow_key(&record.flow_key, record.source_endpoint)?;
+        let accumulated = accumulator
+            .and_then(|accumulator| accumulator.snapshot(&record.flow_key, record.observed_ns));
 
-        Some(license_clean_p0f_event(
+        Some(license_clean_p0f_event_with_accumulated(
             source_ip,
             interface_name,
             record.observed_ns.min(i64::MAX as u64) as i64,
             record.p0f_signature.clone(),
             matched,
+            accumulated,
         ))
     }
 
@@ -607,6 +748,19 @@ impl P0fSignatureEngine {
         bytes: &[u8],
     ) -> Option<FingerprintEvent> {
         self.event_from_ring_record(interface_name, &parse_p0f_ring_record(bytes)?)
+    }
+
+    fn event_from_ring_bytes_with_accumulator(
+        &self,
+        interface_name: &str,
+        bytes: &[u8],
+        accumulator: Option<&FingerprintAccumulator>,
+    ) -> Option<FingerprintEvent> {
+        self.event_from_ring_record_with_accumulator(
+            interface_name,
+            &parse_p0f_ring_record(bytes)?,
+            accumulator,
+        )
     }
 }
 
@@ -637,13 +791,15 @@ impl<'a> P0fSignatureRing<'a> {
         tx: &tokio::sync::broadcast::Sender<FingerprintEvent>,
         gate: &std::sync::Arc<std::sync::Mutex<FingerprintEventGate>>,
         metrics: &Metrics,
+        accumulator: Option<&FingerprintAccumulator>,
     ) -> usize {
         let mut emitted = 0usize;
         while let Some(item) = self.ring.next() {
-            let Some(event) = self
-                .engine
-                .event_from_ring_bytes(&self.interface_name, item.as_ref())
-            else {
+            let Some(event) = self.engine.event_from_ring_bytes_with_accumulator(
+                &self.interface_name,
+                item.as_ref(),
+                accumulator,
+            ) else {
                 continue;
             };
             let Some(event) = gate
@@ -680,6 +836,7 @@ impl P0fSignatureRuntime {
         ebpf: &mut aya::Ebpf,
         tx: tokio::sync::broadcast::Sender<FingerprintEvent>,
         gate: Arc<Mutex<FingerprintEventGate>>,
+        accumulator: FingerprintAccumulator,
         metrics: Metrics,
     ) -> Result<Self> {
         let map = ebpf
@@ -696,7 +853,7 @@ impl P0fSignatureRuntime {
             .name("netprobe-p0f-signature-ring".to_owned())
             .spawn(move || {
                 while !stop_worker.load(Ordering::Relaxed) {
-                    if consumer.poll_once(&tx, &gate, &metrics) == 0 {
+                    if consumer.poll_once(&tx, &gate, &metrics, Some(&accumulator)) == 0 {
                         thread::sleep(P0F_RING_IDLE_SLEEP);
                     }
                 }
@@ -735,13 +892,15 @@ impl P0fSignatureConsumer {
         tx: &tokio::sync::broadcast::Sender<FingerprintEvent>,
         gate: &Arc<Mutex<FingerprintEventGate>>,
         metrics: &Metrics,
+        accumulator: Option<&FingerprintAccumulator>,
     ) -> usize {
         let mut emitted = 0usize;
         while let Some(item) = self.ring.next() {
-            let Some(event) = self
-                .engine
-                .event_from_ring_bytes(&self.interface_name, item.as_ref())
-            else {
+            let Some(event) = self.engine.event_from_ring_bytes_with_accumulator(
+                &self.interface_name,
+                item.as_ref(),
+                accumulator,
+            ) else {
                 continue;
             };
             let Some(event) = gate
@@ -893,6 +1052,15 @@ fn proto_os_match(os_match: &os_matcher::OsMatch) -> ProtoOsMatch {
 }
 
 #[allow(dead_code)]
+fn proto_fingerprint_match(observation: &os_matcher::FingerprintObservation) -> FingerprintMatch {
+    FingerprintMatch {
+        name: observation.name.clone(),
+        version_range: observation.version_range.clone().unwrap_or_default(),
+        os_family: observation.os_family.clone(),
+    }
+}
+
+#[allow(dead_code)]
 fn proto_disagreement(disagreement: &SignalDisagreement) -> FingerprintDisagreement {
     FingerprintDisagreement {
         signal: signal_name(disagreement.signal).to_string(),
@@ -943,8 +1111,8 @@ fn source_ip(headers: &NetHeaders) -> Option<IpAddr> {
 #[cfg(test)]
 mod p0f_ring_tests {
     use super::{
-        parse_p0f_ring_record, source_ip_from_flow_key, P0fSignatureEngine, AF_INET, EVENT_VERSION,
-        FLOW_ENDPOINT_A, FLOW_ENDPOINT_B, P0F_RING_RECORD_LEN,
+        parse_p0f_ring_record, source_ip_from_flow_key, FingerprintAccumulator, P0fSignatureEngine,
+        AF_INET, EVENT_VERSION, FLOW_ENDPOINT_A, FLOW_ENDPOINT_B, P0F_RING_RECORD_LEN,
     };
     use crate::af_xdp_classifier::FlowKey;
     use crate::proto::netprobe::fingerprint_event;
@@ -1004,6 +1172,81 @@ mod p0f_ring_tests {
     }
 
     #[test]
+    fn enriches_p0f_ring_event_with_accumulated_ja4() {
+        let bytes = p0f_record_bytes(
+            FLOW_ENDPOINT_B,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
+        );
+        let record = parse_p0f_ring_record(&bytes).unwrap();
+        let accumulator = FingerprintAccumulator::default();
+        accumulator.observe_dpi_payload(record.flow_key, &tls_client_hello_payload(), 124);
+        let engine = P0fSignatureEngine::bundled().unwrap();
+
+        let event = engine
+            .event_from_ring_record_with_accumulator("eth0", &record, Some(&accumulator))
+            .unwrap();
+
+        let Some(fingerprint_event::Evidence::LicenseClean(fingerprint)) = event.evidence else {
+            panic!("expected license-clean fingerprint");
+        };
+        assert!(!fingerprint.ja4.is_empty());
+        assert_eq!(
+            fingerprint
+                .ja4_match
+                .as_ref()
+                .map(|matched| matched.os_family.as_str()),
+            Some("linux")
+        );
+        assert_eq!(fingerprint.agreement_count, 2);
+        assert!(
+            fingerprint
+                .os_match
+                .as_ref()
+                .expect("expected OS match")
+                .confidence
+                > 0.72
+        );
+    }
+
+    #[test]
+    fn enriches_p0f_ring_event_with_accumulated_hassh() {
+        let bytes = p0f_record_bytes(
+            FLOW_ENDPOINT_B,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
+        );
+        let record = parse_p0f_ring_record(&bytes).unwrap();
+        let accumulator = FingerprintAccumulator::default();
+        accumulator.observe_dpi_payload(record.flow_key, &ssh_kexinit_payload(), 124);
+        let engine = P0fSignatureEngine::bundled().unwrap();
+
+        let event = engine
+            .event_from_ring_record_with_accumulator("eth0", &record, Some(&accumulator))
+            .unwrap();
+
+        let Some(fingerprint_event::Evidence::LicenseClean(fingerprint)) = event.evidence else {
+            panic!("expected license-clean fingerprint");
+        };
+        assert!(!fingerprint.hassh.is_empty());
+        assert!(!fingerprint.hassh_server.is_empty());
+        assert_eq!(
+            fingerprint
+                .hassh_match
+                .as_ref()
+                .map(|matched| matched.os_family.as_str()),
+            Some("linux")
+        );
+        assert_eq!(fingerprint.agreement_count, 2);
+        assert!(
+            fingerprint
+                .os_match
+                .as_ref()
+                .expect("expected OS match")
+                .confidence
+                > 0.72
+        );
+    }
+
+    #[test]
     fn rejects_malformed_p0f_ring_records() {
         assert!(parse_p0f_ring_record(&[0; P0F_RING_RECORD_LEN - 1]).is_none());
 
@@ -1047,6 +1290,72 @@ mod p0f_ring_tests {
         let mut out = [0u8; 16];
         out[..4].copy_from_slice(&addr);
         out
+    }
+
+    fn tls_client_hello_payload() -> Vec<u8> {
+        let cipher_suites = [0x1301u16, 0x1302u16];
+        let mut body = Vec::new();
+        body.extend_from_slice(&[0x03, 0x03]);
+        body.extend_from_slice(&[0u8; 32]);
+        body.push(0x00);
+        body.extend_from_slice(&((cipher_suites.len() * 2) as u16).to_be_bytes());
+        for suite in cipher_suites {
+            body.extend_from_slice(&suite.to_be_bytes());
+        }
+        body.push(0x01);
+        body.push(0x00);
+        body.extend_from_slice(&0u16.to_be_bytes());
+
+        let body_len = body.len() as u32;
+        let mut handshake = vec![
+            0x01,
+            ((body_len >> 16) & 0xff) as u8,
+            ((body_len >> 8) & 0xff) as u8,
+            (body_len & 0xff) as u8,
+        ];
+        handshake.extend_from_slice(&body);
+
+        let record_len = handshake.len() as u16;
+        let mut record = vec![0x16, 0x03, 0x03];
+        record.extend_from_slice(&record_len.to_be_bytes());
+        record.extend_from_slice(&handshake);
+        record
+    }
+
+    fn ssh_kexinit_payload() -> Vec<u8> {
+        let mut payload = vec![20];
+        payload.extend_from_slice(&[7u8; 16]);
+        push_name_list(&mut payload, "curve25519-sha256");
+        push_name_list(&mut payload, "ssh-ed25519");
+        push_name_list(&mut payload, "chacha20-poly1305@openssh.com");
+        push_name_list(&mut payload, "aes128-ctr");
+        push_name_list(&mut payload, "hmac-sha2-256");
+        push_name_list(&mut payload, "hmac-sha1");
+        push_name_list(&mut payload, "none");
+        push_name_list(&mut payload, "zlib@openssh.com");
+        push_name_list(&mut payload, "");
+        push_name_list(&mut payload, "");
+        payload.push(0);
+        payload.extend_from_slice(&0u32.to_be_bytes());
+
+        let block_size = 8usize;
+        let mut padding_len = block_size - ((payload.len() + 5) % block_size);
+        if padding_len < 4 {
+            padding_len += block_size;
+        }
+        let packet_len = payload.len() + padding_len + 1;
+
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&(packet_len as u32).to_be_bytes());
+        packet.push(padding_len as u8);
+        packet.extend_from_slice(&payload);
+        packet.extend(std::iter::repeat_n(0, padding_len));
+        packet
+    }
+
+    fn push_name_list(out: &mut Vec<u8>, value: &str) {
+        out.extend_from_slice(&(value.len() as u32).to_be_bytes());
+        out.extend_from_slice(value.as_bytes());
     }
 }
 

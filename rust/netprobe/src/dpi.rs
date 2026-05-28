@@ -2,7 +2,11 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use etherparse::{NetHeaders, PacketHeaders, TransportHeader};
 
-use crate::proto::netprobe::DpiEvent;
+use crate::{
+    af_xdp_classifier::{canonical_flow_key, transport_protocol},
+    fingerprint::FingerprintAccumulator,
+    proto::netprobe::DpiEvent,
+};
 
 #[derive(Clone, Debug)]
 pub struct DpiPipeline {
@@ -78,15 +82,31 @@ impl DpiPipeline {
         }
     }
 
+    #[allow(dead_code)]
     pub fn analyze_packet(
         &self,
         interface_name: &str,
         observed_at_unix_nano: i64,
         packet: &[u8],
     ) -> Vec<DpiEvent> {
+        self.analyze_packet_with_fingerprints(interface_name, observed_at_unix_nano, packet, None)
+    }
+
+    pub fn analyze_packet_with_fingerprints(
+        &self,
+        interface_name: &str,
+        observed_at_unix_nano: i64,
+        packet: &[u8],
+        fingerprint_accumulator: Option<&FingerprintAccumulator>,
+    ) -> Vec<DpiEvent> {
         let Some((flow, payload)) = parse_flow(packet) else {
             return Vec::new();
         };
+        if let Some(accumulator) = fingerprint_accumulator {
+            if let Some(flow_key) = flow_key(&flow) {
+                accumulator.observe_dpi_payload(flow_key, payload, observed_at_unix_nano);
+            }
+        }
 
         self.dissectors
             .iter()
@@ -107,6 +127,16 @@ impl DpiPipeline {
             })
             .unwrap_or_default()
     }
+}
+
+fn flow_key(flow: &Flow) -> Option<crate::af_xdp_classifier::FlowKey> {
+    canonical_flow_key(
+        flow.source_ip,
+        flow.destination_ip,
+        flow.source_port,
+        flow.destination_port,
+        transport_protocol(flow.transport_protocol)?,
+    )
 }
 
 fn parse_flow(packet: &[u8]) -> Option<(Flow, &[u8])> {

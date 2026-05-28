@@ -14,7 +14,7 @@ use crate::{
     attribution::{AyaAttributionReader, FlowAttributionRuntime},
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
-    fingerprint::P0fSignatureRuntime,
+    fingerprint::{FingerprintAccumulator, P0fSignatureRuntime},
     kernel::ensure_supported_kernel,
     metrics::Metrics,
     proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot},
@@ -63,11 +63,13 @@ impl NetprobeEbpfRuntime {
         let interfaces = af_xdp::resolve_interfaces(&config.capture_interfaces)
             .context("failed to resolve AF_XDP capture interfaces")?;
         let mut ebpf = load_netprobe_ebpf(object_path, config)?;
+        let fingerprint_accumulator = FingerprintAccumulator::default();
         let p0f_runtime = P0fSignatureRuntime::start_from_ebpf(
             fingerprint_interface_name(config),
             &mut ebpf,
             fingerprint_events,
             fingerprint_gate,
+            fingerprint_accumulator.clone(),
             metrics.clone(),
         )?;
         let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
@@ -85,6 +87,7 @@ impl NetprobeEbpfRuntime {
             metrics,
             dpi_events,
             dpi_gate,
+            fingerprint_accumulator,
         )?;
         attach_tc_programs(&mut ebpf, &config.capture_interfaces)?;
 

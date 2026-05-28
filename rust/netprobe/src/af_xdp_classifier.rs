@@ -15,6 +15,7 @@ use tokio::sync::broadcast;
 use crate::{
     af_xdp::{AfXdpConsumers, AfXdpPacket, AfXdpStream, NoopXskSocketRegistry, XskSocketRegistry},
     dpi::DpiPipeline,
+    fingerprint::FingerprintAccumulator,
     metrics::Metrics,
     proto::netprobe::DpiEvent,
     runtime_config::DpiEventGate,
@@ -83,6 +84,7 @@ pub trait FlowTableWriter {
 pub struct AfXdpClassifier<W> {
     pipeline: DpiPipeline,
     flow_table: W,
+    fingerprint_accumulator: Option<FingerprintAccumulator>,
 }
 
 impl<W> AfXdpClassifier<W>
@@ -93,6 +95,18 @@ where
         Self {
             pipeline: DpiPipeline::phase2(),
             flow_table,
+            fingerprint_accumulator: None,
+        }
+    }
+
+    pub fn with_fingerprint_accumulator(
+        flow_table: W,
+        fingerprint_accumulator: FingerprintAccumulator,
+    ) -> Self {
+        Self {
+            pipeline: DpiPipeline::phase2(),
+            flow_table,
+            fingerprint_accumulator: Some(fingerprint_accumulator),
         }
     }
 
@@ -101,9 +115,12 @@ where
         packet: &AfXdpPacket,
         observed_at_unix_nano: i64,
     ) -> Result<Vec<DpiEvent>> {
-        let events =
-            self.pipeline
-                .analyze_packet(&packet.interface, observed_at_unix_nano, &packet.data);
+        let events = self.pipeline.analyze_packet_with_fingerprints(
+            &packet.interface,
+            observed_at_unix_nano,
+            &packet.data,
+            self.fingerprint_accumulator.as_ref(),
+        );
         for event in &events {
             if let Some(key) = flow_table_key_from_event(packet.ifindex, event) {
                 self.flow_table.update_classification(
@@ -195,6 +212,7 @@ impl AfXdpClassifierRuntime {
             dpi_events,
             dpi_gate,
             Arc::new(NoopXskSocketRegistry),
+            None,
         )
     }
 
@@ -205,6 +223,7 @@ impl AfXdpClassifierRuntime {
         dpi_events: broadcast::Sender<DpiEvent>,
         dpi_gate: Arc<DpiEventGate>,
         xsk_registry: Arc<dyn XskSocketRegistry>,
+        fingerprint_accumulator: Option<FingerprintAccumulator>,
     ) -> Result<Self>
     where
         W: FlowTableWriter + Send + 'static,
@@ -224,6 +243,7 @@ impl AfXdpClassifierRuntime {
                     dpi_events,
                     dpi_gate,
                     stop_classifier,
+                    fingerprint_accumulator,
                 );
             })
             .context("failed to spawn AF_XDP classifier thread")?;
@@ -242,6 +262,7 @@ impl AfXdpClassifierRuntime {
         metrics: Metrics,
         dpi_events: broadcast::Sender<DpiEvent>,
         dpi_gate: Arc<DpiEventGate>,
+        fingerprint_accumulator: FingerprintAccumulator,
     ) -> Result<Self> {
         let flow_table = AyaFlowTableWriter::from_ebpf(ebpf)?;
         let xsk_registry = Arc::new(crate::af_xdp::AyaXskSocketRegistry::from_ebpf(ebpf)?);
@@ -252,6 +273,7 @@ impl AfXdpClassifierRuntime {
             dpi_events,
             dpi_gate,
             xsk_registry,
+            Some(fingerprint_accumulator),
         )
     }
 }
@@ -274,10 +296,14 @@ fn run_classifier_loop<W>(
     dpi_events: broadcast::Sender<DpiEvent>,
     dpi_gate: Arc<DpiEventGate>,
     stop: Arc<AtomicBool>,
+    fingerprint_accumulator: Option<FingerprintAccumulator>,
 ) where
     W: FlowTableWriter,
 {
-    let mut classifier = AfXdpClassifier::new(flow_table);
+    let mut classifier = match fingerprint_accumulator {
+        Some(accumulator) => AfXdpClassifier::with_fingerprint_accumulator(flow_table, accumulator),
+        None => AfXdpClassifier::new(flow_table),
+    };
     while !stop.load(Ordering::Relaxed) {
         match classify_streams_once(
             &mut classifier,
@@ -341,7 +367,10 @@ where
     Ok(packets_classified)
 }
 
-fn flow_table_key_from_event(interface_index: u32, event: &DpiEvent) -> Option<FlowTableKey> {
+pub(crate) fn flow_table_key_from_event(
+    interface_index: u32,
+    event: &DpiEvent,
+) -> Option<FlowTableKey> {
     Some(FlowTableKey {
         interface_index,
         reserved: 0,
@@ -359,7 +388,7 @@ fn parse_ip(value: &str) -> Option<IpAddr> {
     value.parse().ok()
 }
 
-fn transport_protocol(value: &str) -> Option<u16> {
+pub(crate) fn transport_protocol(value: &str) -> Option<u16> {
     match value {
         "tcp" => Some(IPPROTO_TCP),
         "udp" => Some(IPPROTO_UDP),
@@ -371,7 +400,7 @@ fn classified_as(protocol: &str) -> u32 {
     fnv1a(protocol.as_bytes()).max(1)
 }
 
-fn canonical_flow_key(
+pub(crate) fn canonical_flow_key(
     source_ip: IpAddr,
     destination_ip: IpAddr,
     source_port: u16,

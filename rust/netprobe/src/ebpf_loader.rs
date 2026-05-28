@@ -7,7 +7,6 @@ use crate::config::Config;
 
 const FLOW_TABLE_MAP: &str = "flow_table";
 
-#[allow(dead_code)]
 pub fn load_netprobe_ebpf(object_path: &Path, config: &Config) -> Result<Ebpf> {
     let flow_table_max_entries = config.effective_flow_table_max_entries();
     EbpfLoader::new()

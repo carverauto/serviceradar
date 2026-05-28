@@ -112,7 +112,7 @@ fn multiplier(signal: FingerprintSignal) -> f32 {
     }
 }
 
-fn family_from_p0f_label(label: &P0fLabel) -> String {
+pub(crate) fn family_from_p0f_label(label: &P0fLabel) -> String {
     let name = normalized_family(&label.name);
     match name.as_str() {
         "mac os x" | "macos" | "os x" => "macos".to_string(),
