@@ -14,6 +14,8 @@ mod lifecycle;
 mod metrics;
 #[allow(dead_code)]
 mod p0f_corpus;
+#[allow(dead_code)]
+mod p0f_matcher;
 mod proto;
 mod runtime_config;
 mod server;

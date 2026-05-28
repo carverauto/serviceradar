@@ -163,7 +163,7 @@ pub fn parse(input: &str) -> Result<P0fCorpus, ParseError> {
                     corpus.tcp_signatures.push(TcpSignatureEntry {
                         section: section.clone(),
                         label: parse_label(&label),
-                        signature: parse_tcp_signature(value, line_number)?,
+                        signature: parse_tcp_signature_at(value, line_number)?,
                     });
                 } else {
                     corpus.other_signatures.push(OtherSignatureEntry {
@@ -207,7 +207,11 @@ fn parse_label(value: &str) -> P0fLabel {
     }
 }
 
-fn parse_tcp_signature(value: &str, line: usize) -> Result<TcpSignature, ParseError> {
+pub fn parse_tcp_signature(value: &str) -> Result<TcpSignature, ParseError> {
+    parse_tcp_signature_at(value, 0)
+}
+
+fn parse_tcp_signature_at(value: &str, line: usize) -> Result<TcpSignature, ParseError> {
     let parts: Vec<_> = value.split(':').collect();
     if parts.len() != 8 {
         return Err(ParseError::new(line, "TCP signature must have 8 fields"));
