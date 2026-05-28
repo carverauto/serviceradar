@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.83
+
+Device inventory classification and SRQL catalog routing recovery.
+
+## Whats New
+
+**1.2.83**
+- Fixed device agent classification so routers and other inventory devices are not marked as ServiceRadar agents unless they have a valid matching agent identity.
+- Pruned invalid agent device identifiers during migration so stale agent markers no longer leak into the device list.
+- Removed noisy fallback/source labels from device list status, type, and model columns while preserving the real agent lightning marker for actual agents.
+- Fixed SRQL catalog routing so searches execute on product-owned routes instead of customer-owned dashboard slugs.
+- Added a product-owned `/devices/wifi` WiFi inventory view for WiFi sites, snapshots, access points, controllers, RADIUS groups, fleet history, and site references.
+- Fixed SRQL input contrast in dark and light themes.
+
 # ServiceRadar v1.2.82
 
 SRQL search, canonical availability, and issue-view recovery.
