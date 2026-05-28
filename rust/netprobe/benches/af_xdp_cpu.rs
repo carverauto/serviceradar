@@ -12,7 +12,8 @@ use serviceradar_netprobe::{
 const DEFAULT_TOTAL_PPS: u64 = 50_000;
 const DEFAULT_TARGET_MBPS: f64 = 500.0;
 const DEFAULT_DURATION_SECS: u64 = 1;
-const DEFAULT_BYPASS_RATIO: f64 = 0.95;
+const DEFAULT_BYPASS_RATIO: f64 = 0.96;
+const DEFAULT_MIN_HIT_RATIO: f64 = 0.95;
 const DEFAULT_CPU_LIMIT: f64 = 0.03;
 const TARGET_PACKET_BYTES: usize = 1_250;
 
@@ -71,6 +72,13 @@ fn main() -> Result<()> {
             args.cpu_limit
         );
     }
+    if args.assert && hit_ratio <= args.min_hit_ratio {
+        anyhow::bail!(
+            "flow_table hit ratio {:.4} did not exceed minimum {:.4}",
+            hit_ratio,
+            args.min_hit_ratio
+        );
+    }
 
     Ok(())
 }
@@ -81,6 +89,7 @@ struct BenchArgs {
     target_mbps: f64,
     duration: Duration,
     bypass_ratio: f64,
+    min_hit_ratio: f64,
     cpu_limit: f64,
     assert: bool,
 }
@@ -92,6 +101,7 @@ impl BenchArgs {
             target_mbps: DEFAULT_TARGET_MBPS,
             duration: Duration::from_secs(DEFAULT_DURATION_SECS),
             bypass_ratio: DEFAULT_BYPASS_RATIO,
+            min_hit_ratio: DEFAULT_MIN_HIT_RATIO,
             cpu_limit: DEFAULT_CPU_LIMIT,
             assert: env::var_os("SERVICERADAR_NETPROBE_BENCH_ASSERT").is_some(),
         };
@@ -107,6 +117,7 @@ impl BenchArgs {
                     args.duration = Duration::from_secs_f64(value);
                 }
                 "--bypass-ratio" => args.bypass_ratio = parse_next(&mut iter, "--bypass-ratio")?,
+                "--min-hit-ratio" => args.min_hit_ratio = parse_next(&mut iter, "--min-hit-ratio")?,
                 "--cpu-limit" => args.cpu_limit = parse_next(&mut iter, "--cpu-limit")?,
                 "--help" | "-h" => {
                     print_help();
@@ -117,6 +128,9 @@ impl BenchArgs {
         }
         if !(0.0..=1.0).contains(&args.bypass_ratio) {
             anyhow::bail!("--bypass-ratio must be between 0.0 and 1.0");
+        }
+        if !(0.0..=1.0).contains(&args.min_hit_ratio) {
+            anyhow::bail!("--min-hit-ratio must be between 0.0 and 1.0");
         }
         if args.total_pps == 0 {
             anyhow::bail!("--pps must be greater than zero");
@@ -142,7 +156,7 @@ where
 
 fn print_help() {
     println!(
-        "Usage: cargo bench -p serviceradar-netprobe --bench af_xdp_cpu -- [--assert] [--pps N] [--mbps N] [--duration-secs N] [--bypass-ratio N] [--cpu-limit N]"
+        "Usage: cargo bench -p serviceradar-netprobe --bench af_xdp_cpu -- [--assert] [--pps N] [--mbps N] [--duration-secs N] [--bypass-ratio N] [--min-hit-ratio N] [--cpu-limit N]"
     );
 }
 
