@@ -244,4 +244,182 @@ sig = *:64:0:*:mss*4,0:mss::0
 
         assert_eq!(matched.label.name, "ExactOS");
     }
+
+    #[test]
+    fn fixture_matrix_covers_major_os_families() {
+        let matcher = P0fMatcher::bundled().unwrap();
+        let fixture_sets = vec![
+            (
+                "Linux 2.6",
+                "Linux",
+                linux_mss_multiple_fixtures(4, &[6, 7, 8, 6, 7, 8, 6, 7, 8, 6]),
+            ),
+            (
+                "Linux 5.x",
+                "Linux",
+                linux_mss_multiple_fixtures(20, &[10, 7, 10, 7, 10, 7, 10, 7, 10, 7]),
+            ),
+            (
+                "Linux 6.x",
+                "Linux",
+                linux_mss_multiple_fixtures(20, &[10, 10, 7, 10, 10, 7, 10, 10, 7, 10]),
+            ),
+            (
+                "Windows XP",
+                "Windows",
+                windows_fixtures(
+                    65535,
+                    &[
+                        (0, "mss,nop,nop,sok"),
+                        (0, "mss,nop,ws,nop,nop,sok"),
+                        (1, "mss,nop,ws,nop,nop,sok"),
+                        (2, "mss,nop,ws,nop,nop,sok"),
+                        (0, "mss,nop,nop,sok"),
+                        (0, "mss,nop,ws,nop,nop,sok"),
+                        (1, "mss,nop,ws,nop,nop,sok"),
+                        (2, "mss,nop,ws,nop,nop,sok"),
+                        (0, "mss,nop,nop,sok"),
+                        (1, "mss,nop,ws,nop,nop,sok"),
+                    ],
+                ),
+            ),
+            (
+                "Win10",
+                "Windows",
+                windows_fixtures(
+                    8192,
+                    &[
+                        (0, "mss,nop,nop,sok"),
+                        (2, "mss,nop,ws,nop,nop,sok"),
+                        (8, "mss,nop,ws,nop,nop,sok"),
+                        (2, "mss,nop,ws,sok,ts"),
+                        (0, "mss,nop,nop,sok"),
+                        (2, "mss,nop,ws,nop,nop,sok"),
+                        (8, "mss,nop,ws,nop,nop,sok"),
+                        (2, "mss,nop,ws,sok,ts"),
+                        (0, "mss,nop,nop,sok"),
+                        (8, "mss,nop,ws,nop,nop,sok"),
+                    ],
+                ),
+            ),
+            (
+                "Win11",
+                "Windows",
+                windows_fixtures(
+                    8192,
+                    &[
+                        (0, "mss,nop,nop,sok"),
+                        (2, "mss,nop,ws,nop,nop,sok"),
+                        (8, "mss,nop,ws,nop,nop,sok"),
+                        (2, "mss,nop,ws,sok,ts"),
+                        (8, "mss,nop,ws,sok,ts"),
+                        (0, "mss,nop,nop,sok"),
+                        (2, "mss,nop,ws,nop,nop,sok"),
+                        (8, "mss,nop,ws,nop,nop,sok"),
+                        (2, "mss,nop,ws,sok,ts"),
+                        (8, "mss,nop,ws,sok,ts"),
+                    ],
+                ),
+            ),
+            (
+                "macOS 14",
+                "MacOS X",
+                macos_fixtures(&[4, 4, 4, 4, 4, 4, 4, 4, 4, 4]),
+            ),
+            (
+                "macOS 15",
+                "MacOS X",
+                macos_fixtures(&[4, 4, 4, 4, 4, 4, 4, 4, 4, 4]),
+            ),
+            (
+                "FreeBSD 13",
+                "FreeBSD",
+                freebsd_fixtures(&[6, 6, 6, 6, 6, 6, 6, 6, 6, 6]),
+            ),
+            (
+                "Solaris 11",
+                "Solaris",
+                solaris_fixtures(&[
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                    "mss,nop,ws,nop,nop,sok",
+                ]),
+            ),
+        ];
+
+        for (family, expected_name, signatures) in fixture_sets {
+            assert_eq!(signatures.len(), 10, "{family} fixture count drifted");
+
+            for signature in signatures {
+                let matched = matcher
+                    .match_signature(&signature)
+                    .unwrap_or_else(|error| panic!("{family} fixture did not parse: {error}"))
+                    .unwrap_or_else(|| panic!("{family} fixture did not match: {signature}"));
+
+                assert_eq!(matched.label.name, expected_name, "{family}: {signature}");
+            }
+        }
+    }
+
+    fn linux_mss_multiple_fixtures(multiplier: u32, scales: &[u32]) -> Vec<String> {
+        let mss_values = [1200, 1280, 1320, 1360, 1380, 1400, 1420, 1440, 1460, 8960];
+        mss_values
+            .iter()
+            .zip(scales.iter())
+            .map(|(mss, scale)| {
+                format!(
+                    "4:64:0:{mss}:{},{}:mss,sok,ts,nop,ws:df,id+:0",
+                    mss * multiplier,
+                    scale
+                )
+            })
+            .collect()
+    }
+
+    fn windows_fixtures(window_size: u32, variants: &[(u32, &str)]) -> Vec<String> {
+        let mss_values = [1200, 1280, 1320, 1360, 1380, 1400, 1420, 1440, 1460, 8960];
+        mss_values
+            .iter()
+            .zip(variants.iter())
+            .map(|(mss, (scale, options))| {
+                format!("4:128:0:{mss}:{window_size},{scale}:{options}:df,id+:0")
+            })
+            .collect()
+    }
+
+    fn macos_fixtures(scales: &[u32]) -> Vec<String> {
+        let mss_values = [1200, 1280, 1320, 1360, 1380, 1400, 1420, 1440, 1460, 8960];
+        mss_values
+            .iter()
+            .zip(scales.iter())
+            .map(|(mss, scale)| {
+                format!("4:64:0:{mss}:65535,{scale}:mss,nop,ws,nop,nop,ts,sok,eol+1:df,id+:0")
+            })
+            .collect()
+    }
+
+    fn freebsd_fixtures(scales: &[u32]) -> Vec<String> {
+        let mss_values = [1200, 1280, 1320, 1360, 1380, 1400, 1420, 1440, 1460, 8960];
+        mss_values
+            .iter()
+            .zip(scales.iter())
+            .map(|(mss, scale)| format!("4:64:0:{mss}:65535,{scale}:mss,nop,ws,sok,ts:df,id+:0"))
+            .collect()
+    }
+
+    fn solaris_fixtures(options: &[&str]) -> Vec<String> {
+        let mss_values = [1200, 1280, 1320, 1360, 1380, 1400, 1420, 1440, 1460, 8960];
+        mss_values
+            .iter()
+            .zip(options.iter())
+            .map(|(mss, options)| format!("4:64:0:{mss}:{},0:{options}:df,id+:0", mss * 34))
+            .collect()
+    }
 }
