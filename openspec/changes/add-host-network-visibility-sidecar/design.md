@@ -170,50 +170,191 @@ case), security review (eBPF capability surface).
   identically across deb/rpm/OCI; multiple streams over one socket
   keep the supervisor model trivial.
 
-### D4. Packet acquisition: pcap inside the sidecar, not the agent
+### D4. Packet acquisition: kernel-side eBPF, not libpcap
 
-- **Decision.** `netprobe` opens libpcap directly via the `pcap` crate
-  on the operator-allowlisted interfaces. The Go agent does not touch
-  raw packets.
-- **Alternatives.** (a) Agent does pcap and forwards packets over UDS
-  — rejected: doubles bytes-per-packet across IPC, requires the agent
-  to handle bursty back-pressure, and offers no security benefit
-  (agent already holds `CAP_NET_RAW`). (b) eBPF XDP — out of scope for
-  v1; the libpcap path matches huginn-net's intended integration and
-  is portable.
-- **Rationale.** Simpler control flow, no IPC packet duplication. The
-  agent's existing `CAP_NET_RAW` is for ICMP/MTR scanners and is
-  unrelated to BPF.
+- **Decision (revised 2026-05-27).** Continuous packet observation
+  runs entirely in the kernel via eBPF. The `netprobe` sidecar
+  attaches a TC ingress program and a TC egress program to each
+  allowlisted interface; the TC programs maintain a kernel BPF
+  flow-table map keyed by canonical 5-tuple; packets matching a
+  classified flow have their byte/packet counters bumped in-kernel
+  and never cross into userspace. The first 8–32 packets of each new
+  flow are redirected via an AF_XDP ring to userspace where the L7
+  dissector pack classifies them and writes the result back into the
+  flow_table map. TCP SYN signatures are emitted by a single
+  kprobe on `tcp_rcv_state_process` (or the kernel-version-appropriate
+  equivalent), giving us one event per new connection rather than
+  per-packet fingerprinting. Socket lifecycle and process attribution
+  (Phase 3 plan, expanded here) ride the same eBPF surface via
+  kprobes on `tcp_connect` / `inet_csk_accept` / `tcp_close` /
+  `udp_sendmsg` / `udp_recvmsg`. **libpcap is removed from the
+  continuous capture path entirely**; the `pcap` Cargo dependency is
+  retained only behind a `remote-capture` feature flag for the
+  Phase 5 operator-initiated pcapng tunnel.
+- **History.** Phase 1 / Phase 2 §16 shipped a userspace libpcap
+  capture worker as a stopgap. That implementation is replaced by
+  the eBPF capture path in Phase 3 (tasks §18.*). The libpcap
+  capture worker is deleted from the continuous code base after the
+  Phase 3 cutover; the `rust/netprobe/src/capture.rs` file becomes a
+  thin AF_XDP consumer.
+- **Alternatives.**
+  - **Keep libpcap as a fallback** for older kernels — rejected
+    2026-05-27 per project direction. Two code paths to maintain
+    indefinitely; the libpcap path produces CPU profiles that don't
+    meet the fleet-wide deployment use case our customers demand.
+    Hosts on kernels < 5.8 advertise `host-network-visibility =
+    unavailable` instead of running a degraded path.
+  - **XDP instead of TC** — XDP runs earlier in the receive path and
+    is lower-overhead, but is ingress-only and requires explicit
+    driver support that varies by NIC. TC programs run on both
+    ingress and egress, work on any interface (including veth, lo,
+    bond, vlan), and provide the symmetric observation we need for
+    flow accounting. Choose TC for portability; revisit XDP for
+    fast-path NIC offload as a follow-up.
+  - **`cilium/ebpf` (Go) instead of `aya` (Rust)** — `aya` keeps the
+    sidecar a single static-musl Rust binary; switching to a Go
+    eBPF loader would require either a second binary or a Go-Rust
+    FFI surface. Stick with `aya`.
+- **Rationale.** Matches the architectural baseline of Datadog NPM,
+  Cilium/Hubble, and current-generation Cisco Secure Workload. Every
+  serious continuous-host-visibility product moved away from
+  libpcap-userspace for the same reason: per-packet kernel→user
+  transitions are the CPU bottleneck. Eliminates the per-packet
+  userspace cost for 80–95% of traffic by keeping classified flows
+  in-kernel.
 
-### D5. eBPF programs and capability requirements
+### D4b. Kernel version floor: hard cut at 5.8
 
-- **Decision.** `netprobe` loads eBPF programs via `aya`:
+- **Decision.** `serviceradar-netprobe` refuses to start its
+  continuous capture worker on kernels older than 5.8. The `CAP_BPF`
+  / `CAP_PERFMON` split (introduced in 5.8) is required; AF_XDP map
+  allocation requires 5.4+; BTF-CO-RE for portable eBPF needs 5.5+.
+  Setting the floor at 5.8 lets us require all three without an
+  additional matrix of kernel-feature shims.
+- **Coverage.** RHEL 9 (5.14), Ubuntu 22.04 LTS (5.15) and 24.04
+  (6.8), Amazon Linux 2023 (6.1), SLES 15 SP4+ (5.14) all satisfy.
+  RHEL 7 (3.10, EOL'd June 2024), Ubuntu 18.04 (4.15, EOL'd
+  June 2023), and vendor kernels < 5.8 do not. Customers on those
+  platforms see netprobe advertise `host-network-visibility =
+  unavailable` and run without continuous capture.
+- **Alternative considered.** Maintain a kernel-version compatibility
+  shim allowing some functionality on 5.4+. Rejected — adds two
+  permanent code paths and we've already committed to no `degraded`
+  half-state per the spec amendment.
+- **Rationale.** Matches the practical floor that Datadog's
+  system-probe and Cilium both target in production. Older kernels
+  are out of upstream distro support anyway.
+
+### D4c. Flow classification cache (in-kernel)
+
+- **Decision.** The TC programs maintain a `BPF_MAP_TYPE_HASH`
+  flow_table keyed by canonical 5-tuple `(min_ip, max_ip, min_port,
+  max_port, proto)` so both directions of a TCP/UDP flow share an
+  entry. Each entry stores `{state: classifying|classified|unknown,
+  classified_as: enum L7Proto, packets, bytes, last_seen_ns,
+  packets_observed_for_classification}`. On classification (or after
+  the per-flow packet budget exhausts) userspace updates the entry's
+  `state` and `classified_as` via a syscall write to the BPF map;
+  subsequent packets short-circuit at the TC program and never reach
+  userspace. Eviction policy: LRU bounded by a per-interface map
+  capacity (default 65,536 flows), plus a periodic userspace sweep
+  that ages out entries with `last_seen_ns` older than 5 minutes.
+- **Alternatives.** Userspace-only flow cache (rejected; doesn't
+  prevent the kernel→user transition); per-CPU maps (rejected for
+  simplicity; revisit if contention shows in benchmarks).
+- **Rationale.** The single biggest CPU win available; mirrors the
+  nDPI flow-cache pattern adapted to the kernel.
+
+### D4d. AF_XDP for new-flow packet delivery
+
+- **Decision.** The first 8–32 packets of each new flow are delivered
+  to userspace via an AF_XDP shared ring (configurable
+  `XDP_NEW_FLOW_PACKET_BUDGET`, default 16). AF_XDP is preferred over
+  perf-event ring buffers for the L7-classification packet path
+  because it supports zero-copy and large frame sizes; the perf RB
+  remains the right tool for fixed-size structured events (SYN
+  signatures, socket-lifecycle events, flow counters). Userspace
+  consumes the AF_XDP ring on a dedicated tokio task per interface.
+- **Alternatives.** Single perf ring buffer for both packet data and
+  events — works but loses zero-copy and conflates packet-rate
+  pressure with event-rate pressure. AF_XDP keeps the two concerns
+  separated.
+- **Rationale.** Same pattern Datadog uses for its NPM packet-sample
+  path; same pattern Cilium uses for socket-redirect handling.
+
+### D5. eBPF programs and capability requirements (expanded)
+
+- **Decision (revised 2026-05-27).** `netprobe` loads its full eBPF
+  surface via `aya` at startup. The program set covers both the
+  continuous capture path (D4) and the process attribution path
+  (originally Phase 3-only):
+
+  **Capture path:**
+  - `cls_bpf` TC ingress + egress on each allowlisted interface —
+    5-tuple parse, flow_table lookup, classified flows: bump
+    counters + `TC_ACT_OK`; new flows: insert entry + redirect to
+    AF_XDP for first N packets.
+  - AF_XDP `XDP_FLAGS_SKB_MODE` ring per interface for L7-dissector
+    packet delivery (D4d).
+
+  **Fingerprint path:**
+  - `kprobe/tcp_rcv_state_process` (or kernel-version equivalent) —
+    extract SYN TCP options (TTL, window, MSS, options layout,
+    quirks, ip_version, window_scale, payload_class) at connection
+    setup, emit one perf-RB event per connection. Userspace runs
+    the huginn-net matcher once per event; no per-packet work.
+
+  **Attribution path:**
   - `kprobe/tcp_connect`, `kretprobe/inet_csk_accept`,
     `kprobe/tcp_close` for TCP socket lifecycle.
-  - `tracepoint/syscalls/sys_enter_sendto` +
-    `sys_enter_recvfrom` (or `kprobe/udp_sendmsg` + `udp_recvmsg`)
-    for UDP.
-  - `tracepoint/sock/inet_sock_set_state` as a generic backfill.
-  - For QUIC, lifecycle is inferred from the underlying UDP flows
-    combined with DPI (rather than a dedicated QUIC kprobe).
-  - All maps are pinned under `/sys/fs/bpf/serviceradar/netprobe/`
-    with `0700` perms so a sidecar restart can reattach to existing
+  - `kprobe/udp_sendmsg` + `kprobe/udp_recvmsg` for UDP.
+  - `tracepoint/sock/inet_sock_set_state` as backfill.
+  - For QUIC, lifecycle inferred from underlying UDP + DPI (no
+    dedicated QUIC kprobe).
+
+  **Maps:**
+  - `flow_table` — `(5-tuple) → FlowState` (D4c).
+  - `flow_to_pid` — `(5-tuple) → PID` populated by socket-lifecycle
+    kprobes.
+  - `process_info` — `PID → {comm, cgroup_id, uid}` populated on
+    socket events.
+  - `interface_allowlist` — `(ifindex) → InterfaceConfig` controlling
+    TC program attachment per interface.
+  - All maps pinned under `/sys/fs/bpf/serviceradar/netprobe/` with
+    `0700` perms so a sidecar restart can reattach to existing
     programs without losing in-flight state.
-- The binary acquires `CAP_BPF` and `CAP_PERFMON` (Linux ≥ 5.8) at
-  start, loads programs, opens pcap handles, then drops to a non-root
-  UID. On kernels older than 5.8 the binary refuses to start eBPF
-  features and degrades to fingerprint + DPI without process
-  attribution; that degradation is reported in agent capability
-  advertisement.
-- **Alternatives.** (a) `libbpf-rs` instead of `aya` — equally
-  viable; chose `aya` to keep the entire binary pure Rust (no C
-  toolchain at build time, simpler musl static link). (b)
-  `CAP_SYS_ADMIN` fallback — rejected by policy; modern kernels
-  expose the split caps, and `CAP_SYS_ADMIN` is too broad to grant a
-  sidecar.
-- **Rationale.** `aya` is the pure-Rust eBPF path used by rustnet
-  itself and aligns with our musl-static goal. The capability
-  requirements are scoped to the sidecar; the agent never gains
+
+- **Capability sequence at startup:**
+  1. Acquire `CAP_BPF`, `CAP_PERFMON`, `CAP_NET_ADMIN`, `CAP_NET_RAW`.
+  2. Verify kernel ≥ 5.8; refuse to start otherwise (D4b).
+  3. Load eBPF object, attach TC programs to allowlisted interfaces,
+     attach kprobes.
+  4. Bind AF_XDP rings; allocate BPF maps.
+  5. Bind the UDS listener.
+  6. Drop to a non-root UID.
+  7. Begin serving the agent.
+
+  Subsequent operations never require any of the original
+  capabilities. The Phase 5 remote-capture path retains `CAP_NET_RAW`
+  for libpcap session handles.
+
+- **eBPF object build.** Programs live under
+  `rust/netprobe/ebpf/` as a separate Cargo crate compiled to BPF
+  bytecode via `aya-ebpf`. A Bazel `cargo_build_script` (or
+  `aya-build`-driven custom rule) embeds the compiled `.o` blobs
+  into the userspace binary. `vmlinux.h` is vendored from the
+  earliest supported kernel (5.8) for BTF-CO-RE.
+
+- **Alternatives.**
+  - `libbpf-rs` instead of `aya` — equally viable; sticking with
+    `aya` keeps the build pure Rust (no C toolchain at build time)
+    and simpler musl static link.
+  - `CAP_SYS_ADMIN` fallback for old kernels — rejected by policy;
+    we require the modern split caps.
+
+- **Rationale.** `aya` is the pure-Rust eBPF path that production
+  Datadog and Cilium contemporaries also gravitated toward. Capability
+  requirements scoped strictly to the sidecar; the agent never gains
   `CAP_BPF`.
 
 ### D6. IPC protocol: framed protobuf, multiple streams

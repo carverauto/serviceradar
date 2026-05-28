@@ -6,26 +6,39 @@ ServiceRadar SHALL ship a standalone Rust binary
 `serviceradar-netprobe` built from `rust/netprobe/` and bundled inside
 the `serviceradar-agent` package (deb, rpm, OCI image, tarball). The
 project MUST keep build targets for static musl binaries for
-`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`. Phase 1
-shipping Linux artifacts MAY use the default dynamically linked build
-while packet capture depends on libpcap; those artifacts MUST declare
-or bundle their libpcap and C-runtime dependencies.
+`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`.
+Continuous packet observation MUST NOT depend on libpcap at runtime;
+libpcap is permitted only as a Phase 5 remote-capture dependency,
+gated behind a Cargo `remote-capture` feature flag and listed in
+deb/rpm packaging as `Recommends` rather than `Depends`. The OCI image
+MAY bundle the libpcap runtime to support the Phase 5 remote-capture
+path.
 
 #### Scenario: Netprobe binary ships with the agent package
 - **WHEN** the agent OCI image, deb, or rpm is built via the Bazel
   packaging targets
 - **THEN** `/usr/local/lib/serviceradar/bin/serviceradar-netprobe`
   exists in the artifact
-- **AND** deb/rpm metadata declares the libpcap runtime package
-- **AND** the OCI runtime filesystem includes the libpcap runtime
-  library needed by the packaged binary
+- **AND** deb/rpm metadata lists libpcap under `Recommends`, not
+  `Depends`
+- **AND** the OCI runtime filesystem bundles libpcap solely for the
+  Phase 5 remote-capture path
+
+#### Scenario: Continuous capture path has no libpcap dependency
+- **WHEN** the sidecar starts in steady-state continuous observation
+  mode (no remote-capture session active)
+- **THEN** `ldd /usr/local/lib/serviceradar/bin/serviceradar-netprobe`
+  does not show `libpcap.so` as a resolved dependency for the
+  continuous code path
+- **AND** the sidecar's continuous capture worker uses eBPF/AF_XDP
+  exclusively
 
 #### Scenario: Static musl build target remains available
 - **WHEN** `bazel build --platforms=//build/platforms:linux_x86_64_musl //rust/netprobe:netprobe`
   is run
 - **THEN** the build produces a static `serviceradar-netprobe` binary
-- **AND** the packaging docs mark the musl artifact as a portability
-  target until static packet capture support is available
+- **AND** the static binary's continuous capture path links only
+  kernel-side eBPF + AF_XDP, with no libpcap dependency
 
 #### Scenario: Sidecar is excluded on non-Linux agent builds
 - **WHEN** the agent is packaged for macOS or Windows
@@ -54,10 +67,13 @@ ICMP/MTR raw sockets) remains as configured today.
 
 `serviceradar-netprobe` SHALL acquire its required Linux capabilities at
 process start, perform all privileged operations (load eBPF programs,
-open pcap handles, pin BPF maps, bind the UDS listener), and then drop
-to a non-root UID before serving the UDS or accepting any agent
-configuration. Subsequent operations MUST NOT require the original
-capability set.
+attach TC programs, attach kprobes, allocate and pin BPF maps, bind
+the AF_XDP rings, bind the UDS listener), and then drop to a non-root
+UID before serving the UDS or accepting any agent configuration.
+Subsequent operations MUST NOT require the original capability set,
+except for the Phase 5 remote-capture path which MAY open a libpcap
+handle on a per-session, operator-authorised basis using its
+retained `CAP_NET_RAW`.
 
 #### Scenario: Capabilities dropped before UDS serves
 - **WHEN** the sidecar reaches the point of accepting the first agent
@@ -68,24 +84,37 @@ capability set.
 
 ### Requirement: Capture-interface allowlist with deny-by-default
 
-The sidecar SHALL refuse to open packet capture on any interface not
-explicitly listed in `VisibilityAgentConfig.capture_interfaces` and
-MUST refuse `any` or wildcard interface names. Refusals MUST be logged
-at WARN and counted via
-`serviceradar_netprobe_interface_denials_total`.
+`serviceradar-netprobe` SHALL attach TC eBPF programs only to network
+interfaces explicitly listed in
+`VisibilityAgentConfig.capture_interfaces`, MUST refuse `any` or
+wildcard interface names, and MUST NOT install a TC program on any
+interface that is not on the allowlist. Refusals MUST be logged at
+WARN and counted via
+`serviceradar_netprobe_interface_denials_total`. The kernel BPF map
+governing per-interface program attachment is the authoritative
+allowlist; userspace MUST update the map only after RBAC-validated
+profile changes propagate through the agent config delivery path.
 
 #### Scenario: Wildcard interface is rejected
 - **WHEN** the delivered config contains
   `capture_interfaces: ["any"]`
-- **THEN** the sidecar refuses to start capture
+- **THEN** the sidecar refuses to attach any TC program
 - **AND** logs the refusal and increments the denial counter
 
 #### Scenario: New interface requires explicit operator opt-in
 - **WHEN** a new network interface appears on the agent host
 - **AND** no profile or config update has added it to
   `capture_interfaces`
-- **THEN** the sidecar does not capture on the new interface, even for
-  flows that would otherwise match profile scope
+- **THEN** no TC eBPF program is attached to the new interface, even
+  for flows that would otherwise match profile scope
+
+#### Scenario: Removing an interface detaches the TC program
+- **WHEN** an operator removes an interface from a
+  `VisibilityProfile.capture_interfaces` allowlist and the change
+  reaches the agent
+- **THEN** the sidecar detaches the TC ingress and egress programs
+  from that interface within one config-apply cycle
+- **AND** flow_table entries scoped to that interface are evicted
 
 ### Requirement: Passive fingerprinting via huginn-net
 
@@ -152,22 +181,33 @@ to existing programs without losing in-flight state.
 - **AND** continues emitting attribution events for flows that began
   before the restart
 
-### Requirement: Degraded mode on kernels without modern BPF support
+### Requirement: Unavailable mode on kernels without modern BPF support
 
-`serviceradar-netprobe` SHALL refuse to load eBPF features on Linux
-kernels that lack the `CAP_BPF` / `CAP_PERFMON` split or whose
-verifier rejects the eBPF programs, continue serving fingerprinting
-and DPI in that condition, and report the degradation through the
-`PingAck` reply so the agent advertises the capability as `degraded`
-rather than `enabled`.
+`serviceradar-netprobe` SHALL refuse to start its continuous capture
+worker on Linux kernels older than 5.8, kernels that lack the
+`CAP_BPF` / `CAP_PERFMON` split, kernels whose verifier rejects the
+required eBPF programs, or systems where AF_XDP map allocation fails.
+In any of these conditions the sidecar MUST report unavailability
+through the `PingAck` reply so the agent advertises the capability as
+`unavailable` rather than `enabled`. There is no `degraded` half-state;
+continuous capture either runs end-to-end on eBPF or does not run.
 
-#### Scenario: BPF load failure surfaces as degraded capability
-- **WHEN** the sidecar fails to load any eBPF program at start
-- **THEN** the sidecar logs the failure, sets its internal mode to
-  degraded
+#### Scenario: eBPF load failure surfaces as unavailable capability
+- **WHEN** the sidecar fails to load or attach any eBPF program at
+  start
+- **THEN** the sidecar exits its continuous capture worker, logs the
+  failure with kernel version and the specific program that failed
 - **AND** subsequent `PingAck` replies indicate
-  `flow_attribution_available = false`
-- **AND** the agent advertises `host-network-visibility = degraded`
+  `continuous_capture_available = false`
+- **AND** the agent advertises `host-network-visibility = unavailable`
+
+#### Scenario: Kernel below 5.8 refuses to start continuous capture
+- **WHEN** `serviceradar-netprobe` starts on a host whose kernel
+  release is less than `5.8`
+- **THEN** the sidecar refuses to attach TC programs or kprobes
+- **AND** the agent advertises `host-network-visibility = unavailable`
+- **AND** the Phase 5 remote-capture path remains available since it
+  uses libpcap rather than eBPF
 
 ### Requirement: Process snapshot stream
 
@@ -327,3 +367,148 @@ inside `AgentConfigResponse.visibility_config` alongside the existing
   enabled profile's `target_query`
 - **THEN** the compiled `visibility_config.device_bindings` includes a
   binding for the device's canonical IP
+
+### Requirement: Continuous capture uses kernel-side eBPF
+
+`serviceradar-netprobe` SHALL implement continuous packet observation
+exclusively via kernel-side eBPF programs and AF_XDP rings, with no
+libpcap fallback on the continuous path. The continuous capture
+architecture MUST include: a TC ingress program and a TC egress
+program attached to each allowlisted interface; a kernel BPF hash map
+keyed by canonical 5-tuple that holds per-flow classification state;
+an AF_XDP ring used to deliver only the first N packets of each new
+flow to userspace; a kprobe on `tcp_rcv_state_process` (or the
+kernel-version-appropriate equivalent) that emits a single SYN-time
+TCP-options struct per new connection for p0f-style fingerprinting;
+and kprobes on `tcp_connect`, `inet_csk_accept`, `tcp_close`,
+`udp_sendmsg`, and `udp_recvmsg` for socket lifecycle attribution.
+Packets matching a classified flow MUST NOT be copied to userspace by
+the continuous path; only per-flow counters in the BPF map MUST be
+updated in-kernel.
+
+#### Scenario: Already-classified flow never enters userspace
+- **WHEN** a TCP flow has been classified as `http1` and its
+  `classified_as` field is set in the kernel flow_table map
+- **AND** subsequent packets in that flow are processed by the TC
+  ingress / egress programs
+- **THEN** the TC program updates per-flow byte and packet counters in
+  the kernel map and returns `TC_ACT_OK` without redirecting any bytes
+  to the AF_XDP ring
+- **AND** the userspace classifier does not observe those packets
+
+#### Scenario: TCP fingerprinting emits exactly one event per connection
+- **WHEN** a new TCP connection is established on an allowlisted
+  interface
+- **THEN** the SYN-time kprobe emits one `tcp_syn_signature` event to
+  the perf ring buffer
+- **AND** the userspace fingerprint analyzer runs the huginn-net
+  matcher exactly once for that connection
+- **AND** no further per-packet fingerprinting work is performed for
+  the connection
+
+#### Scenario: First N packets of new flow reach the userspace classifier
+- **WHEN** a new flow that does not match any classified entry in
+  flow_table is observed
+- **THEN** the TC program inserts an entry with `state = classifying`
+- **AND** redirects the first 8 to 32 packets to the AF_XDP ring
+- **AND** once userspace classifies the flow (or after the N-packet
+  budget is exhausted) the TC program transitions the entry to
+  `classified` or `unknown` and stops redirecting
+
+### Requirement: Flow classification cache
+
+`serviceradar-netprobe` SHALL maintain a kernel BPF flow-table map
+keyed by canonical 5-tuple (lexicographically smaller IP first to merge
+both directions of a connection into one entry) that records the
+classified protocol, packet and byte counters, and last-observed
+timestamp for each observed flow. Entries MUST be evicted under an LRU
+or TTL policy bounded to a configurable maximum cardinality per
+interface. The userspace classifier MUST update `classified_as` on the
+map entry once classification completes; further per-packet dissector
+work for the flow MUST be skipped.
+
+#### Scenario: Flow_table eviction triggers reclassification
+- **WHEN** an entry is evicted from the flow_table map under LRU
+  pressure
+- **AND** subsequent packets for the same 5-tuple arrive
+- **THEN** the TC program treats the flow as new and redirects the
+  first N packets to the AF_XDP ring for fresh classification
+
+#### Scenario: Bidirectional packets share a single flow entry
+- **WHEN** packets flow A→B and B→A for the same TCP connection
+- **THEN** both directions update the same flow_table entry keyed by
+  the canonical 5-tuple
+- **AND** the userspace classifier emits at most one `DpiEvent` per
+  classification regardless of direction
+
+### Requirement: Adaptive sampling under sustained CPU pressure
+
+`serviceradar-netprobe` SHALL track userspace CPU consumption as a
+sliding-window metric and reduce the per-flow packet-redirect budget
+adaptively when sustained CPU exceeds an operator-configurable
+threshold. Under pressure the sidecar MUST lower the
+first-N-packets-per-flow budget toward 1, and MUST restore the
+configured budget once CPU drops below the threshold for a sustained
+window. Sampling state MUST be exposed via the
+`serviceradar_netprobe_sampling_budget` metric so operators can
+correlate elevated `events_dropped` counters with intentional sampling.
+
+#### Scenario: Sustained CPU pressure triggers budget reduction
+- **WHEN** the sidecar's userspace CPU usage exceeds the configured
+  threshold (default 5% of one core) for the configured window
+  (default 30 seconds)
+- **THEN** the per-flow packet-redirect budget is reduced toward 1
+- **AND** the `serviceradar_netprobe_sampling_budget` metric reflects
+  the reduced budget
+
+#### Scenario: Pressure clears and budget restores
+- **WHEN** userspace CPU drops below the threshold for the configured
+  recovery window
+- **THEN** the per-flow packet-redirect budget is restored to the
+  configured default
+- **AND** the metric reflects the restored value
+
+### Requirement: Opt-in capture of payload-identifying fields
+
+`serviceradar-netprobe` SHALL extract and emit payload-identifying
+fields (TLS Server Name Indication hostname, DNS query name, HTTP Host
+header, HTTP request URI) only when the controlling
+`VisibilityProfile.dpi.capture` flag for the specific field is set to
+`true`, and only for device IPs matched by that profile's
+`target_query`. Each opt-in flag MUST default to false. Each opt-in
+flag MUST be auditable via the AshPaperTrail version trail on the
+controlling `VisibilityProfile`. When the opt-in is off the existing
+default redaction (presence-only SNI, query-name-omitted DNS,
+header-omitted HTTP) MUST remain in effect.
+
+#### Scenario: Default profile emits no payload-identifying fields
+- **WHEN** a `VisibilityProfile` is created without setting any
+  `dpi.capture.*` flag
+- **AND** the sidecar observes TLS, DNS, and HTTP traffic for a device
+  the profile scopes
+- **THEN** emitted `DpiEvent` records contain no TLS SNI hostname, no
+  DNS query name, and no HTTP Host header or request URI
+
+#### Scenario: Opt-in TLS SNI capture surfaces the hostname
+- **WHEN** an operator sets `VisibilityProfile.dpi.capture.tls_sni =
+  true` and saves the profile
+- **THEN** the AshPaperTrail version trail records the change
+- **AND** subsequent `DpiEvent` records for TLS handshakes scoped to
+  the profile carry the SNI hostname in a dedicated field
+- **AND** events for traffic scoped to a profile without the opt-in
+  continue to carry only the presence marker
+
+#### Scenario: Opt-in DNS query-name capture surfaces the QNAME
+- **WHEN** an operator sets `VisibilityProfile.dpi.capture.dns_query_name
+  = true`
+- **THEN** subsequent DNS `DpiEvent` records for that profile carry
+  the lowercased canonical query name
+- **AND** the audit trail records who enabled it and when
+
+#### Scenario: Opt-in HTTP Host capture surfaces the Host header
+- **WHEN** an operator sets `VisibilityProfile.dpi.capture.http_host =
+  true`
+- **THEN** subsequent HTTP/1.x `DpiEvent` records for that profile
+  carry the Host header value
+- **AND** request URIs and bodies remain omitted unless a separate
+  `dpi.capture.http_request_uri` opt-in is also set

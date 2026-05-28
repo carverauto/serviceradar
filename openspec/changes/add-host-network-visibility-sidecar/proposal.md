@@ -121,14 +121,67 @@ management.
   (`rust_binary`) mirroring `rust/trapd/`.
 - Static **musl** build targets for `x86_64-unknown-linux-musl` and
   `aarch64-unknown-linux-musl`, registered in `MODULE.bazel`
-  `extra_target_triples` and `.cargo/config.toml`. Phase 1 shipping
-  packages use the libpcap-enabled dynamic Linux build and declare or
-  bundle the libpcap runtime dependency; static packet capture remains
-  a future portability hardening target.
+  `extra_target_triples` and `.cargo/config.toml`. Phase 1 / Phase 2
+  shipping packages use the libpcap-enabled dynamic Linux build as a
+  documented stopgap; Phase 3 replaces the continuous capture path
+  with kernel-side eBPF + AF_XDP and removes the libpcap dependency
+  from the continuous code path entirely. After the Phase 3 cutover,
+  libpcap remains only for the Phase 5 remote-capture tunnel behind a
+  `remote-capture` Cargo feature, declared as `Recommends` (not
+  `Depends`) in deb/rpm metadata.
 - New Cargo dependencies pulled into the workspace via crate-universe:
-  `huginn-net` (fingerprinting), `aya` + `aya-log` + `aya-ebpf`
-  (eBPF), `pcap` (capture handle), `tokio` (already present),
-  `prost` (already present).
+  `huginn-net` (fingerprinting matcher, **driven by SYN-kprobe events,
+  not per-packet** after Phase 3), `aya` + `aya-log` + `aya-ebpf`
+  (eBPF runtime and program crate), AF_XDP bindings (e.g. `xsk-rs` or
+  `aya::maps::xdp`), `tokio` (already present), `prost` (already
+  present). The `pcap` crate is gated behind the `remote-capture`
+  Cargo feature; **continuous packet observation does not depend on
+  libpcap at runtime after Phase 3**.
+
+### Continuous capture is eBPF-only (revised 2026-05-27)
+
+After Phase 3 cutover, continuous packet observation runs entirely in
+the kernel:
+
+- **TC ingress + egress eBPF programs** attached to each allowlisted
+  interface. The TC programs parse the 5-tuple, look up a kernel BPF
+  `flow_table` map, and:
+  - For already-classified flows: bump byte/packet counters in-kernel
+    and return `TC_ACT_OK`. **These packets never enter userspace.**
+  - For new or in-classification flows: redirect the first 8–32
+    packets to an AF_XDP ring for userspace dissection. Once
+    classified, userspace writes the result back to the map and
+    subsequent packets short-circuit in the kernel.
+- **SYN-time fingerprinting via kprobe.** A `kprobe` on
+  `tcp_rcv_state_process` (or the kernel-version-appropriate
+  equivalent) extracts the SYN's TCP options at connection setup and
+  emits one perf-RB event per new connection. Userspace runs the
+  huginn-net matcher exactly once per connection rather than per
+  packet.
+- **Socket lifecycle + process attribution** via kprobes on
+  `tcp_connect`, `inet_csk_accept`, `tcp_close`, `udp_sendmsg`,
+  `udp_recvmsg`. Populates `flow_to_pid` and `process_info` BPF maps
+  that the userspace classifier joins against to label each flow
+  with its owning process.
+- **No `degraded` half-state.** If any required eBPF program fails to
+  load (kernel too old, verifier rejection, missing CAP_BPF), the
+  sidecar refuses to start its continuous capture worker and the
+  agent advertises `host-network-visibility = unavailable`. Hard
+  kernel floor: 5.8.
+
+The eBPF object code lives under `rust/netprobe/ebpf/` as a separate
+Cargo crate compiled to BPF bytecode via `aya-ebpf` and embedded into
+the userspace binary at build time. Maps are pinned under
+`/sys/fs/bpf/serviceradar/netprobe/` so sidecar restart reattaches to
+in-flight state without losing accumulated counters.
+
+This is the architectural baseline that Datadog NPM, Cilium/Hubble,
+and current-generation Cisco Secure Workload all converged on — for
+the same reason ServiceRadar is making this commitment: per-packet
+kernel→user transitions in libpcap-based userspace agents are the CPU
+bottleneck that gates fleet-wide deployment. We avoid that trap from
+day one (well, from Phase 3 onward; Phase 1/2 ship the libpcap
+stopgap with explicit Phase 2 cheap-win mitigations layered on it).
 
 ### Sidecar capabilities (`netprobe`)
 
@@ -430,40 +483,86 @@ This proposal is intentionally large because it captures the end-state
 architecture. Implementation lands in named phases, each one shippable
 and reversible on its own:
 
-- **Phase 1 — OS fingerprinting only (the first shipping increment).**
-  `rust/netprobe/` skeleton with `huginn-net` integration; static musl
-  build targets wired into MODULE.bazel plus libpcap-enabled dynamic
-  Linux agent packaging; sidecar runtime
-  in `go/pkg/agent/sidecar/`; IPC v1 protobuf carrying only
-  `ApplyConfig` / `Ping` / `FingerprintEvents` (other event channels
-  reserved); `VisibilityProfile` Ash resource with only the
-  `fingerprint` toggles wired; compiler integration; discovery
-  ingestion of fingerprint events; OCSF `os.passive_fingerprint` +
-  `metadata.passive_fingerprint` storage; minimal Visibility Profile
-  list+edit UI (fingerprint section only); agent advertises
+- **Phase 1 — OS fingerprinting only (shipped 2026-05-27).**
+  `rust/netprobe/` skeleton with `huginn-net` integration; static
+  musl build targets wired into MODULE.bazel plus libpcap-enabled
+  dynamic Linux agent packaging *as a stopgap*; sidecar runtime in
+  `go/pkg/agent/sidecar/`; IPC v1 protobuf carrying only
+  `ApplyConfig` / `Ping` / `FingerprintEvents`; `VisibilityProfile`
+  Ash resource with `fingerprint` toggles wired; compiler integration;
+  discovery ingestion of fingerprint events; OCSF
+  `os.passive_fingerprint` + `metadata.passive_fingerprint` storage;
+  minimal Visibility Profile list+edit UI; agent advertises
   `host-network-visibility = enabled` for fingerprint and
-  `unavailable` for other surfaces. **This is the slice that closes
-  Forgejo #3423.**
-- **Phase 2 — DPI.** Add dissectors (HTTP/1, HTTP/2, TLS-SNI, DNS,
-  SSH, FTP, QUIC, MQTT, BitTorrent), DPI event stream, device
-  metadata DPI map, DPI UI panel.
-- **Phase 3 — eBPF flow attribution + process snapshots.** Load eBPF
-  programs, emit `FlowAttributionEvent` + `ProcessSnapshot`, render
-  local-process map + Process Listeners tab. Degraded mode for
-  kernels without modern BPF support.
+  `unavailable` for other surfaces. **Closes Forgejo #3423.**
+- **Phase 2 — DPI dissectors + performance backstops (in progress).**
+  Add dissectors (HTTP/1, HTTP/2, TLS-SNI, DNS, SSH, FTP, QUIC, MQTT,
+  BitTorrent), `DpiEvent` stream, device `metadata.dpi` map, DPI UI
+  panel. **Phase 2 also lands the libpcap-stopgap performance
+  mitigations** before Phase 3 ships the eBPF rewrite: flow-cache
+  short-circuit on classified 5-tuples, kernel-side libpcap BPF
+  filter that drops non-interesting traffic before it reaches
+  userspace, adaptive sampling under sustained CPU pressure, an
+  opt-in capture path for TLS SNI hostname / DNS query name / HTTP
+  Host header gated by `VisibilityProfile.dpi.capture.*` flags and
+  audited via AshPaperTrail, and an operator-runbook update with
+  CPU-budget guidance and recommended fleet-deployment posture
+  ("default profile ships with `dpi.protocols = []`; enable DPI
+  per-device for tier-0 services where labelling matters").
+- **Phase 3 — Replace libpcap with kernel-side eBPF (the strategic
+  pivot).** This phase rewrites the continuous capture path from
+  libpcap-userspace to a kernel-eBPF golden path that matches
+  Datadog NPM / Cilium / current-generation Cisco Secure Workload
+  architecture. Phase 3 simultaneously ships:
+  - **TC ingress + egress eBPF programs** on each allowlisted
+    interface with a kernel `flow_table` map; classified flows
+    short-circuit in-kernel and never enter userspace.
+  - **AF_XDP ring** for delivering the first 8–32 packets of each
+    new flow to userspace where the L7 dissectors classify them.
+    After classification the result is written back to the
+    flow_table and subsequent packets bypass userspace.
+  - **SYN-time fingerprinting kprobe** on `tcp_rcv_state_process`
+    that emits exactly one event per new TCP connection. The
+    huginn-net matcher moves from per-packet to per-connection;
+    no more userspace work in steady state.
+  - **Socket lifecycle kprobes** on `tcp_connect`,
+    `inet_csk_accept`, `tcp_close`, `udp_sendmsg`, `udp_recvmsg`
+    populating `flow_to_pid` and `process_info` BPF maps. This is
+    the original Phase 3 attribution work; it now lives on the
+    same eBPF surface as the capture path.
+  - **Deletion of the libpcap continuous capture worker** in
+    `rust/netprobe/src/capture.rs`. After Phase 3 cutover that
+    file is a thin AF_XDP consumer; the `pcap` Cargo dependency
+    moves behind a `remote-capture` feature flag used only by
+    Phase 5. deb/rpm `Depends` on libpcap drops to `Recommends`.
+  - `FlowAttributionEvent` + `ProcessSnapshot` IPC streams
+    activated. Local-process map and Process Listeners tab render
+    in the UI.
+  - **Hard kernel floor: 5.8.** Hosts below the floor advertise
+    `host-network-visibility = unavailable` cleanly. There is no
+    `degraded` half-state.
 - **Phase 4 — NetFlow ↔ application attribution.** `flow-collector`
   per-host slice publication, agent forwarding into `netprobe`,
-  `attributed_flow` republish, Attributed Flows view.
-- **Phase 5 — Remote pcapng capture sessions.** `CaptureSessions` IPC
-  RPC, agent-side session bridge over the existing mTLS control
+  `attributed_flow` republish, Attributed Flows view. Now trivial
+  to land because the `flow_to_pid` map already exists from
+  Phase 3.
+- **Phase 5 — Remote pcapng capture sessions.** `CaptureSessions`
+  IPC RPC, agent-side session bridge over the existing mTLS control
   stream, `core-elx` session lifecycle + audit, `srctl capture` CLI
   helper, "Start Remote Capture" action on Device / Agent Detail.
-- **Phase 6 — Polish and hardening.** Capture interface allowlist UI,
-  privacy opt-in toggles, runbook, Cisco Secure Workload labelling
-  cookbook, Grafana dashboard.
+  **libpcap returns here, scoped to one operator-initiated session
+  at a time behind the `remote-capture` Cargo feature.** The
+  continuous code path is unaffected.
+- **Phase 6 — Polish and hardening.** Capture interface allowlist
+  UI, privacy opt-in toggle polish, runbook expansion, Cisco Secure
+  Workload labelling cookbook, Grafana dashboard for eBPF map
+  occupancy / sampling budget / flow_table hit ratio.
 
-Phase 1 must land first; later phases can re-order based on operator
-demand. Phase 2 has no dependency on Phase 5, and vice versa.
+Phase 1 has shipped. Phase 2 §16.1–§16.7 (dissectors) have shipped;
+Phase 2 cheap-win backstops are next. Phase 3 is the architectural
+pivot and the single most important phase for fleet-wide deployment
+viability — its work is what unlocks the customer use case at
+acceptable CPU cost.
 
 ### Non-goals
 
