@@ -90,6 +90,11 @@ function parseSegment(segment, start, tokens) {
     const remainder = segment.slice(prefixedControl.length)
     if (!remainder) return
 
+    if (prefixedControl === "sort:") {
+      parseSortRemainder(remainder, start + prefixedControl.length, tokens)
+      return
+    }
+
     tokens.push({
       start: start + prefixedControl.length,
       end: start + segment.length,
@@ -134,6 +139,69 @@ function parseSegment(segment, start, tokens) {
   }
 
   tokens.push({start, end: start + segment.length, kind: "unknown", text: segment})
+}
+
+function parseSortRemainder(remainder, start, tokens) {
+  const directionSeparator = lastUnquotedColon(remainder)
+
+  if (directionSeparator <= 0) {
+    tokens.push({start, end: start + remainder.length, kind: "field", text: remainder})
+    return
+  }
+
+  const field = remainder.slice(0, directionSeparator)
+  const direction = remainder.slice(directionSeparator + 1)
+
+  tokens.push({start, end: start + field.length, kind: "field", text: field})
+  tokens.push({
+    start: start + directionSeparator,
+    end: start + directionSeparator + 1,
+    kind: "op",
+    text: ":",
+  })
+
+  if (direction) {
+    tokens.push({
+      start: start + directionSeparator + 1,
+      end: start + remainder.length,
+      kind: "value",
+      text: direction,
+    })
+  }
+}
+
+function lastUnquotedColon(segment) {
+  let quote = null
+  let escaped = false
+  let colon = -1
+
+  for (let index = 0; index < segment.length; index += 1) {
+    const char = segment[index]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === "\\") {
+      escaped = true
+      continue
+    }
+
+    if (quote) {
+      if (char === quote) quote = null
+      continue
+    }
+
+    if (char === "\"" || char === "'") {
+      quote = char
+      continue
+    }
+
+    if (char === ":") colon = index
+  }
+
+  return colon
 }
 
 function findOperator(segment) {
