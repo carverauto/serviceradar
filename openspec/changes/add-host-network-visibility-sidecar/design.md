@@ -935,7 +935,7 @@ case), security review (eBPF capability surface).
      **parallel** to p0f (not a replacement). Modern corpus actively
      maintained against current OS releases; complements p0f's
      legacy-strong / modern-thin coverage shape.
-  2. **Recog** (Rapid7, BSD-2-Clause-Views) — ~15,000+ banner /
+  2. **Recog** (Rapid7, BSD-2-Clause-Views) — 4,712 banner /
      service-string fingerprints. Pattern-matched against output of
      the existing DPI dissectors: HTTP `Server:` header, SSH banner,
      FTP / Telnet / SMB / SNMP / SIP / RDP / DNS banner strings. Each
@@ -958,7 +958,7 @@ case), security review (eBPF capability surface).
   agreeing on `Ubuntu 22.04` gets the highest confidence tier; a
   device producing only p0f gets the lowest.
 
-  Combined corpus reach: ~17,000+ fingerprints across
+  Combined audited corpus reach: ~7,000 fingerprints across
   ~8 independent observation axes. For context, huginn-net's p0f-only
   reach is ~400. This is the "big database" direction.
 - **License audit of the new corpora.**
@@ -995,7 +995,7 @@ case), security review (eBPF capability surface).
   - **Shodan corpus.** Rejected — closed commercial.
 - **Rationale.**
   - **Corpus size is the dominant accuracy lever.** Going from ~400
-    signatures (huginn-net's p0f) to ~17,000+ across multiple axes is
+    signatures (huginn-net's p0f) to ~7,000 across multiple axes is
     a far bigger accuracy win than any algorithmic improvement we can
     make to a single canonical-form encoder.
   - **Independent axes shrink false positives.** Three corpora
@@ -1032,12 +1032,15 @@ case), security review (eBPF capability surface).
     observations are present in the existing DPI / eBPF surfaces.
     UI surfaces per-axis observation flags so operators know which
     corpus axes were active for a device.
-  - **Binary size impact.** Compiled Recog (~15k regex patterns into
+  - **Binary size impact.** Compiled Recog (4,712 regex patterns into
     `regex-automata` DFAs) adds ~2-4 MiB to the static musl binary.
-    p0f + MuonFP + full Satori XML combined add another ~1.5-2 MiB.
-    Total fingerprint surface adds ~4-6 MiB. Acceptable on agents running
-    on 4+ GB hosts; flagged in the §32 validation gate so we catch
-    if compression / DFA-minimization options become available.
+    p0f + MuonFP add another small compiled footprint. Satori's GPLv2
+    XML remains runtime-loaded from a separately replaceable data
+    directory, so it affects package size rather than the default binary
+    image. Total compiled fingerprint surface adds ~4-6 MiB. Acceptable
+    on agents running on 4+ GB hosts; flagged in the §32 validation gate
+    so we catch if compression / DFA-minimization options become
+    available.
   - **Recog upstream cadence.** Rapid7 ships Recog updates roughly
     monthly. We track an upstream pinned release and bump it
     quarterly; net-new ServiceRadar additions land in
@@ -1053,7 +1056,8 @@ case), security review (eBPF capability surface).
   extend the `LicenseCleanFingerprint` proto to carry the additional
   match labels, extend `PingAck` to report all corpus revisions, and
   extend the §31.13 CI license-lint with an allowlist that catches
-  unauthorized corpus additions.
+  unauthorized corpus additions and compile-time embedding of the GPLv2
+  Satori XML corpus.
 
 ### D16. Active banner-grab phase in the sweep service
 
@@ -1200,8 +1204,8 @@ case), security review (eBPF capability surface).
   - Passive observation in netprobe only sees banners from devices
     that *already* send traffic across the agent NIC. For LAN
     inventory discovery, most target devices never talk to the agent
-    host; their banners are never observed passively. Recog's
-    ~15,000 banner-axis fingerprints (per §32) stay dormant without
+    host; their banners are never observed passively. Recog's audited
+    4,712 banner-axis fingerprints (per §32) stay dormant without
     an active path.
   - The active banner-grab phase deliberately triggers cleartext or
     pre-auth responses from confirmed-live devices and routes those

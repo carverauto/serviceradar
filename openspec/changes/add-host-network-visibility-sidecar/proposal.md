@@ -24,7 +24,7 @@ runs:
    TCP / DHCP / DNS / SMB / SSH / SSL / HTTP / browser / ICMP / NTP /
    SIP signatures; JA4 base (BSD-3, FoxIO patent-disclaimed) for TLS
    ClientHello; and HASSH (BSD-3) for SSH KEXINIT. Combined corpus
-   reach: ~17,000+ fingerprints across ~8 independent observation
+   audited reach: ~7,000 fingerprints across ~8 independent observation
    axes, vs huginn-net's p0f-only ~400. The `huginn-net` crate is
    dropped from the dependency set. The encumbered parts of FoxIO's
    JA4+ family (JA4T, JA4H, JA4S, JA4SSH, JA4X) are explicitly *not*
