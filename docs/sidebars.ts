@@ -44,6 +44,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'syn-scanner-tuning', label: 'SYN Scanner Tuning'},
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
         {type: 'doc', id: 'netprobe', label: 'Host Network Visibility'},
+        {type: 'doc', id: 'fingerprint-architecture', label: 'Fingerprint Architecture'},
         {type: 'doc', id: 'rperf', label: 'Network Performance Testing'},
       ],
     },

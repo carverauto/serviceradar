@@ -84,3 +84,71 @@ bpftool btf dump file 5.8.0-23-generic.btf format c \
   > /path/to/serviceradar/rust/netprobe/ebpf/include/vmlinux.h
 sha256sum /path/to/serviceradar/rust/netprobe/ebpf/include/vmlinux.h
 ```
+
+## Netprobe fingerprint corpus maintenance
+
+The license-clean fingerprint stack uses:
+
+* Frozen upstream p0f signatures in `rust/netprobe/p0f-corpus/p0f.fp`.
+* ServiceRadar-curated p0f additions in
+  `rust/netprobe/p0f-corpus/serviceradar-additions.fp`.
+* JA4 base TLS ClientHello fingerprinting pinned by `rust/netprobe/LICENSE-JA4`
+  and the `JA4_BASE_SPEC_REVISION` constant.
+
+### Regenerate the upstream p0f corpus
+
+Only refresh `p0f.fp` when deliberately bumping the upstream corpus. Keep the
+file separate and preserve the upstream LGPL notice.
+
+```bash
+tmpdir=$(mktemp -d)
+curl -L https://lcamtuf.coredump.cx/p0f3/releases/p0f-3.09b.tgz \
+  -o "$tmpdir/p0f-3.09b.tgz"
+sha256sum "$tmpdir/p0f-3.09b.tgz"
+tar -C "$tmpdir" -xzf "$tmpdir/p0f-3.09b.tgz"
+cp "$tmpdir/p0f-3.09b/p0f.fp" rust/netprobe/p0f-corpus/p0f.fp
+sha256sum rust/netprobe/p0f-corpus/p0f.fp
+```
+
+After changing the corpus:
+
+1. Update `rust/netprobe/p0f-corpus/README.md` with the source URL, timestamp,
+   tarball hash, corpus hash, and license notes.
+2. Update `P0F_CORPUS_REVISION` in `rust/netprobe/src/fingerprint.rs`.
+3. Run:
+
+```bash
+sfw cargo test -p serviceradar-netprobe --no-default-features --offline p0f
+bazel test //rust/netprobe:netprobe_test
+```
+
+### Curate ServiceRadar additions
+
+Do not patch the upstream corpus for local signatures. Add ServiceRadar-owned
+entries to `rust/netprobe/p0f-corpus/serviceradar-additions.fp` following
+`rust/netprobe/p0f-corpus/CONTRIBUTING.md`.
+
+Before merge:
+
+```bash
+make lint-p0f-additions
+```
+
+When the additions file changes, update `SERVICERADAR_ADDITIONS_REVISION` in
+`rust/netprobe/src/fingerprint.rs` so agent status reports the exact corpus
+revision that produced a fingerprint.
+
+### Bump the JA4 base spec revision
+
+JA4 base is the only FoxIO JA4-family algorithm implemented in netprobe. To
+bump it:
+
+1. Review the upstream JA4 base license at
+   `https://github.com/FoxIO-LLC/ja4/blob/main/LICENSE-JA4`.
+2. Confirm the broader JA4+ license at
+   `https://github.com/FoxIO-LLC/ja4/blob/main/LICENSE` still does not apply to
+   the base JA4 ClientHello algorithm we ship.
+3. Update `rust/netprobe/LICENSE-JA4` and the local JA4 reference vectors.
+4. Update `JA4_BASE_SPEC_REVISION` in `rust/netprobe/src/fingerprint.rs`.
+5. Run the netprobe JA4 tests and `openspec validate
+   add-host-network-visibility-sidecar --strict`.
