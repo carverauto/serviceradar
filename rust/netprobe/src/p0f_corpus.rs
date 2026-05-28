@@ -11,6 +11,7 @@ pub struct P0fCorpus {
 pub struct TcpSignatureEntry {
     pub section: String,
     pub label: P0fLabel,
+    pub raw_signature: String,
     pub signature: TcpSignature,
 }
 
@@ -112,6 +113,69 @@ impl fmt::Display for ParseError {
 
 impl Error for ParseError {}
 
+impl TcpSignature {
+    pub fn exact_lookup_key(&self) -> Option<String> {
+        if !self.quirks.is_empty() {
+            return None;
+        }
+
+        Some(format!(
+            "{}:{}:{}:{}:{},{}:{}:{}:{}",
+            self.ip_version.exact_key()?,
+            self.initial_ttl.exact_key()?,
+            self.ip_options_len.exact_key()?,
+            self.mss.exact_key()?,
+            self.window_size.exact_key()?,
+            self.window_scale.exact_key()?,
+            option_layout_key(&self.options_layout),
+            "",
+            self.payload_class.exact_key()?,
+        ))
+    }
+
+    pub fn requires_fallback_match(&self) -> bool {
+        self.exact_lookup_key().is_none()
+    }
+}
+
+impl IpVersionPattern {
+    fn exact_key(&self) -> Option<&'static str> {
+        match self {
+            Self::Any => None,
+            Self::V4 => Some("4"),
+            Self::V6 => Some("6"),
+        }
+    }
+}
+
+impl NumericPattern {
+    fn exact_key(&self) -> Option<String> {
+        match self {
+            Self::Exact(value) => Some(value.to_string()),
+            Self::Any | Self::Max(_) => None,
+        }
+    }
+}
+
+impl WindowSizePattern {
+    fn exact_key(&self) -> Option<String> {
+        match self {
+            Self::Exact(value) => Some(value.to_string()),
+            Self::Any | Self::MultipleOfMss(_) | Self::MultipleOfMtu(_) | Self::Modulo(_) => None,
+        }
+    }
+}
+
+impl PayloadClassPattern {
+    fn exact_key(&self) -> Option<&'static str> {
+        match self {
+            Self::Any => None,
+            Self::Empty => Some("0"),
+            Self::NonEmpty => Some("+"),
+        }
+    }
+}
+
 pub fn parse(input: &str) -> Result<P0fCorpus, ParseError> {
     let mut corpus = P0fCorpus {
         classes: Vec::new(),
@@ -163,6 +227,7 @@ pub fn parse(input: &str) -> Result<P0fCorpus, ParseError> {
                     corpus.tcp_signatures.push(TcpSignatureEntry {
                         section: section.clone(),
                         label: parse_label(&label),
+                        raw_signature: value.to_string(),
                         signature: parse_tcp_signature_at(value, line_number)?,
                     });
                 } else {
@@ -352,6 +417,26 @@ fn split_csv(value: &str) -> Vec<&str> {
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .collect()
+}
+
+fn option_layout_key(options: &[TcpOptionPattern]) -> String {
+    options.iter().map(option_key).collect::<Vec<_>>().join(",")
+}
+
+fn option_key(option: &TcpOptionPattern) -> String {
+    match option {
+        TcpOptionPattern::EndOfOptions { padding: None } => "eol".to_string(),
+        TcpOptionPattern::EndOfOptions {
+            padding: Some(padding),
+        } => format!("eol+{padding}"),
+        TcpOptionPattern::Noop => "nop".to_string(),
+        TcpOptionPattern::Mss => "mss".to_string(),
+        TcpOptionPattern::WindowScale => "ws".to_string(),
+        TcpOptionPattern::SackPermitted => "sok".to_string(),
+        TcpOptionPattern::Sack => "sack".to_string(),
+        TcpOptionPattern::Timestamp => "ts".to_string(),
+        TcpOptionPattern::Unknown(kind) => format!("?{kind}"),
+    }
 }
 
 fn parse_u32(value: &str, line: usize) -> Result<u32, ParseError> {

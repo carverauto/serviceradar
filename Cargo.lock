@@ -7152,6 +7152,8 @@ dependencies = [
  "log 0.4.30",
  "nix 0.31.3",
  "pcap",
+ "phf 0.11.3",
+ "phf_codegen 0.11.3",
  "procfs",
  "prometheus",
  "prost 0.13.5",

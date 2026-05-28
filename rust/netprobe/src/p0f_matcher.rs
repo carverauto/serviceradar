@@ -1,9 +1,15 @@
+use std::collections::HashMap;
+
 use anyhow::{Context, Result};
 
 use crate::p0f_corpus::{
     parse, parse_tcp_signature, IpVersionPattern, NumericPattern, P0fLabel, PayloadClassPattern,
     TcpOptionPattern, TcpSignature, WindowSizePattern,
 };
+
+mod generated {
+    include!(concat!(env!("OUT_DIR"), "/p0f_generated.rs"));
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct P0fMatch {
@@ -13,37 +19,91 @@ pub struct P0fMatch {
 #[derive(Clone, Debug)]
 pub struct P0fMatcher {
     signatures: Vec<(TcpSignature, P0fLabel)>,
+    exact_lookup: ExactLookup,
+    fallback_indices: Vec<usize>,
+}
+
+#[derive(Clone, Debug)]
+enum ExactLookup {
+    Static(&'static phf::Map<&'static str, usize>),
+    Dynamic(HashMap<String, usize>),
 }
 
 impl P0fMatcher {
     pub fn from_corpus_str(corpus: &str) -> Result<Self> {
         let corpus = parse(corpus).context("failed to parse p0f corpus")?;
+        let mut exact_lookup = HashMap::new();
+        let mut fallback_indices = Vec::new();
+        let signatures = corpus
+            .tcp_signatures
+            .into_iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                if let Some(key) = entry.signature.exact_lookup_key() {
+                    exact_lookup.entry(key).or_insert(index);
+                }
+                if entry.signature.requires_fallback_match() {
+                    fallback_indices.push(index);
+                }
+                (entry.signature, entry.label)
+            })
+            .collect();
+
         Ok(Self {
-            signatures: corpus
-                .tcp_signatures
-                .into_iter()
-                .map(|entry| (entry.signature, entry.label))
-                .collect(),
+            signatures,
+            exact_lookup: ExactLookup::Dynamic(exact_lookup),
+            fallback_indices,
         })
     }
 
     pub fn bundled() -> Result<Self> {
-        Self::from_corpus_str(include_str!("../p0f-corpus/p0f.fp"))
+        let mut matcher = Self::from_corpus_str(include_str!("../p0f-corpus/p0f.fp"))?;
+        matcher.exact_lookup = ExactLookup::Static(&generated::P0F_EXACT_SIGNATURES);
+        matcher.fallback_indices = generated::P0F_FALLBACK_INDICES.to_vec();
+        Ok(matcher)
     }
 
     pub fn match_signature(&self, observed: &str) -> Result<Option<P0fMatch>> {
         let observed =
             parse_tcp_signature(observed).context("failed to parse observed p0f signature")?;
-        Ok(self.match_parsed(&observed))
+        Ok(self.match_signature_parts(&observed, observed.exact_lookup_key().as_deref()))
     }
 
     pub fn match_parsed(&self, observed: &TcpSignature) -> Option<P0fMatch> {
-        self.signatures
+        self.match_signature_parts(observed, observed.exact_lookup_key().as_deref())
+    }
+
+    fn match_signature_parts(
+        &self,
+        observed: &TcpSignature,
+        exact_key: Option<&str>,
+    ) -> Option<P0fMatch> {
+        if let Some(index) = exact_key.and_then(|key| self.exact_lookup.get(key)) {
+            if let Some((candidate, label)) = self.signatures.get(index) {
+                if signature_matches(candidate, observed) {
+                    return Some(P0fMatch {
+                        label: label.clone(),
+                    });
+                }
+            }
+        }
+
+        self.fallback_indices
             .iter()
+            .filter_map(|index| self.signatures.get(*index))
             .find(|(candidate, _label)| signature_matches(candidate, observed))
             .map(|(_candidate, label)| P0fMatch {
                 label: label.clone(),
             })
+    }
+}
+
+impl ExactLookup {
+    fn get(&self, key: &str) -> Option<usize> {
+        match self {
+            Self::Static(map) => map.get(key).copied(),
+            Self::Dynamic(map) => map.get(key).copied(),
+        }
     }
 }
 
@@ -162,5 +222,26 @@ sig = *:64-:0:1460:1024,0:mss::0
             .expect("expected max TTL match");
 
         assert_eq!(matched.label.name, "Scanner");
+    }
+
+    #[test]
+    fn uses_exact_lookup_before_fallback() {
+        let matcher = P0fMatcher::from_corpus_str(
+            r#"
+[tcp:request]
+label = s:unix:ExactOS:1.0
+sig = 4:64:0:1460:1024,0:mss::0
+label = s:unix:FallbackOS:1.0
+sig = *:64:0:*:mss*4,0:mss::0
+"#,
+        )
+        .unwrap();
+
+        let matched = matcher
+            .match_signature("4:64:0:1460:1024,0:mss::0")
+            .unwrap()
+            .expect("expected exact match");
+
+        assert_eq!(matched.label.name, "ExactOS");
     }
 }

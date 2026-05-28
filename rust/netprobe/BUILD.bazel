@@ -19,6 +19,7 @@ NETPROBE_DEPS = crate_deps([
     "huginn-net",
     "log",
     "nix",
+    "phf",
     "prometheus",
     "prost",
     "serde",
@@ -61,18 +62,23 @@ NETPROBE_RUSTC_FLAGS = select({
 
 cargo_build_script(
     name = "build_script",
-    srcs = ["build.rs"],
+    srcs = [
+        "build.rs",
+        "src/p0f_corpus.rs",
+    ],
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
     crate_root = "build.rs",
     data = [
+        "p0f-corpus/p0f.fp",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
     ],
     edition = "2021",
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = crate_deps([
         "aya-build",
+        "phf_codegen",
         "prost-build",
     ]),
 )
@@ -80,6 +86,9 @@ cargo_build_script(
 rust_binary(
     name = "netprobe",
     srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "p0f-corpus/p0f.fp",
+    ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     edition = "2021",
@@ -90,6 +99,9 @@ rust_binary(
 rust_test(
     name = "netprobe_test",
     srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "p0f-corpus/p0f.fp",
+    ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     edition = "2021",
