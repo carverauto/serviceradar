@@ -9,10 +9,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use tokio::sync::broadcast;
 
 use crate::{
     config::Config,
+    event_queue::EventSender,
     metrics::Metrics,
     proto::netprobe::{DpiEvent, FingerprintEvent},
     runtime_config::{DpiEventGate, FingerprintEventGate},
@@ -87,8 +87,8 @@ impl CaptureWorkers {
     pub fn start(
         captures: CaptureHandles,
         metrics: Metrics,
-        fingerprint_events: broadcast::Sender<FingerprintEvent>,
-        dpi_events: broadcast::Sender<DpiEvent>,
+        fingerprint_events: EventSender<FingerprintEvent>,
+        dpi_events: EventSender<DpiEvent>,
         fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
@@ -143,8 +143,8 @@ where
 fn start_capture_workers(
     captures: CaptureHandles,
     metrics: Metrics,
-    fingerprint_events: broadcast::Sender<FingerprintEvent>,
-    dpi_events: broadcast::Sender<DpiEvent>,
+    fingerprint_events: EventSender<FingerprintEvent>,
+    dpi_events: EventSender<DpiEvent>,
     fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
     dpi_gate: Arc<DpiEventGate>,
 ) -> Result<CaptureWorkers> {
@@ -193,9 +193,11 @@ fn start_capture_workers(
                                 let event_interface = event.interface_name.clone();
                                 let event_ip = event.ip.clone();
                                 metrics_worker.inc_fingerprint_events();
-                                if fingerprint_tx.send(event).is_err() {
+                                if fingerprint_tx.try_send(event).is_err() {
+                                    metrics_worker
+                                        .inc_fingerprint_events_dropped("ipc_queue_full", 1);
                                     log::debug!(
-                                        "dropping fingerprint event with no active IPC receiver for {}",
+                                        "dropping fingerprint event because IPC queue is full for {}",
                                         event_interface
                                     );
                                 }
@@ -214,9 +216,10 @@ fn start_capture_workers(
                                 let event_interface = event.interface_name.clone();
                                 let event_protocol = event.protocol.clone();
                                 metrics_worker.inc_dpi_events();
-                                if dpi_tx.send(event).is_err() {
+                                if dpi_tx.try_send(event).is_err() {
+                                    metrics_worker.inc_dpi_events_dropped("ipc_queue_full", 1);
                                     log::debug!(
-                                        "dropping DPI event with no active IPC receiver for {}",
+                                        "dropping DPI event because IPC queue is full for {}",
                                         event_interface
                                     );
                                 }
@@ -246,8 +249,8 @@ fn start_capture_workers(
 fn start_capture_workers(
     _captures: CaptureHandles,
     _metrics: Metrics,
-    _fingerprint_events: broadcast::Sender<FingerprintEvent>,
-    _dpi_events: broadcast::Sender<DpiEvent>,
+    _fingerprint_events: EventSender<FingerprintEvent>,
+    _dpi_events: EventSender<DpiEvent>,
     _fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
     _dpi_gate: Arc<DpiEventGate>,
 ) -> Result<CaptureWorkers> {

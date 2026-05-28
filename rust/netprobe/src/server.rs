@@ -10,16 +10,17 @@ use std::{
 use anyhow::{Context, Result};
 use tokio::{
     net::{UnixListener, UnixStream},
-    sync::{broadcast, watch},
+    sync::{broadcast, watch, Mutex},
 };
 
 use crate::{
     capabilities,
+    event_queue::EventReceiver,
     fingerprint::{
         FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, P0F_CORPUS_REVISION,
         SERVICERADAR_ADDITIONS_REVISION,
     },
-    framing::{read_frame, write_frame},
+    framing::{read_frame, write_frame, write_frame_with_buffer},
     metrics::Metrics,
     proto::netprobe::{
         netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, FingerprintEvent, FlowAttributionEvent,
@@ -31,8 +32,8 @@ use crate::{
 pub struct IpcServer {
     socket_path: PathBuf,
     active_client: Arc<AtomicBool>,
-    fingerprint_events: broadcast::Sender<FingerprintEvent>,
-    dpi_events: broadcast::Sender<DpiEvent>,
+    fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
+    dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
     process_snapshots: broadcast::Sender<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
@@ -42,8 +43,8 @@ pub struct IpcServer {
 impl IpcServer {
     pub fn new(
         socket_path: impl Into<PathBuf>,
-        fingerprint_events: broadcast::Sender<FingerprintEvent>,
-        dpi_events: broadcast::Sender<DpiEvent>,
+        fingerprint_event_rx: EventReceiver<FingerprintEvent>,
+        dpi_event_rx: EventReceiver<DpiEvent>,
         flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         runtime_config: RuntimeConfig,
@@ -52,8 +53,8 @@ impl IpcServer {
         Self {
             socket_path: socket_path.into(),
             active_client: Arc::new(AtomicBool::new(false)),
-            fingerprint_events,
-            dpi_events,
+            fingerprint_events: Arc::new(Mutex::new(fingerprint_event_rx)),
+            dpi_events: Arc::new(Mutex::new(dpi_event_rx)),
             flow_attribution_events,
             process_snapshots,
             runtime_config,
@@ -83,8 +84,8 @@ impl IpcServer {
                     }
 
                     let active_client = Arc::clone(&self.active_client);
-                    let fingerprint_rx = self.fingerprint_events.subscribe();
-                    let dpi_rx = self.dpi_events.subscribe();
+                    let fingerprint_rx = Arc::clone(&self.fingerprint_events);
+                    let dpi_rx = Arc::clone(&self.dpi_events);
                     let flow_attribution_rx = self.flow_attribution_events.subscribe();
                     let process_snapshot_rx = self.process_snapshots.subscribe();
                     let runtime_config = self.runtime_config.clone();
@@ -138,14 +139,15 @@ async fn reject_concurrent_client(mut stream: UnixStream) -> Result<()> {
 
 async fn handle_client(
     stream: UnixStream,
-    mut fingerprint_events: broadcast::Receiver<FingerprintEvent>,
-    mut dpi_events: broadcast::Receiver<DpiEvent>,
+    fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
+    dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     mut flow_attribution_events: broadcast::Receiver<FlowAttributionEvent>,
     mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
+    let mut encode_buffer = Vec::new();
 
     loop {
         tokio::select! {
@@ -154,42 +156,30 @@ async fn handle_client(
                     return Ok(());
                 };
                 let response = response_for_frame(frame, &runtime_config);
-                write_frame(&mut writer, &response).await?;
+                write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
             }
-            event = fingerprint_events.recv() => {
+            event = recv_event(&fingerprint_events) => {
                 match event {
-                    Ok(event) => {
+                    Some(event) => {
                         let frame = NetprobeFrame {
                             sequence: 0,
                             payload: Some(netprobe_frame::Payload::FingerprintEvent(event)),
                         };
-                        write_frame(&mut writer, &frame).await?;
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
                     }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        metrics.inc_fingerprint_events_dropped("lagged_receiver", skipped);
-                        log::warn!("netprobe IPC client lagged; skipped {skipped} fingerprint event(s)");
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Ok(());
-                    }
+                    None => return Ok(()),
                 }
             }
-            event = dpi_events.recv() => {
+            event = recv_event(&dpi_events) => {
                 match event {
-                    Ok(event) => {
+                    Some(event) => {
                         let frame = NetprobeFrame {
                             sequence: 0,
                             payload: Some(netprobe_frame::Payload::DpiEvent(event)),
                         };
-                        write_frame(&mut writer, &frame).await?;
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
                     }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        metrics.inc_dpi_events_dropped("lagged_receiver", skipped);
-                        log::warn!("netprobe IPC client lagged; skipped {skipped} DPI event(s)");
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Ok(());
-                    }
+                    None => return Ok(()),
                 }
             }
             event = flow_attribution_events.recv() => {
@@ -199,7 +189,7 @@ async fn handle_client(
                             sequence: 0,
                             payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
                         };
-                        write_frame(&mut writer, &frame).await?;
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
@@ -217,7 +207,7 @@ async fn handle_client(
                             sequence: 0,
                             payload: Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)),
                         };
-                        write_frame(&mut writer, &frame).await?;
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         metrics.inc_process_snapshot_events_dropped("lagged_receiver", skipped);
@@ -230,6 +220,25 @@ async fn handle_client(
             }
         }
     }
+}
+
+async fn recv_event<T>(receiver: &Arc<Mutex<EventReceiver<T>>>) -> Option<T> {
+    receiver.lock().await.recv().await
+}
+
+async fn write_reused_frame<W>(
+    writer: &mut W,
+    frame: &NetprobeFrame,
+    encode_buffer: &mut Vec<u8>,
+    metrics: &Metrics,
+) -> Result<(), crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if write_frame_with_buffer(writer, frame, encode_buffer).await? {
+        metrics.inc_encode_buffer_reuses();
+    }
+    Ok(())
 }
 
 fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> NetprobeFrame {
@@ -312,14 +321,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx,
             RuntimeConfig::new(&Config::default()),
@@ -363,14 +372,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx,
             RuntimeConfig::new(&Config::default()),
@@ -397,14 +406,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx.clone(),
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx,
             RuntimeConfig::new(&Config::default()),
@@ -415,8 +424,7 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&event_tx).await;
-        event_tx.send(fingerprint_event()).unwrap();
+        event_tx.try_send(fingerprint_event()).unwrap();
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 0);
@@ -435,14 +443,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
-            dpi_tx.clone(),
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx,
             RuntimeConfig::new(&Config::default()),
@@ -453,8 +461,7 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&dpi_tx).await;
-        dpi_tx.send(dpi_event()).unwrap();
+        dpi_tx.try_send(dpi_event()).unwrap();
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 0);
@@ -473,14 +480,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx.clone(),
             process_tx,
             RuntimeConfig::new(&Config::default()),
@@ -511,14 +518,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx.clone(),
             RuntimeConfig::new(&Config::default()),
@@ -550,14 +557,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx.clone(),
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx,
             RuntimeConfig::new(&Config::default()),
@@ -568,11 +575,10 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&event_tx).await;
 
         let mut engine = crate::fingerprint::FingerprintEngine::phase1().unwrap();
         for event in engine.analyze_packet("eth0", 789, &tls_server_hello_packet()) {
-            event_tx.send(event).unwrap();
+            event_tx.try_send(event).unwrap();
         }
 
         let (event, tls) = read_tls_fixture_event(&mut client).await;
@@ -590,14 +596,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
-        let (dpi_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
         let (flow_tx, _) = broadcast::channel(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
-            dpi_tx,
+            event_rx,
+            dpi_rx,
             flow_tx,
             process_tx,
             RuntimeConfig::new(&Config::default()),

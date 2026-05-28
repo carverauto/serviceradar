@@ -45,18 +45,32 @@ pub async fn write_frame<W>(writer: &mut W, frame: &NetprobeFrame) -> Result<(),
 where
     W: AsyncWrite + Unpin,
 {
+    let mut body = Vec::new();
+    write_frame_with_buffer(writer, frame, &mut body).await?;
+    Ok(())
+}
+
+pub async fn write_frame_with_buffer<W>(
+    writer: &mut W,
+    frame: &NetprobeFrame,
+    body: &mut Vec<u8>,
+) -> Result<bool, FramingError>
+where
+    W: AsyncWrite + Unpin,
+{
     let len = frame.encoded_len();
     if len > MAX_FRAME_SIZE {
         return Err(FramingError::FrameTooLarge(len));
     }
 
+    let reused = body.capacity() >= len;
+    body.clear();
     writer.write_all(&(len as u32).to_be_bytes()).await?;
-    let mut body = Vec::with_capacity(len);
-    frame.encode(&mut body)?;
-    writer.write_all(&body).await?;
+    frame.encode(&mut *body)?;
+    writer.write_all(body.as_slice()).await?;
     writer.flush().await?;
 
-    Ok(())
+    Ok(reused)
 }
 
 #[cfg(test)]

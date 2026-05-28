@@ -13,6 +13,7 @@ pub mod ebpf_loader;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod ebpf_runtime;
+pub mod event_queue;
 pub mod fingerprint;
 pub mod framing;
 #[allow(dead_code)]

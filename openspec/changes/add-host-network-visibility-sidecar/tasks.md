@@ -187,7 +187,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 18.16 BPF program verifier CI: load every TC and kprobe program against a kernel-5.8 fixture; assert successful verification. Repeat for 5.15 and 6.x stable.
 - [x] 18.17 Kernel-too-old CI: run netprobe on a 5.4 kernel image; assert it exits cleanly with `host-network-visibility = unavailable` advertised.
 - [x] 18.18 Flow-cache hit-rate assertion: under the §18.15 workload, assert `flow_table` hit ratio > 95% (> 95% of packets short-circuit in-kernel and never reach userspace).
-- [ ] 18.19 Replace `tokio::sync::broadcast` for `FingerprintEvent` and `DpiEvent` IPC fan-out with per-consumer SPSC channels (`flume` or `crossbeam-channel`). The IPC server's single-client gate already guarantees one subscriber, so the SPMC fan-out shape is unnecessary overhead. Pool the `prost::Message::encode_to_vec` buffer per consumer thread so steady-state event encoding produces zero allocations after warmup; expose `serviceradar_netprobe_encode_buffer_reuses_total` so we can confirm steady-state allocation-free behavior in CI.
+- [x] 18.19 Replace `tokio::sync::broadcast` for `FingerprintEvent` and `DpiEvent` IPC fan-out with per-consumer SPSC channels (`flume` or `crossbeam-channel`). The IPC server's single-client gate already guarantees one subscriber, so the SPMC fan-out shape is unnecessary overhead. Pool the `prost::Message::encode_to_vec` buffer per consumer thread so steady-state event encoding produces zero allocations after warmup; expose `serviceradar_netprobe_encode_buffer_reuses_total` so we can confirm steady-state allocation-free behavior in CI.
 
 ### 19. [Phase 3] libpcap deletion + packaging + UI surfaces
 

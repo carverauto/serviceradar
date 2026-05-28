@@ -17,6 +17,7 @@ pub struct Metrics {
     events_dropped_total: IntCounterVec,
     signature_failures_total: IntCounter,
     flow_table_evictions_total: IntCounter,
+    encode_buffer_reuses_total: IntCounter,
     uptime_seconds: IntGauge,
     started_at: Arc<Instant>,
 }
@@ -48,6 +49,10 @@ impl Metrics {
             "serviceradar_netprobe_flow_table_evictions_total",
             "Flow table entries evicted by the netprobe eBPF flow cache",
         ))?;
+        let encode_buffer_reuses_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_encode_buffer_reuses_total",
+            "IPC protobuf encode buffer reuses after warmup",
+        ))?;
         let uptime_seconds = IntGauge::with_opts(Opts::new(
             "netprobe_uptime_seconds",
             "Process uptime in seconds",
@@ -59,6 +64,7 @@ impl Metrics {
         registry.register(Box::new(events_dropped_total.clone()))?;
         registry.register(Box::new(signature_failures_total.clone()))?;
         registry.register(Box::new(flow_table_evictions_total.clone()))?;
+        registry.register(Box::new(encode_buffer_reuses_total.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
         Ok(Self {
@@ -69,6 +75,7 @@ impl Metrics {
             events_dropped_total,
             signature_failures_total,
             flow_table_evictions_total,
+            encode_buffer_reuses_total,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
         })
@@ -109,6 +116,7 @@ impl Metrics {
             .inc();
     }
 
+    #[allow(dead_code)]
     pub fn inc_fingerprint_events_dropped(&self, reason: &str, count: u64) {
         self.events_dropped_total
             .with_label_values(&["fingerprint", reason])
@@ -153,6 +161,10 @@ impl Metrics {
     #[allow(dead_code)]
     pub fn inc_flow_table_evictions(&self, count: u64) {
         self.flow_table_evictions_total.inc_by(count);
+    }
+
+    pub fn inc_encode_buffer_reuses(&self) {
+        self.encode_buffer_reuses_total.inc();
     }
 }
 

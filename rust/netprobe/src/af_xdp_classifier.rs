@@ -10,11 +10,11 @@ use std::{
 
 use anyhow::{Context, Result};
 use crossbeam_channel::TryRecvError;
-use tokio::sync::broadcast;
 
 use crate::{
     af_xdp::{AfXdpConsumers, AfXdpPacket, AfXdpStream, NoopXskSocketRegistry, XskSocketRegistry},
     dpi::DpiPipeline,
+    event_queue::EventSender,
     fingerprint::FingerprintAccumulator,
     metrics::Metrics,
     proto::netprobe::DpiEvent,
@@ -199,7 +199,7 @@ impl AfXdpClassifierRuntime {
         interfaces: &[String],
         flow_table: W,
         metrics: Metrics,
-        dpi_events: broadcast::Sender<DpiEvent>,
+        dpi_events: EventSender<DpiEvent>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self>
     where
@@ -220,7 +220,7 @@ impl AfXdpClassifierRuntime {
         interfaces: &[String],
         flow_table: W,
         metrics: Metrics,
-        dpi_events: broadcast::Sender<DpiEvent>,
+        dpi_events: EventSender<DpiEvent>,
         dpi_gate: Arc<DpiEventGate>,
         xsk_registry: Arc<dyn XskSocketRegistry>,
         fingerprint_accumulator: Option<FingerprintAccumulator>,
@@ -260,7 +260,7 @@ impl AfXdpClassifierRuntime {
         interfaces: &[String],
         ebpf: &mut aya::Ebpf,
         metrics: Metrics,
-        dpi_events: broadcast::Sender<DpiEvent>,
+        dpi_events: EventSender<DpiEvent>,
         dpi_gate: Arc<DpiEventGate>,
         fingerprint_accumulator: FingerprintAccumulator,
     ) -> Result<Self> {
@@ -293,7 +293,7 @@ fn run_classifier_loop<W>(
     streams: Vec<AfXdpStream>,
     flow_table: W,
     metrics: Metrics,
-    dpi_events: broadcast::Sender<DpiEvent>,
+    dpi_events: EventSender<DpiEvent>,
     dpi_gate: Arc<DpiEventGate>,
     stop: Arc<AtomicBool>,
     fingerprint_accumulator: Option<FingerprintAccumulator>,
@@ -329,7 +329,7 @@ fn classify_streams_once<W>(
     streams: &[AfXdpStream],
     observed_at_unix_nano: i64,
     metrics: &Metrics,
-    dpi_events: &broadcast::Sender<DpiEvent>,
+    dpi_events: &EventSender<DpiEvent>,
     dpi_gate: &DpiEventGate,
 ) -> Result<usize>
 where
@@ -350,9 +350,10 @@ where
             let event_interface = event.interface_name.clone();
             let event_protocol = event.protocol.clone();
             metrics.inc_dpi_events();
-            if dpi_events.send(event).is_err() {
+            if dpi_events.try_send(event).is_err() {
+                metrics.inc_dpi_events_dropped("ipc_queue_full", 1);
                 log::debug!(
-                    "dropping AF_XDP DPI event with no active IPC receiver for {}",
+                    "dropping AF_XDP DPI event because IPC queue is full for {}",
                     event_interface
                 );
             }
@@ -497,7 +498,6 @@ mod tests {
 
     use anyhow::Result;
     use crossbeam_channel::bounded;
-    use tokio::sync::broadcast;
 
     use super::{
         classified_as, classify_streams_once, AfXdpClassifier, FlowTableEntry, FlowTableKey,
@@ -651,7 +651,7 @@ mod tests {
             .unwrap();
         let gate = DpiEventGate::new(runtime_config);
         let metrics = Metrics::new().unwrap();
-        let (event_tx, mut event_rx) = broadcast::channel(4);
+        let (event_tx, mut event_rx) = crate::event_queue::bounded(4);
         let mut classifier = AfXdpClassifier::new(RecordingFlowTable::default());
 
         let classified = classify_streams_once(

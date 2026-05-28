@@ -13,6 +13,7 @@ mod ebpf_loader;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 mod ebpf_runtime;
+mod event_queue;
 mod fingerprint;
 mod framing;
 #[allow(dead_code)]
@@ -125,8 +126,8 @@ async fn main() -> Result<()> {
     }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (fingerprint_event_tx, _) = broadcast::channel(4096);
-    let (dpi_event_tx, _) = broadcast::channel(4096);
+    let (fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
+    let (dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
     let (flow_attribution_event_tx, _) = broadcast::channel(4096);
     let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
@@ -196,8 +197,8 @@ async fn main() -> Result<()> {
     let ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
-            fingerprint_event_tx,
-            dpi_event_tx,
+            fingerprint_event_rx,
+            dpi_event_rx,
             flow_attribution_event_tx,
             process_snapshot_tx,
             runtime_config,
