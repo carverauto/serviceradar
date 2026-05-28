@@ -35,80 +35,74 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     :retention_days,
     :partition_id
   ]
-  @reserved_phase_one_fields [
-    :flow_attribution,
-    :process_snapshot_interval_s
-  ]
 
   postgres do
-    table "visibility_profiles"
-    repo ServiceRadar.Repo
-    schema "platform"
+    table("visibility_profiles")
+    repo(ServiceRadar.Repo)
+    schema("platform")
   end
 
   paper_trail do
-    primary_key_type :uuid
-    table_name "visibility_profile_versions"
-    mixin {ServiceRadar.Inventory.VisibilityProfile.PaperTrailMixin, :mixin, []}
-    change_tracking_mode :full_diff
-    attributes_as_attributes [:partition_id]
-    store_action_name? true
-    store_action_inputs? true
-    create_version_on_destroy? true
-    ignore_attributes [:inserted_at, :updated_at]
+    primary_key_type(:uuid)
+    table_name("visibility_profile_versions")
+    mixin({ServiceRadar.Inventory.VisibilityProfile.PaperTrailMixin, :mixin, []})
+    change_tracking_mode(:full_diff)
+    attributes_as_attributes([:partition_id])
+    store_action_name?(true)
+    store_action_inputs?(true)
+    create_version_on_destroy?(true)
+    ignore_attributes([:inserted_at, :updated_at])
   end
 
   actions do
-    defaults [:read]
+    defaults([:read])
 
     create :create do
-      accept @profile_fields
+      accept(@profile_fields)
 
-      change &reject_reserved_phase_one_fields/2
-      change &validate_capture_interfaces/2
-      change ValidateSrqlQuery
+      change(&validate_capture_interfaces/2)
+      change(ValidateSrqlQuery)
     end
 
     update :update do
-      accept @profile_fields
+      accept(@profile_fields)
 
-      require_atomic? false
-      change &reject_reserved_phase_one_fields/2
-      change &validate_capture_interfaces/2
-      change ValidateSrqlQuery
+      require_atomic?(false)
+      change(&validate_capture_interfaces/2)
+      change(ValidateSrqlQuery)
     end
 
     destroy :destroy do
-      require_atomic? false
+      require_atomic?(false)
     end
 
     read :list_available do
-      description "List enabled visibility profiles"
-      filter expr(enabled == true)
+      description("List enabled visibility profiles")
+      filter(expr(enabled == true))
     end
 
     read :by_name do
-      description "Get a visibility profile by partition and name"
+      description("Get a visibility profile by partition and name")
 
       argument :partition_id, :string do
-        allow_nil? false
+        allow_nil?(false)
       end
 
       argument :name, :string do
-        allow_nil? false
+        allow_nil?(false)
       end
 
-      get? true
-      filter expr(partition_id == ^arg(:partition_id) and name == ^arg(:name))
+      get?(true)
+      filter(expr(partition_id == ^arg(:partition_id) and name == ^arg(:name)))
     end
 
     read :list_targeting_profiles do
-      description "List enabled profiles ordered by targeting priority"
-      filter expr(enabled == true)
+      description("List enabled profiles ordered by targeting priority")
+      filter(expr(enabled == true))
 
-      prepare fn query, _context ->
+      prepare(fn query, _context ->
         Ash.Query.sort(query, priority: :desc)
-      end
+      end)
     end
   end
 
@@ -122,115 +116,102 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
   end
 
   attributes do
-    uuid_primary_key :id
+    uuid_primary_key(:id)
 
     attribute :name, :string do
-      allow_nil? false
-      public? true
-      description "Human-readable profile name"
+      allow_nil?(false)
+      public?(true)
+      description("Human-readable profile name")
     end
 
     attribute :description, :string do
-      allow_nil? true
-      public? true
-      description "Optional description of the profile's purpose"
+      allow_nil?(true)
+      public?(true)
+      description("Optional description of the profile's purpose")
     end
 
     attribute :enabled, :boolean do
-      allow_nil? false
-      public? true
-      default true
-      description "Whether this profile can be compiled for agents"
+      allow_nil?(false)
+      public?(true)
+      default(true)
+      description("Whether this profile can be compiled for agents")
     end
 
     attribute :target_query, :string do
-      allow_nil? true
-      public? true
-      description "SRQL query for device targeting"
+      allow_nil?(true)
+      public?(true)
+      description("SRQL query for device targeting")
     end
 
     attribute :priority, :integer do
-      allow_nil? false
-      public? true
-      default 0
-      description "Profile resolution priority; higher values win"
+      allow_nil?(false)
+      public?(true)
+      default(0)
+      description("Profile resolution priority; higher values win")
     end
 
     attribute :fingerprint, :map do
-      allow_nil? false
-      public? true
-      default %{"tcp" => true, "tls" => true, "http" => true}
-      description "Passive fingerprint toggles keyed by protocol"
+      allow_nil?(false)
+      public?(true)
+      default(%{"tcp" => true, "tls" => true, "http" => true})
+      description("Passive fingerprint toggles keyed by protocol")
     end
 
     attribute :capture_interfaces, {:array, :string} do
-      allow_nil? false
-      public? true
-      default []
-      description "Host network interfaces explicitly allowlisted for passive capture"
+      allow_nil?(false)
+      public?(true)
+      default([])
+      description("Host network interfaces explicitly allowlisted for passive capture")
     end
 
     attribute :dpi, :map do
-      allow_nil? true
-      public? true
-      description "DPI protocol configuration; payloads, URIs, and DNS names are never captured"
+      allow_nil?(true)
+      public?(true)
+      description("DPI protocol configuration; payloads, URIs, and DNS names are never captured")
     end
 
     attribute :flow_attribution, :map do
-      allow_nil? true
-      public? true
-      description "Reserved flow attribution configuration for later phases"
+      allow_nil?(true)
+      public?(true)
+      description("Flow attribution protocol toggles keyed by transport")
     end
 
     attribute :process_snapshot_interval_s, :integer do
-      allow_nil? true
-      public? true
-      constraints min: 0
-      description "Reserved process snapshot interval for later phases"
+      allow_nil?(true)
+      public?(true)
+      constraints(min: 0)
+      description("Process listener snapshot interval in seconds; 0 disables snapshots")
     end
 
     attribute :sample_interval_ms, :integer do
-      allow_nil? false
-      public? true
-      default 60_000
-      constraints min: 0
-      description "Minimum sample interval per IP/protocol pair; 0 disables rate limiting"
+      allow_nil?(false)
+      public?(true)
+      default(60_000)
+      constraints(min: 0)
+      description("Minimum sample interval per IP/protocol pair; 0 disables rate limiting")
     end
 
     attribute :retention_days, :integer do
-      allow_nil? false
-      public? true
-      default 30
-      constraints min: 1
-      description "Retention period for visibility observations"
+      allow_nil?(false)
+      public?(true)
+      default(30)
+      constraints(min: 1)
+      description("Retention period for visibility observations")
     end
 
     attribute :partition_id, :string do
-      allow_nil? false
-      public? true
-      default "default"
-      description "Deployment partition identifier"
+      allow_nil?(false)
+      public?(true)
+      default("default")
+      description("Deployment partition identifier")
     end
 
-    create_timestamp :inserted_at
-    update_timestamp :updated_at
+    create_timestamp(:inserted_at)
+    update_timestamp(:updated_at)
   end
 
   identities do
-    identity :unique_partition_name, [:partition_id, :name]
-  end
-
-  defp reject_reserved_phase_one_fields(changeset, _context) do
-    Enum.reduce(@reserved_phase_one_fields, changeset, fn field, changeset ->
-      if Ash.Changeset.get_attribute(changeset, field) == nil do
-        changeset
-      else
-        Ash.Changeset.add_error(changeset,
-          field: field,
-          message: "is reserved for a later host network visibility phase"
-        )
-      end
-    end)
+    identity(:unique_partition_name, [:partition_id, :name])
   end
 
   defp validate_capture_interfaces(changeset, _context) do

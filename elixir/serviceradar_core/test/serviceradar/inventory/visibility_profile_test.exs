@@ -4,23 +4,18 @@ defmodule ServiceRadar.Inventory.VisibilityProfileTest do
   alias ServiceRadar.Inventory.VisibilityProfile
 
   @tag :visibility
-  test "allows DPI and rejects later-phase network visibility fields" do
+  test "allows DPI, flow attribution, and process snapshot fields" do
     attrs = %{
-      name: "Reserved Phase Fields",
+      name: "Phase 3 Visibility Fields",
       target_query: "in:devices",
+      capture_interfaces: ["eth0"],
       dpi: %{"enabled" => true},
-      flow_attribution: %{"enabled" => true},
+      flow_attribution: %{"tcp" => true, "udp" => true, "quic" => false},
       process_snapshot_interval_s: 60
     }
 
     changeset = Ash.Changeset.for_create(VisibilityProfile, :create, attrs)
 
-    refute changeset.valid?
-
-    refute Enum.any?(changeset.errors, &(&1.field == :dpi))
-
-    for field <- [:flow_attribution, :process_snapshot_interval_s] do
-      assert Enum.any?(changeset.errors, &(&1.field == field))
-    end
+    assert changeset.valid?
   end
 end

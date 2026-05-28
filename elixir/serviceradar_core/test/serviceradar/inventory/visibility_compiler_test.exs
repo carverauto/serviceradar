@@ -34,6 +34,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       assert config["binary_overrides"] == %{}
       assert config["device_bindings"] == []
       assert config["dpi"] == %{"enabled" => false, "protocols" => []}
+      assert config["flow_attribution"] == %{"tcp" => false, "udp" => false, "quic" => false}
+      assert config["process_snapshot_interval_s"] == 0
       assert config["default_sample_interval_ms"] == 0
     end
   end
@@ -79,6 +81,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       assert config["default_sample_interval_ms"] == 60_000
       assert config["capture_interfaces"] == ["eth0"]
       assert config["dpi"] == %{"enabled" => false, "protocols" => []}
+      assert config["flow_attribution"] == %{"tcp" => false, "udp" => false, "quic" => false}
+      assert config["process_snapshot_interval_s"] == 0
 
       assert [
                %{
@@ -159,6 +163,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
     end
 
     @tag :visibility
+    test "normalizes flow attribution and process snapshot controls" do
+      config =
+        VisibilityCompiler.compile_profile(
+          profile("Attribution Visibility", 30, %{"tcp" => true},
+            flow_attribution: %{"tcp" => true, :udp => true, "quic" => false},
+            process_snapshot_interval_s: 120
+          ),
+          "10.1.2.3"
+        )
+
+      assert config["flow_attribution"] == %{"tcp" => true, "udp" => true, "quic" => false}
+      assert config["process_snapshot_interval_s"] == 120
+    end
+
+    @tag :visibility
     test "normalizes fingerprint and operator supplied sidecar settings" do
       config =
         VisibilityCompiler.compile_profile(
@@ -194,6 +213,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       priority: priority,
       fingerprint: fingerprint,
       dpi: Keyword.get(opts, :dpi),
+      flow_attribution: Keyword.get(opts, :flow_attribution),
+      process_snapshot_interval_s: Keyword.get(opts, :process_snapshot_interval_s),
       capture_interfaces: Keyword.get(opts, :capture_interfaces, ["eth0"]),
       sample_interval_ms: Keyword.get(opts, :sample_interval_ms, 60_000),
       retention_days: 30,
