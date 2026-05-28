@@ -19,9 +19,12 @@ GOMODCACHE ?= $(CURDIR)/.gomodcache
 export GOCACHE
 export GOMODCACHE
 GOBIN ?= $$($(GO) env GOPATH)/bin
+BUF_VERSION ?= v1.70.0
+BUF ?= go run github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
 GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION ?= v2.11.4
 GOLANGCI_LINT_TIMEOUT ?= 30m
+GO_LINT_PACKAGES ?= ./go/... ./proto/...
 SWIFTLINT ?= swiftlint
 
 # Rust configuration
@@ -352,7 +355,7 @@ format-elixir: ## Run mix format across the Elixir projects under elixir/*
 .PHONY: lint-go
 lint-go: get-golangcilint ## Run Go linting checks
 	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
-	@$(GOLANGCI_LINT) run --timeout $(GOLANGCI_LINT_TIMEOUT) $$(go list -f '{{.Dir}}' ./... | grep -v '/elixir/web-ng/assets/node_modules/')
+	@$(GOLANGCI_LINT) run --timeout $(GOLANGCI_LINT_TIMEOUT) $$(go list -f '{{.Dir}}' $(GO_LINT_PACKAGES))
 
 .PHONY: test
 test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
@@ -473,7 +476,14 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/nats_account.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		proto/agent/netprobe/v1/netprobe.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
+
+.PHONY: proto-lint
+proto-lint: ## Lint protobuf definitions with Buf
+	@$(BUF) lint proto --path proto/agent/netprobe/v1
 
 .PHONY: build-binaries
 build-binaries: generate-proto ## Build all binaries locally (Go + Rust)

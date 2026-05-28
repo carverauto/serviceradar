@@ -319,7 +319,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 			Hello: &proto.ControlStreamHello{
 				AgentId:       agentID,
 				Partition:     partition,
-				Capabilities:  getAgentCapabilities(&cfg),
+				Capabilities:  p.getAgentCapabilities(&cfg),
 				ConfigVersion: p.getConfigVersion(),
 				Version:       Version,
 				Hostname:      hostname,
@@ -372,7 +372,12 @@ func (p *PushLoop) handleControlStream(
 		}
 
 		if cfg := resp.GetConfig(); cfg != nil {
-			p.applyConfigResponse(cfg, "control")
+			if !p.applyConfigResponse(ctx, cfg, "control") {
+				p.logger.Warn().
+					Str("config_version", cfg.ConfigVersion).
+					Msg("Skipped control stream config ack because config apply failed")
+				continue
+			}
 			if err := sender.Send(&proto.ControlStreamRequest{
 				Payload: &proto.ControlStreamRequest_ConfigAck{
 					ConfigAck: &proto.ConfigAck{

@@ -1,0 +1,115 @@
+rules:
+  - id: passive-fingerprint-linux-host
+    enabled: true
+    priority: 560
+    confidence: 65
+    reason: "Passive TCP fingerprint indicates Linux"
+    match:
+      any:
+        metadata.passive_fingerprint.tcp.os_family: ["linux"]
+        metadata.passive_fingerprint.tcp.os_name: ["linux"]
+        metadata.passive_fingerprint.tcp.signature: ["linux"]
+    set:
+      vendor_name: "Linux"
+      type: "Server"
+      type_id: 1
+      os_family: "Linux"
+
+  - id: passive-fingerprint-windows-host
+    enabled: true
+    priority: 560
+    confidence: 65
+    reason: "Passive TCP fingerprint indicates Windows"
+    match:
+      any:
+        metadata.passive_fingerprint.tcp.os_family: ["windows"]
+        metadata.passive_fingerprint.tcp.os_name: ["windows"]
+        metadata.passive_fingerprint.tcp.signature: ["windows"]
+    set:
+      vendor_name: "Microsoft"
+      type: "Desktop"
+      type_id: 2
+      os_family: "Windows"
+
+  - id: passive-fingerprint-routeros-router
+    enabled: true
+    priority: 570
+    confidence: 70
+    reason: "Passive TCP fingerprint indicates RouterOS"
+    match:
+      any:
+        metadata.passive_fingerprint.tcp.os_family: ["routeros"]
+        metadata.passive_fingerprint.tcp.os_name: ["routeros", "mikrotik"]
+        metadata.passive_fingerprint.tcp.signature: ["routeros", "mikrotik"]
+    set:
+      vendor_name: "MikroTik"
+      type: "Router"
+      type_id: 12
+      os_family: "RouterOS"
+
+  - id: passive-fingerprint-nginx-http-server
+    enabled: true
+    priority: 545
+    confidence: 55
+    reason: "Passive HTTP server header indicates nginx"
+    match:
+      any:
+        metadata.passive_fingerprint.http.server: ["nginx"]
+    set:
+      vendor_name: "NGINX"
+      type: "Server"
+      type_id: 1
+
+  - id: passive-fingerprint-apache-http-server
+    enabled: true
+    priority: 545
+    confidence: 55
+    reason: "Passive HTTP server header indicates Apache"
+    match:
+      any:
+        metadata.passive_fingerprint.http.server: ["apache"]
+    set:
+      vendor_name: "Apache"
+      type: "Server"
+      type_id: 1
+
+  - id: passive-fingerprint-iis-http-server
+    enabled: true
+    priority: 548
+    confidence: 58
+    reason: "Passive HTTP server header indicates Microsoft IIS"
+    match:
+      any:
+        metadata.passive_fingerprint.http.server: ["microsoft-iis", "iis"]
+    set:
+      vendor_name: "Microsoft"
+      type: "Server"
+      type_id: 1
+      os_family: "Windows"
+
+  - id: passive-fingerprint-caddy-http-server
+    enabled: true
+    priority: 543
+    confidence: 52
+    reason: "Passive HTTP server header indicates Caddy"
+    match:
+      any:
+        metadata.passive_fingerprint.http.server: ["caddy"]
+    set:
+      vendor_name: "Caddy"
+      type: "Server"
+      type_id: 1
+
+  - id: passive-fingerprint-apple-client
+    enabled: true
+    priority: 530
+    confidence: 45
+    reason: "Passive HTTP user-agent indicates Apple client"
+    match:
+      any:
+        metadata.passive_fingerprint.http.user_agent: ["iphone", "ipad", "mac os x"]
+    set:
+      vendor_name: "Apple"
+      type: "Desktop"
+      type_id: 2
+      os_family: "macOS"

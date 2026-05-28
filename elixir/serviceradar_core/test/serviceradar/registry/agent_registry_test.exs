@@ -221,6 +221,40 @@ defmodule ServiceRadar.AgentRegistryTest do
       assert [_first, _second | _] = tcp_agents
       refute Enum.empty?(snmp_agents)
     end
+
+    test "matches host-network-visibility capability across string and atom queries", %{
+      unique_id: unique_id
+    } do
+      agent_id = "agent-visibility-#{unique_id}"
+
+      {:ok, _} =
+        AgentRegistry.register_agent(agent_id, %{
+          grpc_host: "192.168.1.103",
+          grpc_port: 50_051,
+          capabilities: [
+            "host-network-visibility",
+            "host-network-visibility.fingerprint.enabled",
+            "host-network-visibility.dpi.unavailable",
+            "host-network-visibility.flow_attribution.unavailable",
+            "host-network-visibility.process_snapshot.unavailable"
+          ]
+        })
+
+      by_string =
+        eventually(
+          fn -> AgentRegistry.find_agents_with_capability("host-network-visibility") end,
+          &Enum.any?(&1, fn agent -> agent[:agent_id] == agent_id end)
+        )
+
+      by_atom =
+        eventually(
+          fn -> AgentRegistry.find_agents_with_capability(:host_network_visibility) end,
+          &Enum.any?(&1, fn agent -> agent[:agent_id] == agent_id end)
+        )
+
+      assert Enum.any?(by_string, fn agent -> agent[:agent_id] == agent_id end)
+      assert Enum.any?(by_atom, fn agent -> agent[:agent_id] == agent_id end)
+    end
   end
 
   describe "find_agents_for_partition/1" do

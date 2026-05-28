@@ -78,6 +78,12 @@ defmodule ServiceRadar.ResultsRouter do
     handle_mapper_results(status)
   end
 
+  defp process(%{source: source, service_type: service_type} = status)
+       when source in ["results", :results] and
+              service_type in ["passive-netprobe", :passive_netprobe] do
+    schedule_sync_ingestion(status)
+  end
+
   defp process(%{source: source, service_type: "mapper_interfaces"} = status)
        when source in ["results", :results] do
     handle_mapper_interfaces(status)

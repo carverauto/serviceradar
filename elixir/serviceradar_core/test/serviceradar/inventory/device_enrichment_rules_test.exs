@@ -126,6 +126,47 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
     assert classification.rule_id == "juniper-router-vjunos"
   end
 
+  test "classifies passive TCP fingerprint evidence" do
+    update = %{
+      hostname: "passive-linux-host",
+      source: "passive-netprobe",
+      metadata: %{
+        "passive_fingerprint.tcp.os_family" => "linux",
+        "passive_fingerprint.tcp.os_name" => "Linux 5.x",
+        "passive_fingerprint.tcp.signature" => "64240:64:1:60:M1460,S,T,N,W7"
+      }
+    }
+
+    classification = DeviceEnrichmentRules.classify(update)
+
+    assert classification.vendor_name == "Linux"
+    assert classification.type == "Server"
+    assert classification.type_id == 1
+    assert classification.os_family == "Linux"
+    assert classification.rule_id == "passive-fingerprint-linux-host"
+  end
+
+  test "classifies nested passive HTTP server evidence" do
+    update = %{
+      hostname: "passive-http-host",
+      source: "passive-netprobe",
+      metadata: %{
+        "passive_fingerprint" => %{
+          "http" => %{
+            "server" => "nginx/1.24.0"
+          }
+        }
+      }
+    }
+
+    classification = DeviceEnrichmentRules.classify(update)
+
+    assert classification.vendor_name == "NGINX"
+    assert classification.type == "Server"
+    assert classification.type_id == 1
+    assert classification.rule_id == "passive-fingerprint-nginx-http-server"
+  end
+
   test "does not fall through to MikroTik for Juniper enterprise OID" do
     update = %{
       hostname: "vjunos-lab-02",
@@ -266,6 +307,35 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRulesTest do
 
     assert rule.id == "ui-test-rule"
     assert rule.set["vendor_name"] == "Ubiquiti"
+  end
+
+  test "parse_and_validate_yaml accepts passive fingerprint selectors and os_family output" do
+    yaml = """
+    rules:
+      - id: passive-test-rule
+        enabled: true
+        priority: 100
+        confidence: 60
+        reason: "Passive selector test"
+        match:
+          any:
+            metadata.passive_fingerprint.tcp.os_family: ["linux"]
+            passive_fingerprint.tls.ja4: ["t13d"]
+        set:
+          vendor_name: "Linux"
+          type: "Server"
+          type_id: 1
+          os_family: "Linux"
+    """
+
+    assert {:ok, [rule]} =
+             DeviceEnrichmentRules.parse_and_validate_yaml(yaml,
+               source: "filesystem",
+               file: "passive-test.yaml"
+             )
+
+    assert rule.match["any"]["metadata.passive_fingerprint.tcp.os_family"] == ["linux"]
+    assert rule.set["os_family"] == "Linux"
   end
 
   test "parse_and_validate_yaml returns errors for invalid schema" do

@@ -696,6 +696,21 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
   end
 
+  describe "visibility config" do
+    test "includes disabled visibility config before profiles are configured", %{
+      agent_uid: agent_uid
+    } do
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert %Monitoring.VisibilityConfig{} = visibility = config.visibility_config
+      assert visibility.enabled == false
+      assert visibility.capture_interfaces == []
+      assert visibility.device_bindings == []
+      assert visibility.default_sample_interval_ms == 0
+      assert visibility.binary_overrides == nil
+    end
+  end
+
   describe "sweep config with partition resolution" do
     alias ServiceRadar.AgentConfig.ConfigServer
     alias ServiceRadar.AgentRegistry

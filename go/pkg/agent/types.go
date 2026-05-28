@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -50,6 +52,19 @@ type Server struct {
 	mapperService      *MapperService
 	pluginManager      *PluginManager
 	credentialBroker   CredentialBrokerResolver
+	sidecarStatus      sidecarStatusProvider
+	sidecarManager     sidecarLifecycleManager
+	netprobeSidecar    *agentnetprobe.Sidecar
+}
+
+type sidecarStatusProvider interface {
+	Status() []sidecar.Status
+}
+
+type sidecarLifecycleManager interface {
+	sidecarStatusProvider
+	Start(context.Context) error
+	Stop(context.Context) error
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

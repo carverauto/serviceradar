@@ -36,7 +36,9 @@ import (
 	"syscall"
 	"time"
 
+	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
+	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -44,6 +46,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
+	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -63,7 +66,33 @@ var (
 	errPluginMissingSummary = errors.New("plugin summary missing")
 )
 
-const maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
+const (
+	maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
+
+	capabilityHostNetworkVisibility                       = "host-network-visibility"
+	capabilityHostNetworkVisibilityFingerprintEnabled     = "host-network-visibility.fingerprint.enabled"
+	capabilityHostNetworkVisibilityFingerprintUnavailable = "host-network-visibility.fingerprint.unavailable"
+	capabilityHostNetworkVisibilityDPIUnavailable         = "host-network-visibility.dpi.unavailable"
+	capabilityHostNetworkVisibilityFlowUnavailable        = "host-network-visibility.flow_attribution.unavailable"
+	capabilityHostNetworkVisibilitySnapshotUnavailable    = "host-network-visibility.process_snapshot.unavailable"
+
+	agentCapabilityServiceName = "agent"
+	agentCapabilityServiceType = "agent"
+)
+
+type hostNetworkVisibilityCapabilityStatus struct {
+	Fingerprint     string `json:"fingerprint"`
+	DPI             string `json:"dpi"`
+	FlowAttribution string `json:"flow_attribution"`
+	ProcessSnapshot string `json:"process_snapshot"`
+	RunningAsRoot   bool   `json:"running_as_root,omitempty"`
+}
+
+type agentCapabilityStatusPayload struct {
+	Capabilities          []string                              `json:"capabilities"`
+	HostNetworkVisibility hostNetworkVisibilityCapabilityStatus `json:"host_network_visibility"`
+	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
+}
 
 type limitedJSONBuffer struct {
 	bytes.Buffer
@@ -892,6 +921,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperInterfaces := p.pushMapperInterfaces(ctx)
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
+	sentNetprobeResults := p.pushNetprobeResults(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
@@ -904,6 +934,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperInterfaces &&
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
+		!sentNetprobeResults &&
 		!sentPluginResults &&
 		!sentPluginTelemetry {
 		p.logger.Debug().Msg("No statuses to push")
@@ -1852,7 +1883,13 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
 	sysmonSvc := p.server.sysmonService
+	cfg := p.server.config
+	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
+
+	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus); status != nil {
+		statuses = append(statuses, status)
+	}
 
 	for _, svc := range services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
@@ -1893,6 +1930,55 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	return statuses, sysmonStatus
 }
 
+func (p *PushLoop) buildAgentCapabilityGatewayStatus(
+	cfg *ServerConfig,
+	sidecarStatus sidecarStatusProvider,
+) *proto.GatewayServiceStatus {
+	sidecars := sidecarStatusesForStatus(sidecarStatus)
+	resp := buildAgentCapabilityStatusResponse(
+		agentCapabilitiesForStatus(cfg, sidecars),
+		sidecars,
+		p.netprobeRunningAsRoot(),
+	)
+	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
+}
+
+func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto.SidecarStatus, runningAsRoot bool) *proto.StatusResponse {
+	payload, err := json.Marshal(agentCapabilityStatusPayload{
+		Capabilities: append([]string(nil), capabilities...),
+		HostNetworkVisibility: hostNetworkVisibilityCapabilityStatus{
+			Fingerprint:     hostNetworkVisibilityFingerprintStatus(capabilities),
+			DPI:             "unavailable",
+			FlowAttribution: "unavailable",
+			ProcessSnapshot: "unavailable",
+			RunningAsRoot:   runningAsRoot,
+		},
+		Sidecars: sidecars,
+	})
+	if err != nil {
+		payload = []byte(`{"error":"agent capability status marshal failed"}`)
+	}
+
+	return &proto.StatusResponse{
+		Available:   true,
+		Message:     payload,
+		ServiceName: agentCapabilityServiceName,
+		ServiceType: agentCapabilityServiceType,
+	}
+}
+
+func agentCapabilitiesForStatus(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
+	return getAgentCapabilitiesForSidecars(cfg, sidecars)
+}
+
+func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
+	if provider == nil {
+		return nil
+	}
+
+	return sidecar.ToProtoStatuses(provider.Status())
+}
+
 func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 	p.server.mu.RLock()
 	services := append([]Service(nil), p.server.services...)
@@ -1918,7 +2004,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
 	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
+	gatewayID := gatewayIDFromClient(p.gateway)
 
 	return &proto.GatewayServiceStatus{
 		ServiceName:  serviceName,
@@ -2498,7 +2584,7 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 	helloReq := &proto.AgentHelloRequest{
 		AgentId:       agentID,
 		Version:       Version, // Agent version from version.go
-		Capabilities:  getAgentCapabilities(&cfg),
+		Capabilities:  p.getAgentCapabilities(&cfg),
 		Hostname:      hostname,
 		Os:            runtime.GOOS,
 		Arch:          runtime.GOARCH,
@@ -2692,18 +2778,18 @@ func (p *PushLoop) fetchAndApplyConfig(ctx context.Context) {
 		return
 	}
 
-	p.applyConfigResponse(configResp, "poll")
+	p.applyConfigResponse(ctx, configResp, "poll")
 }
 
-func (p *PushLoop) applyConfigResponse(configResp *proto.AgentConfigResponse, source string) {
+func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.AgentConfigResponse, source string) bool {
 	if configResp == nil {
-		return
+		return true
 	}
 
 	// If config hasn't changed, nothing to do
 	if configResp.NotModified {
 		p.logger.Debug().Str("version", p.getConfigVersion()).Msg("Config not modified")
-		return
+		return true
 	}
 
 	// Update intervals from config response
@@ -2750,6 +2836,13 @@ func (p *PushLoop) applyConfigResponse(configResp *proto.AgentConfigResponse, so
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
+	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig) {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because visibility config did not apply")
+		return false
+	}
 
 	// Apply sysmon config if present
 	if configResp.SysmonConfig != nil {
@@ -2780,6 +2873,8 @@ func (p *PushLoop) applyConfigResponse(configResp *proto.AgentConfigResponse, so
 		Str("version", p.getConfigVersion()).
 		Str("source", source).
 		Msg("Applied new config from gateway")
+
+	return true
 }
 
 func (p *PushLoop) applyMapperConfig(configJSON []byte) {
@@ -2837,6 +2932,82 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 		Str("config_hash", mapperConfig.ConfigHash).
 		Int("scheduled_jobs", len(mapperConfig.ScheduledJobs)).
 		Msg("Applied mapper config from gateway")
+}
+
+func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.VisibilityConfig) bool {
+	if cfg == nil || p.server == nil {
+		return true
+	}
+
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	sidecarManager := p.server.sidecarManager
+	sidecarStatus := p.server.sidecarStatus
+	p.server.mu.RUnlock()
+	if netprobeSidecar == nil || sidecarManager == nil {
+		return true
+	}
+
+	parsed := agentnetprobe.ParseVisibilityConfig(cfg)
+	if err := agentnetprobe.WriteBootstrapConfig(
+		netprobeConfigPath(sidecarStatus),
+		parsed.NetprobeConfig,
+	); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to write netprobe bootstrap config")
+		return false
+	}
+
+	if !netprobeConfigHasWork(parsed.NetprobeConfig) {
+		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := sidecarManager.Stop(stopCtx); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to stop disabled netprobe sidecar manager")
+		}
+		p.logger.Info().Msg("Netprobe visibility config disabled or has no capture work")
+		return true
+	}
+
+	if err := sidecarManager.Start(ctx); err != nil && !errors.Is(err, sidecar.ErrManagerStarted) {
+		p.logger.Error().Err(err).Msg("Failed to start netprobe sidecar manager")
+		return false
+	}
+
+	applyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	configHash, err := netprobeSidecar.ApplyConfig(applyCtx, parsed.NetprobeConfig)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to apply visibility config to netprobe sidecar")
+		return false
+	}
+
+	p.logger.Info().
+		Str("config_hash", configHash).
+		Int("device_bindings", len(parsed.NetprobeConfig.GetDeviceBindings())).
+		Int("capture_interfaces", len(parsed.NetprobeConfig.GetCaptureInterfaces())).
+		Msg("Applied visibility config to netprobe sidecar")
+
+	return true
+}
+
+func netprobeConfigHasWork(cfg *netprobepb.VisibilityAgentConfig) bool {
+	return cfg != nil &&
+		cfg.GetEnabled() &&
+		len(cfg.GetCaptureInterfaces()) > 0 &&
+		len(cfg.GetDeviceBindings()) > 0
+}
+
+func netprobeConfigPath(provider sidecarStatusProvider) string {
+	if provider == nil {
+		return ""
+	}
+
+	for _, status := range provider.Status() {
+		if strings.EqualFold(status.Name, agentnetprobe.DefaultSidecarName) {
+			return status.ConfigPath
+		}
+	}
+
+	return ""
 }
 
 func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {
@@ -3034,6 +3205,90 @@ func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 	p.logger.Info().
 		Int("update_count", len(updates)).
 		Msg("Streamed mapper results to gateway")
+
+	return true
+}
+
+func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	collectorIP := p.server.config.HostIP
+	p.server.mu.RUnlock()
+
+	if netprobeSidecar == nil {
+		return false
+	}
+
+	events := netprobeSidecar.DrainEvents(1000)
+	if len(events) == 0 {
+		return false
+	}
+
+	opts := agentnetprobe.TranslationOptions{
+		AgentID:     agentID,
+		GatewayID:   p.gateway.GetGatewayID(),
+		CollectorIP: collectorIP,
+	}
+	updates := make([]map[string]any, 0, len(events))
+	for _, event := range events {
+		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe fingerprint event")
+			continue
+		}
+
+		update := map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   agentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     string(models.DiscoverySourcePassiveNetprobe),
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		updates = append(updates, update)
+	}
+	if len(updates) == 0 {
+		return false
+	}
+
+	payload, err := json.Marshal(updates)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to marshal netprobe results")
+		return false
+	}
+
+	seq := fmt.Sprintf("%d", time.Now().UnixNano())
+	response := mapperResultsResponse(
+		payload,
+		seq,
+		string(models.DiscoverySourcePassiveNetprobe),
+		string(models.DiscoverySourcePassiveNetprobe),
+	)
+	chunks := []*proto.ResultsChunk{{
+		Data:            response.Data,
+		IsFinal:         true,
+		ChunkIndex:      0,
+		TotalChunks:     1,
+		CurrentSequence: response.CurrentSequence,
+		Timestamp:       response.Timestamp,
+	}}
+	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
+	if len(statusChunks) == 0 {
+		return false
+	}
+
+	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+		p.logger.Error().Err(err).Msg("Failed to stream netprobe results to gateway")
+		return false
+	}
+
+	p.logger.Info().Int("event_count", len(updates)).Msg("Streamed netprobe results to gateway")
 
 	return true
 }
@@ -3387,14 +3642,47 @@ func isDockerRuntime() bool {
 }
 
 type agentCapabilityOptions struct {
-	enhancedBPF bool
-	desktopRDP  bool
+	enhancedBPF                             bool
+	desktopRDP                              bool
+	hostNetworkVisibilityFingerprintEnabled bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
+	return getAgentCapabilitiesForSidecars(cfg, nil)
+}
+
+func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
+	if p == nil || p.server == nil {
+		return getAgentCapabilities(cfg)
+	}
+
+	p.server.mu.RLock()
+	sidecarStatus := p.server.sidecarStatus
+	p.server.mu.RUnlock()
+
+	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus))
+}
+
+func (p *PushLoop) netprobeRunningAsRoot() bool {
+	if p == nil || p.server == nil {
+		return false
+	}
+
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	p.server.mu.RUnlock()
+	if netprobeSidecar == nil {
+		return false
+	}
+
+	return netprobeSidecar.RunningAsRoot()
+}
+
+func getAgentCapabilitiesForSidecars(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
 	return agentCapabilities(agentCapabilityOptions{
-		enhancedBPF: remoteaccess.PlatformEnhancedRecordingAvailable(),
-		desktopRDP:  remoteAccessRDPCapabilityEnabled(cfg),
+		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
+		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
+		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 	})
 }
 
@@ -3414,6 +3702,16 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		remoteaccess.CapabilityRemoteAccessFile,
 		remoteaccess.CapabilityRemoteAccessSFTP,
 		remoteaccess.CapabilityRemoteAccessRecording,
+		capabilityHostNetworkVisibility,
+		capabilityHostNetworkVisibilityDPIUnavailable,
+		capabilityHostNetworkVisibilityFlowUnavailable,
+		capabilityHostNetworkVisibilitySnapshotUnavailable,
+	}
+
+	if options.hostNetworkVisibilityFingerprintEnabled {
+		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled)
+	} else {
+		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintUnavailable)
 	}
 
 	if options.enhancedBPF {
@@ -3428,6 +3726,37 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	}
 
 	return capabilities
+}
+
+func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
+	if containsCapability(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled) {
+		return "enabled"
+	}
+
+	return "unavailable"
+}
+
+func hasHealthyNetprobeSidecar(sidecars []*proto.SidecarStatus) bool {
+	for _, status := range sidecars {
+		if status == nil {
+			continue
+		}
+		if strings.EqualFold(status.GetName(), "netprobe") && status.GetState() == string(sidecar.StateRunning) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func containsCapability(capabilities []string, capability string) bool {
+	for _, candidate := range capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+
+	return false
 }
 
 func remoteAccessRDPCapabilityEnabled(cfg *ServerConfig) bool {

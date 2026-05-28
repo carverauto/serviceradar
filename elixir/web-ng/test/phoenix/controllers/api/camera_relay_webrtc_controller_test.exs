@@ -226,4 +226,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelayWebRTCControllerTest do
     assert_receive {:webrtc_close_session, ^relay_session_id, ^viewer_session_id, opts}
     assert opts[:scope]
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

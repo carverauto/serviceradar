@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.PassiveFingerprintPayload
   alias ServiceRadar.Repo
 
   require Logger
@@ -546,7 +547,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         model: model,
         risk_level: infer_risk_level(metadata),
         risk_score: infer_risk_score(metadata),
-        os: merge_inferred_map(update.os, infer_os(metadata, vendor_name)),
+        os: merge_inferred_map(update.os, infer_os(metadata, vendor_name, classification)),
         hw_info: merge_inferred_map(update.hw_info, infer_hw_info(metadata)),
         network_interfaces: update.network_interfaces || [],
         is_available: update.is_available,
@@ -1194,6 +1195,12 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       |> merge_sync_meta_metadata(sync_meta)
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
       |> merge_boundary_names_metadata()
+      |> PassiveFingerprintPayload.enrich_metadata()
+
+    os =
+      update
+      |> get_map(["os", :os])
+      |> PassiveFingerprintPayload.enrich_os(metadata)
 
     %{
       device_id: get_string(update, ["device_id", :device_id]),
@@ -1205,7 +1212,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       partition: get_string(update, ["partition", :partition]) || "default",
       metadata: metadata,
       tags: get_map(update, ["tags", :tags]),
-      os: get_map(update, ["os", :os]),
+      os: os,
       hw_info: get_map(update, ["hw_info", :hw_info]),
       network_interfaces: get_list(update, ["network_interfaces", :network_interfaces]),
       first_seen_time: parse_timestamp(get_value(update, ["first_seen_time", :first_seen_time])),
@@ -1571,7 +1578,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp infer_os(metadata, vendor_name) when is_map(metadata) do
+  defp infer_os(metadata, vendor_name, classification) when is_map(metadata) do
     explicit_name =
       get_string(metadata, [
         "os_name",
@@ -1582,6 +1589,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     routeros_version = get_string(metadata, ["routeros_version", "os_version", "version"])
     sys_descr = sys_descr_from_metadata(metadata)
+    classified_family = Map.get(classification, :os_family)
 
     os =
       cond do
@@ -1590,6 +1598,9 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
         routeros_metadata?(metadata, vendor_name, sys_descr) ->
           %{"name" => "RouterOS"}
+
+        classified_family not in [nil, ""] ->
+          %{"family" => classified_family}
 
         true ->
           %{}
@@ -1600,7 +1611,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> empty_map_to_nil()
   end
 
-  defp infer_os(_metadata, _vendor_name), do: nil
+  defp infer_os(_metadata, _vendor_name, _classification), do: nil
 
   defp infer_hw_info(metadata) when is_map(metadata) do
     %{}

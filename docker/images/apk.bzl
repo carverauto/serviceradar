@@ -88,6 +88,8 @@ def declare_alpine_netutils_rootfs_amd64(
         srcs = [
             ":apk_iputils_ping_rootfs_amd64.tar",
             ":apk_libcap2_rootfs_amd64.tar",
+            ":apk_libpcap_rootfs_amd64.tar",
+            ":apk_glibc_rootfs_amd64",
             ":apk_libmd_rootfs_amd64.tar",
             ":apk_libbsd_rootfs_amd64.tar",
             ":apk_nmap_rootfs_amd64.tar",

@@ -92,7 +92,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
              live(conn, ~p"/observability/camera-analysis-workers")
   end
 
-  test "redirects viewers without settings.edge.manage", %{conn: conn} do
+  test "redirects viewers without settings.edge.manage", %{conn: _conn} do
     viewer = viewer_user_fixture()
     conn = log_in_user(build_conn(), viewer)
 
@@ -101,4 +101,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
 
     assert is_map(info.flash)
   end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

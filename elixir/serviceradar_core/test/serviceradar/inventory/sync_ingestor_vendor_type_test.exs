@@ -349,6 +349,67 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.metadata["armis_category"] == "Mobile Device"
   end
 
+  @tag :visibility
+  test "enriches an Armis-imported device from passive netprobe fingerprint evidence", %{
+    actor: actor
+  } do
+    ip = unique_ip()
+    armis_id = "armis-passive-#{System.unique_integer([:positive])}"
+
+    armis_update = %{
+      "ip" => ip,
+      "mac" => unique_mac(),
+      "hostname" => "armis-passive-host",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => armis_id,
+        "integration_type" => "armis",
+        "armis_device_id" => armis_id,
+        "type" => "Unknown"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([armis_update], actor: actor)
+    armis_device = fetch_device_by_ip!(actor, ip)
+
+    passive_update = %{
+      "ip" => ip,
+      "source" => "passive-netprobe",
+      "metadata" => %{
+        "passive_fingerprint.source" => "passive-netprobe",
+        "passive_fingerprint.profile_id" => "linux-hosts",
+        "passive_fingerprint.profile_name" => "Linux Hosts",
+        "passive_fingerprint.interface" => "eth0",
+        "passive_fingerprint.observed_at" => "2026-05-27T14:30:01Z",
+        "passive_fingerprint.tcp.signature" => "64240:64:1:60:M1460,S,T,N,W7",
+        "passive_fingerprint.tcp.os_family" => "linux",
+        "passive_fingerprint.tcp.os_name" => "Linux 5.x",
+        "passive_fingerprint.tcp.confidence" => "0.92",
+        "_alias_last_seen_ip" => ip,
+        "ip_alias:#{ip}" => "2026-05-27T14:30:01Z"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([passive_update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.uid == armis_device.uid
+    assert "armis" in device.discovery_sources
+    assert "passive-netprobe" in device.discovery_sources
+    assert device.vendor_name == "Linux"
+    assert device.type == "Server"
+    assert device.type_id == 1
+    assert device.metadata["armis_device_id"] == armis_id
+    assert device.metadata["classification_rule_id"] == "passive-fingerprint-linux-host"
+
+    assert device.metadata["passive_fingerprint"]["tcp"]["signature"] ==
+             "64240:64:1:60:M1460,S,T,N,W7"
+
+    assert device.metadata["passive_fingerprint"]["tcp"]["source"] == "passive-netprobe"
+    assert device.os["passive_fingerprint"]["family"] == "linux"
+    assert device.os["passive_fingerprint"]["version"] == "Linux 5.x"
+  end
+
   test "replaces placeholder type with integration metadata alias", %{actor: actor} do
     ip = unique_ip()
     existing_uid = "sr:" <> Ecto.UUID.generate()
@@ -905,6 +966,21 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         _ -> nil
       end
     end)
+  end
+
+  defp unique_mac do
+    suffix =
+      [:positive]
+      |> System.unique_integer()
+      |> Integer.to_string(16)
+      |> String.pad_leading(10, "0")
+
+    suffix
+    |> String.upcase()
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map_join(":", &Enum.join/1)
+    |> then(&"02:#{&1}")
   end
 
   defp load_fixture_update!(file_name, ip) do

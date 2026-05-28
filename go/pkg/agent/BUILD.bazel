@@ -57,7 +57,9 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//go/pkg/agentgateway",
+        "//go/pkg/agent/netprobe",
         "//go/pkg/agent/remoteaccess",
+        "//go/pkg/agent/sidecar",
         "//go/pkg/agent/snmp",
         "//go/pkg/config",
         "//go/pkg/config/kv",
@@ -71,6 +73,7 @@ go_library(
         "//go/pkg/sweeper",
         "//go/pkg/sysmon",
         "//proto",
+        "//proto/agent/netprobe/v1:netprobepb",
         "@com_github_bluenviron_gortsplib_v5//:gortsplib",
         "@com_github_bluenviron_gortsplib_v5//pkg/base",
         "@com_github_bluenviron_gortsplib_v5//pkg/format",

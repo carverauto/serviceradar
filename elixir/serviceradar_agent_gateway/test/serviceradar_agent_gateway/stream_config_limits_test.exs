@@ -54,6 +54,27 @@ defmodule ServiceRadarAgentGateway.StreamConfigLimitsTest do
     assert Monitoring.AgentConfigResponse.decode(chunk.payload) == response
   end
 
+  test "chunks config responses with large visibility binding sets" do
+    response = %Monitoring.AgentConfigResponse{
+      config_version: "vvisibility",
+      config_timestamp: 1_779_225_600,
+      heartbeat_interval_sec: 30,
+      config_poll_interval_sec: 60,
+      visibility_config: large_visibility_config()
+    }
+
+    chunks = AgentGatewayServer.config_response_chunks("agent-1", response)
+
+    assert length(chunks) > 1
+    assert List.last(chunks).is_final
+
+    payload = chunks |> Enum.map(& &1.payload) |> IO.iodata_to_binary()
+    decoded = Monitoring.AgentConfigResponse.decode(payload)
+
+    assert decoded == response
+    assert length(decoded.visibility_config.device_bindings) == 5_000
+  end
+
   test "sends config chunks on the grpc stream" do
     test_pid = self()
 
@@ -96,5 +117,30 @@ defmodule ServiceRadarAgentGateway.StreamConfigLimitsTest do
       |> String.trim_trailing(",")
 
     ~s({"sweep":{"groups":[{"name":"srql-production","interval":"5m","device_targets":[#{targets}]}]}})
+  end
+
+  defp large_visibility_config do
+    bindings =
+      for index <- 1..5_000 do
+        %Monitoring.VisibilityDeviceBinding{
+          ip: "10.46.#{div(index, 255)}.#{rem(index, 255)}",
+          profile_id: "visibility-profile-#{index}",
+          profile_name: String.duplicate("Production visibility profile #{index} ", 16),
+          sample_interval_ms: 250,
+          fingerprint: %Monitoring.VisibilityFingerprintConfig{
+            tcp: true,
+            tls: true,
+            http: rem(index, 2) == 0
+          }
+        }
+      end
+
+    %Monitoring.VisibilityConfig{
+      enabled: true,
+      capture_interfaces: ["en0", "eth1"],
+      binary_overrides: %Monitoring.VisibilityBinaryOverrides{path: "/usr/local/bin/netprobe"},
+      default_sample_interval_ms: 500,
+      device_bindings: bindings
+    }
   end
 end

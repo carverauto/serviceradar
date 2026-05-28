@@ -27,6 +27,32 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     devices.remote_access.tcp.open
   )
 
+  @visibility_profile_permissions ~w(
+    visibility_profiles:read
+    visibility_profiles:write
+    visibility_profiles:delete
+  )
+
+  test "visibility profile permissions are catalog keys with phase one defaults" do
+    keys = Catalog.permission_keys()
+    admin_permissions = Catalog.permissions_for_role(:admin)
+    operator_permissions = Catalog.permissions_for_role(:operator)
+    viewer_permissions = Catalog.permissions_for_role(:viewer)
+
+    for permission <- @visibility_profile_permissions do
+      assert permission in keys
+      assert MapSet.member?(admin_permissions, permission)
+    end
+
+    assert MapSet.member?(operator_permissions, "visibility_profiles:read")
+    assert MapSet.member?(operator_permissions, "visibility_profiles:write")
+    refute MapSet.member?(operator_permissions, "visibility_profiles:delete")
+
+    assert MapSet.member?(viewer_permissions, "visibility_profiles:read")
+    refute MapSet.member?(viewer_permissions, "visibility_profiles:write")
+    refute MapSet.member?(viewer_permissions, "visibility_profiles:delete")
+  end
+
   test "remote-access open permissions are admin-only catalog keys" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)

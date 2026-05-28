@@ -1,7 +1,7 @@
-load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
-load("//build/packaging:packages.bzl", "PACKAGES")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
+load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
+load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,36 +14,44 @@ serviceradar_package_from_config(
 
 pkg_files(
     name = "agent_release_runtime_files",
-    srcs = ["//go/cmd/agent:agent"],
-    prefix = "/",
-    renames = {"//go/cmd/agent:agent": "serviceradar-agent"},
+    srcs = [
+        "//go/cmd/agent",
+        "//rust/netprobe",
+    ],
     attributes = pkg_attributes(mode = "0755"),
+    prefix = "/",
+    renames = {
+        "//go/cmd/agent": "serviceradar-agent",
+        "//rust/netprobe": "serviceradar-netprobe",
+    },
 )
 
 pkg_tar(
     name = "agent_release_runtime_archive",
     srcs = [":agent_release_runtime_files"],
-    package_dir = "/",
     extension = "tar.gz",
+    package_dir = "/",
 )
 
 pkg_files(
     name = "agent_rdp_release_runtime_files",
     srcs = [
-        "//go/cmd/agent:agent",
+        "//go/cmd/agent",
+        "//rust/netprobe",
         "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental",
     ],
+    attributes = pkg_attributes(mode = "0755"),
     prefix = "/",
     renames = {
-        "//go/cmd/agent:agent": "serviceradar-agent",
+        "//go/cmd/agent": "serviceradar-agent",
+        "//rust/netprobe": "serviceradar-netprobe",
         "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental": "serviceradar-rdp-adapter",
     },
-    attributes = pkg_attributes(mode = "0755"),
 )
 
 pkg_tar(
     name = "agent_rdp_release_runtime_archive",
     srcs = [":agent_rdp_release_runtime_files"],
-    package_dir = "/",
     extension = "tar.gz",
+    package_dir = "/",
 )

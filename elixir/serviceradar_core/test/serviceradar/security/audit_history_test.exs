@@ -27,6 +27,7 @@ defmodule ServiceRadar.Security.AuditHistoryTest do
         assert is_list(defaults)
         assert AuthLockout in defaults
         assert ServiceRadar.Credentials.NetworkCredentialSecret in defaults
+        assert ServiceRadar.Inventory.VisibilityProfile in defaults
       after
         Application.put_env(:serviceradar_core, AuditHistory, previous)
       end

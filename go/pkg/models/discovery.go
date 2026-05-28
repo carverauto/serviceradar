@@ -25,18 +25,19 @@ import (
 type DiscoverySource string
 
 const (
-	DiscoverySourceSNMP         DiscoverySource = "snmp"
-	DiscoverySourceMapper       DiscoverySource = "mapper"
-	DiscoverySourceIntegration  DiscoverySource = "integration"
-	DiscoverySourceNetFlow      DiscoverySource = "netflow"
-	DiscoverySourceManual       DiscoverySource = "manual"
-	DiscoverySourceSweep        DiscoverySource = "sweep"
-	DiscoverySourceSighting     DiscoverySource = "sighting"
-	DiscoverySourceSelfReported DiscoverySource = "self-reported"
-	DiscoverySourceArmis        DiscoverySource = "armis"
-	DiscoverySourceNetbox       DiscoverySource = "netbox"
-	DiscoverySourceSysmon       DiscoverySource = "sysmon"
-	DiscoverySourceServiceRadar DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
+	DiscoverySourceSNMP            DiscoverySource = "snmp"
+	DiscoverySourceMapper          DiscoverySource = "mapper"
+	DiscoverySourceIntegration     DiscoverySource = "integration"
+	DiscoverySourceNetFlow         DiscoverySource = "netflow"
+	DiscoverySourceManual          DiscoverySource = "manual"
+	DiscoverySourceSweep           DiscoverySource = "sweep"
+	DiscoverySourceSighting        DiscoverySource = "sighting"
+	DiscoverySourceSelfReported    DiscoverySource = "self-reported"
+	DiscoverySourceArmis           DiscoverySource = "armis"
+	DiscoverySourceNetbox          DiscoverySource = "netbox"
+	DiscoverySourceSysmon          DiscoverySource = "sysmon"
+	DiscoverySourcePassiveNetprobe DiscoverySource = "passive-netprobe"
+	DiscoverySourceServiceRadar    DiscoverySource = "serviceradar" // ServiceRadar infrastructure components
 
 	// Confidence levels for discovery sources (1-10 scale)
 	ConfidenceLowUnknown         = 1  // Low confidence - unknown source
@@ -56,7 +57,7 @@ const (
 type DiscoverySourceInfo struct {
 	Source     DiscoverySource `json:"source"`
 	AgentID    string          `json:"agent_id"`
-	GatewayID   string          `json:"gateway_id"`
+	GatewayID  string          `json:"gateway_id"`
 	FirstSeen  time.Time       `json:"first_seen"`
 	LastSeen   time.Time       `json:"last_seen"`
 	Confidence int             `json:"confidence"`
@@ -68,7 +69,7 @@ type DeviceUpdate struct {
 	IP          string            `json:"ip"`
 	Source      DiscoverySource   `json:"source"`
 	AgentID     string            `json:"agent_id"`
-	GatewayID    string            `json:"gateway_id"`
+	GatewayID   string            `json:"gateway_id"`
 	Partition   string            `json:"partition,omitempty"`    // Optional partition for isolated deployments
 	ServiceType *ServiceType      `json:"service_type,omitempty"` // Type of service component (gateway/agent/checker)
 	ServiceID   string            `json:"service_id,omitempty"`   // ID of the service component
@@ -105,6 +106,8 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return ConfidenceGoodDocumentation // Good confidence - network documentation system
 	case DiscoverySourceSysmon:
 		return ConfidenceMediumMonitoring // Medium confidence - system monitoring
+	case DiscoverySourcePassiveNetprobe:
+		return ConfidenceMediumTraffic // Medium confidence - passive host traffic analysis
 	case DiscoverySourceServiceRadar:
 		return ConfidenceHighSelfReported // High confidence - ServiceRadar infrastructure component
 	default:
@@ -116,7 +119,7 @@ func GetSourceConfidence(source DiscoverySource) int {
 type DiscoveredInterface struct {
 	Timestamp     time.Time       `json:"timestamp"`
 	AgentID       string          `json:"agent_id"`
-	GatewayID      string          `json:"gateway_id"`
+	GatewayID     string          `json:"gateway_id"`
 	DeviceIP      string          `json:"device_ip"`
 	DeviceID      string          `json:"device_id"`
 	IfIndex       int32           `json:"ifIndex"`
@@ -135,7 +138,7 @@ type DiscoveredInterface struct {
 type TopologyDiscoveryEvent struct {
 	Timestamp              time.Time `json:"timestamp"`
 	AgentID                string    `json:"agent_id"`
-	GatewayID               string    `json:"gateway_id"`
+	GatewayID              string    `json:"gateway_id"`
 	LocalDeviceIP          string    `json:"local_device_ip"`
 	LocalDeviceID          string    `json:"local_device_id"`
 	LocalIfIndex           int32     `json:"local_ifIndex"` // DB schema is int32; Postgres driver should handle

@@ -1,0 +1,158 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.agent.netprobe.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/agent/netprobe/v1;netprobepb";
+
+// NetprobeFrame is the outer envelope for the UDS IPC protocol.
+// Frames are encoded as protobuf messages with a 4-byte big-endian length
+// prefix. Implementations MUST reject frames larger than 4 MiB.
+message NetprobeFrame {
+  uint64 sequence = 1;
+
+  oneof payload {
+    ApplyConfig apply_config = 2;
+    ConfigAck config_ack = 3;
+    Ping ping = 4;
+    PingAck ping_ack = 5;
+    FingerprintEvent fingerprint_event = 6;
+    ErrorFrame error = 7;
+
+    // Reserved placeholders for later phases. They intentionally carry no
+    // fields in Phase 1 so future additions remain wire-compatible.
+    DpiEvent dpi_event = 20;
+    FlowAttributionEvent flow_attribution_event = 21;
+    ProcessSnapshot process_snapshot = 22;
+    ExternalFlowRecord external_flow_record = 23;
+    StartRemoteCapture start_remote_capture = 24;
+    PcapngBlock pcapng_block = 25;
+  }
+}
+
+message ApplyConfig {
+  VisibilityAgentConfig config = 1;
+}
+
+message ConfigAck {
+  string config_hash = 1;
+}
+
+message Ping {
+  int64 sent_at_unix_nano = 1;
+}
+
+message PingAck {
+  int64 sent_at_unix_nano = 1;
+  int64 acked_at_unix_nano = 2;
+  string fingerprint_engine_version = 3;
+  bool running_as_root = 4;
+}
+
+message ErrorFrame {
+  string code = 1;
+  string message = 2;
+}
+
+message VisibilityAgentConfig {
+  bool enabled = 1;
+  repeated string capture_interfaces = 2;
+  repeated DeviceBinding device_bindings = 3;
+  uint32 default_sample_interval_ms = 4;
+
+  reserved 20 to 39;
+  reserved "dpi", "flow_attribution", "process_snapshot_interval_s";
+}
+
+message DeviceBinding {
+  string ip = 1;
+  string profile_id = 2;
+  string profile_name = 3;
+  FingerprintConfig fingerprint = 4;
+  uint32 sample_interval_ms = 5;
+}
+
+message FingerprintConfig {
+  bool tcp = 1;
+  bool tls = 2;
+  bool http = 3;
+}
+
+message FingerprintEvent {
+  string ip = 1;
+  string profile_id = 2;
+  string interface_name = 3;
+  int64 observed_at_unix_nano = 4;
+
+  oneof evidence {
+    TcpFingerprint tcp = 10;
+    TlsFingerprint tls = 11;
+    HttpFingerprint http = 12;
+  }
+}
+
+message TcpFingerprint {
+  string signature = 1;
+  string os_family = 2;
+  string os_name = 3;
+  float confidence = 4;
+  uint32 ttl = 5;
+  string window_size = 6;
+  uint32 mss = 7;
+  repeated string options_layout = 8;
+  repeated string quirks = 9;
+  string ip_version = 10;
+  uint32 window_scale = 11;
+  string payload_class = 12;
+}
+
+message TlsFingerprint {
+  string ja4 = 1;
+  string ja4s = 2;
+  string sni_redacted = 3;
+}
+
+message HttpFingerprint {
+  string user_agent = 1;
+  string server = 2;
+  string accept_language = 3;
+}
+
+message DpiEvent {
+  // TODO(add-host-network-visibility-sidecar Phase 2): define DPI fields.
+}
+
+message FlowAttributionEvent {
+  // TODO(add-host-network-visibility-sidecar Phase 3): define attribution fields.
+}
+
+message ProcessSnapshot {
+  // TODO(add-host-network-visibility-sidecar Phase 3): define process fields.
+}
+
+message ExternalFlowRecord {
+  // TODO(add-host-network-visibility-sidecar Phase 4): define external flow fields.
+}
+
+message StartRemoteCapture {
+  // TODO(add-host-network-visibility-sidecar Phase 5): define capture request fields.
+}
+
+message PcapngBlock {
+  // TODO(add-host-network-visibility-sidecar Phase 5): define pcapng block fields.
+}

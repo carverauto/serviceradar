@@ -116,6 +116,7 @@ build:no_remote --bes_results_url=
 
 # CI profile can layer on top of the remote config without re-declaring values.
 build:ci --keep_going --build_tag_filters=-manual
+build:ci --noenable_platform_specific_config
 build:ci --config=remote_base
 build:ci --build_metadata=ROLE=CI
 build:ci --bes_results_url=https://carverauto.buildbuddy.io/invocation/
@@ -173,6 +174,7 @@ test:remote --action_env=NEXT_SKIP_TURBO=1
 
 # Remote execution profile (opt-in via --config=remote).
 build:remote --config=remote_base
+build:remote --noenable_platform_specific_config
 build:remote --remote_cache=grpcs://remote.buildbuddy.io
 build:remote --remote_timeout=10m
 
@@ -181,8 +183,10 @@ build:remote --remote_timeout=10m
 # minimal downloads can fail later with "Lost inputs no longer available remotely"
 # when BuildBuddy evicts intermediate CAS entries before the local push step runs.
 build:remote_push --config=remote
+build:remote_push --noenable_platform_specific_config
 build:remote_push --remote_download_outputs=all
 run:remote_push --config=remote
+run:remote_push --noenable_platform_specific_config
 run:remote_push --remote_download_outputs=all
 
 # Enable clang-tidy diagnostics via --config=clang-tidy
@@ -222,7 +226,7 @@ build:darwin_pkg --config=no_remote
 build:darwin_local --host_platform=//build/platforms:darwin_arm64
 build:darwin_local --extra_execution_platforms=//build/platforms:darwin_arm64
 build:darwin_local --extra_toolchains=@local_config_cc_toolchains//:all
-build:darwin_local --features=fully_static_link --copt=-Wno-unused-command-line-argument
+build:darwin_local --copt=-Wno-unused-command-line-argument
 build:darwin_local --host_copt=-Wno-unused-command-line-argument
 build:darwin_local --linkopt=-Wno-unused-command-line-argument
 build:darwin_local --strategy=CppCompile=local
@@ -232,6 +236,7 @@ build:darwin_local --action_env=RULES_PKG_PYTHON=/usr/bin/python3
 
 # Plain local Bazel tests on Apple Silicon also need Darwin exec tools; otherwise
 # registered Linux exec platforms can be selected for generated protobuf tools.
+build:macos --config=darwin_local
 test:macos --config=darwin_local
 
 # EL9-compatible builds using Oracle Linux 9 RBE executor (glibc 2.34)
@@ -239,6 +244,7 @@ test:macos --config=darwin_local
 # Note: We duplicate remote_base settings here instead of inheriting, to ensure
 # the EL9 platform takes precedence over the default rbe_platform
 build:el9 --remote_executor=grpcs://remote.buildbuddy.io
+build:el9 --noenable_platform_specific_config
 build:el9 --host_platform=//build/platforms:rbe_linux_el9
 build:el9 --platforms=//build/platforms:rbe_linux_el9
 build:el9 --extra_execution_platforms=//build/platforms:rbe_linux_el9

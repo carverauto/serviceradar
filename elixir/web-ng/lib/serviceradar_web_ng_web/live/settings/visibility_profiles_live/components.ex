@@ -1,0 +1,470 @@
+defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
+  @moduledoc false
+
+  use ServiceRadarWebNGWeb, :html
+
+  import ServiceRadarWebNGWeb.QueryBuilderComponents
+  import ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState
+
+  alias ServiceRadarWebNGWeb.SRQL.Catalog
+
+  attr :profiles, :list, required: true
+  attr :can_write, :boolean, default: false
+  attr :can_delete, :boolean, default: false
+
+  def profiles_panel(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="flex items-center justify-between w-full">
+          <div>
+            <div class="text-sm font-semibold">Visibility Profiles</div>
+            <p class="text-xs text-base-content/60">
+              {length(@profiles)} profile(s) configured
+            </p>
+          </div>
+          <.link :if={@can_write} navigate={~p"/settings/networks/visibility-profiles/new"}>
+            <.ui_button variant="primary" size="sm">
+              <.icon name="hero-plus" class="size-4" /> New Profile
+            </.ui_button>
+          </.link>
+        </div>
+      </:header>
+
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>Status</th>
+              <th>Name</th>
+              <th>Targeting</th>
+              <th>Interfaces</th>
+              <th>Sample</th>
+              <th>Fingerprint</th>
+              <th>Retention</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :if={@profiles == []}>
+              <td colspan="8" class="text-center text-base-content/60 py-8">
+                No visibility profiles configured.
+              </td>
+            </tr>
+            <%= for profile <- @profiles do %>
+              <tr class="hover:bg-base-200/40">
+                <td>
+                  <button
+                    :if={@can_write}
+                    phx-click="toggle_profile"
+                    phx-value-id={profile.id}
+                    class="flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    </span>
+                    <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
+                  </button>
+                  <div :if={not @can_write} class="flex items-center gap-1.5">
+                    <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
+                    </span>
+                    <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
+                  </div>
+                </td>
+                <td>
+                  <.link
+                    :if={@can_write}
+                    navigate={~p"/settings/networks/visibility-profiles/#{profile.id}/edit"}
+                    class="font-medium hover:text-primary"
+                  >
+                    {profile.name}
+                  </.link>
+                  <span :if={not @can_write} class="font-medium">{profile.name}</span>
+                  <p :if={profile.description} class="text-xs text-base-content/60 truncate max-w-xs">
+                    {profile.description}
+                  </p>
+                </td>
+                <td class="text-xs max-w-xs">
+                  <%= if profile.target_query && profile.target_query != "" do %>
+                    <code class="font-mono text-[11px] bg-base-200/50 px-1.5 py-0.5 rounded truncate block max-w-[220px]">
+                      {profile.target_query}
+                    </code>
+                  <% else %>
+                    <span class="text-base-content/40">in:devices</span>
+                  <% end %>
+                </td>
+                <td>
+                  <div class="flex flex-wrap gap-1 max-w-[180px]">
+                    <.ui_badge
+                      :for={iface <- profile.capture_interfaces || []}
+                      variant="ghost"
+                      size="xs"
+                    >
+                      {iface}
+                    </.ui_badge>
+                    <span
+                      :if={(profile.capture_interfaces || []) == []}
+                      class="text-xs text-base-content/40"
+                    >
+                      none
+                    </span>
+                  </div>
+                </td>
+                <td class="font-mono text-xs">{profile.sample_interval_ms} ms</td>
+                <td>
+                  <div class="flex flex-wrap gap-1">
+                    <.ui_badge :if={fingerprint_enabled?(profile, "tcp")} variant="ghost" size="xs">
+                      TCP
+                    </.ui_badge>
+                    <.ui_badge :if={fingerprint_enabled?(profile, "tls")} variant="ghost" size="xs">
+                      TLS
+                    </.ui_badge>
+                    <.ui_badge :if={fingerprint_enabled?(profile, "http")} variant="ghost" size="xs">
+                      HTTP
+                    </.ui_badge>
+                  </div>
+                </td>
+                <td class="font-mono text-xs">{profile.retention_days}d</td>
+                <td>
+                  <div class="flex items-center gap-1">
+                    <.ui_button
+                      variant="ghost"
+                      size="xs"
+                      phx-click="preview_json"
+                      phx-value-id={profile.id}
+                      title="Preview config"
+                    >
+                      <.icon name="hero-code-bracket" class="size-3" />
+                    </.ui_button>
+                    <.link
+                      :if={@can_write}
+                      navigate={~p"/settings/networks/visibility-profiles/#{profile.id}/edit"}
+                    >
+                      <.ui_button variant="ghost" size="xs" title="Edit profile">
+                        <.icon name="hero-pencil" class="size-3" />
+                      </.ui_button>
+                    </.link>
+                    <.ui_button
+                      :if={@can_delete}
+                      variant="ghost"
+                      size="xs"
+                      phx-click="delete_profile"
+                      phx-value-id={profile.id}
+                      data-confirm="Delete this visibility profile?"
+                      title="Delete profile"
+                    >
+                      <.icon name="hero-trash" class="size-3" />
+                    </.ui_button>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  attr :form, :map, required: true
+  attr :errors, :list, default: []
+  attr :show_form, :atom, required: true
+  attr :selected_profile, :any, default: nil
+  attr :target_device_count, :integer, default: nil
+  attr :builder_open, :boolean, default: false
+  attr :builder, :map, required: true
+  attr :builder_sync, :boolean, default: true
+
+  def profile_form(assigns) do
+    config = Catalog.entity("devices")
+
+    assigns =
+      assigns
+      |> assign(:device_fields, device_filter_fields(config))
+      |> assign(:filter_ops, [
+        {"contains", "contains"},
+        {"equals", "equals"},
+        {"not contains", "not_contains"},
+        {"not equals", "not_equals"}
+      ])
+
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div class="flex items-center justify-between w-full">
+          <div>
+            <div class="text-sm font-semibold">
+              {if @show_form == :new_profile,
+                do: "New Visibility Profile",
+                else: "Edit Visibility Profile"}
+            </div>
+            <p class="text-xs text-base-content/60">
+              {target_count_label(@target_device_count)}
+            </p>
+          </div>
+          <.link navigate={~p"/settings/networks/visibility-profiles"}>
+            <.ui_button variant="ghost" size="sm">
+              <.icon name="hero-arrow-left" class="size-4" /> Back
+            </.ui_button>
+          </.link>
+        </div>
+      </:header>
+
+      <form
+        id="visibility-profile-form"
+        phx-change="validate_profile"
+        phx-submit="save_profile"
+        class="space-y-6"
+      >
+        <div :if={@errors != []} class="alert alert-error">
+          <ul class="text-sm">
+            <li :for={error <- @errors}>{error}</li>
+          </ul>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <.text_input name="form[name]" label="Name" value={@form["name"]} required />
+          <.number_input name="form[priority]" label="Priority" value={@form["priority"]} />
+          <.text_input name="form[description]" label="Description" value={@form["description"]} />
+          <.number_input
+            name="form[sample_interval_ms]"
+            label="Sample interval ms"
+            value={@form["sample_interval_ms"]}
+            min="0"
+          />
+          <.number_input
+            name="form[retention_days]"
+            label="Retention days"
+            value={@form["retention_days"]}
+            min="1"
+          />
+          <label class="label cursor-pointer justify-start gap-3">
+            <input type="hidden" name="form[enabled]" value="false" />
+            <input
+              type="checkbox"
+              name="form[enabled]"
+              value="true"
+              class="toggle toggle-primary"
+              checked={truthy?(@form["enabled"])}
+            />
+            <span class="label-text">Enabled</span>
+          </label>
+        </div>
+
+        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-semibold">Targeting</div>
+              <p class="text-xs text-base-content/60">{target_count_label(@target_device_count)}</p>
+            </div>
+            <.ui_button
+              type="button"
+              variant={if @builder_open, do: "primary", else: "ghost"}
+              size="sm"
+              phx-click="builder_toggle"
+            >
+              <.icon name="hero-adjustments-horizontal" class="size-4" /> Query Builder
+            </.ui_button>
+          </div>
+
+          <textarea
+            name="form[target_query]"
+            class="textarea textarea-bordered w-full font-mono text-xs"
+            rows="3"
+          >{@form["target_query"]}</textarea>
+
+          <div :if={@builder_open} class="rounded-lg bg-base-200/40 p-3 space-y-3">
+            <div class="flex items-center justify-between">
+              <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                Device filters
+              </div>
+              <.ui_button :if={not @builder_sync} type="button" size="xs" phx-click="builder_apply">
+                Apply
+              </.ui_button>
+            </div>
+            <form id="visibility-builder-form" phx-change="builder_change" phx-debounce="200"></form>
+            <%= for {filter, idx} <- Enum.with_index(@builder["filters"] || []) do %>
+              <div class="flex flex-wrap items-center gap-2">
+                <.query_builder_pill label="Filter">
+                  <select
+                    class="select select-bordered select-xs"
+                    name={"builder[filters][#{idx}][field]"}
+                    form="visibility-builder-form"
+                  >
+                    <option
+                      :for={field <- @device_fields}
+                      value={field.name}
+                      selected={filter["field"] == field.name}
+                    >
+                      {field.label}
+                    </option>
+                  </select>
+                  <select
+                    class="select select-bordered select-xs"
+                    name={"builder[filters][#{idx}][op]"}
+                    form="visibility-builder-form"
+                  >
+                    <option
+                      :for={{label, value} <- @filter_ops}
+                      value={value}
+                      selected={filter["op"] == value}
+                    >
+                      {label}
+                    </option>
+                  </select>
+                  <input
+                    class="input input-bordered input-xs w-44"
+                    name={"builder[filters][#{idx}][value]"}
+                    form="visibility-builder-form"
+                    value={filter["value"]}
+                  />
+                </.query_builder_pill>
+                <.ui_button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  phx-click="builder_remove_filter"
+                  phx-value-idx={idx}
+                >
+                  <.icon name="hero-x-mark" class="size-3" />
+                </.ui_button>
+              </div>
+            <% end %>
+            <.ui_button type="button" variant="ghost" size="sm" phx-click="builder_add_filter">
+              <.icon name="hero-plus" class="size-4" /> Filter
+            </.ui_button>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+          <div class="text-sm font-semibold">Passive Fingerprinting</div>
+          <label class="form-control">
+            <span class="label-text text-xs">Capture interfaces</span>
+            <textarea
+              name="form[capture_interfaces]"
+              class="textarea textarea-bordered w-full font-mono text-xs"
+              rows="3"
+              placeholder="eth0"
+            >{@form["capture_interfaces"]}</textarea>
+          </label>
+          <div class="flex flex-wrap gap-4">
+            <.fingerprint_toggle
+              name="tcp"
+              label="TCP"
+              checked={truthy?(@form["fingerprint"]["tcp"])}
+            />
+            <.fingerprint_toggle
+              name="tls"
+              label="TLS"
+              checked={truthy?(@form["fingerprint"]["tls"])}
+            />
+            <.fingerprint_toggle
+              name="http"
+              label="HTTP"
+              checked={truthy?(@form["fingerprint"]["http"])}
+            />
+          </div>
+          <div class="flex flex-wrap gap-2 pt-2">
+            <.ui_badge variant="ghost" size="sm">DPI later phase</.ui_badge>
+            <.ui_badge variant="ghost" size="sm">Flow attribution later phase</.ui_badge>
+            <.ui_badge variant="ghost" size="sm">Process snapshots later phase</.ui_badge>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2">
+          <.link navigate={~p"/settings/networks/visibility-profiles"}>
+            <.ui_button type="button" variant="ghost">Cancel</.ui_button>
+          </.link>
+          <.ui_button type="submit" variant="primary">
+            <.icon name="hero-check" class="size-4" /> Save Profile
+          </.ui_button>
+        </div>
+      </form>
+    </.ui_panel>
+    """
+  end
+
+  attr :json_preview, :string, required: true
+
+  def json_preview_modal(assigns) do
+    ~H"""
+    <div class="modal modal-open">
+      <div class="modal-box max-w-2xl">
+        <h3 class="font-bold text-lg mb-4">Compiled Visibility Config</h3>
+        <pre class="bg-base-200/50 p-4 rounded-lg text-xs font-mono overflow-x-auto max-h-96">{@json_preview}</pre>
+        <div class="modal-action">
+          <button phx-click="close_preview" class="btn">Close</button>
+        </div>
+      </div>
+      <div class="modal-backdrop" phx-click="close_preview"></div>
+    </div>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :label, :string, required: true
+  attr :checked, :boolean, default: false
+
+  defp fingerprint_toggle(assigns) do
+    ~H"""
+    <label class="label cursor-pointer justify-start gap-3">
+      <input type="hidden" name={"form[fingerprint][#{@name}]"} value="false" />
+      <input
+        type="checkbox"
+        name={"form[fingerprint][#{@name}]"}
+        value="true"
+        class="checkbox checkbox-primary checkbox-sm"
+        checked={@checked}
+      />
+      <span class="label-text">{@label}</span>
+    </label>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: ""
+  attr :required, :boolean, default: false
+
+  defp text_input(assigns) do
+    ~H"""
+    <label class="form-control">
+      <span class="label-text text-xs">{@label}</span>
+      <input
+        type="text"
+        name={@name}
+        value={@value}
+        required={@required}
+        class="input input-bordered input-sm w-full"
+      />
+    </label>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: ""
+  attr :min, :string, default: nil
+
+  defp number_input(assigns) do
+    ~H"""
+    <label class="form-control">
+      <span class="label-text text-xs">{@label}</span>
+      <input
+        type="number"
+        name={@name}
+        value={@value}
+        min={@min}
+        class="input input-bordered input-sm w-full"
+      />
+    </label>
+    """
+  end
+
+  defp device_filter_fields(%{filter_fields: fields}) when is_list(fields) do
+    Enum.map(fields, fn field ->
+      %{name: field, label: Phoenix.Naming.humanize(field)}
+    end)
+  end
+
+  defp device_filter_fields(_), do: []
+end

@@ -25,6 +25,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   5. `mac` - MAC address (normalized)
 
   IP is a "weak" identifier only used when no strong identifiers are present.
+  Passive fingerprints are weak corroborating evidence only; they are never
+  used as lookup or merge keys.
   """
 
   import Bitwise

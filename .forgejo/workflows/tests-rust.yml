@@ -7,10 +7,17 @@ on:
       - 'rust/trapd/**'
       - 'rust/consumers/zen/**'
       - 'rust/log-collector/**'
+      - 'rust/netprobe/**'
       - 'rust/rdp-adapter/**'
       - 'rust/rdp-connector-probe/**'
       - 'rust/srql/**'
+      - 'build/platforms/**'
+      - 'build/rust/**'
+      - 'build/toolchains/**'
+      - '.bazelrc'
       - '.forgejo/workflows/tests-rust.yml'
+      - 'MODULE.bazel'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
 
 permissions:
@@ -39,6 +46,17 @@ jobs:
             runner: cargo
           - project: rust/log-collector
             runner: cargo
+          - project: rust/netprobe
+            runner: bazel-test
+            bazel_target: //rust/netprobe:netprobe_test
+          - project: rust/netprobe
+            runner: bazel-static
+            bazel_target: //rust/netprobe:netprobe
+            platform: //build/platforms:linux_x86_64_musl
+          - project: rust/netprobe
+            runner: bazel-static
+            bazel_target: //rust/netprobe:netprobe
+            platform: //build/platforms:linux_aarch64_musl
           - project: rust/rdp-adapter
             runner: cargo
           - project: rust/rdp-connector-probe
@@ -250,3 +268,52 @@ jobs:
         if: ${{ matrix.runner == 'bazel' }}
         run: |
           bazel build ${{ matrix.bazel_target }}
+
+      - name: Test Bazel target
+        if: ${{ matrix.runner == 'bazel-test' }}
+        run: |
+          bazel test ${{ matrix.bazel_target }}
+
+      - name: Build static musl Bazel target
+        if: ${{ matrix.runner == 'bazel-static' }}
+        run: |
+          set -euo pipefail
+
+          bazel build \
+            --config=ci \
+            --platforms=${{ matrix.platform }} \
+            --remote_download_outputs=all \
+            ${{ matrix.bazel_target }}
+
+          output="$(
+            bazel cquery \
+              --config=ci \
+              --platforms=${{ matrix.platform }} \
+              ${{ matrix.bazel_target }} \
+              --output=files | tail -n 1
+          )"
+          if [ "${output#/}" = "${output}" ]; then
+            output="$(bazel info execution_root)/${output}"
+          fi
+
+          file "${output}"
+          if ! file "${output}" | grep -q 'statically linked'; then
+            echo "expected static ELF output for ${{ matrix.platform }}" >&2
+            exit 1
+          fi
+
+          if readelf -l "${output}" | grep -q 'INTERP'; then
+            echo "static netprobe output must not request a dynamic interpreter" >&2
+            exit 1
+          fi
+
+          if readelf -d "${output}" 2>/dev/null | grep -q 'NEEDED'; then
+            echo "static netprobe output must not declare shared-library dependencies" >&2
+            exit 1
+          fi
+
+          case "${{ matrix.platform }}" in
+            *linux_x86_64_musl)
+              "${output}" --help >/dev/null
+              ;;
+          esac

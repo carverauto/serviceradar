@@ -1,0 +1,83 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@rust_crates//:defs.bzl", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+NETPROBE_FEATURES = select({
+    "//build/platforms:target_linux_aarch64_musl": [],
+    "//build/platforms:target_linux_x86_64_musl": [],
+    "//conditions:default": ["pcap-capture"],
+})
+
+NETPROBE_DEPS = crate_deps([
+    "anyhow",
+    "clap",
+    "env_logger",
+    "huginn-net",
+    "log",
+    "nix",
+    "prometheus",
+    "prost",
+    "serde",
+    "serde_json",
+    "thiserror",
+    "tokio",
+]) + select({
+    "//build/platforms:target_linux_aarch64_musl": [],
+    "//build/platforms:target_linux_x86_64_musl": [],
+    "//build/platforms:target_linux_arm64": crate_deps(["pcap"]) + ["//third_party/libpcap:pcap"],
+    "//build/platforms:target_linux_x86_64": crate_deps(["pcap"]) + ["//third_party/libpcap:pcap"],
+    "//conditions:default": crate_deps(["pcap"]),
+}) + [
+    ":build_script",
+]
+
+NETPROBE_RUSTC_FLAGS = select({
+    "//build/platforms:target_linux_aarch64_musl": [],
+    "//build/platforms:target_linux_x86_64_musl": [],
+    "//build/platforms:target_linux_arm64": [
+        "-C",
+        "link-arg=-Wl,--disable-new-dtags",
+    ],
+    "//build/platforms:target_linux_x86_64": [
+        "-C",
+        "link-arg=-Wl,--disable-new-dtags",
+    ],
+    "//conditions:default": [],
+})
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate_root = "build.rs",
+    data = [
+        "//proto/agent/netprobe/v1:netprobe_proto_src",
+    ],
+    edition = "2021",
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = crate_deps(["prost-build"]),
+)
+
+rust_binary(
+    name = "netprobe",
+    srcs = glob(["src/**/*.rs"]),
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "src/main.rs",
+    edition = "2021",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    deps = NETPROBE_DEPS,
+)
+
+rust_test(
+    name = "netprobe_test",
+    srcs = glob(["src/**/*.rs"]),
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "src/main.rs",
+    edition = "2021",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    deps = NETPROBE_DEPS + crate_deps(["tempfile"]),
+)

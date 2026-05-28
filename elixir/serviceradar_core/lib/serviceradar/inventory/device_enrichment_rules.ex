@@ -11,14 +11,32 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
 
   @persistent_term_key {__MODULE__, :rules}
   @default_rules_dir "/var/lib/serviceradar/rules/device-enrichment"
-  @allowed_match_keys ~w(sys_descr sys_name hostname model source sys_object_id_prefixes ip_forwarding)
-  @allowed_set_keys ~w(vendor_name model type type_id model_from_sys_descr_prefix)
+  @passive_match_keys ~w(
+    passive_fingerprint.tcp.signature
+    passive_fingerprint.tcp.os_family
+    passive_fingerprint.tcp.os_name
+    passive_fingerprint.tls.ja4
+    passive_fingerprint.tls.ja4s
+    passive_fingerprint.http.server
+    passive_fingerprint.http.user_agent
+    metadata.passive_fingerprint.tcp.signature
+    metadata.passive_fingerprint.tcp.os_family
+    metadata.passive_fingerprint.tcp.os_name
+    metadata.passive_fingerprint.tls.ja4
+    metadata.passive_fingerprint.tls.ja4s
+    metadata.passive_fingerprint.http.server
+    metadata.passive_fingerprint.http.user_agent
+  )
+  @allowed_match_keys ~w(sys_descr sys_name hostname model source sys_object_id_prefixes ip_forwarding) ++
+                        @passive_match_keys
+  @allowed_set_keys ~w(vendor_name model type type_id model_from_sys_descr_prefix os_family os.family)
 
   @type classification :: %{
           vendor_name: String.t() | nil,
           model: String.t() | nil,
           type: String.t() | nil,
           type_id: integer() | nil,
+          os_family: String.t() | nil,
           rule_id: String.t() | nil,
           confidence: integer() | nil,
           reason: String.t() | nil,
@@ -428,6 +446,7 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
       model: nil,
       type: nil,
       type_id: nil,
+      os_family: nil,
       rule_id: nil,
       confidence: nil,
       reason: nil,
@@ -443,6 +462,7 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
       model: model,
       type: get_string(set, ["type", :type]),
       type_id: get_int(set, ["type_id", :type_id], nil),
+      os_family: get_string(set, ["os_family", :os_family, "os.family"]),
       rule_id: rule.id,
       confidence: rule.confidence,
       reason: rule.reason,
@@ -517,22 +537,64 @@ defmodule ServiceRadar.Inventory.DeviceEnrichmentRules do
     sys_object_id =
       get_string(metadata, ["sys_object_id", "sysObjectID", "sys_objectid", "sysObjectId"]) || ""
 
-    %{
-      "sys_descr" => String.downcase(sys_descr_raw),
-      "sys_descr_raw" => sys_descr_raw,
-      "sys_name" => String.downcase(sys_name),
-      "sys_object_id" => sys_object_id,
-      "hostname" => String.downcase(to_string(Map.get(update, :hostname) || "")),
-      "model" =>
-        String.downcase(
-          to_string(get_string(metadata, ["model", "device_model", "model_name"]) || "")
-        ),
-      "ip_forwarding" =>
-        metadata
-        |> get_string(["ip_forwarding", "ipForwarding"])
-        |> parse_int(),
-      "source" => String.downcase(to_string(Map.get(update, :source) || ""))
-    }
+    passive_context = passive_fingerprint_context(metadata)
+
+    Map.merge(
+      %{
+        "sys_descr" => String.downcase(sys_descr_raw),
+        "sys_descr_raw" => sys_descr_raw,
+        "sys_name" => String.downcase(sys_name),
+        "sys_object_id" => sys_object_id,
+        "hostname" => String.downcase(to_string(Map.get(update, :hostname) || "")),
+        "model" =>
+          String.downcase(
+            to_string(get_string(metadata, ["model", "device_model", "model_name"]) || "")
+          ),
+        "ip_forwarding" =>
+          metadata |> get_string(["ip_forwarding", "ipForwarding"]) |> parse_int(),
+        "source" => String.downcase(to_string(Map.get(update, :source) || ""))
+      },
+      passive_context
+    )
+  end
+
+  defp passive_fingerprint_context(metadata) when is_map(metadata) do
+    nested = get_map(metadata, ["passive_fingerprint", :passive_fingerprint])
+    tcp = get_map(nested, ["tcp", :tcp])
+    tls = get_map(nested, ["tls", :tls])
+    http = get_map(nested, ["http", :http])
+
+    duplicate_metadata_selector_keys(%{
+      "passive_fingerprint.tcp.signature" =>
+        passive_value(metadata, tcp, "passive_fingerprint.tcp.signature", [
+          "signature",
+          "p0f_signature"
+        ]),
+      "passive_fingerprint.tcp.os_family" =>
+        passive_value(metadata, tcp, "passive_fingerprint.tcp.os_family", ["os_family"]),
+      "passive_fingerprint.tcp.os_name" =>
+        passive_value(metadata, tcp, "passive_fingerprint.tcp.os_name", ["os_name"]),
+      "passive_fingerprint.tls.ja4" =>
+        passive_value(metadata, tls, "passive_fingerprint.tls.ja4", ["ja4"]),
+      "passive_fingerprint.tls.ja4s" =>
+        passive_value(metadata, tls, "passive_fingerprint.tls.ja4s", ["ja4s"]),
+      "passive_fingerprint.http.server" =>
+        passive_value(metadata, http, "passive_fingerprint.http.server", ["server"]),
+      "passive_fingerprint.http.user_agent" =>
+        passive_value(metadata, http, "passive_fingerprint.http.user_agent", ["user_agent"])
+    })
+  end
+
+  defp passive_fingerprint_context(_metadata), do: %{}
+
+  defp passive_value(metadata, nested_protocol, flat_key, nested_keys) do
+    get_string(metadata, [flat_key]) || get_string(nested_protocol, nested_keys)
+  end
+
+  defp duplicate_metadata_selector_keys(passive_context) do
+    Enum.reduce(passive_context, passive_context, fn {key, value}, acc ->
+      Map.put(acc, "metadata." <> key, value)
+    end)
   end
 
   defp parse_int(nil), do: nil

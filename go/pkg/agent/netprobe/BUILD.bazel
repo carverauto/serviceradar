@@ -1,0 +1,41 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "netprobe",
+    srcs = [
+        "client.go",
+        "config.go",
+        "framing.go",
+        "sidecar.go",
+        "translator.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/netprobe",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/agent/sidecar",
+        "//go/pkg/models",
+        "//proto",
+        "//proto/discovery",
+        "//proto/agent/netprobe/v1:netprobepb",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
+
+go_test(
+    name = "netprobe_test",
+    srcs = [
+        "client_test.go",
+        "config_test.go",
+        "framing_test.go",
+        "sidecar_test.go",
+        "translator_test.go",
+    ],
+    embed = [":netprobe"],
+    deps = [
+        "//go/pkg/devicealias",
+        "//go/pkg/models",
+        "//proto",
+        "//proto/discovery",
+        "//proto/agent/netprobe/v1:netprobepb",
+    ],
+)

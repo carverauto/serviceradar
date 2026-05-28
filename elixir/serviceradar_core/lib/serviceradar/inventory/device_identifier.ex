@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
 
   Weak identifier:
   - `ip` - IP address (only used when no strong identifiers present)
+  - `passive_fingerprint` - Hash of passive fingerprint evidence, never used alone for merges
 
   ## Confidence Levels
 
@@ -30,7 +31,15 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     notifiers: [ServiceRadar.Inventory.DeviceIdentifierNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
-  @identifier_types [:agent_id, :armis_device_id, :integration_id, :netbox_device_id, :mac, :ip]
+  @identifier_types [
+    :agent_id,
+    :armis_device_id,
+    :integration_id,
+    :netbox_device_id,
+    :mac,
+    :ip,
+    :passive_fingerprint
+  ]
   @confidence_levels [:strong, :medium, :weak]
   @register_fields [
     :device_id,

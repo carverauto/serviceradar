@@ -442,6 +442,24 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "visibility_profiles:read",
+          label: "Read visibility profiles",
+          description: "View host network visibility profiles and assignments",
+          default_roles: @all_roles
+        },
+        %{
+          key: "visibility_profiles:write",
+          label: "Manage visibility profiles",
+          description: "Create and update host network visibility profiles",
+          default_roles: @operator_roles
+        },
+        %{
+          key: "visibility_profiles:delete",
+          label: "Delete visibility profiles",
+          description: "Delete host network visibility profiles",
+          default_roles: @admin_roles
+        },
+        %{
           key: "settings.jobs.manage",
           label: "Manage jobs",
           description: "Trigger or manage background jobs",
