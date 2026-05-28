@@ -37,7 +37,7 @@ mod proto;
 #[allow(dead_code)]
 mod runtime_config;
 mod server;
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 #[allow(dead_code)]
 mod tls_server;
 

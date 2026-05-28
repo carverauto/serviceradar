@@ -551,7 +551,7 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     #[tokio::test]
     async fn streams_fixture_traffic_events_to_connected_client() {
         let dir = TempDir::new().unwrap();
@@ -661,7 +661,7 @@ mod tests {
         panic!("server did not subscribe to fingerprint events");
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     async fn read_tls_fixture_event(
         client: &mut UnixStream,
     ) -> (FingerprintEvent, crate::proto::netprobe::TlsFingerprint) {
@@ -754,7 +754,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn tls_server_hello_packet() -> Vec<u8> {
         ipv4_tcp_packet(
             [198, 51, 100, 40],
@@ -765,7 +765,7 @@ mod tests {
         )
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn tls_server_hello_payload() -> Vec<u8> {
         let mut body = Vec::new();
         body.extend_from_slice(&[0x03, 0x03]);
@@ -803,7 +803,7 @@ mod tests {
         record
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn ipv4_tcp_packet(
         source_ip: [u8; 4],
         destination_ip: [u8; 4],

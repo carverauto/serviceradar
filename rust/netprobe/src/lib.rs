@@ -32,5 +32,5 @@ pub mod p0f_matcher;
 pub mod proto;
 pub mod runtime_config;
 pub mod server;
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 pub mod tls_server;

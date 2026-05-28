@@ -470,7 +470,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     #[test]
     fn classifies_each_phase2_protocol_from_pcap_fixtures() {
         use std::io::Write;
@@ -724,7 +724,7 @@ mod tests {
         packet
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn fixture_pcap(packets: &[Vec<u8>]) -> Vec<u8> {
         let mut pcap = Vec::new();
         pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());

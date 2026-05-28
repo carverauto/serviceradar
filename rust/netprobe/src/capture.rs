@@ -2,13 +2,13 @@ use anyhow::{Context, Result};
 
 use crate::config::Config;
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 const HEADER_FINGERPRINT_SNAPLEN: i32 = 512;
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 pub type CaptureBackendHandle = pcap::Capture<pcap::Active>;
 
-#[cfg(not(feature = "pcap-capture"))]
+#[cfg(not(feature = "remote-capture"))]
 pub struct CaptureBackendHandle;
 
 pub struct CaptureHandles<H = CaptureBackendHandle> {
@@ -83,7 +83,7 @@ where
 impl CaptureOpener for PcapCaptureOpener {
     type Handle = CaptureBackendHandle;
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn open(&self, interface: &str) -> Result<Self::Handle> {
         let capture = pcap::Capture::from_device(interface)?
             .promisc(false)
@@ -94,7 +94,7 @@ impl CaptureOpener for PcapCaptureOpener {
         Ok(capture)
     }
 
-    #[cfg(not(feature = "pcap-capture"))]
+    #[cfg(not(feature = "remote-capture"))]
     fn open(&self, interface: &str) -> Result<Self::Handle> {
         anyhow::bail!(
             "pcap capture backend is not enabled in this build; cannot open interface {interface}"

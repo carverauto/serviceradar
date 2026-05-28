@@ -7,8 +7,8 @@ description = "Host network visibility sidecar for ServiceRadar agents"
 license = "Apache-2.0"
 
 [features]
-default = ["pcap-capture"]
-pcap-capture = ["dep:pcap"]
+default = []
+remote-capture = ["dep:pcap"]
 
 [dependencies]
 anyhow = "1.0"

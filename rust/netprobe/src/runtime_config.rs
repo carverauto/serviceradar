@@ -22,7 +22,7 @@ pub struct RuntimeConfig {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 struct VisibilityState {
     enabled: bool,
     bindings: HashMap<String, BindingState>,
@@ -31,7 +31,7 @@ struct VisibilityState {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 struct BindingState {
     profile_id: String,
     fingerprint: FingerprintConfig,
@@ -40,7 +40,7 @@ struct BindingState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 enum FingerprintProtocol {
     Tcp,
     Tls,
@@ -48,7 +48,7 @@ enum FingerprintProtocol {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 struct DpiEventKey {
     source_ip: String,
     destination_ip: String,
@@ -59,7 +59,7 @@ struct DpiEventKey {
 }
 
 #[derive(Clone, Debug)]
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 struct EventDecision {
     enabled: bool,
     profile_id: String,
@@ -67,16 +67,16 @@ struct EventDecision {
 }
 
 pub struct FingerprintEventGate {
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     config: RuntimeConfig,
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     last_emitted: HashMap<(String, FingerprintProtocol), i64>,
 }
 
 pub struct DpiEventGate {
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     config: RuntimeConfig,
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     last_emitted: Mutex<HashMap<DpiEventKey, i64>>,
 }
 
@@ -127,7 +127,7 @@ impl RuntimeConfig {
         Ok(config_hash)
     }
 
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     fn decision_for(
         &self,
         event: &FingerprintEvent,
@@ -161,7 +161,7 @@ impl RuntimeConfig {
         }
     }
 
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     fn dpi_decision_for(&self, event: &DpiEvent) -> EventDecision {
         let state = self.inner.read().expect("runtime config lock poisoned");
         if !state.enabled {
@@ -206,7 +206,7 @@ impl FingerprintEventGate {
         }
     }
 
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     pub fn filter(&mut self, mut event: FingerprintEvent) -> Option<FingerprintEvent> {
         let protocol = protocol_for(&event)?;
         let decision = self.config.decision_for(&event, protocol);
@@ -237,7 +237,7 @@ impl DpiEventGate {
         }
     }
 
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
     pub fn filter(&self, mut event: DpiEvent) -> Option<DpiEvent> {
         let decision = self.config.dpi_decision_for(&event);
         if !decision.enabled {
@@ -285,7 +285,7 @@ fn bindings_by_ip(bindings: &[DeviceBinding]) -> HashMap<String, BindingState> {
     out
 }
 
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 fn protocol_for(event: &FingerprintEvent) -> Option<FingerprintProtocol> {
     match event.evidence.as_ref()? {
         fingerprint_event::Evidence::Tcp(_) => Some(FingerprintProtocol::Tcp),
@@ -306,7 +306,7 @@ fn protocol_for(event: &FingerprintEvent) -> Option<FingerprintProtocol> {
     }
 }
 
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 fn protocol_enabled(config: &FingerprintConfig, protocol: FingerprintProtocol) -> bool {
     match protocol {
         FingerprintProtocol::Tcp => config.tcp,
@@ -323,7 +323,7 @@ fn default_dpi_disabled() -> DpiConfig {
     DpiConfig::default()
 }
 
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 fn dpi_protocol_enabled(config: &DpiConfig, protocol: &str) -> bool {
     config.enabled
         && config
@@ -346,7 +346,7 @@ fn normalize_capture_interfaces(interfaces: &[String]) -> Vec<String> {
         .collect()
 }
 
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 fn should_emit(
     last_emitted: &mut HashMap<(String, FingerprintProtocol), i64>,
     ip: &str,
@@ -370,7 +370,7 @@ fn should_emit(
     true
 }
 
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 fn should_emit_dpi(
     last_emitted: &mut HashMap<DpiEventKey, i64>,
     event: &DpiEvent,
@@ -392,7 +392,7 @@ fn should_emit_dpi(
     true
 }
 
-#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+#[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
 fn dpi_event_key(event: &DpiEvent) -> DpiEventKey {
     let forward = (
         event.source_ip.as_str(),

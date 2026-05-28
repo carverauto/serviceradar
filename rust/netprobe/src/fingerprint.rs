@@ -11,12 +11,12 @@ use std::{
     time::Duration,
 };
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 use std::time::SystemTime;
 
-#[cfg(any(feature = "pcap-capture", target_os = "linux"))]
+#[cfg(any(feature = "remote-capture", target_os = "linux"))]
 use anyhow::Result;
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 use etherparse::{NetHeaders, PacketHeaders, TcpHeader, TcpOptionElement, TransportHeader};
 
 #[cfg(target_os = "linux")]
@@ -26,7 +26,7 @@ use crate::proto::netprobe::{
     fingerprint_event, FingerprintDisagreement, FingerprintEvent, FingerprintMatch,
     LicenseCleanFingerprint, OsMatch as ProtoOsMatch, P0fFingerprintMatch,
 };
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 use crate::proto::netprobe::{HttpFingerprint, TcpFingerprint, TlsFingerprint};
 use crate::{
     af_xdp_classifier::FlowKey,
@@ -122,12 +122,12 @@ fn retain_recent(inner: &mut HashMap<FlowKey, AccumulatedFingerprint>, observed_
 #[allow(dead_code)]
 const P0F_SIGNATURES_MAP: &str = "p0f_signatures";
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 pub struct FingerprintEngine {
     p0f_matcher: P0fMatcher,
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 impl FingerprintEngine {
     pub fn phase1() -> Result<Self> {
         Ok(Self {
@@ -188,7 +188,7 @@ impl FingerprintEngine {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 pub fn now_unix_nano() -> i64 {
     SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -196,7 +196,7 @@ pub fn now_unix_nano() -> i64 {
         .unwrap_or_default()
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 #[derive(Clone, Debug)]
 struct TcpSynObservation {
     source_ip: IpAddr,
@@ -211,7 +211,7 @@ struct TcpSynObservation {
     payload_class: &'static str,
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn tcp_syn_observation(packet: &[u8]) -> Option<TcpSynObservation> {
     let headers = parse_headers(packet)?;
     let net = headers.net.as_ref()?;
@@ -265,7 +265,7 @@ fn tcp_syn_observation(packet: &[u8]) -> Option<TcpSynObservation> {
     })
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 struct IpMetadata {
     version: &'static str,
     ttl: u8,
@@ -273,7 +273,7 @@ struct IpMetadata {
     quirks: Vec<String>,
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn ip_metadata(headers: &NetHeaders) -> Option<IpMetadata> {
     match headers {
         NetHeaders::Ipv4(header, _) => {
@@ -307,7 +307,7 @@ fn ip_metadata(headers: &NetHeaders) -> Option<IpMetadata> {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn tcp_options(tcp: &TcpHeader) -> (Vec<String>, Option<u16>, Option<u8>, Vec<String>) {
     let mut layout = Vec::new();
     let mut mss = None;
@@ -352,7 +352,7 @@ fn tcp_options(tcp: &TcpHeader) -> (Vec<String>, Option<u16>, Option<u8>, Vec<St
     (layout, mss, window_scale, quirks)
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn tcp_event(
     ip: IpAddr,
     interface_name: &str,
@@ -397,7 +397,7 @@ fn tcp_event(
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn legacy_payload_events(
     interface_name: &str,
     observed_at_unix_nano: i64,
@@ -452,7 +452,7 @@ fn legacy_payload_events(
     events
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn http_request_fingerprint(payload: &[u8]) -> Option<HttpFingerprint> {
     let headers = http_headers(payload)?;
     if !is_http_request_start(headers.first_line) {
@@ -472,7 +472,7 @@ fn http_request_fingerprint(payload: &[u8]) -> Option<HttpFingerprint> {
     })
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn http_response_fingerprint(payload: &[u8]) -> Option<HttpFingerprint> {
     let headers = http_headers(payload)?;
     if !headers.first_line.starts_with("HTTP/") {
@@ -491,13 +491,13 @@ fn http_response_fingerprint(payload: &[u8]) -> Option<HttpFingerprint> {
     })
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 struct HttpHeaders<'a> {
     first_line: &'a str,
     headers: &'a str,
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn http_headers(payload: &[u8]) -> Option<HttpHeaders<'_>> {
     let text = std::str::from_utf8(payload).ok()?;
     let end = text.find("\r\n\r\n").or_else(|| text.find("\n\n"))?;
@@ -509,7 +509,7 @@ fn http_headers(payload: &[u8]) -> Option<HttpHeaders<'_>> {
     })
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn is_http_request_start(line: &str) -> bool {
     matches!(
         line.split_ascii_whitespace().next(),
@@ -517,7 +517,7 @@ fn is_http_request_start(line: &str) -> bool {
     )
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn http_event(
     ip: IpAddr,
     interface_name: &str,
@@ -533,7 +533,7 @@ fn http_event(
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn header_value(headers: &str, name: &str) -> Option<String> {
     headers
         .lines()
@@ -542,7 +542,7 @@ fn header_value(headers: &str, name: &str) -> Option<String> {
         .map(|(_header_name, value)| value.trim().to_string())
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn tls_event(
     ip: IpAddr,
     interface_name: &str,
@@ -558,7 +558,7 @@ fn tls_event(
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn redact_sni_presence(has_sni: bool) -> &'static str {
     if has_sni {
         "<present>"
@@ -983,7 +983,7 @@ fn source_ip_from_flow_key(flow_key: &FlowKey, source_endpoint: u8) -> Option<Ip
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn license_clean_events_from_payload(
     interface_name: &str,
     observed_at_unix_nano: i64,
@@ -1081,7 +1081,7 @@ fn signal_name(signal: FingerprintSignal) -> &'static str {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn packet_source_and_payload(packet: &[u8]) -> Option<(IpAddr, &[u8])> {
     let headers = parse_headers(packet)?;
     let source_ip = source_ip(headers.net.as_ref()?)?;
@@ -1092,7 +1092,7 @@ fn packet_source_and_payload(packet: &[u8]) -> Option<(IpAddr, &[u8])> {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn parse_headers(packet: &[u8]) -> Option<PacketHeaders<'_>> {
     if matches!(packet.first().map(|byte| byte >> 4), Some(4 | 6)) {
         PacketHeaders::from_ip_slice(packet).ok()
@@ -1101,7 +1101,7 @@ fn parse_headers(packet: &[u8]) -> Option<PacketHeaders<'_>> {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
 fn source_ip(headers: &NetHeaders) -> Option<IpAddr> {
     match headers {
         NetHeaders::Ipv4(header, _) => Some(IpAddr::from(header.source)),
@@ -1361,7 +1361,7 @@ mod p0f_ring_tests {
     }
 }
 
-#[cfg(all(test, feature = "pcap-capture"))]
+#[cfg(all(test, feature = "remote-capture"))]
 mod tests {
     use super::{header_value, redact_sni_presence, FingerprintEngine};
     use crate::proto::netprobe::fingerprint_event;
