@@ -2,12 +2,13 @@
 mod linux {
     use std::{
         fs, io,
-        mem::size_of,
+        mem::{self, size_of},
         num::NonZeroU32,
         os::fd::{AsRawFd, FromRawFd, OwnedFd},
         path::Path,
+        ptr::{self, NonNull},
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{fence, AtomicBool, Ordering},
             Arc,
         },
         thread::{self, JoinHandle},
@@ -22,6 +23,11 @@ mod linux {
     const BUSY_POLL_SPIN: Duration = Duration::from_micros(10);
     const IDLE_SLEEP: Duration = Duration::from_millis(1);
     const IDLE_SLEEP_AFTER: Duration = Duration::from_millis(100);
+    const RX_RING_SIZE: u32 = 1024;
+    const FILL_RING_SIZE: u32 = 2048;
+    const COMPLETION_RING_SIZE: u32 = 2048;
+    const UMEM_FRAME_SIZE: u32 = 4096;
+    const UMEM_FRAME_COUNT: u32 = FILL_RING_SIZE;
 
     pub const DEFAULT_REDIRECT_BUDGET: u32 = 16;
 
@@ -141,13 +147,13 @@ mod linux {
             })?;
         }
 
-        let socket = AfXdpSocket::bind(config.ifindex, config.queue_id).with_context(|| {
-            format!(
-                "failed to bind AF_XDP socket for {} queue {}",
-                config.interface, config.queue_id
-            )
-        })?;
-        let mut source = AfXdpSocketSource::new(socket);
+        let mut source =
+            AfXdpSocketSource::bind(config.ifindex, config.queue_id).with_context(|| {
+                format!(
+                    "failed to initialize AF_XDP socket for {} queue {}",
+                    config.interface, config.queue_id
+                )
+            })?;
         let mut backoff = BackoffState::default();
 
         while !shutdown.load(Ordering::Relaxed) {
@@ -170,19 +176,24 @@ mod linux {
 
     struct AfXdpSocketSource {
         _socket: AfXdpSocket,
+        rings: AfXdpRings,
     }
 
     impl AfXdpSocketSource {
-        fn new(socket: AfXdpSocket) -> Self {
-            Self { _socket: socket }
+        fn bind(ifindex: u32, queue_id: u32) -> Result<Self> {
+            let mut socket = AfXdpSocket::open()?;
+            let rings = AfXdpRings::new(&socket)?;
+            socket.bind_interface(ifindex, queue_id)?;
+            Ok(Self {
+                _socket: socket,
+                rings,
+            })
         }
     }
 
     impl PacketSource for AfXdpSocketSource {
         fn poll_packet(&mut self) -> Result<Option<Vec<u8>>> {
-            // The §18.8 task owns socket binding, thread placement, and channel shape.
-            // §18.9 replaces this no-op with UMEM/RX-ring packet dequeue and DPI dispatch.
-            Ok(None)
+            self.rings.poll_packet()
         }
     }
 
@@ -257,7 +268,7 @@ mod linux {
     }
 
     impl AfXdpSocket {
-        fn bind(ifindex: u32, queue_id: u32) -> Result<Self> {
+        fn open() -> Result<Self> {
             let raw_fd = unsafe {
                 // SAFETY: socket is called with constant domain/type/protocol values and returns
                 // either a valid owned file descriptor or -1 with errno set.
@@ -271,9 +282,13 @@ mod linux {
                 // SAFETY: raw_fd was returned by socket above and is uniquely owned here.
                 OwnedFd::from_raw_fd(raw_fd)
             };
+            Ok(Self { fd })
+        }
+
+        fn bind_interface(&mut self, ifindex: u32, queue_id: u32) -> Result<()> {
             let addr = libc::sockaddr_xdp {
                 sxdp_family: libc::AF_XDP as libc::sa_family_t,
-                sxdp_flags: 0,
+                sxdp_flags: libc::XDP_COPY,
                 sxdp_ifindex: ifindex,
                 sxdp_queue_id: queue_id,
                 sxdp_shared_umem_fd: 0,
@@ -282,7 +297,7 @@ mod linux {
                 // SAFETY: addr points to a valid sockaddr_xdp for the duration of the call; fd is
                 // an open AF_XDP socket.
                 libc::bind(
-                    fd.as_raw_fd(),
+                    self.fd.as_raw_fd(),
                     (&addr as *const libc::sockaddr_xdp).cast::<libc::sockaddr>(),
                     size_of::<libc::sockaddr_xdp>() as libc::socklen_t,
                 )
@@ -291,13 +306,398 @@ mod linux {
                 return Err(io::Error::last_os_error()).context("AF_XDP socket bind failed");
             }
 
-            Ok(Self { fd })
+            Ok(())
         }
     }
 
     impl AsRawFd for AfXdpSocket {
         fn as_raw_fd(&self) -> std::os::fd::RawFd {
             self.fd.as_raw_fd()
+        }
+    }
+
+    struct AfXdpRings {
+        umem: MmapRegion,
+        _rx_ring: RingMmap,
+        _fill_ring: RingMmap,
+        _completion_ring: RingMmap,
+        rx: RxRing,
+        fill: FillRing,
+        frame_size: u64,
+    }
+
+    impl AfXdpRings {
+        fn new(socket: &AfXdpSocket) -> Result<Self> {
+            let umem_len =
+                usize::try_from(u64::from(UMEM_FRAME_SIZE) * u64::from(UMEM_FRAME_COUNT))
+                    .context("AF_XDP UMEM length does not fit usize")?;
+            let umem = MmapRegion::anonymous(umem_len).context("failed to allocate AF_XDP UMEM")?;
+
+            register_umem(socket.as_raw_fd(), &umem, UMEM_FRAME_SIZE)?;
+            set_xdp_ring_size(socket.as_raw_fd(), libc::XDP_RX_RING, RX_RING_SIZE)?;
+            set_xdp_ring_size(socket.as_raw_fd(), libc::XDP_UMEM_FILL_RING, FILL_RING_SIZE)?;
+            set_xdp_ring_size(
+                socket.as_raw_fd(),
+                libc::XDP_UMEM_COMPLETION_RING,
+                COMPLETION_RING_SIZE,
+            )?;
+
+            let offsets = xdp_mmap_offsets(socket.as_raw_fd())?;
+            let rx_ring = RingMmap::xdp(
+                socket.as_raw_fd(),
+                ring_len(offsets.rx.desc, RX_RING_SIZE, size_of::<libc::xdp_desc>())?,
+                libc::XDP_PGOFF_RX_RING,
+            )
+            .context("failed to mmap AF_XDP RX ring")?;
+            let fill_ring = RingMmap::xdp(
+                socket.as_raw_fd(),
+                ring_len(offsets.fr.desc, FILL_RING_SIZE, size_of::<u64>())?,
+                libc::XDP_UMEM_PGOFF_FILL_RING as libc::off_t,
+            )
+            .context("failed to mmap AF_XDP fill ring")?;
+            let completion_ring = RingMmap::xdp(
+                socket.as_raw_fd(),
+                ring_len(offsets.cr.desc, COMPLETION_RING_SIZE, size_of::<u64>())?,
+                libc::XDP_UMEM_PGOFF_COMPLETION_RING as libc::off_t,
+            )
+            .context("failed to mmap AF_XDP completion ring")?;
+
+            let rx = RxRing::new(&rx_ring, offsets.rx, RX_RING_SIZE)?;
+            let mut fill = FillRing::new(&fill_ring, offsets.fr, FILL_RING_SIZE)?;
+            fill.prime(UMEM_FRAME_COUNT, UMEM_FRAME_SIZE);
+
+            Ok(Self {
+                umem,
+                _rx_ring: rx_ring,
+                _fill_ring: fill_ring,
+                _completion_ring: completion_ring,
+                rx,
+                fill,
+                frame_size: u64::from(UMEM_FRAME_SIZE),
+            })
+        }
+
+        fn poll_packet(&mut self) -> Result<Option<Vec<u8>>> {
+            let Some(desc) = self.rx.next_desc() else {
+                return Ok(None);
+            };
+            let packet = self.umem.packet(desc.addr, desc.len)?;
+            let frame_addr = desc.addr & !(self.frame_size - 1);
+            self.fill.restock(frame_addr);
+            Ok(Some(packet))
+        }
+    }
+
+    struct RxRing {
+        producer: NonNull<u32>,
+        consumer: NonNull<u32>,
+        desc: NonNull<libc::xdp_desc>,
+        cached_consumer: u32,
+        mask: u32,
+    }
+
+    impl RxRing {
+        fn new(region: &RingMmap, offsets: libc::xdp_ring_offset, size: u32) -> Result<Self> {
+            ensure_power_of_two(size, "RX ring")?;
+            let producer = region.field_ptr::<u32>(offsets.producer)?;
+            let consumer = region.field_ptr::<u32>(offsets.consumer)?;
+            let desc = region.field_ptr::<libc::xdp_desc>(offsets.desc)?;
+            let cached_consumer = unsafe {
+                // SAFETY: consumer points into the mmap'd RX ring for the lifetime of RxRing.
+                ptr::read_volatile(consumer.as_ptr())
+            };
+            Ok(Self {
+                producer,
+                consumer,
+                desc,
+                cached_consumer,
+                mask: size - 1,
+            })
+        }
+
+        fn next_desc(&mut self) -> Option<libc::xdp_desc> {
+            let producer = unsafe {
+                // SAFETY: producer points into the mmap'd RX ring for the lifetime of RxRing.
+                ptr::read_volatile(self.producer.as_ptr())
+            };
+            if self.cached_consumer == producer {
+                return None;
+            }
+
+            fence(Ordering::Acquire);
+            let index = self.cached_consumer & self.mask;
+            let desc = unsafe {
+                // SAFETY: index is masked by the power-of-two ring size, so it addresses an
+                // xdp_desc entry inside the mmap'd descriptor array.
+                ptr::read_volatile(self.desc.as_ptr().add(index as usize))
+            };
+            self.cached_consumer = self.cached_consumer.wrapping_add(1);
+            unsafe {
+                // SAFETY: consumer points into the mmap'd RX ring for the lifetime of RxRing.
+                ptr::write_volatile(self.consumer.as_ptr(), self.cached_consumer);
+            }
+            Some(desc)
+        }
+    }
+
+    struct FillRing {
+        producer: NonNull<u32>,
+        desc: NonNull<u64>,
+        cached_producer: u32,
+        mask: u32,
+    }
+
+    impl FillRing {
+        fn new(region: &RingMmap, offsets: libc::xdp_ring_offset, size: u32) -> Result<Self> {
+            ensure_power_of_two(size, "fill ring")?;
+            let producer = region.field_ptr::<u32>(offsets.producer)?;
+            let desc = region.field_ptr::<u64>(offsets.desc)?;
+            let cached_producer = unsafe {
+                // SAFETY: producer points into the mmap'd fill ring for the lifetime of FillRing.
+                ptr::read_volatile(producer.as_ptr())
+            };
+            Ok(Self {
+                producer,
+                desc,
+                cached_producer,
+                mask: size - 1,
+            })
+        }
+
+        fn prime(&mut self, frame_count: u32, frame_size: u32) {
+            for frame in 0..frame_count {
+                self.write_addr(u64::from(frame) * u64::from(frame_size));
+            }
+            self.publish();
+        }
+
+        fn restock(&mut self, frame_addr: u64) {
+            self.write_addr(frame_addr);
+            self.publish();
+        }
+
+        fn write_addr(&mut self, addr: u64) {
+            let index = self.cached_producer & self.mask;
+            unsafe {
+                // SAFETY: index is masked by the power-of-two ring size, so it addresses a u64
+                // entry inside the mmap'd descriptor array.
+                ptr::write_volatile(self.desc.as_ptr().add(index as usize), addr);
+            }
+            self.cached_producer = self.cached_producer.wrapping_add(1);
+        }
+
+        fn publish(&self) {
+            fence(Ordering::Release);
+            unsafe {
+                // SAFETY: producer points into the mmap'd fill ring for the lifetime of FillRing.
+                ptr::write_volatile(self.producer.as_ptr(), self.cached_producer);
+            }
+        }
+    }
+
+    struct MmapRegion {
+        ptr: NonNull<u8>,
+        len: usize,
+    }
+
+    impl MmapRegion {
+        fn anonymous(len: usize) -> Result<Self> {
+            let ptr = unsafe {
+                // SAFETY: mmap is called with MAP_ANONYMOUS and no fd. On success it returns a
+                // page-aligned region owned by this MmapRegion and unmapped in Drop.
+                libc::mmap(
+                    ptr::null_mut(),
+                    len,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                    -1,
+                    0,
+                )
+            };
+            if ptr == libc::MAP_FAILED {
+                return Err(io::Error::last_os_error()).context("anonymous mmap failed");
+            }
+            let ptr = NonNull::new(ptr.cast::<u8>()).context("anonymous mmap returned null")?;
+            Ok(Self { ptr, len })
+        }
+
+        fn packet(&self, addr: u64, len: u32) -> Result<Vec<u8>> {
+            let start =
+                usize::try_from(addr).context("AF_XDP descriptor address overflows usize")?;
+            let len = usize::try_from(len).context("AF_XDP descriptor length overflows usize")?;
+            let end = start
+                .checked_add(len)
+                .context("AF_XDP descriptor range overflows usize")?;
+            if end > self.len {
+                bail!(
+                    "AF_XDP descriptor range [{start}, {end}) exceeds UMEM length {}",
+                    self.len
+                );
+            }
+            let slice = unsafe {
+                // SAFETY: bounds are checked above; ptr is valid for self.len bytes and remains
+                // mapped for the lifetime of MmapRegion.
+                std::slice::from_raw_parts(self.ptr.as_ptr().add(start), len)
+            };
+            Ok(slice.to_vec())
+        }
+    }
+
+    impl Drop for MmapRegion {
+        fn drop(&mut self) {
+            let result = unsafe {
+                // SAFETY: ptr/len came from a successful mmap call and this Drop runs once.
+                libc::munmap(self.ptr.as_ptr().cast::<libc::c_void>(), self.len)
+            };
+            if result < 0 {
+                log::warn!(
+                    "failed to munmap AF_XDP region: {}",
+                    io::Error::last_os_error()
+                );
+            }
+        }
+    }
+
+    struct RingMmap {
+        ptr: NonNull<u8>,
+        len: usize,
+    }
+
+    impl RingMmap {
+        fn xdp(fd: std::os::fd::RawFd, len: usize, offset: libc::off_t) -> Result<Self> {
+            let ptr = unsafe {
+                // SAFETY: mmap maps a kernel-provided AF_XDP ring for the given socket fd/offset.
+                // The resulting mapping is owned by RingMmap and unmapped in Drop.
+                libc::mmap(
+                    ptr::null_mut(),
+                    len,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    fd,
+                    offset,
+                )
+            };
+            if ptr == libc::MAP_FAILED {
+                return Err(io::Error::last_os_error()).context("AF_XDP ring mmap failed");
+            }
+            let ptr = NonNull::new(ptr.cast::<u8>()).context("AF_XDP ring mmap returned null")?;
+            Ok(Self { ptr, len })
+        }
+
+        fn field_ptr<T>(&self, offset: u64) -> Result<NonNull<T>> {
+            let offset = usize::try_from(offset).context("AF_XDP ring offset overflows usize")?;
+            let end = offset
+                .checked_add(size_of::<T>())
+                .context("AF_XDP ring field range overflows usize")?;
+            if end > self.len {
+                bail!(
+                    "AF_XDP ring field range [{offset}, {end}) exceeds mmap length {}",
+                    self.len
+                );
+            }
+            let ptr = unsafe {
+                // SAFETY: bounds were validated above. Kernel ring offsets are aligned for their
+                // published field types; NonNull preserves the raw pointer without creating refs.
+                self.ptr.as_ptr().add(offset).cast::<T>()
+            };
+            NonNull::new(ptr).context("AF_XDP ring field pointer is null")
+        }
+    }
+
+    impl Drop for RingMmap {
+        fn drop(&mut self) {
+            let result = unsafe {
+                // SAFETY: ptr/len came from a successful mmap call and this Drop runs once.
+                libc::munmap(self.ptr.as_ptr().cast::<libc::c_void>(), self.len)
+            };
+            if result < 0 {
+                log::warn!(
+                    "failed to munmap AF_XDP ring: {}",
+                    io::Error::last_os_error()
+                );
+            }
+        }
+    }
+
+    fn register_umem(fd: std::os::fd::RawFd, umem: &MmapRegion, frame_size: u32) -> Result<()> {
+        let reg = libc::xdp_umem_reg {
+            addr: umem.ptr.as_ptr() as u64,
+            len: umem.len as u64,
+            chunk_size: frame_size,
+            headroom: 0,
+            flags: 0,
+            tx_metadata_len: 0,
+        };
+        set_sockopt(fd, libc::SOL_XDP, libc::XDP_UMEM_REG, &reg, "XDP_UMEM_REG")
+    }
+
+    fn set_xdp_ring_size(fd: std::os::fd::RawFd, opt: libc::c_int, size: u32) -> Result<()> {
+        set_sockopt(fd, libc::SOL_XDP, opt, &size, "AF_XDP ring size")
+    }
+
+    fn set_sockopt<T>(
+        fd: std::os::fd::RawFd,
+        level: libc::c_int,
+        opt: libc::c_int,
+        value: &T,
+        name: &str,
+    ) -> Result<()> {
+        let result = unsafe {
+            // SAFETY: value points to a properly initialized value of length size_of::<T>() for
+            // the duration of the setsockopt call.
+            libc::setsockopt(
+                fd,
+                level,
+                opt,
+                (value as *const T).cast::<libc::c_void>(),
+                size_of::<T>() as libc::socklen_t,
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error()).with_context(|| format!("{name} failed"));
+        }
+        Ok(())
+    }
+
+    fn xdp_mmap_offsets(fd: std::os::fd::RawFd) -> Result<libc::xdp_mmap_offsets> {
+        let mut offsets = unsafe {
+            // SAFETY: xdp_mmap_offsets is a plain C struct filled by getsockopt below.
+            mem::zeroed::<libc::xdp_mmap_offsets>()
+        };
+        let mut len = size_of::<libc::xdp_mmap_offsets>() as libc::socklen_t;
+        let result = unsafe {
+            // SAFETY: offsets points to valid writable memory and len is initialized to its size.
+            libc::getsockopt(
+                fd,
+                libc::SOL_XDP,
+                libc::XDP_MMAP_OFFSETS,
+                (&mut offsets as *mut libc::xdp_mmap_offsets).cast::<libc::c_void>(),
+                &mut len,
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error()).context("XDP_MMAP_OFFSETS failed");
+        }
+        Ok(offsets)
+    }
+
+    fn ring_len(desc_offset: u64, ring_size: u32, desc_size: usize) -> Result<usize> {
+        let desc_offset =
+            usize::try_from(desc_offset).context("AF_XDP descriptor offset overflows usize")?;
+        let desc_bytes = usize::try_from(ring_size)
+            .context("AF_XDP ring size overflows usize")?
+            .checked_mul(desc_size)
+            .context("AF_XDP descriptor bytes overflow usize")?;
+        desc_offset
+            .checked_add(desc_bytes)
+            .context("AF_XDP mmap length overflows usize")
+    }
+
+    fn ensure_power_of_two(value: u32, label: &str) -> Result<()> {
+        if value.is_power_of_two() {
+            Ok(())
+        } else {
+            bail!("{label} size {value} is not a power of two")
         }
     }
 
