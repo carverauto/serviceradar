@@ -4,12 +4,12 @@ mod linux {
         fs, io,
         mem::{self, size_of},
         num::NonZeroU32,
-        os::fd::{AsRawFd, FromRawFd, OwnedFd},
+        os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd, RawFd},
         path::Path,
         ptr::{self, NonNull},
         sync::{
             atomic::{fence, AtomicBool, Ordering},
-            Arc,
+            Arc, Mutex,
         },
         thread::{self, JoinHandle},
         time::Duration,
@@ -68,6 +68,50 @@ mod linux {
         streams: Vec<AfXdpStream>,
     }
 
+    pub trait XskSocketRegistry: Send + Sync {
+        fn register_socket(&self, queue_id: u32, socket_fd: RawFd) -> Result<()>;
+    }
+
+    #[derive(Debug, Default)]
+    pub struct NoopXskSocketRegistry;
+
+    impl XskSocketRegistry for NoopXskSocketRegistry {
+        fn register_socket(&self, _queue_id: u32, _socket_fd: RawFd) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    pub struct AyaXskSocketRegistry {
+        map: Mutex<aya::maps::XskMap<aya::maps::MapData>>,
+    }
+
+    impl AyaXskSocketRegistry {
+        pub fn from_ebpf(ebpf: &mut aya::Ebpf) -> Result<Self> {
+            let map = ebpf.take_map("xsk_sockets").ok_or_else(|| {
+                anyhow::anyhow!("xsk_sockets map is missing from netprobe eBPF object")
+            })?;
+            Ok(Self {
+                map: Mutex::new(aya::maps::XskMap::try_from(map)?),
+            })
+        }
+    }
+
+    impl XskSocketRegistry for AyaXskSocketRegistry {
+        fn register_socket(&self, queue_id: u32, socket_fd: RawFd) -> Result<()> {
+            let mut map = self
+                .map
+                .lock()
+                .map_err(|_| anyhow::anyhow!("xsk_sockets map mutex poisoned"))?;
+            let socket_fd = unsafe {
+                // SAFETY: The AF_XDP socket stays open in the consumer source after this call.
+                // BorrowedFd only lends the raw descriptor long enough for bpf_map_update_elem.
+                BorrowedFd::borrow_raw(socket_fd)
+            };
+            map.set(queue_id, socket_fd, 0)
+                .with_context(|| format!("failed to register AF_XDP socket for queue {queue_id}"))
+        }
+    }
+
     impl AfXdpConsumers {
         pub fn start(interfaces: &[String]) -> Result<Self> {
             let interfaces = interfaces
@@ -78,6 +122,27 @@ mod linux {
         }
 
         pub fn start_resolved(interfaces: &[AfXdpInterface]) -> Result<Self> {
+            Self::start_resolved_with_registry(
+                interfaces,
+                Arc::new(NoopXskSocketRegistry) as Arc<dyn XskSocketRegistry>,
+            )
+        }
+
+        pub fn start_with_registry(
+            interfaces: &[String],
+            xsk_registry: Arc<dyn XskSocketRegistry>,
+        ) -> Result<Self> {
+            let interfaces = interfaces
+                .iter()
+                .map(|interface| resolve_interface(interface))
+                .collect::<Result<Vec<_>>>()?;
+            Self::start_resolved_with_registry(&interfaces, xsk_registry)
+        }
+
+        pub fn start_resolved_with_registry(
+            interfaces: &[AfXdpInterface],
+            xsk_registry: Arc<dyn XskSocketRegistry>,
+        ) -> Result<Self> {
             let shutdown = Arc::new(AtomicBool::new(false));
             let configs = consumer_configs_for_interfaces(interfaces);
             let mut threads = Vec::with_capacity(configs.len());
@@ -86,6 +151,7 @@ mod linux {
             for config in configs {
                 let (tx, rx) = bounded(CHANNEL_CAPACITY);
                 let shutdown_worker = Arc::clone(&shutdown);
+                let xsk_registry_worker = Arc::clone(&xsk_registry);
                 let thread_config = config.clone();
                 let thread_name = format!(
                     "netprobe-af-xdp-{}-q{}",
@@ -94,7 +160,9 @@ mod linux {
                 let thread = thread::Builder::new()
                     .name(thread_name)
                     .spawn(move || {
-                        if let Err(err) = run_consumer(thread_config, tx, shutdown_worker) {
+                        if let Err(err) =
+                            run_consumer(thread_config, tx, shutdown_worker, xsk_registry_worker)
+                        {
                             log::warn!("AF_XDP consumer exited: {err:#}");
                         }
                     })
@@ -137,6 +205,7 @@ mod linux {
         config: AfXdpConsumerConfig,
         tx: Sender<AfXdpPacket>,
         shutdown: Arc<AtomicBool>,
+        xsk_registry: Arc<dyn XskSocketRegistry>,
     ) -> Result<()> {
         if let Some(core) = config.preferred_core {
             pin_current_thread(core).with_context(|| {
@@ -154,6 +223,7 @@ mod linux {
                     config.interface, config.queue_id
                 )
             })?;
+        register_xsk_socket(xsk_registry.as_ref(), &config, source.socket_fd())?;
         let mut backoff = BackoffState::default();
 
         while !shutdown.load(Ordering::Relaxed) {
@@ -188,6 +258,10 @@ mod linux {
                 _socket: socket,
                 rings,
             })
+        }
+
+        fn socket_fd(&self) -> RawFd {
+            self._socket.as_raw_fd()
         }
     }
 
@@ -238,6 +312,21 @@ mod linux {
                 )
             }
         }
+    }
+
+    fn register_xsk_socket(
+        registry: &dyn XskSocketRegistry,
+        config: &AfXdpConsumerConfig,
+        socket_fd: RawFd,
+    ) -> Result<()> {
+        registry
+            .register_socket(config.queue_id, socket_fd)
+            .with_context(|| {
+                format!(
+                    "failed to register {} queue {} AF_XDP socket in xsk_sockets map",
+                    config.interface, config.queue_id
+                )
+            })
     }
 
     #[derive(Default)]
@@ -864,15 +953,18 @@ mod linux {
 
     #[cfg(test)]
     mod tests {
-        use std::{collections::VecDeque, num::NonZeroU32, time::Duration};
+        use std::{
+            collections::VecDeque, num::NonZeroU32, os::fd::RawFd, sync::Mutex, time::Duration,
+        };
 
         use anyhow::Result;
         use crossbeam_channel::bounded;
 
         use super::{
             consumer_configs_for_interfaces, first_cpu_from_affinity_mask, parse_interface_irqs,
-            poll_once, AfXdpConsumerConfig, AfXdpInterface, BackoffState, PacketSource,
-            PollOutcome, BUSY_POLL_SPIN, DEFAULT_REDIRECT_BUDGET, IDLE_SLEEP, IDLE_SLEEP_AFTER,
+            poll_once, register_xsk_socket, AfXdpConsumerConfig, AfXdpInterface, BackoffState,
+            PacketSource, PollOutcome, XskSocketRegistry, BUSY_POLL_SPIN, DEFAULT_REDIRECT_BUDGET,
+            IDLE_SLEEP, IDLE_SLEEP_AFTER,
         };
 
         struct FakeSource {
@@ -882,6 +974,21 @@ mod linux {
         impl PacketSource for FakeSource {
             fn poll_packet(&mut self) -> Result<Option<Vec<u8>>> {
                 Ok(self.packets.pop_front().flatten())
+            }
+        }
+
+        #[derive(Default)]
+        struct RecordingXskRegistry {
+            registrations: Mutex<Vec<(u32, RawFd)>>,
+        }
+
+        impl XskSocketRegistry for RecordingXskRegistry {
+            fn register_socket(&self, queue_id: u32, socket_fd: RawFd) -> Result<()> {
+                self.registrations
+                    .lock()
+                    .unwrap()
+                    .push((queue_id, socket_fd));
+                Ok(())
             }
         }
 
@@ -987,6 +1094,22 @@ NMI: 0 0 0 0 Non-maskable interrupts
         }
 
         #[test]
+        fn registers_xsk_socket_by_queue_id() {
+            let registry = RecordingXskRegistry::default();
+            let config = AfXdpConsumerConfig {
+                interface: "eth0".to_owned(),
+                ifindex: 7,
+                queue_id: 3,
+                preferred_core: None,
+                redirect_budget: DEFAULT_REDIRECT_BUDGET,
+            };
+
+            register_xsk_socket(&registry, &config, 42).unwrap();
+
+            assert_eq!(*registry.registrations.lock().unwrap(), vec![(3, 42)]);
+        }
+
+        #[test]
         fn backoff_switches_to_sleep_after_idle_window_and_resets_on_packet() {
             let mut backoff = BackoffState::default();
             assert_eq!(backoff.next_delay(), BUSY_POLL_SPIN);
@@ -1005,7 +1128,7 @@ NMI: 0 0 0 0 Non-maskable interrupts
 
 #[cfg(not(target_os = "linux"))]
 mod non_linux {
-    use std::num::NonZeroU32;
+    use std::{num::NonZeroU32, os::fd::RawFd, sync::Arc};
 
     use anyhow::Result;
     use crossbeam_channel::Receiver;
@@ -1045,11 +1168,31 @@ mod non_linux {
         streams: Vec<AfXdpStream>,
     }
 
+    pub trait XskSocketRegistry: Send + Sync {
+        fn register_socket(&self, queue_id: u32, socket_fd: RawFd) -> Result<()>;
+    }
+
+    #[derive(Debug, Default)]
+    pub struct NoopXskSocketRegistry;
+
+    impl XskSocketRegistry for NoopXskSocketRegistry {
+        fn register_socket(&self, _queue_id: u32, _socket_fd: RawFd) -> Result<()> {
+            Ok(())
+        }
+    }
+
     impl AfXdpConsumers {
         pub fn start(_interfaces: &[String]) -> Result<Self> {
             Ok(Self {
                 streams: Vec::new(),
             })
+        }
+
+        pub fn start_with_registry(
+            _interfaces: &[String],
+            _xsk_registry: Arc<dyn XskSocketRegistry>,
+        ) -> Result<Self> {
+            Self::start(_interfaces)
         }
 
         pub fn streams(&self) -> &[AfXdpStream] {
@@ -1063,9 +1206,13 @@ mod non_linux {
 }
 
 #[cfg(target_os = "linux")]
-pub use linux::{AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream};
+pub use linux::{
+    AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream,
+    AyaXskSocketRegistry, NoopXskSocketRegistry, XskSocketRegistry,
+};
 
 #[cfg(not(target_os = "linux"))]
 pub use non_linux::{
     AfXdpConsumerConfig, AfXdpConsumers, AfXdpInterface, AfXdpPacket, AfXdpStream,
+    NoopXskSocketRegistry, XskSocketRegistry,
 };

@@ -13,7 +13,7 @@ use crossbeam_channel::TryRecvError;
 use tokio::sync::broadcast;
 
 use crate::{
-    af_xdp::{AfXdpConsumers, AfXdpPacket, AfXdpStream},
+    af_xdp::{AfXdpConsumers, AfXdpPacket, AfXdpStream, NoopXskSocketRegistry, XskSocketRegistry},
     dpi::DpiPipeline,
     metrics::Metrics,
     proto::netprobe::DpiEvent,
@@ -188,7 +188,28 @@ impl AfXdpClassifierRuntime {
     where
         W: FlowTableWriter + Send + 'static,
     {
-        let mut consumers = AfXdpConsumers::start(interfaces)
+        Self::start_with_xsk_registry(
+            interfaces,
+            flow_table,
+            metrics,
+            dpi_events,
+            dpi_gate,
+            Arc::new(NoopXskSocketRegistry),
+        )
+    }
+
+    pub fn start_with_xsk_registry<W>(
+        interfaces: &[String],
+        flow_table: W,
+        metrics: Metrics,
+        dpi_events: broadcast::Sender<DpiEvent>,
+        dpi_gate: Arc<DpiEventGate>,
+        xsk_registry: Arc<dyn XskSocketRegistry>,
+    ) -> Result<Self>
+    where
+        W: FlowTableWriter + Send + 'static,
+    {
+        let mut consumers = AfXdpConsumers::start_with_registry(interfaces, xsk_registry)
             .context("failed to start AF_XDP interface consumers")?;
         let streams = consumers.take_streams();
         let stop = Arc::new(AtomicBool::new(false));
@@ -212,6 +233,26 @@ impl AfXdpClassifierRuntime {
             classifier_thread: Some(classifier_thread),
             _consumers: consumers,
         })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn start_from_ebpf(
+        interfaces: &[String],
+        ebpf: &mut aya::Ebpf,
+        metrics: Metrics,
+        dpi_events: broadcast::Sender<DpiEvent>,
+        dpi_gate: Arc<DpiEventGate>,
+    ) -> Result<Self> {
+        let flow_table = AyaFlowTableWriter::from_ebpf(ebpf)?;
+        let xsk_registry = Arc::new(crate::af_xdp::AyaXskSocketRegistry::from_ebpf(ebpf)?);
+        Self::start_with_xsk_registry(
+            interfaces,
+            flow_table,
+            metrics,
+            dpi_events,
+            dpi_gate,
+            xsk_registry,
+        )
     }
 }
 
