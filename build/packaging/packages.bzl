@@ -41,8 +41,10 @@ PACKAGES = {
         "architecture": "amd64",
         "section": "utils",
         "priority": "optional",
-        "deb_depends": ["systemd", "libcap2-bin", "libpcap0.8"],
-        "rpm_requires": ["systemd", "libcap", "libpcap"],
+        "deb_depends": ["systemd", "libcap2-bin"],
+        "rpm_requires": ["systemd", "libcap"],
+        "deb_recommends": ["libpcap0.8"],
+        "rpm_recommends": ["libpcap"],
         "binary": {
             "target": "//go/cmd/agent:agent",
             "dest": "/usr/local/lib/serviceradar/agent/serviceradar-agent-seed",
