@@ -518,10 +518,10 @@ updated in-kernel.
 #### Scenario: TCP fingerprinting emits exactly one event per connection
 - **WHEN** a new TCP connection is established on an allowlisted
   interface
-- **THEN** the SYN-time kprobe emits one `tcp_syn_signature` event to
-  the perf ring buffer
-- **AND** the userspace fingerprint analyzer runs the huginn-net
-  matcher exactly once for that connection
+- **THEN** the SYN-time kprobe emits one `p0f_signature` event to
+  the p0f ring buffer
+- **AND** the userspace fingerprint analyzer runs the in-tree p0f
+  matcher and OS-match ensemble exactly once for that connection
 - **AND** no further per-packet fingerprinting work is performed for
   the connection
 

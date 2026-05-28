@@ -36,7 +36,7 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayloadTest do
              "family" => "linux",
              "version" => "Linux 5.x",
              "confidence" => 0.92,
-             "source" => "huginn-net",
+             "source" => "serviceradar-license-clean",
              "observed_at" => "2026-05-27T12:00:00Z"
            }
   end
@@ -86,7 +86,7 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayloadTest do
 
     assert os["passive_fingerprint"] == %{
              "family" => "linux",
-             "source" => "huginn-net"
+             "source" => "serviceradar-license-clean"
            }
   end
 end

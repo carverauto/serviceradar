@@ -2,7 +2,7 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayload do
   @moduledoc false
 
   @base "passive_fingerprint"
-  @huginn_source "huginn-net"
+  @fingerprint_source "serviceradar-license-clean"
   @protocol_atoms %{"tcp" => :tcp, "tls" => :tls, "http" => :http}
 
   @spec enrich_metadata(map()) :: map()
@@ -92,7 +92,7 @@ defmodule ServiceRadar.Inventory.PassiveFingerprintPayload do
     |> maybe_put("family", family)
     |> maybe_put("version", version)
     |> maybe_put("confidence", passive_number(metadata, tcp, "tcp.confidence", ["confidence"]))
-    |> maybe_put("source", @huginn_source)
+    |> maybe_put("source", @fingerprint_source)
     |> maybe_put("observed_at", observed_at(metadata, tcp))
     |> case do
       payload

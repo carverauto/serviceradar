@@ -16,7 +16,6 @@ NETPROBE_DEPS = crate_deps([
     "crossbeam-channel",
     "env_logger",
     "etherparse",
-    "huginn-net",
     "log",
     "nix",
     "phf",
@@ -28,8 +27,16 @@ NETPROBE_DEPS = crate_deps([
     "thiserror",
     "tokio",
 ]) + select({
-    "//build/platforms:target_linux_aarch64_musl": [],
-    "//build/platforms:target_linux_x86_64_musl": [],
+    "//build/platforms:target_linux_aarch64_musl": crate_deps([
+        "aya",
+        "aya-log",
+        "procfs",
+    ]),
+    "//build/platforms:target_linux_x86_64_musl": crate_deps([
+        "aya",
+        "aya-log",
+        "procfs",
+    ]),
     "//build/platforms:target_linux_arm64": crate_deps([
         "aya",
         "aya-log",

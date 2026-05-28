@@ -41,9 +41,9 @@ ServiceRadar already has the supporting machinery:
 
 Reference implementations surveyed:
 
-- [`huginn-net`](https://crates.io/crates/huginn-net) — maintained
-  Rust crate covering p0f-style TCP, HTTP signature, and TLS-JA4
-  analysis.
+- The original Phase 1 plan considered `huginn-net` for p0f-style TCP,
+  HTTP signature, and TLS-JA4 analysis. D14 supersedes that dependency
+  with ServiceRadar-owned p0f / JA4-base / HASSH code.
 - [`rustnet`](https://github.com/domcyrus/rustnet) — Rust TUI that
   combines pcap capture, a sizeable dissector set (HTTP/1.x, HTTP/2,
   TLS SNI, DNS, SSH, FTP, QUIC, MQTT, BitTorrent), and eBPF
@@ -51,8 +51,8 @@ Reference implementations surveyed:
   privilege-drop sequence on Linux. We will **not** depend on rustnet
   as a crate — it is structured as a TUI binary, not an embeddable
   library — but we will reproduce the same architectural patterns and
-  depend on the same underlying crates (`aya`, `etherparse`, `pcap`)
-  plus `huginn-net` for fingerprinting.
+  depend on the same underlying crates (`aya`, `etherparse`, `pcap`).
+  Fingerprinting is handled by the license-clean stack in D14.
 
 Constraints:
 
@@ -127,7 +127,7 @@ case), security review (eBPF capability surface).
 ### D2. Cherry-pick from rustnet rather than depend on it
 
 - **Decision.** Treat `rustnet` as a reference implementation. Depend
-  directly on the upstream crates rustnet itself uses — `huginn-net`,
+  directly on the upstream crates rustnet itself uses where they fit:
   `aya` (with `aya-ebpf` and `aya-log`), `etherparse`, `pktparse-rs`,
   `pcap` — plus our own glue. Re-implement only the patterns we need
   (process map, dissector pipeline assembly, capability sequencing,
@@ -365,8 +365,9 @@ case), security review (eBPF capability surface).
   - `kprobe/tcp_rcv_state_process` (or kernel-version equivalent) —
     extract SYN TCP options (TTL, window, MSS, options layout,
     quirks, ip_version, window_scale, payload_class) at connection
-    setup, emit one perf-RB event per connection. Userspace runs
-    the huginn-net matcher once per event; no per-packet work.
+    setup, emit one p0f-signature event per connection. Userspace
+    runs the in-tree p0f matcher / OS-match ensemble once per event;
+    no per-packet work.
 
   **Attribution path:**
   - `kprobe/tcp_connect`, `kretprobe/inet_csk_accept`,
@@ -480,7 +481,7 @@ case), security review (eBPF capability surface).
 
 - **Decision.** No new top-level tables. Extend existing maps:
   - `device.os.passive_fingerprint` — `{family, version, confidence,
-    source: "huginn-net", observed_at}`.
+    source: "serviceradar-license-clean", observed_at}`.
   - `device.metadata.passive_fingerprint` — protocol-specific
     signature payloads keyed by `tcp`, `tls`, `http`, each with
     `observed_at`.
@@ -813,7 +814,7 @@ case), security review (eBPF capability surface).
      amendment; not required for the discovery-scope use case.
 
   The `huginn-net` crate is removed from `netprobe`'s dependency set
-  (§31.10). The p0f canonical encoder, the JA4-base encoder, and the
+  (§31.7). The p0f canonical encoder, the JA4-base encoder, and the
   HASSH encoder are all hand-rolled in-tree.
 - **Licensing audit (the reason we do not adopt JA4+).**
   - **JA4 (base, TLS ClientHello)** — BSD-3-Clause. FoxIO explicit
@@ -1216,7 +1217,7 @@ case), security review (eBPF capability surface).
 | Risk | Mitigation |
 |---|---|
 | eBPF program compatibility across kernels. | Target a minimum kernel of 5.8; degrade gracefully (DPI + fingerprint without process attribution) on older kernels; surface kernel version + program-load failures in agent status. |
-| `huginn-net` upstream regression. | Pin to a known release in `Cargo.toml`; renovate-bot updates gated by agent E2E. |
+| Fingerprint dependency drift into encumbered crates. | CI license lint rejects `huginn-net`, JA4+ family crates, and FoxIO-1.1 dependency drift. |
 | `aya` upstream churn (still pre-1.0). | Pin to a tested release and budget for periodic version bumps; document this in the runbook. |
 | Sidecar crash storms (e.g. malformed packet bug). | Exponential restart back-off, circuit-breaker, surface as agent health warning. |
 | Static musl build pulls in conflicting C-deps. | Validated in Phase 1 by `bazel build --platforms=...linux-musl`; Phase 1 shipping packages use the libpcap-enabled dynamic Linux build with explicit runtime dependencies until static packet capture support is available. |
@@ -1241,9 +1242,9 @@ proposal directory is removed in the same commit set as this proposal
 Phased rollout (Phase 1 is the minimum-viable shipping increment and
 the only phase scoped for the *first* release of this work):
 
-1. **Phase 1 — OS fingerprinting only.** `rust/netprobe/` skeleton +
-   `huginn-net` integration; static musl build targets +
-   libpcap-enabled dynamic Linux agent packaging;
+1. **Phase 1 — OS fingerprinting only.** `rust/netprobe` skeleton +
+   license-clean p0f / JA4-base / HASSH fingerprinting; static musl
+   build targets + libpcap-enabled dynamic Linux agent packaging;
    sidecar runtime (`go/pkg/agent/sidecar/`); IPC v1 protobuf with
    only `ApplyConfig` / `Ping` / `FingerprintEvents` (other event
    channels reserved for future variants but not implemented);

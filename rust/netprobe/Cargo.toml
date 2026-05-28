@@ -16,7 +16,6 @@ clap = { version = "4", features = ["derive", "env"] }
 crossbeam-channel = "0.5"
 env_logger = "0.11"
 etherparse = "0.20.1"
-huginn-net = "=1.7.3"
 log = "0.4"
 nix = { version = "0.31", features = ["signal", "process", "user"] }
 pcap = { version = "2.4.0", optional = true }

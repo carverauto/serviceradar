@@ -1,0 +1,36 @@
+name: Fingerprint Licensing
+
+on:
+  pull_request:
+    paths:
+      - 'Cargo.lock'
+      - 'rust/netprobe/**'
+      - 'scripts/check-netprobe-fingerprint-licenses.sh'
+      - '.forgejo/workflows/tests-fingerprint-licensing.yml'
+  push:
+    paths:
+      - 'Cargo.lock'
+      - 'rust/netprobe/**'
+      - 'scripts/check-netprobe-fingerprint-licenses.sh'
+      - '.forgejo/workflows/tests-fingerprint-licensing.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  netprobe-fingerprint-licenses:
+    runs-on: ubuntu24
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+
+      - name: Check netprobe fingerprint dependencies
+        run: bash scripts/check-netprobe-fingerprint-licenses.sh

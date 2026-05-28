@@ -3,29 +3,10 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 #[cfg(feature = "pcap-capture")]
 use std::time::SystemTime;
 
-#[cfg(feature = "pcap-capture")]
-use anyhow::Context;
 #[cfg(any(feature = "pcap-capture", target_os = "linux"))]
 use anyhow::Result;
 #[cfg(feature = "pcap-capture")]
-use etherparse::{NetHeaders, PacketHeaders, TransportHeader};
-#[cfg(feature = "pcap-capture")]
-use huginn_net::{
-    huginn_net_http::{
-        http_common::HttpHeader,
-        output::{HttpRequestOutput, HttpResponseOutput},
-    },
-    huginn_net_tcp::{
-        db::{
-            tcp::{IpVersion, PayloadSize, Quirk, TcpOption, Ttl, WindowSize},
-            MatchQualityType,
-        },
-        observable::ObservableTcp,
-        output::{OSQualityMatched, SynAckTCPOutput, SynTCPOutput},
-    },
-    huginn_net_tls::output::TlsClientOutput,
-    AnalysisConfig, Database, HuginnNet,
-};
+use etherparse::{NetHeaders, PacketHeaders, TcpHeader, TcpOptionElement, TransportHeader};
 
 #[cfg(feature = "pcap-capture")]
 use crate::hassh;
@@ -43,7 +24,7 @@ use crate::{
 #[cfg(target_os = "linux")]
 use crate::{metrics::Metrics, runtime_config::FingerprintEventGate};
 
-pub const FINGERPRINT_ENGINE_VERSION: &str = "huginn-net/1.7.3";
+pub const FINGERPRINT_ENGINE_VERSION: &str = "serviceradar-license-clean/1";
 pub const P0F_CORPUS_REVISION: &str =
     "p0f-3.09b:p0f.fp:sha256:45f27bcc65de0f64bc69356dc0662e3366e05e67a0e98fd2251808e253b6be40";
 pub const SERVICERADAR_ADDITIONS_REVISION: &str =
@@ -69,33 +50,15 @@ const P0F_RING_RECORD_LEN: usize = 160;
 const P0F_SIGNATURES_MAP: &str = "p0f_signatures";
 
 #[cfg(feature = "pcap-capture")]
-const MAX_CONNECTIONS: usize = 4096;
-
-#[cfg(feature = "pcap-capture")]
 pub struct FingerprintEngine {
-    analyzer: HuginnNet<'static>,
     p0f_matcher: P0fMatcher,
 }
 
 #[cfg(feature = "pcap-capture")]
 impl FingerprintEngine {
     pub fn phase1() -> Result<Self> {
-        let database = Box::leak(Box::new(
-            Database::load_default().context("failed to load huginn-net p0f database")?,
-        ));
-        let config = AnalysisConfig {
-            http_enabled: true,
-            tcp_enabled: true,
-            tls_enabled: true,
-            matcher_enabled: true,
-        };
-        let analyzer = HuginnNet::new(Some(database), MAX_CONNECTIONS, Some(config))
-            .context("failed to initialize huginn-net analyzer")?;
-        let p0f_matcher = P0fMatcher::bundled().context("failed to initialize p0f matcher")?;
-
         Ok(Self {
-            analyzer,
-            p0f_matcher,
+            p0f_matcher: P0fMatcher::bundled()?,
         })
     }
 
@@ -105,73 +68,33 @@ impl FingerprintEngine {
         observed_at_unix_nano: i64,
         packet: &[u8],
     ) -> Vec<FingerprintEvent> {
-        let result = self.analyzer.analyze_tcp(packet);
         let mut events = Vec::new();
 
-        if let Some(syn) = result.tcp_syn {
-            let ip = syn.source.ip;
-            let p0f_signature = syn.sig.matching.to_string();
-            events.push(event_from_syn(interface_name, observed_at_unix_nano, syn));
-            if let Some(event) = self.license_clean_event_from_p0f(
-                ip,
+        if let Some(observation) = tcp_syn_observation(packet) {
+            let matched = self.match_p0f(&observation.signature);
+            events.push(tcp_event(
+                observation.source_ip,
                 interface_name,
                 observed_at_unix_nano,
-                p0f_signature,
-            ) {
-                events.push(event);
-            }
-        }
-
-        if let Some(syn_ack) = result.tcp_syn_ack {
-            let ip = syn_ack.source.ip;
-            let p0f_signature = syn_ack.sig.matching.to_string();
-            events.push(event_from_syn_ack(
-                interface_name,
-                observed_at_unix_nano,
-                syn_ack,
+                &observation,
+                matched.as_ref(),
             ));
-            if let Some(event) = self.license_clean_event_from_p0f(
-                ip,
-                interface_name,
-                observed_at_unix_nano,
-                p0f_signature,
-            ) {
-                events.push(event);
+            if let Some(matched) = matched {
+                events.push(license_clean_p0f_event(
+                    observation.source_ip,
+                    interface_name,
+                    observed_at_unix_nano,
+                    observation.signature,
+                    matched,
+                ));
             }
         }
 
-        if let Some(request) = result.http_request {
-            if let Some(event) =
-                event_from_http_request(interface_name, observed_at_unix_nano, request)
-            {
-                events.push(event);
-            }
-        }
-
-        if let Some(response) = result.http_response {
-            if let Some(event) =
-                event_from_http_response(interface_name, observed_at_unix_nano, response)
-            {
-                events.push(event);
-            }
-        }
-
-        if let Some(tls_client) = result.tls_client {
-            events.push(event_from_tls_client(
-                interface_name,
-                observed_at_unix_nano,
-                tls_client,
-            ));
-        }
-
-        if let Some(tls_server) = crate::tls_server::fingerprint(packet) {
-            events.push(event_from_tls_server(
-                interface_name,
-                observed_at_unix_nano,
-                tls_server,
-            ));
-        }
-
+        events.extend(legacy_payload_events(
+            interface_name,
+            observed_at_unix_nano,
+            packet,
+        ));
         events.extend(license_clean_events_from_payload(
             interface_name,
             observed_at_unix_nano,
@@ -181,29 +104,14 @@ impl FingerprintEngine {
         events
     }
 
-    fn license_clean_event_from_p0f(
-        &self,
-        ip: IpAddr,
-        interface_name: &str,
-        observed_at_unix_nano: i64,
-        p0f_signature: String,
-    ) -> Option<FingerprintEvent> {
-        let matched = match self.p0f_matcher.match_signature(&p0f_signature) {
-            Ok(Some(matched)) => matched,
-            Ok(None) => return None,
+    fn match_p0f(&self, p0f_signature: &str) -> Option<P0fMatch> {
+        match self.p0f_matcher.match_signature(p0f_signature) {
+            Ok(matched) => matched,
             Err(error) => {
                 log::warn!("failed to match p0f signature {p0f_signature:?}: {error}");
-                return None;
+                None
             }
-        };
-
-        Some(license_clean_p0f_event(
-            ip,
-            interface_name,
-            observed_at_unix_nano,
-            p0f_signature,
-            matched,
-        ))
+        }
     }
 }
 
@@ -216,35 +124,159 @@ pub fn now_unix_nano() -> i64 {
 }
 
 #[cfg(feature = "pcap-capture")]
-fn event_from_syn(
-    interface_name: &str,
-    observed_at_unix_nano: i64,
-    syn: SynTCPOutput,
-) -> FingerprintEvent {
-    tcp_event(
-        syn.source.ip,
-        interface_name,
-        observed_at_unix_nano,
-        syn.sig.matching.to_string(),
-        &syn.sig,
-        &syn.os_matched,
-    )
+#[derive(Clone, Debug)]
+struct TcpSynObservation {
+    source_ip: IpAddr,
+    signature: String,
+    ttl: u8,
+    window_size: u16,
+    mss: u16,
+    options_layout: Vec<String>,
+    quirks: Vec<String>,
+    ip_version: &'static str,
+    window_scale: u8,
+    payload_class: &'static str,
 }
 
 #[cfg(feature = "pcap-capture")]
-fn event_from_syn_ack(
-    interface_name: &str,
-    observed_at_unix_nano: i64,
-    syn_ack: SynAckTCPOutput,
-) -> FingerprintEvent {
-    tcp_event(
-        syn_ack.source.ip,
-        interface_name,
-        observed_at_unix_nano,
-        syn_ack.sig.matching.to_string(),
-        &syn_ack.sig,
-        &syn_ack.os_matched,
-    )
+fn tcp_syn_observation(packet: &[u8]) -> Option<TcpSynObservation> {
+    let headers = parse_headers(packet)?;
+    let net = headers.net.as_ref()?;
+    let TransportHeader::Tcp(tcp) = headers.transport.as_ref()? else {
+        return None;
+    };
+    if !tcp.syn {
+        return None;
+    }
+
+    let source_ip = source_ip(net)?;
+    let ip_meta = ip_metadata(net)?;
+    let payload_class = if headers.payload.slice().is_empty() {
+        "0"
+    } else {
+        "+"
+    };
+    let (options_layout, mss, window_scale, option_quirks) = tcp_options(&tcp);
+    let mut quirks = ip_meta.quirks;
+    quirks.extend(option_quirks);
+
+    let options = options_layout.join(",");
+    let quirks_field = quirks.join(",");
+    let signature = format!(
+        "{}:{}:{}:{}:{},{}:{}:{}:{}",
+        ip_meta.version,
+        ip_meta.ttl,
+        ip_meta.options_len,
+        mss.map(|value| value.to_string())
+            .unwrap_or_else(|| "*".to_string()),
+        tcp.window_size,
+        window_scale
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "*".to_string()),
+        options,
+        quirks_field,
+        payload_class,
+    );
+
+    Some(TcpSynObservation {
+        source_ip,
+        signature,
+        ttl: ip_meta.ttl,
+        window_size: tcp.window_size,
+        mss: mss.unwrap_or_default(),
+        options_layout,
+        quirks,
+        ip_version: ip_meta.version,
+        window_scale: window_scale.unwrap_or_default(),
+        payload_class,
+    })
+}
+
+#[cfg(feature = "pcap-capture")]
+struct IpMetadata {
+    version: &'static str,
+    ttl: u8,
+    options_len: usize,
+    quirks: Vec<String>,
+}
+
+#[cfg(feature = "pcap-capture")]
+fn ip_metadata(headers: &NetHeaders) -> Option<IpMetadata> {
+    match headers {
+        NetHeaders::Ipv4(header, _) => {
+            let mut quirks = Vec::new();
+            if header.dont_fragment {
+                quirks.push("df".to_string());
+                if header.identification != 0 {
+                    quirks.push("id+".to_string());
+                }
+            } else if header.identification == 0 {
+                quirks.push("id-".to_string());
+            }
+            if header.ecn.value() != 0 {
+                quirks.push("ecn".to_string());
+            }
+
+            Some(IpMetadata {
+                version: "4",
+                ttl: header.time_to_live,
+                options_len: header.options.as_slice().len(),
+                quirks,
+            })
+        }
+        NetHeaders::Ipv6(header, _) => Some(IpMetadata {
+            version: "6",
+            ttl: header.hop_limit,
+            options_len: 0,
+            quirks: Vec::new(),
+        }),
+        NetHeaders::Arp(_) => None,
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn tcp_options(tcp: &TcpHeader) -> (Vec<String>, Option<u16>, Option<u8>, Vec<String>) {
+    let mut layout = Vec::new();
+    let mut mss = None;
+    let mut window_scale = None;
+    let mut quirks = Vec::new();
+
+    for option in tcp.options_iterator() {
+        match option {
+            Ok(TcpOptionElement::Noop) => layout.push("nop".to_string()),
+            Ok(TcpOptionElement::MaximumSegmentSize(value)) => {
+                mss = Some(value);
+                layout.push("mss".to_string());
+            }
+            Ok(TcpOptionElement::WindowScale(value)) => {
+                window_scale = Some(value);
+                layout.push("ws".to_string());
+                if value > 14 {
+                    quirks.push("exws".to_string());
+                }
+            }
+            Ok(TcpOptionElement::SelectiveAcknowledgementPermitted) => {
+                layout.push("sok".to_string());
+            }
+            Ok(TcpOptionElement::SelectiveAcknowledgement(_, _)) => {
+                layout.push("sack".to_string());
+            }
+            Ok(TcpOptionElement::Timestamp(own, peer)) => {
+                layout.push("ts".to_string());
+                if own == 0 {
+                    quirks.push("ts1-".to_string());
+                }
+                if peer != 0 {
+                    quirks.push("ts2+".to_string());
+                }
+            }
+            Err(_) => {
+                quirks.push("bad".to_string());
+            }
+        }
+    }
+
+    (layout, mss, window_scale, quirks)
 }
 
 #[cfg(feature = "pcap-capture")]
@@ -252,27 +284,23 @@ fn tcp_event(
     ip: IpAddr,
     interface_name: &str,
     observed_at_unix_nano: i64,
-    signature: String,
-    sig: &ObservableTcp,
-    os_matched: &OSQualityMatched,
+    observation: &TcpSynObservation,
+    matched: Option<&P0fMatch>,
 ) -> FingerprintEvent {
-    let confidence = match os_matched.quality {
-        MatchQualityType::Matched(score) => score,
-        MatchQualityType::NotMatched | MatchQualityType::Disabled => 0.0,
-    };
-    let (os_family, os_name) = os_matched
-        .os
-        .as_ref()
-        .map(|os| {
+    let (os_family, os_name, confidence) = matched
+        .map(|matched| {
             (
-                os.family.clone().unwrap_or_default(),
-                os.variant
+                matched.label.class.clone().unwrap_or_default(),
+                matched
+                    .label
+                    .flavor
                     .as_ref()
-                    .map(|variant| format!("{} {variant}", os.name))
-                    .unwrap_or_else(|| os.name.clone()),
+                    .map(|flavor| format!("{} {flavor}", matched.label.name))
+                    .unwrap_or_else(|| matched.label.name.clone()),
+                0.65,
             )
         })
-        .unwrap_or_default();
+        .unwrap_or_else(|| (String::new(), String::new(), 0.0));
 
     FingerprintEvent {
         ip: ip.to_string(),
@@ -280,145 +308,140 @@ fn tcp_event(
         interface_name: interface_name.to_string(),
         observed_at_unix_nano,
         evidence: Some(fingerprint_event::Evidence::Tcp(TcpFingerprint {
-            signature,
+            signature: observation.signature.clone(),
             os_family,
             os_name,
             confidence,
-            ttl: ttl_value(&sig.matching.ittl) as u32,
-            window_size: window_size_value(&sig.matching.wsize),
-            mss: sig.matching.mss.unwrap_or_default() as u32,
-            options_layout: sig.matching.olayout.iter().map(tcp_option_value).collect(),
-            quirks: sig.matching.quirks.iter().map(quirk_value).collect(),
-            ip_version: ip_version_value(sig.matching.version).to_string(),
-            window_scale: sig.matching.wscale.unwrap_or_default() as u32,
-            payload_class: payload_class_value(sig.matching.pclass).to_string(),
+            ttl: u32::from(observation.ttl),
+            window_size: observation.window_size.to_string(),
+            mss: u32::from(observation.mss),
+            options_layout: observation.options_layout.clone(),
+            quirks: observation.quirks.clone(),
+            ip_version: observation.ip_version.to_string(),
+            window_scale: u32::from(observation.window_scale),
+            payload_class: observation.payload_class.to_string(),
         })),
     }
 }
 
 #[cfg(feature = "pcap-capture")]
-fn ttl_value(ttl: &Ttl) -> u8 {
-    match ttl {
-        Ttl::Value(value) | Ttl::Guess(value) | Ttl::Bad(value) => *value,
-        Ttl::Distance(observed, distance) => observed.saturating_add(*distance),
-    }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn window_size_value(window: &WindowSize) -> String {
-    match window {
-        WindowSize::Mss(value) => format!("mss:{value}"),
-        WindowSize::Mtu(value) => format!("mtu:{value}"),
-        WindowSize::Value(value) => value.to_string(),
-        WindowSize::Mod(value) => format!("mod:{value}"),
-        WindowSize::Any => "any".to_string(),
-    }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn ip_version_value(version: IpVersion) -> &'static str {
-    match version {
-        IpVersion::V4 => "4",
-        IpVersion::V6 => "6",
-        IpVersion::Any => "any",
-    }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn payload_class_value(payload: PayloadSize) -> &'static str {
-    match payload {
-        PayloadSize::Zero => "zero",
-        PayloadSize::NonZero => "nonzero",
-        PayloadSize::Any => "any",
-    }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn tcp_option_value(option: &TcpOption) -> String {
-    match option {
-        TcpOption::Eol(padding) => format!("eol:{padding}"),
-        TcpOption::Nop => "nop".to_string(),
-        TcpOption::Mss => "mss".to_string(),
-        TcpOption::Ws => "ws".to_string(),
-        TcpOption::Sok => "sok".to_string(),
-        TcpOption::Sack => "sack".to_string(),
-        TcpOption::TS => "ts".to_string(),
-        TcpOption::Unknown(value) => format!("unknown:{value}"),
-    }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn quirk_value(quirk: &Quirk) -> String {
-    match quirk {
-        Quirk::Df => "df",
-        Quirk::NonZeroID => "id+",
-        Quirk::ZeroID => "id-",
-        Quirk::Ecn => "ecn",
-        Quirk::MustBeZero => "0+",
-        Quirk::FlowID => "flow",
-        Quirk::SeqNumZero => "seq-",
-        Quirk::AckNumNonZero => "ack+",
-        Quirk::AckNumZero => "ack-",
-        Quirk::NonZeroURG => "uptr+",
-        Quirk::Urg => "urgf+",
-        Quirk::Push => "pushf+",
-        Quirk::OwnTimestampZero => "ts1-",
-        Quirk::PeerTimestampNonZero => "ts2+",
-        Quirk::TrailinigNonZero => "opt+",
-        Quirk::ExcessiveWindowScaling => "exws",
-        Quirk::OptBad => "bad",
-    }
-    .to_string()
-}
-
-#[cfg(feature = "pcap-capture")]
-fn event_from_http_request(
+fn legacy_payload_events(
     interface_name: &str,
     observed_at_unix_nano: i64,
-    request: HttpRequestOutput,
-) -> Option<FingerprintEvent> {
-    let user_agent = request.sig.user_agent.unwrap_or_default();
-    let accept_language = header_value(&request.sig.headers, "accept-language")
-        .or(request.lang)
-        .unwrap_or_default();
+    packet: &[u8],
+) -> Vec<FingerprintEvent> {
+    let Some((source_ip, payload)) = packet_source_and_payload(packet) else {
+        return Vec::new();
+    };
+    let mut events = Vec::new();
 
+    if let Some(fingerprint) = http_request_fingerprint(payload) {
+        events.push(http_event(
+            source_ip,
+            interface_name,
+            observed_at_unix_nano,
+            fingerprint,
+        ));
+    }
+    if let Some(fingerprint) = http_response_fingerprint(payload) {
+        events.push(http_event(
+            source_ip,
+            interface_name,
+            observed_at_unix_nano,
+            fingerprint,
+        ));
+    }
+    if let Some(client_hello) = crate::ja4::parse_tls_client_hello(payload) {
+        events.push(tls_event(
+            source_ip,
+            interface_name,
+            observed_at_unix_nano,
+            TlsFingerprint {
+                ja4: crate::ja4::fingerprint(&client_hello),
+                ja4s: String::new(),
+                sni_redacted: redact_sni_presence(client_hello.has_sni).to_string(),
+            },
+        ));
+    }
+    if let Some(tls_server) = crate::tls_server::fingerprint(packet) {
+        events.push(tls_event(
+            tls_server.source_ip,
+            interface_name,
+            observed_at_unix_nano,
+            TlsFingerprint {
+                ja4: String::new(),
+                ja4s: tls_server.ja4s,
+                sni_redacted: String::new(),
+            },
+        ));
+    }
+
+    events
+}
+
+#[cfg(feature = "pcap-capture")]
+fn http_request_fingerprint(payload: &[u8]) -> Option<HttpFingerprint> {
+    let headers = http_headers(payload)?;
+    if !is_http_request_start(headers.first_line) {
+        return None;
+    }
+
+    let user_agent = header_value(headers.headers, "user-agent").unwrap_or_default();
+    let accept_language = header_value(headers.headers, "accept-language").unwrap_or_default();
     if user_agent.is_empty() && accept_language.is_empty() {
         return None;
     }
 
-    Some(http_event(
-        request.source.ip,
-        interface_name,
-        observed_at_unix_nano,
-        HttpFingerprint {
-            user_agent,
-            server: String::new(),
-            accept_language,
-        },
-    ))
+    Some(HttpFingerprint {
+        user_agent,
+        server: String::new(),
+        accept_language,
+    })
 }
 
 #[cfg(feature = "pcap-capture")]
-fn event_from_http_response(
-    interface_name: &str,
-    observed_at_unix_nano: i64,
-    response: HttpResponseOutput,
-) -> Option<FingerprintEvent> {
-    let server = header_value(&response.sig.headers, "server").unwrap_or_default();
+fn http_response_fingerprint(payload: &[u8]) -> Option<HttpFingerprint> {
+    let headers = http_headers(payload)?;
+    if !headers.first_line.starts_with("HTTP/") {
+        return None;
+    }
+
+    let server = header_value(headers.headers, "server").unwrap_or_default();
     if server.is_empty() {
         return None;
     }
 
-    Some(http_event(
-        response.source.ip,
-        interface_name,
-        observed_at_unix_nano,
-        HttpFingerprint {
-            user_agent: String::new(),
-            server,
-            accept_language: String::new(),
-        },
-    ))
+    Some(HttpFingerprint {
+        user_agent: String::new(),
+        server,
+        accept_language: String::new(),
+    })
+}
+
+#[cfg(feature = "pcap-capture")]
+struct HttpHeaders<'a> {
+    first_line: &'a str,
+    headers: &'a str,
+}
+
+#[cfg(feature = "pcap-capture")]
+fn http_headers(payload: &[u8]) -> Option<HttpHeaders<'_>> {
+    let text = std::str::from_utf8(payload).ok()?;
+    let end = text.find("\r\n\r\n").or_else(|| text.find("\n\n"))?;
+    let head = &text[..end];
+    let (first_line, headers) = head.split_once('\n').unwrap_or((head, ""));
+    Some(HttpHeaders {
+        first_line: first_line.trim_end_matches('\r'),
+        headers,
+    })
+}
+
+#[cfg(feature = "pcap-capture")]
+fn is_http_request_start(line: &str) -> bool {
+    matches!(
+        line.split_ascii_whitespace().next(),
+        Some("GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "TRACE")
+    )
 }
 
 #[cfg(feature = "pcap-capture")]
@@ -438,56 +461,36 @@ fn http_event(
 }
 
 #[cfg(feature = "pcap-capture")]
-fn header_value(headers: &[HttpHeader], name: &str) -> Option<String> {
+fn header_value(headers: &str, name: &str) -> Option<String> {
     headers
-        .iter()
-        .find(|header| header.name.eq_ignore_ascii_case(name))
-        .and_then(|header| header.value.clone())
+        .lines()
+        .filter_map(|line| line.trim_end_matches('\r').split_once(':'))
+        .find(|(header_name, _value)| header_name.eq_ignore_ascii_case(name))
+        .map(|(_header_name, value)| value.trim().to_string())
 }
 
 #[cfg(feature = "pcap-capture")]
-fn event_from_tls_client(
+fn tls_event(
+    ip: IpAddr,
     interface_name: &str,
     observed_at_unix_nano: i64,
-    tls_client: TlsClientOutput,
+    fingerprint: TlsFingerprint,
 ) -> FingerprintEvent {
     FingerprintEvent {
-        ip: tls_client.source.ip.to_string(),
+        ip: ip.to_string(),
         profile_id: String::new(),
         interface_name: interface_name.to_string(),
         observed_at_unix_nano,
-        evidence: Some(fingerprint_event::Evidence::Tls(TlsFingerprint {
-            ja4: tls_client.sig.ja4.full.value().to_string(),
-            ja4s: String::new(),
-            sni_redacted: redact_sni_presence(tls_client.sig.sni.as_deref()).to_string(),
-        })),
+        evidence: Some(fingerprint_event::Evidence::Tls(fingerprint)),
     }
 }
 
 #[cfg(feature = "pcap-capture")]
-fn event_from_tls_server(
-    interface_name: &str,
-    observed_at_unix_nano: i64,
-    tls_server: crate::tls_server::TlsServerFingerprint,
-) -> FingerprintEvent {
-    FingerprintEvent {
-        ip: tls_server.source_ip.to_string(),
-        profile_id: String::new(),
-        interface_name: interface_name.to_string(),
-        observed_at_unix_nano,
-        evidence: Some(fingerprint_event::Evidence::Tls(TlsFingerprint {
-            ja4: String::new(),
-            ja4s: tls_server.ja4s,
-            sni_redacted: String::new(),
-        })),
-    }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn redact_sni_presence(sni: Option<&str>) -> &'static str {
-    match sni {
-        Some("") | None => "",
-        Some(_) => "<present>",
+fn redact_sni_presence(has_sni: bool) -> &'static str {
+    if has_sni {
+        "<present>"
+    } else {
+        ""
     }
 }
 
@@ -799,16 +802,21 @@ fn signal_name(signal: FingerprintSignal) -> &'static str {
 
 #[cfg(feature = "pcap-capture")]
 fn packet_source_and_payload(packet: &[u8]) -> Option<(IpAddr, &[u8])> {
-    let headers = if matches!(packet.first().map(|byte| byte >> 4), Some(4 | 6)) {
-        PacketHeaders::from_ip_slice(packet).ok()?
-    } else {
-        PacketHeaders::from_ethernet_slice(packet).ok()?
-    };
+    let headers = parse_headers(packet)?;
     let source_ip = source_ip(headers.net.as_ref()?)?;
     match headers.transport.as_ref()? {
         TransportHeader::Tcp(_) => Some((source_ip, headers.payload.slice())),
         TransportHeader::Udp(_) => Some((source_ip, headers.payload.slice())),
         _ => None,
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn parse_headers(packet: &[u8]) -> Option<PacketHeaders<'_>> {
+    if matches!(packet.first().map(|byte| byte >> 4), Some(4 | 6)) {
+        PacketHeaders::from_ip_slice(packet).ok()
+    } else {
+        PacketHeaders::from_ethernet_slice(packet).ok()
     }
 }
 
@@ -935,7 +943,6 @@ mod p0f_ring_tests {
 mod tests {
     use super::{header_value, redact_sni_presence, FingerprintEngine};
     use crate::proto::netprobe::fingerprint_event;
-    use huginn_net::huginn_net_http::http_common::{HeaderSource, HttpHeader};
     use std::io::Write;
 
     #[test]
@@ -944,14 +951,19 @@ mod tests {
 
         let events = engine.analyze_packet("eth0", 123, ipv4_syn_packet());
 
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].ip, "192.0.2.10");
-        assert_eq!(events[0].interface_name, "eth0");
-        assert_eq!(events[0].observed_at_unix_nano, 123);
-        let Some(fingerprint_event::Evidence::Tcp(tcp)) = &events[0].evidence else {
+        assert_eq!(events.len(), 2);
+        let tcp_event = events
+            .iter()
+            .find(|event| matches!(event.evidence, Some(fingerprint_event::Evidence::Tcp(_))))
+            .expect("expected TCP fingerprint event");
+        assert_eq!(tcp_event.ip, "192.0.2.10");
+        assert_eq!(tcp_event.interface_name, "eth0");
+        assert_eq!(tcp_event.observed_at_unix_nano, 123);
+        let Some(fingerprint_event::Evidence::Tcp(tcp)) = &tcp_event.evidence else {
             panic!("expected TCP fingerprint event");
         };
         assert!(!tcp.signature.is_empty());
+        assert_license_clean_linux_p0f(&events, "192.0.2.10", 123);
     }
 
     #[test]
@@ -965,24 +977,18 @@ mod tests {
 
     #[test]
     fn finds_http_header_values_case_insensitively() {
-        let headers = vec![HttpHeader::new(
-            "User-Agent",
-            Some("ServiceRadar Test"),
-            0,
-            HeaderSource::Http1Line,
-        )];
+        let headers = "Host: example.com\r\nUser-Agent: ServiceRadar Test\r\n";
 
         assert_eq!(
-            header_value(&headers, "user-agent"),
+            header_value(headers, "user-agent"),
             Some("ServiceRadar Test".to_string())
         );
     }
 
     #[test]
     fn redacts_sni_values_to_presence_only() {
-        assert_eq!(redact_sni_presence(Some("example.com")), "<present>");
-        assert_eq!(redact_sni_presence(Some("")), "");
-        assert_eq!(redact_sni_presence(None), "");
+        assert_eq!(redact_sni_presence(true), "<present>");
+        assert_eq!(redact_sni_presence(false), "");
     }
 
     #[test]
@@ -1069,6 +1075,43 @@ mod tests {
         assert_eq!(tls.ja4, "");
         assert_eq!(tls.ja4s, "t1302h2_1301_b9a491fefe05");
         assert_eq!(tls.sni_redacted, "");
+    }
+
+    fn assert_license_clean_linux_p0f(
+        events: &[crate::proto::netprobe::FingerprintEvent],
+        expected_ip: &str,
+        expected_observed_at: i64,
+    ) {
+        let license_clean_p0f = events.iter().find_map(|event| match &event.evidence {
+            Some(fingerprint_event::Evidence::LicenseClean(fingerprint))
+                if !fingerprint.p0f_signature.is_empty() =>
+            {
+                Some((event, fingerprint))
+            }
+            _ => None,
+        });
+        let (event, fingerprint) =
+            license_clean_p0f.expect("expected license-clean p0f fingerprint event");
+        assert_eq!(event.ip, expected_ip);
+        assert_eq!(event.interface_name, "eth0");
+        assert_eq!(event.observed_at_unix_nano, expected_observed_at);
+        assert!(fingerprint.p0f_signature.starts_with("4:64:0:1460:"));
+        assert_eq!(
+            fingerprint
+                .p0f_match
+                .as_ref()
+                .expect("expected p0f match")
+                .name,
+            "Linux"
+        );
+        assert_eq!(
+            fingerprint
+                .os_match
+                .as_ref()
+                .expect("expected OS match")
+                .name,
+            "Linux"
+        );
     }
 
     fn ipv4_syn_packet() -> &'static [u8] {

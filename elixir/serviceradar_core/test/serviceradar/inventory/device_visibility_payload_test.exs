@@ -7,7 +7,7 @@ defmodule ServiceRadar.Inventory.DeviceVisibilityPayloadTest do
     "family" => "Linux",
     "version" => "5.x",
     "confidence" => 0.92,
-    "source" => "huginn-net",
+    "source" => "serviceradar-license-clean",
     "observed_at" => "2026-05-27T12:00:00Z"
   }
 

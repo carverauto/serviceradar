@@ -171,14 +171,14 @@ management.
   libpcap remains only for the Phase 5 remote-capture tunnel behind a
   `remote-capture` Cargo feature, declared as `Recommends` (not
   `Depends`) in deb/rpm metadata.
-- New Cargo dependencies pulled into the workspace via crate-universe:
-  `huginn-net` (fingerprinting matcher, **driven by SYN-kprobe events,
-  not per-packet** after Phase 3), `aya` + `aya-log` + `aya-ebpf`
-  (eBPF runtime and program crate), AF_XDP bindings (e.g. `xsk-rs` or
-  `aya::maps::xdp`), `tokio` (already present), `prost` (already
-  present). The `pcap` crate is gated behind the `remote-capture`
-  Cargo feature; **continuous packet observation does not depend on
-  libpcap at runtime after Phase 3**.
+- Cargo dependencies pulled into the workspace via crate-universe:
+  `aya` + `aya-log` + `aya-ebpf` (eBPF runtime and program crate),
+  AF_XDP bindings (e.g. `xsk-rs` or `aya::maps::xdp`), `tokio`
+  (already present), and `prost` (already present). `huginn-net` is
+  explicitly removed; fingerprinting is handled by ServiceRadar-owned
+  p0f / JA4-base / HASSH code. The `pcap` crate is gated behind the
+  `remote-capture` Cargo feature; **continuous packet observation does
+  not depend on libpcap at runtime after Phase 3**.
 
 ### Continuous capture is eBPF-only (revised 2026-05-27)
 
@@ -196,10 +196,10 @@ the kernel:
     subsequent packets short-circuit in the kernel.
 - **SYN-time fingerprinting via kprobe.** A `kprobe` on
   `tcp_rcv_state_process` (or the kernel-version-appropriate
-  equivalent) extracts the SYN's TCP options at connection setup and
-  emits one perf-RB event per new connection. Userspace runs the
-  huginn-net matcher exactly once per connection rather than per
-  packet.
+  equivalent) extracts the SYN's TCP options at connection setup,
+  emits one p0f-signature event per new connection, and userspace runs
+  the in-tree p0f matcher / OS-match ensemble exactly once per
+  connection rather than per packet.
 - **Socket lifecycle + process attribution** via kprobes on
   `tcp_connect`, `inet_csk_accept`, `tcp_close`, `udp_sendmsg`,
   `udp_recvmsg`. Populates `flow_to_pid` and `process_info` BPF maps
@@ -223,12 +223,12 @@ the same reason ServiceRadar is making this commitment: per-packet
 kernel→user transitions in libpcap-based userspace agents are the CPU
 bottleneck that gates fleet-wide deployment. We avoid that trap from
 day one (well, from Phase 3 onward; Phase 1/2 ship the libpcap
-stopgap with explicit Phase 2 cheap-win mitigations layered on it).
+stopgap and Phase 3 deletes it rather than optimizing it further).
 
 ### Sidecar capabilities (`netprobe`)
 
-- **Passive OS / device fingerprinting** — TCP p0f, TLS JA4/JA4S, HTTP
-  signature analysis (via `huginn-net`).
+- **Passive OS / device fingerprinting** — ServiceRadar-owned TCP p0f,
+  JA4-base TLS ClientHello, and HASSH SSH KEXINIT analysis.
 - **Deep packet inspection** — per-flow protocol classification across
   HTTP/1.x, HTTP/2 cleartext, TLS SNI, DNS, SSH, FTP, QUIC, MQTT,
   BitTorrent at MVP; designed for additive dissectors over time.
@@ -525,9 +525,9 @@ This proposal is intentionally large because it captures the end-state
 architecture. Implementation lands in named phases, each one shippable
 and reversible on its own:
 
-- **Phase 1 — OS fingerprinting only (shipped 2026-05-27).**
-  `rust/netprobe/` skeleton with `huginn-net` integration; static
-  musl build targets wired into MODULE.bazel plus libpcap-enabled
+- **Phase 1 — OS fingerprinting only (shipped 2026-05-27, then
+  license-clean amended).** `rust/netprobe/` skeleton with static musl
+  build targets wired into MODULE.bazel plus libpcap-enabled
   dynamic Linux agent packaging *as a stopgap*; sidecar runtime in
   `go/pkg/agent/sidecar/`; IPC v1 protobuf carrying only
   `ApplyConfig` / `Ping` / `FingerprintEvents`; `VisibilityProfile`
@@ -558,9 +558,9 @@ and reversible on its own:
     After classification the result is written back to the
     flow_table and subsequent packets bypass userspace.
   - **SYN-time fingerprinting kprobe** on `tcp_rcv_state_process`
-    that emits exactly one event per new TCP connection. The
-    huginn-net matcher moves from per-packet to per-connection;
-    no more userspace work in steady state.
+    that emits exactly one p0f-signature event per new TCP connection.
+    The in-tree p0f matcher / OS-match ensemble runs once per
+    connection; no more userspace work in steady state.
   - **Socket lifecycle kprobes** on `tcp_connect`,
     `inet_csk_accept`, `tcp_close`, `udp_sendmsg`, `udp_recvmsg`
     populating `flow_to_pid` and `process_info` BPF maps. This is
