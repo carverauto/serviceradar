@@ -196,7 +196,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 19.3 Delete the per-packet DPI dispatch from the capture worker (replaced by §18.9).
 - [x] 19.4 Implement adaptive sampling on the AF_XDP consumer (per the `Adaptive sampling under sustained CPU pressure` requirement): sliding-window CPU metric; under sustained pressure (default > 5% of one core for 30s), reduce the per-flow packet redirect budget toward 1. Expose `serviceradar_netprobe_sampling_budget` metric.
 - [x] 19.5 Move `pcap = { optional = true }` behind a `remote-capture` Cargo feature. The default build no longer includes libpcap.
-- [x] 19.6 Update deb/rpm packaging: move `libpcap0.8` / `libpcap` from `deb_depends` / `rpm_requires` to `Recommends`.
+- [x] 19.6 Update deb/rpm packaging: default packages do not declare `libpcap0.8` / `libpcap` as runtime dependencies; if a future package variant enables `remote-capture`, list libpcap as `Recommends` rather than `Depends`.
 - [x] 19.7 Verify `ldd /usr/local/lib/serviceradar/bin/serviceradar-netprobe` does not show `libpcap.so` in the default `release` build profile. Add a CI assertion.
 - [x] 19.8 Extend deb/rpm postinst to add `cap_bpf,cap_perfmon` to the sidecar binary's file capabilities (in addition to existing `cap_net_raw`).
 - [x] 19.9 Extend `helm/serviceradar/templates/agent.yaml` `securityContext.capabilities.add` with `BPF` and `PERFMON`.

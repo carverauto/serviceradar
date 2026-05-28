@@ -7,19 +7,20 @@ ServiceRadar SHALL ship a standalone Rust binary
 the `serviceradar-agent` package (deb, rpm, OCI image, tarball). The
 project MUST keep build targets for static musl binaries for
 `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`.
-Continuous packet observation MUST NOT depend on libpcap at runtime;
-libpcap is permitted only as a Phase 5 remote-capture dependency,
-gated behind a Cargo `remote-capture` feature flag and listed in
-deb/rpm packaging as `Recommends` rather than `Depends`. The OCI image
-MAY bundle the libpcap runtime to support the Phase 5 remote-capture
-path.
+Continuous packet observation MUST NOT depend on libpcap at runtime.
+libpcap is permitted only as a Phase 5 remote-capture dependency gated
+behind a Cargo `remote-capture` feature flag. deb/rpm packaging MUST
+NOT declare libpcap as a runtime dependency for the default sidecar
+build; if a future package variant enables `remote-capture`, it MAY
+list libpcap as `Recommends` rather than `Depends`. The OCI image MAY
+bundle the libpcap runtime to support the Phase 5 remote-capture path.
 
 #### Scenario: Netprobe binary ships with the agent package
 - **WHEN** the agent OCI image, deb, or rpm is built via the Bazel
   packaging targets
 - **THEN** `/usr/local/lib/serviceradar/bin/serviceradar-netprobe`
   exists in the artifact
-- **AND** deb/rpm metadata lists libpcap under `Recommends`, not
+- **AND** default deb/rpm metadata does not list libpcap under
   `Depends`
 - **AND** the OCI runtime filesystem bundles libpcap solely for the
   Phase 5 remote-capture path
