@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sample Add-on Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "type": "string",
+      "title": "Message",
+      "description": "An example string the sample add-on accepts.",
+      "default": "hello"
+    }
+  }
+}

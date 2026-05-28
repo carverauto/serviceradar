@@ -1,0 +1,16 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "addon",
+    srcs = [
+        "addon.go",
+        "grpc.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/addon",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)

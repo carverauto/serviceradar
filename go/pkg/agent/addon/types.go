@@ -1,0 +1,94 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package addon supervises native agent add-ons that run as out-of-process
+// HashiCorp go-plugin subprocesses speaking gRPC over a restricted Unix-domain
+// socket with AutoMTLS. It is the agent-side (go-plugin client) counterpart to the
+// author SDK in go/pkg/addon/sdk and the canonical "agent-sidecar" supervision
+// runtime for issue 3425. The manager owns per-add-on lifecycle (launch, configure,
+// health, restart with backoff, circuit breaker, graceful stop) and reconciles a
+// desired set of add-ons via Apply, mirroring the supervision semantics of
+// go/pkg/agent/sidecar but built fresh on go-plugin rather than the bespoke
+// framed-protobuf UDS protocol.
+package addon
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+var (
+	// ErrManagerClosed is returned when Apply is called after Stop.
+	ErrManagerClosed = errors.New("addon manager closed")
+	// ErrAddonExited indicates the add-on subprocess exited unexpectedly.
+	ErrAddonExited = errors.New("addon exited")
+)
+
+// State is the lifecycle state reported for a supervised add-on.
+type State string
+
+const (
+	StateStopped     State = "stopped"
+	StateStarting    State = "starting"
+	StateRunning     State = "running"
+	StateUnhealthy   State = "unhealthy"
+	StateRestarting  State = "restarting"
+	StateCircuitOpen State = "circuit_open"
+)
+
+// Spec is a desired add-on assignment the manager should supervise.
+type Spec struct {
+	// ID is the stable add-on identifier (matches addon.yaml id).
+	ID string
+	// Version is the assigned add-on version (informational).
+	Version string
+	// BinaryPath is the absolute path to the add-on plugin binary.
+	BinaryPath string
+	// Args are optional extra arguments passed to the plugin binary.
+	Args []string
+	// ConfigJSON is the operator-selected configuration delivered to the add-on
+	// via Configure (already validated by the control plane).
+	ConfigJSON []byte
+	// Capabilities are the capability identifiers the add-on advertises.
+	Capabilities []string
+}
+
+// Status is a snapshot of one supervised add-on.
+type Status struct {
+	ID                string    `json:"id"`
+	State             State     `json:"state"`
+	Version           string    `json:"version,omitempty"`
+	DegradationReason string    `json:"degradation_reason,omitempty"`
+	ConfigHash        string    `json:"config_hash,omitempty"`
+	PID               int       `json:"pid,omitempty"`
+	RestartCount      int       `json:"restart_count"`
+	LastError         string    `json:"last_error,omitempty"`
+	LastHealthAt      time.Time `json:"last_health_at,omitempty"`
+	LastStartedAt     time.Time `json:"last_started_at,omitempty"`
+	LastExitedAt      time.Time `json:"last_exited_at,omitempty"`
+}
+
+// AddonManager is the agent-facing contract for supervising native add-ons.
+type AddonManager interface {
+	// Apply reconciles the supervised add-ons to the desired set: it launches new
+	// add-ons, stops removed ones, and reconfigures changed ones.
+	Apply(ctx context.Context, specs []Spec) error
+	// Status returns a stable snapshot of every supervised add-on.
+	Status() []Status
+	// Stop terminates all add-ons and waits for their supervisors to exit.
+	Stop(ctx context.Context) error
+}

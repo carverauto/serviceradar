@@ -1,0 +1,34 @@
+# Sample native add-on manifest (issue 3425 reference).
+# Mirrors plugin.yaml for WASM plugins; the superset of fields a native add-on
+# author declares. The control plane validates config against config.schema.json.
+id: sample
+name: Sample Add-on
+version: 0.1.0
+description: Reference native add-on that validates the go-plugin add-on contract.
+
+kind: native
+delivery: pushed-artifact     # compiled-in | pushed-artifact | os-package
+supervision: agent-sidecar    # config-toggle | agent-sidecar | systemd-service | systemd-timer | ephemeral-helper
+language: go                  # go | rust
+
+capabilities:
+  - sample
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: serviceradar
+
+plugin:
+  protocol: grpc
+  app_protocol_version: 1
+
+exec:
+  binary: serviceradar-sample-addon
+  install_path: /usr/local/lib/serviceradar/bin
+
+# artifacts[] (per-arch object_key/sha256/signature_ref) are populated by the
+# signed-bundle build (native-addon-builds); omitted in this reference source.
+
+config_schema: config.schema.json

@@ -1,0 +1,28 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "addon",
+    srcs = [
+        "manager.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/addon",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/addon",
+        "//go/pkg/logger",
+        "@com_github_hashicorp_go_hclog//:go-hclog",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
+)
+
+go_test(
+    name = "addon_test",
+    srcs = ["manager_test.go"],
+    data = ["//go/cmd/serviceradar-sample-addon"],
+    embed = [":addon"],
+    env = {
+        "SERVICERADAR_SAMPLE_ADDON_BIN": "$(rootpath //go/cmd/serviceradar-sample-addon)",
+    },
+)

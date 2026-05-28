@@ -1,0 +1,12 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "sdk",
+    srcs = ["sdk.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/addon/sdk",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/addon",
+        "@com_github_hashicorp_go_plugin//:go-plugin",
+    ],
+)
