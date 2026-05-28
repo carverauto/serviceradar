@@ -416,7 +416,7 @@ mod tests {
         packet.extend_from_slice(&(packet_len as u32).to_be_bytes());
         packet.push(padding_len as u8);
         packet.extend_from_slice(&payload);
-        packet.extend(std::iter::repeat(0).take(padding_len));
+        packet.extend(std::iter::repeat_n(0, padding_len));
         packet
     }
 

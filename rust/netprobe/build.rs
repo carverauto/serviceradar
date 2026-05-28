@@ -1,10 +1,12 @@
 use std::{
     collections::HashSet,
     env,
-    fs::File,
+    fs::{self, File},
     io::{BufWriter, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
+
+use quick_xml::{events::Event, reader::Reader};
 
 #[path = "src/p0f_corpus.rs"]
 #[allow(dead_code)]
@@ -15,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=ebpf/src/lib.rs");
     println!("cargo:rerun-if-changed=p0f-corpus/p0f.fp");
     println!("cargo:rerun-if-changed=p0f-corpus/serviceradar-additions.fp");
+    println!("cargo:rerun-if-changed=recog-corpus/xml");
     println!("cargo:rerun-if-changed=src/p0f_corpus.rs");
     println!("cargo:rerun-if-env-changed=SERVICERADAR_NETPROBE_BUILD_EBPF");
 
@@ -32,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile_protos(&[proto_path], &[".", "proto", "../../proto"])?;
 
     generate_p0f_tables(&out_dir)?;
+    generate_recog_tables(&out_dir)?;
 
     if env::var_os("SERVICERADAR_NETPROBE_BUILD_EBPF").is_some() {
         aya_build::build_ebpf(
@@ -46,6 +50,202 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[derive(Debug)]
+struct RecogFingerprint {
+    service: &'static str,
+    source: String,
+    pattern: String,
+    params: Vec<RecogParam>,
+}
+
+#[derive(Debug)]
+struct RecogParam {
+    name: String,
+    value: Option<String>,
+    pos: usize,
+}
+
+fn generate_recog_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let xml_dir = if Path::new("recog-corpus/xml").exists() {
+        PathBuf::from("recog-corpus/xml")
+    } else {
+        PathBuf::from("rust/netprobe/recog-corpus/xml")
+    };
+    let mut paths = fs::read_dir(&xml_dir)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    paths.sort();
+
+    let mut fingerprints = Vec::new();
+    for path in paths {
+        if path.extension().and_then(|ext| ext.to_str()) != Some("xml") {
+            continue;
+        }
+        if let Some(service) = recog_service_for_file(&path) {
+            parse_recog_file(&path, service, &mut fingerprints)?;
+        }
+    }
+
+    let output_path = Path::new(out_dir).join("recog_generated.rs");
+    let mut output = BufWriter::new(File::create(output_path)?);
+
+    writeln!(
+        output,
+        "static RECOG_FINGERPRINTS: &[RecogFingerprintDef] = &["
+    )?;
+    for fingerprint in fingerprints {
+        writeln!(output, "    RecogFingerprintDef {{")?;
+        writeln!(
+            output,
+            "        service: RecogService::{},",
+            fingerprint.service
+        )?;
+        writeln!(output, "        source: {:?},", fingerprint.source)?;
+        writeln!(output, "        pattern: {:?},", fingerprint.pattern)?;
+        writeln!(output, "        params: &[")?;
+        for param in fingerprint.params {
+            writeln!(output, "            RecogParamDef {{")?;
+            writeln!(output, "                name: {:?},", param.name)?;
+            match param.value {
+                Some(value) => writeln!(output, "                value: Some({value:?}),")?,
+                None => writeln!(output, "                value: None,")?,
+            }
+            writeln!(output, "                pos: {},", param.pos)?;
+            writeln!(output, "            }},")?;
+        }
+        writeln!(output, "        ],")?;
+        writeln!(output, "    }},")?;
+    }
+    writeln!(output, "];")?;
+
+    Ok(())
+}
+
+fn recog_service_for_file(path: &Path) -> Option<&'static str> {
+    match path.file_name()?.to_str()? {
+        "http_servers.xml" => Some("HttpServer"),
+        "ssh_banners.xml" => Some("SshBanner"),
+        "smb_native_lm.xml" | "smb_native_os.xml" => Some("SmbVersion"),
+        "ftp_banners.xml" => Some("FtpBanner"),
+        "smtp_banners.xml" => Some("SmtpBanner"),
+        "telnet_banners.xml" => Some("TelnetBanner"),
+        "snmp_sysdescr.xml" => Some("SnmpBanner"),
+        "sip_banners.xml" | "sip_user_agents.xml" => Some("SipBanner"),
+        "dns_versionbind.xml" => Some("DnsVersion"),
+        _ => None,
+    }
+}
+
+fn parse_recog_file(
+    path: &Path,
+    service: &'static str,
+    fingerprints: &mut Vec<RecogFingerprint>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let source = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or("invalid Recog XML file name")?
+        .to_owned();
+    let xml = fs::read_to_string(path)?;
+    let mut reader = Reader::from_str(&xml);
+    reader.config_mut().trim_text(true);
+    let mut current: Option<RecogFingerprint> = None;
+
+    loop {
+        match reader.read_event()? {
+            Event::Start(element) if element.name().as_ref() == b"fingerprint" => {
+                let mut pattern = None;
+                let mut flags = None;
+                for attr in element.attributes() {
+                    let attr = attr?;
+                    if attr.key.as_ref() == b"pattern" {
+                        pattern = Some(
+                            attr.decode_and_unescape_value(reader.decoder())?
+                                .into_owned(),
+                        );
+                    } else if attr.key.as_ref() == b"flags" {
+                        flags = Some(
+                            attr.decode_and_unescape_value(reader.decoder())?
+                                .into_owned(),
+                        );
+                    }
+                }
+                let pattern = pattern.ok_or("Recog fingerprint missing pattern attribute")?;
+                current = Some(RecogFingerprint {
+                    service,
+                    source: source.clone(),
+                    pattern: apply_recog_flags(pattern, flags.as_deref()),
+                    params: Vec::new(),
+                });
+            }
+            Event::Empty(element) if element.name().as_ref() == b"param" => {
+                if let Some(fingerprint) = &mut current {
+                    fingerprint
+                        .params
+                        .push(parse_recog_param(&reader, &element)?);
+                }
+            }
+            Event::End(element) if element.name().as_ref() == b"fingerprint" => {
+                if let Some(fingerprint) = current.take() {
+                    fingerprints.push(fingerprint);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_recog_flags(pattern: String, flags: Option<&str>) -> String {
+    let Some(flags) = flags else {
+        return pattern;
+    };
+
+    let mut inline_flags = String::new();
+    if flags.contains("REG_ICASE") && !pattern.starts_with("(?i)") {
+        inline_flags.push('i');
+    }
+    if flags.contains("REG_MULTILINE") && !pattern.starts_with("(?m)") {
+        inline_flags.push('m');
+    }
+
+    if inline_flags.is_empty() {
+        pattern
+    } else {
+        format!("(?{inline_flags}){pattern}")
+    }
+}
+
+fn parse_recog_param(
+    reader: &Reader<&[u8]>,
+    element: &quick_xml::events::BytesStart<'_>,
+) -> Result<RecogParam, Box<dyn std::error::Error>> {
+    let mut name = None;
+    let mut value = None;
+    let mut pos = 0;
+
+    for attr in element.attributes() {
+        let attr = attr?;
+        let attr_value = attr
+            .decode_and_unescape_value(reader.decoder())?
+            .into_owned();
+        match attr.key.as_ref() {
+            b"name" => name = Some(attr_value),
+            b"value" => value = Some(attr_value),
+            b"pos" => pos = attr_value.parse()?,
+            _ => {}
+        }
+    }
+
+    Ok(RecogParam {
+        name: name.ok_or("Recog param missing name attribute")?,
+        value,
+        pos,
+    })
 }
 
 fn generate_p0f_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {

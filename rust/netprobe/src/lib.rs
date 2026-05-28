@@ -30,6 +30,8 @@ pub mod p0f_corpus;
 #[allow(dead_code)]
 pub mod p0f_matcher;
 pub mod proto;
+#[allow(dead_code)]
+pub mod recog;
 pub mod runtime_config;
 pub mod server;
 #[cfg(feature = "remote-capture")]

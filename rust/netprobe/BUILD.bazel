@@ -21,6 +21,7 @@ NETPROBE_DEPS = crate_deps([
     "phf",
     "prometheus",
     "prost",
+    "regex-automata",
     "serde",
     "serde_json",
     "sha2",
@@ -80,13 +81,14 @@ cargo_build_script(
         "p0f-corpus/p0f.fp",
         "p0f-corpus/serviceradar-additions.fp",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
-    ],
+    ] + glob(["recog-corpus/xml/*.xml"]),
     edition = "2021",
     tools = ["@bazel_tools//tools/proto:protoc"],
     deps = crate_deps([
         "aya-build",
         "phf_codegen",
         "prost-build",
+        "quick-xml",
     ]),
 )
 
@@ -96,7 +98,7 @@ rust_binary(
     compile_data = [
         "p0f-corpus/p0f.fp",
         "p0f-corpus/serviceradar-additions.fp",
-    ],
+    ] + glob(["recog-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     edition = "2021",
@@ -110,7 +112,7 @@ rust_test(
     compile_data = [
         "p0f-corpus/p0f.fp",
         "p0f-corpus/serviceradar-additions.fp",
-    ],
+    ] + glob(["recog-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     edition = "2021",
