@@ -19,6 +19,7 @@ mod framing;
 mod hassh;
 #[allow(dead_code)]
 mod ja4;
+mod kernel;
 mod lifecycle;
 mod metrics;
 #[allow(dead_code)]

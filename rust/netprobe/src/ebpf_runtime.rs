@@ -15,6 +15,7 @@ use crate::{
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
     fingerprint::P0fSignatureRuntime,
+    kernel::ensure_supported_kernel,
     metrics::Metrics,
     proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot},
     runtime_config::{DpiEventGate, FingerprintEventGate},
@@ -54,6 +55,11 @@ impl NetprobeEbpfRuntime {
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
+        let kernel = ensure_supported_kernel()?;
+        log::info!(
+            "netprobe eBPF capture kernel check passed: {}",
+            kernel.release
+        );
         let interfaces = af_xdp::resolve_interfaces(&config.capture_interfaces)
             .context("failed to resolve AF_XDP capture interfaces")?;
         let mut ebpf = load_netprobe_ebpf(object_path, config)?;
