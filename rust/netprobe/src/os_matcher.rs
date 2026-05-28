@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::p0f_corpus::P0fLabel;
 use crate::p0f_matcher::P0fMatch;
 
@@ -106,14 +108,22 @@ pub struct SignalDisagreement {
 
 pub fn evaluate(input: OsMatchInput) -> Option<OsMatch> {
     let primary = primary_tcp_observation(&input)?;
-    let mut confidence = primary.base_confidence;
-    let mut agreement_count = 1u32;
+    let auxiliary = auxiliary_observations(&input, primary.signal);
+    let selected = weighted_majority_choice(&primary, &auxiliary);
+    let mut confidence = if selected.used_fallback {
+        selected.weight.min(MAX_CONFIDENCE)
+    } else {
+        primary.base_confidence
+    };
+    let mut agreement_count = if selected.used_fallback { 0 } else { 1 };
     let mut agreeing_signals = Vec::new();
     let mut disagreements = Vec::new();
 
-    for observation in auxiliary_observations(&input, primary.signal) {
-        if observation.family == primary.os_family {
-            confidence *= observation.multiplier;
+    for observation in auxiliary {
+        if observation.family == selected.os_family {
+            if !selected.used_fallback {
+                confidence *= observation.multiplier;
+            }
             agreement_count += 1;
             agreeing_signals.push(SignalAgreement {
                 signal: observation.signal,
@@ -133,9 +143,9 @@ pub fn evaluate(input: OsMatchInput) -> Option<OsMatch> {
     }
 
     Some(OsMatch {
-        os_family: primary.os_family,
-        name: primary.name,
-        version_range: primary.version_range,
+        os_family: selected.os_family,
+        name: selected.name,
+        version_range: selected.version_range,
         confidence: confidence.min(MAX_CONFIDENCE),
         agreement_count,
         p0f_signature: input
@@ -203,7 +213,7 @@ fn normalized_family(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace('_', " ")
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct TcpPrimary {
     signal: Option<FingerprintSignal>,
     os_family: String,
@@ -220,6 +230,135 @@ struct AuxiliaryObservation {
     name: String,
     version_range: Option<String>,
     multiplier: f32,
+}
+
+#[derive(Clone, Debug)]
+struct MatchChoice {
+    os_family: String,
+    name: String,
+    version_range: Option<String>,
+    weight: f32,
+    used_fallback: bool,
+}
+
+#[derive(Clone, Debug)]
+struct VoteAggregate {
+    weight: f32,
+    strongest_signal_weight: f32,
+    name: String,
+    version_range: Option<String>,
+}
+
+fn weighted_majority_choice(
+    primary: &TcpPrimary,
+    auxiliary: &[AuxiliaryObservation],
+) -> MatchChoice {
+    let mut votes = BTreeMap::new();
+    add_vote(
+        &mut votes,
+        &primary.os_family,
+        &primary.name,
+        primary.version_range.clone(),
+        primary.base_confidence,
+    );
+
+    for observation in auxiliary {
+        add_vote(
+            &mut votes,
+            &observation.family,
+            &observation.name,
+            observation.version_range.clone(),
+            baseline_weight(observation.signal),
+        );
+    }
+
+    let primary_weight = votes
+        .get(&primary.os_family)
+        .map(|vote| vote.weight)
+        .unwrap_or(primary.base_confidence);
+    let Some((family, vote)) = votes
+        .iter()
+        .max_by(|(left_family, left), (right_family, right)| {
+            left.weight.total_cmp(&right.weight).then_with(|| {
+                (left_family.as_str() == primary.os_family)
+                    .cmp(&(right_family.as_str() == primary.os_family))
+            })
+        })
+    else {
+        return MatchChoice {
+            os_family: primary.os_family.clone(),
+            name: primary.name.clone(),
+            version_range: primary.version_range.clone(),
+            weight: primary.base_confidence,
+            used_fallback: false,
+        };
+    };
+
+    if family == &primary.os_family || vote.weight <= primary_weight {
+        return MatchChoice {
+            os_family: primary.os_family.clone(),
+            name: primary.name.clone(),
+            version_range: primary.version_range.clone(),
+            weight: primary_weight,
+            used_fallback: false,
+        };
+    }
+
+    MatchChoice {
+        os_family: family.clone(),
+        name: vote.name.clone(),
+        version_range: vote.version_range.clone(),
+        weight: vote.weight,
+        used_fallback: true,
+    }
+}
+
+fn add_vote(
+    votes: &mut BTreeMap<String, VoteAggregate>,
+    family: &str,
+    name: &str,
+    version_range: Option<String>,
+    weight: f32,
+) {
+    let entry = votes.entry(family.to_string()).or_insert(VoteAggregate {
+        weight: 0.0,
+        strongest_signal_weight: 0.0,
+        name: name.to_string(),
+        version_range: version_range.clone(),
+    });
+    entry.weight += weight;
+    if weight >= entry.strongest_signal_weight {
+        entry.strongest_signal_weight = weight;
+        entry.name = name.to_string();
+        entry.version_range = version_range;
+    }
+}
+
+fn baseline_weight(signal: FingerprintSignal) -> f32 {
+    match signal {
+        FingerprintSignal::MuonFp => MUONFP_BASE_CONFIDENCE,
+        FingerprintSignal::SatoriTcp => SATORI_TCP_BASE_CONFIDENCE,
+        FingerprintSignal::Ja4 | FingerprintSignal::Hassh => 0.30,
+        FingerprintSignal::RecogHttp
+        | FingerprintSignal::RecogSsh
+        | FingerprintSignal::RecogSmb
+        | FingerprintSignal::RecogFtp
+        | FingerprintSignal::RecogSmtp
+        | FingerprintSignal::RecogTelnet
+        | FingerprintSignal::RecogSnmp
+        | FingerprintSignal::RecogSip
+        | FingerprintSignal::RecogRdp
+        | FingerprintSignal::RecogDns
+        | FingerprintSignal::SatoriDhcp
+        | FingerprintSignal::SatoriHttp
+        | FingerprintSignal::SatoriSsh
+        | FingerprintSignal::SatoriSmb
+        | FingerprintSignal::SatoriSsl
+        | FingerprintSignal::SatoriDns
+        | FingerprintSignal::SatoriIcmp
+        | FingerprintSignal::SatoriNtp
+        | FingerprintSignal::SatoriSip => 0.25,
+    }
 }
 
 fn primary_tcp_observation(input: &OsMatchInput) -> Option<TcpPrimary> {
@@ -515,6 +654,23 @@ mod tests {
         assert_eq!(matched.disagreements.len(), 1);
         assert_eq!(matched.disagreements[0].signal, FingerprintSignal::MuonFp);
         assert_eq!(matched.disagreements[0].observed_family, "windows");
+    }
+
+    #[test]
+    fn weighted_majority_can_override_tcp_primary() {
+        let matched = evaluate(OsMatchInput {
+            p0f: Some(p0f_observation("Linux", None)),
+            muonfp: Some(muonfp_observation("windows")),
+            ja4: Some(auxiliary(FingerprintSignal::Ja4, "windows")),
+            hassh: Some(auxiliary(FingerprintSignal::Hassh, "windows")),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(matched.os_family, "windows");
+        assert_eq!(matched.agreement_count, 3);
+        assert_eq!(matched.disagreements.len(), 0);
+        assert_eq!(matched.confidence, super::MAX_CONFIDENCE);
     }
 
     #[test]
