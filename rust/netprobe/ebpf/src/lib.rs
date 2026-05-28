@@ -3,7 +3,7 @@
 
 use aya_ebpf::{
     bindings::{BPF_ANY, TC_ACT_OK},
-    helpers::bpf_ktime_get_ns,
+    helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel},
     macros::{classifier, kprobe, kretprobe, map, tracepoint},
     maps::{LruHashMap, RingBuf, XskMap},
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext},
@@ -26,6 +26,16 @@ const IPV4_MIN_HEADER_LEN: usize = 20;
 const IPV6_HEADER_LEN: usize = 40;
 const TCP_MIN_HEADER_LEN: usize = 20;
 const UDP_HEADER_LEN: usize = 8;
+const TCP_FLAG_SYN: u8 = 0x02;
+const TCP_MAX_OPTIONS_LAYOUT: usize = 32;
+const TCP_SYN_QUIRK_MALFORMED_OPTIONS: u32 = 1 << 0;
+const TCP_PAYLOAD_CLASS_EMPTY: u8 = 0;
+const TCP_PAYLOAD_CLASS_NON_EMPTY: u8 = 1;
+
+const SKB_IIF_OFFSET: usize = 144;
+const SKB_TRANSPORT_HEADER_OFFSET: usize = 178;
+const SKB_NETWORK_HEADER_OFFSET: usize = 180;
+const SKB_HEAD_OFFSET: usize = 192;
 
 const FLOW_TABLE_MAX_ENTRIES: u32 = 65_536;
 const XSK_MAX_QUEUES: u32 = 1024;
@@ -111,8 +121,28 @@ pub struct FlowTableEntry {
     pub last_seen_ns: u64,
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct TcpSynSignatureRecord {
+    pub version: u16,
+    pub ip_version: u16,
+    pub ttl: u8,
+    pub window_scale: u8,
+    pub options_len: u8,
+    pub payload_class: u8,
+    pub window_size: u16,
+    pub mss: u16,
+    pub quirks: u32,
+    pub observed_ns: u64,
+    pub flow_key: FlowKey,
+    pub options_layout: [u8; TCP_MAX_OPTIONS_LAYOUT],
+}
+
 #[map(name = "flow_events")]
 static FLOW_EVENTS: RingBuf = RingBuf::pinned(1 << 20, 0);
+
+#[map(name = "tcp_syn_signatures")]
+static TCP_SYN_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
 
 #[map(name = "flow_table")]
 static FLOW_TABLE: LruHashMap<FlowKey, FlowTableEntry> =
@@ -129,6 +159,22 @@ pub fn netprobe_tc_ingress(ctx: TcContext) -> i32 {
 #[classifier]
 pub fn netprobe_tc_egress(ctx: TcContext) -> i32 {
     classify_and_maybe_redirect(ctx)
+}
+
+#[kprobe(function = "tcp_rcv_state_process")]
+pub fn tcp_rcv_state_process(ctx: ProbeContext) -> u32 {
+    let Some(skb) = ctx.arg::<*const c_void>(1) else {
+        return 0;
+    };
+    if skb.is_null() {
+        return 0;
+    }
+
+    if let Some(signature) = parse_tcp_syn_signature_from_skb(skb, now_ns()) {
+        let _ = TCP_SYN_SIGNATURES.output(&signature, 0);
+    }
+
+    0
 }
 
 #[kprobe(function = "tcp_connect")]
@@ -370,6 +416,233 @@ fn parse_flow_key(ctx: &TcContext) -> Option<FlowKey> {
     }
 }
 
+fn parse_tcp_syn_signature_from_skb(
+    skb: *const c_void,
+    observed_ns: u64,
+) -> Option<TcpSynSignatureRecord> {
+    let head = read_kernel_at::<*const u8>(skb, SKB_HEAD_OFFSET)?;
+    let network_offset = usize::from(read_kernel_at::<u16>(skb, SKB_NETWORK_HEADER_OFFSET)?);
+    let transport_offset = usize::from(read_kernel_at::<u16>(skb, SKB_TRANSPORT_HEADER_OFFSET)?);
+    let interface_index = read_kernel_at::<u32>(skb, SKB_IIF_OFFSET).unwrap_or_default();
+
+    let version = read_packet_u8(head, network_offset)? >> 4;
+    match version {
+        4 => parse_ipv4_tcp_syn_signature_from_skb(
+            head,
+            network_offset,
+            transport_offset,
+            interface_index,
+            observed_ns,
+        ),
+        6 => parse_ipv6_tcp_syn_signature_from_skb(
+            head,
+            network_offset,
+            transport_offset,
+            interface_index,
+            observed_ns,
+        ),
+        _ => None,
+    }
+}
+
+fn parse_ipv4_tcp_syn_signature_from_skb(
+    head: *const u8,
+    ip_offset: usize,
+    tcp_offset: usize,
+    interface_index: u32,
+    observed_ns: u64,
+) -> Option<TcpSynSignatureRecord> {
+    let version_ihl = read_packet_u8(head, ip_offset)?;
+    if version_ihl >> 4 != 4 {
+        return None;
+    }
+
+    let ihl = usize::from(version_ihl & 0x0f) * 4;
+    if ihl < IPV4_MIN_HEADER_LEN {
+        return None;
+    }
+
+    if read_packet_u8(head, ip_offset + 9)? != IPPROTO_TCP as u8 {
+        return None;
+    }
+
+    let total_len = usize::from(read_packet_be_u16(head, ip_offset + 2)?);
+    let ttl = read_packet_u8(head, ip_offset + 8)?;
+    let mut source = [0u8; 16];
+    let mut destination = [0u8; 16];
+    source[..4].copy_from_slice(&read_packet_bytes::<4>(head, ip_offset + 12)?);
+    destination[..4].copy_from_slice(&read_packet_bytes::<4>(head, ip_offset + 16)?);
+    let source_port = read_packet_be_u16(head, tcp_offset)?;
+    let destination_port = read_packet_be_u16(head, tcp_offset + 2)?;
+    let flow_key = canonical_flow_key(
+        interface_index,
+        AF_INET,
+        IPPROTO_TCP,
+        source,
+        destination,
+        source_port,
+        destination_port,
+    );
+
+    parse_tcp_syn_header(
+        head,
+        tcp_offset,
+        total_len.saturating_sub(ihl),
+        flow_key,
+        observed_ns,
+        4,
+        ttl,
+    )
+}
+
+fn parse_ipv6_tcp_syn_signature_from_skb(
+    head: *const u8,
+    ip_offset: usize,
+    tcp_offset: usize,
+    interface_index: u32,
+    observed_ns: u64,
+) -> Option<TcpSynSignatureRecord> {
+    if read_packet_u8(head, ip_offset)? >> 4 != 6 {
+        return None;
+    }
+
+    if read_packet_u8(head, ip_offset + 6)? != IPPROTO_TCP as u8 {
+        return None;
+    }
+
+    let payload_len = usize::from(read_packet_be_u16(head, ip_offset + 4)?);
+    let hop_limit = read_packet_u8(head, ip_offset + 7)?;
+    let source = read_packet_bytes::<16>(head, ip_offset + 8)?;
+    let destination = read_packet_bytes::<16>(head, ip_offset + 24)?;
+    let source_port = read_packet_be_u16(head, tcp_offset)?;
+    let destination_port = read_packet_be_u16(head, tcp_offset + 2)?;
+    let flow_key = canonical_flow_key(
+        interface_index,
+        AF_INET6,
+        IPPROTO_TCP,
+        source,
+        destination,
+        source_port,
+        destination_port,
+    );
+
+    parse_tcp_syn_header(
+        head,
+        tcp_offset,
+        payload_len,
+        flow_key,
+        observed_ns,
+        6,
+        hop_limit,
+    )
+}
+
+fn parse_tcp_syn_header(
+    head: *const u8,
+    tcp_offset: usize,
+    tcp_segment_len: usize,
+    flow_key: FlowKey,
+    observed_ns: u64,
+    ip_version: u16,
+    ttl: u8,
+) -> Option<TcpSynSignatureRecord> {
+    if tcp_segment_len < TCP_MIN_HEADER_LEN {
+        return None;
+    }
+
+    let data_offset = usize::from(read_packet_u8(head, tcp_offset + 12)? >> 4) * 4;
+    if data_offset < TCP_MIN_HEADER_LEN || data_offset > tcp_segment_len {
+        return None;
+    }
+
+    let flags = read_packet_u8(head, tcp_offset + 13)?;
+    if flags & TCP_FLAG_SYN == 0 {
+        return None;
+    }
+
+    let _ = read_packet_u8(head, tcp_offset + data_offset - 1)?;
+
+    let window_size = read_packet_be_u16(head, tcp_offset + 14)?;
+    let mut record = TcpSynSignatureRecord {
+        version: EVENT_VERSION,
+        ip_version,
+        ttl,
+        window_scale: 0,
+        options_len: 0,
+        payload_class: if tcp_segment_len > data_offset {
+            TCP_PAYLOAD_CLASS_NON_EMPTY
+        } else {
+            TCP_PAYLOAD_CLASS_EMPTY
+        },
+        window_size,
+        mss: 0,
+        quirks: 0,
+        observed_ns,
+        flow_key,
+        options_layout: [0; TCP_MAX_OPTIONS_LAYOUT],
+    };
+
+    parse_tcp_options_from_skb(
+        head,
+        tcp_offset + TCP_MIN_HEADER_LEN,
+        data_offset - TCP_MIN_HEADER_LEN,
+        &mut record,
+    );
+    Some(record)
+}
+
+fn parse_tcp_options_from_skb(
+    head: *const u8,
+    options_offset: usize,
+    options_len: usize,
+    record: &mut TcpSynSignatureRecord,
+) {
+    let mut offset = 0usize;
+    let mut option_count = 0usize;
+
+    while offset < options_len && option_count < TCP_MAX_OPTIONS_LAYOUT {
+        let Some(kind) = read_packet_u8(head, options_offset + offset) else {
+            record.quirks |= TCP_SYN_QUIRK_MALFORMED_OPTIONS;
+            return;
+        };
+
+        record.options_layout[option_count] = kind;
+        option_count += 1;
+
+        if kind == 0 {
+            break;
+        }
+        if kind == 1 {
+            offset += 1;
+            continue;
+        }
+
+        let Some(length) = read_packet_u8(head, options_offset + offset + 1).map(usize::from)
+        else {
+            record.quirks |= TCP_SYN_QUIRK_MALFORMED_OPTIONS;
+            return;
+        };
+        if length < 2 || offset.saturating_add(length) > options_len {
+            record.quirks |= TCP_SYN_QUIRK_MALFORMED_OPTIONS;
+            return;
+        }
+
+        if kind == 2 && length == 4 {
+            if let Some(mss) = read_packet_be_u16(head, options_offset + offset + 2) {
+                record.mss = mss;
+            }
+        } else if kind == 3 && length == 3 {
+            if let Some(window_scale) = read_packet_u8(head, options_offset + offset + 2) {
+                record.window_scale = window_scale;
+            }
+        }
+
+        offset += length;
+    }
+
+    record.options_len = option_count as u8;
+}
+
 fn parse_ipv4_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     let version_ihl = load_u8(ctx, ip_offset)?;
     if version_ihl >> 4 != 4 {
@@ -520,6 +793,33 @@ fn load_be_u16(ctx: &TcContext, offset: usize) -> Option<u16> {
 
 fn load_bytes<const N: usize>(ctx: &TcContext, offset: usize) -> Option<[u8; N]> {
     ctx.load::<[u8; N]>(offset).ok()
+}
+
+fn read_kernel_at<T: Copy>(base: *const c_void, offset: usize) -> Option<T> {
+    // SAFETY: The caller passes a kernel pointer supplied by the probed kernel
+    // function. bpf_probe_read_kernel copies the requested field and returns an
+    // error instead of faulting if the address is invalid for this kernel.
+    unsafe { bpf_probe_read_kernel((base as *const u8).add(offset) as *const T).ok() }
+}
+
+fn read_packet_u8(head: *const u8, offset: usize) -> Option<u8> {
+    read_packet_at(head, offset)
+}
+
+fn read_packet_be_u16(head: *const u8, offset: usize) -> Option<u16> {
+    let bytes = read_packet_bytes::<2>(head, offset)?;
+    Some(u16::from_be_bytes(bytes))
+}
+
+fn read_packet_bytes<const N: usize>(head: *const u8, offset: usize) -> Option<[u8; N]> {
+    read_packet_at(head, offset)
+}
+
+fn read_packet_at<T: Copy>(head: *const u8, offset: usize) -> Option<T> {
+    // SAFETY: `head` is read from `struct sk_buff::head`; offsets come from
+    // skb network/transport header metadata or bounded TCP option parsing.
+    // The helper performs a checked kernel-memory copy for the verifier.
+    unsafe { bpf_probe_read_kernel(head.add(offset) as *const T).ok() }
 }
 
 fn skb_interface_index(ctx: &TcContext) -> u32 {

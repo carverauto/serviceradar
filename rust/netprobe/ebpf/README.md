@@ -11,6 +11,8 @@ Programs:
   first-packet AF_XDP redirection.
 - `netprobe_tc_egress`: TC egress classifier with the same canonical flow-table
   behavior for reverse-direction traffic.
+- `tcp_rcv_state_process`: kprobe for SYN-time TCP option signatures; emits
+  one `TcpSynSignatureRecord` for SYN packets seen at connection setup.
 - `tcp_connect`: kprobe for outbound TCP connect attempts.
 - `inet_csk_accept`: kretprobe for accepted inbound TCP sockets.
 - `tcp_close`: kprobe for TCP socket close.
@@ -22,6 +24,11 @@ Programs:
 Events are emitted to the `flow_events` ring buffer. The userspace loader should
 pin maps under `/sys/fs/bpf/serviceradar/netprobe/` and consume
 `FlowAttributionRecord` by version.
+
+TCP SYN signatures are emitted to the `tcp_syn_signatures` ring buffer. The
+record carries TTL/hop-limit, window size, MSS, TCP option kind layout, quirks,
+IP version, window scale, and payload class for the userspace huginn-net
+matcher.
 
 The `flow_table` map uses a canonical 5-tuple key with the lexicographically
 smaller endpoint first, so both directions of a connection share one entry. A
