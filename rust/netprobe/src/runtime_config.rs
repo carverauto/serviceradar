@@ -292,6 +292,18 @@ fn protocol_for(event: &FingerprintEvent) -> Option<FingerprintProtocol> {
         fingerprint_event::Evidence::Tcp(_) => Some(FingerprintProtocol::Tcp),
         fingerprint_event::Evidence::Tls(_) => Some(FingerprintProtocol::Tls),
         fingerprint_event::Evidence::Http(_) => Some(FingerprintProtocol::Http),
+        fingerprint_event::Evidence::LicenseClean(fingerprint) => {
+            if !fingerprint.p0f_signature.is_empty()
+                || !fingerprint.hassh.is_empty()
+                || !fingerprint.hassh_server.is_empty()
+            {
+                Some(FingerprintProtocol::Tcp)
+            } else if !fingerprint.ja4.is_empty() {
+                Some(FingerprintProtocol::Tls)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -437,7 +449,7 @@ mod tests {
         config::Config,
         proto::netprobe::{
             fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig,
-            FingerprintEvent, TcpFingerprint, VisibilityAgentConfig,
+            FingerprintEvent, LicenseCleanFingerprint, TcpFingerprint, VisibilityAgentConfig,
         },
     };
 
@@ -494,6 +506,32 @@ mod tests {
         let mut gate = FingerprintEventGate::new(runtime_config);
 
         assert!(gate.filter(tcp_event("192.0.2.10", 1)).is_none());
+    }
+
+    #[test]
+    fn license_clean_event_uses_tcp_fingerprint_gate() {
+        let runtime_config = RuntimeConfig::new(&Config::default());
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                device_bindings: vec![DeviceBinding {
+                    ip: "192.0.2.10".to_string(),
+                    profile_id: "profile-1".to_string(),
+                    fingerprint: Some(FingerprintConfig {
+                        tcp: true,
+                        tls: false,
+                        http: false,
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let mut gate = FingerprintEventGate::new(runtime_config);
+
+        let allowed = gate.filter(license_clean_event("192.0.2.10", "4:64:0:1460:29200"));
+
+        assert_eq!(allowed.unwrap().profile_id, "profile-1");
     }
 
     #[test]
@@ -656,6 +694,21 @@ mod tests {
                 confidence: 1.0,
                 ..Default::default()
             })),
+            ..Default::default()
+        }
+    }
+
+    fn license_clean_event(ip: &str, p0f_signature: &str) -> FingerprintEvent {
+        FingerprintEvent {
+            ip: ip.to_string(),
+            interface_name: "eth0".to_string(),
+            observed_at_unix_nano: 1,
+            evidence: Some(fingerprint_event::Evidence::LicenseClean(
+                LicenseCleanFingerprint {
+                    p0f_signature: p0f_signature.to_string(),
+                    ..Default::default()
+                },
+            )),
             ..Default::default()
         }
     }
