@@ -1,7 +1,8 @@
-use std::{fs, io};
+use std::{env, fs, io, path::PathBuf};
 
 pub const MIN_KERNEL_MAJOR: u32 = 5;
 pub const MIN_KERNEL_MINOR: u32 = 8;
+pub const KERNEL_RELEASE_FILE_ENV: &str = "SERVICERADAR_NETPROBE_KERNEL_RELEASE_FILE";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelVersion {
@@ -41,7 +42,10 @@ pub fn current_kernel_version() -> anyhow::Result<KernelVersion> {
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn read_kernel_release() -> io::Result<String> {
-    fs::read_to_string("/proc/sys/kernel/osrelease").map(|value| value.trim().to_string())
+    let path = env::var_os(KERNEL_RELEASE_FILE_ENV)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/proc/sys/kernel/osrelease".into());
+    fs::read_to_string(path).map(|value| value.trim().to_string())
 }
 
 fn parse_kernel_release(release: &str) -> Option<KernelVersion> {
@@ -58,7 +62,14 @@ fn parse_kernel_release(release: &str) -> Option<KernelVersion> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_kernel_release;
+    use std::sync::{Mutex, OnceLock};
+
+    use super::{current_kernel_version, parse_kernel_release, KERNEL_RELEASE_FILE_ENV};
+
+    fn kernel_env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn accepts_kernel_floor_and_newer() {
@@ -79,5 +90,23 @@ mod tests {
     #[test]
     fn rejects_unparseable_release() {
         assert!(parse_kernel_release("not-a-kernel").is_none());
+    }
+
+    #[test]
+    fn reads_kernel_release_from_test_override_file() {
+        let _guard = kernel_env_lock();
+        let path = std::env::temp_dir().join(format!(
+            "serviceradar-netprobe-kernel-{}",
+            std::process::id()
+        ));
+        std::fs::write(&path, "5.4.0-ci\n").unwrap();
+        std::env::set_var(KERNEL_RELEASE_FILE_ENV, &path);
+
+        let version = current_kernel_version().unwrap();
+
+        std::env::remove_var(KERNEL_RELEASE_FILE_ENV);
+        let _ = std::fs::remove_file(path);
+        assert_eq!(version.release, "5.4.0-ci");
+        assert!(!version.supports_ebpf_capture());
     }
 }
