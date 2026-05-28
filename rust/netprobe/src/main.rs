@@ -4,7 +4,9 @@ mod af_xdp;
 mod af_xdp_classifier;
 #[allow(dead_code)]
 mod attribution;
+#[allow(dead_code)]
 mod capabilities;
+#[allow(dead_code)]
 mod capture;
 mod config;
 mod dpi;
@@ -14,6 +16,7 @@ mod ebpf_loader;
 #[allow(dead_code)]
 mod ebpf_runtime;
 mod event_queue;
+#[allow(dead_code)]
 mod fingerprint;
 mod framing;
 #[allow(dead_code)]
@@ -21,6 +24,7 @@ mod hassh;
 #[allow(dead_code)]
 mod ja4;
 mod kernel;
+#[allow(dead_code)]
 mod lifecycle;
 mod metrics;
 #[allow(dead_code)]
@@ -30,9 +34,11 @@ mod p0f_corpus;
 #[allow(dead_code)]
 mod p0f_matcher;
 mod proto;
+#[allow(dead_code)]
 mod runtime_config;
 mod server;
 #[cfg(feature = "pcap-capture")]
+#[allow(dead_code)]
 mod tls_server;
 
 use std::{
@@ -46,9 +52,8 @@ use clap::{Parser, ValueEnum};
 use tokio::sync::{broadcast, watch};
 
 use crate::{
-    capture::CaptureWorkers,
     config::Config,
-    lifecycle::{initialize_privileged_resources, SystemStartupOps},
+    lifecycle::{StartupOps, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
     runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
     server::IpcServer,
@@ -110,7 +115,7 @@ enum LogFormat {
 
 #[allow(dead_code)]
 enum VisibilityRuntime {
-    Pcap(CaptureWorkers),
+    Disabled,
     #[cfg(target_os = "linux")]
     Ebpf(ebpf_runtime::NetprobeEbpfRuntime),
 }
@@ -126,15 +131,15 @@ async fn main() -> Result<()> {
     }
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
-    let (dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
+    let (_fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
+    let (_dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
     let (flow_attribution_event_tx, _) = broadcast::channel(4096);
     let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
-    let fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
+    let _fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
     )));
-    let dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
+    let _dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
     let metrics = Metrics::new()?;
     let mut startup_ops = SystemStartupOps;
     let _visibility_runtime = if args.ebpf_object.is_some() {
@@ -154,12 +159,12 @@ async fn main() -> Result<()> {
                 ebpf_object,
                 &config,
                 metrics.clone(),
-                fingerprint_event_tx.clone(),
-                dpi_event_tx.clone(),
+                _fingerprint_event_tx.clone(),
+                _dpi_event_tx.clone(),
                 flow_attribution_event_tx.clone(),
                 process_snapshot_tx.clone(),
-                Arc::clone(&fingerprint_gate),
-                Arc::clone(&dpi_gate),
+                Arc::clone(&_fingerprint_gate),
+                Arc::clone(&_dpi_gate),
             )
             .context("failed to start eBPF/AF_XDP visibility runtime")?;
             drop_runtime_privileges(&mut startup_ops, args.drop_user.as_deref(), args.allow_root)?;
@@ -169,25 +174,13 @@ async fn main() -> Result<()> {
             );
             VisibilityRuntime::Ebpf(runtime)
         }
+    } else if config.enabled {
+        anyhow::bail!(
+            "netprobe continuous capture requires --ebpf-object after Phase 3 eBPF cutover"
+        );
     } else {
-        let capture_handles = initialize_privileged_resources(
-            &mut startup_ops,
-            &config,
-            args.drop_user.as_deref(),
-            args.skip_cap_check,
-            args.allow_root,
-        )?;
-        log::info!("opened {} pcap capture interface(s)", capture_handles.len());
-        let capture_workers = CaptureWorkers::start(
-            capture_handles,
-            metrics.clone(),
-            fingerprint_event_tx.clone(),
-            dpi_event_tx.clone(),
-            Arc::clone(&fingerprint_gate),
-            Arc::clone(&dpi_gate),
-        )
-        .context("failed to start pcap capture workers")?;
-        VisibilityRuntime::Pcap(capture_workers)
+        startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
+        VisibilityRuntime::Disabled
     };
     let metrics_task = tokio::spawn(serve_metrics(
         args.health_port,

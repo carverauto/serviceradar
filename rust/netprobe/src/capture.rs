@@ -1,28 +1,6 @@
-#[cfg(feature = "pcap-capture")]
-use std::thread;
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
-    thread::JoinHandle,
-};
-
 use anyhow::{Context, Result};
 
-use crate::{
-    config::Config,
-    event_queue::EventSender,
-    metrics::Metrics,
-    proto::netprobe::{DpiEvent, FingerprintEvent},
-    runtime_config::{DpiEventGate, FingerprintEventGate},
-};
-
-#[cfg(feature = "pcap-capture")]
-use crate::{
-    dpi::DpiPipeline,
-    fingerprint::{now_unix_nano, FingerprintEngine},
-};
+use crate::config::Config;
 
 #[cfg(feature = "pcap-capture")]
 const HEADER_FINGERPRINT_SNAPLEN: i32 = 512;
@@ -39,7 +17,7 @@ pub struct CaptureHandles<H = CaptureBackendHandle> {
 
 pub struct CaptureHandle<H = CaptureBackendHandle> {
     interface: String,
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[allow(dead_code)]
     handle: H,
 }
 
@@ -72,46 +50,9 @@ impl<H> CaptureHandles<H> {
         self.handles.iter().map(|handle| handle.interface.as_str())
     }
 
-    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    #[allow(dead_code)]
     fn into_handles(self) -> Vec<CaptureHandle<H>> {
         self.handles
-    }
-}
-
-pub struct CaptureWorkers {
-    stop: Arc<AtomicBool>,
-    threads: Vec<JoinHandle<()>>,
-}
-
-impl CaptureWorkers {
-    pub fn start(
-        captures: CaptureHandles,
-        metrics: Metrics,
-        fingerprint_events: EventSender<FingerprintEvent>,
-        dpi_events: EventSender<DpiEvent>,
-        fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
-        dpi_gate: Arc<DpiEventGate>,
-    ) -> Result<Self> {
-        start_capture_workers(
-            captures,
-            metrics,
-            fingerprint_events,
-            dpi_events,
-            fingerprint_gate,
-            dpi_gate,
-        )
-    }
-}
-
-impl Drop for CaptureWorkers {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
-
-        while let Some(thread) = self.threads.pop() {
-            if thread.join().is_err() {
-                log::warn!("netprobe capture worker panicked during shutdown");
-            }
-        }
     }
 }
 
@@ -139,127 +80,6 @@ where
     Ok(CaptureHandles { handles })
 }
 
-#[cfg(feature = "pcap-capture")]
-fn start_capture_workers(
-    captures: CaptureHandles,
-    metrics: Metrics,
-    fingerprint_events: EventSender<FingerprintEvent>,
-    dpi_events: EventSender<DpiEvent>,
-    fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
-    dpi_gate: Arc<DpiEventGate>,
-) -> Result<CaptureWorkers> {
-    let stop = Arc::new(AtomicBool::new(false));
-    let mut threads = Vec::with_capacity(captures.len());
-
-    for mut capture in captures.into_handles() {
-        let stop_worker = Arc::clone(&stop);
-        let metrics_worker = metrics.clone();
-        let fingerprint_tx = fingerprint_events.clone();
-        let dpi_tx = dpi_events.clone();
-        let fingerprint_gate = Arc::clone(&fingerprint_gate);
-        let dpi_gate = Arc::clone(&dpi_gate);
-        let thread_name = format!("netprobe-capture-{}", capture.interface);
-        let thread = thread::Builder::new()
-            .name(thread_name)
-            .spawn(move || {
-                let interface = capture.interface.clone();
-                let dpi_pipeline = DpiPipeline::phase2();
-                let mut engine = match FingerprintEngine::phase1() {
-                    Ok(engine) => engine,
-                    Err(err) => {
-                        metrics_worker.inc_signature_failures();
-                        log::error!(
-                            "failed to initialize fingerprint engine for {interface}: {err:#}"
-                        );
-                        return;
-                    }
-                };
-
-                while !stop_worker.load(Ordering::SeqCst) {
-                    match capture.handle.next_packet() {
-                        Ok(packet) => {
-                            metrics_worker.inc_packets_processed();
-                            let observed_at = packet_observed_at_unix_nano(&packet)
-                                .unwrap_or_else(now_unix_nano);
-                            let events = engine.analyze_packet(&interface, observed_at, packet.data);
-                            for event in events {
-                                let Some(event) = fingerprint_gate
-                                    .lock()
-                                    .expect("fingerprint event gate lock poisoned")
-                                    .filter(event)
-                                else {
-                                    continue;
-                                };
-                                let event_interface = event.interface_name.clone();
-                                let event_ip = event.ip.clone();
-                                metrics_worker.inc_fingerprint_events();
-                                if fingerprint_tx.try_send(event).is_err() {
-                                    metrics_worker
-                                        .inc_fingerprint_events_dropped("ipc_queue_full", 1);
-                                    log::debug!(
-                                        "dropping fingerprint event because IPC queue is full for {}",
-                                        event_interface
-                                    );
-                                }
-                                log::debug!(
-                                    "observed TCP fingerprint on {} for {}",
-                                    event_interface,
-                                    event_ip
-                                );
-                            }
-                            for event in
-                                dpi_pipeline.analyze_packet(&interface, observed_at, packet.data)
-                            {
-                                let Some(event) = dpi_gate.filter(event) else {
-                                    continue;
-                                };
-                                let event_interface = event.interface_name.clone();
-                                let event_protocol = event.protocol.clone();
-                                metrics_worker.inc_dpi_events();
-                                if dpi_tx.try_send(event).is_err() {
-                                    metrics_worker.inc_dpi_events_dropped("ipc_queue_full", 1);
-                                    log::debug!(
-                                        "dropping DPI event because IPC queue is full for {}",
-                                        event_interface
-                                    );
-                                }
-                                log::debug!(
-                                    "observed DPI protocol {} on {}",
-                                    event_protocol,
-                                    event_interface
-                                );
-                            }
-                        }
-                        Err(pcap::Error::TimeoutExpired) => {}
-                        Err(err) => {
-                            metrics_worker.inc_packets_dropped();
-                            log::warn!("failed to read packet on {interface}: {err}");
-                        }
-                    }
-                }
-            })
-            .context("failed to start pcap capture worker")?;
-        threads.push(thread);
-    }
-
-    Ok(CaptureWorkers { stop, threads })
-}
-
-#[cfg(not(feature = "pcap-capture"))]
-fn start_capture_workers(
-    _captures: CaptureHandles,
-    _metrics: Metrics,
-    _fingerprint_events: EventSender<FingerprintEvent>,
-    _dpi_events: EventSender<DpiEvent>,
-    _fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
-    _dpi_gate: Arc<DpiEventGate>,
-) -> Result<CaptureWorkers> {
-    Ok(CaptureWorkers {
-        stop: Arc::new(AtomicBool::new(false)),
-        threads: Vec::new(),
-    })
-}
-
 impl CaptureOpener for PcapCaptureOpener {
     type Handle = CaptureBackendHandle;
 
@@ -280,17 +100,6 @@ impl CaptureOpener for PcapCaptureOpener {
             "pcap capture backend is not enabled in this build; cannot open interface {interface}"
         );
     }
-}
-
-#[cfg(feature = "pcap-capture")]
-fn packet_observed_at_unix_nano(packet: &pcap::Packet<'_>) -> Option<i64> {
-    let seconds = packet.header.ts.tv_sec;
-    let micros = i64::from(packet.header.ts.tv_usec);
-    if seconds < 0 || !(0..1_000_000).contains(&micros) {
-        return None;
-    }
-
-    Some(seconds.saturating_mul(1_000_000_000) + micros.saturating_mul(1_000))
 }
 
 #[cfg(test)]

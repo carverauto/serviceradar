@@ -191,9 +191,9 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 
 ### 19. [Phase 3] libpcap deletion + packaging + UI surfaces
 
-- [ ] 19.1 Delete the libpcap capture worker in `rust/netprobe/src/capture.rs`; replace with the AF_XDP consumer from §18.9.
-- [ ] 19.2 Delete the per-packet fingerprint invocation from the capture worker (replaced by the §18.10 license-clean p0f signature ring consumer).
-- [ ] 19.3 Delete the per-packet DPI dispatch from the capture worker (replaced by §18.9).
+- [x] 19.1 Delete the libpcap capture worker in `rust/netprobe/src/capture.rs`; replace with the AF_XDP consumer from §18.9.
+- [x] 19.2 Delete the per-packet fingerprint invocation from the capture worker (replaced by the §18.10 license-clean p0f signature ring consumer).
+- [x] 19.3 Delete the per-packet DPI dispatch from the capture worker (replaced by §18.9).
 - [ ] 19.4 Implement adaptive sampling on the AF_XDP consumer (per the `Adaptive sampling under sustained CPU pressure` requirement): sliding-window CPU metric; under sustained pressure (default > 5% of one core for 30s), reduce the per-flow packet redirect budget toward 1. Expose `serviceradar_netprobe_sampling_budget` metric.
 - [ ] 19.5 Move `pcap = { optional = true }` behind a `remote-capture` Cargo feature. The default build no longer includes libpcap.
 - [ ] 19.6 Update deb/rpm packaging: move `libpcap0.8` / `libpcap` from `deb_depends` / `rpm_requires` to `Recommends`.
