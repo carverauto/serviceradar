@@ -49,6 +49,8 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
       Repo.transaction(fn ->
         finding_records = build_finding_records(payload, context)
         upsert_posture(payload, context, finding_records)
+        backfill_posture_device_uid(context)
+        backfill_pending_findings(context)
         upsert_findings(context, finding_records)
         resolve_stale_findings(context, finding_records)
         upsert_risk_contribution(context, finding_records)
@@ -67,7 +69,11 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
   defp build_context(payload, agent_id, actor) do
     now = DateTime.utc_now()
     findings = list_value(payload, :findings)
-    device_uid = string_value(payload, :device_uid) || resolve_agent_device_uid(agent_id, actor)
+
+    device_uid =
+      string_value(payload, :device_uid) || resolve_agent_device_uid(agent_id, actor) ||
+        existing_posture_device_uid(agent_id)
+
     skipped_roots = normalize_skipped_roots(value(payload, :skipped_roots, []))
 
     attempted_root_count =
@@ -151,7 +157,6 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
       on_conflict:
         {:replace,
          [
-           :device_uid,
            :run_id,
            :catalog_snapshot_ref,
            :scanner_version,
@@ -172,6 +177,40 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
          ]},
       conflict_target: [:agent_id]
     )
+  end
+
+  defp backfill_posture_device_uid(%{device_uid: nil}), do: :ok
+
+  defp backfill_posture_device_uid(context) do
+    query =
+      from(p in "bumblebee_device_postures",
+        where: p.agent_id == ^context.agent_id and is_nil(p.device_uid)
+      )
+
+    Repo.update_all(
+      query,
+      [set: [device_uid: context.device_uid, updated_at: context.now]],
+      prefix: "platform"
+    )
+
+    :ok
+  end
+
+  defp backfill_pending_findings(%{device_uid: nil}), do: :ok
+
+  defp backfill_pending_findings(context) do
+    query =
+      from(f in "bumblebee_findings",
+        where: f.agent_id == ^context.agent_id and is_nil(f.device_uid)
+      )
+
+    Repo.update_all(
+      query,
+      [set: [device_uid: context.device_uid, updated_at: context.now]],
+      prefix: "platform"
+    )
+
+    :ok
   end
 
   defp upsert_findings(_context, []), do: :ok
@@ -318,6 +357,17 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
       _ ->
         nil
     end
+  end
+
+  defp existing_posture_device_uid(agent_id) do
+    query =
+      from(p in "bumblebee_device_postures",
+        where: p.agent_id == ^agent_id and not is_nil(p.device_uid),
+        select: p.device_uid,
+        limit: 1
+      )
+
+    Repo.one(query, prefix: "platform")
   end
 
   defp risk_reason(context, finding_records) do

@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   import Ecto.Query, only: [from: 2]
 
@@ -28,6 +28,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   @default_reschedule_seconds 86_400
   @default_failure_reschedule_seconds 3_600
   @default_max_entries 250_000
+  @default_max_catalog_bytes 16 * 1024 * 1024
 
   @spec ensure_scheduled() ::
           {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:ok, :disabled} | {:error, term()}
@@ -70,9 +71,16 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     max_entries = Keyword.get(config, :max_entries, @default_max_entries)
-    download_source = Keyword.get(config, :download_source, &download_source/2)
+    max_catalog_bytes = Keyword.get(config, :max_catalog_bytes, @default_max_catalog_bytes)
+
+    download_source =
+      Keyword.get(config, :download_source, fn url, timeout ->
+        download_source(url, timeout, max_catalog_bytes)
+      end)
+
     materialize_catalog = Keyword.get(config, :materialize_catalog, &materialize_catalog/3)
     push_config = Keyword.get(config, :push_config, &AgentCommandBus.push_config_for_type/1)
+    insert_job = Keyword.get(config, :insert_job, &ObanSupport.safe_insert/1)
 
     refreshed? =
       sources
@@ -89,7 +97,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
       )
       |> Enum.any?(&match?({:ok, _}, &1))
 
-    schedule_next(config, refreshed?)
+    schedule_next(config, refreshed?, insert_job)
     :ok
   end
 
@@ -116,8 +124,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
              "source_revision" => source_revision,
              "schema_version" => Map.get(parsed, :schema_version)
            }),
-         {:ok, snapshot} <-
-           create_snapshot(
+         {:ok, promoted} <-
+           persist_snapshot(
              source,
              snapshot_ref,
              parsed,
@@ -125,9 +133,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
              source_revision,
              catalog_version,
              actor
-           ),
-         :ok <- create_entries(snapshot, entries, actor),
-         {:ok, promoted} <- promote_snapshot(snapshot, parsed, artifact, actor) do
+           ) do
       _ = push_config.(:bumblebee)
       _ = BumblebeeCatalogRefreshEventWriter.write_success(source, promoted, actor: actor)
       {:ok, promoted}
@@ -189,6 +195,43 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
   defp materialize_catalog(snapshot_ref, entries, metadata) do
     BumblebeeCatalogArtifact.materialize(snapshot_ref, entries, metadata)
+  end
+
+  defp persist_snapshot(
+         source,
+         snapshot_ref,
+         parsed,
+         artifact,
+         source_revision,
+         catalog_version,
+         actor
+       ) do
+    case Repo.transaction(fn ->
+           with {:ok, snapshot, snapshot_notifications} <-
+                  create_snapshot(
+                    source,
+                    snapshot_ref,
+                    parsed,
+                    artifact,
+                    source_revision,
+                    catalog_version,
+                    actor
+                  ),
+                :ok <- create_entries(snapshot, Map.fetch!(parsed, :entries), actor),
+                {:ok, promoted, promote_notifications} <-
+                  promote_snapshot(snapshot, parsed, artifact, actor) do
+             {promoted, snapshot_notifications ++ promote_notifications}
+           else
+             {:error, reason} -> Repo.rollback(reason)
+           end
+         end) do
+      {:ok, {promoted, notifications}} ->
+        _ = Ash.Notifier.notify(notifications)
+        {:ok, promoted}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp merge_catalog_entries(catalogs, max_entries) do
@@ -267,7 +310,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
     BumblebeeCatalogSnapshot
     |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-    |> Ash.create(actor: actor)
+    |> Ash.create(actor: actor, return_notifications?: true)
+    |> normalize_ash_result_with_notifications()
   end
 
   defp create_entries(snapshot, entries, actor) do
@@ -276,7 +320,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
       case BumblebeeCatalogEntry
            |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-           |> Ash.create(actor: actor) do
+           |> Ash.create(actor: actor, return_notifications?: true) do
+        {:ok, _entry, _notifications} -> {:cont, :ok}
         {:ok, _entry} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -295,22 +340,78 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
     snapshot
     |> Ash.Changeset.for_update(:promote, attrs, actor: actor)
-    |> Ash.update(actor: actor)
+    |> Ash.update(actor: actor, return_notifications?: true)
+    |> normalize_ash_result_with_notifications()
   end
 
-  defp download_source(url, timeout_ms) do
+  defp normalize_ash_result_with_notifications({:ok, record, %{notifications: notifications}}) do
+    {:ok, record, notifications}
+  end
+
+  defp normalize_ash_result_with_notifications({:ok, record, notifications})
+       when is_list(notifications) do
+    {:ok, record, notifications}
+  end
+
+  defp normalize_ash_result_with_notifications({:ok, record}) do
+    {:ok, record, []}
+  end
+
+  defp normalize_ash_result_with_notifications({:error, reason}) do
+    {:error, reason}
+  end
+
+  defp download_source(url, timeout_ms, max_catalog_bytes) do
     with :ok <- validate_url(url),
-         {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) <-
+         {:ok, %Req.Response{status: 200} = response} <-
            Req.get(
              url: url,
              headers: [{"user-agent", "serviceradar"}],
-             finch: ServiceRadar.Finch,
+             into: bounded_body_collector(max_catalog_bytes),
+             connect_options: [timeout: timeout_ms],
+             retry: false,
              receive_timeout: timeout_ms
-           ) do
+           ),
+         {:ok, body} <- response_body(response, max_catalog_bytes) do
       {:ok, body}
     else
       {:ok, %Req.Response{status: status}} -> {:error, {:http_status, status}}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp bounded_body_collector(max_bytes) do
+    fn {:data, data}, {request, response} ->
+      size = get_in(response.private, [:serviceradar_bumblebee_catalog_size]) || 0
+      chunks = get_in(response.private, [:serviceradar_bumblebee_catalog_chunks]) || []
+      size = size + byte_size(data)
+
+      response =
+        response.private[:serviceradar_bumblebee_catalog_size]
+        |> put_in(size)
+        |> put_in([Access.key!(:private), :serviceradar_bumblebee_catalog_chunks], [data | chunks])
+
+      if size > max_bytes do
+        response = put_in(response.private[:serviceradar_bumblebee_catalog_too_large], true)
+        {:halt, {request, response}}
+      else
+        {:cont, {request, response}}
+      end
+    end
+  end
+
+  defp response_body(%Req.Response{} = response, max_bytes) do
+    if get_in(response.private, [:serviceradar_bumblebee_catalog_too_large]) do
+      {:error, {:catalog_too_large, max_bytes}}
+    else
+      chunks = get_in(response.private, [:serviceradar_bumblebee_catalog_chunks]) || []
+      body = chunks |> Enum.reverse() |> IO.iodata_to_binary()
+
+      if byte_size(body) > max_bytes do
+        {:error, {:catalog_too_large, max_bytes}}
+      else
+        {:ok, body}
+      end
     end
   end
 
@@ -364,17 +465,17 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     )
   end
 
-  defp schedule_next(config, true) do
-    %{}
+  defp schedule_next(config, true, insert_job) do
+    %{"scheduled_at" => DateTime.to_iso8601(DateTime.utc_now()), "last_result" => "success"}
     |> new(
       schedule_in:
         max(Keyword.get(config, :reschedule_seconds, @default_reschedule_seconds), 3_600)
     )
-    |> ObanSupport.safe_insert()
+    |> insert_next_job(insert_job)
   end
 
-  defp schedule_next(config, false) do
-    %{}
+  defp schedule_next(config, false, insert_job) do
+    %{"scheduled_at" => DateTime.to_iso8601(DateTime.utc_now()), "last_result" => "failure"}
     |> new(
       schedule_in:
         max(
@@ -382,7 +483,21 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
           900
         )
     )
-    |> ObanSupport.safe_insert()
+    |> insert_next_job(insert_job)
+  end
+
+  defp insert_next_job(changeset, insert_job) do
+    case insert_job.(changeset) do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to schedule next Bumblebee catalog refresh",
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
   end
 
   defp scheduled? do

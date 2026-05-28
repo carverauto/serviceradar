@@ -21,17 +21,26 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     previous_config =
       Application.get_env(:serviceradar_core, BumblebeeCatalogRefreshWorker, [])
 
+    parent = self()
+
+    insert_job = fn changeset ->
+      send(parent, {:bumblebee_reschedule, changeset})
+      {:ok, %Oban.Job{}}
+    end
+
     Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker,
       enabled: true,
       timeout_ms: 50,
-      failure_reschedule_seconds: 900
+      failure_reschedule_seconds: 900,
+      insert_job: insert_job
     )
 
     on_exit(fn ->
       Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker, previous_config)
     end)
 
-    {:ok, actor: SystemActor.system(:bumblebee_catalog_refresh_worker_test)}
+    {:ok,
+     actor: SystemActor.system(:bumblebee_catalog_refresh_worker_test), insert_job: insert_job}
   end
 
   test "promotes a candidate snapshot with artifact metadata", %{actor: actor} do
@@ -61,7 +70,10 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert promoted.validation_result == %{"status" => "valid"}
   end
 
-  test "successful refresh emits an OCSF catalog lifecycle event", %{actor: actor} do
+  test "successful refresh emits an OCSF catalog lifecycle event", %{
+    actor: actor,
+    insert_job: insert_job
+  } do
     unique = System.unique_integer([:positive])
 
     catalog_body =
@@ -93,7 +105,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
            "entry_count" => length(entries)
          }}
       end,
-      push_config: fn :bumblebee -> :ok end
+      push_config: fn :bumblebee -> :ok end,
+      insert_job: insert_job
     )
 
     source =
@@ -117,6 +130,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert event.unmapped["source_url"] == "https://catalog.example.invalid/bumblebee.json"
     assert event.unmapped["catalog_version"] == "catalog-#{unique}"
     assert event.unmapped["entry_count"] == 1
+
+    assert_rescheduled!("success")
   end
 
   test "failed refresh preserves last active snapshot", %{actor: actor} do
@@ -144,6 +159,17 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert event.unmapped["event_action"] == "failure"
     assert event.unmapped["source_id"] == to_string(source.id)
     assert event.unmapped["reason"] =~ "connection refused"
+
+    assert_rescheduled!("failure")
+  end
+
+  defp assert_rescheduled!(last_result) do
+    assert_receive {:bumblebee_reschedule, changeset}, 1_000
+
+    args = Ecto.Changeset.get_change(changeset, :args)
+    assert args["last_result"] == last_result
+    assert is_binary(args["scheduled_at"])
+    assert {:ok, %DateTime{}, 0} = DateTime.from_iso8601(args["scheduled_at"])
   end
 
   defp create_source!(actor, opts) do

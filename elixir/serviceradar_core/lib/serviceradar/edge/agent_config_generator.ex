@@ -1278,40 +1278,78 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp load_bumblebee_config(agent_id) do
+    partition = get_agent_partition(agent_id)
     actor = SystemActor.system(:bumblebee_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
 
-    case BumblebeeCatalogSnapshot
-         |> Ash.Query.for_read(:active, %{}, actor: actor)
-         |> Ash.read_one(actor: actor) do
-      {:ok, %BumblebeeCatalogSnapshot{} = snapshot} ->
-        %{
-          "enabled" => true,
-          "agent_id" => agent_id,
-          "scan_profile" => "default",
-          "root_discovery_mode" => "all_users",
-          "explicit_roots" => [],
-          "exclude_roots" => [],
-          "ecosystems" => [],
-          "scan_timeout" => "10m",
-          "max_findings" => 1000,
-          "max_output_bytes" => 33_554_432,
-          "cadence" => "6h",
-          "findings_only" => true,
-          "catalog" => %{
-            "snapshot_ref" => snapshot.snapshot_ref,
-            "catalog_version" => snapshot.catalog_version,
-            "source_revision" => snapshot.source_revision,
-            "object_key" => snapshot.object_key,
-            "sha256" => snapshot.content_sha256,
-            "size_bytes" => snapshot.object_size_bytes,
-            "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
-          }
-        }
+    with {:ok, entry} <-
+           ConfigServer.get_config(:bumblebee, partition, agent_id,
+             actor: actor,
+             device_uid: device_uid
+           ),
+         profile_config when is_map(profile_config) <- entry.config,
+         true <- map_bool(profile_config, "enabled", false),
+         {:ok, %BumblebeeCatalogSnapshot{} = snapshot} <- active_bumblebee_catalog(actor),
+         true <- usable_bumblebee_catalog?(snapshot) do
+      profile_config
+      |> Map.put("enabled", true)
+      |> Map.put("agent_id", agent_id)
+      |> Map.put_new("scan_profile", "default")
+      |> Map.put_new("root_discovery_mode", "explicit")
+      |> Map.put_new("explicit_roots", [])
+      |> Map.put_new("exclude_roots", [])
+      |> Map.put_new("ecosystems", [])
+      |> Map.put_new("scan_timeout", "10m")
+      |> Map.put_new("max_findings", 1000)
+      |> Map.put_new("max_output_bytes", 33_554_432)
+      |> Map.put_new("cadence", "6h")
+      |> Map.put_new("findings_only", true)
+      |> Map.put("catalog", bumblebee_catalog_config(snapshot))
+    else
+      {:error, :no_config_found} ->
+        Logger.debug("No Bumblebee config found for agent #{agent_id}, using disabled config")
+        disabled_bumblebee_config()
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load Bumblebee config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        disabled_bumblebee_config()
 
       _ ->
-        %{"enabled" => false}
+        disabled_bumblebee_config()
     end
   end
+
+  defp active_bumblebee_catalog(actor) do
+    BumblebeeCatalogSnapshot
+    |> Ash.Query.for_read(:active, %{}, actor: actor)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp usable_bumblebee_catalog?(%BumblebeeCatalogSnapshot{} = snapshot) do
+    present?(snapshot.snapshot_ref) and present?(snapshot.object_key) and
+      present?(snapshot.content_sha256) and is_integer(snapshot.object_size_bytes) and
+      snapshot.object_size_bytes > 0
+  end
+
+  defp bumblebee_catalog_config(snapshot) do
+    %{
+      "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
+      "snapshot_ref" => snapshot.snapshot_ref,
+      "catalog_version" => snapshot.catalog_version,
+      "source_revision" => snapshot.source_revision,
+      "object_key" => snapshot.object_key,
+      "sha256" => snapshot.content_sha256,
+      "size_bytes" => snapshot.object_size_bytes,
+      "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
+    }
+  end
+
+  defp disabled_bumblebee_config, do: %{"enabled" => false}
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp build_bumblebee_proto_config(nil), do: nil
 

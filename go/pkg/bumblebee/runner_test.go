@@ -97,3 +97,45 @@ func TestParseFindingsSkipsUpstreamNonFindingRecords(t *testing.T) {
 		t.Fatalf("unexpected finding: %#v", findings[0])
 	}
 }
+
+func TestParseFindingsSanitizesSpoolSafeFields(t *testing.T) {
+	data := []byte(`{
+		"record_type": "finding",
+		"record_id": "finding-1",
+		"catalog_id": "cat-1",
+		"severity": "critical",
+		"ecosystem": "npm",
+		"package_name": "leftpad",
+		"version": "1.0.0",
+		"source_file": "/home/alice/work/package-lock.json",
+		"project_path": "/root/private/project",
+		"endpoint": {"username": "alice", "uid": 1000, "hostname": "laptop"},
+		"username": "alice",
+		"uid": 1000
+	}`)
+
+	findings, err := ParseFindings(data, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 {
+		t.Fatalf("len(findings) = %d, want 1", len(findings))
+	}
+
+	finding := findings[0]
+	if got := finding.Evidence["source_file"]; got != "~/work/package-lock.json" {
+		t.Fatalf("sanitized source_file = %#v", got)
+	}
+	if got := finding.Evidence["project_path"]; got != "~root/private/project" {
+		t.Fatalf("sanitized project_path = %#v", got)
+	}
+	if _, ok := finding.Metadata["endpoint"]; ok {
+		t.Fatalf("endpoint identity leaked into metadata: %#v", finding.Metadata)
+	}
+	if _, ok := finding.Metadata["username"]; ok {
+		t.Fatalf("username leaked into metadata: %#v", finding.Metadata)
+	}
+	if _, ok := finding.Metadata["uid"]; ok {
+		t.Fatalf("uid leaked into metadata: %#v", finding.Metadata)
+	}
+}

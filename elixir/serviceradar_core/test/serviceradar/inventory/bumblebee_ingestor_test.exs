@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.BumblebeeDevicePosture
@@ -8,6 +10,7 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
   alias ServiceRadar.Inventory.BumblebeeIngestor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceRiskContribution
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -88,6 +91,69 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
     assert backfilled.run_id == "run-#{unique + 1}"
   end
 
+  test "does not clobber a backfilled device when the agent mapping is temporarily unresolved", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "bumblebee-stable-device-#{unique}")
+    agent_id = "bumblebee-stable-agent-#{unique}"
+    agent = create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, first_result} =
+             BumblebeeIngestor.ingest_scan(scan_payload(agent_id, unique), actor: actor)
+
+    assert first_result.device_uid == device.uid
+
+    agent
+    |> Ash.Changeset.for_update(:reassign_device, %{device_uid: nil}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    assert {:ok, second_result} =
+             BumblebeeIngestor.ingest_scan(
+               scan_payload(agent_id, unique + 1, findings: []),
+               actor: actor
+             )
+
+    assert second_result.device_uid == device.uid
+    assert {:ok, posture} = BumblebeeDevicePosture.get_by_agent(agent_id, actor: actor)
+    assert posture.device_uid == device.uid
+    assert posture.run_id == "run-#{unique + 1}"
+
+    assert {:ok, [contribution]} =
+             DeviceRiskContribution.list_active_by_device(device.uid, actor: actor)
+
+    assert contribution.source == "bumblebee"
+    assert contribution.score == 40
+  end
+
+  test "backfills pending findings when an agent later resolves without re-reporting them", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    agent_id = "bumblebee-pending-finding-agent-#{unique}"
+
+    assert {:ok, first_result} =
+             BumblebeeIngestor.ingest_scan(scan_payload(agent_id, unique), actor: actor)
+
+    assert first_result.device_uid == nil
+
+    device = create_device!(actor, "bumblebee-pending-finding-device-#{unique}")
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, second_result} =
+             BumblebeeIngestor.ingest_scan(
+               scan_payload(agent_id, unique + 1, findings: []),
+               actor: actor
+             )
+
+    assert second_result.device_uid == device.uid
+
+    finding = finding_by_agent!(agent_id, "finding-#{unique}")
+
+    assert finding.device_uid == device.uid
+    assert finding.status == "resolved"
+  end
+
   defp scan_payload(agent_id, unique, opts \\ []) do
     findings =
       Keyword.get(opts, :findings, [
@@ -155,5 +221,16 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
       actor: actor
     )
     |> Ash.create!(actor: actor)
+  end
+
+  defp finding_by_agent!(agent_id, finding_id) do
+    query =
+      from(f in "bumblebee_findings",
+        where: f.agent_id == ^agent_id and f.finding_id == ^finding_id,
+        select: %{device_uid: f.device_uid, status: f.status},
+        limit: 1
+      )
+
+    Repo.one!(query, prefix: "platform")
   end
 end

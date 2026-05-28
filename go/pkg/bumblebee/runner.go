@@ -85,8 +85,8 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 
 	roots, skipped := DiscoverRoots(r.cfg)
 	payload.AttemptedRootCount = len(roots)
-	payload.AttemptedRoots = rootPaths(roots)
-	payload.SkippedRoots = append(payload.SkippedRoots, skipped...)
+	payload.AttemptedRoots = sanitizedRootPaths(roots)
+	payload.SkippedRoots = append(payload.SkippedRoots, sanitizeSkippedRoots(skipped)...)
 	payload.RootCovered = false
 
 	if len(roots) == 0 {
@@ -100,12 +100,15 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	for _, root := range roots {
 		findings, err := r.scanRoot(ctx, runID, root.Path)
 		if err != nil {
-			payload.SkippedRoots = append(payload.SkippedRoots, SkippedRoot{Path: root.Path, Reason: "scan_failed:" + err.Error()})
+			payload.SkippedRoots = append(payload.SkippedRoots, SkippedRoot{
+				Path:   sanitizeLocalPath(root.Path),
+				Reason: "scan_failed:" + err.Error(),
+			})
 			continue
 		}
 
 		payload.ScannedRootCount++
-		payload.ScannedRoots = append(payload.ScannedRoots, root.Path)
+		payload.ScannedRoots = append(payload.ScannedRoots, sanitizeLocalPath(root.Path))
 		if root.Path == "/root" {
 			payload.RootCovered = true
 		}
@@ -265,13 +268,13 @@ func findingFromMap(item map[string]any) Finding {
 		PackageName:    firstString(item, "package_name", "packageName", "package", "name"),
 		PackageVersion: firstString(item, "package_version", "packageVersion", "version"),
 		Confidence:     firstString(item, "confidence"),
-		Metadata:       cloneMap(item),
+		Metadata:       safeFindingMetadata(item),
 	}
 
 	evidence := make(map[string]any)
-	for _, key := range []string{"path", "file", "location", "line", "title", "summary", "description", "url"} {
+	for _, key := range []string{"path", "file", "source_file", "project_path", "location", "line", "title", "summary", "description", "url"} {
 		if value, ok := item[key]; ok {
-			evidence[key] = value
+			evidence[key] = sanitizeEvidenceValue(value)
 		}
 	}
 	if len(evidence) > 0 {
@@ -362,22 +365,125 @@ func intField(item map[string]any, key string) int {
 	}
 }
 
-func cloneMap(item map[string]any) map[string]any {
-	out := make(map[string]any, len(item))
-	for key, value := range item {
-		out[key] = value
+func safeFindingMetadata(item map[string]any) map[string]any {
+	keys := []string{
+		"record_type",
+		"record_id",
+		"catalog_id",
+		"rule_id",
+		"title",
+		"summary",
+		"description",
+		"url",
+		"source",
+		"scanner",
+		"confidence",
+	}
+
+	out := make(map[string]any, len(keys))
+	for _, key := range keys {
+		value, ok := item[key]
+		if !ok {
+			continue
+		}
+		if safeValue, ok := safeMetadataValue(value); ok {
+			out[key] = safeValue
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 
 	return out
 }
 
-func rootPaths(roots []RootCandidate) []string {
+func safeMetadataValue(value any) (any, bool) {
+	switch typed := value.(type) {
+	case string:
+		return sanitizeLocalPath(typed), true
+	case float64, int, bool:
+		return typed, true
+	default:
+		return nil, false
+	}
+}
+
+func sanitizeEvidenceValue(value any) any {
+	switch typed := value.(type) {
+	case string:
+		return sanitizeLocalPath(typed)
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, sanitizeEvidenceValue(item))
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = sanitizeEvidenceValue(item)
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func sanitizedRootPaths(roots []RootCandidate) []string {
 	paths := make([]string, 0, len(roots))
 	for _, root := range roots {
-		paths = append(paths, root.Path)
+		paths = append(paths, sanitizeLocalPath(root.Path))
 	}
 
 	return paths
+}
+
+func sanitizeSkippedRoots(skipped []SkippedRoot) []SkippedRoot {
+	out := make([]SkippedRoot, 0, len(skipped))
+	for _, skippedRoot := range skipped {
+		reason := skippedRoot.Reason
+		if strings.HasPrefix(reason, "home_unavailable:") {
+			reason = "home_unavailable"
+		}
+		out = append(out, SkippedRoot{
+			Path:   sanitizeLocalPath(skippedRoot.Path),
+			Reason: reason,
+		})
+	}
+
+	return out
+}
+
+func sanitizeLocalPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	clean := filepath.Clean(value)
+	if !filepath.IsAbs(clean) {
+		return value
+	}
+
+	if clean == "/root" {
+		return "~root"
+	}
+	if strings.HasPrefix(clean, "/root/") {
+		return "~root/" + strings.TrimPrefix(clean, "/root/")
+	}
+
+	for _, prefix := range []string{"/home/", "/Users/"} {
+		if strings.HasPrefix(clean, prefix) {
+			rest := strings.TrimPrefix(clean, prefix)
+			parts := strings.SplitN(rest, string(os.PathSeparator), 2)
+			if len(parts) == 1 {
+				return "~"
+			}
+			return "~/" + parts[1]
+		}
+	}
+
+	return clean
 }
 
 func newRunID(now time.Time) string {
