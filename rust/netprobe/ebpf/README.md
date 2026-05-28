@@ -7,6 +7,10 @@ tasks.
 
 Programs:
 
+- `netprobe_tc_ingress`: TC ingress classifier for flow-table lookup and
+  first-packet AF_XDP redirection.
+- `netprobe_tc_egress`: TC egress classifier with the same canonical flow-table
+  behavior for reverse-direction traffic.
 - `tcp_connect`: kprobe for outbound TCP connect attempts.
 - `inet_csk_accept`: kretprobe for accepted inbound TCP sockets.
 - `tcp_close`: kprobe for TCP socket close.
@@ -18,6 +22,12 @@ Programs:
 Events are emitted to the `flow_events` ring buffer. The userspace loader should
 pin maps under `/sys/fs/bpf/serviceradar/netprobe/` and consume
 `FlowAttributionRecord` by version.
+
+The `flow_table` map uses a canonical 5-tuple key with the lexicographically
+smaller endpoint first, so both directions of a connection share one entry. A
+zero `classified_as` means the first `FLOW_REDIRECT_BUDGET` packets are still
+redirected to AF_XDP for userspace classification; nonzero values are treated as
+classified and stay in-kernel.
 
 `include/vmlinux.h` is generated from Ubuntu 20.04 `5.8.0-23-generic` BTF, the
 earliest supported kernel floor for the Phase 3 CO-RE work. See the
