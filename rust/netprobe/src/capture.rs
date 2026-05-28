@@ -12,12 +12,17 @@ use anyhow::{Context, Result};
 use tokio::sync::broadcast;
 
 use crate::{
-    config::Config, metrics::Metrics, proto::netprobe::FingerprintEvent,
-    runtime_config::FingerprintEventGate,
+    config::Config,
+    metrics::Metrics,
+    proto::netprobe::{DpiEvent, FingerprintEvent},
+    runtime_config::{DpiEventGate, FingerprintEventGate},
 };
 
 #[cfg(feature = "pcap-capture")]
-use crate::fingerprint::{now_unix_nano, FingerprintEngine};
+use crate::{
+    dpi::DpiPipeline,
+    fingerprint::{now_unix_nano, FingerprintEngine},
+};
 
 #[cfg(feature = "pcap-capture")]
 const HEADER_FINGERPRINT_SNAPLEN: i32 = 512;
@@ -83,9 +88,18 @@ impl CaptureWorkers {
         captures: CaptureHandles,
         metrics: Metrics,
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
-        event_gate: Arc<Mutex<FingerprintEventGate>>,
+        dpi_events: broadcast::Sender<DpiEvent>,
+        fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
+        dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
-        start_capture_workers(captures, metrics, fingerprint_events, event_gate)
+        start_capture_workers(
+            captures,
+            metrics,
+            fingerprint_events,
+            dpi_events,
+            fingerprint_gate,
+            dpi_gate,
+        )
     }
 }
 
@@ -130,7 +144,9 @@ fn start_capture_workers(
     captures: CaptureHandles,
     metrics: Metrics,
     fingerprint_events: broadcast::Sender<FingerprintEvent>,
-    event_gate: Arc<Mutex<FingerprintEventGate>>,
+    dpi_events: broadcast::Sender<DpiEvent>,
+    fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
+    dpi_gate: Arc<DpiEventGate>,
 ) -> Result<CaptureWorkers> {
     let stop = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::with_capacity(captures.len());
@@ -138,13 +154,16 @@ fn start_capture_workers(
     for mut capture in captures.into_handles() {
         let stop_worker = Arc::clone(&stop);
         let metrics_worker = metrics.clone();
-        let event_tx = fingerprint_events.clone();
-        let event_gate = Arc::clone(&event_gate);
+        let fingerprint_tx = fingerprint_events.clone();
+        let dpi_tx = dpi_events.clone();
+        let fingerprint_gate = Arc::clone(&fingerprint_gate);
+        let dpi_gate = Arc::clone(&dpi_gate);
         let thread_name = format!("netprobe-capture-{}", capture.interface);
         let thread = thread::Builder::new()
             .name(thread_name)
             .spawn(move || {
                 let interface = capture.interface.clone();
+                let dpi_pipeline = DpiPipeline::phase2();
                 let mut engine = match FingerprintEngine::phase1() {
                     Ok(engine) => engine,
                     Err(err) => {
@@ -164,7 +183,7 @@ fn start_capture_workers(
                                 .unwrap_or_else(now_unix_nano);
                             let events = engine.analyze_packet(&interface, observed_at, packet.data);
                             for event in events {
-                                let Some(event) = event_gate
+                                let Some(event) = fingerprint_gate
                                     .lock()
                                     .expect("fingerprint event gate lock poisoned")
                                     .filter(event)
@@ -174,7 +193,7 @@ fn start_capture_workers(
                                 let event_interface = event.interface_name.clone();
                                 let event_ip = event.ip.clone();
                                 metrics_worker.inc_fingerprint_events();
-                                if event_tx.send(event).is_err() {
+                                if fingerprint_tx.send(event).is_err() {
                                     log::debug!(
                                         "dropping fingerprint event with no active IPC receiver for {}",
                                         event_interface
@@ -184,6 +203,27 @@ fn start_capture_workers(
                                     "observed TCP fingerprint on {} for {}",
                                     event_interface,
                                     event_ip
+                                );
+                            }
+                            for event in
+                                dpi_pipeline.analyze_packet(&interface, observed_at, packet.data)
+                            {
+                                let Some(event) = dpi_gate.filter(event) else {
+                                    continue;
+                                };
+                                let event_interface = event.interface_name.clone();
+                                let event_protocol = event.protocol.clone();
+                                metrics_worker.inc_dpi_events();
+                                if dpi_tx.send(event).is_err() {
+                                    log::debug!(
+                                        "dropping DPI event with no active IPC receiver for {}",
+                                        event_interface
+                                    );
+                                }
+                                log::debug!(
+                                    "observed DPI protocol {} on {}",
+                                    event_protocol,
+                                    event_interface
                                 );
                             }
                         }
@@ -207,7 +247,9 @@ fn start_capture_workers(
     _captures: CaptureHandles,
     _metrics: Metrics,
     _fingerprint_events: broadcast::Sender<FingerprintEvent>,
-    _event_gate: Arc<Mutex<FingerprintEventGate>>,
+    _dpi_events: broadcast::Sender<DpiEvent>,
+    _fingerprint_gate: Arc<Mutex<FingerprintEventGate>>,
+    _dpi_gate: Arc<DpiEventGate>,
 ) -> Result<CaptureWorkers> {
     Ok(CaptureWorkers {
         stop: Arc::new(AtomicBool::new(false)),

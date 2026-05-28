@@ -14,6 +14,7 @@ pcap-capture = ["dep:pcap"]
 anyhow = "1.0"
 clap = { version = "4", features = ["derive", "env"] }
 env_logger = "0.11"
+etherparse = "0.20.1"
 huginn-net = "=1.7.3"
 log = "0.4"
 nix = { version = "0.31", features = ["signal", "process", "user"] }

@@ -9,7 +9,7 @@ use prost::Message;
 use crate::{
     config::{validate_capture_interfaces, Config},
     proto::netprobe::{
-        fingerprint_event, DeviceBinding, FingerprintConfig, FingerprintEvent,
+        fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig, FingerprintEvent,
         VisibilityAgentConfig,
     },
 };
@@ -26,6 +26,7 @@ struct VisibilityState {
     enabled: bool,
     bindings: HashMap<String, BindingState>,
     default_sample_interval_ms: u32,
+    default_dpi: DpiConfig,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +34,7 @@ struct VisibilityState {
 struct BindingState {
     profile_id: String,
     fingerprint: FingerprintConfig,
+    dpi: DpiConfig,
     sample_interval_ms: u32,
 }
 
@@ -59,6 +61,11 @@ pub struct FingerprintEventGate {
     last_emitted: HashMap<(String, FingerprintProtocol), i64>,
 }
 
+pub struct DpiEventGate {
+    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    config: RuntimeConfig,
+}
+
 impl RuntimeConfig {
     pub fn new(config: &Config) -> Self {
         Self {
@@ -66,6 +73,7 @@ impl RuntimeConfig {
                 enabled: config.enabled,
                 bindings: HashMap::new(),
                 default_sample_interval_ms: 0,
+                default_dpi: default_dpi_disabled(),
             })),
             capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
         }
@@ -85,6 +93,7 @@ impl RuntimeConfig {
             enabled: config.enabled,
             bindings: bindings_by_ip(&config.device_bindings),
             default_sample_interval_ms: config.default_sample_interval_ms,
+            default_dpi: config.dpi.clone().unwrap_or_else(default_dpi_disabled),
         };
 
         let config_hash = config_hash(&config);
@@ -127,6 +136,38 @@ impl RuntimeConfig {
             },
         }
     }
+
+    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    fn dpi_decision_for(&self, event: &DpiEvent) -> EventDecision {
+        let state = self.inner.read().expect("runtime config lock poisoned");
+        if !state.enabled {
+            return EventDecision {
+                enabled: false,
+                profile_id: String::new(),
+                sample_interval_ms: 0,
+            };
+        }
+
+        let protocol = normalize_dpi_protocol(&event.protocol);
+        let binding = state
+            .bindings
+            .get(&event.source_ip)
+            .or_else(|| state.bindings.get(&event.destination_ip));
+
+        let Some(binding) = binding else {
+            return EventDecision {
+                enabled: dpi_protocol_enabled(&state.default_dpi, &protocol),
+                profile_id: String::new(),
+                sample_interval_ms: 0,
+            };
+        };
+
+        EventDecision {
+            enabled: dpi_protocol_enabled(&binding.dpi, &protocol),
+            profile_id: binding.profile_id.clone(),
+            sample_interval_ms: 0,
+        }
+    }
 }
 
 impl FingerprintEventGate {
@@ -160,6 +201,23 @@ impl FingerprintEventGate {
     }
 }
 
+impl DpiEventGate {
+    pub fn new(config: RuntimeConfig) -> Self {
+        Self { config }
+    }
+
+    #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+    pub fn filter(&self, mut event: DpiEvent) -> Option<DpiEvent> {
+        let decision = self.config.dpi_decision_for(&event);
+        if !decision.enabled {
+            return None;
+        }
+
+        event.profile_id = decision.profile_id;
+        Some(event)
+    }
+}
+
 fn bindings_by_ip(bindings: &[DeviceBinding]) -> HashMap<String, BindingState> {
     let mut out = HashMap::new();
     for binding in bindings.iter().filter(|binding| !binding.ip.is_empty()) {
@@ -171,6 +229,7 @@ fn bindings_by_ip(bindings: &[DeviceBinding]) -> HashMap<String, BindingState> {
                     .fingerprint
                     .clone()
                     .unwrap_or_else(default_fingerprints_disabled),
+                dpi: binding.dpi.clone().unwrap_or_else(default_dpi_disabled),
                 sample_interval_ms: binding.sample_interval_ms,
             },
         );
@@ -205,6 +264,23 @@ fn protocol_enabled(config: &FingerprintConfig, protocol: FingerprintProtocol) -
 
 fn default_fingerprints_disabled() -> FingerprintConfig {
     FingerprintConfig::default()
+}
+
+fn default_dpi_disabled() -> DpiConfig {
+    DpiConfig::default()
+}
+
+#[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
+fn dpi_protocol_enabled(config: &DpiConfig, protocol: &str) -> bool {
+    config.enabled
+        && config
+            .protocols
+            .iter()
+            .any(|candidate| normalize_dpi_protocol(candidate) == protocol)
+}
+
+fn normalize_dpi_protocol(protocol: &str) -> String {
+    protocol.trim().to_ascii_lowercase().replace('_', "-")
 }
 
 fn normalize_capture_interfaces(interfaces: &[String]) -> Vec<String> {
@@ -252,12 +328,12 @@ fn config_hash(config: &VisibilityAgentConfig) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{FingerprintEventGate, RuntimeConfig};
+    use super::{DpiEventGate, FingerprintEventGate, RuntimeConfig};
     use crate::{
         config::Config,
         proto::netprobe::{
-            fingerprint_event, DeviceBinding, FingerprintConfig, FingerprintEvent, TcpFingerprint,
-            VisibilityAgentConfig,
+            fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig,
+            FingerprintEvent, TcpFingerprint, VisibilityAgentConfig,
         },
     };
 
@@ -346,6 +422,52 @@ mod tests {
     }
 
     #[test]
+    fn dpi_gate_honors_per_binding_protocols() {
+        let runtime_config = RuntimeConfig::new(&Config::default());
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                device_bindings: vec![DeviceBinding {
+                    ip: "192.0.2.10".to_string(),
+                    profile_id: "profile-1".to_string(),
+                    dpi: Some(DpiConfig {
+                        enabled: true,
+                        protocols: vec!["dns".to_string()],
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let gate = DpiEventGate::new(runtime_config);
+
+        let allowed = gate.filter(dpi_event("192.0.2.10", "dns"));
+        let denied = gate.filter(dpi_event("192.0.2.10", "http1"));
+
+        assert_eq!(allowed.unwrap().profile_id, "profile-1");
+        assert!(denied.is_none());
+    }
+
+    #[test]
+    fn dpi_gate_defaults_to_disabled() {
+        let runtime_config = RuntimeConfig::new(&Config::default());
+        runtime_config
+            .apply(VisibilityAgentConfig {
+                enabled: true,
+                device_bindings: vec![DeviceBinding {
+                    ip: "192.0.2.10".to_string(),
+                    profile_id: "profile-1".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+            .unwrap();
+        let gate = DpiEventGate::new(runtime_config);
+
+        assert!(gate.filter(dpi_event("192.0.2.10", "dns")).is_none());
+    }
+
+    #[test]
     fn accepts_matching_capture_interfaces_in_any_order() {
         let runtime_config = RuntimeConfig::new(&Config {
             enabled: true,
@@ -373,6 +495,22 @@ mod tests {
                 confidence: 1.0,
                 ..Default::default()
             })),
+            ..Default::default()
+        }
+    }
+
+    fn dpi_event(ip: &str, protocol: &str) -> DpiEvent {
+        DpiEvent {
+            source_ip: ip.to_string(),
+            destination_ip: "198.51.100.20".to_string(),
+            source_port: 49_152,
+            destination_port: 53,
+            transport_protocol: "udp".to_string(),
+            protocol: protocol.to_string(),
+            confidence: 0.95,
+            observed_at_unix_nano: 123,
+            interface_name: "eth0".to_string(),
+            dissector_id: "dns_header".to_string(),
             ..Default::default()
         }
     }

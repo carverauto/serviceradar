@@ -1,6 +1,7 @@
 mod capabilities;
 mod capture;
 mod config;
+mod dpi;
 mod fingerprint;
 mod framing;
 mod lifecycle;
@@ -26,7 +27,7 @@ use crate::{
     config::Config,
     lifecycle::{initialize_privileged_resources, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
-    runtime_config::{FingerprintEventGate, RuntimeConfig},
+    runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
     server::IpcServer,
 };
 
@@ -100,16 +101,20 @@ async fn main() -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (fingerprint_event_tx, _) = broadcast::channel(4096);
+    let (dpi_event_tx, _) = broadcast::channel(4096);
     let runtime_config = RuntimeConfig::new(&config);
     let fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
     )));
+    let dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
     let metrics = Metrics::new()?;
     let _capture_workers = CaptureWorkers::start(
         capture_handles,
         metrics.clone(),
         fingerprint_event_tx.clone(),
+        dpi_event_tx.clone(),
         fingerprint_gate,
+        dpi_gate,
     )
     .context("failed to start capture workers")?;
     let metrics_task = tokio::spawn(serve_metrics(
@@ -118,7 +123,14 @@ async fn main() -> Result<()> {
         shutdown_rx.clone(),
     ));
     let ipc_task = tokio::spawn(
-        IpcServer::new(args.socket, fingerprint_event_tx, runtime_config, metrics).run(shutdown_rx),
+        IpcServer::new(
+            args.socket,
+            fingerprint_event_tx,
+            dpi_event_tx,
+            runtime_config,
+            metrics,
+        )
+        .run(shutdown_rx),
     );
 
     wait_for_shutdown().await;

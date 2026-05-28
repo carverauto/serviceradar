@@ -74,9 +74,10 @@ message VisibilityAgentConfig {
   repeated string capture_interfaces = 2;
   repeated DeviceBinding device_bindings = 3;
   uint32 default_sample_interval_ms = 4;
+  DpiConfig dpi = 20;
 
-  reserved 20 to 39;
-  reserved "dpi", "flow_attribution", "process_snapshot_interval_s";
+  reserved 21 to 39;
+  reserved "flow_attribution", "process_snapshot_interval_s";
 }
 
 message DeviceBinding {
@@ -85,12 +86,18 @@ message DeviceBinding {
   string profile_name = 3;
   FingerprintConfig fingerprint = 4;
   uint32 sample_interval_ms = 5;
+  DpiConfig dpi = 6;
 }
 
 message FingerprintConfig {
   bool tcp = 1;
   bool tls = 2;
   bool http = 3;
+}
+
+message DpiConfig {
+  bool enabled = 1;
+  repeated string protocols = 2;
 }
 
 message FingerprintEvent {
@@ -134,7 +141,17 @@ message HttpFingerprint {
 }
 
 message DpiEvent {
-  // TODO(add-host-network-visibility-sidecar Phase 2): define DPI fields.
+  string source_ip = 1;
+  string destination_ip = 2;
+  uint32 source_port = 3;
+  uint32 destination_port = 4;
+  string transport_protocol = 5;
+  string protocol = 6;
+  float confidence = 7;
+  int64 observed_at_unix_nano = 8;
+  string interface_name = 9;
+  string profile_id = 10;
+  string dissector_id = 11;
 }
 
 message FlowAttributionEvent {

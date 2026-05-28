@@ -83,9 +83,20 @@ impl Metrics {
             .inc();
     }
 
+    #[allow(dead_code)]
+    pub fn inc_dpi_events(&self) {
+        self.events_emitted_total.with_label_values(&["dpi"]).inc();
+    }
+
     pub fn inc_fingerprint_events_dropped(&self, reason: &str, count: u64) {
         self.events_dropped_total
             .with_label_values(&["fingerprint", reason])
+            .inc_by(count);
+    }
+
+    pub fn inc_dpi_events_dropped(&self, reason: &str, count: u64) {
+        self.events_dropped_total
+            .with_label_values(&["dpi", reason])
             .inc_by(count);
     }
 

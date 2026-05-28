@@ -14,6 +14,7 @@ NETPROBE_DEPS = crate_deps([
     "anyhow",
     "clap",
     "env_logger",
+    "etherparse",
     "huginn-net",
     "log",
     "nix",

@@ -2044,6 +2044,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "etherparse"
+version = "0.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ac016aaf11dfe643edcd088a166234bfcb72e7f06691abfcf21e9af524037f4"
+dependencies = [
+ "arrayvec",
+]
+
+[[package]]
 name = "event-listener"
 version = "5.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6693,6 +6702,7 @@ dependencies = [
  "anyhow",
  "clap 4.6.1",
  "env_logger 0.11.10",
+ "etherparse",
  "huginn-net",
  "log 0.4.29",
  "nix 0.31.3",

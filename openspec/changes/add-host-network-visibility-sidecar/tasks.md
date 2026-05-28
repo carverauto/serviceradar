@@ -145,12 +145,12 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 ### 16. [Phase 2] DPI dissectors in `netprobe`
 
-- [ ] 16.1 Add `pktparse-rs` (or equivalent) to `Cargo.toml`; refresh crate-universe.
-- [ ] 16.2 Implement the dissector pipeline assembler (parser feeds dissectors that subscribe to L7 prefixes).
-- [ ] 16.3 Implement dissectors for HTTP/1.x, HTTP/2 cleartext, TLS SNI, DNS, SSH, FTP, QUIC version negotiation, MQTT, BitTorrent.
-- [ ] 16.4 Apply privacy redaction at each dissector boundary (no URIs, no DNS names by default, no payload).
-- [ ] 16.5 Activate the `DpiEvents` stream channel (placeholder reserved in Phase 1).
-- [ ] 16.6 Emit `DpiEvent` records carrying `{5-tuple, protocol, confidence, observed_at}` only.
+- [x] 16.1 Add `pktparse-rs` (or equivalent) to `Cargo.toml`; refresh crate-universe.
+- [x] 16.2 Implement the dissector pipeline assembler (parser feeds dissectors that subscribe to L7 prefixes).
+- [x] 16.3 Implement dissectors for HTTP/1.x, HTTP/2 cleartext, TLS SNI, DNS, SSH, FTP, QUIC version negotiation, MQTT, BitTorrent.
+- [x] 16.4 Apply privacy redaction at each dissector boundary (no URIs, no DNS names by default, no payload).
+- [x] 16.5 Activate the `DpiEvents` stream channel (placeholder reserved in Phase 1).
+- [x] 16.6 Emit `DpiEvent` records carrying `{5-tuple, protocol, confidence, observed_at}` only.
 - [ ] 16.7 Per-protocol toggles honour `VisibilityProfile.dpi.protocols`.
 - [ ] 16.8 Unit tests per dissector with PCAP fixtures.
 
