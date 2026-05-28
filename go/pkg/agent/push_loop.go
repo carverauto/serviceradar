@@ -2854,7 +2854,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	p.applySweepConfig(configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
-	p.applyBumblebeeConfig(ctx, configResp.ConfigJson)
+	p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson)
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
@@ -2899,8 +2899,12 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 	return true
 }
 
-func (p *PushLoop) applyBumblebeeConfig(ctx context.Context, configJSON []byte) {
-	cfg, err := parseGatewayBumblebeeConfig(configJSON)
+func (p *PushLoop) applyBumblebeeConfig(
+	ctx context.Context,
+	protoConfig *proto.BumblebeeConfig,
+	configJSON []byte,
+) {
+	cfg, err := resolveGatewayBumblebeeConfig(protoConfig, configJSON)
 	if err != nil {
 		p.logger.Warn().Err(err).Msg("Failed to parse Bumblebee config from gateway")
 		return

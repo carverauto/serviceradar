@@ -12,7 +12,7 @@
 - [x] 2.7 Dispatch catalog assignment/update notifications through the agent config/control path so online agents can stage the assigned immutable snapshot.
 
 ## 3. Agent Configuration
-- [ ] 3.1 Extend agent config protobufs and config compilers with opt-in Bumblebee profile settings.
+- [x] 3.1 Extend agent config protobufs and config compilers with opt-in Bumblebee profile settings.
 - [x] 3.2 Add local Bumblebee config override and cache paths under the agent filesystem conventions.
 - [x] 3.3 Add scanner-service root discovery for current user, all local user homes, `/root`, and explicit operator roots with bounded allow/deny policy.
 - [x] 3.4 Package the pinned Bumblebee scanner service, systemd unit/timer, and non-root-readable sanitized output spool as an optional native capability bundle for Linux; macOS launchd packaging is follow-up.

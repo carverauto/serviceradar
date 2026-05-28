@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
+	monitoringpb "github.com/carverauto/serviceradar/proto"
 )
 
 type bumblebeeConfigEnvelope struct {
@@ -47,4 +48,40 @@ func parseGatewayBumblebeeConfig(configJSON []byte) (*bumblebeeConfigPayload, er
 	}
 
 	return envelope.Bumblebee, nil
+}
+
+func bumblebeeConfigFromProto(cfg *monitoringpb.BumblebeeConfig) *bumblebeeConfigPayload {
+	if cfg == nil {
+		return nil
+	}
+
+	payload := &bumblebeeConfigPayload{
+		Enabled: cfg.GetEnabled(),
+		AgentID: cfg.GetAgentId(),
+	}
+
+	if catalog := cfg.GetCatalog(); catalog != nil {
+		payload.Catalog = &bumblebee.CatalogAssignment{
+			SchemaVersion:  catalog.GetSchemaVersion(),
+			SnapshotRef:    catalog.GetSnapshotRef(),
+			CatalogVersion: catalog.GetCatalogVersion(),
+			SourceRevision: catalog.GetSourceRevision(),
+			ObjectKey:      catalog.GetObjectKey(),
+			SHA256:         catalog.GetSha256(),
+			SizeBytes:      catalog.GetSizeBytes(),
+		}
+	}
+
+	return payload
+}
+
+func resolveGatewayBumblebeeConfig(
+	protoConfig *monitoringpb.BumblebeeConfig,
+	configJSON []byte,
+) (*bumblebeeConfigPayload, error) {
+	if cfg := bumblebeeConfigFromProto(protoConfig); cfg != nil {
+		return cfg, nil
+	}
+
+	return parseGatewayBumblebeeConfig(configJSON)
 }

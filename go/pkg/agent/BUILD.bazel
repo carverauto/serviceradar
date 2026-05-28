@@ -100,6 +100,7 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
+        "bumblebee_config_test.go",
         "bumblebee_spool_service_test.go",
         "camera_relay_test.go",
         "control_stream_test.go",

@@ -311,6 +311,9 @@ message AgentConfigResponse {
 
   // Wasm plugin configuration assignments
   PluginConfig plugin_config = 11;
+
+  // Bumblebee developer endpoint exposure scanner configuration
+  BumblebeeConfig bumblebee_config = 12;
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
@@ -486,6 +489,35 @@ message PluginAssignmentConfig {
   string source_commit = 20;
   string download_url = 21;
   string download_token = 22;
+}
+
+// BumblebeeConfig defines the optional developer endpoint exposure scanner profile.
+message BumblebeeConfig {
+  bool enabled = 1;
+  string agent_id = 2;
+  string scan_profile = 3;
+  string root_discovery_mode = 4;
+  repeated string explicit_roots = 5;
+  repeated string exclude_roots = 6;
+  repeated string ecosystems = 7;
+  string scan_timeout = 8;
+  int32 max_findings = 9;
+  int64 max_output_bytes = 10;
+  string cadence = 11;
+  bool findings_only = 12;
+  BumblebeeCatalogAssignment catalog = 13;
+}
+
+// BumblebeeCatalogAssignment identifies the immutable catalog artifact assigned to an agent.
+message BumblebeeCatalogAssignment {
+  string schema_version = 1;
+  string snapshot_ref = 2;
+  string catalog_version = 3;
+  string source_revision = 4;
+  string object_key = 5;
+  string sha256 = 6;
+  int64 size_bytes = 7;
+  string promoted_at = 8;
 }
 
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
