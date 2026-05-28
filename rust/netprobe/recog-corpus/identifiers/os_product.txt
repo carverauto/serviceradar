@@ -1,0 +1,381 @@
+10Gb Blade Switch
+1810
+3155
+3165
+4050
+4690
+46xx
+6400 Matrix Printer
+750
+761
+ADSL Modem
+AIX
+AMD
+AOS
+AOS-8
+AOS-10
+AOS-CX
+AOS-S
+ATEN Linux
+Access Gateway
+AccessRunner ADSL router
+Adaptive Security Appliance
+AirPort Base Station Firmware
+AirPort Extreme
+Allied Telesyn router
+Android
+Appliance
+BSD/OS
+Base Station
+Blade System
+BladeCenter Advanced Management Module
+BladeCenter Management Module
+BladeSystems
+Brother Printer
+Business Policy Switch 2000
+C760
+CS 1000 Call Server
+CS 1000 Signaling Server
+CS 1000 Voice Gateway Media Card
+CX Data Collection Terminal
+Cajun Switch
+Call Server
+CatOS
+Celerra
+CentOS
+Checkpoint FW1
+Chrome OS
+CloudKey
+CoBox
+Cobalt RaQ
+Collaboration Endpoint
+CommandPost
+Comware
+ConnectUPS
+Cumulus Linux
+D2D Backup System
+DCS-2100
+DD OS
+DD-WRT
+DECserver
+DG/UX
+DNA Center
+DS60
+DSLAM Shelf
+DSM
+Data ONTAP
+Definity One
+Dell Remote Access Controller
+Digital Copier
+Digital Unix
+Digium Firmware
+Discover
+Document Centre
+Dynix
+EDR G902 Firmware
+EDR-G903 Firmware
+EOS
+EdgeBlaster
+EdgeOS
+Email Appliance
+Enterprise AP
+Enterprise Linux
+Enterprise WAP
+EqualLogic
+Excella
+Expressway
+FRITZ!OS
+Fabric OS
+Fastmark M5
+FaxPress
+Fedora
+Fedora Core
+Fermentrack
+Fiery Print Server
+Firepower
+Firepower Threat Defense
+Firewall-1
+Fireware
+FortiOS
+FreeBSD
+FreeNAS Firmware
+Freebox OS
+FreshTomato
+G2 Console Switch
+GAiA OS
+GXP1610 Firmware
+GXP1615 Firmware
+GXP1625 Firmware
+GXP1628 Firmware
+GXP2200 Firmware
+GigaVUE HD
+GigaVUE TA1
+GuardianOS
+HP-UX
+HT801 Firmware
+HT802 Firmware
+HT812 Firmware
+HT813 Firmware
+HT814 Firmware
+HT818 Firmware
+HiPath 3000
+HipServ
+Hydra
+IDP
+ILOM
+IMC
+IOS
+IOS-XE
+IOS-XR
+IPReach
+IPSO
+IPVPN Firmware
+IRIX
+IVE OS
+Integrated Lights Out Manager
+Intel(R) Active Management Technology Firmware
+Irix
+Isilon OneFS OS
+JetDirect
+Junos OS
+Kamikaze
+KeeneticOS
+LORIX OS
+LX
+Linux
+Linux AMI
+Linux Enterprise Desktop
+Linux Enterprise Server
+MDS 9000
+MPE XL
+MPVPN Firmware
+MPX100 iSCSI Bridge
+MSL Tape Library
+Mac OS
+Mac OS X
+Mac OS X Server
+Management Processor
+Media Server
+Meeting Management
+MegaRAC
+Meraki MR
+Meraki MS
+Meraki MX
+Mergepoint
+Meridian 1 Call Server
+Mongoose OS
+NAM
+NAS4Free
+NEO Tape Library
+NET+OS
+NFVIS
+NRG Printer
+NT
+NTP-2 Firmware
+NTP-RG-1402G Firmware
+NX-OS
+NetBSD
+NetCache
+NetPing Firmware
+NetQue
+NetScaler
+NetScaler Gateway
+NetScaler SDX Gateway
+NetVanta
+NetWare
+Netscaler Gateway Firmware
+Network Gateway
+Network Scanner
+Network Storage Router
+OS/400
+OS/400 (IBM i)
+OSF/1
+OSSIM
+OfficeConnect Cable Modem
+Onboard Administrator
+OneFS
+Onyx
+OpenBSD
+OpenMediaVault
+OpenServer
+OpenTV
+OpenVMS
+OpenWall
+PAN-OS
+PIX
+PLC-5
+PRO/100
+PacketShaper
+PalmOS
+Photon Linux
+PocketPro
+Polycom
+PowerVault
+Prestige 642R-13
+Prestige 645
+Prestige 650R-T3
+Prestige 660HW-61
+Prestige 660HW-D1
+Prestige 660ME-61
+Prime Collaboration Manager
+Print Server
+Printer
+Printer Board
+ProLiant
+Prosafe Firmware
+Proxmox
+Pulse Connect Secure
+QTS
+RASExpress
+RDK
+RISC OS
+RT
+RT31P2 Firmware
+Raptor
+RecoverPoint
+RedHat Enterprise AS
+RedHat Enterprise WS
+RiOS
+Router
+RouterOS
+SCM Manager module
+SCO UNIX
+SDWAN Firmware
+SEHI
+SIGMA Spectrum Infusion System Firmware
+SINIX
+SL2100 Firmware
+SMG Firmware
+SPA112 Firmware
+SPA122 Firmware
+SPA232D Firmware
+SPA8800 8-Port IP Telephony Gateway Firmware
+SV8100 Firmware
+SV9100 Firmware
+SVR
+ScanFront
+ScreenOS
+Secure Linux
+SecureOS
+SerenityOS
+SmartEdge OS
+SmartServer
+SmoothWall
+Solaris
+SonicOS
+SoundTouch
+Spectrum24 Ethernet Access Point
+SpeedTouch
+Stealthwatch
+Storage Array
+Succession 1000/M Call Server
+SunOS
+SuperStack 3
+SuperStack 3 Firewall
+SuperStack II
+SureStore Tape Library
+SwOS
+Switch
+TMS zl Module
+TRU64
+Tape Systems
+Tasman Networks router
+TelePresence
+Tenable Core
+TetrationOS
+TimOS
+Time Capsule Firmware
+Tomato
+TomatoUSB
+Traverse
+Tru64 Unix
+UCM6202 Firmware
+UCM6204 Firmware
+UCM6208 Firmware
+UCS Device
+UNIX
+USG20-VPN firmware
+USG40 firmware
+USG60 firmware
+Ubuntu Linux
+Ultrix
+Unified SIP Phone 3900 Firmware
+UnixWare
+VBrick Rev
+VIDOS-NVR
+VIOS
+VMS
+VMware ESX Server
+VMware ESXi Server
+VPN 3000 Concentrator
+VRP
+Virtual Library
+VoIP
+VxWorks
+WAP
+WARP Firmware
+WBR204G
+WaveCore
+WebCSU
+Windows
+Windows 10
+Windows 10 Mobile
+Windows 10 or Windows Server 2016
+Windows 2000
+Windows 2000 Datacenter Server
+Windows 2000 Server
+Windows 7
+Windows 7 or Windows Server 2008 R2
+Windows 8
+Windows 8 or Windows Server 2012
+Windows 8.1
+Windows 8.1 or Windows Server 2012 R2
+Windows 95
+Windows CE
+Windows NT
+Windows NT Server
+Windows NT Workstation
+Windows Phone
+Windows Server 2000
+Windows Server 2003
+Windows Server 2003 R2
+Windows Server 2003, Datacenter Edition
+Windows Server 2008
+Windows Server 2008 Datacenter Edition
+Windows Server 2008 R2
+Windows Server 2008 R2, Datacenter Edition
+Windows Server 2012
+Windows Server 2012 R2
+Windows Server 2016
+Windows Server 2019
+Windows Vista
+Windows XP
+Wireless Controller
+Wireless LAN Controller
+WorkCentre Pro
+X3e 31C-M
+XCC Linux
+XOS
+XenServer
+ZebraNet PrintServer Firmware
+Zentyal
+Zone Director
+ZyNOS firmware
+audioOS
+e-STUDIO
+eCos
+i5/OS
+iDRAC Linux
+iLO
+iLO 2
+iLO 3
+iLO 4
+iOS
+iScale
+im
+ipOS
+tvOS
+vManage
+vSphere Management Assistant
+webOS
+z/OS

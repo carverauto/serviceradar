@@ -1,0 +1,957 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<fingerprints matches="dhcp_vendor_class" protocol="dhcp" database_type="service">
+  <!--
+    Fingerprint definitions that are matched against the string values in the
+    dhcp message vi_vendor_class field
+    This field is Option 60 as defined in RFC 2132 section 9.13.
+    The vi_vendor_class field can be found in client discover (1), request (3)
+    and inform (8) messages.
+  -->
+
+  <fingerprint pattern="(?i)^Mfg=(?:Fuji)?Xerox;Typ=(?:MFP|AIO|Printer);Mod=(?:Xerox )?(\S+) ([a-zA-Z0-9]+).*;Ser=([A-Z0-9]{9,10})(?:;Loc=.*)?$">
+    <description>Xerox Multifunction Printer</description>
+    <example hw.family="VersaLink" hw.model="C405" hw.serial_number="ABC123456">Mfg=Xerox;Typ=MFP;Mod=VersaLink C405;Ser=ABC123456;Loc=Print Room</example>
+    <example hw.family="AltaLink" hw.model="C8055" hw.serial_number="1AB234567">Mfg=Xerox;Typ=MFP;Mod=Xerox AltaLink C8055 Multifunction Printer;Ser=1AB234567;Loc=Print Room2</example>
+    <example hw.family="WorkCentre" hw.model="3345" hw.serial_number="1AB234567">Mfg=XEROX;Typ=MFP;Mod=WorkCentre 3345;Ser=1AB234567;Loc=</example>
+    <example hw.family="WorkCentre" hw.model="7845" hw.serial_number="AB1234567">Mfg=Xerox;Typ=MFP;Mod=Xerox WorkCentre 7845 v1 Multifunction System;Ser=AB1234567;Loc=</example>
+    <example hw.family="Phaser" hw.model="6500DN" hw.serial_number="ABC123456">Mfg=FujiXerox;Typ=printer;Mod=Phaser 6500DN;Ser=ABC123456</example>
+    <example hw.family="Phaser" hw.model="6600DN" hw.serial_number="ABC123456">Mfg=Xerox;Typ=Printer;Mod=Phaser 6600DN;Ser=ABC123456;Loc=</example>
+    <example hw.family="AltaLink" hw.model="B8045" hw.serial_number="A1B234567">mfg=Xerox;typ=MFP;mod=Xerox AltaLink B8045 MFP;ser=A1B234567;loc=Print Room 3</example>
+    <example hw.family="VersaLink" hw.model="B7035" hw.serial_number="1AB234567C">Mfg=Xerox;Typ=MFP;Mod=VersaLink B7035;Ser=1AB234567C</example>
+    <example hw.family="WorkCentre" hw.model="3615" hw.serial_number="A1B234567">Mfg=Xerox;Typ=AIO;Mod=WorkCentre 3615;Ser=A1B234567</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Xerox"/>
+    <param pos="1" name="hw.family"/>
+    <param pos="2" name="hw.model"/>
+    <param pos="3" name="hw.serial_number"/>
+    <param pos="0" name="hw.product" value="{hw.family} {hw.model}"/>
+    <param pos="0" name="os.vendor" value="Xerox"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Mfg=Hewlett Packard;Typ=Printer;Mod=HP (LaserJet 200|LaserJet 400) (?:color |colorMFP |MFP )?(M\d+\S+);Ser=([A-Z0-9]{10});$">
+    <description>HP Multifunction Printer</description>
+    <example hw.family="LaserJet 200" hw.model="M276nw" hw.serial_number="ABC1DE2F3G">Mfg=Hewlett Packard;Typ=Printer;Mod=HP LaserJet 200 colorMFP M276nw;Ser=ABC1DE2F3G;</example>
+    <example hw.family="LaserJet 400" hw.model="M401dne" hw.serial_number="ABCDE12345">Mfg=Hewlett Packard;Typ=Printer;Mod=HP LaserJet 400 M401dne;Ser=ABCDE12345;</example>
+    <example hw.family="LaserJet 400" hw.model="M401dw" hw.serial_number="ABCDE12345">Mfg=Hewlett Packard;Typ=Printer;Mod=HP LaserJet 400 M401dw;Ser=ABCDE12345;</example>
+    <example hw.family="LaserJet 400" hw.model="M401n" hw.serial_number="ABCDE12345">Mfg=Hewlett Packard;Typ=Printer;Mod=HP LaserJet 400 M401n;Ser=ABCDE12345;</example>
+    <example hw.family="LaserJet 400" hw.model="M425dn" hw.serial_number="ABC1D23E4E">Mfg=Hewlett Packard;Typ=Printer;Mod=HP LaserJet 400 MFP M425dn;Ser=ABC1D23E4E;</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="HP"/>
+    <param pos="1" name="hw.family"/>
+    <param pos="2" name="hw.model"/>
+    <param pos="3" name="hw.serial_number"/>
+    <param pos="0" name="hw.product" value="{hw.family} {hw.model}"/>
+    <param pos="0" name="os.vendor" value="HP"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^(?:Hewlett-Packard|HP) (OfficeJet|LaserJet|Printer|JetDirect)$">
+    <description>HP Printer</description>
+    <example hw.family="LaserJet">Hewlett-Packard LaserJet</example>
+    <example hw.family="OfficeJet">Hewlett-Packard OfficeJet</example>
+    <example hw.family="LaserJet">HP LaserJet</example>
+    <example hw.family="Printer">HP Printer</example>
+    <example hw.family="JetDirect">Hewlett-Packard JetDirect</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="HP"/>
+    <param pos="1" name="hw.family"/>
+    <param pos="0" name="os.vendor" value="HP"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Mfg=LEXMARK;Typ=(?:MFP|Printer);Mod=Lexmark (\S+);Ser=([A-Z0-9]{13});$">
+    <description>Lexmark Printer</description>
+    <example hw.model="MX410de" hw.serial_number="12345ABC6D7EF">Mfg=LEXMARK;Typ=MFP;Mod=Lexmark MX410de;Ser=12345ABC6D7EF;</example>
+    <example hw.model="MS310dn" hw.serial_number="123456AB7C8DE">Mfg=LEXMARK;Typ=Printer;Mod=Lexmark MS310dn;Ser=123456AB7C8DE;</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Lexmark"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="2" name="hw.serial_number"/>
+    <param pos="0" name="os.vendor" value="Lexmark"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Canon iR-ADV (C?\d+ ?\S*)$">
+    <description>Canon imageRunner Printer</description>
+    <example hw.model="C5535 III">Canon iR-ADV C5535 III</example>
+    <example hw.model="C350">Canon iR-ADV C350</example>
+    <example hw.model="4545 III">Canon iR-ADV 4545 III</example>
+    <example hw.model="525">Canon iR-ADV 525</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Canon"/>
+    <param pos="0" name="hw.family" value="imageRunner"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="{hw.family} {hw.model}"/>
+    <param pos="0" name="os.vendor" value="Canon"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Canon (D\d+) Series$">
+    <description>Canon imageClass Printer</description>
+    <example hw.model="D1600">Canon D1600 Series</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Canon"/>
+    <param pos="0" name="hw.family" value="imageClass"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="{hw.family} {hw.model}"/>
+    <param pos="0" name="os.vendor" value="Canon"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Mfg=DELL;Typ=Printer;Mod=Dell ([A-Z]?\d{4}dn)(?:\sLaser Printer)?;Ser=([A-Z0-9]{7});$">
+    <description>Dell Laser Printer</description>
+    <example hw.model="B2360dn" hw.serial_number="ABCDEF1">Mfg=DELL;Typ=Printer;Mod=Dell B2360dn Laser Printer;Ser=ABCDEF1;</example>
+    <example hw.model="2330dn" hw.serial_number="123ABCD">Mfg=DELL;Typ=Printer;Mod=Dell 2330dn Laser Printer;Ser=123ABCD;</example>
+    <example hw.model="S2830dn" hw.serial_number="1A2BC34">Mfg=DELL;Typ=Printer;Mod=Dell S2830dn;Ser=1A2BC34;</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Dell"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="2" name="hw.serial_number"/>
+    <param pos="0" name="os.vendor" value="Dell"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Mfg=Dell;Typ=printer;Mod=Dell Color Printer (S\d{4}cdn);Ser=([0-9]{6})$">
+    <description>Dell Color Printer</description>
+    <example hw.model="S3840cdn" hw.serial_number="123456">Mfg=Dell;Typ=printer;Mod=Dell Color Printer S3840cdn;Ser=123456</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Dell"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="2" name="hw.serial_number"/>
+    <param pos="0" name="os.vendor" value="Dell"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Dell Color MFP (S\d{4}cdn)$$">
+    <description>Dell Color Multifunction Printer</description>
+    <example hw.model="S2825cdn">Dell Color MFP S2825cdn</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Dell"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="Dell"/>
+    <param pos="0" name="os.device" value="Printer"/>
+  </fingerprint>
+
+  <fingerprint pattern="^(?:Polycom|Poly)-(VVX(?:-[A-Z])?\d{3})$">
+    <description>Polycom IP Phone</description>
+    <example hw.product="VVX410" hw.model="VVX410">Polycom-VVX410</example>
+    <example hw.product="VVX-D230" hw.model="VVX-D230">Poly-VVX-D230</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Polycom"/>
+    <param pos="0" name="hw.family" value="VVX"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="{hw.model}"/>
+    <param pos="0" name="os.vendor" value="Polycom"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Polycom-SSIP([4-7]000)$">
+    <description>Polycom SoundStation IP Phone</description>
+    <example hw.product="SoundStation IP 6000" hw.model="6000">Polycom-SSIP6000</example>
+    <example hw.product="SoundStation IP 7000" hw.model="7000">Polycom-SSIP7000</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Polycom"/>
+    <param pos="0" name="hw.family" value="SoundStation IP"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="{hw.family} {hw.model}"/>
+  </fingerprint>
+
+  <fingerprint pattern="^digium_(D\d{2})_(\d_\d{1,2}_\d{1,2})$">
+    <description>Digium D Series IP Phone</description>
+    <example hw.model="D65" os.version="2_9_10">digium_D65_2_9_10</example>
+    <param pos="0" name="hw.vendor" value="Digium"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="Digium"/>
+    <param pos="0" name="os.product" value="Digium Firmware"/>
+    <param pos="2" name="os.version"/>
+    <param pos="0" name="os.device" value="VoIP"/>
+  </fingerprint>
+
+  <fingerprint pattern="^ipphone.mitel.com$">
+    <description>Mitel IP Phone</description>
+    <example>ipphone.mitel.com</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Mitel"/>
+    <param pos="0" name="os.device" value="VoIP"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Aruba\s(JL\d+A)\s(\d+[A-Z]?)\S+\sSwitch(?:\sdslforum.org)?$">
+    <description>HP Aruba Network Switch</description>
+    <example hw.model="JL075A" hw.product="3810M">Aruba JL075A 3810M-16SFP+-2-slot Switch</example>
+    <example hw.model="JL253A" hw.product="2930F">Aruba JL253A 2930F-24G-4SFP+ Switch dslforum.org</example>
+    <example hw.model="JL256A" hw.product="2930F">Aruba JL256A 2930F-48G-PoE+-4SFP+ Switch</example>
+    <example hw.model="JL258A" hw.product="2930F">Aruba JL258A 2930F-8G-PoE+-2SFP+ Switch</example>
+    <example hw.model="JL357A" hw.product="2540">Aruba JL357A 2540-48G-PoE+-4SFP+ Switch</example>
+    <param pos="0" name="os.vendor" value="Aruba Networks"/>
+    <param pos="0" name="hw.vendor" value="Aruba Networks"/>
+    <param pos="2" name="hw.product"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.device" value="Switch"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Aruba-Sensor(?:-([A-Z0-9]{6}))?$">
+    <description>HP Aruba UXI Sensor</description>
+    <example hw.model="Q9X65A">Aruba-Sensor-Q9X65A</example>
+    <example hw.model="R3R67A">Aruba-Sensor-R3R67A</example>
+    <example hw.model="R7H75A">Aruba-Sensor-R7H75A</example>
+    <example>Aruba-Sensor</example>
+    <param pos="0" name="hw.vendor" value="Aruba Networks"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.device" value="Network Management Device"/>
+    <param pos="0" name="os.vendor" value="Aruba Networks"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AXIS,(?:PTZ Dome )?Network Camera,(.*),([\d\.]+)$">
+    <description>Axis Network Camera</description>
+    <example hw.model="P3343" os.version="5.20.3">AXIS,Network Camera,P3343,5.20.3</example>
+    <example hw.model="M5014" os.version="5.50.3.7">AXIS,PTZ Dome Network Camera,M5014,5.50.3.7</example>
+    <example hw.model="P3225-LV Mk II" os.version="9.70.1.5">AXIS,Network Camera,P3225-LV Mk II,9.70.1.5</example>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+    <param pos="0" name="hw.vendor" value="AXIS"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="AXIS"/>
+    <param pos="2" name="os.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AXIS,(?:Network Video Encoder|Video Server),(\S+),([\d\.]+)$">
+    <description>Axis Video Encoder</description>
+    <example hw.model="M7011" os.version="5.90.1">AXIS,Network Video Encoder,M7011,5.90.1</example>
+    <param pos="0" name="hw.device" value="Video Encoder"/>
+    <param pos="0" name="hw.vendor" value="AXIS"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="AXIS"/>
+    <param pos="2" name="os.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AXIS,Network IO Audio Module,(\S+),([\d\.]+)$">
+    <description>Axis IO Audio Module</description>
+    <example hw.model="P8221" os.version="5.10.2">AXIS,Network IO Audio Module,P8221,5.10.2</example>
+    <param pos="0" name="hw.device" value="Audio Encoder"/>
+    <param pos="0" name="hw.vendor" value="AXIS"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="AXIS"/>
+    <param pos="2" name="os.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AXIS,Network$">
+    <description>Axis Communications device</description>
+    <example>AXIS,Network</example>
+    <param pos="0" name="hw.vendor" value="AXIS"/>
+    <param pos="0" name="os.vendor" value="AXIS"/>
+  </fingerprint>
+
+  <fingerprint pattern="^APC$">
+    <description>APC device</description>
+    <example>APC</example>
+    <param pos="0" name="hw.vendor" value="APC"/>
+    <param pos="0" name="os.vendor" value="APC"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AEROHIVE$">
+    <description>Aerohive (Extreme Networks) device</description>
+    <example>AEROHIVE</example>
+    <param pos="0" name="hw.vendor" value="Aerohive"/>
+    <param pos="0" name="os.vendor" value="Aerohive"/>
+  </fingerprint>
+
+  <fingerprint pattern="^yealink$">
+    <description>Yealink device</description>
+    <example>yealink</example>
+    <param pos="0" name="hw.vendor" value="Yealink"/>
+    <param pos="0" name="os.vendor" value="Yealink"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Gallagher Group Limited$">
+    <description>Gallagher device</description>
+    <example>Gallagher Group Limited</example>
+    <param pos="0" name="hw.vendor" value="Gallagher"/>
+    <param pos="0" name="os.vendor" value="Gallagher"/>
+  </fingerprint>
+
+  <fingerprint pattern="^eWON$">
+    <description>Ewon device</description>
+    <example>eWON</example>
+    <param pos="0" name="hw.vendor" value="Ewon"/>
+    <param pos="0" name="os.vendor" value="Ewon"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Zebra Technologies ZTC (Z[T|D|Q]\d{3})-\d{3}dpi\s(?:ZPL|CPCL)$">
+    <description>Zebra Label Printer</description>
+    <example hw.product="ZD410">Zebra Technologies ZTC ZD410-203dpi ZPL</example>
+    <example hw.product="ZQ620">Zebra Technologies ZTC ZQ620-203dpi ZPL</example>
+    <example hw.product="ZT230">Zebra Technologies ZTC ZT230-203dpi ZPL</example>
+    <example hw.product="ZQ630">Zebra Technologies ZTC ZQ630-203dpi CPCL</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Zebra"/>
+    <param pos="1" name="hw.product"/>
+    <param pos="0" name="os.vendor" value="Zebra"/>
+    <param pos="0" name="os.product" value="{hw.product} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^ZEBRA$">
+    <description>Zebra device</description>
+    <example>ZEBRA</example>
+    <param pos="0" name="hw.vendor" value="Zebra"/>
+    <param pos="0" name="os.vendor" value="Zebra"/>
+  </fingerprint>
+
+  <fingerprint pattern="^vaddio$">
+    <description>Vaddio (Legrand AV) device</description>
+    <example>vaddio</example>
+    <param pos="0" name="hw.vendor" value="Vaddio"/>
+    <param pos="0" name="os.vendor" value="Vaddio"/>
+  </fingerprint>
+
+  <fingerprint pattern="^PCoIP Endpoint$">
+    <description>PCoIP Endpoint Device</description>
+    <example>PCoIP Endpoint</example>
+    <param pos="0" name="hw.device" value="Thin Client"/>
+    <param pos="0" name="hw.product" value="PCoIP Endpoint Device"/>
+    <param pos="0" name="os.vendor" value="Teradici"/>
+    <param pos="0" name="os.family" value="Teradici"/>
+  </fingerprint>
+
+  <fingerprint pattern="^chromeos$">
+    <description>Device running ChromeOS</description>
+    <example>chromeos</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Chrome OS"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:chrome_os:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^android-dhcp-([\d\.]*)$">
+    <description>Android Device</description>
+    <example os.version="7.1.1">android-dhcp-7.1.1</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="1" name="os.version"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:{os.version}"/>
+  </fingerprint>
+
+  <fingerprint pattern="^HUAWEI:android:" certainty="0.8">
+    <description>Huawei Android Device</description>
+    <example>HUAWEI:android:ABC</example>
+    <param pos="0" name="hw.vendor" value="Huawei"/>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^dhcpcd-(?:[\d\.]+):Linux-([\d\.]+).*:(\S*):">
+    <description>Linux</description>
+    <example os.version="4.14.78" os.arch="armv7l">dhcpcd-6.11.5:Linux-4.14.78:armv7l:Freescale</example>
+    <example os.version="4.19.155" os.arch="x86_64">dhcpcd-6.8.2:Linux-4.19.155-10581-g8bdb5ed8e80c:x86_64:GenuineIntel</example>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Linux"/>
+    <param pos="1" name="os.version"/>
+    <param pos="2" name="os.arch"/>
+  </fingerprint>
+
+  <fingerprint pattern="^SAMSUNG Network Printer$">
+    <description>Samsung Network Printer</description>
+    <example>SAMSUNG Network Printer</example>
+    <param pos="0" name="hw.device" value="Printer"/>
+    <param pos="0" name="hw.vendor" value="Samsung"/>
+    <param pos="0" name="os.vendor" value="Samsung"/>
+  </fingerprint>
+
+  <fingerprint pattern="^MERAKI$">
+    <description>MERAKI Device</description>
+    <example>MERAKI</example>
+    <param pos="0" name="hw.vendor" value="Meraki"/>
+    <param pos="0" name="os.vendor" value="Meraki"/>
+  </fingerprint>
+
+  <fingerprint pattern="^MSFT 5.0$">
+    <description>Microsoft Windows Device</description>
+    <example>MSFT 5.0</example>
+    <param pos="0" name="os.vendor" value="Microsoft"/>
+    <param pos="0" name="os.family" value="Windows"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco Systems, Inc\.$">
+    <description>Cisco device</description>
+    <example>Cisco Systems, Inc.</example>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CISCO SPA8800$">
+    <description>Cisco SPA8800 VoIP Gateway</description>
+    <example>CISCO SPA8800</example>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.product" value="SPA8800 IP Telephony Gateway"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:cisco:spa8800_ip_telephony_gateway:-"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="SPA8800 8-Port IP Telephony Gateway Firmware"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:cisco:spa8800_8-port_ip_telephony_gateway_firmware:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CISCO SPA112$">
+    <description>Cisco SPA112</description>
+    <example>CISCO SPA112</example>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.product" value="SPA112"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:cisco:spa112:-"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="SPA112 Firmware"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:cisco:spa112_firmware:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CISCO SPA122$">
+    <description>Cisco SPA122</description>
+    <example>CISCO SPA122</example>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.product" value="SPA122"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:cisco:spa122:-"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="SPA122 Firmware"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:cisco:spa122_firmware:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CISCO SPA232D$">
+    <description>Cisco SPA232D VoIP Gateway</description>
+    <example>CISCO SPA232D</example>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.product" value="SPA232D"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="SPA232D Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^(?i)Cisco Systems Inc\. Wireless Phone (\d{4}g?)$" certainty="0.8">
+    <description>Cisco Wireless Phone</description>
+    <example hw.model="7920">Cisco Systems Inc. Wireless Phone 7920</example>
+    <example hw.model="7925G">Cisco Systems Inc. Wireless Phone 7925G</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="Unified Wireless IP Phone {hw.model}"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="Unified Wireless IP Phone {hw.model} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco systems, Inc\. IP Phone CP(39\d{2})$" certainty="0.8">
+    <description>Cisco SIP Phone</description>
+    <example hw.model="3911">Cisco systems, Inc. IP Phone CP3911</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="Unified SIP Phone {hw.model}"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="Unified SIP Phone {hw.model} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco Systems, Inc\. IP Phone CP-(\d{4}(?:G|G-GE|NR)?)$" certainty="0.8">
+    <description>Cisco IP Phone</description>
+    <example hw.model="6921">Cisco Systems, Inc. IP Phone CP-6921</example>
+    <example hw.model="7911G">Cisco Systems, Inc. IP Phone CP-7911G</example>
+    <example hw.model="7941G-GE">Cisco Systems, Inc. IP Phone CP-7941G-GE</example>
+    <example hw.model="8865NR">Cisco Systems, Inc. IP Phone CP-8865NR</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="Unified IP Phone {hw.model}"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.product" value="Unified IP Phone {hw.model} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco AP c(\d{3,4}[a-z]?)$" certainty="0.8">
+    <description>Cisco Aironet Wireless Access Point</description>
+    <example hw.model="701">Cisco AP c701</example>
+    <example hw.model="1830">Cisco AP c1830</example>
+    <example hw.model="1840i">Cisco AP c1840i</example>
+    <param pos="0" name="hw.device" value="WAP"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="Aironet {hw.model}"/>
+    <param pos="0" name="os.product" value="Aironet {hw.model} Firmware"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.device" value="WAP"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco AP C(9115|9120)AX$" certainty="0.8">
+    <description>Cisco Catalyst 9100 Series Wireless Access Point</description>
+    <example hw.model="9115">Cisco AP C9115AX</example>
+    <example hw.model="9120">Cisco AP C9120AX</example>
+    <param pos="0" name="hw.device" value="WAP"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="hw.product" value="Catalyst {hw.model} AP"/>
+    <param pos="0" name="os.product" value="Catalyst {hw.model} AP Firmware"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco (AP80[123])$" certainty="0.8">
+    <description>Cisco 800 Series Integrated Access Point</description>
+    <example hw.model="AP801">Cisco AP801</example>
+    <example hw.model="AP802">Cisco AP802</example>
+    <example hw.model="AP803">Cisco AP803</example>
+    <param pos="0" name="hw.device" value="WAP"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco AIR-CTVM-K9$" certainty="0.8">
+    <description>Cisco Virtual Wireless Controller</description>
+    <example>Cisco AIR-CTVM-K9</example>
+    <param pos="0" name="hw.device" value="Wireless Controller"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.model" value="AIR-CTVM-K9"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco (AIR-CT55\d{2}-K9)$" certainty="0.8">
+    <description>Cisco 5500 Series Wireless Controller</description>
+    <example hw.model="AIR-CT5508-K9">Cisco AIR-CT5508-K9</example>
+    <param pos="0" name="hw.device" value="Wireless Controller"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco Telepresence Peripheral$">
+    <description>Cisco TelePresence Peripheral</description>
+    <example>Cisco Telepresence Peripheral</example>
+    <param pos="0" name="hw.device" value="Video Conferencing"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.family" value="TelePresence"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+  </fingerprint>
+
+  <fingerprint pattern="^BrightSign ((?:HS|XD|LS|XT|HD)\d{3,4}(?:-W|-PP)?)$">
+    <description>BrightSign Digital Signage Player</description>
+    <example hw.model="HS124">BrightSign HS124</example>
+    <example hw.model="XD1034">BrightSign XD1034</example>
+    <example hw.model="XD1034-W">BrightSign XD1034-W</example>
+    <example hw.model="LS424-W">BrightSign LS424-W</example>
+    <example hw.model="XT244">BrightSign XT244</example>
+    <example hw.model="HD1023">BrightSign HD1023</example>
+    <example hw.model="XT1144-PP">BrightSign XT1144-PP</example>
+    <param pos="0" name="hw.vendor" value="BrightSign"/>
+    <param pos="0" name="hw.device" value="Media Server"/>
+    <param pos="1" name="hw.model"/>
+    <param pos="0" name="os.vendor" value="BrightSign"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.device" value="Media Server"/>
+    <param pos="0" name="os.product" value="{hw.model} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^wyse-1000$">
+    <description>Dell Wyse 1000-series zero client</description>
+    <example>wyse-1000</example>
+    <param pos="0" name="hw.vendor" value="Dell"/>
+    <param pos="0" name="hw.device" value="Thin Client"/>
+    <param pos="0" name="hw.product" value="Wyse 1000"/>
+    <param pos="0" name="os.vendor" value="Dell"/>
+    <param pos="0" name="os.product" value="{hw.product} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^iDRAC$">
+    <description>Integrated Dell Remote Access Controller</description>
+    <example>iDRAC</example>
+    <param pos="0" name="hw.vendor" value="Dell"/>
+    <param pos="0" name="hw.product" value="iDRAC"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CPQRIB3$">
+    <!-- CPQRI stands for Compaq Remote Insight -->
+
+    <description>Compaq/HP Remote Insight/Integrated Lights-Out</description>
+    <example>CPQRIB3</example>
+    <param pos="0" name="hw.device" value="Lights Out Management"/>
+    <param pos="0" name="hw.vendor" value="HP"/>
+    <param pos="0" name="hw.product" value="iLO 3"/>
+    <param pos="0" name="hw.certainty" value="0.5"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:hp:integrated_lights-out_3:-"/>
+    <param pos="0" name="os.vendor" value="HP"/>
+    <param pos="0" name="os.device" value="Lights Out Management"/>
+    <param pos="0" name="os.family" value="iLO"/>
+    <param pos="0" name="os.product" value="iLO 3"/>
+    <param pos="0" name="os.certainty" value="0.5"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:hp:integrated_lights-out_3_firmware:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^udhcp(?:c|\s)([0-1]\.\d+\.\d(?:-pre)?)$">
+    <description>Linux System using Busybox</description>
+    <example service.version="1.22.1">udhcp 1.22.1</example>
+    <example service.version="1.21.1">udhcpc1.21.1</example>
+    <example service.version="0.9.9-pre">udhcp 0.9.9-pre</example>
+    <param pos="0" name="service.vendor" value="Busybox"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.certainty" value="0.1"/>
+  </fingerprint>
+
+  <fingerprint pattern="^ccp\.avaya\.com$">
+    <description>Avaya device</description>
+    <example>ccp.avaya.com</example>
+    <param pos="0" name="hw.vendor" value="Avaya"/>
+    <param pos="0" name="hw.certainty" value="0.8"/>
+    <param pos="0" name="os.vendor" value="Avaya"/>
+    <param pos="0" name="os.certainty" value="0.8"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Avaya E129 dslforum.org$">
+    <description>Avaya E129 IP Phone</description>
+    <example>Avaya E129 dslforum.org</example>
+    <param pos="0" name="hw.vendor" value="Avaya"/>
+    <param pos="0" name="hw.product" value="E129"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="os.vendor" value="Avaya"/>
+    <param pos="0" name="os.product" value="{hw.product} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/iMac16,2$">
+    <description>iMac (Retina 4K, 21.5-inch, Late 2015)</description>
+    <example>AAPLBSDPC/i386/iMac16,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="iMac"/>
+    <param pos="0" name="hw.product" value="iMac (Retina 4K, 21.5-inch, Late 2015)"/>
+    <param pos="0" name="hw.device" value="Desktop"/>
+    <param pos="0" name="hw.version" value="MK452xx/A"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:imac:MK452xx/A"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/iMac18,2$">
+    <description>iMac (Retina 4K, 21.5-inch, 2017)</description>
+    <example>AAPLBSDPC/i386/iMac18,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="iMac"/>
+    <param pos="0" name="hw.product" value="iMac (Retina 4K, 21.5-inch, 2017)"/>
+    <param pos="0" name="hw.device" value="Desktop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:imac:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/iMacPro1,1$">
+    <description>iMac Pro</description>
+    <example>AAPLBSDPC/i386/iMacPro1,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="iMac"/>
+    <param pos="0" name="hw.product" value="iMac Pro"/>
+    <param pos="0" name="hw.device" value="Desktop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:imac:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/arm/Mac14,2$">
+    <description>MacBook Air (M2, 2022)</description>
+    <example>AAPLBSDPC/arm/Mac14,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Air"/>
+    <param pos="0" name="hw.product" value="MacBook Air (M2, 2022)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_air:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="ARM"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookAir7,2$">
+    <description>MacBook Air (13-inch, 2017)</description>
+    <example>AAPLBSDPC/i386/MacBookAir7,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Air"/>
+    <param pos="0" name="hw.product" value="MacBook Air (13-inch, 2017)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_air:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookAir8,1$">
+    <description>MacBook Air (Retina, 13-inch, 2018)</description>
+    <example>AAPLBSDPC/i386/MacBookAir8,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Air"/>
+    <param pos="0" name="hw.product" value="MacBook Air (13-inch, 2018)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_air:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookAir8,2$">
+    <description>MacBook Air (Retina, 13-inch, 2019)</description>
+    <example>AAPLBSDPC/i386/MacBookAir8,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Air"/>
+    <param pos="0" name="hw.product" value="MacBook Air (Retina, 13-inch, 2019)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_air:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/arm/MacBookAir10,1$">
+    <description>MacBook Air (M1, 2020)</description>
+    <example>AAPLBSDPC/arm/MacBookAir10,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Air"/>
+    <param pos="0" name="hw.product" value="MacBook Air (M1, 2020)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_air:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="ARM"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro11,4$">
+    <description>MacBook Pro (Retina, 15-inch, Mid 2015)</description>
+    <example>AAPLBSDPC/i386/MacBookPro11,4</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (Retina, 15-inch, Mid 2015)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro13,1$">
+    <description>MacBook Pro (13-inch, 2016, Two Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro13,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2016, Two Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro14,1$">
+    <description>MacBook Pro (13-inch, 2017, Two Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro14,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2017, Two Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro14,2$">
+    <description>MacBook Pro (13-inch, 2017, Four Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro14,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2017, Four Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro15,2$">
+    <description>MacBook Pro (13-inch, 2018, Four Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro15,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2018, Four Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro15,4$">
+    <description>MacBook Pro (13-inch, 2019, Two Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro15,4</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2019, Two Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro16,1$">
+    <description>MacBook Pro (16-inch, 2019)</description>
+    <example>AAPLBSDPC/i386/MacBookPro16,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (16-inch, 2019)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro16,2$">
+    <description>MacBook Pro (13-inch, 2020, Four Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro16,2</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2020, Four Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/i386/MacBookPro16,3$">
+    <description>MacBook Pro (13-inch, 2020, Two Thunderbolt 3 ports)</description>
+    <example>AAPLBSDPC/i386/MacBookPro16,3</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, 2020, Two Thunderbolt 3 ports)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="x86_64"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/arm/MacBookPro17,1$">
+    <description>MacBook Pro (13-inch, M1, 2020)</description>
+    <example>AAPLBSDPC/arm/MacBookPro17,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (13-inch, M1, 2020)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="ARM"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/arm/MacBookPro18,1$">
+    <description>MacBook Pro (16-inch, 2021)</description>
+    <example>AAPLBSDPC/arm/MacBookPro18,1</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (16-inch, 2021)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="ARM"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AAPLBSDPC/arm/MacBookPro18,[34]$">
+    <description>MacBook Pro (14-inch, 2021)</description>
+    <example>AAPLBSDPC/arm/MacBookPro18,3</example>
+    <param pos="0" name="hw.vendor" value="Apple"/>
+    <param pos="0" name="hw.family" value="MacBook Pro"/>
+    <param pos="0" name="hw.product" value="MacBook Pro (14-inch, 2021)"/>
+    <param pos="0" name="hw.device" value="Laptop"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:apple:macbook_pro:-"/>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.arch" value="ARM"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cambium-WiFi-AP$">
+    <description>Cambium Wireless Access Point</description>
+    <example>Cambium-WiFi-AP</example>
+    <param pos="0" name="hw.vendor" value="Cambium Networks"/>
+    <param pos="0" name="hw.device" value="WAP"/>
+    <param pos="0" name="os.vendor" value="Cambium Networks"/>
+  </fingerprint>
+
+  <fingerprint pattern="^LG_\d{2}[ULPS][A-Z]">
+    <description>LG Smart TV</description>
+    <example>LG_65UH5F-HJ</example>
+    <example>LG_55UT672M0UC</example>
+    <example>LG_32LT662MBUC</example>
+    <example>LG_55SM5KE-BJ</example>
+    <example>LG_86UL3J-B</example>
+    <param pos="0" name="hw.vendor" value="LG"/>
+    <param pos="0" name="hw.device" value="Smart TV"/>
+    <param pos="0" name="os.vendor" value="LG"/>
+    <param pos="0" name="os.product" value="webOS"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:lg:webos:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^ShoreTel IP Phone$">
+    <description>ShoreTel IP Phone</description>
+    <example>ShoreTel IP Phone</example>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Mitel"/>
+    <param pos="0" name="hw.product" value="ShoreTel"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:mitel:shoretel:-"/>
+    <param pos="0" name="os.vendor" value="Mitel"/>
+    <param pos="0" name="os.product" value="{hw.product} Firmware"/>
+  </fingerprint>
+
+  <fingerprint pattern="^JNPR\.IVE$">
+    <description>Juniper SSL VPN</description>
+    <example>JNPR.IVE</example>
+    <param pos="0" name="hw.device" value="VPN"/>
+    <param pos="0" name="hw.vendor" value="Juniper"/>
+    <param pos="0" name="os.vendor" value="Juniper"/>
+    <param pos="0" name="os.product" value="IVE OS"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:juniper:ive_os:-"/>
+  </fingerprint>
+
+</fingerprints>

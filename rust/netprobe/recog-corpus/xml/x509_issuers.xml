@@ -1,0 +1,432 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<fingerprints matches="x509.issuer" protocol="x509">
+  <!--
+  This fingerprint set matches the Issuer field of x509 certificates. These x509
+  certificates may be sourced from any SSL or TLS service. If a particular system
+  has identical subject and issuer fields, the subject field should be preferred.
+  The format of the Issuer field is built from the x509 distinguished names using
+  a specific order. Please see the comments in x509_subjects.xml for details.
+  -->
+
+  <!-- The following group has been included for performance reasons -->
+
+  <fingerprint pattern="^CN=R3,O=Let's Encrypt,C=US$">
+    <description>Lets Encrypt R3 - generic -- assert nothing.</description>
+    <example>CN=R3,O=Let's Encrypt,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Let's Encrypt Authority X3,O=Let's Encrypt,C=US$">
+    <description>Lets Encrypt X3 - generic -- assert nothing.</description>
+    <example>CN=Let's Encrypt Authority X3,O=Let's Encrypt,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Amazon,OU=Server CA 1B,O=Amazon,C=US$">
+    <description>Amazon AWS Server CA 1B - generic -- assert nothing.</description>
+    <example>CN=Amazon,OU=Server CA 1B,O=Amazon,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=DigiCert SHA2 Secure Server CA,O=DigiCert Inc,C=US$">
+    <description>DigiCert SHA2 - generic -- assert nothing.</description>
+    <example>CN=DigiCert SHA2 Secure Server CA,O=DigiCert Inc,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=DigiCert TLS (?:RSA SHA256|Hybrid ECC SHA384) 2020 CA1,O=DigiCert Inc,C=US$">
+    <description>DigiCert SHA256 2020 CA1 - generic -- assert nothing.</description>
+    <example>CN=DigiCert TLS RSA SHA256 2020 CA1,O=DigiCert Inc,C=US</example>
+    <example>CN=DigiCert TLS Hybrid ECC SHA384 2020 CA1,O=DigiCert Inc,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=DigiCert Secure Site ECC CA-1,OU=www.digicert.com,O=DigiCert Inc,C=US$">
+    <description>DigiCert ECC CA-1 - generic -- assert nothing.</description>
+    <example>CN=DigiCert Secure Site ECC CA-1,OU=www.digicert.com,O=DigiCert Inc,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=DigiCert SHA2 (?:Extended Validation|High Assurance) Server CA,OU=www.digicert.com,O=DigiCert Inc,C=US$">
+    <description>DigiCert SHA2 EV - generic -- assert nothing.</description>
+    <example>CN=DigiCert SHA2 Extended Validation Server CA,OU=www.digicert.com,O=DigiCert Inc,C=US</example>
+    <example>CN=DigiCert SHA2 High Assurance Server CA,OU=www.digicert.com,O=DigiCert Inc,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Sectigo RSA (?:Domain|Organization) Validation Secure Server CA,O=Sectigo Limited,L=Salford,ST=Greater Manchester,C=GB$">
+    <description>Sectigo RSA - generic -- assert nothing.</description>
+    <example>CN=Sectigo RSA Domain Validation Secure Server CA,O=Sectigo Limited,L=Salford,ST=Greater Manchester,C=GB</example>
+    <example>CN=Sectigo RSA Organization Validation Secure Server CA,O=Sectigo Limited,L=Salford,ST=Greater Manchester,C=GB</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=GeoTrust RSA CA 2018,OU=www.digicert.com,O=DigiCert Inc,C=US$">
+    <description>GeoTrust RSA CA 2018 - generic -- assert nothing.</description>
+    <example>CN=GeoTrust RSA CA 2018,OU=www.digicert.com,O=DigiCert Inc,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Go Daddy Secure Certificate Authority - G2,OU=http://certs\.godaddy\.com/repository/,O=GoDaddy.com\\, Inc\.,L=Scottsdale,ST=Arizona,C=US$">
+    <description>Go Daddy G2 - generic -- assert nothing.</description>
+    <example>CN=Go Daddy Secure Certificate Authority - G2,OU=http://certs.godaddy.com/repository/,O=GoDaddy.com\, Inc.,L=Scottsdale,ST=Arizona,C=US</example>
+    <param pos="0" name="hw.certainty" value="0.0"/>
+    <param pos="0" name="os.certainty" value="0.0"/>
+    <param pos="0" name="service.certainty" value="0.0"/>
+  </fingerprint>
+
+  <!-- Chromecast and various devices that support the Cast protocol -->
+
+  <fingerprint pattern="^CN=Eureka Gen1 ICA,OU=Google TV,O=Google Inc,L=Mountain View,ST=California,C=US$">
+    <description>Google Chromecast Gen 1</description>
+    <example>CN=Eureka Gen1 ICA,OU=Google TV,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.product" value="Chrome OS"/>
+    <param pos="0" name="os.certainty" value="0.5"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:chrome_os:-"/>
+    <param pos="0" name="hw.device" value="Media Server"/>
+    <param pos="0" name="hw.vendor" value="Google"/>
+    <param pos="0" name="hw.product" value="Chromecast"/>
+    <param pos="0" name="hw.certainty" value="0.5"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:google:chromecast:-"/>
+    <param pos="0" name="chromecast.generation" value="1"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Chromecast ICA (\d+)\s*\(?([^,\)]*)\)?,OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US$">
+    <description>Google Chromecast</description>
+    <example chromecast.generation="3">CN=Chromecast ICA 3,OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="4" chromecast.capabilities="Audio">CN=Chromecast ICA 4 (Audio),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="5" chromecast.capabilities="4K">CN=Chromecast ICA 5 (4K),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="6" chromecast.capabilities="Audio Assist">CN=Chromecast ICA 6 (Audio Assist),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="7" chromecast.capabilities="Audio Assist 2">CN=Chromecast ICA 7 (Audio Assist 2),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="9" chromecast.capabilities="Audio Assist">CN=Chromecast ICA 9 (Audio Assist),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="11" chromecast.capabilities="Video Assist">CN=Chromecast ICA 11 (Video Assist),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="12">CN=Chromecast ICA 12,OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <example chromecast.generation="21" chromecast.capabilities="ATV">CN=Chromecast ICA 21 (ATV),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.product" value="Chrome OS"/>
+    <param pos="0" name="os.certainty" value="0.5"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:chrome_os:-"/>
+    <param pos="0" name="hw.device" value="Media Server"/>
+    <param pos="0" name="hw.vendor" value="Google"/>
+    <param pos="0" name="hw.product" value="Chromecast"/>
+    <param pos="0" name="hw.certainty" value="0.5"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:google:chromecast:-"/>
+    <param pos="1" name="chromecast.generation"/>
+    <param pos="2" name="chromecast.capabilities"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=atvremote/[a-z_]+/([a-z]+)/Chromecast/">
+    <description>Google Chromecast - mDNS</description>
+    <example chromecast.codename="sabrina">CN=atvremote/sabrina_prod_stable/sabrina/Chromecast/13:37:F0:0B:AR:42</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.product" value="Chrome OS"/>
+    <param pos="0" name="os.certainty" value="0.5"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:chrome_os:-"/>
+    <param pos="0" name="hw.device" value="Media Server"/>
+    <param pos="0" name="hw.vendor" value="Google"/>
+    <param pos="0" name="hw.product" value="Chromecast"/>
+    <param pos="0" name="hw.certainty" value="0.5"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:google:chromecast:-"/>
+    <param pos="1" name="chromecast.codename"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Asus fugu Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US$">
+    <description>ASUS Nexus Player (Android) with Google Cast</description>
+    <example>CN=Asus fugu Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:-"/>
+    <param pos="0" name="hw.device" value="Media Server"/>
+    <param pos="0" name="hw.vendor" value="ASUS"/>
+    <param pos="0" name="hw.product" value="Nexus Player"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Sony amai Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US$">
+    <description>Sony SmartTV (Android) with Google Cast</description>
+    <example>CN=Sony amai Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:-"/>
+    <param pos="0" name="hw.device" value="Smart TV"/>
+    <param pos="0" name="hw.vendor" value="Sony"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Cast TV ICA \(Vizio\),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US$">
+    <description>Vizio SmartTV (Android) with Google Cast</description>
+    <example>CN=Cast TV ICA (Vizio),OU=Cast,O=Google Inc,L=Mountain View,ST=California,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:-"/>
+    <param pos="0" name="hw.device" value="Smart TV"/>
+    <param pos="0" name="hw.vendor" value="Vizio"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=NVidia Shield Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US$">
+    <description>NVIDIA SHIELD (Android) with Google Cast</description>
+    <example>CN=NVidia Shield Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:-"/>
+    <param pos="0" name="hw.device" value="Tablet"/>
+    <param pos="0" name="hw.vendor" value="NVIDIA"/>
+    <param pos="0" name="hw.product" value="SHIELD"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=NVidia Darcy NVidia Tegra K1-Denver Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US$">
+    <description>NVIDIA SHIELD (Android) with Google Cast (Darcy)</description>
+    <example>CN=NVidia Darcy NVidia Tegra K1-Denver Cast ICA,OU=Widevine,O=Google Inc,L=Kirkland,ST=Washington,C=US</example>
+    <param pos="0" name="os.vendor" value="Google"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Android"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:google:android:-"/>
+    <param pos="0" name="hw.device" value="Tablet"/>
+    <param pos="0" name="hw.vendor" value="NVIDIA"/>
+    <param pos="0" name="hw.product" value="SHIELD"/>
+  </fingerprint>
+
+  <!-- End of Chromecast -->
+
+  <fingerprint pattern="^CN=Yealink Equipment Issuing CA,OU=yealink\.com,O=Yealink Network Technology Co\.\\,Ltd.,L=Xiamen,ST=Fujian,C=CN$">
+    <description>Yealink VoIP Phone</description>
+    <example>CN=Yealink Equipment Issuing CA,OU=yealink.com,O=Yealink Network Technology Co.\,Ltd.,L=Xiamen,ST=Fujian,C=CN</example>
+    <param pos="0" name="os.vendor" value="Yealink"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Linux"/>
+    <param pos="0" name="hw.device" value="VoIP"/>
+    <param pos="0" name="hw.vendor" value="Yealink"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=[a-zA-Z0-9]+,OU=Internally Generated Certificate,O=American Power Conversion Corp,L=Default Locality,ST=Default State,C=US$">
+    <description>APC UPS</description>
+    <example>CN=ZA1117619249,OU=Internally Generated Certificate,O=American Power Conversion Corp,L=Default Locality,ST=Default State,C=US</example>
+    <param pos="0" name="hw.device" value="Power Device"/>
+    <param pos="0" name="hw.vendor" value="APC"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=ASA Temporary Self Signed Certificate$">
+    <description>Cisco ASA Temp Cert</description>
+    <example>CN=ASA Temporary Self Signed Certificate</example>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="os.family" value="Adaptive Security Appliance"/>
+    <param pos="0" name="os.product" value="Adaptive Security Appliance"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.family" value="Adaptive Security Appliance"/>
+    <param pos="0" name="hw.product" value="Adaptive Security Appliance"/>
+    <param pos="0" name="hw.device" value="Firewall"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:cisco:adaptive_security_appliance:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Temporary CA [a-fA-F0-9]{8}\-[a-fA-F0-9]{4}\-[a-fA-F0-9]{4}\-[a-fA-F0-9]{4}\-[a-fA-F0-9]{12},OU=Temporary CA">
+    <description>Cisco Video Communication Server</description>
+    <example>CN=Temporary CA 218131fe-8af4-11e7-aa6e-9950d6bbaf74,OU=Temporary CA 218131fe-8af4-11e7-aa6e-9950d6bbaf74,O=Temporary CA 218131fe-8af4-11e7-aa6e-9950d6bbaf74</example>
+    <param pos="0" name="hw.device" value="Video Conferencing"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.product" value="TelePresence"/>
+  </fingerprint>
+
+  <fingerprint pattern="^O=VMware Installer$">
+    <description>VMware ESXi w/Installer</description>
+    <example>O=VMware Installer</example>
+    <param pos="0" name="os.vendor" value="VMware"/>
+    <param pos="0" name="os.family" value="VMware ESX/ESXi"/>
+    <param pos="0" name="os.product" value="VMware ESXi Server"/>
+    <param pos="0" name="os.device" value="Hypervisor"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:vmware:esxi:-"/>
+    <param pos="0" name="hw.device" value="Hypervisor"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=CA,OU=VMware Engineering,O=vCenter,ST=California,C=US$">
+    <description>VMware vCenter</description>
+    <example>CN=CA,OU=VMware Engineering,O=vCenter,ST=California,C=US</example>
+    <param pos="0" name="service.vendor" value="VMware"/>
+    <param pos="0" name="service.product" value="vCenter"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:vmware:vcenter_server:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Default Issuer \(Do not trust\),OU=ISS,O=Hewlett Packard Enterprise,L=Houston,ST=Texas,C=US$">
+    <description>HP iLO</description>
+    <example>CN=Default Issuer (Do not trust),OU=ISS,O=Hewlett Packard Enterprise,L=Houston,ST=Texas,C=US</example>
+    <param pos="0" name="hw.device" value="Lights Out Management"/>
+    <param pos="0" name="hw.vendor" value="HP"/>
+    <param pos="0" name="hw.family" value="iLO"/>
+    <param pos="0" name="hw.product" value="iLO"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:hp:integrated_lights-out:-"/>
+    <param pos="0" name="os.device" value="Lights Out Management"/>
+    <param pos="0" name="os.vendor" value="HP"/>
+    <param pos="0" name="os.family" value="iLO"/>
+    <param pos="0" name="os.product" value="iLO"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:hp:integrated_lights-out_firmware:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=synology.com,O=Synology Inc.,L=Taipei,C=TW$">
+    <description>Synology</description>
+    <example>CN=synology.com,O=Synology Inc.,L=Taipei,C=TW</example>
+    <param pos="0" name="os.device" value="NAS"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="DSM"/>
+    <param pos="0" name="os.vendor" value="Synology"/>
+    <param pos="0" name="hw.vendor" value="Synology"/>
+    <param pos="0" name="hw.device" value="NAS"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=default(?: [A-Z]+)?,OU=NS Internal,O=Citrix ANG,L=San Jose,ST=California,C=US$">
+    <description>Citrix Netscaler (later renamed to Citrix ADC)</description>
+    <example>CN=default,OU=NS Internal,O=Citrix ANG,L=San Jose,ST=California,C=US</example>
+    <example>CN=default UYENMB,OU=NS Internal,O=Citrix ANG,L=San Jose,ST=California,C=US</example>
+    <param pos="0" name="service.vendor" value="Citrix"/>
+    <param pos="0" name="service.family" value="Netscaler"/>
+    <param pos="0" name="service.product" value="Netscaler"/>
+    <param pos="0" name="service.device" value="Network Management Device"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:citrix:netscaler:-"/>
+    <param pos="0" name="os.vendor" value="Citrix"/>
+    <param pos="0" name="os.family" value="Netscaler"/>
+    <param pos="0" name="os.product" value="Netscaler Gateway Firmware"/>
+    <param pos="0" name="os.device" value="Network Management Device"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:citrix:netscaler_gateway_firmware:-"/>
+    <param pos="0" name="hw.vendor" value="Citrix"/>
+    <param pos="0" name="hw.family" value="Netscaler"/>
+    <param pos="0" name="hw.product" value="Netscaler Gateway"/>
+    <param pos="0" name="hw.device" value="Network Management Device"/>
+    <param pos="0" name="hw.cpe23" value="cpe:/h:citrix:netscaler_gateway:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^O=Technicolor,L=Edegem,ST=Antwerp,C=BE$">
+    <description>Technicolor Router - without model or version</description>
+    <example>O=Technicolor,L=Edegem,ST=Antwerp,C=BE</example>
+    <param pos="0" name="os.vendor" value="Technicolor"/>
+    <param pos="0" name="os.device" value="Router"/>
+    <param pos="0" name="os.certainty" value="0.5"/>
+    <param pos="0" name="hw.vendor" value="Technicolor"/>
+    <param pos="0" name="hw.device" value="Router"/>
+    <param pos="0" name="hw.certainty" value="0.5"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Vigor Router,OU=DrayTek Support,O=DrayTek Corp.,L=HuKou,ST=HsinChu,C=TW$">
+    <description>DrayTek Vigor Router - without model or version</description>
+    <example>CN=Vigor Router,OU=DrayTek Support,O=DrayTek Corp.,L=HuKou,ST=HsinChu,C=TW</example>
+    <param pos="0" name="os.vendor" value="DrayTek"/>
+    <param pos="0" name="os.device" value="Router"/>
+    <param pos="0" name="os.certainty" value="0.5"/>
+    <param pos="0" name="hw.vendor" value="DrayTek"/>
+    <param pos="0" name="hw.family" value="Vigor"/>
+    <param pos="0" name="hw.device" value="Router"/>
+    <param pos="0" name="hw.certainty" value="0.5"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Kubernetes Ingress Controller Fake Certificate,O=Acme Co$">
+    <description>Kubernetes NGINX Ingress Controller with default cert</description>
+    <example>CN=Kubernetes Ingress Controller Fake Certificate,O=Acme Co</example>
+    <param pos="0" name="service.vendor" value="Kubernetes"/>
+    <param pos="0" name="service.family" value="Kubernetes"/>
+    <param pos="0" name="service.product" value="NGINX Ingress Controller"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:kubernetes:nginx_ingress_controller:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=TRAEFIK DEFAULT CERT$">
+    <description>Traefik Proxy default certificate</description>
+    <example>CN=TRAEFIK DEFAULT CERT</example>
+    <param pos="0" name="service.vendor" value="Traefik Labs"/>
+    <param pos="0" name="service.family" value="Traefik"/>
+    <param pos="0" name="service.product" value="Traefik Proxy"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:traefik:traefik:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="(?i)^CN=Fireware web CA,OU=Fireware,O=WatchGuard(?: CA)?$">
+    <description>WatchGuard Fireware</description>
+    <example>CN=Fireware web ca,OU=Fireware,O=WatchGuard</example>
+    <example>CN=Fireware web CA,OU=Fireware,O=Watchguard CA</example>
+    <param pos="0" name="service.vendor" value="WatchGuard"/>
+    <param pos="0" name="service.product" value="Fireware XTM"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:watchguard:fireware_xtm:-"/>
+    <param pos="0" name="os.vendor" value="WatchGuard"/>
+    <param pos="0" name="os.product" value="Fireware"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:watchguard:fireware:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^O=Caddy Self-Signed$">
+    <description>CaddyServer Caddy - golang based httpd</description>
+    <example>O=Caddy Self-Signed</example>
+    <param pos="0" name="service.vendor" value="CaddyServer"/>
+    <param pos="0" name="service.product" value="Caddy"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:caddyserver:caddy:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Avaya cu360 (\S+)$">
+    <description>Avaya Video Conferencing Device - CU360</description>
+    <example hw.serial_number="11YT11111111">CN=Avaya cu360 11YT11111111</example>
+    <param pos="0" name="hw.vendor" value="Avaya"/>
+    <param pos="0" name="hw.device" value="Video Conferencing"/>
+    <param pos="0" name="hw.product" value="CU360"/>
+    <param pos="1" name="hw.serial_number"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Roomba CA,OU=\S+,O=iRobot,L=Bedford,ST=MA,C=US$">
+    <description>Roomba Device</description>
+    <example hw.product="Roomba" hw.vendor="iRobot">CN=Roomba CA,OU=HBU,O=iRobot,L=Bedford,ST=MA,C=US</example>
+    <param pos="0" name="hw.vendor" value="iRobot"/>
+    <param pos="0" name="hw.device" value="Device"/>
+    <param pos="0" name="hw.product" value="Roomba"/>
+  </fingerprint>
+
+  <fingerprint pattern="(?i)^CN=\S+,OU=FreshTomato Team,O=FreshTomato,L=Columbus,ST=Ohio,C=US(?:.*)$">
+    <description>FreshTomato Router Firmware</description>
+    <example>CN=192.168.1.1,OU=FreshTomato Team,O=FreshTomato,L=Columbus,ST=Ohio,C=US</example>
+    <param pos="0" name="os.vendor" value="FreshTomato"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="FreshTomato"/>
+    <param pos="0" name="os.device" value="Router"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:freshtomato:freshtomato:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="(?i)^SERIALNUMBER=(\d+),CN=(\S+),OU=ST-VS,O=Bosch Sicherheitssysteme GmbH,L=Grasbrunn,C=DE">
+    <description>Bosch Device</description>
+    <example hw.serial_number="111111111111111111" host.mac="00-07-5f-11-11-11">SERIALNUMBER=111111111111111111,CN=00-07-5f-11-11-11,OU=ST-VS,O=Bosch Sicherheitssysteme GmbH,L=Grasbrunn,C=DE</example>
+    <param pos="0" name="os.vendor" value="Bosch"/>
+    <param pos="0" name="hw.vendor" value="Bosch"/>
+    <param pos="1" name="hw.serial_number"/>
+    <param pos="2" name="host.mac"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=Proxmox Virtual Environment,OU=[a-f0-9-]+,O=PVE Cluster Manager CA$">
+    <description>Proxmox open-source virtualization platform</description>
+    <example>CN=Proxmox Virtual Environment,OU=dd69676f-e203-490e-b040-79b75ed6a9d7,O=PVE Cluster Manager CA</example>
+    <param pos="0" name="service.vendor" value="Proxmox"/>
+    <param pos="0" name="service.product" value="Virtual Environment"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:proxmox:virtual_environment:-"/>
+    <param pos="0" name="os.vendor" value="Proxmox"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Proxmox"/>
+  </fingerprint>
+
+  <fingerprint pattern="^CN=minikubeCA$">
+    <description>Kubernetes minikube</description>
+    <example>CN=minikubeCA</example>
+    <param pos="0" name="service.vendor" value="Kubernetes"/>
+    <param pos="0" name="service.product" value="minikube"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:kubernetes:minikube:-"/>
+  </fingerprint>
+
+</fingerprints>
