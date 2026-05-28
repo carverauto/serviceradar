@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/config"
@@ -62,6 +63,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 
 	s.initPluginManager(ctx)
 	s.initNetprobeSidecarStatus()
+	s.initAddonManager()
 
 	// Initialize embedded sysmon service
 	if err := s.initSysmonService(ctx); err != nil {
@@ -220,6 +222,14 @@ func (s *Server) initNetprobeSidecarStatus() {
 	s.netprobeSidecar = netprobeSidecar
 }
 
+// initAddonManager creates the native add-on (feature set) manager that supervises
+// add-ons delivered via agent configuration as go-plugin subprocesses.
+func (s *Server) initAddonManager() {
+	s.addonManager = agentaddon.NewManager(agentaddon.Config{
+		Logger: s.logger.WithComponent("agent.addon"),
+	})
+}
+
 // initSysmonService creates and initializes the embedded sysmon service.
 func (s *Server) initSysmonService(ctx context.Context) error {
 	sysmonSvc, err := NewSysmonService(SysmonServiceConfig{
@@ -335,6 +345,12 @@ func (s *Server) Stop(_ context.Context) error {
 	if s.sidecarManager != nil {
 		if err := s.sidecarManager.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop sidecar manager")
+		}
+	}
+
+	if s.addonManager != nil {
+		if err := s.addonManager.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop addon manager")
 		}
 	}
 

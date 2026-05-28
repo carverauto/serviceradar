@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
@@ -2864,6 +2865,9 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.applyPluginConfig(pluginConfig)
 	}
 
+	// Apply native add-on (feature set) assignments if present.
+	p.applyAddonAssignments(ctx, configResp.GetAddons())
+
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
 
@@ -3008,6 +3012,50 @@ func netprobeConfigPath(provider sidecarStatusProvider) string {
 	}
 
 	return ""
+}
+
+// applyAddonAssignments reconciles the agent's supervised native add-ons to the
+// assignments delivered in the gateway config. Enabled assignments are launched
+// and supervised as go-plugin subprocesses; disabled or removed ones are stopped.
+func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*proto.AddonAssignmentConfig) {
+	if p.server == nil {
+		return
+	}
+
+	p.server.mu.RLock()
+	manager := p.server.addonManager
+	p.server.mu.RUnlock()
+	if manager == nil {
+		return
+	}
+
+	specs := make([]agentaddon.Spec, 0, len(assignments))
+	for _, a := range assignments {
+		if a == nil || !a.GetEnabled() {
+			continue
+		}
+		if a.GetBinaryPath() == "" {
+			p.logger.Warn().Str("addon", a.GetAddonId()).Msg("Skipping add-on assignment without a binary path")
+			continue
+		}
+		specs = append(specs, agentaddon.Spec{
+			ID:           a.GetAddonId(),
+			Version:      a.GetVersion(),
+			BinaryPath:   a.GetBinaryPath(),
+			Args:         a.GetArgs(),
+			ConfigJSON:   a.GetConfigJson(),
+			Capabilities: a.GetCapabilities(),
+		})
+	}
+
+	if err := manager.Apply(ctx, specs); err != nil {
+		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
+		return
+	}
+
+	if len(specs) > 0 {
+		p.logger.Info().Int("addons", len(specs)).Msg("Applied native add-on assignments")
+	}
 }
 
 func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {

@@ -57,6 +57,7 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//go/pkg/agentgateway",
+        "//go/pkg/agent/addon",
         "//go/pkg/agent/netprobe",
         "//go/pkg/agent/remoteaccess",
         "//go/pkg/agent/sidecar",
