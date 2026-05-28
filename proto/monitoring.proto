@@ -572,6 +572,7 @@ message VisibilityConfig {
   repeated VisibilityDeviceBinding device_bindings = 4;
   uint32 default_sample_interval_ms = 5;
   VisibilityDpiConfig dpi = 20;
+  uint32 flow_table_max_entries = 40;
 
   reserved 21 to 39;
   reserved "flow_attribution", "process_snapshot_interval_s";

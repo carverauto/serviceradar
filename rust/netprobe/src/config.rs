@@ -3,12 +3,16 @@ use std::collections::HashSet;
 use serde::Deserialize;
 use thiserror::Error;
 
+pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     #[serde(default)]
     pub capture_interfaces: Vec<String>,
+    #[serde(default)]
+    pub flow_table_max_entries: u32,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -29,6 +33,7 @@ impl Default for Config {
         Self {
             enabled: true,
             capture_interfaces: Vec::new(),
+            flow_table_max_entries: 0,
         }
     }
 }
@@ -42,6 +47,19 @@ impl Config {
     pub fn validate_interface(&self, interface: &str) -> Result<(), AllowlistError> {
         validate_interface(&self.capture_interfaces, interface)
     }
+
+    pub fn effective_flow_table_max_entries(&self) -> u32 {
+        effective_flow_table_max_entries(self.flow_table_max_entries, self.capture_interfaces.len())
+    }
+}
+
+pub fn effective_flow_table_max_entries(configured: u32, interface_count: usize) -> u32 {
+    if configured > 0 {
+        return configured;
+    }
+
+    let interface_slots = u32::try_from(interface_count.max(1)).unwrap_or(u32::MAX);
+    FLOW_TABLE_ENTRIES_PER_INTERFACE.saturating_mul(interface_slots)
 }
 
 pub fn validate_capture_interfaces(interfaces: &[String]) -> Result<(), AllowlistError> {
@@ -90,7 +108,10 @@ fn default_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_capture_interfaces, validate_interface, AllowlistError};
+    use super::{
+        effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
+        AllowlistError, Config, FLOW_TABLE_ENTRIES_PER_INTERFACE,
+    };
 
     #[test]
     fn rejects_any_interface() {
@@ -159,5 +180,31 @@ mod tests {
             validate_capture_interfaces(&allowlist),
             Err(AllowlistError::AnyInterface)
         );
+    }
+
+    #[test]
+    fn defaults_flow_table_capacity_to_one_interface_slot() {
+        assert_eq!(
+            effective_flow_table_max_entries(0, 0),
+            FLOW_TABLE_ENTRIES_PER_INTERFACE
+        );
+    }
+
+    #[test]
+    fn sizes_default_flow_table_capacity_by_interface_count() {
+        assert_eq!(
+            effective_flow_table_max_entries(0, 3),
+            FLOW_TABLE_ENTRIES_PER_INTERFACE * 3
+        );
+    }
+
+    #[test]
+    fn honors_configured_flow_table_capacity() {
+        let config = Config {
+            flow_table_max_entries: 250_000,
+            ..Default::default()
+        };
+
+        assert_eq!(config.effective_flow_table_max_entries(), 250_000);
     }
 }

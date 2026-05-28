@@ -75,6 +75,7 @@ message VisibilityAgentConfig {
   repeated DeviceBinding device_bindings = 3;
   uint32 default_sample_interval_ms = 4;
   DpiConfig dpi = 20;
+  uint32 flow_table_max_entries = 40;
 
   reserved 21 to 39;
   reserved "flow_attribution", "process_snapshot_interval_s";

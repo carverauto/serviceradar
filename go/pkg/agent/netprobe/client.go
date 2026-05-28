@@ -40,6 +40,7 @@ const (
 
 var (
 	ErrClientClosed    = errors.New("netprobe client is closed")
+	ErrNilConnection   = errors.New("netprobe client connection is nil")
 	ErrUnexpectedFrame = errors.New("netprobe returned unexpected frame")
 )
 
@@ -121,6 +122,13 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	if conn == nil {
+		c.closeWithError(ErrNilConnection)
+		close(c.events)
+		close(c.dpiEvents)
+
+		return c
 	}
 	go c.readLoop()
 
@@ -239,6 +247,9 @@ func (c *Client) DroppedDPIEvents() uint64 {
 
 // Close closes the IPC connection and unblocks pending requests.
 func (c *Client) Close() error {
+	if c == nil {
+		return nil
+	}
 	c.closeWithError(ErrClientClosed)
 	return nil
 }
@@ -364,12 +375,17 @@ func (c *Client) removePending(sequence uint64) {
 }
 
 func (c *Client) closeWithError(err error) {
+	if c == nil {
+		return
+	}
 	c.closeOnce.Do(func() {
 		if err == nil {
 			err = ErrClientClosed
 		}
 		c.closeErr.Store(err)
-		_ = c.conn.Close()
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
 
 		c.pendingMu.Lock()
 		for sequence, ch := range c.pending {
@@ -378,7 +394,9 @@ func (c *Client) closeWithError(err error) {
 		}
 		c.pendingMu.Unlock()
 
-		close(c.done)
+		if c.done != nil {
+			close(c.done)
+		}
 	})
 }
 

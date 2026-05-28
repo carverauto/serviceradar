@@ -4,6 +4,8 @@ mod capabilities;
 mod capture;
 mod config;
 mod dpi;
+#[cfg(target_os = "linux")]
+mod ebpf_loader;
 mod fingerprint;
 mod framing;
 mod lifecycle;

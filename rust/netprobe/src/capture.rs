@@ -319,6 +319,7 @@ mod tests {
         let config = Config {
             enabled: true,
             capture_interfaces: Vec::new(),
+            ..Default::default()
         };
 
         let handles = open_allowlisted_interfaces(&config, &opener).unwrap();
@@ -333,6 +334,7 @@ mod tests {
         let config = Config {
             enabled: true,
             capture_interfaces: vec!["eth0".to_string(), "enp0s1".to_string()],
+            ..Default::default()
         };
 
         let handles = open_allowlisted_interfaces(&config, &opener).unwrap();
@@ -350,6 +352,7 @@ mod tests {
         let config = Config {
             enabled: true,
             capture_interfaces: vec!["any".to_string()],
+            ..Default::default()
         };
 
         assert!(open_allowlisted_interfaces(&config, &opener).is_err());

@@ -9,7 +9,7 @@ use aya_ebpf::{
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext},
     EbpfContext,
 };
-use core::{ffi::c_void, panic::PanicInfo};
+use core::{ffi::c_void, panic::PanicInfo, ptr::addr_of_mut};
 
 const EVENT_VERSION: u16 = 1;
 const AF_INET: u16 = 2;
@@ -392,28 +392,44 @@ fn emit_event(
     old_state: i32,
     new_state: i32,
 ) {
-    let record = FlowAttributionRecord {
-        version: EVENT_VERSION,
-        event_kind,
-        pid: ctx.pid(),
-        tgid: ctx.tgid(),
-        uid: ctx.uid(),
-        gid: ctx.gid(),
-        socket_address: sock as u64,
-        old_state,
-        new_state,
-        tuple,
-        comm: ctx.command().unwrap_or([0; 16]),
+    let pid = ctx.pid();
+    let tgid = ctx.tgid();
+    let uid = ctx.uid();
+    let gid = ctx.gid();
+    let socket_address = sock as u64;
+    let comm = ctx.command().unwrap_or([0; 16]);
+    let Some(mut entry) = FLOW_EVENTS.reserve::<FlowAttributionRecord>(0) else {
+        return;
     };
+    let record = entry.as_mut_ptr();
 
-    if event_kind == EVENT_TCP_CLOSE {
-        remove_flow_pid(&record);
-    } else {
-        record_process_info(&record);
-        record_flow_pid(&record);
+    // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
+    // FlowAttributionRecord. Every field is written before the slot is submitted.
+    unsafe {
+        addr_of_mut!((*record).version).write(EVENT_VERSION);
+        addr_of_mut!((*record).event_kind).write(event_kind);
+        addr_of_mut!((*record).pid).write(pid);
+        addr_of_mut!((*record).tgid).write(tgid);
+        addr_of_mut!((*record).uid).write(uid);
+        addr_of_mut!((*record).gid).write(gid);
+        addr_of_mut!((*record).socket_address).write(socket_address);
+        addr_of_mut!((*record).old_state).write(old_state);
+        addr_of_mut!((*record).new_state).write(new_state);
+        addr_of_mut!((*record).tuple).write(tuple);
+        addr_of_mut!((*record).comm).write(comm);
     }
 
-    let _ = FLOW_EVENTS.output(&record, 0);
+    // SAFETY: All fields were initialized above and the ring-buffer slot is not
+    // submitted until after the map updates finish.
+    let record_ref = unsafe { &*record };
+    if event_kind == EVENT_TCP_CLOSE {
+        remove_flow_pid(record_ref);
+    } else {
+        record_process_info(record_ref);
+        record_flow_pid(record_ref);
+    }
+
+    entry.submit(0);
 }
 
 fn record_process_info(record: &FlowAttributionRecord) {
@@ -462,6 +478,7 @@ fn remove_flow_pid(record: &FlowAttributionRecord) {
     let _ = FLOW_TO_PID.remove(&canonical_flow.key);
 }
 
+#[inline(always)]
 fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     if tuple.family != AF_INET && tuple.family != AF_INET6 {
         return None;
@@ -480,6 +497,7 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     ))
 }
 
+#[inline(always)]
 fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
     let interface_index = skb_interface_index(&ctx);
     let Some(interface_config) = interface_config(interface_index) else {
@@ -487,9 +505,7 @@ fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
     };
     let now = now_ns();
 
-    if let Some(signature) = parse_tcp_syn_signature_from_tc(&ctx, now) {
-        let _ = TCP_SYN_SIGNATURES.output(&signature, 0);
-    }
+    emit_tcp_syn_signature_from_tc(&ctx, now);
 
     let Some(flow_key) = parse_flow_key(&ctx) else {
         return TC_ACT_OK as i32;
@@ -533,6 +549,7 @@ fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
     redirect_to_af_xdp(&flow_key, &interface_config)
 }
 
+#[inline(always)]
 fn interface_config(interface_index: u32) -> Option<InterfaceConfig> {
     // SAFETY: The TC program only copies the map value out and does not retain
     // the borrowed reference. A missing or disabled entry is deny-by-default.
@@ -544,6 +561,7 @@ fn interface_config(interface_index: u32) -> Option<InterfaceConfig> {
     Some(*config)
 }
 
+#[inline(always)]
 fn redirect_to_af_xdp(flow_key: &FlowKey, interface_config: &InterfaceConfig) -> i32 {
     let queue = xsk_queue_for_flow(flow_key, interface_config.xsk_queue_count);
     XSK_SOCKETS
@@ -551,6 +569,7 @@ fn redirect_to_af_xdp(flow_key: &FlowKey, interface_config: &InterfaceConfig) ->
         .unwrap_or(TC_ACT_OK as u32) as i32
 }
 
+#[inline(always)]
 fn parse_flow_key(ctx: &TcContext) -> Option<FlowKey> {
     let mut offset = ETH_HEADER_LEN;
     let mut ethertype = load_be_u16(ctx, 12)?;
@@ -566,6 +585,7 @@ fn parse_flow_key(ctx: &TcContext) -> Option<FlowKey> {
     }
 }
 
+#[inline(always)]
 fn flow_table_key(interface_index: u32, flow: FlowKey) -> FlowTableKey {
     FlowTableKey {
         interface_index,
@@ -574,168 +594,222 @@ fn flow_table_key(interface_index: u32, flow: FlowKey) -> FlowTableKey {
     }
 }
 
-fn parse_tcp_syn_signature_from_tc(
-    ctx: &TcContext,
-    observed_ns: u64,
-) -> Option<TcpSynSignatureRecord> {
+#[inline(always)]
+fn emit_tcp_syn_signature_from_tc(ctx: &TcContext, observed_ns: u64) {
     let mut offset = ETH_HEADER_LEN;
-    let mut ethertype = load_be_u16(ctx, 12)?;
+    let Some(mut ethertype) = load_be_u16(ctx, 12) else {
+        return;
+    };
     if ethertype == ETH_P_8021Q || ethertype == ETH_P_8021AD {
-        ethertype = load_be_u16(ctx, 16)?;
+        let Some(vlan_ethertype) = load_be_u16(ctx, 16) else {
+            return;
+        };
+        ethertype = vlan_ethertype;
         offset = offset.saturating_add(VLAN_HEADER_LEN);
     }
 
     match ethertype {
-        ETH_P_IP => parse_ipv4_tcp_syn_signature_from_tc(ctx, offset, observed_ns),
-        ETH_P_IPV6 => parse_ipv6_tcp_syn_signature_from_tc(ctx, offset, observed_ns),
-        _ => None,
+        ETH_P_IP => emit_ipv4_tcp_syn_signature_from_tc(ctx, offset, observed_ns),
+        ETH_P_IPV6 => emit_ipv6_tcp_syn_signature_from_tc(ctx, offset, observed_ns),
+        _ => {}
     }
 }
 
-fn parse_ipv4_tcp_syn_signature_from_tc(
-    ctx: &TcContext,
-    ip_offset: usize,
-    observed_ns: u64,
-) -> Option<TcpSynSignatureRecord> {
-    let version_ihl = load_u8(ctx, ip_offset)?;
+#[inline(always)]
+fn emit_ipv4_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observed_ns: u64) {
+    let Some(version_ihl) = load_u8(ctx, ip_offset) else {
+        return;
+    };
     if version_ihl >> 4 != 4 {
-        return None;
+        return;
     }
 
     let ihl = usize::from(version_ihl & 0x0f) * 4;
     if ihl < IPV4_MIN_HEADER_LEN {
-        return None;
+        return;
     }
 
-    if load_u8(ctx, ip_offset + 9)? != IPPROTO_TCP as u8 {
-        return None;
+    let Some(protocol) = load_u8(ctx, ip_offset + 9) else {
+        return;
+    };
+    if protocol != IPPROTO_TCP as u8 {
+        return;
     }
 
     let tcp_offset = ip_offset.saturating_add(ihl);
-    let total_len = usize::from(load_be_u16(ctx, ip_offset + 2)?);
-    let ttl = load_u8(ctx, ip_offset + 8)?;
+    let Some(total_len) = load_be_u16(ctx, ip_offset + 2).map(usize::from) else {
+        return;
+    };
+    let Some(ttl) = load_u8(ctx, ip_offset + 8) else {
+        return;
+    };
     let mut source = [0u8; 16];
     let mut destination = [0u8; 16];
-    source[..4].copy_from_slice(&load_bytes::<4>(ctx, ip_offset + 12)?);
-    destination[..4].copy_from_slice(&load_bytes::<4>(ctx, ip_offset + 16)?);
-    let source_port = load_be_u16(ctx, tcp_offset)?;
-    let destination_port = load_be_u16(ctx, tcp_offset + 2)?;
-    let flow_key = canonical_flow_key(
-        AF_INET,
-        IPPROTO_TCP,
-        source,
-        destination,
-        source_port,
-        destination_port,
-    )
-    .key;
-
-    parse_tcp_syn_header_from_tc(
+    let Some(source_ipv4) = load_bytes::<4>(ctx, ip_offset + 12) else {
+        return;
+    };
+    let Some(destination_ipv4) = load_bytes::<4>(ctx, ip_offset + 16) else {
+        return;
+    };
+    source[..4].copy_from_slice(&source_ipv4);
+    destination[..4].copy_from_slice(&destination_ipv4);
+    let Some(source_port) = load_be_u16(ctx, tcp_offset) else {
+        return;
+    };
+    let Some(destination_port) = load_be_u16(ctx, tcp_offset + 2) else {
+        return;
+    };
+    emit_tcp_syn_header_from_tc(
         ctx,
         tcp_offset,
         total_len.saturating_sub(ihl),
-        flow_key,
+        AF_INET,
+        &source,
+        &destination,
+        source_port,
+        destination_port,
         observed_ns,
         4,
         ttl,
-    )
+    );
 }
 
-fn parse_ipv6_tcp_syn_signature_from_tc(
-    ctx: &TcContext,
-    ip_offset: usize,
-    observed_ns: u64,
-) -> Option<TcpSynSignatureRecord> {
-    if load_u8(ctx, ip_offset)? >> 4 != 6 {
-        return None;
+#[inline(always)]
+fn emit_ipv6_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observed_ns: u64) {
+    let Some(version) = load_u8(ctx, ip_offset) else {
+        return;
+    };
+    if version >> 4 != 6 {
+        return;
     }
 
-    if load_u8(ctx, ip_offset + 6)? != IPPROTO_TCP as u8 {
-        return None;
+    let Some(protocol) = load_u8(ctx, ip_offset + 6) else {
+        return;
+    };
+    if protocol != IPPROTO_TCP as u8 {
+        return;
     }
 
     let tcp_offset = ip_offset.saturating_add(IPV6_HEADER_LEN);
-    let payload_len = usize::from(load_be_u16(ctx, ip_offset + 4)?);
-    let hop_limit = load_u8(ctx, ip_offset + 7)?;
-    let source = load_bytes::<16>(ctx, ip_offset + 8)?;
-    let destination = load_bytes::<16>(ctx, ip_offset + 24)?;
-    let source_port = load_be_u16(ctx, tcp_offset)?;
-    let destination_port = load_be_u16(ctx, tcp_offset + 2)?;
-    let flow_key = canonical_flow_key(
-        AF_INET6,
-        IPPROTO_TCP,
-        source,
-        destination,
-        source_port,
-        destination_port,
-    )
-    .key;
-
-    parse_tcp_syn_header_from_tc(
+    let Some(payload_len) = load_be_u16(ctx, ip_offset + 4).map(usize::from) else {
+        return;
+    };
+    let Some(hop_limit) = load_u8(ctx, ip_offset + 7) else {
+        return;
+    };
+    let Some(source) = load_bytes::<16>(ctx, ip_offset + 8) else {
+        return;
+    };
+    let Some(destination) = load_bytes::<16>(ctx, ip_offset + 24) else {
+        return;
+    };
+    let Some(source_port) = load_be_u16(ctx, tcp_offset) else {
+        return;
+    };
+    let Some(destination_port) = load_be_u16(ctx, tcp_offset + 2) else {
+        return;
+    };
+    emit_tcp_syn_header_from_tc(
         ctx,
         tcp_offset,
         payload_len,
-        flow_key,
+        AF_INET6,
+        &source,
+        &destination,
+        source_port,
+        destination_port,
         observed_ns,
         6,
         hop_limit,
-    )
+    );
 }
 
-fn parse_tcp_syn_header_from_tc(
+#[inline(always)]
+fn emit_tcp_syn_header_from_tc(
     ctx: &TcContext,
     tcp_offset: usize,
     tcp_segment_len: usize,
-    flow_key: FlowKey,
+    address_family: u16,
+    source_addr: &[u8; 16],
+    destination_addr: &[u8; 16],
+    source_port: u16,
+    destination_port: u16,
     observed_ns: u64,
     ip_version: u16,
     ttl: u8,
-) -> Option<TcpSynSignatureRecord> {
+) {
     if tcp_segment_len < TCP_MIN_HEADER_LEN {
-        return None;
+        return;
     }
 
-    let data_offset = usize::from(load_u8(ctx, tcp_offset + 12)? >> 4) * 4;
+    let Some(data_offset_word) = load_u8(ctx, tcp_offset + 12) else {
+        return;
+    };
+    let data_offset = usize::from(data_offset_word >> 4) * 4;
     if data_offset < TCP_MIN_HEADER_LEN || data_offset > tcp_segment_len {
-        return None;
+        return;
     }
 
-    let flags = load_u8(ctx, tcp_offset + 13)?;
+    let Some(flags) = load_u8(ctx, tcp_offset + 13) else {
+        return;
+    };
     if flags & TCP_FLAG_SYN == 0 {
-        return None;
+        return;
     }
 
-    let _ = load_u8(ctx, tcp_offset + data_offset - 1)?;
+    if load_u8(ctx, tcp_offset + data_offset - 1).is_none() {
+        return;
+    }
 
-    let window_size = load_be_u16(ctx, tcp_offset + 14)?;
-    let mut record = TcpSynSignatureRecord {
-        version: EVENT_VERSION,
-        ip_version,
-        ttl,
-        window_scale: 0,
-        options_len: 0,
-        payload_class: if tcp_segment_len > data_offset {
-            TCP_PAYLOAD_CLASS_NON_EMPTY
-        } else {
-            TCP_PAYLOAD_CLASS_EMPTY
-        },
-        window_size,
-        mss: 0,
-        quirks: 0,
-        observed_ns,
-        flow_key,
-        options_layout: [0; TCP_MAX_OPTIONS_LAYOUT],
+    let Some(window_size) = load_be_u16(ctx, tcp_offset + 14) else {
+        return;
+    };
+    let Some(mut entry) = TCP_SYN_SIGNATURES.reserve::<TcpSynSignatureRecord>(0) else {
+        return;
+    };
+    let record = entry.as_mut_ptr();
+    let payload_class = if tcp_segment_len > data_offset {
+        TCP_PAYLOAD_CLASS_NON_EMPTY
+    } else {
+        TCP_PAYLOAD_CLASS_EMPTY
     };
 
-    parse_tcp_options_from_tc(
-        ctx,
-        tcp_offset + TCP_MIN_HEADER_LEN,
-        data_offset - TCP_MIN_HEADER_LEN,
-        &mut record,
-    );
-    Some(record)
+    // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
+    // TcpSynSignatureRecord. Every field is initialized before the slot is
+    // submitted, and the mutable reference is only used during this invocation.
+    unsafe {
+        addr_of_mut!((*record).version).write(EVENT_VERSION);
+        addr_of_mut!((*record).ip_version).write(ip_version);
+        addr_of_mut!((*record).ttl).write(ttl);
+        addr_of_mut!((*record).window_scale).write(0);
+        addr_of_mut!((*record).options_len).write(0);
+        addr_of_mut!((*record).payload_class).write(payload_class);
+        addr_of_mut!((*record).window_size).write(window_size);
+        addr_of_mut!((*record).mss).write(0);
+        addr_of_mut!((*record).quirks).write(0);
+        addr_of_mut!((*record).observed_ns).write(observed_ns);
+        write_canonical_flow_key(
+            addr_of_mut!((*record).flow_key),
+            address_family,
+            IPPROTO_TCP,
+            source_addr,
+            destination_addr,
+            source_port,
+            destination_port,
+        );
+        addr_of_mut!((*record).options_layout).write([0; TCP_MAX_OPTIONS_LAYOUT]);
+
+        parse_tcp_options_from_tc(
+            ctx,
+            tcp_offset + TCP_MIN_HEADER_LEN,
+            data_offset - TCP_MIN_HEADER_LEN,
+            &mut *record,
+        );
+    }
+    entry.submit(0);
 }
 
+#[inline(always)]
 fn parse_tcp_options_from_tc(
     ctx: &TcContext,
     options_offset: usize,
@@ -787,6 +861,41 @@ fn parse_tcp_options_from_tc(
     record.options_len = option_count as u8;
 }
 
+#[inline(always)]
+fn write_canonical_flow_key(
+    out: *mut FlowKey,
+    address_family: u16,
+    transport_protocol: u16,
+    source_addr: &[u8; 16],
+    destination_addr: &[u8; 16],
+    source_port: u16,
+    destination_port: u16,
+) {
+    let source_first =
+        endpoint_less_or_equal(source_addr, source_port, destination_addr, destination_port);
+    // SAFETY: `out` is a field pointer into a reserved ring-buffer record that
+    // the caller is initializing before submit. All fields of FlowKey are
+    // written exactly once here.
+    unsafe {
+        if source_first {
+            addr_of_mut!((*out).address_family).write(address_family);
+            addr_of_mut!((*out).transport_protocol).write(transport_protocol);
+            addr_of_mut!((*out).endpoint_a_port).write(source_port);
+            addr_of_mut!((*out).endpoint_b_port).write(destination_port);
+            addr_of_mut!((*out).endpoint_a_addr).write(*source_addr);
+            addr_of_mut!((*out).endpoint_b_addr).write(*destination_addr);
+        } else {
+            addr_of_mut!((*out).address_family).write(address_family);
+            addr_of_mut!((*out).transport_protocol).write(transport_protocol);
+            addr_of_mut!((*out).endpoint_a_port).write(destination_port);
+            addr_of_mut!((*out).endpoint_b_port).write(source_port);
+            addr_of_mut!((*out).endpoint_a_addr).write(*destination_addr);
+            addr_of_mut!((*out).endpoint_b_addr).write(*source_addr);
+        }
+    }
+}
+
+#[inline(always)]
 fn parse_ipv4_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     let version_ihl = load_u8(ctx, ip_offset)?;
     if version_ihl >> 4 != 4 {
@@ -833,6 +942,7 @@ fn parse_ipv4_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     )
 }
 
+#[inline(always)]
 fn parse_ipv6_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     let version = load_u8(ctx, ip_offset)? >> 4;
     if version != 6 {
@@ -872,6 +982,7 @@ fn parse_ipv6_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     )
 }
 
+#[inline(always)]
 fn canonical_flow_key(
     address_family: u16,
     transport_protocol: u16,
@@ -913,6 +1024,7 @@ fn canonical_flow_key(
     }
 }
 
+#[inline(always)]
 fn endpoint_less_or_equal(
     left_addr: &[u8; 16],
     left_port: u16,

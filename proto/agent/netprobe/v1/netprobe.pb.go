@@ -550,6 +550,7 @@ type VisibilityAgentConfig struct {
 	DeviceBindings          []*DeviceBinding       `protobuf:"bytes,3,rep,name=device_bindings,json=deviceBindings,proto3" json:"device_bindings,omitempty"`
 	DefaultSampleIntervalMs uint32                 `protobuf:"varint,4,opt,name=default_sample_interval_ms,json=defaultSampleIntervalMs,proto3" json:"default_sample_interval_ms,omitempty"`
 	Dpi                     *DpiConfig             `protobuf:"bytes,20,opt,name=dpi,proto3" json:"dpi,omitempty"`
+	FlowTableMaxEntries     uint32                 `protobuf:"varint,40,opt,name=flow_table_max_entries,json=flowTableMaxEntries,proto3" json:"flow_table_max_entries,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -617,6 +618,13 @@ func (x *VisibilityAgentConfig) GetDpi() *DpiConfig {
 		return x.Dpi
 	}
 	return nil
+}
+
+func (x *VisibilityAgentConfig) GetFlowTableMaxEntries() uint32 {
+	if x != nil {
+		return x.FlowTableMaxEntries
+	}
+	return 0
 }
 
 type DeviceBinding struct {
@@ -1198,20 +1206,23 @@ func (x *HttpFingerprint) GetAcceptLanguage() string {
 }
 
 type DpiEvent struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	SourceIp           string                 `protobuf:"bytes,1,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
-	DestinationIp      string                 `protobuf:"bytes,2,opt,name=destination_ip,json=destinationIp,proto3" json:"destination_ip,omitempty"`
-	SourcePort         uint32                 `protobuf:"varint,3,opt,name=source_port,json=sourcePort,proto3" json:"source_port,omitempty"`
-	DestinationPort    uint32                 `protobuf:"varint,4,opt,name=destination_port,json=destinationPort,proto3" json:"destination_port,omitempty"`
-	TransportProtocol  string                 `protobuf:"bytes,5,opt,name=transport_protocol,json=transportProtocol,proto3" json:"transport_protocol,omitempty"`
-	Protocol           string                 `protobuf:"bytes,6,opt,name=protocol,proto3" json:"protocol,omitempty"`
-	Confidence         float32                `protobuf:"fixed32,7,opt,name=confidence,proto3" json:"confidence,omitempty"`
-	ObservedAtUnixNano int64                  `protobuf:"varint,8,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
-	InterfaceName      string                 `protobuf:"bytes,9,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
-	ProfileId          string                 `protobuf:"bytes,10,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
-	DissectorId        string                 `protobuf:"bytes,11,opt,name=dissector_id,json=dissectorId,proto3" json:"dissector_id,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	SourceIp          string                 `protobuf:"bytes,1,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
+	DestinationIp     string                 `protobuf:"bytes,2,opt,name=destination_ip,json=destinationIp,proto3" json:"destination_ip,omitempty"`
+	SourcePort        uint32                 `protobuf:"varint,3,opt,name=source_port,json=sourcePort,proto3" json:"source_port,omitempty"`
+	DestinationPort   uint32                 `protobuf:"varint,4,opt,name=destination_port,json=destinationPort,proto3" json:"destination_port,omitempty"`
+	TransportProtocol string                 `protobuf:"bytes,5,opt,name=transport_protocol,json=transportProtocol,proto3" json:"transport_protocol,omitempty"`
+	Protocol          string                 `protobuf:"bytes,6,opt,name=protocol,proto3" json:"protocol,omitempty"`
+	// Confidence is normalized to 0.0..1.0. Values below 0.6 are weak signals,
+	// 0.6..0.84 are medium signals, and 0.85+ are strong structural matches.
+	Confidence         float32 `protobuf:"fixed32,7,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	ObservedAtUnixNano int64   `protobuf:"varint,8,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	InterfaceName      string  `protobuf:"bytes,9,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
+	ProfileId          string  `protobuf:"bytes,10,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
+	// Dissector identifier naming the heuristic that produced this event.
+	DissectorId   string `protobuf:"bytes,11,opt,name=dissector_id,json=dissectorId,proto3" json:"dissector_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DpiEvent) Reset() {
@@ -1537,13 +1548,14 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xe7\x02\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x9c\x03\n" +
 	"\x15VisibilityAgentConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12-\n" +
 	"\x12capture_interfaces\x18\x02 \x03(\tR\x11captureInterfaces\x12V\n" +
 	"\x0fdevice_bindings\x18\x03 \x03(\v2-.serviceradar.agent.netprobe.v1.DeviceBindingR\x0edeviceBindings\x12;\n" +
 	"\x1adefault_sample_interval_ms\x18\x04 \x01(\rR\x17defaultSampleIntervalMs\x12;\n" +
-	"\x03dpi\x18\x14 \x01(\v2).serviceradar.agent.netprobe.v1.DpiConfigR\x03dpiJ\x04\b\x15\x10(R\x10flow_attributionR\x1bprocess_snapshot_interval_s\"\xa1\x02\n" +
+	"\x03dpi\x18\x14 \x01(\v2).serviceradar.agent.netprobe.v1.DpiConfigR\x03dpi\x123\n" +
+	"\x16flow_table_max_entries\x18( \x01(\rR\x13flowTableMaxEntriesJ\x04\b\x15\x10(R\x10flow_attributionR\x1bprocess_snapshot_interval_s\"\xa1\x02\n" +
 	"\rDeviceBinding\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x1d\n" +
 	"\n" +

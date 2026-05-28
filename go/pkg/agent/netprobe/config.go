@@ -34,8 +34,9 @@ type ParsedVisibilityConfig struct {
 }
 
 type bootstrapConfig struct {
-	Enabled           bool     `json:"enabled"`
-	CaptureInterfaces []string `json:"capture_interfaces"`
+	Enabled             bool     `json:"enabled"`
+	CaptureInterfaces   []string `json:"capture_interfaces"`
+	FlowTableMaxEntries uint32   `json:"flow_table_max_entries,omitempty"`
 }
 
 // ParseVisibilityConfig converts monitoring visibility config into netprobe IPC config.
@@ -52,6 +53,7 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 			CaptureInterfaces:       trimStrings(cfg.GetCaptureInterfaces()),
 			Dpi:                     parseDPIConfig(cfg.GetDpi()),
 			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
+			FlowTableMaxEntries:     cfg.GetFlowTableMaxEntries(),
 			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
 		BinaryOverridePath: strings.TrimSpace(cfg.GetBinaryOverrides().GetPath()),
@@ -70,6 +72,7 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 	if cfg != nil {
 		payload.Enabled = cfg.GetEnabled()
 		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())
+		payload.FlowTableMaxEntries = cfg.GetFlowTableMaxEntries()
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

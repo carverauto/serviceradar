@@ -28,6 +28,7 @@ func TestParseVisibilityConfig(t *testing.T) {
 		CaptureInterfaces:       []string{" en0 ", "", "eth1"},
 		BinaryOverrides:         &monitoringpb.VisibilityBinaryOverrides{Path: " /tmp/netprobe "},
 		DefaultSampleIntervalMs: 250,
+		FlowTableMaxEntries:     262_144,
 		Dpi: &monitoringpb.VisibilityDpiConfig{
 			Enabled:   true,
 			Protocols: []string{" dns ", "", "tls"},
@@ -68,6 +69,9 @@ func TestParseVisibilityConfig(t *testing.T) {
 	}
 	if cfg.GetDefaultSampleIntervalMs() != 250 {
 		t.Fatalf("DefaultSampleIntervalMs = %d, want 250", cfg.GetDefaultSampleIntervalMs())
+	}
+	if cfg.GetFlowTableMaxEntries() != 262_144 {
+		t.Fatalf("FlowTableMaxEntries = %d, want 262144", cfg.GetFlowTableMaxEntries())
 	}
 	if !cfg.GetDpi().GetEnabled() {
 		t.Fatal("DPI enabled = false, want true")

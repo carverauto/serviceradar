@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use prost::Message;
 
 use crate::{
-    config::{validate_capture_interfaces, Config},
+    config::{effective_flow_table_max_entries, validate_capture_interfaces, Config},
     proto::netprobe::{
         fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig, FingerprintEvent,
         VisibilityAgentConfig,
@@ -18,6 +18,7 @@ use crate::{
 pub struct RuntimeConfig {
     inner: Arc<RwLock<VisibilityState>>,
     capture_interfaces: Arc<Vec<String>>,
+    flow_table_max_entries: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +90,7 @@ impl RuntimeConfig {
                 default_dpi: default_dpi_disabled(),
             })),
             capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
+            flow_table_max_entries: config.effective_flow_table_max_entries(),
         }
     }
 
@@ -99,6 +101,15 @@ impl RuntimeConfig {
         if requested_capture_interfaces.as_slice() != self.capture_interfaces.as_ref().as_slice() {
             anyhow::bail!(
                 "capture interface changes require a netprobe restart in Phase 1; runtime ApplyConfig cannot alter capture_interfaces"
+            );
+        }
+        let requested_flow_table_max_entries = effective_flow_table_max_entries(
+            config.flow_table_max_entries,
+            requested_capture_interfaces.len(),
+        );
+        if requested_flow_table_max_entries != self.flow_table_max_entries {
+            anyhow::bail!(
+                "flow table capacity changes require a netprobe restart; runtime ApplyConfig cannot alter flow_table_max_entries"
             );
         }
 
@@ -503,11 +514,28 @@ mod tests {
         let runtime_config = RuntimeConfig::new(&Config {
             enabled: true,
             capture_interfaces: vec!["eth0".to_string()],
+            ..Default::default()
         });
 
         let result = runtime_config.apply(VisibilityAgentConfig {
             enabled: true,
             capture_interfaces: vec!["enp0s1".to_string()],
+            ..Default::default()
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_runtime_flow_table_capacity_changes() {
+        let runtime_config = RuntimeConfig::new(&Config {
+            flow_table_max_entries: 131_072,
+            ..Default::default()
+        });
+
+        let result = runtime_config.apply(VisibilityAgentConfig {
+            enabled: true,
+            flow_table_max_entries: 262_144,
             ..Default::default()
         });
 
@@ -604,6 +632,7 @@ mod tests {
         let runtime_config = RuntimeConfig::new(&Config {
             enabled: true,
             capture_interfaces: vec!["eth0".to_string(), "enp0s1".to_string()],
+            ..Default::default()
         });
 
         runtime_config

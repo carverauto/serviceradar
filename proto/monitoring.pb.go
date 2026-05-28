@@ -4149,6 +4149,7 @@ type VisibilityConfig struct {
 	DeviceBindings          []*VisibilityDeviceBinding `protobuf:"bytes,4,rep,name=device_bindings,json=deviceBindings,proto3" json:"device_bindings,omitempty"`
 	DefaultSampleIntervalMs uint32                     `protobuf:"varint,5,opt,name=default_sample_interval_ms,json=defaultSampleIntervalMs,proto3" json:"default_sample_interval_ms,omitempty"`
 	Dpi                     *VisibilityDpiConfig       `protobuf:"bytes,20,opt,name=dpi,proto3" json:"dpi,omitempty"`
+	FlowTableMaxEntries     uint32                     `protobuf:"varint,40,opt,name=flow_table_max_entries,json=flowTableMaxEntries,proto3" json:"flow_table_max_entries,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -4223,6 +4224,13 @@ func (x *VisibilityConfig) GetDpi() *VisibilityDpiConfig {
 		return x.Dpi
 	}
 	return nil
+}
+
+func (x *VisibilityConfig) GetFlowTableMaxEntries() uint32 {
+	if x != nil {
+		return x.FlowTableMaxEntries
+	}
+	return 0
 }
 
 type VisibilityBinaryOverrides struct {
@@ -5690,14 +5698,15 @@ const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"profile_id\x18\x02 \x01(\tR\tprofileId\x12!\n" +
 	"\fprofile_name\x18\x03 \x01(\tR\vprofileName\x126\n" +
-	"\atargets\x18\x04 \x03(\v2\x1c.monitoring.SNMPTargetConfigR\atargets\"\xa0\x03\n" +
+	"\atargets\x18\x04 \x03(\v2\x1c.monitoring.SNMPTargetConfigR\atargets\"\xd5\x03\n" +
 	"\x10VisibilityConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12-\n" +
 	"\x12capture_interfaces\x18\x02 \x03(\tR\x11captureInterfaces\x12P\n" +
 	"\x10binary_overrides\x18\x03 \x01(\v2%.monitoring.VisibilityBinaryOverridesR\x0fbinaryOverrides\x12L\n" +
 	"\x0fdevice_bindings\x18\x04 \x03(\v2#.monitoring.VisibilityDeviceBindingR\x0edeviceBindings\x12;\n" +
 	"\x1adefault_sample_interval_ms\x18\x05 \x01(\rR\x17defaultSampleIntervalMs\x121\n" +
-	"\x03dpi\x18\x14 \x01(\v2\x1f.monitoring.VisibilityDpiConfigR\x03dpiJ\x04\b\x15\x10(R\x10flow_attributionR\x1bprocess_snapshot_interval_s\"/\n" +
+	"\x03dpi\x18\x14 \x01(\v2\x1f.monitoring.VisibilityDpiConfigR\x03dpi\x123\n" +
+	"\x16flow_table_max_entries\x18( \x01(\rR\x13flowTableMaxEntriesJ\x04\b\x15\x10(R\x10flow_attributionR\x1bprocess_snapshot_interval_s\"/\n" +
 	"\x19VisibilityBinaryOverrides\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\"\x97\x02\n" +
 	"\x17VisibilityDeviceBinding\x12\x0e\n" +

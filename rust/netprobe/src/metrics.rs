@@ -16,6 +16,7 @@ pub struct Metrics {
     events_emitted_total: IntCounterVec,
     events_dropped_total: IntCounterVec,
     signature_failures_total: IntCounter,
+    flow_table_evictions_total: IntCounter,
     uptime_seconds: IntGauge,
     started_at: Arc<Instant>,
 }
@@ -43,6 +44,10 @@ impl Metrics {
             "netprobe_signature_failures_total",
             "Signature failures",
         ))?;
+        let flow_table_evictions_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_flow_table_evictions_total",
+            "Flow table entries evicted by the netprobe eBPF flow cache",
+        ))?;
         let uptime_seconds = IntGauge::with_opts(Opts::new(
             "netprobe_uptime_seconds",
             "Process uptime in seconds",
@@ -53,6 +58,7 @@ impl Metrics {
         registry.register(Box::new(events_emitted_total.clone()))?;
         registry.register(Box::new(events_dropped_total.clone()))?;
         registry.register(Box::new(signature_failures_total.clone()))?;
+        registry.register(Box::new(flow_table_evictions_total.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
         Ok(Self {
@@ -62,6 +68,7 @@ impl Metrics {
             events_emitted_total,
             events_dropped_total,
             signature_failures_total,
+            flow_table_evictions_total,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
         })
@@ -113,6 +120,11 @@ impl Metrics {
     #[allow(dead_code)]
     pub fn inc_signature_failures(&self) {
         self.signature_failures_total.inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_flow_table_evictions(&self, count: u64) {
+        self.flow_table_evictions_total.inc_by(count);
     }
 }
 
