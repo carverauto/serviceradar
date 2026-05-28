@@ -416,7 +416,7 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
         value = String.trim(value)
         if value == "", do: nil, else: value
 
-      value when is_atom(value) ->
+      value when is_atom(value) and not is_nil(value) ->
         Atom.to_string(value)
 
       value when is_integer(value) ->

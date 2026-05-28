@@ -37,7 +37,7 @@
 - [x] 5.3 Add docs for enabling the scanner service, choosing roots/profiles, catalog refresh behavior, coverage states, and privacy limits.
 
 ## 6. Verification
-- [ ] 6.1 Add unit tests for catalog parsing, promotion, and failure preservation.
+- [x] 6.1 Add unit tests for catalog parsing, promotion, and failure preservation.
 - [x] 6.2 Add scanner service and agent tests with Bumblebee fixture NDJSON covering findings-only, scan-summary, coverage, and skipped-root handling.
-- [ ] 6.3 Add device posture association tests covering agent-to-device resolution and pending agent-only posture backfill.
+- [x] 6.3 Add device posture association tests covering agent-to-device resolution and pending agent-only posture backfill.
 - [ ] 6.4 Run targeted Go tests and `./scripts/elixir_quality.sh --project elixir/serviceradar_core`.
