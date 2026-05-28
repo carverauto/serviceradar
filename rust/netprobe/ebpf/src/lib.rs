@@ -200,7 +200,8 @@ pub struct TcpSynSignatureRecord {
 #[derive(Copy, Clone)]
 pub struct P0fRecord {
     pub version: u16,
-    pub reserved: [u8; 6],
+    pub source_endpoint: u8,
+    pub reserved: [u8; 5],
     pub flow_key: FlowKey,
     pub observed_ns: u64,
     pub p0f_string: [u8; p0f::P0F_SIGNATURE_MAX_LEN],
@@ -794,6 +795,8 @@ fn emit_tcp_syn_header_from_tc(
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
     // TcpSynSignatureRecord. Every field is initialized before the slot is
     // submitted, and the mutable reference is only used during this invocation.
+    let source_endpoint;
+
     unsafe {
         addr_of_mut!((*record).version).write(EVENT_VERSION);
         addr_of_mut!((*record).ip_version).write(ip_version);
@@ -805,7 +808,7 @@ fn emit_tcp_syn_header_from_tc(
         addr_of_mut!((*record).mss).write(0);
         addr_of_mut!((*record).quirks).write(0);
         addr_of_mut!((*record).observed_ns).write(observed_ns);
-        write_canonical_flow_key(
+        source_endpoint = write_canonical_flow_key(
             addr_of_mut!((*record).flow_key),
             address_family,
             IPPROTO_TCP,
@@ -823,12 +826,12 @@ fn emit_tcp_syn_header_from_tc(
             &mut *record,
         );
     }
-    emit_p0f_signature(record);
+    emit_p0f_signature(record, source_endpoint);
     entry.submit(0);
 }
 
 #[inline(always)]
-fn emit_p0f_signature(syn_record: *const TcpSynSignatureRecord) {
+fn emit_p0f_signature(syn_record: *const TcpSynSignatureRecord, source_endpoint: u8) {
     let Some(mut entry) = P0F_SIGNATURES.reserve::<P0fRecord>(0) else {
         return;
     };
@@ -840,7 +843,8 @@ fn emit_p0f_signature(syn_record: *const TcpSynSignatureRecord) {
     // fixed-size p0f_string field and returns its bounded length.
     unsafe {
         addr_of_mut!((*record).version).write(EVENT_VERSION);
-        addr_of_mut!((*record).reserved).write([0; 6]);
+        addr_of_mut!((*record).source_endpoint).write(source_endpoint);
+        addr_of_mut!((*record).reserved).write([0; 5]);
         addr_of_mut!((*record).flow_key).write((*syn_record).flow_key);
         addr_of_mut!((*record).observed_ns).write((*syn_record).observed_ns);
         let p0f_len = p0f::encode(
@@ -923,7 +927,7 @@ fn write_canonical_flow_key(
     destination_addr: &[u8; 16],
     source_port: u16,
     destination_port: u16,
-) {
+) -> u8 {
     let source_first =
         endpoint_less_or_equal(source_addr, source_port, destination_addr, destination_port);
     // SAFETY: `out` is a field pointer into a reserved ring-buffer record that
@@ -945,6 +949,12 @@ fn write_canonical_flow_key(
             addr_of_mut!((*out).endpoint_a_addr).write(*destination_addr);
             addr_of_mut!((*out).endpoint_b_addr).write(*source_addr);
         }
+    }
+
+    if source_first {
+        FLOW_ENDPOINT_A
+    } else {
+        FLOW_ENDPOINT_B
     }
 }
 

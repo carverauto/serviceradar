@@ -1,8 +1,12 @@
-#[cfg(feature = "pcap-capture")]
-use std::{net::IpAddr, time::SystemTime};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[cfg(feature = "pcap-capture")]
-use anyhow::{Context, Result};
+use std::time::SystemTime;
+
+#[cfg(feature = "pcap-capture")]
+use anyhow::Context;
+#[cfg(any(feature = "pcap-capture", target_os = "linux"))]
+use anyhow::Result;
 #[cfg(feature = "pcap-capture")]
 use etherparse::{NetHeaders, PacketHeaders, TransportHeader};
 #[cfg(feature = "pcap-capture")]
@@ -24,19 +28,39 @@ use huginn_net::{
 };
 
 #[cfg(feature = "pcap-capture")]
+use crate::hassh;
 use crate::proto::netprobe::{
-    fingerprint_event, FingerprintDisagreement, FingerprintEvent, HttpFingerprint,
-    LicenseCleanFingerprint, OsMatch as ProtoOsMatch, P0fFingerprintMatch, TcpFingerprint,
-    TlsFingerprint,
+    fingerprint_event, FingerprintDisagreement, FingerprintEvent, LicenseCleanFingerprint,
+    OsMatch as ProtoOsMatch, P0fFingerprintMatch,
 };
 #[cfg(feature = "pcap-capture")]
+use crate::proto::netprobe::{HttpFingerprint, TcpFingerprint, TlsFingerprint};
 use crate::{
-    hassh,
+    af_xdp_classifier::FlowKey,
     os_matcher::{self, FingerprintSignal, OsMatchInput, P0fObservation, SignalDisagreement},
     p0f_matcher::{P0fMatch, P0fMatcher},
 };
+#[cfg(target_os = "linux")]
+use crate::{metrics::Metrics, runtime_config::FingerprintEventGate};
 
 pub const FINGERPRINT_ENGINE_VERSION: &str = "huginn-net/1.7.3";
+#[allow(dead_code)]
+const EVENT_VERSION: u16 = 1;
+#[allow(dead_code)]
+const AF_INET: u16 = 2;
+#[allow(dead_code)]
+const AF_INET6: u16 = 10;
+#[allow(dead_code)]
+const FLOW_ENDPOINT_A: u8 = 1;
+#[allow(dead_code)]
+const FLOW_ENDPOINT_B: u8 = 2;
+#[allow(dead_code)]
+const P0F_SIGNATURE_MAX_LEN: usize = 96;
+#[allow(dead_code)]
+const P0F_RING_RECORD_LEN: usize = 160;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+const P0F_SIGNATURES_MAP: &str = "p0f_signatures";
 
 #[cfg(feature = "pcap-capture")]
 const MAX_CONNECTIONS: usize = 4096;
@@ -461,7 +485,7 @@ fn redact_sni_presence(sni: Option<&str>) -> &'static str {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[allow(dead_code)]
 fn license_clean_p0f_event(
     ip: IpAddr,
     interface_name: &str,
@@ -495,6 +519,187 @@ fn license_clean_p0f_event(
             ..Default::default()
         },
     )
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug)]
+pub struct P0fRingRecord {
+    pub version: u16,
+    pub source_endpoint: u8,
+    pub flow_key: FlowKey,
+    pub observed_ns: u64,
+    pub p0f_signature: String,
+}
+
+#[allow(dead_code)]
+pub struct P0fSignatureEngine {
+    matcher: P0fMatcher,
+}
+
+#[allow(dead_code)]
+impl P0fSignatureEngine {
+    pub fn bundled() -> anyhow::Result<Self> {
+        Ok(Self {
+            matcher: P0fMatcher::bundled()?,
+        })
+    }
+
+    pub fn event_from_ring_record(
+        &self,
+        interface_name: &str,
+        record: &P0fRingRecord,
+    ) -> Option<FingerprintEvent> {
+        if record.version != EVENT_VERSION {
+            log::warn!(
+                "dropping unsupported p0f signature record version {}",
+                record.version
+            );
+            return None;
+        }
+
+        let matched = match self.matcher.match_signature(&record.p0f_signature) {
+            Ok(Some(matched)) => matched,
+            Ok(None) => return None,
+            Err(error) => {
+                log::warn!(
+                    "failed to match p0f signature {:?}: {error}",
+                    record.p0f_signature
+                );
+                return None;
+            }
+        };
+        let source_ip = source_ip_from_flow_key(&record.flow_key, record.source_endpoint)?;
+
+        Some(license_clean_p0f_event(
+            source_ip,
+            interface_name,
+            record.observed_ns.min(i64::MAX as u64) as i64,
+            record.p0f_signature.clone(),
+            matched,
+        ))
+    }
+
+    pub fn event_from_ring_bytes(
+        &self,
+        interface_name: &str,
+        bytes: &[u8],
+    ) -> Option<FingerprintEvent> {
+        self.event_from_ring_record(interface_name, &parse_p0f_ring_record(bytes)?)
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+pub struct P0fSignatureRing<'a> {
+    interface_name: String,
+    engine: P0fSignatureEngine,
+    ring: aya::maps::RingBuf<&'a mut aya::maps::MapData>,
+}
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+impl<'a> P0fSignatureRing<'a> {
+    pub fn from_ebpf(interface_name: impl Into<String>, ebpf: &'a mut aya::Ebpf) -> Result<Self> {
+        let map = ebpf
+            .map_mut(P0F_SIGNATURES_MAP)
+            .ok_or_else(|| anyhow::anyhow!("{P0F_SIGNATURES_MAP} map is missing"))?;
+        Ok(Self {
+            interface_name: interface_name.into(),
+            engine: P0fSignatureEngine::bundled()?,
+            ring: aya::maps::RingBuf::try_from(map)?,
+        })
+    }
+
+    pub fn poll_once(
+        &mut self,
+        tx: &tokio::sync::broadcast::Sender<FingerprintEvent>,
+        gate: &std::sync::Arc<std::sync::Mutex<FingerprintEventGate>>,
+        metrics: &Metrics,
+    ) -> usize {
+        let mut emitted = 0usize;
+        while let Some(item) = self.ring.next() {
+            let Some(event) = self
+                .engine
+                .event_from_ring_bytes(&self.interface_name, item.as_ref())
+            else {
+                continue;
+            };
+            let Some(event) = gate
+                .lock()
+                .expect("fingerprint event gate lock poisoned")
+                .filter(event)
+            else {
+                continue;
+            };
+            metrics.inc_fingerprint_events();
+            if tx.send(event).is_err() {
+                metrics.inc_fingerprint_events_dropped("no_receiver", 1);
+            } else {
+                emitted += 1;
+            }
+        }
+
+        emitted
+    }
+}
+
+#[allow(dead_code)]
+fn parse_p0f_ring_record(bytes: &[u8]) -> Option<P0fRingRecord> {
+    if bytes.len() != P0F_RING_RECORD_LEN {
+        return None;
+    }
+
+    let version = u16::from_ne_bytes(bytes.get(0..2)?.try_into().ok()?);
+    let source_endpoint = *bytes.get(2)?;
+    let flow_key = parse_flow_key(bytes.get(8..48)?)?;
+    let observed_ns = u64::from_ne_bytes(bytes.get(48..56)?.try_into().ok()?);
+    let p0f_len = usize::from(*bytes.get(152)?);
+    if p0f_len > P0F_SIGNATURE_MAX_LEN {
+        return None;
+    }
+    let p0f_bytes = bytes.get(56..56 + p0f_len)?;
+    let p0f_signature = std::str::from_utf8(p0f_bytes).ok()?.to_string();
+
+    Some(P0fRingRecord {
+        version,
+        source_endpoint,
+        flow_key,
+        observed_ns,
+        p0f_signature,
+    })
+}
+
+#[allow(dead_code)]
+fn parse_flow_key(bytes: &[u8]) -> Option<FlowKey> {
+    if bytes.len() != 40 {
+        return None;
+    }
+
+    Some(FlowKey {
+        address_family: u16::from_ne_bytes(bytes.get(0..2)?.try_into().ok()?),
+        transport_protocol: u16::from_ne_bytes(bytes.get(2..4)?.try_into().ok()?),
+        endpoint_a_port: u16::from_ne_bytes(bytes.get(4..6)?.try_into().ok()?),
+        endpoint_b_port: u16::from_ne_bytes(bytes.get(6..8)?.try_into().ok()?),
+        endpoint_a_addr: bytes.get(8..24)?.try_into().ok()?,
+        endpoint_b_addr: bytes.get(24..40)?.try_into().ok()?,
+    })
+}
+
+#[allow(dead_code)]
+fn source_ip_from_flow_key(flow_key: &FlowKey, source_endpoint: u8) -> Option<IpAddr> {
+    let bytes = match source_endpoint {
+        FLOW_ENDPOINT_A => flow_key.endpoint_a_addr,
+        FLOW_ENDPOINT_B => flow_key.endpoint_b_addr,
+        _ => return None,
+    };
+
+    match flow_key.address_family {
+        AF_INET => Some(IpAddr::V4(Ipv4Addr::new(
+            bytes[0], bytes[1], bytes[2], bytes[3],
+        ))),
+        AF_INET6 => Some(IpAddr::V6(Ipv6Addr::from(bytes))),
+        _ => None,
+    }
 }
 
 #[cfg(feature = "pcap-capture")]
@@ -536,7 +741,7 @@ fn license_clean_events_from_payload(
     events
 }
 
-#[cfg(feature = "pcap-capture")]
+#[allow(dead_code)]
 fn license_clean_event(
     ip: IpAddr,
     interface_name: &str,
@@ -552,7 +757,7 @@ fn license_clean_event(
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[allow(dead_code)]
 fn proto_os_match(os_match: &os_matcher::OsMatch) -> ProtoOsMatch {
     ProtoOsMatch {
         name: os_match.name.clone(),
@@ -567,7 +772,7 @@ fn proto_os_match(os_match: &os_matcher::OsMatch) -> ProtoOsMatch {
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[allow(dead_code)]
 fn proto_disagreement(disagreement: &SignalDisagreement) -> FingerprintDisagreement {
     FingerprintDisagreement {
         signal: signal_name(disagreement.signal).to_string(),
@@ -578,7 +783,7 @@ fn proto_disagreement(disagreement: &SignalDisagreement) -> FingerprintDisagreem
     }
 }
 
-#[cfg(feature = "pcap-capture")]
+#[allow(dead_code)]
 fn signal_name(signal: FingerprintSignal) -> &'static str {
     match signal {
         FingerprintSignal::Ja4 => "ja4",
@@ -607,6 +812,116 @@ fn source_ip(headers: &NetHeaders) -> Option<IpAddr> {
         NetHeaders::Ipv4(header, _) => Some(IpAddr::from(header.source)),
         NetHeaders::Ipv6(header, _) => Some(IpAddr::from(header.source)),
         NetHeaders::Arp(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod p0f_ring_tests {
+    use super::{
+        parse_p0f_ring_record, source_ip_from_flow_key, P0fSignatureEngine, AF_INET, EVENT_VERSION,
+        FLOW_ENDPOINT_A, FLOW_ENDPOINT_B, P0F_RING_RECORD_LEN,
+    };
+    use crate::af_xdp_classifier::FlowKey;
+    use crate::proto::netprobe::fingerprint_event;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn parses_p0f_ring_record_and_preserves_source_endpoint() {
+        let bytes = p0f_record_bytes(
+            FLOW_ENDPOINT_B,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
+        );
+
+        let record = parse_p0f_ring_record(&bytes).unwrap();
+
+        assert_eq!(record.version, EVENT_VERSION);
+        assert_eq!(record.observed_ns, 123);
+        assert_eq!(record.source_endpoint, FLOW_ENDPOINT_B);
+        assert_eq!(
+            source_ip_from_flow_key(&record.flow_key, record.source_endpoint),
+            Some(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 20)))
+        );
+        assert_eq!(
+            record.p0f_signature,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0"
+        );
+    }
+
+    #[test]
+    fn builds_license_clean_event_from_p0f_ring_record() {
+        let bytes = p0f_record_bytes(
+            FLOW_ENDPOINT_B,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
+        );
+        let engine = P0fSignatureEngine::bundled().unwrap();
+
+        let event = engine.event_from_ring_bytes("eth0", &bytes).unwrap();
+
+        assert_eq!(event.ip, "198.51.100.20");
+        assert_eq!(event.interface_name, "eth0");
+        assert_eq!(event.observed_at_unix_nano, 123);
+        let Some(fingerprint_event::Evidence::LicenseClean(fingerprint)) = event.evidence else {
+            panic!("expected license-clean fingerprint");
+        };
+        assert_eq!(
+            fingerprint.p0f_signature,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0"
+        );
+        assert_eq!(
+            fingerprint
+                .p0f_match
+                .as_ref()
+                .map(|matched| matched.name.as_str()),
+            Some("Linux")
+        );
+        assert!(fingerprint.ja4.is_empty());
+        assert!(fingerprint.hassh.is_empty());
+    }
+
+    #[test]
+    fn rejects_malformed_p0f_ring_records() {
+        assert!(parse_p0f_ring_record(&[0; P0F_RING_RECORD_LEN - 1]).is_none());
+
+        let mut bytes = p0f_record_bytes(FLOW_ENDPOINT_A, "4:64:0:*:*,*:mss:df:0");
+        bytes[152] = 255;
+
+        assert!(parse_p0f_ring_record(&bytes).is_none());
+    }
+
+    fn p0f_record_bytes(source_endpoint: u8, signature: &str) -> Vec<u8> {
+        let mut bytes = vec![0u8; P0F_RING_RECORD_LEN];
+        bytes[0..2].copy_from_slice(&EVENT_VERSION.to_ne_bytes());
+        bytes[2] = source_endpoint;
+        write_flow_key(
+            &mut bytes[8..48],
+            FlowKey {
+                address_family: AF_INET,
+                transport_protocol: 6,
+                endpoint_a_port: 443,
+                endpoint_b_port: 51_234,
+                endpoint_a_addr: ipv4_addr([192, 0, 2, 10]),
+                endpoint_b_addr: ipv4_addr([198, 51, 100, 20]),
+            },
+        );
+        bytes[48..56].copy_from_slice(&123u64.to_ne_bytes());
+        bytes[56..56 + signature.len()].copy_from_slice(signature.as_bytes());
+        bytes[152] = signature.len() as u8;
+        bytes
+    }
+
+    fn write_flow_key(bytes: &mut [u8], flow_key: FlowKey) {
+        bytes[0..2].copy_from_slice(&flow_key.address_family.to_ne_bytes());
+        bytes[2..4].copy_from_slice(&flow_key.transport_protocol.to_ne_bytes());
+        bytes[4..6].copy_from_slice(&flow_key.endpoint_a_port.to_ne_bytes());
+        bytes[6..8].copy_from_slice(&flow_key.endpoint_b_port.to_ne_bytes());
+        bytes[8..24].copy_from_slice(&flow_key.endpoint_a_addr);
+        bytes[24..40].copy_from_slice(&flow_key.endpoint_b_addr);
+    }
+
+    fn ipv4_addr(addr: [u8; 4]) -> [u8; 16] {
+        let mut out = [0u8; 16];
+        out[..4].copy_from_slice(&addr);
+        out
     }
 }
 

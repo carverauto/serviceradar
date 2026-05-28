@@ -43,10 +43,12 @@ chmods both `/sys/fs/bpf/serviceradar` and the `netprobe` leaf to mode `0700`
 before privilege drop. The later loader work pins these maps under that
 directory.
 
-TCP SYN signatures are emitted to the `tcp_syn_signatures` ring buffer. The
-record carries TTL/hop-limit, window size, MSS, TCP option kind layout, quirks,
-IP version, window scale, and payload class for the userspace huginn-net
-matcher.
+TCP SYN signatures are emitted to the `tcp_syn_signatures` ring buffer for the
+one-minor-version migration window and to the license-clean `p0f_signatures`
+ring buffer for the in-tree p0f matcher. The p0f record carries the canonical
+5-tuple plus `source_endpoint` so userspace can preserve which endpoint sent the
+SYN after canonicalization. It also carries the kprobe-encoded p0f string,
+observed timestamp, and ABI version.
 
 The `flow_table` key is `(interface_index, canonical 5-tuple)` so flow-cache
 pressure is scoped to the interface that owns the TC attachment. The `flow_to_pid`
