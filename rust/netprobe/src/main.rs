@@ -17,6 +17,8 @@ mod ja4;
 mod lifecycle;
 mod metrics;
 #[allow(dead_code)]
+mod os_matcher;
+#[allow(dead_code)]
 mod p0f_corpus;
 #[allow(dead_code)]
 mod p0f_matcher;
