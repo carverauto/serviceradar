@@ -53,3 +53,34 @@ git clone https://github.com/carverauto/serviceradar.git
 `
 bazel build //... 
 `
+
+## Netprobe eBPF BTF header
+
+`rust/netprobe/ebpf/include/vmlinux.h` is vendored for BTF CO-RE builds from
+the earliest supported netprobe eBPF kernel floor: Ubuntu 20.04
+`5.8.0-23-generic` x86_64.
+
+Source:
+
+* Repository: `https://github.com/aquasecurity/btfhub-archive`
+* Commit: `10b72a6c436c20f9e8281ea995c7240e6246cb2a`
+* Archive path: `ubuntu/20.04/x86_64/5.8.0-23-generic.btf.tar.xz`
+* Archive SHA256:
+  `2facb2cff7906dbd27991e05a661e6d0e8ac90e4e412e33cd2634c3a4fae8734`
+* Generated `vmlinux.h` SHA256:
+  `54f22b5fa97c0bde74315d62a1f216d80a43646bc20996d88fc6eb7be270a73a`
+
+Regenerate it from a Linux host with `bpftool`:
+
+```bash
+tmpdir=$(mktemp -d)
+git clone --depth 1 --filter=blob:none --sparse \
+  https://github.com/aquasecurity/btfhub-archive.git "$tmpdir/btfhub-archive"
+cd "$tmpdir/btfhub-archive"
+git sparse-checkout set --no-cone \
+  /ubuntu/20.04/x86_64/5.8.0-23-generic.btf.tar.xz
+tar -xf ubuntu/20.04/x86_64/5.8.0-23-generic.btf.tar.xz
+bpftool btf dump file 5.8.0-23-generic.btf format c \
+  > /path/to/serviceradar/rust/netprobe/ebpf/include/vmlinux.h
+sha256sum /path/to/serviceradar/rust/netprobe/ebpf/include/vmlinux.h
+```

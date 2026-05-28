@@ -18,3 +18,8 @@ Programs:
 Events are emitted to the `flow_events` ring buffer. The userspace loader should
 pin maps under `/sys/fs/bpf/serviceradar/netprobe/` and consume
 `FlowAttributionRecord` by version.
+
+`include/vmlinux.h` is generated from Ubuntu 20.04 `5.8.0-23-generic` BTF, the
+earliest supported kernel floor for the Phase 3 CO-RE work. See the
+"Netprobe eBPF BTF header" section in the repository `BUILD.md` for the
+regeneration procedure and source checksum.

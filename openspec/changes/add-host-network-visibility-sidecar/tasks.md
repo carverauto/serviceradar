@@ -171,7 +171,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 
 - [ ] 18.1 Add `aya`, `aya-ebpf`, `aya-log`, AF_XDP bindings (e.g. `xsk-rs` or `aya::maps::xdp::XskMap`), `procfs` to `rust/netprobe/Cargo.toml`. Regenerate crate-universe via `bazel mod tidy`.
 - [ ] 18.2 Create `rust/netprobe/ebpf/` as a separate Cargo crate compiled to BPF bytecode via `aya-ebpf`. Add a Bazel `cargo_build_script` (or `aya-build`-driven rule) that embeds the compiled `.o` blobs into the userspace binary.
-- [ ] 18.3 Vendor `vmlinux.h` from the earliest supported kernel (5.8) for BTF-CO-RE. Document the regeneration procedure in `BUILD.md`.
+- [x] 18.3 Vendor `vmlinux.h` from the earliest supported kernel (5.8) for BTF-CO-RE. Document the regeneration procedure in `BUILD.md`.
 - [ ] 18.4 Author `cls_bpf` TC ingress + egress programs: parse 5-tuple from the packet, look up `flow_table` map, bump counters on hit/classified, redirect first N packets to AF_XDP on hit/classifying, insert + redirect on miss.
 - [ ] 18.5 Author `kprobe/tcp_rcv_state_process` (or kernel-version equivalent) that extracts SYN TCP options (`ttl`, `window_size`, `mss`, `options_layout`, `quirks`, `ip_version`, `window_scale`, `payload_class`) at connection setup and emits one perf-RB event per new connection.
 - [ ] 18.6 Author socket-lifecycle kprobes: `tcp_connect`, `inet_csk_accept`, `tcp_close`, `udp_sendmsg`, `udp_recvmsg`, plus `tracepoint/sock/inet_sock_set_state` backfill. Populate `flow_to_pid` and `process_info` BPF maps.
