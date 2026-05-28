@@ -39,16 +39,17 @@ chmod 755 /var/lib/serviceradar/agent/versions
 chmod 755 /var/lib/serviceradar/agent/tmp
 
 NETPROBE_BIN=/usr/local/lib/serviceradar/bin/serviceradar-netprobe
+NETPROBE_CAPS=cap_net_raw,cap_bpf,cap_perfmon=+ep
 warn_netprobe_capability() {
     echo "Warning: $1; run:"
-    echo "  sudo setcap cap_net_raw=+ep $NETPROBE_BIN"
+    echo "  sudo setcap $NETPROBE_CAPS $NETPROBE_BIN"
 }
 
 if [ -x "$NETPROBE_BIN" ]; then
     chown serviceradar:serviceradar "$NETPROBE_BIN"
     chmod 0755 "$NETPROBE_BIN"
     if command -v setcap >/dev/null 2>&1; then
-        setcap cap_net_raw=+ep "$NETPROBE_BIN" || warn_netprobe_capability "failed to set cap_net_raw capability on $NETPROBE_BIN"
+        setcap "$NETPROBE_CAPS" "$NETPROBE_BIN" || warn_netprobe_capability "failed to set $NETPROBE_CAPS on $NETPROBE_BIN"
     else
         warn_netprobe_capability "setcap not found; install libcap tools"
     fi
