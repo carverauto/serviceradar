@@ -84,8 +84,9 @@ rewritten here.
   capability bundle" language. Bumblebee, host-network-visibility/netprobe, and
   remote-access are the reference consumers and are conformed to this contract in
   follow-up changes.
-- **New external dependency:** `github.com/hashicorp/go-plugin` (MPL-2.0) — verify
-  license acceptability before merge.
+- **New external dependency:** `github.com/hashicorp/go-plugin` (MPL-2.0) — accepted;
+  compatible with ServiceRadar's Apache-2.0 (MPL is weak/file-level copyleft, consumed
+  unmodified, so it only requires preserving go-plugin's notices).
 - **Complementary to** the WASM `wasm-plugin-system`: this framework covers
   non-WASM native capabilities and does not replace WASM plugins.
 - Out of scope: producing arm64 toolchain builds (the manifest and contract are

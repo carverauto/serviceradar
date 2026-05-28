@@ -198,11 +198,12 @@ First-class because ServiceRadar agents run on edge/size-sensitive hosts:
   containerd lesson). go-plugin is used instead.
 - **Size budget.** Per-artifact binary sizes are tracked across releases (e.g. via
   `go-size-analyzer`) with a regression gate, since size is an edge requirement.
-- **Optional build flavors (open).** Build-tag-gated agent flavors (a lean "edge"
-  build excluding heavy compiled-in capabilities like remote-access vs. a "full"
-  build) compose with runtime selection — the flavor decides what is *available*
-  (already surfaced via capability advertisement), the UI decides what is *enabled*.
-  See open questions; not committed in this change.
+- **Single agent build artifact (no build flavors).** We do NOT split the agent into
+  lean/full build-tag flavors — maintaining multiple agent build packages is not worth
+  the cost. remote-access stays compiled-in and config-toggled (unchanged). Lean-edge
+  is achieved instead by the out-of-process-plugin default + dependency isolation
+  above: because new capabilities are separate plugin binaries the base agent never
+  imports, a single agent artifact stays small as the product grows.
 
 ## Reference consumers (validate every model; migrated post-landing)
 - **remote-access** → `delivery: compiled-in`, `supervision: config-toggle`
@@ -298,10 +299,10 @@ Extracting remote-access into a sidecar is out of scope. It is ~8k LOC of in-pro
 agent code plus ~4.7k LOC of glue, multiplexed onto the agent's single mTLS/SPIFFE
 gateway control stream with per-frame HMAC bound to the agent's `agentID`, and an
 in-process eBPF recorder — and it is ~99% complete and hardened. Instead it is exposed
-as a `compiled-in` + `config-toggle` feature set now; because the catalog/UI layer is
-delivery-agnostic, a future extraction would not change the operator experience. The
-optional build-flavor lever (above) can exclude its weight from a lean edge build in
-the meantime.
+as a `compiled-in` + `config-toggle` feature set now — its current behavior is
+unchanged, and operators turn it on/off by configuration. Because the catalog/UI
+layer is delivery-agnostic, a future extraction would not change the operator
+experience.
 
 ## Relationship to `agent-sidecar-runtime` and WASM
 - The in-flight `agent-sidecar-runtime` (from `add-host-network-visibility-sidecar`)
@@ -337,11 +338,17 @@ A first-party SDK lowers the authoring bar, parallel to the WASM `serviceradar-s
   AutoMTLS, managed cleanup, and bidirectional host services that we would otherwise
   reimplement. We adopt go-plugin and keep the gRPC service contract explicit so Rust
   plugins remain first-class.
+- **Build-tag agent flavors (lean vs. full).** Considered for binary size, rejected:
+  maintaining multiple agent build packages is not worth the cost. The
+  out-of-process-plugin default + dependency isolation keep the single base agent from
+  growing, addressing the size goal without flavor proliferation. remote-access stays
+  compiled-in and config-toggled.
 
 ## Risks and mitigations
-- **New dependency (`hashicorp/go-plugin`, MPL-2.0).** Mature and widely deployed;
-  MPL-2.0 is file-level copyleft and broadly compatible with the project's OSS
-  posture (verify before merge).
+- **New dependency (`hashicorp/go-plugin`, MPL-2.0).** Accepted: ServiceRadar is
+  Apache-2.0, and MPL-2.0 is file-level (weak) copyleft, so consuming go-plugin
+  unmodified only requires preserving its license/notices and imposes no obligation
+  on ServiceRadar's own source.
 - **Rust plugin interop.** Rust add-ons must implement the go-plugin handshake;
   mitigate with the SDK's documented contract + a reference Rust plugin.
 - **Two catalogs (WASM + add-on) drift in UX.** Mitigate by sharing the importer,
@@ -361,8 +368,6 @@ A first-party SDK lowers the authoring bar, parallel to the WASM `serviceradar-s
   host-package-manager parity? The contract supports both; which is the default?
 - Should feature-set bundles be first-class catalog resources or purely a UI-side
   grouping over add-ons in v1?
-- Build flavors: in scope here, or a fast-follow? (Touches the base agent build, not
-  just the framework.)
 - Distinct `COSIGN_KEY_REF`/upload-signing key id for native add-ons (recommended)
   vs. reusing the WASM keys?
 - Cohort targeting reuse: extend `AgentReleaseManager` cohorts/compatibility-preview,
