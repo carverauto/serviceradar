@@ -6,14 +6,19 @@ const MUONFP_BASE_CONFIDENCE: f32 = 0.70;
 const MUONFP_AGREEMENT_MULTIPLIER: f32 = 1.12;
 const JA4_AGREEMENT_MULTIPLIER: f32 = 1.15;
 const HASSH_AGREEMENT_MULTIPLIER: f32 = 1.15;
+const RECOG_AGREEMENT_MULTIPLIER: f32 = 1.08;
+const SATORI_AGREEMENT_MULTIPLIER: f32 = 1.08;
+const SATORI_TCP_BASE_CONFIDENCE: f32 = 0.68;
 const MAX_CONFIDENCE: f32 = 0.95;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OsMatchInput {
     pub p0f: Option<P0fObservation>,
     pub muonfp: Option<MuonFpObservation>,
     pub ja4: Option<FingerprintObservation>,
     pub hassh: Option<FingerprintObservation>,
+    pub recog: Vec<FingerprintObservation>,
+    pub satori: Vec<FingerprintObservation>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -45,6 +50,26 @@ pub enum FingerprintSignal {
     MuonFp,
     Ja4,
     Hassh,
+    RecogHttp,
+    RecogSsh,
+    RecogSmb,
+    RecogFtp,
+    RecogSmtp,
+    RecogTelnet,
+    RecogSnmp,
+    RecogSip,
+    RecogRdp,
+    RecogDns,
+    SatoriTcp,
+    SatoriDhcp,
+    SatoriHttp,
+    SatoriSsh,
+    SatoriSmb,
+    SatoriSsl,
+    SatoriDns,
+    SatoriIcmp,
+    SatoriNtp,
+    SatoriSip,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,7 +111,7 @@ pub fn evaluate(input: OsMatchInput) -> Option<OsMatch> {
     let mut agreeing_signals = Vec::new();
     let mut disagreements = Vec::new();
 
-    for observation in auxiliary_observations(&input) {
+    for observation in auxiliary_observations(&input, primary.signal) {
         if observation.family == primary.os_family {
             confidence *= observation.multiplier;
             agreement_count += 1;
@@ -136,6 +161,26 @@ fn multiplier(signal: FingerprintSignal) -> f32 {
         FingerprintSignal::MuonFp => MUONFP_AGREEMENT_MULTIPLIER,
         FingerprintSignal::Ja4 => JA4_AGREEMENT_MULTIPLIER,
         FingerprintSignal::Hassh => HASSH_AGREEMENT_MULTIPLIER,
+        FingerprintSignal::RecogHttp
+        | FingerprintSignal::RecogSsh
+        | FingerprintSignal::RecogSmb
+        | FingerprintSignal::RecogFtp
+        | FingerprintSignal::RecogSmtp
+        | FingerprintSignal::RecogTelnet
+        | FingerprintSignal::RecogSnmp
+        | FingerprintSignal::RecogSip
+        | FingerprintSignal::RecogRdp
+        | FingerprintSignal::RecogDns => RECOG_AGREEMENT_MULTIPLIER,
+        FingerprintSignal::SatoriTcp
+        | FingerprintSignal::SatoriDhcp
+        | FingerprintSignal::SatoriHttp
+        | FingerprintSignal::SatoriSsh
+        | FingerprintSignal::SatoriSmb
+        | FingerprintSignal::SatoriSsl
+        | FingerprintSignal::SatoriDns
+        | FingerprintSignal::SatoriIcmp
+        | FingerprintSignal::SatoriNtp
+        | FingerprintSignal::SatoriSip => SATORI_AGREEMENT_MULTIPLIER,
     }
 }
 
@@ -160,6 +205,7 @@ fn normalized_family(value: &str) -> String {
 
 #[derive(Debug)]
 struct TcpPrimary {
+    signal: Option<FingerprintSignal>,
     os_family: String,
     name: String,
     version_range: Option<String>,
@@ -180,6 +226,7 @@ fn primary_tcp_observation(input: &OsMatchInput) -> Option<TcpPrimary> {
     if let Some(p0f) = &input.p0f {
         let label = &p0f.matched.label;
         return Some(TcpPrimary {
+            signal: None,
             os_family: family_from_p0f_label(label),
             name: label.name.clone(),
             version_range: label.flavor.clone(),
@@ -187,15 +234,33 @@ fn primary_tcp_observation(input: &OsMatchInput) -> Option<TcpPrimary> {
         });
     }
 
-    input.muonfp.as_ref().map(|muonfp| TcpPrimary {
-        os_family: normalized_family(&muonfp.os_family),
-        name: muonfp.name.clone(),
-        version_range: muonfp.version_range.clone(),
-        base_confidence: MUONFP_BASE_CONFIDENCE,
-    })
+    if let Some(muonfp) = &input.muonfp {
+        return Some(TcpPrimary {
+            signal: Some(FingerprintSignal::MuonFp),
+            os_family: normalized_family(&muonfp.os_family),
+            name: muonfp.name.clone(),
+            version_range: muonfp.version_range.clone(),
+            base_confidence: MUONFP_BASE_CONFIDENCE,
+        });
+    }
+
+    input
+        .satori
+        .iter()
+        .find(|observation| observation.signal == FingerprintSignal::SatoriTcp)
+        .map(|observation| TcpPrimary {
+            signal: Some(FingerprintSignal::SatoriTcp),
+            os_family: normalized_family(&observation.os_family),
+            name: observation.name.clone(),
+            version_range: observation.version_range.clone(),
+            base_confidence: SATORI_TCP_BASE_CONFIDENCE,
+        })
 }
 
-fn auxiliary_observations(input: &OsMatchInput) -> Vec<AuxiliaryObservation> {
+fn auxiliary_observations(
+    input: &OsMatchInput,
+    primary_signal: Option<FingerprintSignal>,
+) -> Vec<AuxiliaryObservation> {
     let mut observations = Vec::new();
 
     if input.p0f.is_some() {
@@ -211,7 +276,13 @@ fn auxiliary_observations(input: &OsMatchInput) -> Vec<AuxiliaryObservation> {
         }
     }
 
-    for observation in [&input.ja4, &input.hassh].into_iter().flatten() {
+    for observation in [&input.ja4, &input.hassh]
+        .into_iter()
+        .flatten()
+        .chain(input.recog.iter())
+        .chain(input.satori.iter())
+        .filter(|observation| Some(observation.signal) != primary_signal)
+    {
         observations.push(AuxiliaryObservation {
             signal: observation.signal,
             signature: observation.signature.clone(),
@@ -231,6 +302,7 @@ mod tests {
         evaluate, FingerprintObservation, FingerprintSignal, MuonFpObservation, OsMatchInput,
         P0fObservation, HASSH_AGREEMENT_MULTIPLIER, JA4_AGREEMENT_MULTIPLIER,
         MUONFP_AGREEMENT_MULTIPLIER, MUONFP_BASE_CONFIDENCE, P0F_BASE_CONFIDENCE,
+        RECOG_AGREEMENT_MULTIPLIER, SATORI_AGREEMENT_MULTIPLIER, SATORI_TCP_BASE_CONFIDENCE,
     };
     use crate::p0f_corpus::P0fLabel;
     use crate::p0f_matcher::P0fMatch;
@@ -242,6 +314,7 @@ mod tests {
             muonfp: None,
             ja4: None,
             hassh: None,
+            ..Default::default()
         })
         .unwrap();
 
@@ -261,6 +334,7 @@ mod tests {
             muonfp: None,
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
             hassh: None,
+            ..Default::default()
         })
         .unwrap();
 
@@ -279,6 +353,7 @@ mod tests {
             muonfp: None,
             ja4: None,
             hassh: Some(auxiliary(FingerprintSignal::Hassh, "linux")),
+            ..Default::default()
         })
         .unwrap();
 
@@ -297,6 +372,7 @@ mod tests {
             muonfp: Some(muonfp_observation("linux")),
             ja4: None,
             hassh: None,
+            ..Default::default()
         })
         .unwrap();
 
@@ -323,6 +399,7 @@ mod tests {
             muonfp: Some(muonfp_observation("linux")),
             ja4: None,
             hassh: None,
+            ..Default::default()
         })
         .unwrap();
 
@@ -341,6 +418,7 @@ mod tests {
             muonfp: None,
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
             hassh: None,
+            ..Default::default()
         })
         .is_none());
     }
@@ -352,11 +430,53 @@ mod tests {
             muonfp: Some(muonfp_observation("linux")),
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "linux")),
             hassh: Some(auxiliary(FingerprintSignal::Hassh, "linux")),
+            recog: vec![auxiliary(FingerprintSignal::RecogSsh, "linux")],
+            satori: vec![auxiliary(FingerprintSignal::SatoriHttp, "linux")],
         })
         .unwrap();
 
-        assert_eq!(matched.agreement_count, 4);
+        assert_eq!(matched.agreement_count, 6);
         assert!(matched.confidence <= super::MAX_CONFIDENCE);
+    }
+
+    #[test]
+    fn boosts_confidence_when_recog_agrees() {
+        let matched = evaluate(OsMatchInput {
+            p0f: Some(p0f_observation("Linux", None)),
+            recog: vec![auxiliary(FingerprintSignal::RecogSsh, "linux")],
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(matched.agreement_count, 2);
+        assert_eq!(
+            matched.agreeing_signals[0].signal,
+            FingerprintSignal::RecogSsh
+        );
+        assert_eq!(
+            matched.confidence,
+            P0F_BASE_CONFIDENCE * RECOG_AGREEMENT_MULTIPLIER
+        );
+    }
+
+    #[test]
+    fn uses_satori_tcp_as_primary_when_no_p0f_or_muonfp_match_exists() {
+        let matched = evaluate(OsMatchInput {
+            satori: vec![
+                auxiliary(FingerprintSignal::SatoriTcp, "linux"),
+                auxiliary(FingerprintSignal::SatoriDns, "linux"),
+            ],
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert_eq!(matched.os_family, "linux");
+        assert_eq!(matched.name, "linux auxiliary match");
+        assert_eq!(matched.agreement_count, 2);
+        assert_eq!(
+            matched.confidence,
+            SATORI_TCP_BASE_CONFIDENCE * SATORI_AGREEMENT_MULTIPLIER
+        );
     }
 
     #[test]
@@ -366,6 +486,7 @@ mod tests {
             muonfp: None,
             ja4: Some(auxiliary(FingerprintSignal::Ja4, "windows")),
             hassh: None,
+            ..Default::default()
         })
         .unwrap();
 
@@ -385,6 +506,7 @@ mod tests {
             muonfp: Some(muonfp_observation("windows")),
             ja4: None,
             hassh: None,
+            ..Default::default()
         })
         .unwrap();
 
@@ -403,6 +525,7 @@ mod tests {
                 muonfp: None,
                 ja4: Some(auxiliary(FingerprintSignal::Ja4, "macos")),
                 hassh: None,
+                ..Default::default()
             })
             .unwrap()
             .os_family,
@@ -415,6 +538,7 @@ mod tests {
                 muonfp: None,
                 ja4: Some(auxiliary(FingerprintSignal::Ja4, "windows")),
                 hassh: None,
+                ..Default::default()
             })
             .unwrap()
             .os_family,
@@ -444,6 +568,26 @@ mod tests {
                 FingerprintSignal::MuonFp => "64240:2-4:1460:",
                 FingerprintSignal::Ja4 => "t13d1516h2_8daaf6152771_e5627efa2ab1",
                 FingerprintSignal::Hassh => "06046964c022c6407d15a27b12a6a4fb",
+                FingerprintSignal::RecogHttp => "recog:http",
+                FingerprintSignal::RecogSsh => "recog:ssh",
+                FingerprintSignal::RecogSmb => "recog:smb",
+                FingerprintSignal::RecogFtp => "recog:ftp",
+                FingerprintSignal::RecogSmtp => "recog:smtp",
+                FingerprintSignal::RecogTelnet => "recog:telnet",
+                FingerprintSignal::RecogSnmp => "recog:snmp",
+                FingerprintSignal::RecogSip => "recog:sip",
+                FingerprintSignal::RecogRdp => "recog:rdp",
+                FingerprintSignal::RecogDns => "recog:dns",
+                FingerprintSignal::SatoriTcp => "satori:tcp",
+                FingerprintSignal::SatoriDhcp => "satori:dhcp",
+                FingerprintSignal::SatoriHttp => "satori:http",
+                FingerprintSignal::SatoriSsh => "satori:ssh",
+                FingerprintSignal::SatoriSmb => "satori:smb",
+                FingerprintSignal::SatoriSsl => "satori:ssl",
+                FingerprintSignal::SatoriDns => "satori:dns",
+                FingerprintSignal::SatoriIcmp => "satori:icmp",
+                FingerprintSignal::SatoriNtp => "satori:ntp",
+                FingerprintSignal::SatoriSip => "satori:sip",
             }
             .to_string(),
             os_family: os_family.to_string(),

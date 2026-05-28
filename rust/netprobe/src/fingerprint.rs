@@ -183,6 +183,13 @@ fn recog_observations(payload: &[u8], context: DpiPayloadContext) -> Vec<RecogOb
             push_recog_match(&mut observations, RecogService::FtpBanner, ftp);
         }
     }
+    if context.transport_protocol == "tcp"
+        && [25, 465, 587].iter().any(|port| has_port(context, *port))
+    {
+        if let Some(smtp) = status_line_banner(payload) {
+            push_recog_match(&mut observations, RecogService::SmtpBanner, smtp);
+        }
+    }
     if context.transport_protocol == "tcp" && has_port(context, 23) {
         if let Some(telnet) = first_text_line(payload) {
             push_recog_match(&mut observations, RecogService::TelnetBanner, telnet);
@@ -853,6 +860,10 @@ fn license_clean_p0f_event_with_accumulated(
         .map(|pair| {
             auxiliary_observation(FingerprintSignal::Hassh, pair.client.md5.clone(), &matched)
         });
+    let recog_observations = accumulated
+        .as_ref()
+        .map(recog_auxiliary_observations)
+        .unwrap_or_default();
     let os_match = os_matcher::evaluate(OsMatchInput {
         p0f: Some(P0fObservation {
             signature: p0f_signature,
@@ -861,6 +872,8 @@ fn license_clean_p0f_event_with_accumulated(
         muonfp: None,
         ja4: ja4_observation.clone(),
         hassh: hassh_observation.clone(),
+        recog: recog_observations,
+        satori: Vec::new(),
     })
     .expect("p0f observation is present");
     let ja4 = accumulated
@@ -885,11 +898,6 @@ fn license_clean_p0f_event_with_accumulated(
                 .map(|pair| pair.server.md5.clone())
         })
         .unwrap_or_default();
-    let _recog_match_count = accumulated
-        .as_ref()
-        .map(|fingerprint| fingerprint.recog_matches.len())
-        .unwrap_or_default();
-
     license_clean_event(
         ip,
         interface_name,
@@ -914,6 +922,54 @@ fn license_clean_p0f_event_with_accumulated(
             agreement_count: os_match.agreement_count,
         },
     )
+}
+
+fn recog_auxiliary_observations(
+    fingerprint: &AccumulatedFingerprint,
+) -> Vec<os_matcher::FingerprintObservation> {
+    fingerprint
+        .recog_matches
+        .iter()
+        .filter_map(|observation| {
+            let os_family = observation.label.os_family.as_ref()?.trim();
+            if os_family.is_empty() {
+                return None;
+            }
+
+            Some(os_matcher::FingerprintObservation {
+                signal: recog_signal(observation.service),
+                signature: format!("{}:{}", observation.label.source, observation.label.pattern),
+                os_family: os_family.to_string(),
+                name: observation
+                    .label
+                    .os_product
+                    .clone()
+                    .or_else(|| observation.label.product.clone())
+                    .or_else(|| observation.label.vendor.clone())
+                    .unwrap_or_else(|| "unknown".to_string()),
+                version_range: observation
+                    .label
+                    .os_version
+                    .clone()
+                    .or_else(|| observation.label.version.clone()),
+            })
+        })
+        .collect()
+}
+
+fn recog_signal(service: RecogService) -> FingerprintSignal {
+    match service {
+        RecogService::HttpServer => FingerprintSignal::RecogHttp,
+        RecogService::SshBanner => FingerprintSignal::RecogSsh,
+        RecogService::SmbVersion => FingerprintSignal::RecogSmb,
+        RecogService::FtpBanner => FingerprintSignal::RecogFtp,
+        RecogService::SmtpBanner => FingerprintSignal::RecogSmtp,
+        RecogService::TelnetBanner => FingerprintSignal::RecogTelnet,
+        RecogService::SnmpBanner => FingerprintSignal::RecogSnmp,
+        RecogService::SipBanner => FingerprintSignal::RecogSip,
+        RecogService::RdpBanner => FingerprintSignal::RecogRdp,
+        RecogService::DnsVersion => FingerprintSignal::RecogDns,
+    }
 }
 
 fn auxiliary_observation(
@@ -1335,6 +1391,26 @@ fn signal_name(signal: FingerprintSignal) -> &'static str {
         FingerprintSignal::MuonFp => "muonfp",
         FingerprintSignal::Ja4 => "ja4",
         FingerprintSignal::Hassh => "hassh",
+        FingerprintSignal::RecogHttp => "recog_http",
+        FingerprintSignal::RecogSsh => "recog_ssh",
+        FingerprintSignal::RecogSmb => "recog_smb",
+        FingerprintSignal::RecogFtp => "recog_ftp",
+        FingerprintSignal::RecogSmtp => "recog_smtp",
+        FingerprintSignal::RecogTelnet => "recog_telnet",
+        FingerprintSignal::RecogSnmp => "recog_snmp",
+        FingerprintSignal::RecogSip => "recog_sip",
+        FingerprintSignal::RecogRdp => "recog_rdp",
+        FingerprintSignal::RecogDns => "recog_dns",
+        FingerprintSignal::SatoriTcp => "satori_tcp",
+        FingerprintSignal::SatoriDhcp => "satori_dhcp",
+        FingerprintSignal::SatoriHttp => "satori_http",
+        FingerprintSignal::SatoriSsh => "satori_ssh",
+        FingerprintSignal::SatoriSmb => "satori_smb",
+        FingerprintSignal::SatoriSsl => "satori_ssl",
+        FingerprintSignal::SatoriDns => "satori_dns",
+        FingerprintSignal::SatoriIcmp => "satori_icmp",
+        FingerprintSignal::SatoriNtp => "satori_ntp",
+        FingerprintSignal::SatoriSip => "satori_sip",
     }
 }
 
@@ -1496,6 +1572,44 @@ mod p0f_ring_tests {
                 .map(|matched| matched.os_family.as_str()),
             Some("linux")
         );
+        assert_eq!(fingerprint.agreement_count, 2);
+        assert!(
+            fingerprint
+                .os_match
+                .as_ref()
+                .expect("expected OS match")
+                .confidence
+                > 0.72
+        );
+    }
+
+    #[test]
+    fn enriches_p0f_ring_event_with_accumulated_recog_ssh() {
+        let bytes = p0f_record_bytes(
+            FLOW_ENDPOINT_B,
+            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
+        );
+        let record = parse_p0f_ring_record(&bytes).unwrap();
+        let accumulator = FingerprintAccumulator::default();
+        accumulator.observe_dpi_payload_with_context(
+            DpiPayloadContext {
+                flow_key: record.flow_key,
+                source_port: 22,
+                destination_port: 51_234,
+                transport_protocol: "tcp",
+            },
+            b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10\r\n",
+            124,
+        );
+        let engine = P0fSignatureEngine::bundled().unwrap();
+
+        let event = engine
+            .event_from_ring_record_with_accumulator("eth0", &record, Some(&accumulator))
+            .unwrap();
+
+        let Some(fingerprint_event::Evidence::LicenseClean(fingerprint)) = event.evidence else {
+            panic!("expected license-clean fingerprint");
+        };
         assert_eq!(fingerprint.agreement_count, 2);
         assert!(
             fingerprint
