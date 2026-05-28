@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
   end
 
   @tag :visibility_profiles_live
-  test "creates visibility profile with fingerprint toggles", %{conn: conn} do
+  test "creates visibility profile with fingerprint and DPI toggles", %{conn: conn, scope: scope} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/visibility-profiles/new")
 
     lv
@@ -41,7 +41,11 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
         capture_interfaces: "eth0",
         sample_interval_ms: "30000",
         retention_days: "14",
-        fingerprint: %{"tcp" => "false", "tls" => "false", "http" => "true"}
+        fingerprint: %{"tcp" => "false", "tls" => "false", "http" => "true"},
+        dpi: %{
+          "enabled" => "true",
+          "protocols" => %{"dns" => "true", "tls" => "true", "http1" => "false"}
+        }
       }
     )
     |> render_submit()
@@ -52,6 +56,13 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
     assert html =~ "Edge HTTP Passive"
     assert html =~ "eth0"
     assert html =~ "HTTP"
+    assert html =~ "DPI DNS"
+    assert html =~ "DPI TLS"
+
+    {:ok, profiles} = Ash.read(VisibilityProfile, scope: scope)
+    profile = Enum.find(profiles, &(&1.name == "Edge HTTP Passive"))
+
+    assert profile.dpi == %{"enabled" => true, "protocols" => ["tls", "dns"]}
   end
 
   @tag :visibility_profiles_live

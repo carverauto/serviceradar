@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
   @default_partition "default"
   @default_sample_interval_ms 60_000
   @default_retention_days 30
+  @dpi_protocols ~w(http1 http2 tls dns ssh ftp quic mqtt bittorrent)
 
   def default_form do
     %{
@@ -16,12 +17,18 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       "sample_interval_ms" => Integer.to_string(@default_sample_interval_ms),
       "retention_days" => Integer.to_string(@default_retention_days),
       "partition_id" => @default_partition,
-      "fingerprint" => %{"tcp" => "true", "tls" => "true", "http" => "true"}
+      "fingerprint" => %{"tcp" => "true", "tls" => "true", "http" => "true"},
+      "dpi" => %{
+        "enabled" => "false",
+        "protocols" => Map.new(@dpi_protocols, &{&1, "false"})
+      }
     }
   end
 
   def form_from_profile(profile) do
     fingerprint = profile.fingerprint || %{}
+    dpi = profile.dpi || %{}
+    dpi_protocols = dpi_protocols(dpi)
 
     %{
       "name" => profile.name || "",
@@ -37,6 +44,13 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
         "tcp" => bool_string(map_truthy?(fingerprint, "tcp")),
         "tls" => bool_string(map_truthy?(fingerprint, "tls")),
         "http" => bool_string(map_truthy?(fingerprint, "http"))
+      },
+      "dpi" => %{
+        "enabled" => bool_string(map_truthy?(dpi, "enabled") or dpi_protocols != []),
+        "protocols" =>
+          Map.new(@dpi_protocols, fn protocol ->
+            {protocol, bool_string(protocol in dpi_protocols or map_truthy?(dpi, protocol))}
+          end)
       }
     }
   end
@@ -44,10 +58,18 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
   def normalize_form(params) do
     form = Map.merge(default_form(), stringify_params(params || %{}))
     fingerprint = Map.merge(default_form()["fingerprint"], stringify_params(form["fingerprint"] || %{}))
-    Map.put(form, "fingerprint", fingerprint)
+
+    dpi = Map.merge(default_form()["dpi"], stringify_params(form["dpi"] || %{}))
+    dpi_protocols = Map.merge(default_form()["dpi"]["protocols"], stringify_params(dpi["protocols"] || %{}))
+
+    form
+    |> Map.put("fingerprint", fingerprint)
+    |> Map.put("dpi", Map.put(dpi, "protocols", dpi_protocols))
   end
 
   def form_attrs(form) do
+    dpi_enabled? = truthy?(form["dpi"]["enabled"])
+
     %{
       name: trim(form["name"]),
       description: blank_to_nil(form["description"]),
@@ -62,6 +84,10 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
         "tcp" => truthy?(form["fingerprint"]["tcp"]),
         "tls" => truthy?(form["fingerprint"]["tls"]),
         "http" => truthy?(form["fingerprint"]["http"])
+      },
+      dpi: %{
+        "enabled" => dpi_enabled?,
+        "protocols" => if(dpi_enabled?, do: selected_dpi_protocols(form["dpi"]["protocols"]), else: [])
       }
     }
   end
@@ -85,10 +111,23 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
   def target_count_label(1), do: "Targets 1 device"
   def target_count_label(count), do: "Targets #{count} devices"
 
+  def dpi_protocols, do: @dpi_protocols
+
   def fingerprint_enabled?(profile, name), do: map_truthy?(profile.fingerprint || %{}, name)
-  def map_truthy?(map, "tcp"), do: Map.get(map, "tcp", Map.get(map, :tcp, false)) in [true, "true", "1", 1]
-  def map_truthy?(map, "tls"), do: Map.get(map, "tls", Map.get(map, :tls, false)) in [true, "true", "1", 1]
-  def map_truthy?(map, "http"), do: Map.get(map, "http", Map.get(map, :http, false)) in [true, "true", "1", 1]
+
+  def dpi_enabled?(profile, protocol) when protocol in @dpi_protocols do
+    dpi = profile.dpi || %{}
+    protocols = dpi_protocols(dpi)
+
+    map_truthy?(dpi, "enabled") and (protocol in protocols or map_truthy?(dpi, protocol))
+  end
+
+  def dpi_enabled?(_profile, _protocol), do: false
+
+  def map_truthy?(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key, atom_value(map, key, false)) in [true, "true", "1", 1, "on"]
+  end
+
   def map_truthy?(_map, _key), do: false
 
   def truthy?(value), do: value in [true, "true", "1", 1, "on"]
@@ -114,6 +153,40 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
   end
 
   def stringify_params(_params), do: %{}
+
+  defp selected_dpi_protocols(protocols) when is_map(protocols) do
+    Enum.filter(@dpi_protocols, &truthy?(Map.get(protocols, &1)))
+  end
+
+  defp selected_dpi_protocols(_protocols), do: []
+
+  defp dpi_protocols(dpi) when is_map(dpi) do
+    dpi
+    |> Map.get("protocols", atom_value(dpi, "protocols", []))
+    |> List.wrap()
+    |> Enum.filter(&(&1 in @dpi_protocols))
+  end
+
+  defp dpi_protocols(_dpi), do: []
+
+  defp atom_value(map, key, default) do
+    case key do
+      "enabled" -> Map.get(map, :enabled, default)
+      "protocols" -> Map.get(map, :protocols, default)
+      "tcp" -> Map.get(map, :tcp, default)
+      "tls" -> Map.get(map, :tls, default)
+      "http" -> Map.get(map, :http, default)
+      "http1" -> Map.get(map, :http1, default)
+      "http2" -> Map.get(map, :http2, default)
+      "dns" -> Map.get(map, :dns, default)
+      "ssh" -> Map.get(map, :ssh, default)
+      "ftp" -> Map.get(map, :ftp, default)
+      "quic" -> Map.get(map, :quic, default)
+      "mqtt" -> Map.get(map, :mqtt, default)
+      "bittorrent" -> Map.get(map, :bittorrent, default)
+      _ -> default
+    end
+  end
 
   defp maybe_error(errors, true, message), do: [message | errors]
   defp maybe_error(errors, false, _message), do: errors

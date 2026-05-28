@@ -58,7 +58,7 @@ defmodule ServiceRadar.Inventory.DpiPayload do
   end
 
   defp protocol_payload(metadata, nested, protocol) do
-    nested_protocol = get_map(nested, [protocol, String.to_atom(protocol)])
+    nested_protocol = get_protocol_map(nested, protocol)
 
     %{}
     |> maybe_put("count", dpi_integer(metadata, nested_protocol, protocol, "count"))
@@ -122,6 +122,21 @@ defmodule ServiceRadar.Inventory.DpiPayload do
       _ -> %{}
     end
   end
+
+  defp get_protocol_map(map, protocol) when is_map(map) do
+    get_map(map, [protocol, protocol_atom(protocol)])
+  end
+
+  defp protocol_atom("http1"), do: :http1
+  defp protocol_atom("http2"), do: :http2
+  defp protocol_atom("tls"), do: :tls
+  defp protocol_atom("dns"), do: :dns
+  defp protocol_atom("ssh"), do: :ssh
+  defp protocol_atom("ftp"), do: :ftp
+  defp protocol_atom("quic"), do: :quic
+  defp protocol_atom("mqtt"), do: :mqtt
+  defp protocol_atom("bittorrent"), do: :bittorrent
+  defp protocol_atom(_protocol), do: nil
 
   defp get_string(map, keys) do
     case get_value(map, keys) do

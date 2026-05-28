@@ -158,8 +158,8 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 
 - [x] 17.1 Bridge `DpiEvent` → device `metadata.dpi` updates.
 - [x] 17.2 Extend the discovery ingest writer accordingly.
-- [ ] 17.3 Extend the Visibility Profile UI with the DPI section (replace the Phase 1 placeholder).
-- [ ] 17.4 Extend the Network Visibility panel on Device Detail to render the DPI section.
+- [x] 17.3 Extend the Visibility Profile UI with the DPI section (replace the Phase 1 placeholder).
+- [x] 17.4 Extend the Network Visibility panel on Device Detail to render the DPI section.
 
 ---
 

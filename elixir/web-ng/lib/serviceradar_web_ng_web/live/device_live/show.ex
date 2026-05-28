@@ -72,6 +72,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @flows_limit 50
   @mtr_device_limit 50
   @logs_limit 50
+  @dpi_protocols [
+    {"http1", "HTTP/1"},
+    {"http2", "HTTP/2"},
+    {"tls", "TLS"},
+    {"dns", "DNS"},
+    {"ssh", "SSH"},
+    {"ftp", "FTP"},
+    {"quic", "QUIC"},
+    {"mqtt", "MQTT"},
+    {"bittorrent", "BitTorrent"}
+  ]
   @availability_window "last_24h"
   @availability_bucket "30m"
   @camera_relay_poll_interval_ms 1_000
@@ -5172,19 +5183,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp network_visibility_section(assigns) do
     fingerprints = passive_fingerprint_rows(assigns.device_row)
+    dpi_rows = dpi_rows(assigns.device_row)
 
     assigns =
       assigns
       |> assign(:fingerprints, fingerprints)
+      |> assign(:dpi_rows, dpi_rows)
       |> assign(:has_fingerprints, fingerprints != [])
+      |> assign(:has_dpi, dpi_rows != [])
 
     ~H"""
-    <div :if={@has_fingerprints} class="rounded-xl border border-base-200 bg-base-100">
+    <div :if={@has_fingerprints or @has_dpi} class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200">
         <div class="flex items-center gap-2">
           <.icon name="hero-eye" class="size-4 text-primary" />
           <span class="text-sm font-semibold">Network Visibility</span>
-          <span class="badge badge-ghost badge-sm">Passive fingerprint</span>
+          <span :if={@has_fingerprints} class="badge badge-ghost badge-sm">
+            Passive fingerprint
+          </span>
+          <span :if={@has_dpi} class="badge badge-info badge-sm">DPI</span>
         </div>
       </div>
 
@@ -5204,6 +5221,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div class="space-y-1.5 text-sm">
             <.metadata_kv
               :for={item <- fingerprint.items}
+              label={item.label}
+              value={item.value}
+              mono={item.mono}
+            />
+          </div>
+        </div>
+
+        <div :for={dpi <- @dpi_rows} class="rounded-lg border border-base-200 bg-base-200/20 p-3">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+              DPI {dpi.protocol}
+            </span>
+            <span :if={dpi.source} class="badge badge-info badge-xs">
+              {dpi.source}
+            </span>
+          </div>
+          <div class="space-y-1.5 text-sm">
+            <.metadata_kv
+              :for={item <- dpi.items}
               label={item.label}
               value={item.value}
               mono={item.mono}
@@ -5496,6 +5532,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp passive_fingerprint_rows(_row), do: []
 
+  defp dpi_rows(row) when is_map(row) do
+    metadata = row_metadata(row)
+    nested = metadata_lookup(metadata, "dpi") || %{}
+
+    @dpi_protocols
+    |> Enum.map(fn {protocol, label} ->
+      dpi_protocol_row(
+        label,
+        dpi_protocol_payload(nested, protocol),
+        [
+          metadata_item("Count", dpi_value(metadata, nested, protocol, "count")),
+          metadata_item("Confidence", dpi_value(metadata, nested, protocol, "confidence")),
+          metadata_item(
+            "Last observed",
+            metadata_timestamp(dpi_value(metadata, nested, protocol, "last_observed_at")),
+            mono: true
+          )
+        ],
+        metadata
+      )
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp dpi_rows(_row), do: []
+
   defp passive_protocol_row(protocol, payload, items) do
     items = Enum.reject(items, &is_nil/1)
 
@@ -5508,6 +5570,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         items: items
       }
     end
+  end
+
+  defp dpi_protocol_row(protocol, payload, items, metadata) do
+    items = Enum.reject(items, &is_nil/1)
+
+    if items == [] do
+      nil
+    else
+      %{
+        protocol: protocol,
+        source: metadata_lookup(payload, "source") || metadata_lookup(metadata, "dpi.source"),
+        items: items
+      }
+    end
+  end
+
+  defp dpi_protocol_payload(nested, protocol) when is_map(nested) do
+    case Map.get(nested, protocol) || Map.get(nested, dpi_protocol_atom(protocol)) do
+      payload when is_map(payload) -> payload
+      _ -> %{}
+    end
+  end
+
+  defp dpi_protocol_atom("http1"), do: :http1
+  defp dpi_protocol_atom("http2"), do: :http2
+  defp dpi_protocol_atom("tls"), do: :tls
+  defp dpi_protocol_atom("dns"), do: :dns
+  defp dpi_protocol_atom("ssh"), do: :ssh
+  defp dpi_protocol_atom("ftp"), do: :ftp
+  defp dpi_protocol_atom("quic"), do: :quic
+  defp dpi_protocol_atom("mqtt"), do: :mqtt
+  defp dpi_protocol_atom("bittorrent"), do: :bittorrent
+  defp dpi_protocol_atom(_), do: nil
+
+  defp dpi_value(metadata, nested, protocol, key) do
+    metadata_lookup(dpi_protocol_payload(nested, protocol), key) ||
+      metadata_lookup(metadata, "dpi.#{protocol}.#{key}")
   end
 
   defp passive_protocol_payload(_metadata, nested, protocol) when is_map(nested) do
