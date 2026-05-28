@@ -38,6 +38,8 @@ mod proto;
 mod recog;
 #[allow(dead_code)]
 mod runtime_config;
+#[allow(dead_code)]
+mod satori;
 mod server;
 #[cfg(feature = "remote-capture")]
 #[allow(dead_code)]
