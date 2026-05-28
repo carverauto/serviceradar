@@ -10,6 +10,8 @@ mod dpi;
 mod ebpf_loader;
 mod fingerprint;
 mod framing;
+#[allow(dead_code)]
+mod ja4;
 mod lifecycle;
 mod metrics;
 #[allow(dead_code)]

@@ -24,6 +24,7 @@ NETPROBE_DEPS = crate_deps([
     "prost",
     "serde",
     "serde_json",
+    "sha2",
     "thiserror",
     "tokio",
 ]) + select({

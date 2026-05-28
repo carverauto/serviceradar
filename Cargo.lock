@@ -7160,6 +7160,7 @@ dependencies = [
  "prost-build",
  "serde 1.0.228",
  "serde_json 1.0.150",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
