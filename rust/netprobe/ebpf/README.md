@@ -29,6 +29,17 @@ Socket lifecycle hooks also refresh the pinned `process_info` map keyed by TGID.
 The `sock/inet_sock_set_state` tracepoint backfill has the full 5-tuple and
 populates the pinned `flow_to_pid` map for later userspace joins.
 
+Pinned map capacity bounds are fixed in the eBPF object:
+
+- `flow_table`: 65,536 LRU entries.
+- `flow_to_pid`: 1,048,576 LRU entries.
+- `process_info`: 8,192 hash entries.
+- `interface_allowlist`: 1,024 hash entries.
+
+The userspace startup path creates `/sys/fs/bpf/serviceradar/netprobe` with
+mode `0700` before privilege drop. The later loader work pins these maps under
+that directory.
+
 TCP SYN signatures are emitted to the `tcp_syn_signatures` ring buffer. The
 record carries TTL/hop-limit, window size, MSS, TCP option kind layout, quirks,
 IP version, window scale, and payload class for the userspace huginn-net

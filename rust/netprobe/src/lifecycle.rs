@@ -1,11 +1,22 @@
-use anyhow::Result;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+use anyhow::{Context, Result};
+
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 use crate::{capabilities, capture::CaptureHandles, config::Config};
+
+pub const DEFAULT_BPF_PIN_DIR: &str = "/sys/fs/bpf/serviceradar/netprobe";
 
 pub trait StartupOps {
     type Captures;
 
     fn assert_phase1_capabilities(&mut self) -> Result<()>;
+    fn prepare_bpf_pin_directory(&mut self, path: &Path) -> Result<()>;
     fn open_capture_handles(&mut self, config: &Config) -> Result<Self::Captures>;
     fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()>;
 }
@@ -17,6 +28,10 @@ impl StartupOps for SystemStartupOps {
 
     fn assert_phase1_capabilities(&mut self) -> Result<()> {
         capabilities::assert_phase1_capabilities()
+    }
+
+    fn prepare_bpf_pin_directory(&mut self, path: &Path) -> Result<()> {
+        prepare_bpf_pin_directory(path)
     }
 
     fn open_capture_handles(&mut self, config: &Config) -> Result<Self::Captures> {
@@ -40,6 +55,7 @@ where
 {
     if config.enabled && !skip_cap_check {
         ops.assert_phase1_capabilities()?;
+        ops.prepare_bpf_pin_directory(&PathBuf::from(DEFAULT_BPF_PIN_DIR))?;
     }
 
     let captures = ops.open_capture_handles(config)?;
@@ -48,8 +64,21 @@ where
     Ok(captures)
 }
 
+fn prepare_bpf_pin_directory(path: &Path) -> Result<()> {
+    fs::create_dir_all(path)
+        .with_context(|| format!("failed to create BPF pin directory {}", path.display()))?;
+
+    #[cfg(unix)]
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("failed to chmod BPF pin directory {}", path.display()))?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use anyhow::Result;
 
     use super::{initialize_privileged_resources, StartupOps};
@@ -67,6 +96,11 @@ mod tests {
 
         fn assert_phase1_capabilities(&mut self) -> Result<()> {
             self.calls.push("assert_caps");
+            Ok(())
+        }
+
+        fn prepare_bpf_pin_directory(&mut self, _path: &Path) -> Result<()> {
+            self.calls.push("prepare_bpf_pin_dir");
             Ok(())
         }
 
@@ -95,7 +129,12 @@ mod tests {
         assert_eq!(captures, 2);
         assert_eq!(
             ops.calls,
-            ["assert_caps", "open_captures", "drop_privileges"]
+            [
+                "assert_caps",
+                "prepare_bpf_pin_dir",
+                "open_captures",
+                "drop_privileges"
+            ]
         );
         assert_eq!(ops.drop_user.as_deref(), Some("serviceradar"));
         assert!(!ops.allow_root);

@@ -40,6 +40,7 @@ const SKB_HEAD_OFFSET: usize = 192;
 const FLOW_TABLE_MAX_ENTRIES: u32 = 65_536;
 const FLOW_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
 const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
+const INTERFACE_ALLOWLIST_MAX_ENTRIES: u32 = 1_024;
 const XSK_MAX_QUEUES: u32 = 1024;
 const FLOW_REDIRECT_BUDGET: u32 = 16;
 
@@ -153,6 +154,15 @@ pub struct ProcessInfoRecord {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct InterfaceConfig {
+    pub enabled: u32,
+    pub redirect_budget: u32,
+    pub flags: u32,
+    pub reserved: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub struct TcpSynSignatureRecord {
     pub version: u16,
     pub ip_version: u16,
@@ -185,6 +195,10 @@ static FLOW_TO_PID: LruHashMap<FlowKey, FlowPidRecord> =
 #[map(name = "process_info")]
 static PROCESS_INFO: BpfHashMap<u32, ProcessInfoRecord> =
     BpfHashMap::pinned(PROCESS_INFO_MAX_ENTRIES, 0);
+
+#[map(name = "interface_allowlist")]
+static INTERFACE_ALLOWLIST: BpfHashMap<u32, InterfaceConfig> =
+    BpfHashMap::pinned(INTERFACE_ALLOWLIST_MAX_ENTRIES, 0);
 
 #[map(name = "xsk_sockets")]
 static XSK_SOCKETS: XskMap = XskMap::pinned(XSK_MAX_QUEUES, 0);
@@ -454,10 +468,19 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<FlowKey> {
 }
 
 fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
+    let interface_index = skb_interface_index(&ctx);
+    let Some(interface_config) = interface_config(interface_index) else {
+        return TC_ACT_OK as i32;
+    };
     let Some(flow_key) = parse_flow_key(&ctx) else {
         return TC_ACT_OK as i32;
     };
 
+    let redirect_budget = if interface_config.redirect_budget == 0 {
+        FLOW_REDIRECT_BUDGET
+    } else {
+        interface_config.redirect_budget
+    };
     let now = now_ns();
     if let Some(entry_ptr) = FLOW_TABLE.get_ptr_mut(&flow_key) {
         // SAFETY: The pointer is returned by the kernel for this map lookup and
@@ -471,7 +494,7 @@ fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
             return TC_ACT_OK as i32;
         }
 
-        if entry.packets_redirected < FLOW_REDIRECT_BUDGET {
+        if entry.packets_redirected < redirect_budget {
             entry.packets_redirected = entry.packets_redirected.saturating_add(1);
             return redirect_to_af_xdp(&ctx);
         }
@@ -488,6 +511,17 @@ fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
     let _ = FLOW_TABLE.insert(&flow_key, &entry, BPF_ANY as u64);
 
     redirect_to_af_xdp(&ctx)
+}
+
+fn interface_config(interface_index: u32) -> Option<InterfaceConfig> {
+    // SAFETY: The TC program only copies the map value out and does not retain
+    // the borrowed reference. A missing or disabled entry is deny-by-default.
+    let config = unsafe { INTERFACE_ALLOWLIST.get(&interface_index) }?;
+    if config.enabled == 0 {
+        return None;
+    }
+
+    Some(*config)
 }
 
 fn redirect_to_af_xdp(ctx: &TcContext) -> i32 {
