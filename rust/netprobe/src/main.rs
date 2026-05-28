@@ -11,6 +11,8 @@ mod ebpf_loader;
 mod fingerprint;
 mod framing;
 #[allow(dead_code)]
+mod hassh;
+#[allow(dead_code)]
 mod ja4;
 mod lifecycle;
 mod metrics;
