@@ -60,8 +60,13 @@ message Ping {
 message PingAck {
   int64 sent_at_unix_nano = 1;
   int64 acked_at_unix_nano = 2;
+  // Deprecated: kept for one minor version while agents migrate to the
+  // license-clean corpus revision fields below.
   string fingerprint_engine_version = 3;
   bool running_as_root = 4;
+  string p0f_corpus_revision = 5;
+  string serviceradar_additions_revision = 6;
+  string ja4_spec_revision = 7;
 }
 
 message ErrorFrame {

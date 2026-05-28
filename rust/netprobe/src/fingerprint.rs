@@ -44,6 +44,12 @@ use crate::{
 use crate::{metrics::Metrics, runtime_config::FingerprintEventGate};
 
 pub const FINGERPRINT_ENGINE_VERSION: &str = "huginn-net/1.7.3";
+pub const P0F_CORPUS_REVISION: &str =
+    "p0f-3.09b:p0f.fp:sha256:45f27bcc65de0f64bc69356dc0662e3366e05e67a0e98fd2251808e253b6be40";
+pub const SERVICERADAR_ADDITIONS_REVISION: &str =
+    "serviceradar-additions.fp:sha256:2ab43ef6a172ec7329f77a5b8d01779c7c9b33e1f8e887981dbdb59e3debf68e";
+pub const JA4_BASE_SPEC_REVISION: &str =
+    "foxio-ja4-base:LICENSE-JA4:sha256:094300333d31ef3da914a2e8894dc933a39fc1c538bf1b58f9b37d08701ab29f";
 #[allow(dead_code)]
 const EVENT_VERSION: u16 = 1;
 #[allow(dead_code)]

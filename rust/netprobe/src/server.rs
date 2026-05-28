@@ -15,7 +15,10 @@ use tokio::{
 
 use crate::{
     capabilities,
-    fingerprint::FINGERPRINT_ENGINE_VERSION,
+    fingerprint::{
+        FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, P0F_CORPUS_REVISION,
+        SERVICERADAR_ADDITIONS_REVISION,
+    },
     framing::{read_frame, write_frame},
     metrics::Metrics,
     proto::netprobe::{
@@ -191,6 +194,9 @@ fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> N
                 acked_at_unix_nano: now_unix_nano(),
                 fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
                 running_as_root: capabilities::running_as_root(),
+                p0f_corpus_revision: P0F_CORPUS_REVISION.to_string(),
+                serviceradar_additions_revision: SERVICERADAR_ADDITIONS_REVISION.to_string(),
+                ja4_spec_revision: JA4_BASE_SPEC_REVISION.to_string(),
             })),
         },
         Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
@@ -241,6 +247,9 @@ mod tests {
     use super::IpcServer;
     use crate::{
         config::Config,
+        fingerprint::{
+            JA4_BASE_SPEC_REVISION, P0F_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
+        },
         framing::{read_frame, write_frame},
         metrics::Metrics,
         proto::netprobe::{
@@ -283,10 +292,15 @@ mod tests {
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 1);
-        assert!(matches!(
-            response.payload,
-            Some(netprobe_frame::Payload::PingAck(_))
-        ));
+        let Some(netprobe_frame::Payload::PingAck(ack)) = response.payload else {
+            panic!("expected ping ack");
+        };
+        assert_eq!(ack.p0f_corpus_revision, P0F_CORPUS_REVISION);
+        assert_eq!(
+            ack.serviceradar_additions_revision,
+            SERVICERADAR_ADDITIONS_REVISION
+        );
+        assert_eq!(ack.ja4_spec_revision, JA4_BASE_SPEC_REVISION);
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();

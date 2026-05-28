@@ -424,13 +424,18 @@ func (x *Ping) GetSentAtUnixNano() int64 {
 }
 
 type PingAck struct {
-	state                    protoimpl.MessageState `protogen:"open.v1"`
-	SentAtUnixNano           int64                  `protobuf:"varint,1,opt,name=sent_at_unix_nano,json=sentAtUnixNano,proto3" json:"sent_at_unix_nano,omitempty"`
-	AckedAtUnixNano          int64                  `protobuf:"varint,2,opt,name=acked_at_unix_nano,json=ackedAtUnixNano,proto3" json:"acked_at_unix_nano,omitempty"`
-	FingerprintEngineVersion string                 `protobuf:"bytes,3,opt,name=fingerprint_engine_version,json=fingerprintEngineVersion,proto3" json:"fingerprint_engine_version,omitempty"`
-	RunningAsRoot            bool                   `protobuf:"varint,4,opt,name=running_as_root,json=runningAsRoot,proto3" json:"running_as_root,omitempty"`
-	unknownFields            protoimpl.UnknownFields
-	sizeCache                protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SentAtUnixNano  int64                  `protobuf:"varint,1,opt,name=sent_at_unix_nano,json=sentAtUnixNano,proto3" json:"sent_at_unix_nano,omitempty"`
+	AckedAtUnixNano int64                  `protobuf:"varint,2,opt,name=acked_at_unix_nano,json=ackedAtUnixNano,proto3" json:"acked_at_unix_nano,omitempty"`
+	// Deprecated: kept for one minor version while agents migrate to the
+	// license-clean corpus revision fields below.
+	FingerprintEngineVersion      string `protobuf:"bytes,3,opt,name=fingerprint_engine_version,json=fingerprintEngineVersion,proto3" json:"fingerprint_engine_version,omitempty"`
+	RunningAsRoot                 bool   `protobuf:"varint,4,opt,name=running_as_root,json=runningAsRoot,proto3" json:"running_as_root,omitempty"`
+	P0FCorpusRevision             string `protobuf:"bytes,5,opt,name=p0f_corpus_revision,json=p0fCorpusRevision,proto3" json:"p0f_corpus_revision,omitempty"`
+	ServiceradarAdditionsRevision string `protobuf:"bytes,6,opt,name=serviceradar_additions_revision,json=serviceradarAdditionsRevision,proto3" json:"serviceradar_additions_revision,omitempty"`
+	Ja4SpecRevision               string `protobuf:"bytes,7,opt,name=ja4_spec_revision,json=ja4SpecRevision,proto3" json:"ja4_spec_revision,omitempty"`
+	unknownFields                 protoimpl.UnknownFields
+	sizeCache                     protoimpl.SizeCache
 }
 
 func (x *PingAck) Reset() {
@@ -489,6 +494,27 @@ func (x *PingAck) GetRunningAsRoot() bool {
 		return x.RunningAsRoot
 	}
 	return false
+}
+
+func (x *PingAck) GetP0FCorpusRevision() string {
+	if x != nil {
+		return x.P0FCorpusRevision
+	}
+	return ""
+}
+
+func (x *PingAck) GetServiceradarAdditionsRevision() string {
+	if x != nil {
+		return x.ServiceradarAdditionsRevision
+	}
+	return ""
+}
+
+func (x *PingAck) GetJa4SpecRevision() string {
+	if x != nil {
+		return x.Ja4SpecRevision
+	}
+	return ""
 }
 
 type ErrorFrame struct {
@@ -1958,12 +1984,15 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\vconfig_hash\x18\x01 \x01(\tR\n" +
 	"configHash\"1\n" +
 	"\x04Ping\x12)\n" +
-	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\xc7\x01\n" +
+	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\xeb\x02\n" +
 	"\aPingAck\x12)\n" +
 	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\x12+\n" +
 	"\x12acked_at_unix_nano\x18\x02 \x01(\x03R\x0fackedAtUnixNano\x12<\n" +
 	"\x1afingerprint_engine_version\x18\x03 \x01(\tR\x18fingerprintEngineVersion\x12&\n" +
-	"\x0frunning_as_root\x18\x04 \x01(\bR\rrunningAsRoot\":\n" +
+	"\x0frunning_as_root\x18\x04 \x01(\bR\rrunningAsRoot\x12.\n" +
+	"\x13p0f_corpus_revision\x18\x05 \x01(\tR\x11p0fCorpusRevision\x12F\n" +
+	"\x1fserviceradar_additions_revision\x18\x06 \x01(\tR\x1dserviceradarAdditionsRevision\x12*\n" +
+	"\x11ja4_spec_revision\x18\a \x01(\tR\x0fja4SpecRevision\":\n" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +

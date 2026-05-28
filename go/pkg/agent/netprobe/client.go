@@ -88,8 +88,11 @@ type Client struct {
 	closeOnce sync.Once
 	closeErr  atomic.Value
 
-	lastEngineVersion atomic.Value
-	lastRunningAsRoot atomic.Bool
+	lastEngineVersion                 atomic.Value
+	lastP0fCorpusRevision             atomic.Value
+	lastServiceRadarAdditionsRevision atomic.Value
+	lastJA4SpecRevision               atomic.Value
+	lastRunningAsRoot                 atomic.Bool
 
 	droppedFingerprintEvents atomic.Uint64
 	droppedDPIEvents         atomic.Uint64
@@ -152,6 +155,9 @@ func (c *Client) Ping(ctx context.Context) error {
 		return fmt.Errorf("%w: expected ping_ack", ErrUnexpectedFrame)
 	}
 	c.lastEngineVersion.Store(ack.GetFingerprintEngineVersion())
+	c.lastP0fCorpusRevision.Store(ack.GetP0FCorpusRevision())
+	c.lastServiceRadarAdditionsRevision.Store(ack.GetServiceradarAdditionsRevision())
+	c.lastJA4SpecRevision.Store(ack.GetJa4SpecRevision())
 	c.lastRunningAsRoot.Store(ack.GetRunningAsRoot())
 
 	return nil
@@ -229,6 +235,36 @@ func (c *Client) FingerprintEngineVersion() string {
 	version, _ := value.(string)
 
 	return version
+}
+
+func (c *Client) P0fCorpusRevision() string {
+	value := c.lastP0fCorpusRevision.Load()
+	if value == nil {
+		return ""
+	}
+	revision, _ := value.(string)
+
+	return revision
+}
+
+func (c *Client) ServiceRadarAdditionsRevision() string {
+	value := c.lastServiceRadarAdditionsRevision.Load()
+	if value == nil {
+		return ""
+	}
+	revision, _ := value.(string)
+
+	return revision
+}
+
+func (c *Client) JA4SpecRevision() string {
+	value := c.lastJA4SpecRevision.Load()
+	if value == nil {
+		return ""
+	}
+	revision, _ := value.(string)
+
+	return revision
 }
 
 func (c *Client) RunningAsRoot() bool {

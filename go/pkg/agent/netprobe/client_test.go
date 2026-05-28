@@ -44,9 +44,12 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 				Sequence: frame.GetSequence(),
 				Payload: &netprobepb.NetprobeFrame_PingAck{
 					PingAck: &netprobepb.PingAck{
-						SentAtUnixNano:           ping.GetSentAtUnixNano(),
-						AckedAtUnixNano:          ping.GetSentAtUnixNano() + 1,
-						FingerprintEngineVersion: "test-engine",
+						SentAtUnixNano:                ping.GetSentAtUnixNano(),
+						AckedAtUnixNano:               ping.GetSentAtUnixNano() + 1,
+						FingerprintEngineVersion:      "test-engine",
+						P0FCorpusRevision:             "p0f-rev",
+						ServiceradarAdditionsRevision: "sr-additions-rev",
+						Ja4SpecRevision:               "ja4-rev",
 					},
 				},
 			}
@@ -92,6 +95,15 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	}
 	if got := client.FingerprintEngineVersion(); got != "test-engine" {
 		t.Fatalf("FingerprintEngineVersion() = %q, want test-engine", got)
+	}
+	if got := client.P0fCorpusRevision(); got != "p0f-rev" {
+		t.Fatalf("P0fCorpusRevision() = %q, want p0f-rev", got)
+	}
+	if got := client.ServiceRadarAdditionsRevision(); got != "sr-additions-rev" {
+		t.Fatalf("ServiceRadarAdditionsRevision() = %q, want sr-additions-rev", got)
+	}
+	if got := client.JA4SpecRevision(); got != "ja4-rev" {
+		t.Fatalf("JA4SpecRevision() = %q, want ja4-rev", got)
 	}
 
 	hash, err := client.ApplyConfig(ctx, &netprobepb.VisibilityAgentConfig{
