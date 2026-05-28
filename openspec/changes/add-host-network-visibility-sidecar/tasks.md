@@ -180,7 +180,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 18.9 Implement the userspace classifier that consumes the AF_XDP ring, runs the existing 9-dissector pack (relocated from `dpi.rs`'s pcap-driven loop), writes `classified_as` back to flow_table via BPF map syscall.
 - [x] 18.10 (amended) Wire the §31.9 OS-match ensemble to consume the §31.4 `p0f_signatures` ring buffer. One ensemble evaluation per matched SYN; emit `FingerprintEvent` per `design.md` D14.
 - [x] 18.11 Userspace map readers correlating 5-tuples to PIDs via the eBPF maps + `/proc` enrichment for `comm`, redacted `cmdline`, UID, container_id.
-- [ ] 18.12 Activate the `FlowAttributionEvents` IPC stream channel; emit one event per matched `(5-tuple, PID)` join from eBPF maps.
+- [x] 18.12 Activate the `FlowAttributionEvents` IPC stream channel; emit one event per matched `(5-tuple, PID)` join from eBPF maps.
 - [ ] 18.13 Activate the `ProcessSnapshots` IPC stream channel; periodic listener-map enumeration via `/proc` joined against eBPF `process_info` map.
 - [ ] 18.14 Add kernel-version probe at startup; refuse to attach eBPF programs on kernel < 5.8 and advertise `host-network-visibility = unavailable`. Remove the legacy `degraded` enum value from the agent capability advertising.
 - [ ] 18.15 CPU benchmark harness: synthesize a target workload (e.g. 500 Mbps / 50k pps mixed HTTP+TLS+DNS); assert sustained userspace CPU < 3% of one core post-cutover. Compare against the libpcap-stopgap baseline and document the delta in the runbook.

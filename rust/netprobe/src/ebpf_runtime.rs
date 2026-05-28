@@ -11,12 +11,12 @@ use std::{io, path::Path, sync::Arc};
 use crate::{
     af_xdp::{self, DEFAULT_REDIRECT_BUDGET},
     af_xdp_classifier::AfXdpClassifierRuntime,
-    attribution::AyaAttributionReader,
+    attribution::{AyaAttributionReader, FlowAttributionRuntime},
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
     fingerprint::P0fSignatureRuntime,
     metrics::Metrics,
-    proto::netprobe::{DpiEvent, FingerprintEvent},
+    proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent},
     runtime_config::{DpiEventGate, FingerprintEventGate},
 };
 
@@ -37,7 +37,7 @@ unsafe impl aya::Pod for InterfaceConfig {}
 pub struct NetprobeEbpfRuntime {
     _classifier_runtime: AfXdpClassifierRuntime,
     _p0f_runtime: P0fSignatureRuntime,
-    _attribution_reader: AyaAttributionReader,
+    _attribution_runtime: FlowAttributionRuntime,
     _interface_allowlist: AyaHashMap<aya::maps::MapData, u32, InterfaceConfig>,
     _ebpf: Ebpf,
 }
@@ -49,6 +49,7 @@ impl NetprobeEbpfRuntime {
         metrics: Metrics,
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
         dpi_events: broadcast::Sender<DpiEvent>,
+        flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
@@ -63,6 +64,11 @@ impl NetprobeEbpfRuntime {
             metrics.clone(),
         )?;
         let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
+        let attribution_runtime = FlowAttributionRuntime::start(
+            attribution_reader,
+            flow_attribution_events,
+            metrics.clone(),
+        )?;
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let classifier_runtime = AfXdpClassifierRuntime::start_from_ebpf(
             &config.capture_interfaces,
@@ -76,7 +82,7 @@ impl NetprobeEbpfRuntime {
         Ok(Self {
             _classifier_runtime: classifier_runtime,
             _p0f_runtime: p0f_runtime,
-            _attribution_reader: attribution_reader,
+            _attribution_runtime: attribution_runtime,
             _interface_allowlist: interface_allowlist,
             _ebpf: ebpf,
         })

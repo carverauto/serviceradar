@@ -1778,9 +1778,26 @@ func (x *DpiEvent) GetDissectorId() string {
 }
 
 type FlowAttributionEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	LocalIp            string                 `protobuf:"bytes,1,opt,name=local_ip,json=localIp,proto3" json:"local_ip,omitempty"`
+	LocalPort          uint32                 `protobuf:"varint,2,opt,name=local_port,json=localPort,proto3" json:"local_port,omitempty"`
+	RemoteIp           string                 `protobuf:"bytes,3,opt,name=remote_ip,json=remoteIp,proto3" json:"remote_ip,omitempty"`
+	RemotePort         uint32                 `protobuf:"varint,4,opt,name=remote_port,json=remotePort,proto3" json:"remote_port,omitempty"`
+	TransportProtocol  string                 `protobuf:"bytes,5,opt,name=transport_protocol,json=transportProtocol,proto3" json:"transport_protocol,omitempty"`
+	Pid                uint32                 `protobuf:"varint,6,opt,name=pid,proto3" json:"pid,omitempty"`
+	Tgid               uint32                 `protobuf:"varint,7,opt,name=tgid,proto3" json:"tgid,omitempty"`
+	Uid                uint32                 `protobuf:"varint,8,opt,name=uid,proto3" json:"uid,omitempty"`
+	Gid                uint32                 `protobuf:"varint,9,opt,name=gid,proto3" json:"gid,omitempty"`
+	Comm               string                 `protobuf:"bytes,10,opt,name=comm,proto3" json:"comm,omitempty"`
+	RedactedCmdline    []string               `protobuf:"bytes,11,rep,name=redacted_cmdline,json=redactedCmdline,proto3" json:"redacted_cmdline,omitempty"`
+	ContainerId        string                 `protobuf:"bytes,12,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	ObservedAtUnixNano int64                  `protobuf:"varint,13,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
+	SocketAddress      uint64                 `protobuf:"varint,14,opt,name=socket_address,json=socketAddress,proto3" json:"socket_address,omitempty"`
+	EventKind          uint32                 `protobuf:"varint,15,opt,name=event_kind,json=eventKind,proto3" json:"event_kind,omitempty"`
+	OldState           int32                  `protobuf:"varint,16,opt,name=old_state,json=oldState,proto3" json:"old_state,omitempty"`
+	NewState           int32                  `protobuf:"varint,17,opt,name=new_state,json=newState,proto3" json:"new_state,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *FlowAttributionEvent) Reset() {
@@ -1811,6 +1828,125 @@ func (x *FlowAttributionEvent) ProtoReflect() protoreflect.Message {
 // Deprecated: Use FlowAttributionEvent.ProtoReflect.Descriptor instead.
 func (*FlowAttributionEvent) Descriptor() ([]byte, []int) {
 	return file_agent_netprobe_v1_netprobe_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *FlowAttributionEvent) GetLocalIp() string {
+	if x != nil {
+		return x.LocalIp
+	}
+	return ""
+}
+
+func (x *FlowAttributionEvent) GetLocalPort() uint32 {
+	if x != nil {
+		return x.LocalPort
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetRemoteIp() string {
+	if x != nil {
+		return x.RemoteIp
+	}
+	return ""
+}
+
+func (x *FlowAttributionEvent) GetRemotePort() uint32 {
+	if x != nil {
+		return x.RemotePort
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetTransportProtocol() string {
+	if x != nil {
+		return x.TransportProtocol
+	}
+	return ""
+}
+
+func (x *FlowAttributionEvent) GetPid() uint32 {
+	if x != nil {
+		return x.Pid
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetTgid() uint32 {
+	if x != nil {
+		return x.Tgid
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetUid() uint32 {
+	if x != nil {
+		return x.Uid
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetGid() uint32 {
+	if x != nil {
+		return x.Gid
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetComm() string {
+	if x != nil {
+		return x.Comm
+	}
+	return ""
+}
+
+func (x *FlowAttributionEvent) GetRedactedCmdline() []string {
+	if x != nil {
+		return x.RedactedCmdline
+	}
+	return nil
+}
+
+func (x *FlowAttributionEvent) GetContainerId() string {
+	if x != nil {
+		return x.ContainerId
+	}
+	return ""
+}
+
+func (x *FlowAttributionEvent) GetObservedAtUnixNano() int64 {
+	if x != nil {
+		return x.ObservedAtUnixNano
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetSocketAddress() uint64 {
+	if x != nil {
+		return x.SocketAddress
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetEventKind() uint32 {
+	if x != nil {
+		return x.EventKind
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetOldState() int32 {
+	if x != nil {
+		return x.OldState
+	}
+	return 0
+}
+
+func (x *FlowAttributionEvent) GetNewState() int32 {
+	if x != nil {
+		return x.NewState
+	}
+	return 0
 }
 
 type ProcessSnapshot struct {
@@ -2109,8 +2245,29 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"profile_id\x18\n" +
 	" \x01(\tR\tprofileId\x12!\n" +
-	"\fdissector_id\x18\v \x01(\tR\vdissectorId\"\x16\n" +
-	"\x14FlowAttributionEvent\"\x11\n" +
+	"\fdissector_id\x18\v \x01(\tR\vdissectorId\"\x9c\x04\n" +
+	"\x14FlowAttributionEvent\x12\x19\n" +
+	"\blocal_ip\x18\x01 \x01(\tR\alocalIp\x12\x1d\n" +
+	"\n" +
+	"local_port\x18\x02 \x01(\rR\tlocalPort\x12\x1b\n" +
+	"\tremote_ip\x18\x03 \x01(\tR\bremoteIp\x12\x1f\n" +
+	"\vremote_port\x18\x04 \x01(\rR\n" +
+	"remotePort\x12-\n" +
+	"\x12transport_protocol\x18\x05 \x01(\tR\x11transportProtocol\x12\x10\n" +
+	"\x03pid\x18\x06 \x01(\rR\x03pid\x12\x12\n" +
+	"\x04tgid\x18\a \x01(\rR\x04tgid\x12\x10\n" +
+	"\x03uid\x18\b \x01(\rR\x03uid\x12\x10\n" +
+	"\x03gid\x18\t \x01(\rR\x03gid\x12\x12\n" +
+	"\x04comm\x18\n" +
+	" \x01(\tR\x04comm\x12)\n" +
+	"\x10redacted_cmdline\x18\v \x03(\tR\x0fredactedCmdline\x12!\n" +
+	"\fcontainer_id\x18\f \x01(\tR\vcontainerId\x121\n" +
+	"\x15observed_at_unix_nano\x18\r \x01(\x03R\x12observedAtUnixNano\x12%\n" +
+	"\x0esocket_address\x18\x0e \x01(\x04R\rsocketAddress\x12\x1d\n" +
+	"\n" +
+	"event_kind\x18\x0f \x01(\rR\teventKind\x12\x1b\n" +
+	"\told_state\x18\x10 \x01(\x05R\boldState\x12\x1b\n" +
+	"\tnew_state\x18\x11 \x01(\x05R\bnewState\"\x11\n" +
 	"\x0fProcessSnapshot\"\x14\n" +
 	"\x12ExternalFlowRecord\"\x14\n" +
 	"\x12StartRemoteCapture\"\r\n" +

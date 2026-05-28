@@ -126,6 +126,7 @@ async fn main() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (fingerprint_event_tx, _) = broadcast::channel(4096);
     let (dpi_event_tx, _) = broadcast::channel(4096);
+    let (flow_attribution_event_tx, _) = broadcast::channel(4096);
     let runtime_config = RuntimeConfig::new(&config);
     let fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
@@ -152,6 +153,7 @@ async fn main() -> Result<()> {
                 metrics.clone(),
                 fingerprint_event_tx.clone(),
                 dpi_event_tx.clone(),
+                flow_attribution_event_tx.clone(),
                 Arc::clone(&fingerprint_gate),
                 Arc::clone(&dpi_gate),
             )
@@ -193,6 +195,7 @@ async fn main() -> Result<()> {
             args.socket,
             fingerprint_event_tx,
             dpi_event_tx,
+            flow_attribution_event_tx,
             runtime_config,
             metrics,
         )

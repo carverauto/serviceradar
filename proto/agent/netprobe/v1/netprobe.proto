@@ -212,7 +212,23 @@ message DpiEvent {
 }
 
 message FlowAttributionEvent {
-  // TODO(add-host-network-visibility-sidecar Phase 3): define attribution fields.
+  string local_ip = 1;
+  uint32 local_port = 2;
+  string remote_ip = 3;
+  uint32 remote_port = 4;
+  string transport_protocol = 5;
+  uint32 pid = 6;
+  uint32 tgid = 7;
+  uint32 uid = 8;
+  uint32 gid = 9;
+  string comm = 10;
+  repeated string redacted_cmdline = 11;
+  string container_id = 12;
+  int64 observed_at_unix_nano = 13;
+  uint64 socket_address = 14;
+  uint32 event_kind = 15;
+  int32 old_state = 16;
+  int32 new_state = 17;
 }
 
 message ProcessSnapshot {

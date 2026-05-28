@@ -57,6 +57,7 @@ type Sidecar struct {
 	eventClient   *Client
 	events        chan *netprobepb.FingerprintEvent
 	dpiEvents     chan *netprobepb.DpiEvent
+	flowEvents    chan *netprobepb.FlowAttributionEvent
 	healthy       atomic.Bool
 	unhealthy     atomic.Bool
 	runningAsRoot atomic.Bool
@@ -79,9 +80,10 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 	}
 
 	return &Sidecar{
-		cfg:       cfg,
-		events:    make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
-		dpiEvents: make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
+		cfg:        cfg,
+		events:     make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+		dpiEvents:  make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
+		flowEvents: make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
 	}
 }
 
@@ -211,6 +213,26 @@ func (s *Sidecar) DrainDPIEvents(max int) []*netprobepb.DpiEvent {
 	return events
 }
 
+func (s *Sidecar) DrainFlowAttributionEvents(max int) []*netprobepb.FlowAttributionEvent {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
+	}
+
+	events := make([]*netprobepb.FlowAttributionEvent, 0, max)
+	for len(events) < max {
+		select {
+		case event := <-s.flowEvents:
+			if event != nil {
+				events = append(events, event)
+			}
+		default:
+			return events
+		}
+	}
+
+	return events
+}
+
 func (s *Sidecar) currentClient() *Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -242,7 +264,7 @@ func (s *Sidecar) setClient(client *Client) {
 
 func (s *Sidecar) forwardEvents(client *Client) {
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		for event := range client.Events() {
@@ -259,6 +281,15 @@ func (s *Sidecar) forwardEvents(client *Client) {
 		for event := range client.DpiEvents() {
 			select {
 			case s.dpiEvents <- event:
+			default:
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for event := range client.FlowAttributionEvents() {
+			select {
+			case s.flowEvents <- event:
 			default:
 			}
 		}

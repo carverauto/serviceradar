@@ -1,9 +1,35 @@
 use std::{
     fs,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+#[cfg(target_os = "linux")]
+use std::{
+    collections::HashSet,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use crate::af_xdp_classifier::FlowKey;
+use crate::proto::netprobe::FlowAttributionEvent;
+
+#[cfg(target_os = "linux")]
+use crate::metrics::Metrics;
+
+const AF_INET: u16 = 2;
+const AF_INET6: u16 = 10;
+const IPPROTO_TCP: u16 = 6;
+const IPPROTO_UDP: u16 = 17;
+const FLOW_ENDPOINT_A: u8 = 1;
+const FLOW_ENDPOINT_B: u8 = 2;
+#[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,6 +88,12 @@ pub struct AttributedFlow {
     pub flow: FlowKey,
     pub pid: FlowPidRecord,
     pub process: Option<ProcessDetails>,
+}
+
+impl AttributedFlow {
+    pub fn event(&self) -> Option<FlowAttributionEvent> {
+        flow_attribution_event(self, now_unix_nano())
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +166,93 @@ impl AyaAttributionReader {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+pub struct FlowAttributionRuntime {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+impl FlowAttributionRuntime {
+    pub fn start(
+        reader: AyaAttributionReader,
+        tx: tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+        metrics: Metrics,
+    ) -> std::io::Result<Self> {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_worker = Arc::clone(&stop);
+        let thread = thread::Builder::new()
+            .name("netprobe-flow-attribution-map-reader".to_owned())
+            .spawn(move || {
+                let mut seen = HashSet::new();
+                while !stop_worker.load(Ordering::Relaxed) {
+                    emit_snapshot(&reader, &tx, &metrics, &mut seen);
+                    thread::sleep(FLOW_ATTRIBUTION_POLL_INTERVAL);
+                }
+            })?;
+
+        Ok(Self {
+            stop,
+            thread: Some(thread),
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for FlowAttributionRuntime {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            if thread.join().is_err() {
+                log::warn!("flow attribution map reader thread panicked during shutdown");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn emit_snapshot(
+    reader: &AyaAttributionReader,
+    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+    metrics: &Metrics,
+    seen: &mut HashSet<FlowAttributionJoinKey>,
+) {
+    for flow in reader.snapshot() {
+        let key = FlowAttributionJoinKey::from(&flow);
+        if !seen.insert(key) {
+            continue;
+        }
+        let Some(event) = flow.event() else {
+            continue;
+        };
+        metrics.inc_flow_attribution_events();
+        if tx.send(event).is_err() {
+            metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct FlowAttributionJoinKey {
+    flow: FlowKey,
+    pid: u32,
+    tgid: u32,
+}
+
+#[cfg(target_os = "linux")]
+impl From<&AttributedFlow> for FlowAttributionJoinKey {
+    fn from(value: &AttributedFlow) -> Self {
+        Self {
+            flow: value.flow,
+            pid: value.pid.pid,
+            tgid: value.pid.tgid,
+        }
+    }
+}
+
 fn comm_from_bytes(bytes: &[u8; 16]) -> String {
     let end = bytes
         .iter()
@@ -171,13 +290,96 @@ fn container_id(proc_root: &Path, tgid: u32) -> Option<String> {
         .map(str::to_string)
 }
 
+fn flow_attribution_event(
+    flow: &AttributedFlow,
+    observed_at_unix_nano: i64,
+) -> Option<FlowAttributionEvent> {
+    let (local_ip, local_port, remote_ip, remote_port) =
+        endpoints(&flow.flow, flow.pid.local_endpoint)?;
+    let process = flow.process.as_ref();
+
+    Some(FlowAttributionEvent {
+        local_ip: local_ip.to_string(),
+        local_port: u32::from(local_port),
+        remote_ip: remote_ip.to_string(),
+        remote_port: u32::from(remote_port),
+        transport_protocol: transport_protocol(flow.flow.transport_protocol),
+        pid: flow.pid.pid,
+        tgid: flow.pid.tgid,
+        uid: process.map_or(flow.pid.uid, |details| details.uid),
+        gid: process.map_or(flow.pid.gid, |details| details.gid),
+        comm: process
+            .map(|details| details.comm.clone())
+            .unwrap_or_default(),
+        redacted_cmdline: process
+            .map(|details| details.cmdline.clone())
+            .unwrap_or_default(),
+        container_id: process
+            .and_then(|details| details.container_id.clone())
+            .unwrap_or_default(),
+        observed_at_unix_nano,
+        socket_address: flow.pid.socket_address,
+        event_kind: u32::from(flow.pid.event_kind),
+        old_state: flow.pid.old_state,
+        new_state: flow.pid.new_state,
+    })
+}
+
+fn endpoints(flow: &FlowKey, local_endpoint: u8) -> Option<(IpAddr, u16, IpAddr, u16)> {
+    let endpoint_a = ip_addr(flow.address_family, flow.endpoint_a_addr)?;
+    let endpoint_b = ip_addr(flow.address_family, flow.endpoint_b_addr)?;
+    match local_endpoint {
+        FLOW_ENDPOINT_A => Some((
+            endpoint_a,
+            flow.endpoint_a_port,
+            endpoint_b,
+            flow.endpoint_b_port,
+        )),
+        FLOW_ENDPOINT_B => Some((
+            endpoint_b,
+            flow.endpoint_b_port,
+            endpoint_a,
+            flow.endpoint_a_port,
+        )),
+        _ => None,
+    }
+}
+
+fn ip_addr(address_family: u16, bytes: [u8; 16]) -> Option<IpAddr> {
+    match address_family {
+        AF_INET => Some(IpAddr::V4(Ipv4Addr::new(
+            bytes[0], bytes[1], bytes[2], bytes[3],
+        ))),
+        AF_INET6 => Some(IpAddr::V6(Ipv6Addr::from(bytes))),
+        _ => None,
+    }
+}
+
+fn transport_protocol(value: u16) -> String {
+    match value {
+        IPPROTO_TCP => "tcp".to_owned(),
+        IPPROTO_UDP => "udp".to_owned(),
+        _ => value.to_string(),
+    }
+}
+
+fn now_unix_nano() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos() as i64)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
     use super::{
-        comm_from_bytes, container_id, redacted_cmdline, ProcessInfoRecord, ProcfsEnricher,
+        comm_from_bytes, container_id, flow_attribution_event, redacted_cmdline, AttributedFlow,
+        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
+        IPPROTO_TCP,
     };
+    use crate::af_xdp_classifier::FlowKey;
 
     #[test]
     fn comm_stops_at_nul() {
@@ -229,6 +431,58 @@ mod tests {
         assert_eq!(details.last_seen_ns, 42);
     }
 
+    #[test]
+    fn builds_flow_attribution_event_with_local_endpoint() {
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 443,
+                endpoint_b_port: 51_000,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: 2,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1000,
+                socket_address: 0xfeed,
+                last_seen_ns: 99,
+                old_state: 1,
+                new_state: 2,
+                local_endpoint: FLOW_ENDPOINT_B,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1000,
+                comm: "curl".to_string(),
+                cmdline: vec![
+                    "/usr/bin/curl".to_string(),
+                    "[redacted 1 arg(s)]".to_string(),
+                ],
+                container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+                last_seen_ns: 99,
+            }),
+        };
+
+        let event = flow_attribution_event(&flow, 123_456).unwrap();
+
+        assert_eq!(event.local_ip, "198.51.100.20");
+        assert_eq!(event.local_port, 51_000);
+        assert_eq!(event.remote_ip, "192.0.2.10");
+        assert_eq!(event.remote_port, 443);
+        assert_eq!(event.transport_protocol, "tcp");
+        assert_eq!(event.comm, "curl");
+        assert_eq!(event.redacted_cmdline.len(), 2);
+        assert_eq!(event.observed_at_unix_nano, 123_456);
+    }
+
     fn temp_proc(pid: &str, cmdline: &[u8], cgroup: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         let pid_dir = dir.path().join(pid);
@@ -236,5 +490,11 @@ mod tests {
         fs::write(pid_dir.join("cmdline"), cmdline).unwrap();
         fs::write(pid_dir.join("cgroup"), cgroup).unwrap();
         dir
+    }
+
+    fn ipv4(bytes: [u8; 4]) -> [u8; 16] {
+        let mut out = [0u8; 16];
+        out[..4].copy_from_slice(&bytes);
+        out
     }
 }
