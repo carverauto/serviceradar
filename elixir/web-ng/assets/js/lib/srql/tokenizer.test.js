@@ -82,4 +82,14 @@ describe("SRQL tokenizer", () => {
       {start: 16, end: 32, kind: "value", text: "\"http://service\""},
     ])
   })
+
+  test("sort field and direction are classified separately", () => {
+    const query = "in:devices ip:%192.168% sort:last_seen:desc limit:100 include_inactive:true"
+    const result = tokenize(query, query.length)
+
+    expect(result.tokens).toContainEqual({start: 24, end: 29, kind: "control", text: "sort:"})
+    expect(result.tokens).toContainEqual({start: 29, end: 38, kind: "field", text: "last_seen"})
+    expect(result.tokens).toContainEqual({start: 38, end: 39, kind: "op", text: ":"})
+    expect(result.tokens).toContainEqual({start: 39, end: 43, kind: "value", text: "desc"})
+  })
 })

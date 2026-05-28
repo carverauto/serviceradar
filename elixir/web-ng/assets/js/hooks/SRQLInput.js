@@ -1,6 +1,7 @@
 import {tokenize} from "../lib/srql/tokenizer.js"
 
 const BOOLEAN_VALUES = ["true", "false"]
+const SORT_DIRECTIONS = ["asc", "desc"]
 const TIME_VALUES = ["last_1h", "last_24h", "last_7d", "last_30d"]
 const CONTROL_DESCRIPTIONS = {
   "by:": "Group or aggregate results by a field.",
@@ -197,6 +198,10 @@ export default {
     }
 
     const control = nearestControl(state.tokens, state.activeRange?.start ?? 0)
+    if (control?.text === "sort:") {
+      return SORT_DIRECTIONS.map(value => ({value, label: value, detail: "Sort direction", slot: "value"}))
+    }
+
     if (control?.text === "time:") {
       return TIME_VALUES.map(value => ({value, label: value, detail: "Time range", slot: "value"}))
     }
@@ -334,6 +339,10 @@ export default {
     if (token.kind === "entity") return !this.catalog.entities?.[token.text]
     if (token.kind === "field") return Boolean(this.state.entity) && !this.fieldsForEntity(this.state.entity).includes(token.text)
     if (token.kind === "op") return !(this.catalog.operators || []).includes(token.text)
+    if (token.kind === "value" && nearestControl(this.state.tokens, token.start)?.text === "sort:") {
+      return !SORT_DIRECTIONS.includes(token.text.toLowerCase())
+    }
+
     if (token.kind === "control") {
       const controls = new Set(["in:", "where", ...(this.catalog.control_tokens || [])])
       return !controls.has(token.text)
