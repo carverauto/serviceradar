@@ -12,6 +12,11 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	testCapabilityEnabled     = "enabled"
+	testCapabilityUnavailable = "unavailable"
+)
+
 func TestMarshalJSONLimited(t *testing.T) {
 	payload := map[string]string{"status": "ok"}
 
@@ -101,15 +106,15 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 		t.Fatalf("failed to decode capability payload: %v", err)
 	}
 
-	if payload.HostNetworkVisibility.Fingerprint != "enabled" {
-		t.Fatalf("fingerprint = %q, want enabled", payload.HostNetworkVisibility.Fingerprint)
+	if payload.HostNetworkVisibility.Fingerprint != testCapabilityEnabled {
+		t.Fatalf("fingerprint = %q, want %s", payload.HostNetworkVisibility.Fingerprint, testCapabilityEnabled)
 	}
 	if !payload.HostNetworkVisibility.RunningAsRoot {
 		t.Fatal("running_as_root = false, want true")
 	}
-	if payload.HostNetworkVisibility.DPI != "unavailable" ||
-		payload.HostNetworkVisibility.FlowAttribution != "unavailable" ||
-		payload.HostNetworkVisibility.ProcessSnapshot != "unavailable" {
+	if payload.HostNetworkVisibility.DPI != testCapabilityUnavailable ||
+		payload.HostNetworkVisibility.FlowAttribution != testCapabilityUnavailable ||
+		payload.HostNetworkVisibility.ProcessSnapshot != testCapabilityUnavailable {
 		t.Fatalf("unexpected unavailable surfaces: %#v", payload.HostNetworkVisibility)
 	}
 
@@ -130,8 +135,8 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 		t.Fatalf("failed to decode capability payload: %v", err)
 	}
 
-	if payload.HostNetworkVisibility.Fingerprint != "unavailable" {
-		t.Fatalf("fingerprint = %q, want unavailable", payload.HostNetworkVisibility.Fingerprint)
+	if payload.HostNetworkVisibility.Fingerprint != testCapabilityUnavailable {
+		t.Fatalf("fingerprint = %q, want %s", payload.HostNetworkVisibility.Fingerprint, testCapabilityUnavailable)
 	}
 	if containsCapability(payload.Capabilities, capabilityHostNetworkVisibilityFingerprintEnabled) {
 		t.Fatalf("capabilities unexpectedly advertised enabled fingerprint: %#v", payload.Capabilities)
@@ -141,7 +146,7 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 	pl := NewPushLoop(
 		&Server{
-			config: &ServerConfig{AgentID: "agent-1", Partition: "default"},
+			config: &ServerConfig{AgentID: desktopConsoleAgentID, Partition: "default"},
 			sidecarStatus: fakeSidecarStatusProvider{
 				statuses: []sidecar.Status{{Name: "netprobe", State: sidecar.StateRunning, PID: 4321}},
 			},
@@ -158,8 +163,8 @@ func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 	if status.GetServiceName() != agentCapabilityServiceName {
 		t.Fatalf("service_name = %q, want %q", status.GetServiceName(), agentCapabilityServiceName)
 	}
-	if status.GetAgentId() != "agent-1" {
-		t.Fatalf("agent_id = %q, want agent-1", status.GetAgentId())
+	if status.GetAgentId() != desktopConsoleAgentID {
+		t.Fatalf("agent_id = %q, want %s", status.GetAgentId(), desktopConsoleAgentID)
 	}
 
 	var payload agentCapabilityStatusPayload
@@ -169,8 +174,8 @@ func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 	if len(payload.Sidecars) != 1 || payload.Sidecars[0].GetName() != "netprobe" {
 		t.Fatalf("payload sidecars = %#v, want netprobe status", payload.Sidecars)
 	}
-	if payload.HostNetworkVisibility.Fingerprint != "enabled" {
-		t.Fatalf("fingerprint = %q, want enabled", payload.HostNetworkVisibility.Fingerprint)
+	if payload.HostNetworkVisibility.Fingerprint != testCapabilityEnabled {
+		t.Fatalf("fingerprint = %q, want %s", payload.HostNetworkVisibility.Fingerprint, testCapabilityEnabled)
 	}
 	if !containsCapability(payload.Capabilities, capabilityHostNetworkVisibilityFingerprintEnabled) {
 		t.Fatalf("capabilities missing enabled fingerprint: %#v", payload.Capabilities)
@@ -229,7 +234,7 @@ func TestBuildResultsStatusChunksForAgentIncludesRuntimeMetadata(t *testing.T) {
 		},
 		"sysmon",
 		"sysmon",
-		"agent-1",
+		desktopConsoleAgentID,
 		"default",
 		"gateway-1",
 	)
@@ -273,7 +278,7 @@ func TestBuildResultsStatusChunksForAgentFramesEachStatusStream(t *testing.T) {
 		},
 		"sync",
 		"sync",
-		"agent-1",
+		desktopConsoleAgentID,
 		"default",
 		"gateway-1",
 	)

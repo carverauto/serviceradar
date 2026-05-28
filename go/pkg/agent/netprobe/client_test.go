@@ -29,7 +29,7 @@ import (
 
 func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	serverDone := make(chan struct{})
 	go func() {
@@ -74,7 +74,7 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	}()
 
 	client := NewClient(clientConn, 4)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -106,7 +106,7 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 		t.Fatal("timed out waiting for fingerprint event")
 	}
 
-	client.Close()
+	_ = client.Close()
 	<-serverDone
 }
 
@@ -121,7 +121,7 @@ func errorResponse(sequence uint64, code, message string) *netprobepb.NetprobeFr
 
 func TestClientReturnsErrorFrame(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	go handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
 		return &netprobepb.NetprobeFrame{
@@ -133,7 +133,7 @@ func TestClientReturnsErrorFrame(t *testing.T) {
 	})
 
 	client := NewClient(clientConn, 4)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	_, err := client.ApplyConfig(context.Background(), &netprobepb.VisibilityAgentConfig{})
 	var errorFrame ErrorFrame
@@ -147,11 +147,11 @@ func TestClientReturnsErrorFrame(t *testing.T) {
 
 func TestClientDropsFingerprintEventsOnBackpressure(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	recorder := &testEventDropRecorder{}
 	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	serverDone := make(chan struct{})
 	go func() {
@@ -206,16 +206,16 @@ func TestClientDropsFingerprintEventsOnBackpressure(t *testing.T) {
 	}
 	recorder.assertOne(t, EventStreamFingerprint, EventDropBackpressure)
 
-	client.Close()
+	_ = client.Close()
 	<-serverDone
 }
 
 func TestClientCloseClosesEventsFromReadLoop(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	client := NewClient(clientConn, 4)
-	client.Close()
+	_ = client.Close()
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

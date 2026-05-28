@@ -27,10 +27,12 @@ import (
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+const testFingerprintIP = "192.0.2.10"
+
 func TestFingerprintEventToDiscoveredDeviceTCP(t *testing.T) {
 	observed := time.Date(2026, 5, 27, 14, 30, 1, 123, time.UTC)
 	device, err := FingerprintEventToDiscoveredDevice(&netprobepb.FingerprintEvent{
-		Ip:                 " 192.0.2.10 ",
+		Ip:                 " " + testFingerprintIP + " ",
 		ProfileId:          "profile-1",
 		InterfaceName:      "en0",
 		ObservedAtUnixNano: observed.UnixNano(),
@@ -53,8 +55,8 @@ func TestFingerprintEventToDiscoveredDeviceTCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FingerprintEventToDiscoveredDevice() error = %v", err)
 	}
-	if device.GetIp() != "192.0.2.10" {
-		t.Fatalf("device IP = %q, want 192.0.2.10", device.GetIp())
+	if device.GetIp() != testFingerprintIP {
+		t.Fatalf("device IP = %q, want %s", device.GetIp(), testFingerprintIP)
 	}
 
 	metadata := device.GetMetadata()
@@ -69,21 +71,21 @@ func TestFingerprintEventToDiscoveredDeviceTCP(t *testing.T) {
 	assertMetadata(t, metadata, "agent_id", "agent-a")
 	assertMetadata(t, metadata, "gateway_id", "gateway-a")
 	assertMetadata(t, metadata, "_alias_last_seen_at", "2026-05-27T14:30:01.000000123Z")
-	assertMetadata(t, metadata, "_alias_last_seen_ip", "192.0.2.10")
+	assertMetadata(t, metadata, "_alias_last_seen_ip", testFingerprintIP)
 	assertMetadata(t, metadata, "_alias_collector_ip", "198.51.100.4")
-	assertMetadata(t, metadata, "ip_alias:192.0.2.10", "2026-05-27T14:30:01.000000123Z")
+	assertMetadata(t, metadata, "ip_alias:"+testFingerprintIP, "2026-05-27T14:30:01.000000123Z")
 
 	alias := devicealias.FromMetadata(metadata)
 	if alias == nil {
 		t.Fatal("devicealias.FromMetadata() = nil, want alias record")
 	}
-	if alias.CurrentIP != "192.0.2.10" {
-		t.Fatalf("alias CurrentIP = %q, want 192.0.2.10", alias.CurrentIP)
+	if alias.CurrentIP != testFingerprintIP {
+		t.Fatalf("alias CurrentIP = %q, want %s", alias.CurrentIP, testFingerprintIP)
 	}
 	if alias.CollectorIP != "198.51.100.4" {
 		t.Fatalf("alias CollectorIP = %q, want 198.51.100.4", alias.CollectorIP)
 	}
-	if got := alias.IPs["192.0.2.10"]; got != "2026-05-27T14:30:01.000000123Z" {
+	if got := alias.IPs[testFingerprintIP]; got != "2026-05-27T14:30:01.000000123Z" {
 		t.Fatalf("alias IP timestamp = %q, want observed timestamp", got)
 	}
 }

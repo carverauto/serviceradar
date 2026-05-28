@@ -29,8 +29,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const testWindowsGOOS = "windows"
+
+var errTestProbeFailed = errors.New("probe failed")
+
 func TestManagerStartsHealthChecksAndStopsChild(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == testWindowsGOOS {
 		t.Skip("shell-script child process test is unix-only")
 	}
 
@@ -85,7 +89,7 @@ while true; do sleep 1; done
 }
 
 func TestManagerMarksUnhealthyAfterConsecutiveProbeFailures(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == testWindowsGOOS {
 		t.Skip("shell-script child process test is unix-only")
 	}
 
@@ -104,7 +108,7 @@ while true; do sleep 1; done
 		},
 	}
 	mgr := newTestManager(t, dir, ClientFactory(func(context.Context, string) (Client, error) {
-		return nil, errors.New("probe failed")
+		return nil, errTestProbeFailed
 	}), sc)
 	mgr.cfg.UnhealthyThreshold = 2
 
@@ -128,7 +132,7 @@ while true; do sleep 1; done
 }
 
 func TestManagerOpensCircuitBreakerAfterRestartLimit(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == testWindowsGOOS {
 		t.Skip("shell-script child process test is unix-only")
 	}
 
@@ -334,7 +338,7 @@ func newUnitManager(t *testing.T) *Manager {
 
 	dir := t.TempDir()
 	return newTestManager(t, dir, ClientFactory(func(context.Context, string) (Client, error) {
-		return nil, errors.New("probe failed")
+		return nil, errTestProbeFailed
 	}), &fakeSidecar{name: "netprobe", binary: filepath.Join(dir, "unused")})
 }
 

@@ -51,6 +51,7 @@ var (
 	ErrInvalidName     = errors.New("sidecar name is required")
 	ErrNoClientFactory = errors.New("sidecar client factory is required")
 	ErrNilClient       = errors.New("sidecar client factory returned nil client")
+	ErrSidecarExited   = errors.New("sidecar exited")
 )
 
 // Config controls manager paths and supervision timing.
@@ -209,14 +210,14 @@ func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
 
 	for {
 		if ctx.Err() != nil {
-			m.setState(name, StateStopped, 0, "")
+			m.setState(name, StateStopped, "")
 			return
 		}
 
 		runStart := time.Now()
 		err := m.runOnce(ctx, sc)
 		if ctx.Err() != nil {
-			m.setState(name, StateStopped, 0, "")
+			m.setState(name, StateStopped, "")
 			return
 		}
 
@@ -225,12 +226,12 @@ func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
 			if err != nil {
 				lastErr = err.Error()
 			}
-			m.setState(name, StateCircuitOpen, 0, lastErr)
+			m.setState(name, StateCircuitOpen, lastErr)
 			sc.OnUnhealthy(fmt.Errorf("sidecar %s restart circuit breaker opened: %w", name, err))
 			return
 		}
 
-		m.setState(name, StateRestarting, 0, errorString(err))
+		m.setState(name, StateRestarting, errorString(err))
 		if time.Since(runStart) >= m.cfg.RestartBackoffMax {
 			backoff = m.cfg.RestartBackoffInitial
 		}
@@ -238,7 +239,7 @@ func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			m.setState(name, StateStopped, 0, "")
+			m.setState(name, StateStopped, "")
 			return
 		case <-timer.C:
 		}
@@ -276,7 +277,7 @@ func (m *Manager) runOnce(ctx context.Context, sc Sidecar) error {
 		return fmt.Errorf("create sidecar stderr pipe: %w", err)
 	}
 
-	m.setState(name, StateStarting, 0, "")
+	m.setState(name, StateStarting, "")
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start sidecar %s: %w", name, err)
 	}
@@ -303,10 +304,10 @@ func (m *Manager) runOnce(ctx context.Context, sc Sidecar) error {
 
 	m.setExited(name, errorString(err))
 	if err == nil {
-		return fmt.Errorf("sidecar %s exited", name)
+		return fmt.Errorf("%w: %s", ErrSidecarExited, name)
 	}
 
-	return fmt.Errorf("sidecar %s exited: %w", name, err)
+	return fmt.Errorf("%w: %s: %w", ErrSidecarExited, name, err)
 }
 
 func (m *Manager) healthLoop(ctx context.Context, sc Sidecar, socketPath string, pid int) {
@@ -374,7 +375,7 @@ func (m *Manager) probeHealth(
 	return nil
 }
 
-func (m *Manager) setState(name string, state State, pid int, lastError string) {
+func (m *Manager) setState(name string, state State, lastError string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -383,7 +384,7 @@ func (m *Manager) setState(name string, state State, pid int, lastError string) 
 		return
 	}
 	rec.status.State = state
-	rec.status.PID = pid
+	rec.status.PID = 0
 	rec.status.LastError = lastError
 }
 
@@ -455,20 +456,20 @@ func (m *Manager) recordRestart(name string, err error) bool {
 
 	now := time.Now().UTC()
 	cutoff := now.Add(-time.Minute)
-	window := rec.restartWindow[:0]
-	for _, ts := range rec.restartWindow {
+	oldWindow := rec.restartWindow
+	rec.restartWindow = rec.restartWindow[:0]
+	for _, ts := range oldWindow {
 		if ts.After(cutoff) {
-			window = append(window, ts)
+			rec.restartWindow = append(rec.restartWindow, ts)
 		}
 	}
 
-	if len(window) >= m.cfg.RestartLimitPerMinute {
-		rec.restartWindow = window
+	if len(rec.restartWindow) >= m.cfg.RestartLimitPerMinute {
 		rec.status.LastError = errorString(err)
 		return false
 	}
 
-	rec.restartWindow = append(window, now)
+	rec.restartWindow = append(rec.restartWindow, now)
 	rec.status.RestartCount++
 	return true
 }

@@ -121,22 +121,6 @@ func parseFingerprintConfig(cfg *monitoringpb.VisibilityFingerprintConfig) *netp
 	}
 }
 
-func compactStrings(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-
-	compacted := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			compacted = append(compacted, value)
-		}
-	}
-
-	return compacted
-}
-
 func trimStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil

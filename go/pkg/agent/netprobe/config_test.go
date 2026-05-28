@@ -31,7 +31,7 @@ func TestParseVisibilityConfig(t *testing.T) {
 		DeviceBindings: []*monitoringpb.VisibilityDeviceBinding{
 			nil,
 			{
-				Ip:               " 192.0.2.10 ",
+				Ip:               " " + testFingerprintIP + " ",
 				ProfileId:        " profile-1 ",
 				ProfileName:      " Linux servers ",
 				SampleIntervalMs: 500,
@@ -66,8 +66,8 @@ func TestParseVisibilityConfig(t *testing.T) {
 	}
 
 	binding := cfg.GetDeviceBindings()[0]
-	if binding.GetIp() != "192.0.2.10" {
-		t.Fatalf("binding IP = %q, want 192.0.2.10", binding.GetIp())
+	if binding.GetIp() != testFingerprintIP {
+		t.Fatalf("binding IP = %q, want %s", binding.GetIp(), testFingerprintIP)
 	}
 	if binding.GetProfileId() != "profile-1" {
 		t.Fatalf("binding ProfileId = %q, want profile-1", binding.GetProfileId())

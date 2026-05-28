@@ -49,7 +49,7 @@ func TestSidecarDefaultsAndArgs(t *testing.T) {
 
 func TestSidecarCapturesEngineVersionOnHealthy(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	go handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
 		ping := frame.GetPing()
@@ -66,7 +66,7 @@ func TestSidecarCapturesEngineVersionOnHealthy(t *testing.T) {
 	})
 
 	client := NewClient(clientConn, 4)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if err := client.Ping(context.Background()); err != nil {
 		t.Fatalf("Ping() error = %v", err)
 	}
