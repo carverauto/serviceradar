@@ -32,7 +32,7 @@
 - [x] 4.10 Ensure Armis and other source updates cannot reduce the inventory-visible composite score below a higher active Bumblebee contribution.
 
 ## 5. UI, API, And Docs
-- [ ] 5.1 Add device detail API data for Bumblebee posture, catalog version, last scan time, coverage state, skipped roots, and active finding counts.
+- [x] 5.1 Add device detail API data for Bumblebee posture, catalog version, last scan time, coverage state, skipped roots, and active finding counts.
 - [x] 5.2 Add a device detail Security/Supply Chain panel showing Bumblebee status, risk score, coverage, and active findings.
 - [x] 5.3 Add docs for enabling the scanner service, choosing roots/profiles, catalog refresh behavior, coverage states, and privacy limits.
 
