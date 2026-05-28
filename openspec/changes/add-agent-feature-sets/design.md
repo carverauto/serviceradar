@@ -154,7 +154,9 @@ agent. Rationale (Datadog): a separate plugin binary is its own compilation unit
 the base agent **never imports the add-on's Go packages** and its dependency set and
 size do not grow as capabilities are added — while still being runtime-selectable.
 `compiled-in` is reserved for capabilities too coupled to the agent to extract
-(today: remote-access).
+(today: remote-access). Signed `pushed-artifact` tarballs are the **default** delivery
+for new add-ons; `os-package` (deb/rpm) is a secondary option for hosts that prefer
+package-manager parity.
 
 ## Out-of-process plugins via HashiCorp go-plugin
 The `agent-sidecar` model is implemented with `github.com/hashicorp/go-plugin`:
@@ -219,13 +221,12 @@ First-class because ServiceRadar agents run on edge/size-sensitive hosts:
 - Build emits, per add-on, a deterministic bundle per `(os, arch)` plus a
   `metadata.json` and `sha256`, via a `build/native_addons/addon_inventory.bzl`
   inventory analogous to `plugin_inventory.bzl`.
-- **Two signatures**, reusing the existing payload-agnostic tooling: Cosign/Sigstore
-  over the OCI digest (`scripts/cosign_common.sh`) and an ed25519 upload-signature
-  (`build/wasm_plugins/upload_signature_tool.go`). Keys come only from the runtime
-  secret store / env (`COSIGN_KEY_REF` e.g. `hashivault://cosign-native-addons`,
-  `PLUGIN_UPLOAD_SIGNING_*`). **No private keys in source**; only public trust
-  material is committed. A distinct signing-key id for native add-ons lets trust be
-  scoped/revoked independently of WASM plugins.
+- **Two signatures**, reusing the existing payload-agnostic tooling **and the existing
+  signing keys**: Cosign/Sigstore over the OCI digest (`scripts/cosign_common.sh`) and
+  an ed25519 upload-signature (`build/wasm_plugins/upload_signature_tool.go`). Native
+  add-ons reuse the same `COSIGN_KEY_REF` and upload-signing key already used for WASM
+  plugins (no new key). Keys come only from the runtime secret store / env; **no
+  private keys in source**, only public trust material is committed.
 - A `serviceradar-native-addon-index.json` is generated and published as a release
   asset, with per-arch digests. The importer reuses the verify-then-mirror pipeline
   (trusted-host allowlist, bounded fetch, digest + Cosign + upload-signature checks),
@@ -250,6 +251,12 @@ First-class because ServiceRadar agents run on edge/size-sensitive hosts:
   state-machine semantics differ (a long-lived plugin process restarts on upgrade vs.
   a reloaded WASM module). They **share** the importer/verification modules, the
   `PluginConfigForm` schema→form renderer, and the Edge Ops discovery panel.
+- **Decision — feature-set bundles are a v1 UI grouping, not a resource.** The add-on
+  is the primitive. For v1, a "feature set" is an Edge Ops multi-select: an operator
+  picks one or more add-ons and applies them to targets, and each is recorded as an
+  individual `AddonAssignment`. There is no saved, named `FeatureSet` resource yet; a
+  first-class, reusable/curated bundle resource is deferred until there is demand and
+  can be added later without changing the add-on/assignment core.
 
 ## Delivery into agent config
 - Assignments compile through `AgentConfigGenerator` into a dedicated typed add-on
@@ -362,14 +369,15 @@ A first-party SDK lowers the authoring bar, parallel to the WASM `serviceradar-s
 - **Coordination churn with in-flight changes.** This change defines the contract;
   Bumblebee/netprobe/remote-access conform in follow-ups owned by the maintainer.
 
+## Resolved decisions
+- **Default delivery:** signed `pushed-artifact` tarballs; `os-package` (deb/rpm) is a
+  secondary option.
+- **Signing:** reuse the existing WASM signing key + infra (no native-addon-specific
+  key).
+- **Feature-set bundles:** v1 UI multi-select grouping over add-ons; no first-class
+  bundle resource yet.
+
 ## Open questions
-- Bundle vs. OS package as the canonical delivery for privileged add-ons: prefer
-  signed `pushed-artifact` tarballs (uniform, runtime-toggleable) or keep deb/rpm for
-  host-package-manager parity? The contract supports both; which is the default?
-- Should feature-set bundles be first-class catalog resources or purely a UI-side
-  grouping over add-ons in v1?
-- Distinct `COSIGN_KEY_REF`/upload-signing key id for native add-ons (recommended)
-  vs. reusing the WASM keys?
 - Cohort targeting reuse: extend `AgentReleaseManager` cohorts/compatibility-preview,
   or a dedicated assignment-rollout path?
 - Should compatibility gating hard-block selecting an add-on an agent can't run, or

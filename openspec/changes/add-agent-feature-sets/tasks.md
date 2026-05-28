@@ -48,8 +48,8 @@
   config schema). Migration in `platform` schema.
 - [ ] 4.2 `AddonAssignment` resource (target = agent uid | cohort, enabled,
   validated params, overrides). Block assigning non-approved packages.
-- [ ] 4.3 (If first-class) feature-set bundle resource grouping add-ons; else a
-  UI-side grouping.
+- [ ] 4.3 v1: feature sets are a UI multi-select grouping over add-ons (each recorded
+  as an individual AddonAssignment); no first-class bundle resource. (Deferred.)
 - [ ] 4.4 Importer: reuse the WASM verify-then-mirror pipeline (trusted-host
   allowlist, bounded fetch, digest + Cosign + upload-signature) for the native-addon
   index; mirror artifacts into ServiceRadar object storage.
