@@ -148,7 +148,9 @@ async fn main() -> Result<()> {
                 ebpf_object,
                 &config,
                 metrics.clone(),
+                fingerprint_event_tx.clone(),
                 dpi_event_tx.clone(),
+                Arc::clone(&fingerprint_gate),
                 Arc::clone(&dpi_gate),
             )
             .context("failed to start eBPF/AF_XDP visibility runtime")?;

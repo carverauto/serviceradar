@@ -13,9 +13,10 @@ use crate::{
     af_xdp_classifier::AfXdpClassifierRuntime,
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
+    fingerprint::P0fSignatureRuntime,
     metrics::Metrics,
-    proto::netprobe::DpiEvent,
-    runtime_config::DpiEventGate,
+    proto::netprobe::{DpiEvent, FingerprintEvent},
+    runtime_config::{DpiEventGate, FingerprintEventGate},
 };
 
 #[repr(C)]
@@ -34,6 +35,7 @@ unsafe impl aya::Pod for InterfaceConfig {}
 
 pub struct NetprobeEbpfRuntime {
     _classifier_runtime: AfXdpClassifierRuntime,
+    _p0f_runtime: P0fSignatureRuntime,
     _interface_allowlist: AyaHashMap<aya::maps::MapData, u32, InterfaceConfig>,
     _ebpf: Ebpf,
 }
@@ -43,12 +45,21 @@ impl NetprobeEbpfRuntime {
         object_path: &Path,
         config: &Config,
         metrics: Metrics,
+        fingerprint_events: broadcast::Sender<FingerprintEvent>,
         dpi_events: broadcast::Sender<DpiEvent>,
+        fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
         let interfaces = af_xdp::resolve_interfaces(&config.capture_interfaces)
             .context("failed to resolve AF_XDP capture interfaces")?;
         let mut ebpf = load_netprobe_ebpf(object_path, config)?;
+        let p0f_runtime = P0fSignatureRuntime::start_from_ebpf(
+            fingerprint_interface_name(config),
+            &mut ebpf,
+            fingerprint_events,
+            fingerprint_gate,
+            metrics.clone(),
+        )?;
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let classifier_runtime = AfXdpClassifierRuntime::start_from_ebpf(
             &config.capture_interfaces,
@@ -61,9 +72,17 @@ impl NetprobeEbpfRuntime {
 
         Ok(Self {
             _classifier_runtime: classifier_runtime,
+            _p0f_runtime: p0f_runtime,
             _interface_allowlist: interface_allowlist,
             _ebpf: ebpf,
         })
+    }
+}
+
+fn fingerprint_interface_name(config: &Config) -> String {
+    match config.capture_interfaces.as_slice() {
+        [interface] => interface.clone(),
+        _ => "ebpf".to_owned(),
     }
 }
 

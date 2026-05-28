@@ -1,5 +1,15 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+#[cfg(target_os = "linux")]
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    thread::{self, JoinHandle},
+    time::Duration,
+};
+
 #[cfg(feature = "pcap-capture")]
 use std::time::SystemTime;
 
@@ -23,6 +33,9 @@ use crate::{
 };
 #[cfg(target_os = "linux")]
 use crate::{metrics::Metrics, runtime_config::FingerprintEventGate};
+
+#[cfg(target_os = "linux")]
+const P0F_RING_IDLE_SLEEP: Duration = Duration::from_millis(1);
 
 pub const FINGERPRINT_ENGINE_VERSION: &str = "serviceradar-license-clean/1";
 pub const P0F_CORPUS_REVISION: &str =
@@ -623,6 +636,104 @@ impl<'a> P0fSignatureRing<'a> {
         &mut self,
         tx: &tokio::sync::broadcast::Sender<FingerprintEvent>,
         gate: &std::sync::Arc<std::sync::Mutex<FingerprintEventGate>>,
+        metrics: &Metrics,
+    ) -> usize {
+        let mut emitted = 0usize;
+        while let Some(item) = self.ring.next() {
+            let Some(event) = self
+                .engine
+                .event_from_ring_bytes(&self.interface_name, item.as_ref())
+            else {
+                continue;
+            };
+            let Some(event) = gate
+                .lock()
+                .expect("fingerprint event gate lock poisoned")
+                .filter(event)
+            else {
+                continue;
+            };
+            metrics.inc_fingerprint_events();
+            if tx.send(event).is_err() {
+                metrics.inc_fingerprint_events_dropped("no_receiver", 1);
+            } else {
+                emitted += 1;
+            }
+        }
+
+        emitted
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+pub struct P0fSignatureRuntime {
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+impl P0fSignatureRuntime {
+    pub fn start_from_ebpf(
+        interface_name: impl Into<String>,
+        ebpf: &mut aya::Ebpf,
+        tx: tokio::sync::broadcast::Sender<FingerprintEvent>,
+        gate: Arc<Mutex<FingerprintEventGate>>,
+        metrics: Metrics,
+    ) -> Result<Self> {
+        let map = ebpf
+            .take_map(P0F_SIGNATURES_MAP)
+            .ok_or_else(|| anyhow::anyhow!("{P0F_SIGNATURES_MAP} map is missing"))?;
+        let mut consumer = P0fSignatureConsumer {
+            interface_name: interface_name.into(),
+            engine: P0fSignatureEngine::bundled()?,
+            ring: aya::maps::RingBuf::try_from(map)?,
+        };
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_worker = Arc::clone(&stop);
+        let thread = thread::Builder::new()
+            .name("netprobe-p0f-signature-ring".to_owned())
+            .spawn(move || {
+                while !stop_worker.load(Ordering::Relaxed) {
+                    if consumer.poll_once(&tx, &gate, &metrics) == 0 {
+                        thread::sleep(P0F_RING_IDLE_SLEEP);
+                    }
+                }
+            })?;
+
+        Ok(Self {
+            stop,
+            thread: Some(thread),
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for P0fSignatureRuntime {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            if thread.join().is_err() {
+                log::warn!("p0f signature ring thread panicked during shutdown");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct P0fSignatureConsumer {
+    interface_name: String,
+    engine: P0fSignatureEngine,
+    ring: aya::maps::RingBuf<aya::maps::MapData>,
+}
+
+#[cfg(target_os = "linux")]
+impl P0fSignatureConsumer {
+    fn poll_once(
+        &mut self,
+        tx: &tokio::sync::broadcast::Sender<FingerprintEvent>,
+        gate: &Arc<Mutex<FingerprintEventGate>>,
         metrics: &Metrics,
     ) -> usize {
         let mut emitted = 0usize;
