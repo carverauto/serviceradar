@@ -282,6 +282,10 @@ tidy: ## Tidy and format Go code
 update-rust-deps: ## Repin Bazel-managed Rust dependencies (use REPIN=<mode>, VERIFY_TARGET=<label>)
 	@./scripts/update-rust-bazel-deps.sh "$(if $(REPIN),$(REPIN),workspace)" "$(if $(VERIFY_TARGET),$(VERIFY_TARGET),//rust/srql:srql_lib)"
 
+.PHONY: lint-p0f-additions
+lint-p0f-additions: ## Validate ServiceRadar p0f additions corpus grammar
+	@./scripts/lint-p0f-additions.sh
+
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"

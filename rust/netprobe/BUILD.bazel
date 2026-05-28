@@ -73,6 +73,7 @@ cargo_build_script(
     crate_root = "build.rs",
     data = [
         "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
     ],
     edition = "2021",
@@ -89,6 +90,7 @@ rust_binary(
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
@@ -102,6 +104,7 @@ rust_test(
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",

@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=ebpf/Cargo.toml");
     println!("cargo:rerun-if-changed=ebpf/src/lib.rs");
     println!("cargo:rerun-if-changed=p0f-corpus/p0f.fp");
+    println!("cargo:rerun-if-changed=p0f-corpus/serviceradar-additions.fp");
     println!("cargo:rerun-if-changed=src/p0f_corpus.rs");
     println!("cargo:rerun-if-env-changed=SERVICERADAR_NETPROBE_BUILD_EBPF");
 
@@ -53,7 +54,16 @@ fn generate_p0f_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> 
     } else {
         "rust/netprobe/p0f-corpus/p0f.fp"
     };
-    let corpus = std::fs::read_to_string(corpus_path)?;
+    let additions_path = if Path::new("p0f-corpus/serviceradar-additions.fp").exists() {
+        "p0f-corpus/serviceradar-additions.fp"
+    } else {
+        "rust/netprobe/p0f-corpus/serviceradar-additions.fp"
+    };
+    let mut corpus = std::fs::read_to_string(corpus_path)?;
+    let additions = std::fs::read_to_string(additions_path)?;
+    p0f_corpus::parse(&additions)?;
+    corpus.push('\n');
+    corpus.push_str(&additions);
     let corpus = p0f_corpus::parse(&corpus)?;
     let output_path = Path::new(out_dir).join("p0f_generated.rs");
     let mut output = BufWriter::new(File::create(output_path)?);

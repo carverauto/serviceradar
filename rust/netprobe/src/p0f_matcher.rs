@@ -57,7 +57,13 @@ impl P0fMatcher {
     }
 
     pub fn bundled() -> Result<Self> {
-        let mut matcher = Self::from_corpus_str(include_str!("../p0f-corpus/p0f.fp"))?;
+        let corpus = [
+            include_str!("../p0f-corpus/p0f.fp"),
+            "\n",
+            include_str!("../p0f-corpus/serviceradar-additions.fp"),
+        ]
+        .concat();
+        let mut matcher = Self::from_corpus_str(&corpus)?;
         matcher.exact_lookup = ExactLookup::Static(&generated::P0F_EXACT_SIGNATURES);
         matcher.fallback_indices = generated::P0F_FALLBACK_INDICES.to_vec();
         Ok(matcher)

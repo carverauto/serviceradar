@@ -505,4 +505,9 @@ sig = *:64:0
         assert_eq!(corpus.tcp_signatures.len(), 192);
         assert_eq!(corpus.other_signatures.len(), 130);
     }
+
+    #[test]
+    fn parses_serviceradar_additions_corpus() {
+        let _corpus = parse(include_str!("../p0f-corpus/serviceradar-additions.fp")).unwrap();
+    }
 }

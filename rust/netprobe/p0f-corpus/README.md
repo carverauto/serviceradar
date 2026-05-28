@@ -24,3 +24,5 @@ Do not edit `p0f.fp` directly. Treat it as frozen upstream data from the
 `p0f-3.09b` release. ServiceRadar-specific signatures belong in
 `serviceradar-additions.fp`, which is intentionally separate so operators can
 replace or diff local additions independently from the upstream corpus.
+
+See `CONTRIBUTING.md` for the signature submission, review, and lint workflow.
