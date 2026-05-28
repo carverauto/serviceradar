@@ -18,6 +18,8 @@ pub struct Metrics {
     signature_failures_total: IntCounter,
     flow_table_evictions_total: IntCounter,
     encode_buffer_reuses_total: IntCounter,
+    #[allow(dead_code)]
+    sampling_budget: IntGauge,
     uptime_seconds: IntGauge,
     started_at: Arc<Instant>,
 }
@@ -53,6 +55,10 @@ impl Metrics {
             "serviceradar_netprobe_encode_buffer_reuses_total",
             "IPC protobuf encode buffer reuses after warmup",
         ))?;
+        let sampling_budget = IntGauge::with_opts(Opts::new(
+            "serviceradar_netprobe_sampling_budget",
+            "Current AF_XDP per-flow packet redirect budget",
+        ))?;
         let uptime_seconds = IntGauge::with_opts(Opts::new(
             "netprobe_uptime_seconds",
             "Process uptime in seconds",
@@ -65,6 +71,7 @@ impl Metrics {
         registry.register(Box::new(signature_failures_total.clone()))?;
         registry.register(Box::new(flow_table_evictions_total.clone()))?;
         registry.register(Box::new(encode_buffer_reuses_total.clone()))?;
+        registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
         Ok(Self {
@@ -76,6 +83,7 @@ impl Metrics {
             signature_failures_total,
             flow_table_evictions_total,
             encode_buffer_reuses_total,
+            sampling_budget,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
         })
@@ -165,6 +173,11 @@ impl Metrics {
 
     pub fn inc_encode_buffer_reuses(&self) {
         self.encode_buffer_reuses_total.inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn set_sampling_budget(&self, budget: u32) {
+        self.sampling_budget.set(i64::from(budget));
     }
 }
 
