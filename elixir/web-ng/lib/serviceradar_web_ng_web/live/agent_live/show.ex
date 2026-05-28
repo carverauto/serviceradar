@@ -1155,6 +1155,18 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp format_timestamp(nil), do: "—"
   defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
 
+  defp format_timestamp(value) when is_integer(value) and value > 10_000_000_000_000 do
+    value
+    |> DateTime.from_unix!(:nanosecond)
+    |> format_timestamp()
+  end
+
+  defp format_timestamp(value) when is_integer(value) and value > 0 do
+    value
+    |> DateTime.from_unix!(:second)
+    |> format_timestamp()
+  end
+
   defp format_timestamp(value) when is_binary(value) do
     value = String.trim(value)
 

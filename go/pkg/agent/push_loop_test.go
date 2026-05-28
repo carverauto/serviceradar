@@ -86,6 +86,7 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 	resp := buildAgentCapabilityStatusResponse(
 		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintEnabled},
 		sidecars,
+		true,
 	)
 
 	if !resp.GetAvailable() {
@@ -103,6 +104,9 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 	if payload.HostNetworkVisibility.Fingerprint != "enabled" {
 		t.Fatalf("fingerprint = %q, want enabled", payload.HostNetworkVisibility.Fingerprint)
 	}
+	if !payload.HostNetworkVisibility.RunningAsRoot {
+		t.Fatal("running_as_root = false, want true")
+	}
 	if payload.HostNetworkVisibility.DPI != "unavailable" ||
 		payload.HostNetworkVisibility.FlowAttribution != "unavailable" ||
 		payload.HostNetworkVisibility.ProcessSnapshot != "unavailable" {
@@ -118,6 +122,7 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 	resp := buildAgentCapabilityStatusResponse(
 		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintUnavailable},
 		[]*proto.SidecarStatus{{Name: "netprobe", State: "circuit_open"}},
+		false,
 	)
 
 	var payload agentCapabilityStatusPayload

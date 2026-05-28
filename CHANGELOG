@@ -10,6 +10,7 @@ Dashboard authoring UX, SRQL-driven visuals, and ingestion recovery.
 - Split large dashboard LiveView and SRQL query modules into smaller helpers/components, tightened dashboard canvas state handling, and documented self-authored dashboard workflows in the user docs.
 - Fixed canonical sweep availability hysteresis so device/service availability status is derived consistently from the latest canonical sweep signals.
 - Hardened Armis northbound orphan and stale job handling so stuck executions can self-heal and enqueue correctly.
+- Added host network visibility configuration hashing; operators should expect a one-time agent config refresh after upgrade as agents pick up the new visibility fragment.
 - Added a reusable demo CNPG local web-ng testing skill for running Phoenix against live demo data without fragile one-off setup.
 
 # ServiceRadar v1.2.80

@@ -202,12 +202,13 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 }
 
 func (s *Server) initNetprobeSidecarStatus() {
+	netprobeSidecar := netprobe.NewSidecar(netprobe.SidecarConfig{})
 	manager, err := sidecar.NewManager(
 		sidecar.Config{
 			ClientFactory: netprobe.ClientFactory(),
 			Logger:        s.logger.WithComponent("agent.sidecar"),
 		},
-		netprobe.NewSidecar(netprobe.SidecarConfig{}),
+		netprobeSidecar,
 	)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to initialize netprobe sidecar status")
@@ -215,6 +216,8 @@ func (s *Server) initNetprobeSidecarStatus() {
 	}
 
 	s.sidecarStatus = manager
+	s.sidecarManager = manager
+	s.netprobeSidecar = netprobeSidecar
 }
 
 // initSysmonService creates and initializes the embedded sysmon service.
@@ -328,6 +331,12 @@ func (s *Server) Start(ctx context.Context) error {
 // Stop gracefully shuts down all agent services.
 func (s *Server) Stop(_ context.Context) error {
 	s.logger.Info().Msg("Stopping agent service...")
+
+	if s.sidecarManager != nil {
+		if err := s.sidecarManager.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop sidecar manager")
+		}
+	}
 
 	// Stop sysmon service if running
 	if s.sysmonService != nil {

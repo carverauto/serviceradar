@@ -72,3 +72,44 @@ rules:
       vendor_name: "Apache"
       type: "Server"
       type_id: 1
+
+  - id: passive-fingerprint-iis-http-server
+    enabled: true
+    priority: 548
+    confidence: 58
+    reason: "Passive HTTP server header indicates Microsoft IIS"
+    match:
+      any:
+        metadata.passive_fingerprint.http.server: ["microsoft-iis", "iis"]
+    set:
+      vendor_name: "Microsoft"
+      type: "Server"
+      type_id: 1
+      os_family: "Windows"
+
+  - id: passive-fingerprint-caddy-http-server
+    enabled: true
+    priority: 543
+    confidence: 52
+    reason: "Passive HTTP server header indicates Caddy"
+    match:
+      any:
+        metadata.passive_fingerprint.http.server: ["caddy"]
+    set:
+      vendor_name: "Caddy"
+      type: "Server"
+      type_id: 1
+
+  - id: passive-fingerprint-apple-client
+    enabled: true
+    priority: 530
+    confidence: 45
+    reason: "Passive HTTP user-agent indicates Apple client"
+    match:
+      any:
+        metadata.passive_fingerprint.http.user_agent: ["iphone", "ipad", "mac os x"]
+    set:
+      vendor_name: "Apple"
+      type: "Desktop"
+      type_id: 2
+      os_family: "macOS"

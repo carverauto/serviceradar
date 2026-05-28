@@ -1211,37 +1211,29 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Load visibility configuration from the AgentConfig system when a compiler is registered.
+  # Load visibility configuration from the AgentConfig system.
   defp load_visibility_config(agent_id) do
-    case Compiler.compiler_for(:visibility) do
-      {:ok, _compiler} ->
-        partition = get_agent_partition(agent_id)
-        actor = SystemActor.system(:visibility_config_loader)
-        device_uid = resolve_agent_device_uid(agent_id, actor)
+    partition = get_agent_partition(agent_id)
+    actor = SystemActor.system(:visibility_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
 
-        case ConfigServer.get_config(:visibility, partition, agent_id,
-               actor: actor,
-               device_uid: device_uid
-             ) do
-          {:ok, entry} ->
-            entry.config
+    case ConfigServer.get_config(:visibility, partition, agent_id,
+           actor: actor,
+           device_uid: device_uid
+         ) do
+      {:ok, entry} ->
+        entry.config
 
-          {:error, :no_config_found} ->
-            Logger.debug(
-              "No visibility config found for agent #{agent_id}, using disabled config"
-            )
+      {:error, :no_config_found} ->
+        Logger.debug("No visibility config found for agent #{agent_id}, using disabled config")
 
-            disabled_visibility_config()
+        disabled_visibility_config()
 
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to load visibility config for agent #{agent_id}: #{inspect(reason)}"
-            )
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load visibility config for agent #{agent_id}: #{inspect(reason)}"
+        )
 
-            disabled_visibility_config()
-        end
-
-      {:error, :unknown_config_type} ->
         disabled_visibility_config()
     end
   end

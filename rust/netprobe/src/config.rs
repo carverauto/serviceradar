@@ -15,6 +15,8 @@ pub struct Config {
 pub enum AllowlistError {
     #[error("capture interface 'any' is not allowed")]
     AnyInterface,
+    #[error("empty capture interface entries are not allowed")]
+    EmptyInterface,
     #[error("wildcard capture interfaces are not allowed")]
     Wildcard,
     #[error("capture interface '{0}' is not allowlisted")]
@@ -44,6 +46,10 @@ impl Config {
 
 pub fn validate_capture_interfaces(interfaces: &[String]) -> Result<(), AllowlistError> {
     for interface in interfaces {
+        if interface.trim().is_empty() {
+            return Err(AllowlistError::EmptyInterface);
+        }
+
         if interface == "any" {
             return Err(AllowlistError::AnyInterface);
         }
@@ -58,6 +64,10 @@ pub fn validate_capture_interfaces(interfaces: &[String]) -> Result<(), Allowlis
 
 #[allow(dead_code)]
 pub fn validate_interface(allowlist: &[String], interface: &str) -> Result<(), AllowlistError> {
+    if interface.trim().is_empty() {
+        return Err(AllowlistError::EmptyInterface);
+    }
+
     if interface == "any" {
         return Err(AllowlistError::AnyInterface);
     }
@@ -99,6 +109,16 @@ mod tests {
         assert_eq!(
             validate_interface(&allowlist, "eth*"),
             Err(AllowlistError::Wildcard)
+        );
+    }
+
+    #[test]
+    fn rejects_empty_entries() {
+        let allowlist = vec!["eth0".to_string(), " ".to_string()];
+
+        assert_eq!(
+            validate_capture_interfaces(&allowlist),
+            Err(AllowlistError::EmptyInterface)
         );
     }
 

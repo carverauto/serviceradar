@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
         enabled: "true",
         target_query: "hostname:%edge%",
         priority: "10",
+        capture_interfaces: "eth0",
         sample_interval_ms: "30000",
         retention_days: "14",
         fingerprint: %{"tcp" => "false", "tls" => "false", "http" => "true"}
@@ -49,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
 
     {:ok, _lv, html} = live(conn, ~p"/settings/networks/visibility-profiles")
     assert html =~ "Edge HTTP Passive"
+    assert html =~ "eth0"
     assert html =~ "HTTP"
   end
 
@@ -79,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
       |> Ash.Changeset.for_create(:create, %{
         name: "Visibility #{System.unique_integer([:positive])}",
         target_query: "hostname:%old%",
+        capture_interfaces: ["eth0"],
         fingerprint: %{"tcp" => true, "tls" => true, "http" => false}
       })
       |> Ash.create(scope: scope)
@@ -93,6 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLiveTest do
         name: "Visibility Edited",
         target_query: "hostname:%new%",
         priority: "5",
+        capture_interfaces: "eth1",
         sample_interval_ms: "45000",
         retention_days: "21",
         fingerprint: %{"tcp" => "true", "tls" => "false", "http" => "true"}

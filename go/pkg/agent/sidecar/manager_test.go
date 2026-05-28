@@ -174,8 +174,8 @@ func newTestManager(t *testing.T, dir string, factory ClientFactory, sidecars ..
 		ConfigDir:             filepath.Join(dir, "config"),
 		HealthInterval:        10 * time.Millisecond,
 		ShutdownGrace:         250 * time.Millisecond,
-		RestartBackoffInitial: time.Millisecond,
-		RestartBackoffMax:     5 * time.Millisecond,
+		RestartBackoffInitial: 10 * time.Millisecond,
+		RestartBackoffMax:     50 * time.Millisecond,
 		RestartLimitPerMinute: 5,
 		ClientFactory:         factory,
 		Logger:                zerolog.Nop(),
@@ -271,3 +271,80 @@ type fakeClient struct{}
 func (fakeClient) Ping(context.Context) error { return nil }
 
 func (fakeClient) Close() error { return nil }
+
+func TestHealthLoopKeepsHealthyClientOpen(t *testing.T) {
+	mgr := newUnitManager(t)
+	sc := &fakeSidecar{name: "netprobe"}
+	var closes atomic.Int32
+	client := &countingClient{closes: &closes}
+	mgr.cfg.ClientFactory = ClientFactory(func(context.Context, string) (Client, error) {
+		return client, nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go mgr.healthLoop(ctx, sc, "/tmp/netprobe.sock", 123)
+	time.Sleep(3 * mgr.cfg.HealthInterval)
+
+	if got := closes.Load(); got != 0 {
+		t.Fatalf("client closed during healthy probes = %d, want 0", got)
+	}
+
+	cancel()
+	time.Sleep(2 * mgr.cfg.HealthInterval)
+	if got := closes.Load(); got != 1 {
+		t.Fatalf("client closes after shutdown = %d, want 1", got)
+	}
+}
+
+func TestProbeHealthCallsOnUnhealthyOncePerFailureEdge(t *testing.T) {
+	mgr := newUnitManager(t)
+	mgr.cfg.UnhealthyThreshold = 2
+
+	var unhealthy atomic.Int32
+	sc := &fakeSidecar{
+		name: "netprobe",
+		onUnhealthy: func(error) {
+			unhealthy.Add(1)
+		},
+	}
+	failures := 0
+
+	client := mgr.probeHealth(context.Background(), sc, "/tmp/netprobe.sock", 123, nil, &failures)
+	if client != nil {
+		t.Fatal("expected nil client after failed probe")
+	}
+	client = mgr.probeHealth(context.Background(), sc, "/tmp/netprobe.sock", 123, nil, &failures)
+	if client != nil {
+		t.Fatal("expected nil client after failed probe")
+	}
+	client = mgr.probeHealth(context.Background(), sc, "/tmp/netprobe.sock", 123, nil, &failures)
+	if client != nil {
+		t.Fatal("expected nil client after failed probe")
+	}
+
+	if got := unhealthy.Load(); got != 1 {
+		t.Fatalf("OnUnhealthy calls = %d, want 1", got)
+	}
+}
+
+func newUnitManager(t *testing.T) *Manager {
+	t.Helper()
+
+	dir := t.TempDir()
+	return newTestManager(t, dir, ClientFactory(func(context.Context, string) (Client, error) {
+		return nil, errors.New("probe failed")
+	}), &fakeSidecar{name: "netprobe", binary: filepath.Join(dir, "unused")})
+}
+
+type countingClient struct {
+	closes *atomic.Int32
+}
+
+func (c *countingClient) Ping(context.Context) error { return nil }
+
+func (c *countingClient) Close() error {
+	c.closes.Add(1)
+	return nil
+}

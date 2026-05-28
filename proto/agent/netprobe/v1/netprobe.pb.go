@@ -428,6 +428,7 @@ type PingAck struct {
 	SentAtUnixNano           int64                  `protobuf:"varint,1,opt,name=sent_at_unix_nano,json=sentAtUnixNano,proto3" json:"sent_at_unix_nano,omitempty"`
 	AckedAtUnixNano          int64                  `protobuf:"varint,2,opt,name=acked_at_unix_nano,json=ackedAtUnixNano,proto3" json:"acked_at_unix_nano,omitempty"`
 	FingerprintEngineVersion string                 `protobuf:"bytes,3,opt,name=fingerprint_engine_version,json=fingerprintEngineVersion,proto3" json:"fingerprint_engine_version,omitempty"`
+	RunningAsRoot            bool                   `protobuf:"varint,4,opt,name=running_as_root,json=runningAsRoot,proto3" json:"running_as_root,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -481,6 +482,13 @@ func (x *PingAck) GetFingerprintEngineVersion() string {
 		return x.FingerprintEngineVersion
 	}
 	return ""
+}
+
+func (x *PingAck) GetRunningAsRoot() bool {
+	if x != nil {
+		return x.RunningAsRoot
+	}
+	return false
 }
 
 type ErrorFrame struct {
@@ -875,6 +883,14 @@ type TcpFingerprint struct {
 	OsFamily      string                 `protobuf:"bytes,2,opt,name=os_family,json=osFamily,proto3" json:"os_family,omitempty"`
 	OsName        string                 `protobuf:"bytes,3,opt,name=os_name,json=osName,proto3" json:"os_name,omitempty"`
 	Confidence    float32                `protobuf:"fixed32,4,opt,name=confidence,proto3" json:"confidence,omitempty"`
+	Ttl           uint32                 `protobuf:"varint,5,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	WindowSize    string                 `protobuf:"bytes,6,opt,name=window_size,json=windowSize,proto3" json:"window_size,omitempty"`
+	Mss           uint32                 `protobuf:"varint,7,opt,name=mss,proto3" json:"mss,omitempty"`
+	OptionsLayout []string               `protobuf:"bytes,8,rep,name=options_layout,json=optionsLayout,proto3" json:"options_layout,omitempty"`
+	Quirks        []string               `protobuf:"bytes,9,rep,name=quirks,proto3" json:"quirks,omitempty"`
+	IpVersion     string                 `protobuf:"bytes,10,opt,name=ip_version,json=ipVersion,proto3" json:"ip_version,omitempty"`
+	WindowScale   uint32                 `protobuf:"varint,11,opt,name=window_scale,json=windowScale,proto3" json:"window_scale,omitempty"`
+	PayloadClass  string                 `protobuf:"bytes,12,opt,name=payload_class,json=payloadClass,proto3" json:"payload_class,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -935,6 +951,62 @@ func (x *TcpFingerprint) GetConfidence() float32 {
 		return x.Confidence
 	}
 	return 0
+}
+
+func (x *TcpFingerprint) GetTtl() uint32 {
+	if x != nil {
+		return x.Ttl
+	}
+	return 0
+}
+
+func (x *TcpFingerprint) GetWindowSize() string {
+	if x != nil {
+		return x.WindowSize
+	}
+	return ""
+}
+
+func (x *TcpFingerprint) GetMss() uint32 {
+	if x != nil {
+		return x.Mss
+	}
+	return 0
+}
+
+func (x *TcpFingerprint) GetOptionsLayout() []string {
+	if x != nil {
+		return x.OptionsLayout
+	}
+	return nil
+}
+
+func (x *TcpFingerprint) GetQuirks() []string {
+	if x != nil {
+		return x.Quirks
+	}
+	return nil
+}
+
+func (x *TcpFingerprint) GetIpVersion() string {
+	if x != nil {
+		return x.IpVersion
+	}
+	return ""
+}
+
+func (x *TcpFingerprint) GetWindowScale() uint32 {
+	if x != nil {
+		return x.WindowScale
+	}
+	return 0
+}
+
+func (x *TcpFingerprint) GetPayloadClass() string {
+	if x != nil {
+		return x.PayloadClass
+	}
+	return ""
 }
 
 type TlsFingerprint struct {
@@ -1300,11 +1372,12 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\vconfig_hash\x18\x01 \x01(\tR\n" +
 	"configHash\"1\n" +
 	"\x04Ping\x12)\n" +
-	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\x9f\x01\n" +
+	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\xc7\x01\n" +
 	"\aPingAck\x12)\n" +
 	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\x12+\n" +
 	"\x12acked_at_unix_nano\x18\x02 \x01(\x03R\x0fackedAtUnixNano\x12<\n" +
-	"\x1afingerprint_engine_version\x18\x03 \x01(\tR\x18fingerprintEngineVersion\":\n" +
+	"\x1afingerprint_engine_version\x18\x03 \x01(\tR\x18fingerprintEngineVersion\x12&\n" +
+	"\x0frunning_as_root\x18\x04 \x01(\bR\rrunningAsRoot\":\n" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
@@ -1336,14 +1409,25 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x03tls\x18\v \x01(\v2..serviceradar.agent.netprobe.v1.TlsFingerprintH\x00R\x03tls\x12E\n" +
 	"\x04http\x18\f \x01(\v2/.serviceradar.agent.netprobe.v1.HttpFingerprintH\x00R\x04httpB\n" +
 	"\n" +
-	"\bevidence\"\x84\x01\n" +
+	"\bevidence\"\xef\x02\n" +
 	"\x0eTcpFingerprint\x12\x1c\n" +
 	"\tsignature\x18\x01 \x01(\tR\tsignature\x12\x1b\n" +
 	"\tos_family\x18\x02 \x01(\tR\bosFamily\x12\x17\n" +
 	"\aos_name\x18\x03 \x01(\tR\x06osName\x12\x1e\n" +
 	"\n" +
 	"confidence\x18\x04 \x01(\x02R\n" +
-	"confidence\"Y\n" +
+	"confidence\x12\x10\n" +
+	"\x03ttl\x18\x05 \x01(\rR\x03ttl\x12\x1f\n" +
+	"\vwindow_size\x18\x06 \x01(\tR\n" +
+	"windowSize\x12\x10\n" +
+	"\x03mss\x18\a \x01(\rR\x03mss\x12%\n" +
+	"\x0eoptions_layout\x18\b \x03(\tR\roptionsLayout\x12\x16\n" +
+	"\x06quirks\x18\t \x03(\tR\x06quirks\x12\x1d\n" +
+	"\n" +
+	"ip_version\x18\n" +
+	" \x01(\tR\tipVersion\x12!\n" +
+	"\fwindow_scale\x18\v \x01(\rR\vwindowScale\x12#\n" +
+	"\rpayload_class\x18\f \x01(\tR\fpayloadClass\"Y\n" +
 	"\x0eTlsFingerprint\x12\x10\n" +
 	"\x03ja4\x18\x01 \x01(\tR\x03ja4\x12\x12\n" +
 	"\x04ja4s\x18\x02 \x01(\tR\x04ja4s\x12!\n" +

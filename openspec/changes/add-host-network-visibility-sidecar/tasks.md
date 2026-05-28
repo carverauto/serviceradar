@@ -13,7 +13,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [x] 1.1 Add `"rust/netprobe"` to the workspace `members` list in `/Cargo.toml`.
 - [x] 1.2 Add `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` to `rust.toolchain(extra_target_triples=[…])` in `MODULE.bazel`.
 - [x] 1.3 Add musl linker entries (`x86_64-linux-musl-gcc`, `aarch64-linux-musl-gcc`) to `.cargo/config.toml`; document host-side musl cross-toolchain requirements in `BUILD.md`.
-- [x] 1.4 Add `huginn-net`, `tokio`, `prost`, `pcap`, `etherparse`, `nix` to `rust/netprobe/Cargo.toml` (Phase-1 dependency set only; eBPF / DPI crates land with their phases). Regenerate crate-universe via `bazel mod tidy`.
+- [x] 1.4 Add `huginn-net`, `tokio`, `prost`, `pcap`, `nix` to `rust/netprobe/Cargo.toml` (Phase-1 dependency set only; eBPF / DPI crates land with their phases). Regenerate crate-universe via `bazel mod tidy`.
 - [x] 1.5 Verify `bazel build //rust/netprobe:netprobe` succeeds with the default platform.
 - [x] 1.6 Verify `bazel build --platforms=//build/platforms:linux_x86_64_musl //rust/netprobe:netprobe` produces a static binary (`file` reports "statically linked", `ldd` says "not a dynamic executable").
 - [x] 1.7 Add a CI matrix entry in `.forgejo/workflows/tests-rust.yml` for the musl static build (x86_64 + aarch64).
@@ -233,7 +233,7 @@ belongs to; within a phase, tasks are ordered roughly by dependency.
 - [ ] 24.3 Add Ash actions: `request_capture` (validates user + RBAC + per-tenant caps), `transition_state`, `complete`, `abort`.
 - [ ] 24.4 Add `agent_capture:remote` and `agent_capture:audit_view` permissions to `Serviceradar.Identity.RBAC.Catalog`.
 - [ ] 24.5 Add policies on the resource enforcing the new permissions per partition.
-- [ ] 24.6 Enable AshPaperTrail on `RemotePacketCaptureSession`; ensure request, authorise, active, complete, abort, timeout, and deny transitions are performed through Ash actions with version metadata for actor, partition, request id, agent id, target interfaces, BPF filter metadata, duration, snaplen, byte cap, and bytes streamed.
+- [ ] 24.6 Enable AshPaperTrail on `RemotePacketCaptureSession`; ensure request, authorise, active, complete, abort, timeout, and deny transitions are performed through Ash actions with version metadata for actor, partition, request id, agent id, target interfaces, BPF filter metadata, duration, snaplen, byte cap, and bytes streamed. The request id must be explicit action context; missing request id fails validation rather than falling back to `Logger.metadata`.
 - [ ] 24.7 Implement a `web-ng` streaming endpoint (Phoenix Channel) that authenticates the client (`add-cli-device-auth`), dispatches the request to `core-elx` over ERTS RPC for RBAC + audit + session-record creation, then proxies pcapng bytes between the client and `core-elx`.
 - [ ] 24.8 Implement the `core-elx` side that brokers between `web-ng` and the `agent-gateway` command bus over ERTS RPC, counts bytes for the session record, and surfaces session state.
 - [ ] 24.9 Implement client-disconnect detection at the `web-ng` edge: on stream close from the client side, propagate via ERTS RPC to `core-elx`, which sends `StopRemoteCaptureSession` to the agent and transitions state to `aborted`.

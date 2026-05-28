@@ -61,6 +61,7 @@ message PingAck {
   int64 sent_at_unix_nano = 1;
   int64 acked_at_unix_nano = 2;
   string fingerprint_engine_version = 3;
+  bool running_as_root = 4;
 }
 
 message ErrorFrame {
@@ -110,6 +111,14 @@ message TcpFingerprint {
   string os_family = 2;
   string os_name = 3;
   float confidence = 4;
+  uint32 ttl = 5;
+  string window_size = 6;
+  uint32 mss = 7;
+  repeated string options_layout = 8;
+  repeated string quirks = 9;
+  string ip_version = 10;
+  uint32 window_scale = 11;
+  string payload_class = 12;
 }
 
 message TlsFingerprint {

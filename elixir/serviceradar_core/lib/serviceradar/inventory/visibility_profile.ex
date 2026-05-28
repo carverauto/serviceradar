@@ -26,6 +26,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
     :enabled,
     :target_query,
     :priority,
+    :capture_interfaces,
     :fingerprint,
     :dpi,
     :flow_attribution,
@@ -65,6 +66,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
       accept @profile_fields
 
       change &reject_reserved_phase_one_fields/2
+      change &validate_capture_interfaces/2
       change ValidateSrqlQuery
     end
 
@@ -73,6 +75,7 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
 
       require_atomic? false
       change &reject_reserved_phase_one_fields/2
+      change &validate_capture_interfaces/2
       change ValidateSrqlQuery
     end
 
@@ -161,6 +164,13 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
       description "Passive fingerprint toggles keyed by protocol"
     end
 
+    attribute :capture_interfaces, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+      description "Host network interfaces explicitly allowlisted for passive capture"
+    end
+
     attribute :dpi, :map do
       allow_nil? true
       public? true
@@ -222,5 +232,33 @@ defmodule ServiceRadar.Inventory.VisibilityProfile do
         )
       end
     end)
+  end
+
+  defp validate_capture_interfaces(changeset, _context) do
+    enabled? = Ash.Changeset.get_attribute(changeset, :enabled)
+
+    interfaces =
+      changeset
+      |> Ash.Changeset.get_attribute(:capture_interfaces)
+      |> List.wrap()
+      |> Enum.map(&String.trim(to_string(&1)))
+      |> Enum.reject(&(&1 == ""))
+
+    cond do
+      enabled? == true and interfaces == [] ->
+        Ash.Changeset.add_error(changeset,
+          field: :capture_interfaces,
+          message: "must include at least one allowlisted interface when enabled"
+        )
+
+      Enum.any?(interfaces, &(&1 == "any" or String.contains?(&1, "*"))) ->
+        Ash.Changeset.add_error(changeset,
+          field: :capture_interfaces,
+          message: "cannot include 'any' or wildcard interfaces"
+        )
+
+      true ->
+        Ash.Changeset.change_attribute(changeset, :capture_interfaces, Enum.uniq(interfaces))
+    end
   end
 end

@@ -17,6 +17,10 @@
 package netprobe
 
 import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	monitoringpb "github.com/carverauto/serviceradar/proto"
@@ -27,6 +31,11 @@ import (
 type ParsedVisibilityConfig struct {
 	NetprobeConfig     *netprobepb.VisibilityAgentConfig
 	BinaryOverridePath string
+}
+
+type bootstrapConfig struct {
+	Enabled           bool     `json:"enabled"`
+	CaptureInterfaces []string `json:"capture_interfaces"`
 }
 
 // ParseVisibilityConfig converts monitoring visibility config into netprobe IPC config.
@@ -40,7 +49,7 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 	parsed := ParsedVisibilityConfig{
 		NetprobeConfig: &netprobepb.VisibilityAgentConfig{
 			Enabled:                 cfg.GetEnabled(),
-			CaptureInterfaces:       compactStrings(cfg.GetCaptureInterfaces()),
+			CaptureInterfaces:       trimStrings(cfg.GetCaptureInterfaces()),
 			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
 			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
@@ -48,6 +57,34 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 	}
 
 	return parsed
+}
+
+func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+
+	payload := bootstrapConfig{}
+	if cfg != nil {
+		payload.Enabled = cfg.GetEnabled()
+		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal netprobe bootstrap config: %w", err)
+	}
+	data = append(data, '\n')
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("create netprobe config dir: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o640); err != nil {
+		return fmt.Errorf("write netprobe bootstrap config: %w", err)
+	}
+
+	return nil
 }
 
 func parseDeviceBindings(bindings []*monitoringpb.VisibilityDeviceBinding) []*netprobepb.DeviceBinding {
@@ -98,4 +135,17 @@ func compactStrings(values []string) []string {
 	}
 
 	return compacted
+}
+
+func trimStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	trimmed := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed = append(trimmed, strings.TrimSpace(value))
+	}
+
+	return trimmed
 }

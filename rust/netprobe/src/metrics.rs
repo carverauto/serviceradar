@@ -14,6 +14,7 @@ pub struct Metrics {
     packets_processed_total: IntCounter,
     packets_dropped_total: IntCounter,
     events_emitted_total: IntCounterVec,
+    events_dropped_total: IntCounterVec,
     signature_failures_total: IntCounter,
     uptime_seconds: IntGauge,
     started_at: Arc<Instant>,
@@ -34,6 +35,10 @@ impl Metrics {
             Opts::new("netprobe_events_emitted_total", "Events emitted"),
             &["stream"],
         )?;
+        let events_dropped_total = IntCounterVec::new(
+            Opts::new("netprobe_events_dropped_total", "Events dropped"),
+            &["stream", "reason"],
+        )?;
         let signature_failures_total = IntCounter::with_opts(Opts::new(
             "netprobe_signature_failures_total",
             "Signature failures",
@@ -46,6 +51,7 @@ impl Metrics {
         registry.register(Box::new(packets_processed_total.clone()))?;
         registry.register(Box::new(packets_dropped_total.clone()))?;
         registry.register(Box::new(events_emitted_total.clone()))?;
+        registry.register(Box::new(events_dropped_total.clone()))?;
         registry.register(Box::new(signature_failures_total.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
@@ -54,6 +60,7 @@ impl Metrics {
             packets_processed_total,
             packets_dropped_total,
             events_emitted_total,
+            events_dropped_total,
             signature_failures_total,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
@@ -74,6 +81,12 @@ impl Metrics {
         self.events_emitted_total
             .with_label_values(&["fingerprint"])
             .inc();
+    }
+
+    pub fn inc_fingerprint_events_dropped(&self, reason: &str, count: u64) {
+        self.events_dropped_total
+            .with_label_values(&["fingerprint", reason])
+            .inc_by(count);
     }
 
     #[allow(dead_code)]

@@ -18,17 +18,26 @@ package netprobe
 
 import (
 	"context"
+	"errors"
+	"strconv"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 )
 
 const (
-	DefaultSidecarName        = "netprobe"
-	DefaultBinaryPath         = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
-	DefaultLogFormat          = "json"
-	defaultHealthPort  uint16 = 0
+	DefaultSidecarName               = "netprobe"
+	DefaultBinaryPath                = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
+	DefaultLogFormat                 = "json"
+	defaultHealthPort         uint16 = 0
+	defaultSidecarEventBuffer        = 1024
+	defaultApplyWaitInterval         = 100 * time.Millisecond
 )
+
+var ErrSidecarUnavailable = errors.New("netprobe sidecar is unavailable")
 
 // SidecarConfig configures the netprobe sidecar process.
 type SidecarConfig struct {
@@ -43,8 +52,13 @@ type SidecarConfig struct {
 type Sidecar struct {
 	cfg SidecarConfig
 
+	mu            sync.RWMutex
+	client        *Client
+	eventClient   *Client
+	events        chan *netprobepb.FingerprintEvent
 	healthy       atomic.Bool
 	unhealthy     atomic.Bool
+	runningAsRoot atomic.Bool
 	engineVersion atomic.Value
 	lastError     atomic.Value
 }
@@ -63,7 +77,10 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 		cfg.LogFormat = DefaultLogFormat
 	}
 
-	return &Sidecar{cfg: cfg}
+	return &Sidecar{
+		cfg:    cfg,
+		events: make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+	}
 }
 
 // ClientFactory returns the health/client factory expected by the sidecar manager.
@@ -88,7 +105,7 @@ func (s *Sidecar) Args(socketPath, configPath string) []string {
 		"--log-format", s.cfg.LogFormat,
 	}
 	if s.cfg.HealthPort != defaultHealthPort {
-		args = append(args, "--health-port", uint16String(s.cfg.HealthPort))
+		args = append(args, "--health-port", strconv.FormatUint(uint64(s.cfg.HealthPort), 10))
 	}
 	args = append(args, s.cfg.ExtraArgs...)
 
@@ -102,12 +119,15 @@ func (s *Sidecar) OnHealthy(client sidecar.Client) {
 
 	if netprobeClient, ok := client.(*Client); ok {
 		s.engineVersion.Store(netprobeClient.FingerprintEngineVersion())
+		s.runningAsRoot.Store(netprobeClient.RunningAsRoot())
+		s.setClient(netprobeClient)
 	}
 }
 
 func (s *Sidecar) OnUnhealthy(err error) {
 	s.healthy.Store(false)
 	s.unhealthy.Store(true)
+	s.setClient(nil)
 	if err != nil {
 		s.lastError.Store(err.Error())
 	}
@@ -127,18 +147,93 @@ func (s *Sidecar) FingerprintEngineVersion() string {
 	return version
 }
 
-func uint16String(value uint16) string {
-	if value == 0 {
-		return "0"
+func (s *Sidecar) RunningAsRoot() bool {
+	return s.runningAsRoot.Load()
+}
+
+func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAgentConfig) (string, error) {
+	ticker := time.NewTicker(defaultApplyWaitInterval)
+	defer ticker.Stop()
+
+	for {
+		client := s.currentClient()
+		if client != nil {
+			return client.ApplyConfig(ctx, cfg)
+		}
+
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Sidecar) DrainEvents(max int) []*netprobepb.FingerprintEvent {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
 	}
 
-	var buf [5]byte
-	i := len(buf)
-	for value > 0 {
-		i--
-		buf[i] = byte('0' + value%10)
-		value /= 10
+	events := make([]*netprobepb.FingerprintEvent, 0, max)
+	for len(events) < max {
+		select {
+		case event := <-s.events:
+			if event != nil {
+				events = append(events, event)
+			}
+		default:
+			return events
+		}
 	}
 
-	return string(buf[i:])
+	return events
+}
+
+func (s *Sidecar) currentClient() *Client {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.client
+}
+
+func (s *Sidecar) setClient(client *Client) {
+	s.mu.Lock()
+	if s.client == client {
+		s.mu.Unlock()
+		return
+	}
+	s.client = client
+	if client == nil {
+		s.eventClient = nil
+		s.mu.Unlock()
+		return
+	}
+	if s.eventClient == client {
+		s.mu.Unlock()
+		return
+	}
+	s.eventClient = client
+	s.mu.Unlock()
+
+	go s.forwardEvents(client)
+}
+
+func (s *Sidecar) forwardEvents(client *Client) {
+	for event := range client.Events() {
+		select {
+		case s.events <- event:
+		default:
+			// Keep the manager/IPC reader non-blocking; client-level drop metrics
+			// already cover drops before this fan-in point.
+		}
+	}
+
+	s.mu.Lock()
+	if s.client == client {
+		s.client = nil
+	}
+	if s.eventClient == client {
+		s.eventClient = nil
+	}
+	s.mu.Unlock()
 }

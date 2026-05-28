@@ -55,8 +55,8 @@ func TestParseVisibilityConfig(t *testing.T) {
 	if !cfg.GetEnabled() {
 		t.Fatal("Enabled = false, want true")
 	}
-	if got := cfg.GetCaptureInterfaces(); len(got) != 2 || got[0] != "en0" || got[1] != "eth1" {
-		t.Fatalf("CaptureInterfaces = %#v, want [en0 eth1]", got)
+	if got := cfg.GetCaptureInterfaces(); len(got) != 3 || got[0] != "en0" || got[1] != "" || got[2] != "eth1" {
+		t.Fatalf("CaptureInterfaces = %#v, want [en0 \"\" eth1]", got)
 	}
 	if cfg.GetDefaultSampleIntervalMs() != 250 {
 		t.Fatalf("DefaultSampleIntervalMs = %d, want 250", cfg.GetDefaultSampleIntervalMs())

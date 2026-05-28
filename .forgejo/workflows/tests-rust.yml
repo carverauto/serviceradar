@@ -311,3 +311,9 @@ jobs:
             echo "static netprobe output must not declare shared-library dependencies" >&2
             exit 1
           fi
+
+          case "${{ matrix.platform }}" in
+            *linux_x86_64_musl)
+              "${output}" --help >/dev/null
+              ;;
+          esac

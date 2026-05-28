@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
               <th>Status</th>
               <th>Name</th>
               <th>Targeting</th>
+              <th>Interfaces</th>
               <th>Sample</th>
               <th>Fingerprint</th>
               <th>Retention</th>
@@ -46,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
           </thead>
           <tbody>
             <tr :if={@profiles == []}>
-              <td colspan="7" class="text-center text-base-content/60 py-8">
+              <td colspan="8" class="text-center text-base-content/60 py-8">
                 No visibility profiles configured.
               </td>
             </tr>
@@ -90,6 +91,23 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                   <% else %>
                     <span class="text-base-content/40">in:devices</span>
                   <% end %>
+                </td>
+                <td>
+                  <div class="flex flex-wrap gap-1 max-w-[180px]">
+                    <.ui_badge
+                      :for={iface <- profile.capture_interfaces || []}
+                      variant="ghost"
+                      size="xs"
+                    >
+                      {iface}
+                    </.ui_badge>
+                    <span
+                      :if={(profile.capture_interfaces || []) == []}
+                      class="text-xs text-base-content/40"
+                    >
+                      none
+                    </span>
+                  </div>
                 </td>
                 <td class="font-mono text-xs">{profile.sample_interval_ms} ms</td>
                 <td>
@@ -319,6 +337,15 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
         <div class="rounded-lg border border-base-200 p-4 space-y-3">
           <div class="text-sm font-semibold">Passive Fingerprinting</div>
+          <label class="form-control">
+            <span class="label-text text-xs">Capture interfaces</span>
+            <textarea
+              name="form[capture_interfaces]"
+              class="textarea textarea-bordered w-full font-mono text-xs"
+              rows="3"
+              placeholder="eth0"
+            >{@form["capture_interfaces"]}</textarea>
+          </label>
           <div class="flex flex-wrap gap-4">
             <.fingerprint_toggle
               name="tcp"

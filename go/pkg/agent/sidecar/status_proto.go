@@ -16,7 +16,11 @@
 
 package sidecar
 
-import "github.com/carverauto/serviceradar/proto"
+import (
+	"math"
+
+	"github.com/carverauto/serviceradar/proto"
+)
 
 // ToProtoStatuses maps manager snapshots into monitoring StatusResponse fields.
 func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
@@ -28,7 +32,7 @@ func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
 	for _, status := range statuses {
 		lastHealthAt := int64(0)
 		if !status.LastHealthAt.IsZero() {
-			lastHealthAt = status.LastHealthAt.UTC().Unix()
+			lastHealthAt = status.LastHealthAt.UTC().UnixNano()
 		}
 
 		out = append(out, &proto.SidecarStatus{
@@ -36,10 +40,21 @@ func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
 			State:        string(status.State),
 			Pid:          int32(status.PID),
 			LastHealthAt: lastHealthAt,
-			RestartCount: uint32(status.RestartCount),
+			RestartCount: cappedUint32(status.RestartCount),
 			LastError:    status.LastError,
 		})
 	}
 
 	return out
+}
+
+func cappedUint32(value int) uint32 {
+	if value <= 0 {
+		return 0
+	}
+	if value > math.MaxUint32 {
+		return math.MaxUint32
+	}
+
+	return uint32(value)
 }

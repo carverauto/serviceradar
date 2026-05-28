@@ -88,7 +88,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
 
     %{
       "enabled" => profile.enabled == true,
-      "capture_interfaces" => capture_interfaces(opts),
+      "capture_interfaces" => capture_interfaces(profile, opts),
       "binary_overrides" => binary_overrides(opts),
       "device_bindings" => [binding],
       "default_sample_interval_ms" => profile.sample_interval_ms || @default_sample_interval_ms
@@ -155,6 +155,32 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
     opts
     |> Keyword.get(:capture_interfaces, [])
     |> List.wrap()
+    |> Enum.flat_map(fn
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: [], else: [trimmed]
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp capture_interfaces(%VisibilityProfile{} = profile, opts) do
+    profile_interfaces =
+      profile
+      |> Map.get(:capture_interfaces, [])
+      |> List.wrap()
+      |> normalize_interfaces()
+
+    case profile_interfaces do
+      [] -> capture_interfaces(opts)
+      interfaces -> interfaces
+    end
+  end
+
+  defp normalize_interfaces(values) do
+    values
     |> Enum.flat_map(fn
       value when is_binary(value) ->
         trimmed = String.trim(value)

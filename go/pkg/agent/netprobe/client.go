@@ -86,6 +86,7 @@ type Client struct {
 	closeErr  atomic.Value
 
 	lastEngineVersion atomic.Value
+	lastRunningAsRoot atomic.Bool
 
 	droppedFingerprintEvents atomic.Uint64
 	eventDropRecorder        EventDropRecorder
@@ -139,6 +140,7 @@ func (c *Client) Ping(ctx context.Context) error {
 		return fmt.Errorf("%w: expected ping_ack", ErrUnexpectedFrame)
 	}
 	c.lastEngineVersion.Store(ack.GetFingerprintEngineVersion())
+	c.lastRunningAsRoot.Store(ack.GetRunningAsRoot())
 
 	return nil
 }
@@ -193,6 +195,10 @@ func (c *Client) FingerprintEngineVersion() string {
 	version, _ := value.(string)
 
 	return version
+}
+
+func (c *Client) RunningAsRoot() bool {
+	return c.lastRunningAsRoot.Load()
 }
 
 // DroppedFingerprintEvents returns events dropped because the downstream consumer was slow.

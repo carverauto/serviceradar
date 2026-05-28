@@ -76,6 +76,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
 
       assert config["enabled"] == true
       assert config["default_sample_interval_ms"] == 60_000
+      assert config["capture_interfaces"] == ["eth0"]
 
       assert [
                %{
@@ -141,11 +142,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
         VisibilityCompiler.compile_profile(
           profile("Production Visibility", 20, %{"tcp" => true, :tls => true}),
           "10.1.2.3",
-          capture_interfaces: ["eth0", " eth0 ", "", "ens5"],
           binary_override_path: " /opt/serviceradar/netprobe "
         )
 
-      assert config["capture_interfaces"] == ["eth0", "ens5"]
+      assert config["capture_interfaces"] == ["eth0"]
       assert config["binary_overrides"] == %{"path" => "/opt/serviceradar/netprobe"}
 
       assert [
@@ -171,6 +171,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompilerTest do
       target_query: Keyword.get(opts, :target_query, "in:devices"),
       priority: priority,
       fingerprint: fingerprint,
+      capture_interfaces: Keyword.get(opts, :capture_interfaces, ["eth0"]),
       sample_interval_ms: Keyword.get(opts, :sample_interval_ms, 60_000),
       retention_days: 30,
       partition_id: "default"

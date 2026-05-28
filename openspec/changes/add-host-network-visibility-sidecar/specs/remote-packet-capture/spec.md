@@ -43,6 +43,10 @@ operator-managed capture posture records such as capture-interface
 allowlists and visibility profiles when those records enable packet
 observation. Denied requests that intentionally do not create or
 change an Ash resource MUST still emit a durable standard audit event.
+Audit-producing Ash actions MUST receive an explicit request id in the
+action context; implementations MUST reject or fail closed when the
+request id is missing instead of falling back to process-local logger
+metadata.
 
 #### Scenario: Remote capture request is versioned
 - **WHEN** an operator requests a remote capture session

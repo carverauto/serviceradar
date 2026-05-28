@@ -42,7 +42,7 @@ const (
 	defaultRestartBackoffInitial   = time.Second
 	defaultRestartBackoffMax       = time.Minute
 	defaultRestartLimitPerMinute   = 5
-	sidecarLogScannerMaxBufferSize = 1024 * 1024
+	sidecarLogScannerMaxBufferSize = 4 * 1024 * 1024
 )
 
 var (
@@ -213,6 +213,7 @@ func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
 			return
 		}
 
+		runStart := time.Now()
 		err := m.runOnce(ctx, sc)
 		if ctx.Err() != nil {
 			m.setState(name, StateStopped, 0, "")
@@ -230,6 +231,9 @@ func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
 		}
 
 		m.setState(name, StateRestarting, 0, errorString(err))
+		if time.Since(runStart) >= m.cfg.RestartBackoffMax {
+			backoff = m.cfg.RestartBackoffInitial
+		}
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -257,7 +261,7 @@ func (m *Manager) runOnce(ctx context.Context, sc Sidecar) error {
 	cmd := exec.CommandContext(runCtx, sc.BinaryPath(), sc.Args(socket, config)...)
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
-			return os.ErrProcessDone
+			return nil
 		}
 		return signalTerminate(cmd.Process)
 	}
@@ -310,22 +314,41 @@ func (m *Manager) healthLoop(ctx context.Context, sc Sidecar, socketPath string,
 	defer ticker.Stop()
 
 	failures := 0
-	m.probeHealth(ctx, sc, socketPath, pid, &failures)
+	var client Client
+	defer func() {
+		if client != nil {
+			_ = client.Close()
+		}
+	}()
+
+	if ctx.Err() == nil {
+		client = m.probeHealth(ctx, sc, socketPath, pid, client, &failures)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.probeHealth(ctx, sc, socketPath, pid, &failures)
+			client = m.probeHealth(ctx, sc, socketPath, pid, client, &failures)
 		}
 	}
 }
 
-func (m *Manager) probeHealth(ctx context.Context, sc Sidecar, socketPath string, pid int, failures *int) {
-	client, err := m.cfg.ClientFactory(ctx, socketPath)
-	if err == nil && client == nil {
-		err = ErrNilClient
+func (m *Manager) probeHealth(
+	ctx context.Context,
+	sc Sidecar,
+	socketPath string,
+	pid int,
+	client Client,
+	failures *int,
+) Client {
+	var err error
+	if client == nil {
+		client, err = m.cfg.ClientFactory(ctx, socketPath)
+		if err == nil && client == nil {
+			err = ErrNilClient
+		}
 	}
 	if err == nil {
 		err = client.Ping(ctx)
@@ -334,21 +357,21 @@ func (m *Manager) probeHealth(ctx context.Context, sc Sidecar, socketPath string
 		*failures = 0
 		m.setHealthy(sc.Name(), pid)
 		sc.OnHealthy(client)
-		if closeErr := client.Close(); closeErr != nil {
-			m.cfg.Logger.Debug().Err(closeErr).Str("sidecar", sc.Name()).Msg("failed to close sidecar health client")
-		}
-		return
+		return client
 	}
 
 	if client != nil {
 		_ = client.Close()
+		client = nil
 	}
 
 	*failures++
-	if *failures >= m.cfg.UnhealthyThreshold {
+	if *failures == m.cfg.UnhealthyThreshold {
 		m.setUnhealthy(sc.Name(), pid, err)
 		sc.OnUnhealthy(err)
 	}
+
+	return nil
 }
 
 func (m *Manager) setState(name string, state State, pid int, lastError string) {
@@ -459,7 +482,7 @@ func scanSidecarLogs(wg *sync.WaitGroup, r io.Reader, log zerolog.Logger, isErr 
 	for scanner.Scan() {
 		line := scanner.Text()
 		if isErr {
-			log.Error().Str("stream", "stderr").Msg(line)
+			log.Warn().Str("stream", "stderr").Msg(line)
 		} else {
 			log.Info().Str("stream", "stdout").Msg(line)
 		}

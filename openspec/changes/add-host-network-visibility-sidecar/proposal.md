@@ -127,8 +127,8 @@ management.
   a future portability hardening target.
 - New Cargo dependencies pulled into the workspace via crate-universe:
   `huginn-net` (fingerprinting), `aya` + `aya-log` + `aya-ebpf`
-  (eBPF), `etherparse` (parsing), `pcap` (capture handle), `tokio`
-  (already present), `prost` (already present).
+  (eBPF), `pcap` (capture handle), `tokio` (already present),
+  `prost` (already present).
 
 ### Sidecar capabilities (`netprobe`)
 

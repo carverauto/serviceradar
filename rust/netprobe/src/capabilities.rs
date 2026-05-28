@@ -18,6 +18,7 @@ pub fn assert_phase1_capabilities() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn has_effective_cap_net_raw() -> Result<bool> {
+    // CAP_NET_RAW is 13 in <linux/capability.h>; see capabilities(7).
     const CAP_NET_RAW: u64 = 13;
 
     let status =
@@ -44,6 +45,18 @@ pub fn drop_privileges_or_allow_root(user: Option<&str>, allow_root: bool) -> Re
     }
 
     Ok(())
+}
+
+pub fn running_as_root() -> bool {
+    #[cfg(unix)]
+    {
+        nix::unistd::Uid::current().is_root()
+    }
+
+    #[cfg(not(unix))]
+    {
+        false
+    }
 }
 
 #[cfg(unix)]

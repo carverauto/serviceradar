@@ -46,13 +46,24 @@ func TestToProtoStatuses(t *testing.T) {
 	if status.GetPid() != 1234 {
 		t.Fatalf("Pid = %d, want 1234", status.GetPid())
 	}
-	if status.GetLastHealthAt() != lastHealth.Unix() {
-		t.Fatalf("LastHealthAt = %d, want %d", status.GetLastHealthAt(), lastHealth.Unix())
+	if status.GetLastHealthAt() != lastHealth.UnixNano() {
+		t.Fatalf("LastHealthAt = %d, want %d", status.GetLastHealthAt(), lastHealth.UnixNano())
 	}
 	if status.GetRestartCount() != 2 {
 		t.Fatalf("RestartCount = %d, want 2", status.GetRestartCount())
 	}
 	if status.GetLastError() != "last error" {
 		t.Fatalf("LastError = %q, want last error", status.GetLastError())
+	}
+}
+
+func TestToProtoStatusesCapsRestartCount(t *testing.T) {
+	got := ToProtoStatuses([]Status{{
+		Name:         "netprobe",
+		RestartCount: int(^uint32(0)) + 1,
+	}})
+
+	if got[0].GetRestartCount() != ^uint32(0) {
+		t.Fatalf("RestartCount = %d, want max uint32", got[0].GetRestartCount())
 	}
 }

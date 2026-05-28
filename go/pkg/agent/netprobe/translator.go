@@ -138,13 +138,21 @@ func addEvidenceMetadata(metadata map[string]string, event *netprobepb.Fingerpri
 		metadata[metadataPassiveFingerprintBase+".tcp.signature"] = strings.TrimSpace(tcp.GetSignature())
 		metadata[metadataPassiveFingerprintBase+".tcp.os_family"] = strings.TrimSpace(tcp.GetOsFamily())
 		metadata[metadataPassiveFingerprintBase+".tcp.os_name"] = strings.TrimSpace(tcp.GetOsName())
-		metadata[metadataPassiveFingerprintBase+".tcp.confidence"] = strconv.FormatFloat(float64(tcp.GetConfidence()), 'f', -1, 32)
+		metadata[metadataPassiveFingerprintBase+".tcp.confidence"] = strconv.FormatFloat(float64(tcp.GetConfidence()), 'f', 3, 32)
+		metadata[metadataPassiveFingerprintBase+".tcp.ttl"] = strconv.FormatUint(uint64(tcp.GetTtl()), 10)
+		metadata[metadataPassiveFingerprintBase+".tcp.window_size"] = strings.TrimSpace(tcp.GetWindowSize())
+		metadata[metadataPassiveFingerprintBase+".tcp.mss"] = strconv.FormatUint(uint64(tcp.GetMss()), 10)
+		metadata[metadataPassiveFingerprintBase+".tcp.options_layout"] = strings.Join(tcp.GetOptionsLayout(), ",")
+		metadata[metadataPassiveFingerprintBase+".tcp.quirks"] = strings.Join(tcp.GetQuirks(), ",")
+		metadata[metadataPassiveFingerprintBase+".tcp.ip_version"] = strings.TrimSpace(tcp.GetIpVersion())
+		metadata[metadataPassiveFingerprintBase+".tcp.window_scale"] = strconv.FormatUint(uint64(tcp.GetWindowScale()), 10)
+		metadata[metadataPassiveFingerprintBase+".tcp.payload_class"] = strings.TrimSpace(tcp.GetPayloadClass())
 	case *netprobepb.FingerprintEvent_Tls:
 		tls := evidence.Tls
 		metadata[metadataPassiveFingerprintBase+".protocol"] = "tls"
 		metadata[metadataPassiveFingerprintBase+".tls.ja4"] = strings.TrimSpace(tls.GetJa4())
 		metadata[metadataPassiveFingerprintBase+".tls.ja4s"] = strings.TrimSpace(tls.GetJa4S())
-		metadata[metadataPassiveFingerprintBase+".tls.sni_redacted"] = strings.TrimSpace(tls.GetSniRedacted())
+		metadata[metadataPassiveFingerprintBase+".tls.sni_redacted"] = sanitizeSniRedacted(tls.GetSniRedacted())
 	case *netprobepb.FingerprintEvent_Http:
 		http := evidence.Http
 		metadata[metadataPassiveFingerprintBase+".protocol"] = "http"
@@ -156,6 +164,15 @@ func addEvidenceMetadata(metadata map[string]string, event *netprobepb.Fingerpri
 	}
 
 	return nil
+}
+
+func sanitizeSniRedacted(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "<present>" {
+		return value
+	}
+
+	return "<present>"
 }
 
 func profileName(event *netprobepb.FingerprintEvent, opts TranslationOptions) string {

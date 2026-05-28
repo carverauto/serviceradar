@@ -1,6 +1,5 @@
 use std::{
-    collections::{hash_map::DefaultHasher, BTreeSet, HashMap},
-    hash::{Hash, Hasher},
+    collections::{BTreeSet, HashMap},
     sync::{Arc, RwLock},
 };
 
@@ -162,23 +161,28 @@ impl FingerprintEventGate {
 }
 
 fn bindings_by_ip(bindings: &[DeviceBinding]) -> HashMap<String, BindingState> {
-    bindings
-        .iter()
-        .filter(|binding| !binding.ip.is_empty())
-        .map(|binding| {
-            (
-                binding.ip.clone(),
-                BindingState {
-                    profile_id: binding.profile_id.clone(),
-                    fingerprint: binding
-                        .fingerprint
-                        .clone()
-                        .unwrap_or_else(all_fingerprints_enabled),
-                    sample_interval_ms: binding.sample_interval_ms,
-                },
-            )
-        })
-        .collect()
+    let mut out = HashMap::new();
+    for binding in bindings.iter().filter(|binding| !binding.ip.is_empty()) {
+        let previous = out.insert(
+            binding.ip.clone(),
+            BindingState {
+                profile_id: binding.profile_id.clone(),
+                fingerprint: binding
+                    .fingerprint
+                    .clone()
+                    .unwrap_or_else(default_fingerprints_disabled),
+                sample_interval_ms: binding.sample_interval_ms,
+            },
+        );
+        if previous.is_some() {
+            log::warn!(
+                "duplicate netprobe device binding for {}; using the last profile",
+                binding.ip
+            );
+        }
+    }
+
+    out
 }
 
 #[cfg_attr(not(feature = "pcap-capture"), allow(dead_code))]
@@ -199,12 +203,8 @@ fn protocol_enabled(config: &FingerprintConfig, protocol: FingerprintProtocol) -
     }
 }
 
-fn all_fingerprints_enabled() -> FingerprintConfig {
-    FingerprintConfig {
-        tcp: true,
-        tls: true,
-        http: true,
-    }
+fn default_fingerprints_disabled() -> FingerprintConfig {
+    FingerprintConfig::default()
 }
 
 fn normalize_capture_interfaces(interfaces: &[String]) -> Vec<String> {
@@ -226,7 +226,6 @@ fn should_emit(
     sample_interval_ms: u32,
 ) -> bool {
     if sample_interval_ms == 0 {
-        last_emitted.insert((ip.to_string(), protocol), observed_at_unix_nano);
         return true;
     }
 
@@ -243,9 +242,12 @@ fn should_emit(
 }
 
 fn config_hash(config: &VisibilityAgentConfig) -> String {
-    let mut hasher = DefaultHasher::new();
-    config.encode_to_vec().hash(&mut hasher);
-    format!("netprobe-v1:{:016x}", hasher.finish())
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in config.encode_to_vec() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("netprobe-v1:{hash:016x}")
 }
 
 #[cfg(test)]
@@ -369,6 +371,7 @@ mod tests {
                 os_family: String::new(),
                 os_name: String::new(),
                 confidence: 1.0,
+                ..Default::default()
             })),
             ..Default::default()
         }

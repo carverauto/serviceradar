@@ -10,6 +10,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateVisibilityProfiles do
       add :enabled, :boolean, null: false, default: true
       add :target_query, :text
       add :priority, :integer, null: false, default: 0
+      add :capture_interfaces, {:array, :text}, null: false, default: []
 
       add :fingerprint, :map,
         null: false,

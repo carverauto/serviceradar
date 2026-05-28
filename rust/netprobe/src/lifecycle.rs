@@ -38,7 +38,7 @@ pub fn initialize_privileged_resources<O>(
 where
     O: StartupOps,
 {
-    if !skip_cap_check {
+    if config.enabled && !skip_cap_check {
         ops.assert_phase1_capabilities()?;
     }
 

@@ -65,7 +65,7 @@ func TestFingerprintEventToDiscoveredDeviceTCP(t *testing.T) {
 	assertMetadata(t, metadata, "passive_fingerprint.tcp.signature", "64240:64:1:60:M1460,S,T,N,W7")
 	assertMetadata(t, metadata, "passive_fingerprint.tcp.os_family", "linux")
 	assertMetadata(t, metadata, "passive_fingerprint.tcp.os_name", "Linux 5.x")
-	assertMetadata(t, metadata, "passive_fingerprint.tcp.confidence", "0.92")
+	assertMetadata(t, metadata, "passive_fingerprint.tcp.confidence", "0.920")
 	assertMetadata(t, metadata, "agent_id", "agent-a")
 	assertMetadata(t, metadata, "gateway_id", "gateway-a")
 	assertMetadata(t, metadata, "_alias_last_seen_at", "2026-05-27T14:30:01.000000123Z")
@@ -110,7 +110,7 @@ func TestFingerprintEventToDiscoveredDeviceTLSAndHTTP(t *testing.T) {
 				"passive_fingerprint.protocol":         "tls",
 				"passive_fingerprint.tls.ja4":          "t13d1516h2_8daaf6152771_b0da82dd1658",
 				"passive_fingerprint.tls.ja4s":         "t130200_1301_a56c5b993250",
-				"passive_fingerprint.tls.sni_redacted": "example.invalid",
+				"passive_fingerprint.tls.sni_redacted": "<present>",
 			},
 		},
 		{

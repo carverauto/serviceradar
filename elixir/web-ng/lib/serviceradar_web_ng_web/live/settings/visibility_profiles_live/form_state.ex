@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       "enabled" => "true",
       "target_query" => "",
       "priority" => "0",
+      "capture_interfaces" => "",
       "sample_interval_ms" => Integer.to_string(@default_sample_interval_ms),
       "retention_days" => Integer.to_string(@default_retention_days),
       "partition_id" => @default_partition,
@@ -28,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       "enabled" => bool_string(profile.enabled),
       "target_query" => profile.target_query || "",
       "priority" => to_string(profile.priority || 0),
+      "capture_interfaces" => Enum.join(profile.capture_interfaces || [], "\n"),
       "sample_interval_ms" => to_string(profile.sample_interval_ms || @default_sample_interval_ms),
       "retention_days" => to_string(profile.retention_days || @default_retention_days),
       "partition_id" => profile.partition_id || @default_partition,
@@ -52,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       enabled: truthy?(form["enabled"]),
       target_query: blank_to_nil(form["target_query"]),
       priority: parse_int(form["priority"], 0),
+      capture_interfaces: parse_interfaces(form["capture_interfaces"]),
       sample_interval_ms: parse_int(form["sample_interval_ms"], @default_sample_interval_ms),
       retention_days: parse_int(form["retention_days"], @default_retention_days),
       partition_id: blank_to_nil(form["partition_id"]) || @default_partition,
@@ -66,6 +69,14 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
   def validate_form(form) do
     []
     |> maybe_error(trim(form["name"]) == "", "Name is required")
+    |> maybe_error(
+      truthy?(form["enabled"]) and parse_interfaces(form["capture_interfaces"]) == [],
+      "At least one capture interface is required when enabled"
+    )
+    |> maybe_error(
+      Enum.any?(parse_interfaces(form["capture_interfaces"]), &(&1 == "any" or String.contains?(&1, "*"))),
+      "Capture interfaces cannot use any or wildcards"
+    )
     |> maybe_error(parse_int(form["sample_interval_ms"], -1) < 0, "Sample interval must be zero or greater")
     |> maybe_error(parse_int(form["retention_days"], 0) < 1, "Retention must be at least one day")
   end
@@ -87,6 +98,15 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       {int, ""} -> int
       _ -> default
     end
+  end
+
+  def parse_interfaces(value) do
+    value
+    |> to_string()
+    |> String.split([",", "\n", "\r", "\t"], trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
   end
 
   def stringify_params(params) when is_map(params) do

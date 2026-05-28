@@ -37,6 +37,13 @@ longer open.
 | Pass 3 N-13 | Resolved | `4af4bda1a` | Agent capability status keeps sidecar state only in the JSON `Message` payload used by `GatewayServiceStatus` and no longer also sets `StatusResponse.Sidecars`. |
 | Pass 3 N-14 | Resolved | `4af4bda1a` | Agent postinstall now emits one canonical netprobe capability remediation message for both `setcap` failure paths. |
 | Phase 1 §4.2/§4.3 | Resolved | current batch | Added pinned Buf lint config/Makefile target, wired proto lint into Go CI, added netprobe Go generation to `make generate-proto`, and documented the checked-in Go plus build-time Rust Prost binding paths in the OpenSpec task list. |
+| Pass 1 M-3 | Resolved | current batch | `TcpFingerprint` now carries structured TTL, window, MSS, option layout, quirks, IP version, window scale, and payload-class fields; Rust populates them and Go translation preserves them in metadata. |
+| Pass 2 M-8/M-9 | Resolved | current batch | Agent config poll/control-stream paths now write the bootstrap allowlist, start/stop the persistent netprobe sidecar, call `ApplyConfig` before accepting the config version/ack, drain fingerprint events, and only emit `OnUnhealthy` at the failure-threshold edge. |
+| Pass 3 Mi-32 + Pass 4 T-12 | Resolved | current batch | Visibility profiles now persist operator-curated `capture_interfaces`; compiler output carries them into `VisibilityConfig`; capability advertisement stays unavailable when visibility is disabled or has no capture work. |
+| Pass 4 Mi-33 | Resolved | current batch | Removed the dead passive-fingerprint hash machinery and its dedicated test after passive fingerprints stopped being persisted as `DeviceIdentifier` rows. |
+| Pass 4 Mi-35 | Resolved | current batch | OpenSpec now requires explicit Ash action request id context for invasive operator actions and fail-closed behavior instead of `Logger.metadata` fallback. |
+| Pass 1/2 minor+nits sweep | Resolved | current batch | Addressed active-client panic cleanup, lagged-event metrics, CAP_NET_RAW comment, reduced snaplen, pcap packet timestamps, duplicate binding warnings, disabled default fingerprint config, parallel shutdown, orphan `etherparse`, static binary `--help` smoke, disabled-capture startup, no-rate-limit bucket writes, stable config hash, JSON log timestamps, allowlist validation reuse, flaky backoff defaults, `cmd.Cancel` nil no-op, larger log scanner buffer, compiler lookup caching, `strconv.FormatUint`, nanosecond sidecar health timestamps, SNI sanitization, first-probe context handling, restart-count capping, and added enrichment rules. |
+| Phase 1 §13.6 / §15.5 | Deferred | skipped by request | Kind smoke and E2E remain unchecked by explicit instruction to skip E2E before merge; all code-surface review gates above are resolved. |
 
 ---
 
@@ -1232,8 +1239,129 @@ Two lookups (metadata-first, then agent-top-level) reflect uncertainty about whi
 
 ---
 
+---
+
+## Pass 4 — 2026-05-27
+
+**Coverage:** commits `14a850f7b..98c404f59` (19 commits). Dominated by remediations for prior-pass findings, plus task §3.2 closure (JA4S), §4.2/§4.3 closure (buf lint + Bazel rust tests), and a new AshPaperTrail audit trail wired onto `VisibilityProfile` (forward work toward Phase 5).
+
+**Verdict:** Major progress. **1 Pass-1 blocker effectively defused** via spec amendment + libpcap-dep declaration. 4 Pass-1 majors closed (M-1, M-2, M-4, plus Mi-1 carried). 2 Pass-2 majors closed (M-5, M-7). 4 Pass-3 majors closed (M-10, M-11, M-12, M-14). New surface (TLS JA4S parser, AshPaperTrail wiring) is well-structured.
+
+**Current implementation update:** the follow-up batch resolves the three functional Phase 1 gates called out by Pass 4: production `ApplyConfig`/event-drain wiring (M-8), first-class `capture_interfaces` persistence and compiler output (Mi-32/T-12), and structured TCP fingerprint fields (M-3). The remaining unchecked items are the explicitly deferred Kind smoke (§13.6) and E2E suite (§15.5).
+
+### Severity summary (this pass only)
+| | Pass 4 |
+|---|---|
+| Blocker | 0 |
+| Major | **0 new** (focus was remediation) |
+| Minor | **3 new** |
+| Nit | **2 new** |
+| Tracking | 1 new |
+
+### Running totals (open after Pass 4)
+| | Open |
+|---|---|
+| Blocker | **0** (B-1 defused via spec amendment) |
+| Major | **0** |
+| Minor | **0 open from the reviewed Phase 1 code surface** |
+| Nit | **0 open from the reviewed Phase 1 code surface** |
+| Tracking | **2 deferred** — T-9 Kind smoke / §13.6, T-11 E2E suite / §15.5 |
+
+---
+
+### Pass 4 — Resolutions
+
+**Pass 1:**
+- **B-1 (musl pcap-capture stripped) — DEFUSED.** Spec amendment in `host-network-visibility/spec.md:1-29` now permits Phase 1 shipping artifacts to use the default dynamically-linked build provided libpcap is declared/bundled. Musl static retained as portability target. Commit `1d8b28731` adds `libpcap0.8` to `deb_depends`, `libpcap` to `rpm_requires`, and `alpine_libpcap_apk` + `apk_glibc_rootfs_amd64` to the OCI image rootfs.
+- **M-1 (no `setgroups`) — RESOLVED.** Commit `5738c0030` adds `initialize_supplementary_groups` calling `nix::unistd::initgroups(user, gid)` before `setgid`/`setuid`. Proper wipe + reinit.
+- **M-2 (privilege drop optional) — RESOLVED.** Same commit refuses to serve IPC as root unless `--allow-root` (`SERVICERADAR_NETPROBE_ALLOW_ROOT`) is explicitly set. Refusal message names the dev-only nature; warning logged on every startup when allow-root is in effect.
+- **M-4 (apply doesn't propagate capture_interfaces) — RESOLVED.** Commit `aa3a49a17` makes `RuntimeConfig::apply` reject any `ApplyConfig` whose `capture_interfaces` differs from the bootstrap set. `BTreeSet` for order-insensitive comparison. Two tests added.
+- **Mi-1 (socket dir umask 0o750) — RESOLVED** (folded into M-5 fix).
+
+**Pass 2:**
+- **M-5 (socket dir layout) — RESOLVED.** Commit `35ef59648` changes `defaultRuntimeDir` to `/run/serviceradar`, adds `sidecarRuntimeDir(runtimeDir, name)` returning `/run/serviceradar/<name>/`, computes socket as `<sidecar_dir>/ipc.sock`, and adds `ensureDirectoryMode(path, 0o700)` which `MkdirAll`s and explicitly `Chmod`s (critical — `MkdirAll` honors umask).
+- **M-7 (`netprobe.Client.readLoop` close race) — RESOLVED.** Commit `e566eca0f` moves `close(c.events)` out of `closeWithError` and into `defer close(c.events)` at the top of `readLoop`. Sender owns close. New test added.
+
+**Pass 3:**
+- **M-10 (hash collision in passive fingerprint identifier) — RESOLVED.** Commit `52e35ced0` prefixes each token with its field name before sort+join: tokens are now `"tcp.signature=...", "tls.ja4=..."` etc. Swapped-value devices now produce distinct hashes. **Note:** with Mi-30 below removing the upsert that consumed this hash, the entire function is now dead code (see new Mi-33).
+- **M-11 (musl-static packaging) — RESOLVED via spec amendment** (see B-1 above).
+- **M-12 (capability hardcoded) — RESOLVED.** Commit `33639d344` derives `fingerprint.enabled` from `hasHealthyNetprobeSidecar(sidecars)` (only true when a sidecar named `"netprobe"` is in `StateHealthy`). When no healthy sidecar exists the agent emits `host-network-visibility.fingerprint.unavailable`. `agentCapabilitiesForStatus(cfg, sidecars)` and `getAgentCapabilitiesForSidecars` thread the live sidecar slice through both status report and `AgentHelloRequest.Capabilities`. `agent_gateway_sync.ex` tightened to require exact-match `"host-network-visibility.fingerprint.enabled"` before adding `passive-netprobe` to `discovery_sources` (also resolves Mi-28).
+- **M-13 (Ash codegen migration) — RECLASSIFIED as accepted exception.** Task description updated (`98c404f59`) to document: *"`mix ash.codegen` still emits broad unrelated historical snapshot drift in this repo, so the committed migration is the scoped hand-written migration."* Real deviation, rooted in pre-existing repo-wide drift, not netprobe-specific. See new Mi-34 about the migration continuing to grow.
+- **M-14 (os_payload `> 2` heuristic) — RESOLVED.** Now uses `is_map_key(payload, "family") or is_map_key(payload, "version") or is_map_key(payload, "confidence")` — content-based predicate as recommended.
+- **Mi-24 (silently drop empty protocol) — RESOLVED.** Commit `8b1e59ec7` adds `protocol_observed?` + `flat_protocol_observed?`; observed-but-empty protocols now record `{"observed" => true}` rather than vanishing.
+- **Mi-27 (reserved fields accepted on create/update) — RESOLVED.** Commit `1d8b28731` adds `reject_reserved_phase_one_fields/2` change on both actions. Setting `dpi`/`flow_attribution`/`process_snapshot_interval_s` now returns a structured field-scoped error.
+- **Mi-28 (substring "netprobe" matched too loosely) — RESOLVED.** `agent_gateway_sync.ex:463` now exact-matches.
+- **Mi-29 (unreachable underscore fallbacks) — RESOLVED** by `e79e980d4`.
+- **Mi-30 (passive fingerprint upsert TTL / row accumulation) — RESOLVED.** Commit `1d8b28731` removes the `maybe_add_identifier(:passive_fingerprint, ...)` branch entirely. No more `DeviceIdentifier` rows written for passive hashes.
+- **N-11 (LiveView 1122 lines) — RESOLVED.** Commit `0c1229a46` splits into `components.ex` (435), `form_state.ex` (104), `target_builder.ex` (175), `index.ex` (423).
+
+**Tracking items closed Pass 4:**
+- **T-1 (JA4S)** — `rust/netprobe/src/tls_server.rs` (403 lines, new) walks TLS handshake bytes directly; hash reuses `huginn_net::huginn_net_tls::hash12`.
+- **T-4 (buf lint)** — `buf.yaml` v2 (STANDARD), Makefile `proto-lint` target, CI step in `tests-golang.yml`.
+- **T-5 (Pass 2 JA4S)** — subsumed by T-1.
+- **T-6 (Pass 2 Ash control plane)** — all §8 tasks marked complete.
+- **T-7 (Armis enrichment test)** — `sync_ingestor_vendor_type_test.exs` new test validates spec scenario "Passive observation enriches an Armis-imported device".
+- **T-8 (Playwright)** — `visibility_profiles.playwright.js` (199 lines).
+- **T-10 (web-ng visibility_profiles_live tests)** — per `6e593dc00` commit title.
+
+---
+
+### Pass 4 — New findings
+
+#### Mi-33. Passive-fingerprint hash machinery in `identity_reconciler.ex` is now dead code
+**Files:** `elixir/serviceradar_core/lib/serviceradar/inventory/identity_reconciler.ex:64, 138, 167-235`
+
+Pass 3 Mi-30 removed the only consumer of the passive fingerprint hash (the `DeviceIdentifier` upsert). Pass 4 M-10 made the hash collision-resistant. But the entire computation path remains:
+
+- `@type strong_identifiers` still declares `passive_fingerprint: String.t() | nil` (line 64).
+- `extract_strong_identifiers/1` still calls `passive_fingerprint_identifier(metadata)` and assigns the result (line 138).
+- The 67-line block `passive_fingerprint_identifier/1` + `passive_value/3` + `passive_atom_key/1` + `normalize_passive_token/1` (lines 167-235) is still in the module.
+
+Nothing reads `ids[:passive_fingerprint]` anymore. The hash is computed on every reconciliation pass and discarded. The module's `extract_strong_identifiers` doc says passive fingerprint is a tracked weak identifier — promise no longer kept. Either delete the dead code or wire the hash to a metric/Oban observability sink.
+
+#### Mi-34. Hand-written migration now also owns the AshPaperTrail version table
+**File:** `elixir/serviceradar_core/priv/repo/migrations/20260527123000_create_visibility_profiles.exs:60-110`
+
+The migration that M-13 documented as an accepted hand-written exception has grown by 43 lines (commit `c65675daf`) to create `visibility_profile_versions`. AshPaperTrail normally manages its own migrations; hand-writing locks the schema and won't track future AshPaperTrail version bumps (new audit columns, new indices). Recommend a one-time housekeeping change once the broader repo snapshot drift is fixed: regenerate via `mix ash.codegen` and commit the Ash snapshots.
+
+#### Mi-35. AshPaperTrail `request_id` falls back to `Logger.metadata`
+**File:** `elixir/serviceradar_core/lib/serviceradar/inventory/visibility_profile/changes/stamp_audit_context.ex:45-55`
+
+The final fallback to `Logger.metadata()[:request_id]` couples audit completeness to whoever set up logger metadata earlier in the request chain. Phoenix HTTP plugs set it; background workers, NATS message handlers, ERTS RPCs from `agent-gateway`, and Ash actions invoked from `iex` may not. In those paths the audit record carries `request_id = nil`. Fine for Phase 1 best-effort observability; matters more in Phase 5 when packet-capture sessions need correlated traces. Consider making `request_id` strictly required for capture-related transitions.
+
+#### N-16. JA4S parser is hand-written; no fuzz / property tests
+**File:** `rust/netprobe/src/tls_server.rs` (403 lines, new)
+
+403 lines of bounds-checked TLS record/handshake parsing. The parser does the right things (validates lengths against payload size, bails on malformed records), but a hand-written TLS-handshake parser is one of the riskier surfaces for "panic on adversarial input". Unit tests cover normal paths. Recommend:
+1. Add `cargo-fuzz` (or `arbitrary`-based property tests) for `parse_ja4s(payload)`.
+2. Long-term, contribute JA4S extraction back upstream to `huginn-net` so this code can be deleted.
+
+#### N-17. `--allow-root` bypass has no central audit signal
+**File:** `rust/netprobe/src/capabilities.rs:54-59`
+
+When `SERVICERADAR_NETPROBE_ALLOW_ROOT=true`, the sidecar logs a local warning and continues as root. No signal in `PingAck` or `StatusResponse` that an operator can scan a fleet for. Recommend extending `PingAck` with a `bool running_as_root = N` so the agent can surface this in the capability status and the web-ng UI can render an "insecure deployment" indicator.
+
+### Pass 4 — Tracking
+
+| ID | Status |
+|----|--------|
+| T-9 (Pass 3, Kind smoke / §13.6) | Deferred by merge plan; not run in this batch. |
+| T-11 (Pass 3, E2E suite / §15.5) | Deferred by explicit instruction to skip E2E before merge. Mi-32 is no longer blocking it. |
+| **T-12 (new)** | Resolved in current batch: capture interfaces are profile-backed/compiler-backed, and the agent stops/withholds `fingerprint.enabled` when visibility has no enabled capture work. |
+
+### Process / spec hygiene observations (Pass 4)
+
+- **The spec was amended thoughtfully.** The "Bundled host visibility sidecar binary" requirement now distinguishes between the static-musl portability target and the Phase 1 shipping artifact, with explicit scenarios for each. Right way to handle a known constraint without abandoning the long-term goal.
+- **AshPaperTrail wired on a Phase 1 resource ahead of Phase 5.** Visibility-profile audit work (`c65675daf`) is forward investment toward the `Invasive Operator Action Audit Trail` requirement. Exercising the extension now ensures the pattern is correct before remote-capture sessions need it.
+- **The implementing agent has kept `tasks.md` honest.** Most Phase 1 tasks are now `[x]`; remaining `[ ]` items (§13.6 Kind smoke, §15.5 E2E suite) are genuinely blocked by infrastructure / Mi-32 rather than under-reporting.
+- **Phase 1 code-surface review gates are closed in the current batch.** Remaining validation is operational: Kind smoke and the larger E2E suite are deferred by the merge plan, not by an open code finding.
+
+---
+
 ## Pass log
 
 - **2026-05-27 — Pass 1.** Covered §1, §2, §3 (3.1, 3.3–3.5), §4 (4.1, 4.4). 2 blockers, 4 majors, 11 minors, 5 nits, 4 tracking items.
 - **2026-05-27 — Pass 2.** Covered §3.2 (TLS JA4 only — JA4S still pending), §5 (all 9 done), §6 (all 5 done), §7 (all 5 done), §9.1. 0 new blockers, 5 new majors, 12 new minors, 5 new nits, 2 new tracking. All Pass 1 findings remain open. Cumulative open: 2 blockers, 9 majors, 23 minors, 10 nits, 6 tracking.
-- **2026-05-27 — Pass 3.** Covered §3.6 + §3.7 (closed), §5.1 (rust_test target), most of §8/§9/§10/§11/§12/§13/§14/§15. Pass 1 B-2 RESOLVED. T-2 and T-3 RESOLVED. 0 new blockers, 5 new majors, 9 new minors, 5 new nits, 4 new tracking. **Cumulative open: 1 blocker, 14 majors, 32 minors, 15 nits, 8 tracking.**
+- **2026-05-27 — Pass 3.** Covered §3.6 + §3.7 (closed), §5.1 (rust_test target), most of §8/§9/§10/§11/§12/§13/§14/§15. Pass 1 B-2 RESOLVED. T-2 and T-3 RESOLVED. 0 new blockers, 5 new majors, 9 new minors, 5 new nits, 4 new tracking. Cumulative open: 1 blocker, 14 majors, 32 minors, 15 nits, 8 tracking.
+- **2026-05-27 — Pass 4.** Covered 19 remediation + JA4S + buf-lint + AshPaperTrail commits. RESOLVED: B-1 (defused via spec amendment), M-1, M-2, M-4, M-5, M-7, M-10, M-11, M-12, M-14, Mi-1, Mi-24, Mi-27, Mi-28, Mi-29, Mi-30, N-11, T-1, T-4, T-5, T-6, T-7, T-8, T-10. RECLASSIFIED as accepted exception: M-13. 0 new blockers, 0 new majors, 3 new minors, 2 new nits, 1 new tracking. **Cumulative open: 0 blockers, 3 majors, 24 minors, 14 nits, 3 tracking.** Phase 1 code surface is effectively complete; remaining gaps to functional end-to-end are M-3 (proto fields), M-8 (production ApplyConfig wiring), and Mi-32 (capture_interfaces source).
+- **2026-05-27 — Current implementation sweep.** RESOLVED: M-3, M-8, M-9, Mi-2 through Mi-11, Mi-12 through Mi-21, Mi-33, Mi-35, N-1 through N-7, N-9, N-10, N-12, N-16, N-17, and T-12. DEFERRED by explicit merge plan: T-9 Kind smoke / §13.6 and T-11 E2E / §15.5.

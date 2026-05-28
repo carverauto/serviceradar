@@ -532,6 +532,10 @@ case), security review (eBPF capability surface).
   captures request, authorise, start, terminate cause, byte total,
   actor, partition, request id, agent id, target interfaces, and the
   normalized BPF filter metadata needed for investigation.
+- Request id is a required Ash action context field for invasive
+  operator actions. Do not infer it from `Logger.metadata` or other
+  process-local state; missing request id is a validation failure so
+  the audit trail cannot silently lose correlation.
 - Denials that intentionally do not create a session record (for
   example cross-tenant target attempts) still write a durable audit
   event through the standard audit log capability. That event MUST

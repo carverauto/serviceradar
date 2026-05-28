@@ -20,6 +20,9 @@ use crate::{
 use crate::fingerprint::{now_unix_nano, FingerprintEngine};
 
 #[cfg(feature = "pcap-capture")]
+const HEADER_FINGERPRINT_SNAPLEN: i32 = 512;
+
+#[cfg(feature = "pcap-capture")]
 pub type CaptureBackendHandle = pcap::Capture<pcap::Active>;
 
 #[cfg(not(feature = "pcap-capture"))]
@@ -109,6 +112,7 @@ where
 
     let mut handles = Vec::with_capacity(config.capture_interfaces.len());
     for interface in &config.capture_interfaces {
+        config.validate_interface(interface)?;
         let handle = opener
             .open(interface)
             .with_context(|| format!("failed to open capture interface {interface}"))?;
@@ -156,8 +160,9 @@ fn start_capture_workers(
                     match capture.handle.next_packet() {
                         Ok(packet) => {
                             metrics_worker.inc_packets_processed();
-                            let events =
-                                engine.analyze_packet(&interface, now_unix_nano(), packet.data);
+                            let observed_at = packet_observed_at_unix_nano(&packet)
+                                .unwrap_or_else(now_unix_nano);
+                            let events = engine.analyze_packet(&interface, observed_at, packet.data);
                             for event in events {
                                 let Some(event) = event_gate
                                     .lock()
@@ -217,7 +222,7 @@ impl CaptureOpener for PcapCaptureOpener {
     fn open(&self, interface: &str) -> Result<Self::Handle> {
         let capture = pcap::Capture::from_device(interface)?
             .promisc(false)
-            .snaplen(65_535)
+            .snaplen(HEADER_FINGERPRINT_SNAPLEN)
             .timeout(1_000)
             .open()?;
 
@@ -230,6 +235,17 @@ impl CaptureOpener for PcapCaptureOpener {
             "pcap capture backend is not enabled in this build; cannot open interface {interface}"
         );
     }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn packet_observed_at_unix_nano(packet: &pcap::Packet<'_>) -> Option<i64> {
+    let seconds = i64::from(packet.header.ts.tv_sec);
+    let micros = i64::from(packet.header.ts.tv_usec);
+    if seconds < 0 || !(0..1_000_000).contains(&micros) {
+        return None;
+    }
+
+    Some(seconds.saturating_mul(1_000_000_000) + micros.saturating_mul(1_000))
 }
 
 #[cfg(test)]

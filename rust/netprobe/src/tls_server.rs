@@ -290,6 +290,29 @@ mod tests {
         assert!(parse_ja4s(&tls_client_hello_payload()).is_none());
     }
 
+    #[test]
+    fn malformed_payloads_do_not_panic() {
+        let seeds = [
+            Vec::new(),
+            vec![0x16],
+            vec![0x16, 0x03, 0x03, 0xff, 0xff],
+            tls_server_hello_payload()[..12].to_vec(),
+        ];
+
+        for seed in seeds {
+            assert!(parse_ja4s(&seed).is_none());
+        }
+
+        let mut payload = Vec::new();
+        for len in 0..512 {
+            payload.clear();
+            for index in 0..len {
+                payload.push(((index * 31 + len * 17) & 0xff) as u8);
+            }
+            let _ = parse_ja4s(&payload);
+        }
+    }
+
     pub(crate) fn tls_server_hello_packet() -> Vec<u8> {
         ipv4_tcp_packet(
             [198, 51, 100, 40],

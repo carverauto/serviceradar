@@ -10,7 +10,11 @@ use huginn_net::{
         output::{HttpRequestOutput, HttpResponseOutput},
     },
     huginn_net_tcp::{
-        db::MatchQualityType,
+        db::{
+            tcp::{IpVersion, PayloadSize, Quirk, TcpOption, Ttl, WindowSize},
+            MatchQualityType,
+        },
+        observable::ObservableTcp,
         output::{OSQualityMatched, SynAckTCPOutput, SynTCPOutput},
     },
     huginn_net_tls::output::TlsClientOutput,
@@ -126,6 +130,7 @@ fn event_from_syn(
         interface_name,
         observed_at_unix_nano,
         syn.sig.matching.to_string(),
+        &syn.sig,
         &syn.os_matched,
     )
 }
@@ -141,6 +146,7 @@ fn event_from_syn_ack(
         interface_name,
         observed_at_unix_nano,
         syn_ack.sig.matching.to_string(),
+        &syn_ack.sig,
         &syn_ack.os_matched,
     )
 }
@@ -151,6 +157,7 @@ fn tcp_event(
     interface_name: &str,
     observed_at_unix_nano: i64,
     signature: String,
+    sig: &ObservableTcp,
     os_matched: &OSQualityMatched,
 ) -> FingerprintEvent {
     let confidence = match os_matched.quality {
@@ -181,8 +188,91 @@ fn tcp_event(
             os_family,
             os_name,
             confidence,
+            ttl: ttl_value(&sig.matching.ittl) as u32,
+            window_size: window_size_value(&sig.matching.wsize),
+            mss: sig.matching.mss.unwrap_or_default() as u32,
+            options_layout: sig.matching.olayout.iter().map(tcp_option_value).collect(),
+            quirks: sig.matching.quirks.iter().map(quirk_value).collect(),
+            ip_version: ip_version_value(sig.matching.version).to_string(),
+            window_scale: sig.matching.wscale.unwrap_or_default() as u32,
+            payload_class: payload_class_value(sig.matching.pclass).to_string(),
         })),
     }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn ttl_value(ttl: &Ttl) -> u8 {
+    match ttl {
+        Ttl::Value(value) | Ttl::Guess(value) | Ttl::Bad(value) => *value,
+        Ttl::Distance(observed, distance) => observed.saturating_add(*distance),
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn window_size_value(window: &WindowSize) -> String {
+    match window {
+        WindowSize::Mss(value) => format!("mss:{value}"),
+        WindowSize::Mtu(value) => format!("mtu:{value}"),
+        WindowSize::Value(value) => value.to_string(),
+        WindowSize::Mod(value) => format!("mod:{value}"),
+        WindowSize::Any => "any".to_string(),
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn ip_version_value(version: IpVersion) -> &'static str {
+    match version {
+        IpVersion::V4 => "4",
+        IpVersion::V6 => "6",
+        IpVersion::Any => "any",
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn payload_class_value(payload: PayloadSize) -> &'static str {
+    match payload {
+        PayloadSize::Zero => "zero",
+        PayloadSize::NonZero => "nonzero",
+        PayloadSize::Any => "any",
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn tcp_option_value(option: &TcpOption) -> String {
+    match option {
+        TcpOption::Eol(padding) => format!("eol:{padding}"),
+        TcpOption::Nop => "nop".to_string(),
+        TcpOption::Mss => "mss".to_string(),
+        TcpOption::Ws => "ws".to_string(),
+        TcpOption::Sok => "sok".to_string(),
+        TcpOption::Sack => "sack".to_string(),
+        TcpOption::TS => "ts".to_string(),
+        TcpOption::Unknown(value) => format!("unknown:{value}"),
+    }
+}
+
+#[cfg(feature = "pcap-capture")]
+fn quirk_value(quirk: &Quirk) -> String {
+    match quirk {
+        Quirk::Df => "df",
+        Quirk::NonZeroID => "id+",
+        Quirk::ZeroID => "id-",
+        Quirk::Ecn => "ecn",
+        Quirk::MustBeZero => "0+",
+        Quirk::FlowID => "flow",
+        Quirk::SeqNumZero => "seq-",
+        Quirk::AckNumNonZero => "ack+",
+        Quirk::AckNumZero => "ack-",
+        Quirk::NonZeroURG => "uptr+",
+        Quirk::Urg => "urgf+",
+        Quirk::Push => "pushf+",
+        Quirk::OwnTimestampZero => "ts1-",
+        Quirk::PeerTimestampNonZero => "ts2+",
+        Quirk::TrailinigNonZero => "opt+",
+        Quirk::ExcessiveWindowScaling => "exws",
+        Quirk::OptBad => "bad",
+    }
+    .to_string()
 }
 
 #[cfg(feature = "pcap-capture")]

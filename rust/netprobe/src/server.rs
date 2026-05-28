@@ -14,8 +14,10 @@ use tokio::{
 };
 
 use crate::{
+    capabilities,
     fingerprint::FINGERPRINT_ENGINE_VERSION,
     framing::{read_frame, write_frame},
+    metrics::Metrics,
     proto::netprobe::{
         netprobe_frame, ConfigAck, ErrorFrame, FingerprintEvent, NetprobeFrame, PingAck,
     },
@@ -27,6 +29,7 @@ pub struct IpcServer {
     active_client: Arc<AtomicBool>,
     fingerprint_events: broadcast::Sender<FingerprintEvent>,
     runtime_config: RuntimeConfig,
+    metrics: Metrics,
 }
 
 impl IpcServer {
@@ -34,12 +37,14 @@ impl IpcServer {
         socket_path: impl Into<PathBuf>,
         fingerprint_events: broadcast::Sender<FingerprintEvent>,
         runtime_config: RuntimeConfig,
+        metrics: Metrics,
     ) -> Self {
         Self {
             socket_path: socket_path.into(),
             active_client: Arc::new(AtomicBool::new(false)),
             fingerprint_events,
             runtime_config,
+            metrics,
         }
     }
 
@@ -67,9 +72,10 @@ impl IpcServer {
                     let active_client = Arc::clone(&self.active_client);
                     let event_rx = self.fingerprint_events.subscribe();
                     let runtime_config = self.runtime_config.clone();
+                    let metrics = self.metrics.clone();
                     tokio::spawn(async move {
-                        let result = handle_client(stream, event_rx, runtime_config).await;
-                        active_client.store(false, Ordering::SeqCst);
+                        let _guard = ActiveClientGuard(active_client);
+                        let result = handle_client(stream, event_rx, runtime_config, metrics).await;
                         if let Err(err) = result {
                             log::warn!("netprobe IPC client disconnected with error: {err:#}");
                         }
@@ -77,6 +83,14 @@ impl IpcServer {
                 }
             }
         }
+    }
+}
+
+struct ActiveClientGuard(Arc<AtomicBool>);
+
+impl Drop for ActiveClientGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
     }
 }
 
@@ -110,6 +124,7 @@ async fn handle_client(
     stream: UnixStream,
     mut fingerprint_events: broadcast::Receiver<FingerprintEvent>,
     runtime_config: RuntimeConfig,
+    metrics: Metrics,
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
 
@@ -132,6 +147,7 @@ async fn handle_client(
                         write_frame(&mut writer, &frame).await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        metrics.inc_fingerprint_events_dropped("lagged_receiver", skipped);
                         log::warn!("netprobe IPC client lagged; skipped {skipped} fingerprint event(s)");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
@@ -151,6 +167,7 @@ fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> N
                 sent_at_unix_nano: ping.sent_at_unix_nano,
                 acked_at_unix_nano: now_unix_nano(),
                 fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
+                running_as_root: capabilities::running_as_root(),
             })),
         },
         Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
@@ -202,6 +219,7 @@ mod tests {
     use crate::{
         config::Config,
         framing::{read_frame, write_frame},
+        metrics::Metrics,
         proto::netprobe::{
             fingerprint_event, netprobe_frame, ApplyConfig, FingerprintEvent, NetprobeFrame, Ping,
             TcpFingerprint, VisibilityAgentConfig,
@@ -215,7 +233,12 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(&socket, event_tx, RuntimeConfig::new(&Config::default()));
+        let server = IpcServer::new(
+            &socket,
+            event_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -250,7 +273,12 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(&socket, event_tx, RuntimeConfig::new(&Config::default()));
+        let server = IpcServer::new(
+            &socket,
+            event_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -277,6 +305,7 @@ mod tests {
             &socket,
             event_tx.clone(),
             RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -309,6 +338,7 @@ mod tests {
             &socket,
             event_tx.clone(),
             RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -338,7 +368,12 @@ mod tests {
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(&socket, event_tx, RuntimeConfig::new(&Config::default()));
+        let server = IpcServer::new(
+            &socket,
+            event_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
         let task = tokio::spawn(server.run(shutdown_rx));
 
         wait_for_socket(&socket).await;
@@ -423,6 +458,7 @@ mod tests {
                 os_family: "linux".to_string(),
                 os_name: "Linux".to_string(),
                 confidence: 1.0,
+                ..Default::default()
             })),
         }
     }

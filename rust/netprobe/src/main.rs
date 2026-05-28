@@ -118,16 +118,18 @@ async fn main() -> Result<()> {
         shutdown_rx.clone(),
     ));
     let ipc_task = tokio::spawn(
-        IpcServer::new(args.socket, fingerprint_event_tx, runtime_config).run(shutdown_rx),
+        IpcServer::new(args.socket, fingerprint_event_tx, runtime_config, metrics).run(shutdown_rx),
     );
 
     wait_for_shutdown().await;
     let _ = shutdown_tx.send(true);
 
     let shutdown_deadline = tokio::time::timeout(Duration::from_secs(5), async {
-        let metrics_result = metrics_task.await.context("metrics task join failed")?;
+        let (metrics_result, ipc_result) = tokio::try_join!(
+            async { metrics_task.await.context("metrics task join failed") },
+            async { ipc_task.await.context("IPC task join failed") }
+        )?;
         metrics_result.context("metrics task failed")?;
-        let ipc_result = ipc_task.await.context("IPC task join failed")?;
         ipc_result.context("IPC task failed")?;
         Ok::<(), anyhow::Error>(())
     })
@@ -151,7 +153,8 @@ fn init_logging(format: LogFormat) {
                     use std::io::Write;
                     writeln!(
                         buf,
-                        "{{\"level\":\"{}\",\"target\":\"{}\",\"message\":{}}}",
+                        "{{\"timestamp_unix_nano\":{},\"level\":\"{}\",\"target\":\"{}\",\"message\":{}}}",
+                        current_unix_nano(),
                         record.level(),
                         record.target(),
                         serde_json::to_string(&record.args().to_string())
@@ -161,6 +164,14 @@ fn init_logging(format: LogFormat) {
                 .init();
         }
     }
+}
+
+fn current_unix_nano() -> i128 {
+    let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) else {
+        return 0;
+    };
+
+    i128::from(duration.as_secs()) * 1_000_000_000 + i128::from(duration.subsec_nanos())
 }
 
 fn load_config(path: Option<&PathBuf>) -> Result<Config> {
