@@ -1260,10 +1260,17 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		runner.tcpStream = tcpStream
 	}
 
+	if tcpConnectStream, ok, err := s.startStreamingScan(ctx, tcpConnectScanner, "tcp_connect", targetEstimate); err != nil {
+		return err
+	} else if ok {
+		runner.tcpConnectStream = tcpConnectStream
+	}
+
 	s.logger.Info().
 		Int("estimatedTargets", targetEstimate).
 		Int("batchSize", defaultTargetBatch).
 		Bool("tcpStreaming", runner.tcpStream != nil).
+		Bool("tcpConnectStreaming", runner.tcpConnectStream != nil).
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
@@ -1384,6 +1391,7 @@ type sweepBatchRunner struct {
 	tcpScanner                  scan.Scanner
 	tcpConnectScanner           scan.Scanner
 	tcpStream                   *sweepTargetStream
+	tcpConnectStream            *sweepTargetStream
 	icmpTargets                 []models.Target
 	tcpTargets                  []models.Target
 	tcpConnectTargets           []models.Target
@@ -1422,6 +1430,12 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 			}
 		}
 	case models.ModeTCPConnect:
+		if r.tcpConnectStream != nil {
+			r.tcpConnectCount++
+
+			return r.tcpConnectStream.add(target)
+		}
+
 		r.tcpConnectTargets = append(r.tcpConnectTargets, target)
 		r.tcpConnectCount++
 		if len(r.tcpConnectTargets) >= defaultTargetBatch {
@@ -1465,7 +1479,13 @@ func (r *sweepBatchRunner) flushAll() error {
 	}
 
 	if r.tcpStream != nil {
-		return r.tcpStream.closeAndWait()
+		if err := r.tcpStream.closeAndWait(); err != nil {
+			return err
+		}
+	}
+
+	if r.tcpConnectStream != nil {
+		return r.tcpConnectStream.closeAndWait()
 	}
 
 	return nil
@@ -1474,6 +1494,10 @@ func (r *sweepBatchRunner) flushAll() error {
 func (r *sweepBatchRunner) closeStreams() {
 	if r.tcpStream != nil {
 		r.tcpStream.closeOnly()
+	}
+
+	if r.tcpConnectStream != nil {
+		r.tcpConnectStream.closeOnly()
 	}
 }
 

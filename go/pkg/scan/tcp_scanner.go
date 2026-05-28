@@ -32,10 +32,14 @@ type TCPSweeper struct {
 	concurrency int
 	cancel      context.CancelFunc
 	logger      logger.Logger
+	dialContext dialContextFunc
 }
 
 var _ Scanner = (*TCPSweeper)(nil)
 var _ CapabilityProvider = (*TCPSweeper)(nil)
+var _ StreamingScanner = (*TCPSweeper)(nil)
+
+type dialContextFunc func(context.Context, string, string) (net.Conn, error)
 
 func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *TCPSweeper {
 	if timeout == 0 {
@@ -47,10 +51,13 @@ func NewTCPSweeper(timeout time.Duration, concurrency int, log logger.Logger) *T
 		concurrency = 500
 	}
 
+	dialer := &net.Dialer{}
+
 	return &TCPSweeper{
 		timeout:     timeout,
 		concurrency: concurrency,
 		logger:      log,
+		dialContext: dialer.DialContext,
 	}
 }
 
@@ -113,21 +120,57 @@ func (s *TCPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	return resultCh, nil
 }
 
+// ScanStream consumes TCP targets incrementally without requiring callers to
+// materialize the full target list. This is the path large sweeps and banner
+// grab should prefer when full TCP connects are required.
+func (s *TCPSweeper) ScanStream(
+	ctx context.Context,
+	targets <-chan models.Target,
+	_ StreamOptions,
+) (<-chan models.Result, <-chan error, error) {
+	scanCtx, cancel := context.WithCancel(ctx)
+	s.cancel = cancel
+
+	resultBuffer := s.concurrency * defaultConcurrencyMultiplier
+	if resultBuffer <= 0 {
+		resultBuffer = 1
+	}
+	if resultBuffer > 10000 {
+		resultBuffer = 10000
+	}
+
+	resultCh := make(chan models.Result, resultBuffer)
+	errCh := make(chan error, 1)
+
+	var wg sync.WaitGroup
+
+	for i := 0; i < s.concurrency; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			s.streamWorker(scanCtx, targets, resultCh)
+		}()
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+
+		if err := scanCtx.Err(); err != nil && ctx.Err() != nil {
+			errCh <- err
+		}
+
+		close(errCh)
+	}()
+
+	return resultCh, errCh, nil
+}
+
 func (s *TCPSweeper) worker(ctx context.Context, workCh <-chan models.Target, resultCh chan<- models.Result) {
 	for t := range workCh {
-		result := models.Result{
-			Target:    t,
-			FirstSeen: time.Now(),
-			LastSeen:  time.Now(),
-		}
-
-		avail, rtt, err := s.checkPort(ctx, t.Host, t.Port)
-		result.Available = avail
-		result.RespTime = rtt
-
-		if err != nil {
-			result.Error = err
-		}
+		result := s.scanTarget(ctx, t)
 
 		select {
 		case <-ctx.Done():
@@ -137,6 +180,50 @@ func (s *TCPSweeper) worker(ctx context.Context, workCh <-chan models.Target, re
 	}
 }
 
+func (s *TCPSweeper) streamWorker(ctx context.Context, targets <-chan models.Target, resultCh chan<- models.Result) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case target, ok := <-targets:
+			if !ok {
+				return
+			}
+
+			if target.Mode != models.ModeTCP && target.Mode != models.ModeTCPConnect {
+				continue
+			}
+
+			result := s.scanTarget(ctx, target)
+
+			select {
+			case <-ctx.Done():
+				return
+			case resultCh <- result:
+			}
+		}
+	}
+}
+
+func (s *TCPSweeper) scanTarget(ctx context.Context, target models.Target) models.Result {
+	now := time.Now()
+	result := models.Result{
+		Target:    target,
+		FirstSeen: now,
+		LastSeen:  now,
+	}
+
+	avail, rtt, err := s.checkPort(ctx, target.Host, target.Port)
+	result.Available = avail
+	result.RespTime = rtt
+
+	if err != nil {
+		result.Error = err
+	}
+
+	return result
+}
+
 func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool, time.Duration, error) {
 	// Create per-probe timeout context that respects both parent context and timeout
 	probeCtx, cancel := context.WithTimeout(ctx, s.timeout)
@@ -144,10 +231,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 
 	start := time.Now()
 
-	// Use context-aware Dial instead of DialTimeout
-	var dialer net.Dialer
-
-	conn, err := dialer.DialContext(probeCtx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	conn, err := s.dial(probeCtx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	if err != nil {
 		// Enhanced error handling with context awareness
 		if probeCtx.Err() != nil {
@@ -166,6 +250,16 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 	}(conn)
 
 	return true, time.Since(start), nil
+}
+
+func (s *TCPSweeper) dial(ctx context.Context, network, address string) (net.Conn, error) {
+	if s.dialContext != nil {
+		return s.dialContext(ctx, network, address)
+	}
+
+	var dialer net.Dialer
+
+	return dialer.DialContext(ctx, network, address)
 }
 
 func (s *TCPSweeper) Stop() error {
