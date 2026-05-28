@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   alias ServiceRadar.Inventory.BumblebeeCatalogArtifact
   alias ServiceRadar.Inventory.BumblebeeCatalogEntry
   alias ServiceRadar.Inventory.BumblebeeCatalogParser
+  alias ServiceRadar.Inventory.BumblebeeCatalogRefreshEventWriter
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.BumblebeeCatalogSource
   alias ServiceRadar.Repo
@@ -69,26 +70,48 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
     timeout_ms = Keyword.get(config, :timeout_ms, @default_timeout_ms)
     max_entries = Keyword.get(config, :max_entries, @default_max_entries)
+    download_source = Keyword.get(config, :download_source, &download_source/2)
+    materialize_catalog = Keyword.get(config, :materialize_catalog, &materialize_catalog/3)
+    push_config = Keyword.get(config, :push_config, &AgentCommandBus.push_config_for_type/1)
 
     refreshed? =
       sources
-      |> Enum.map(&refresh_source(&1, actor, timeout_ms, max_entries))
+      |> Enum.map(
+        &refresh_source(
+          &1,
+          actor,
+          timeout_ms,
+          max_entries,
+          download_source,
+          materialize_catalog,
+          push_config
+        )
+      )
       |> Enum.any?(&match?({:ok, _}, &1))
 
     schedule_next(config, refreshed?)
     :ok
   end
 
-  defp refresh_source(%BumblebeeCatalogSource{} = source, actor, timeout_ms, max_entries) do
+  defp refresh_source(
+         %BumblebeeCatalogSource{} = source,
+         actor,
+         timeout_ms,
+         max_entries,
+         download_source,
+         materialize_catalog,
+         push_config
+       ) do
     Logger.info("Refreshing Bumblebee catalog source", source: source.name)
 
-    with {:ok, parsed, source_body} <- load_source_catalog(source, timeout_ms, max_entries),
+    with {:ok, parsed, source_body} <-
+           load_source_catalog(source, timeout_ms, max_entries, download_source),
          entries = Map.fetch!(parsed, :entries),
          source_revision = source_revision(source, parsed),
          catalog_version = Map.get(parsed, :catalog_version),
          snapshot_ref = snapshot_ref(source, catalog_version, source_revision, source_body),
          {:ok, artifact} <-
-           BumblebeeCatalogArtifact.materialize(snapshot_ref, entries, %{
+           materialize_catalog.(snapshot_ref, entries, %{
              "catalog_version" => catalog_version,
              "source_revision" => source_revision,
              "schema_version" => Map.get(parsed, :schema_version)
@@ -105,7 +128,8 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
            ),
          :ok <- create_entries(snapshot, entries, actor),
          {:ok, promoted} <- promote_snapshot(snapshot, parsed, artifact, actor) do
-      _ = AgentCommandBus.push_config_for_type(:bumblebee)
+      _ = push_config.(:bumblebee)
+      _ = BumblebeeCatalogRefreshEventWriter.write_success(source, promoted, actor: actor)
       {:ok, promoted}
     else
       {:error, reason} = error ->
@@ -114,27 +138,33 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
           reason: inspect(reason)
         )
 
+        _ = BumblebeeCatalogRefreshEventWriter.write_failure(source, reason, actor: actor)
         error
     end
   end
 
-  defp load_source_catalog(%BumblebeeCatalogSource{} = source, timeout_ms, max_entries) do
+  defp load_source_catalog(
+         %BumblebeeCatalogSource{} = source,
+         timeout_ms,
+         max_entries,
+         download_source
+       ) do
     case source |> catalog_urls() |> Enum.reject(&(String.trim(&1) == "")) do
       [] ->
-        with {:ok, body} <- download_source(source.url, timeout_ms),
+        with {:ok, body} <- download_source.(source.url, timeout_ms),
              {:ok, parsed} <- BumblebeeCatalogParser.parse(body, max_entries: max_entries) do
           {:ok, parsed, body}
         end
 
       urls ->
-        load_bundled_catalog(source, urls, timeout_ms, max_entries)
+        load_bundled_catalog(source, urls, timeout_ms, max_entries, download_source)
     end
   end
 
-  defp load_bundled_catalog(source, urls, timeout_ms, max_entries) do
+  defp load_bundled_catalog(source, urls, timeout_ms, max_entries, download_source) do
     urls
     |> Enum.reduce_while({:ok, []}, fn url, {:ok, acc} ->
-      with {:ok, body} <- download_source(url, timeout_ms),
+      with {:ok, body} <- download_source.(url, timeout_ms),
            {:ok, parsed} <- BumblebeeCatalogParser.parse(body, max_entries: max_entries) do
         {:cont, {:ok, [%{url: url, body: body, parsed: parsed} | acc]}}
       else
@@ -155,6 +185,10 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp materialize_catalog(snapshot_ref, entries, metadata) do
+    BumblebeeCatalogArtifact.materialize(snapshot_ref, entries, metadata)
   end
 
   defp merge_catalog_entries(catalogs, max_entries) do

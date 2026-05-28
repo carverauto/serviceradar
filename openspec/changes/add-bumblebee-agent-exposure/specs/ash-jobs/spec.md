@@ -10,12 +10,14 @@ The system SHALL run a core-owned AshOban-backed catalog refresh job that fetche
 - **AND** the snapshot becomes the active catalog used for Bumblebee scan configuration
 - **AND** the job records source revision, catalog version, content SHA256, object key, entry counts, promotion time, and validation outcome
 - **AND** AshPaperTrail records the catalog snapshot promotion with system actor and job metadata
+- **AND** the job records a success lifecycle event in `platform.ocsf_events` with source, snapshot, artifact, entry count, and catalog version metadata
 
 #### Scenario: Catalog refresh fails
 - **GIVEN** the configured Bumblebee catalog source is unreachable, malformed, or uses an unsupported schema version
 - **WHEN** the refresh job runs
 - **THEN** the active catalog snapshot remains unchanged
 - **AND** the job records bounded failure telemetry without disabling existing agent scans
+- **AND** the job records a failure lifecycle event in `platform.ocsf_events` with source identity and a bounded failure reason
 
 #### Scenario: Catalog entries are normalized
 - **GIVEN** one or more catalog files share a supported schema version

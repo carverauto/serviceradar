@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
   alias ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.BumblebeeCatalogSource
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -60,6 +61,64 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert promoted.validation_result == %{"status" => "valid"}
   end
 
+  test "successful refresh emits an OCSF catalog lifecycle event", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+
+    catalog_body =
+      Jason.encode!(%{
+        "catalog_version" => "catalog-#{unique}",
+        "schema_version" => "serviceradar.bumblebee.catalog.v1",
+        "entries" => [
+          %{
+            "id" => "pkg-#{unique}",
+            "ecosystem" => "npm",
+            "package_name" => "left-pad",
+            "severity" => "high",
+            "affected_versions" => ["1.0.0"]
+          }
+        ]
+      })
+
+    Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker,
+      enabled: true,
+      timeout_ms: 50,
+      failure_reschedule_seconds: 900,
+      download_source: fn _url, _timeout -> {:ok, catalog_body} end,
+      materialize_catalog: fn snapshot_ref, entries, metadata ->
+        {:ok,
+         %{
+           "object_key" => "bumblebee/catalogs/#{snapshot_ref}/catalog.json",
+           "content_sha256" => "sha-success-#{unique}",
+           "object_size_bytes" => length(entries) + map_size(metadata),
+           "entry_count" => length(entries)
+         }}
+      end,
+      push_config: fn :bumblebee -> :ok end
+    )
+
+    source =
+      create_source!(actor,
+        enabled: true,
+        url: "https://catalog.example.invalid/bumblebee.json?token=hidden"
+      )
+
+    assert :ok = BumblebeeCatalogRefreshWorker.perform(%Oban.Job{args: %{"force" => true}})
+
+    assert %OcsfEvent{} =
+             event =
+             find_catalog_event!(actor, source.id, "bumblebee_catalog_refresh_success")
+
+    assert event.status == "Success"
+    assert event.log_name == "bumblebee.catalog.refresh"
+    assert event.log_provider == "serviceradar.core"
+    assert event.metadata["event_family"] == "bumblebee_catalog_refresh"
+    assert event.unmapped["event_action"] == "success"
+    assert event.unmapped["source_id"] == to_string(source.id)
+    assert event.unmapped["source_url"] == "https://catalog.example.invalid/bumblebee.json"
+    assert event.unmapped["catalog_version"] == "catalog-#{unique}"
+    assert event.unmapped["entry_count"] == 1
+  end
+
   test "failed refresh preserves last active snapshot", %{actor: actor} do
     source = create_source!(actor, enabled: true, url: "https://127.0.0.1:1/bumblebee.json")
     active = actor |> create_snapshot!(source, "candidate") |> promote_snapshot!(actor)
@@ -74,6 +133,17 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert reloaded.status == "active"
     assert reloaded.snapshot_ref == active.snapshot_ref
     assert reloaded.content_sha256 == active.content_sha256
+
+    assert %OcsfEvent{} =
+             event =
+             find_catalog_event!(actor, source.id, "bumblebee_catalog_refresh_failure")
+
+    assert event.status == "Failure"
+    assert event.log_name == "bumblebee.catalog.refresh"
+    assert event.metadata["event_family"] == "bumblebee_catalog_refresh"
+    assert event.unmapped["event_action"] == "failure"
+    assert event.unmapped["source_id"] == to_string(source.id)
+    assert event.unmapped["reason"] =~ "connection refused"
   end
 
   defp create_source!(actor, opts) do
@@ -132,5 +202,16 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
       actor: actor
     )
     |> Ash.update!(actor: actor)
+  end
+
+  defp find_catalog_event!(actor, source_id, status_code) do
+    OcsfEvent
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.read!(actor: actor)
+    |> Enum.find(fn event ->
+      event.log_name == "bumblebee.catalog.refresh" and
+        event.status_code == status_code and
+        get_in(event.unmapped || %{}, ["source_id"]) == to_string(source_id)
+    end)
   end
 end

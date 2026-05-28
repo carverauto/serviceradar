@@ -10,6 +10,7 @@
 - [x] 2.5 Seed the initial catalog from the upstream Bumblebee `threat_intel` catalog.
 - [x] 2.6 Materialize promoted catalog snapshots as immutable datasvc/NATS Object Storage artifacts with object key, size, SHA256, upstream revision, and catalog version metadata.
 - [x] 2.7 Dispatch catalog assignment/update notifications through the agent config/control path so online agents can stage the assigned immutable snapshot.
+- [x] 2.8 Record Bumblebee catalog refresh success and failure lifecycle events into `platform.ocsf_events`.
 
 ## 3. Agent Configuration
 - [x] 3.1 Extend agent config protobufs and config compilers with opt-in Bumblebee profile settings.
