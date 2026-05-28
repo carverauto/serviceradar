@@ -184,28 +184,30 @@ commercial-product resale without an OEM license.
 - **WHEN** the agent issues `Ping` to the sidecar
 - **THEN** the `PingAck` reply includes the `p0f.fp` corpus revision,
   the `serviceradar-additions.fp` revision, the MuonFP corpus
-  revision, the Recog corpus revision, the Satori DHCP corpus revision,
+  revision, the Recog corpus revision, the Satori corpus revision,
   and the JA4-base spec revision the sidecar was built against
 
-### Requirement: Multi-corpus banner and DHCP fingerprint ensemble
+### Requirement: Multi-corpus protocol fingerprint ensemble
 
 `serviceradar-netprobe` SHALL additionally classify observed devices
 using separately licensed corpora layered on top of the
 license-clean stack: MuonFP (TCP, MIT) as a parallel TCP signature
 matcher to p0f; Recog (banners, BSD-2-Clause-Views) for HTTP `Server`,
 SSH banner, SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner strings
-extracted by the existing DPI dissectors; and Satori DHCP/DHCPv6 XML
-(GPLv2, shipped with notices/source as a separate replaceable data
-corpus) for DHCP DISCOVER / REQUEST option fingerprints extracted by a
-new DHCP DPI dissector. Recog patterns MUST be compiled at build time
-into finite-automata via `regex-automata` so runtime matching is
+extracted by the existing DPI dissectors; and Satori XML (GPLv2,
+shipped with notices/source as a separate replaceable data corpus) for
+TCP / DHCP / DNS / SMB / SSH / SSL / HTTP / browser / ICMP / NTP / SIP
+signatures observed by the eBPF and DPI surfaces. Recog patterns MUST
+be compiled at build time into finite-automata via `regex-automata` so
+runtime matching is
 allocation-free. The OS-match ensemble matcher MUST fuse all observable
 axes (TCP SYN, TLS ClientHello, SSH KEXINIT, HTTP banner, SSH banner,
-SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banners, DHCP options) and
-MUST weight final confidence by the number of corpora agreeing on the
-same OS family. No additional packet-capture surface beyond the
-existing DPI dissectors is permitted; Recog and Satori consume what
-the dissectors already see.
+SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banners, DHCP options,
+ICMP / NTP / TCP signatures) and MUST weight final confidence by the
+number of corpora agreeing on the same OS family. No additional
+packet-capture surface beyond the existing eBPF and DPI surfaces is
+permitted; Recog and Satori consume what those surfaces already see,
+except for the new DHCP parser needed to expose Satori's DHCP axis.
 
 #### Scenario: HTTP Server header matched against Recog
 - **WHEN** the DPI HTTP/1 dissector extracts a `Server:` header value
@@ -233,6 +235,16 @@ the dissectors already see.
   label (device class, vendor, OS-family hint)
 - **AND** the `dhcp_observed = true` flag is set on the device record
   so operators know DHCP-axis fingerprinting was active
+
+#### Scenario: Existing protocol observations matched against Satori
+- **WHEN** netprobe observes a TCP SYN, SSH banner, TLS fingerprint,
+  DNS payload, SMB/browser payload, HTTP server or user-agent string,
+  ICMP packet, NTP payload, or SIP banner that can be canonicalized into
+  a Satori XML test field
+- **THEN** the emitted `FingerprintEvent` carries the matched Satori
+  label with the source Satori XML axis
+- **AND** no Satori Python runtime, pcap integration, or SSL/JA4 code is
+  linked or executed
 
 #### Scenario: MuonFP parallel TCP signature boosts confidence
 - **WHEN** the same SYN produces both a p0f match (`linux`) and a

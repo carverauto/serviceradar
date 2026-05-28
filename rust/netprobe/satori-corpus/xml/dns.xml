@@ -1,0 +1,262 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<DNS created="2023-07-01" last_updated="2024-05-27" author="xnih13@gmail.com" last_edited_by="" last_edited_with="Fingerprint Editor">
+    <fingerprints>
+        <fingerprint name="Amazon Device" os_name="" os_class="" os_vendor="" os_url="https://aws.amazon.com/" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="amazon.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Amazon Kindle" os_name="" os_class="" os_vendor="" os_url="https://aws.amazon.com/" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="exact" dns="dns.kindle.com"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Adafruit Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="adafruit.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Android Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="android.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Almalinux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="almalinux.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Apple Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-01">
+            <dns_tests>
+                <test weight="5" matchtype="exact" dns="time.apple.com"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="CentOS Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="centos.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Clearlinux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="clearlinux.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Container Linux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="coreos.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Debian Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="exact" dns="appstream.debian.org"/>
+                <test weight="5" matchtype="partial" dns="deb.debian.org"/>
+                <test weight="5" matchtype="partial" dns="debian.pool.ntp.org"/>
+                <test weight="5" matchtype="exact" dns="packages.debian.org"/>
+                <test weight="5" matchtype="partial" dns="security.debian.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="DragonFlyBSD Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="dragonfly.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="DragonMint Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="dragonmint.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Fedora Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="fedora.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="FreeBSD Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="freebsd.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="FreeWRT Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="freewrt.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Gentoo Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="gentoo.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Hikau Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="hikau.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="IPFire Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="ipfire.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Linksys Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="linksys.pool.ntp.org"/>
+                <test weight="5" matchtype="partial" dns="linksys-media.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Manjaro Linux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="manjaro.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Monowall Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="m0n0wall.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="NetBSD Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="netbsd.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="NixOS Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="nixos.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Novell Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="novell.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="OmniOS Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="omnios.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="OpenMandriva Lx Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="openmandriva.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="OpenSUSE Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="opensuse.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Open WRT Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="openwrt.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="OPNsense Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-01">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="opnsense.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="PFSense Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="pfsense.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="RHEL Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="rhel.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Rocky Linux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="rocky.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Roku Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="exact" dns="roku.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Sailfish OS Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="sailfishos.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Schneider Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="schneider.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Siemens Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="siemens.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="SmartOS Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="smart.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Sourcefire Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="sourcefire.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="SUSE Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="suse.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Synology Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="synology.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="UBI Linux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="ubilinux.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Ubuntu Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="archive.ubuntu.com"/>
+                <test weight="5" matchtype="exact" dns="changelogs.ubuntu.com"/>
+                <test weight="5" matchtype="exact" dns="connectivity-check.ubuntu.com"/>
+                <test weight="5" matchtype="exact" dns="daily.ubuntu.com"/>
+                <test weight="5" matchtype="exact" dns="ddebs.ubuntu.com"/>
+                <test weight="5" matchtype="exact" dns="motd.ubuntu.com"/>
+                <test weight="5" matchtype="exact" dns="ntp.ubuntu.com"/>
+                <test weight="5" matchtype="partial" dns="ubuntu.pool.ntp.org"/>
+                <test weight="5" matchtype="partial" dns="security.ubuntu.com"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="UHU Linux Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="uhulinux.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Vizio Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="vizio.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="VMWare Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="vmware.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Windows Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="events.data.microsoft.com"/>
+                <test weight="5" matchtype="exact" dns="time.windows.com"/>
+                <test weight="5" matchtype="exact" dns="watson.telemetry.microsoft.com"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10+ and 2016+ Devices" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="exact" dns="v10.events.data.microsoft.com"/>
+                <test weight="5" matchtype="exact" dns="v10c.events.data.microsoft.com"/>
+                <test weight="5" matchtype="exact" dns="v10.vortex-win.data.microsoft.com"/>
+            </dns_tests>
+        </fingerprint>
+        <fingerprint name="ZScaler Device" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-07-02">
+            <dns_tests>
+                <test weight="5" matchtype="partial" dns="zscaler.pool.ntp.org"/>
+            </dns_tests>
+        </fingerprint>
+    </fingerprints>
+</DNS>

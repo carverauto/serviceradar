@@ -941,12 +941,14 @@ case), security review (eBPF capability surface).
      FTP / Telnet / SMB / SNMP / SIP / RDP / DNS banner strings. Each
      fingerprint maps to OS / vendor / product / version. This is the
      single biggest corpus addition and the dominant accuracy lever.
-  3. **Satori DHCP/DHCPv6 XML** (xnih/satori, GPLv2) — ~500 DHCP
-     option fingerprints shipped as a separate replaceable data corpus
-     under `rust/netprobe/satori-corpus/`. Pattern-matched against DHCP
-     DISCOVER / REQUEST options observed via a new Phase 2 DHCP DPI
-     dissector. Only the XML database files are vendored; the Python
-     runtime, pcap code, and SSL/JA4 implementation are not used.
+  3. **Satori XML corpus** (xnih/satori, GPLv2) — ~1,980
+     multi-protocol fingerprints shipped as a separate replaceable data
+     corpus under `rust/netprobe/satori-corpus/`. Pattern-matched
+     against TCP SYN signatures plus observable DPI surfaces:
+     DHCP/DHCPv6, DNS, SMB browser / SMB, SSH, SSL/TLS fingerprints,
+     HTTP server, browser user-agent, ICMP, NTP, and SIP. Only the XML
+     database files are vendored; the Python runtime, pcap code, and
+     SSL/JA4 implementation are not used.
 
   The ensemble matcher fuses all observable axes — TCP SYN, TLS
   ClientHello, SSH KEXINIT, HTTP banner, SSH banner, SMB / FTP /
@@ -970,14 +972,14 @@ case), security review (eBPF capability surface).
     requires LICENSE / NOTICE preservation. Used by Metasploit Pro
     and InsightVM commercially, so the licensing is well-tested at
     Rapid7's own commercial scale.
-  - **Satori DHCP/DHCPv6 XML** — GPLv2 at the maintained
+  - **Satori XML corpus** — GPLv2 at the maintained
     `https://github.com/xnih/satori` upstream. ServiceRadar vendors only
-    `fingerprints/dhcp.xml` and `fingerprints/dhcpv6.xml`, plus the
-    upstream README and GPLv2 license text, as a separate replaceable
-    data corpus. ServiceRadar parser/matcher code is independently
-    authored and remains Apache-2.0. Any ServiceRadar-authored
-    additions must live in separate files under ServiceRadar's license
-    rather than modifying upstream GPLv2 XML in place.
+    `fingerprints/*.xml`, plus the upstream README and GPLv2 license
+    text, as a separate replaceable data corpus. ServiceRadar
+    parser/matcher code is independently authored and remains
+    Apache-2.0. Any ServiceRadar-authored additions must live in
+    separate files under ServiceRadar's license rather than modifying
+    upstream GPLv2 XML in place.
 - **Alternatives considered (and rejected).**
   - **Nmap `nmap-os-db`** (~6,000 active OS fingerprints). Rejected
     on licensing grounds. Nmap Public Source License is a modified
@@ -1022,16 +1024,18 @@ case), security review (eBPF capability surface).
     notices and its preferred-source XML intact. Operators can replace
     the XML files. ServiceRadar code must treat the corpus as data and
     must not copy or translate the Python implementation.
-  - **DHCP observability is L2-bounded.** Satori only fires when the
-    agent sees DHCP traffic, which means the agent must be on the
-    same broadcast domain as the device being discovered (or sitting
-    behind a DHCP relay that mirrors traffic). Acceptable for the
-    common deployment shape but worth documenting; UI surfaces the
-    `dhcp_observed` flag per device so operators know the limitation.
+  - **Some Satori axes are topology-bounded.** DHCP only fires when the
+    agent sees DHCP traffic, which means the agent must be on the same
+    broadcast domain as the device being discovered (or sitting behind a
+    DHCP relay that mirrors traffic). Other Satori axes (TCP, HTTP, SSH,
+    SMB, TLS, DNS, NTP, SIP, ICMP) fire only when those protocol
+    observations are present in the existing DPI / eBPF surfaces.
+    UI surfaces per-axis observation flags so operators know which
+    corpus axes were active for a device.
   - **Binary size impact.** Compiled Recog (~15k regex patterns into
     `regex-automata` DFAs) adds ~2-4 MiB to the static musl binary.
-    p0f + MuonFP + Satori combined add another ~500 KiB. Total
-    fingerprint surface adds ~3-5 MiB. Acceptable on agents running
+    p0f + MuonFP + full Satori XML combined add another ~1.5-2 MiB.
+    Total fingerprint surface adds ~4-6 MiB. Acceptable on agents running
     on 4+ GB hosts; flagged in the §32 validation gate so we catch
     if compression / DFA-minimization options become available.
   - **Recog upstream cadence.** Rapid7 ships Recog updates roughly
@@ -1041,9 +1045,11 @@ case), security review (eBPF capability surface).
 - **Implementation surface.** Phase 1 amendment §32 in `tasks.md`
   lays out the work: vendor MuonFP / Recog / Satori corpora, build
   the Recog XML → compile-time regex-DFA codegen, build the Satori
-  XML parser, add a Phase-2 DHCP DPI dissector (~150 LOC) so Satori has
-  observable input, wire MuonFP into the kprobe as a parallel TCP
-  signature, extend the §31.9 ensemble matcher to fuse all axes,
+  XML parser / matcher, add a Phase-2 DHCP DPI dissector (~150 LOC) for
+  the Satori DHCP axis, wire Satori's TCP XML to the same SYN data used
+  by p0f / MuonFP, wire the Satori banner/protocol XML to existing DPI
+  callbacks, wire MuonFP into the kprobe as a parallel TCP signature,
+  extend the §31.9 ensemble matcher to fuse all axes,
   extend the `LicenseCleanFingerprint` proto to carry the additional
   match labels, extend `PingAck` to report all corpus revisions, and
   extend the §31.13 CI license-lint with an allowlist that catches

@@ -19,10 +19,11 @@ runs:
    five separately licensed additions — MuonFP (Censys, MIT) as a
    parallel TCP signature; Recog (Rapid7, BSD-2-Clause-Views) for
    HTTP / SSH / SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner
-   fingerprints; Satori DHCP/DHCPv6 fingerprint XML (GPLv2, shipped as
-   a separate replaceable data corpus with notices preserved) for DHCP
-   option fingerprints; JA4 base (BSD-3, FoxIO patent-disclaimed) for
-   TLS ClientHello; and HASSH (BSD-3) for SSH KEXINIT. Combined corpus
+   fingerprints; Satori multi-protocol fingerprint XML (GPLv2, shipped
+   as a separate replaceable data corpus with notices preserved) for
+   TCP / DHCP / DNS / SMB / SSH / SSL / HTTP / browser / ICMP / NTP /
+   SIP signatures; JA4 base (BSD-3, FoxIO patent-disclaimed) for TLS
+   ClientHello; and HASSH (BSD-3) for SSH KEXINIT. Combined corpus
    reach: ~17,000+ fingerprints across ~8 independent observation
    axes, vs huginn-net's p0f-only ~400. The `huginn-net` crate is
    dropped from the dependency set. The encumbered parts of FoxIO's

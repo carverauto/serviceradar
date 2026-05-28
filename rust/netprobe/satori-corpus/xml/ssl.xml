@@ -1,0 +1,387 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<SSL created="2021-12-13" last_updated="2024-07-02" author="xnih13@gmail.com" last_edited_by="" last_edited_with="Fingerprint Editor">
+    <fingerprints>
+        <fingerprint name="Chrome" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-12-27">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1516h2_8daaf6152771_e5627efa2ab1"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Chrome 118-123" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-04-06">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1517h2_8daaf6152771_b1ff8ab2d16f"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1516h2_8daaf6152771_02713d6af862"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="curl" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-01-08">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="4ea056e63b7910cbf543f0c095064dfe"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d3113h2_e8f1e7e78f70_ce5650b735ce"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Firefox 115 (debian)" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-05-27">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="579ccef312d18482fc42e2b822ca2430"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c279b0189edb9269da7bc43dea5e0c36"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1715h2_5b57614c22b0_3d5424432f57"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1714h1_5b57614c22b0_8f66f9ee9c6c"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Firefox 116-122" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-04-06">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1715h2_5b57614c22b0_5c2c66f702b0"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="b5001237acdf006056b409cc433726b0"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1716h2_5b57614c22b0_28a30a3f7180"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1715h2_5b57614c22b0_7121afd63204"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a696a018266f1e7e33d73ecf3b64f8fd"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a195b9c006fcb23ab9a2343b0871e362"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d1715h1_5b57614c22b0_7121afd63204"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="FreeRDP 2.11" os_name="" os_class="MacOS" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a3afc2c46ba4a7d7fbe1cfb7a3031c2f"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d311000_e8f1e7e78f70_1f22a2ca17c4"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Git (cli)" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-01-08">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d2912h2_723694b0fccc_288f874c93d6"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8662467bc96db2d387755570446a7946"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="MacOS - FreeRDP" os_name="" os_class="MacOS" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="75fb48a465416d66291fb52a733d4787"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="MacOS - Microsoft Remote Desktop" os_name="" os_class="MacOS" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e4d448cdfe06dc1243c1eb026c74ac9a"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="td220700_0d4ca5d4ec72_3304d8368043"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="MacOS - pupys rdp module" os_name="" os_class="MacOS" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="f330c48fc4abc5ffc0720d7f92108e22"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="MacOS - rdpy/rdesktop/python" os_name="" os_class="MacOS" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e2121ae1544cd5acae048d03505068a6"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="MacOS - robertdavidgraham/rdpscan" os_name="" os_class="MacOS" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="0b3e989a2ad13829ab8d65d132480e41"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Adware" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="fb58831f892190644fe44e25bc830b45"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="2092e1fffb45d7e4a19a57f9bc5e203a"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8498fe4268764dbf926a38283e9d3d8f"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="20dd18bdd3209ea718989030a6f93364"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8991a387e4cc841740f25d6f5139f92d"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="3d89c0dfb1fa44911b8fa7523ef8dedb"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e330bca99c8a5256ae126a55c4c725c5"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="83e04bc58d402f9633983cbf22724b02"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="b8f81673c0e1d29908346f3bab892b9b"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d551fafc4f40f1dec2bb45980bfa9492"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="29085f03f8e8a03f0b399c5c7cf0b0b8"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="bc6c386f480ee97b9d9e52d472b772d8"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="b13d01846ad7a14a70bf030a16775c78"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="698e36219f3979420fa2581b21dac7ec"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="550dce18de1bb143e69d6dd9413b8355"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="098f55e27d8c4b0a590102cbdb3a5f3a"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="46efd49abcca8ea9baa932da68fdb529"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="b2b61db7b9490a60d270ccb20b462826"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="92579701f145605e9edc0b01a901c6d5"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="7691297bcb20a41233fd0a0baa0a3628"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="16efcf0e00504ddfedde13bfea997952"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="93d056782d649deb51cda44ecb714bb0"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="5e573c9c9f8ba720ef9b18e9fce2e2f7"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="849b04bdbd1d2b983f6e8a457e0632a8"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="9c2589e1c0e9f533a022c6205f9719e1"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="f6fd83a21f9f3c5f9ff7b5c63bbc179d"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Adwin" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d2935c58fe676744fecc8614ee5356c7"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="decfb48a53789ebe081b88aabb58ee34"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - AsyncRAT" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="fc54e0d16d9764783542f0146a98b300"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Bazar" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="thedfirreport.com/2020/10/08/ryuks-return" last_updated="2022-09-21">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="72a589da586844d7f0818ce684948eea"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="e35df3e00ca4ef31d42b34bebaa2f86e"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - BitRAT" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8515076cbbca9dce33151b798f782456"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Cobalt Strike" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="thedfirreport.com/2020/10/ryuks-return" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a0e9f5d64349fb13191bc781f81f42e1"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="ae4edc6faf64d08308082ad26be60767"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="aa29d305dff6e6ac9cd244a62c6ad0c2"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="72a589da586844d7f0818ce684948eea"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="b742b407517bac9536a77a7b0fee28e9"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - CoinMiner" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="40adfd923eb82b89d8836ba37a19bca1"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Dridex" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="51c64c77e60f3980eea90869b68c58a8"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="cb98a24ee4b9134448ffb5714fd870ac"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="b386946a5a44d1ddcc843bc75336dfce"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d6f04b5a910115f4b50ecec09d40a1df"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Emotet" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://engineering.salesforce.com/tls-fingerprinting-with-ja3-and-ja3s-247362855967/" last_updated="2022-09-21">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="4d7a28d6f2263ed61de88ca66eb011e3"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="51c64c77e60f3980eea90869b68c58a8"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="80b3a14bccc8598a1f3bbe83e71f735f"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="ec74a5c51106f0419184d0dd08fb05bc"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="fd4bc6cea4877646ccd62f0792ec0b62"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Evilginx" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-12-27">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d191000_9dc949149365_e7c285222651"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Gootkit" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c5235d3a8b9934b7fbbd204d50bc058d"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Gozi" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="57f3642b4e37e28f5cbe3020c9331b4c"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c201b92f8b483fa388be174d6689f534"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - IcedID" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://www.netresec.com/" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a0e9f5d64349fb13191bc781f81f42e1"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="3b5074b1b5d032e5620f69f9f700ff0e"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="4d7a28d6f2263ed61de88ca66eb011e3 "/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="80b3a14bccc8598a1f3bbe83e71f735f"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - IcedID Malware" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-12-27">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d201100_2b729b4bf6f3_9e7b989ebec8"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - JBifrost" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="51a7ad14509fd614c7bb3a50c4982b8c"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Metasploit" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="72a589da586844d7f0818ce684948eea"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a0e9f5d64349fb13191bc781f81f42e1"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="70999de61602be74d4b25185843bd18e"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Quakbot" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="3cda52da4ade09f1f781ad2e82dcfa20"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="7dd50e112cd23734a310b90f6f44a7cd"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Ransomware" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="2d8794cb7b52b777bee2695e79c15760"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Ransomware.Troldesh" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1be3ecebe5aa9d3654e6e703d81f6928"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Sliver Malware" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2023-12-27">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d190900_9dc949149365_97f8aa674fd9"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Tofsee" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="fc2299d5b2964cd242c5a2c8c531a5f0"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c2b4710c6888a5d47befe865c8e6fb19"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="25d74b7b4b779eb1efd4b31d26d651c6"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a50a861119aceb0ccc74902e8fddb618"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="ffefafdb86336d057eda5fdf02b3d5ce"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="70722097d1fe1d78d8c2164640ab6df4"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="bffa4501966196d3d6e90cee1f88fc89"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="da949afd9bd6df820730f8f171584a71"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c0220cd64849a629397a9cb68f78a0ea"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="08a8a4e85b25ac42e1490bc85cfdb5ce"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="32926ca3e59f0413d0b98725454594f5"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="dff8a0aa1c904aaea76c5bf624e88333"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="44dab16d680ef93487bc16ad23b3ffb1"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d81d654effb94714a4086734fa0adad9"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="52c7396a501e4fecbdfa99c5408334ac"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c5deb9465d47232dd48772f9c4d14679"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1aee0238942d453d679fc1e37a303387"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="807fca46d9d0cf63adf4e5e80e414bbe"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="7a29c223fb122ec64d10f0a159e07996"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="70a04365be5bbd4653698bebeb43ce68"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e7643725fcff971e3051fe0e47fc2c71"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1fe4c7a3544eb27afec2adfb3a3dbf60"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="34f14a69ad7009ca5863379218af17f3"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d76ee64fb7273733cbe455ac81c292e6"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8f6c918dcb585ebbea05e2cc94530e3d"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1d095e68489d3c535297cd8dffb06cb9"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="f22bdd57e3a52de86cda40da2d84e83b"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="0cc1e84568e471aa1d62ad4158ade6b5"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d18a4da84af59e1108862a39bae7c9d4"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a61299f9b501adcf680b9275d79d4ac6"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d7150af4514b868defb854db0f62a441"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="df5c30e670dba99f9270ed36060cf054"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="35c0a31c481927f022a3b530255ac080"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="7dcce5b76c8b17472d024758970a406b"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="911479ac8a0813ed1241b3686ccdade9"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="03e186a7f83285e93341de478334006e"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="17fd49722f8d11f3d76dce84f8e099a7"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e3b2ab1f9a56f2fb4c9248f2f41631fa"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="4d7a28d6f2263ed61de88ca66eb011e3"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1543a7c46633acf71e8401baccbd0568"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="590a232d04d56409fab72e752a8a2634"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="96eba628dcb2b47607192ba74a3b55ba"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="7c410ce832e848a3321432c9a82e972b"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="906004246f3ba5e755b043c057254a29"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="9f62c4f26b90d3d757bea609e82f2eaf"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="b90bdbe961a648f0427db21aaa6ccb59"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="fd80fa9c6120cdeea8520510f3c644ac"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - TorrentLocker" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2021-12-13">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1712287800ac91b34cadd5884ce85568"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Malicious - Trickbot" os_name="Malicious" os_class="Malicious" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://sslbl.abuse.ch/ja3-fingerprints/" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8916410db85077a5460817142dcbc8de"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="534ce2dbc413c68e908363b5df0ae5e0"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="8f52d1ce303fb4a6515836aec3cc16b1"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="49ed2ef3f1321e5f044f1e71b0e6fdd5"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="f735bbc6b69723b9df7b0e7ef27872af"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1aa7bf8b97e540ca5edd75f7b8384bfa"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e62a5f4d538cbf169c2af71bec2399b4"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="fb00055a1196aeea8d1bc609885ba953"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c50f6a8b9173676b47ba6085bd0c6cee"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="6734f37431670b3ab4292b8f60f29984"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="623de93db17d313345d7ea481e7443cf"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="6734f37431670b3ab4292b8f60f29984 "/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="nmap" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-01-08">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d751100_479067518aa3_d41ae481755e"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="1c1cd8b08328d6eb175075eb50739048"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Possible False Positive - Tofsee" os_name="False Positive" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2022-04-05">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e7643725fcff971e3051fe0e47fc2c71"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="32926ca3e59f0413d0b98725454594f5"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Rammina Remote Desktop Client" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="a3afc2c46ba4a7d7fbe1cfb7a3031c2f"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d311000_e8f1e7e78f70_1f22a2ca17c4"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Rammina Remote Desktop Client - 3rd party checking?" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="0149f47eabf9a20d0893e2a44e5a6323"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d3112h2_e8f1e7e78f70_b26ce05bbdd6"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Snapcraft.io on Ubuntu 22" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2024-01-08">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d190900_9dc949149365_97f8aa674fd9"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d291200_723694b0fccc_5671b5df5029"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d291300_723694b0fccc_2cc26d266019"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="f35ce21b44ac0b87d3266294bb1b0e20"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="473cd7cb9faa642487833865d516e578"/>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="0d3fcf6999f33c6af23278bf162455d8"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="SoftEther VPN" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d880900_fcb5b95cb75a_b0d3b4ac2a14"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Tor Client" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="https://engineering.salesforce.com/tls-fingerprinting-with-ja3-and-ja3s-247362855967/" last_updated="2022-09-21">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e7d705a3286e19ea42f587b344ee6865"/>
+                <test weight="5" matchtype="exact" testtype="ja3s" sslsig="a95ca7eab4d47d051a5cd4fb7b6005dc"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="wget" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2024-01-08">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e91ce64088cf382a3a56b713620f0204"/>
+                <test weight="5" matchtype="exact" testtype="ja4" sslsig="t13d751100_479067518aa3_fb8d5ffd48c1"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - RDP" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="ce5f3254611a8c095a3d821d44539877"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2008r2 - RDP" os_name="Windows 2008r2" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="e6a4e2358d4eee6122403f3cb835bcbd"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2012 - RDP" os_name="Windows 2012" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="bc2874f25a8254edb36147c151527cfa"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2012r2 - RDP" os_name="Windows 2012r2" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="3e686105164b7c9a4cbd59142f18a4e7"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2016 - RDP" os_name="Windows 2016" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="67e3d18fd9dddbbc8eca65f7dedac674"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2019 - RDP" os_name="Windows 2019" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="ce5f3254611a8c095a3d821d44539877"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows 7 - RDP" os_name="Windows 7" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="d54b3eb800cbeccf99fd5d5cdcd7b5b5"/>
+            </ssl_tests>
+        </fingerprint>
+        <fingerprint name="Windows XP SP3 - RDP" os_name="Windows XP SP3" os_class="Windows" os_vendor="Microsoft" os_url="" device_type="" device_vendor="" device_url="" comments="https://medium.com/@0x4d31/rdp-client-fingerprinting-9e7ac219f7f4" author="Adel Karimi" last_updated="2024-07-02">
+            <ssl_tests>
+                <test weight="5" matchtype="exact" testtype="ja3" sslsig="c8a0d08d2cbee4bed7cd90e47588ab9b"/>
+            </ssl_tests>
+        </fingerprint>
+    </fingerprints>
+</SSL>
