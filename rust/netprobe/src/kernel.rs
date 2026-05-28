@@ -19,9 +19,7 @@ impl KernelVersion {
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn ensure_supported_kernel() -> anyhow::Result<KernelVersion> {
-    let release = read_kernel_release()?;
-    let version = parse_kernel_release(&release)
-        .ok_or_else(|| anyhow::anyhow!("unable to parse kernel release {release:?}"))?;
+    let version = current_kernel_version()?;
     if !version.supports_ebpf_capture() {
         anyhow::bail!(
             "kernel {} is too old for netprobe eBPF capture; minimum is {}.{}",
@@ -32,6 +30,13 @@ pub fn ensure_supported_kernel() -> anyhow::Result<KernelVersion> {
     }
 
     Ok(version)
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn current_kernel_version() -> anyhow::Result<KernelVersion> {
+    let release = read_kernel_release()?;
+    parse_kernel_release(&release)
+        .ok_or_else(|| anyhow::anyhow!("unable to parse kernel release {release:?}"))
 }
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
