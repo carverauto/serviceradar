@@ -183,7 +183,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 18.12 Activate the `FlowAttributionEvents` IPC stream channel; emit one event per matched `(5-tuple, PID)` join from eBPF maps.
 - [x] 18.13 Activate the `ProcessSnapshots` IPC stream channel; periodic listener-map enumeration via `/proc` joined against eBPF `process_info` map.
 - [x] 18.14 Add kernel-version probe at startup; refuse to attach eBPF programs on kernel < 5.8 and advertise `host-network-visibility = unavailable`. Remove the legacy `degraded` enum value from the agent capability advertising.
-- [ ] 18.15 CPU benchmark harness: synthesize a target workload (e.g. 500 Mbps / 50k pps mixed HTTP+TLS+DNS); assert sustained userspace CPU < 3% of one core post-cutover. Compare against the libpcap-stopgap baseline and document the delta in the runbook.
+- [x] 18.15 CPU benchmark harness: synthesize a target workload (e.g. 500 Mbps / 50k pps mixed HTTP+TLS+DNS); assert sustained userspace CPU < 3% of one core post-cutover. Compare against the libpcap-stopgap baseline and document the delta in the runbook.
 - [ ] 18.16 BPF program verifier CI: load every TC and kprobe program against a kernel-5.8 fixture; assert successful verification. Repeat for 5.15 and 6.x stable.
 - [ ] 18.17 Kernel-too-old CI: run netprobe on a 5.4 kernel image; assert it exits cleanly with `host-network-visibility = unavailable` advertised.
 - [ ] 18.18 Flow-cache hit-rate assertion: under the §18.15 workload, assert `flow_table` hit ratio > 95% (> 95% of packets short-circuit in-kernel and never reach userspace).

@@ -42,8 +42,17 @@ phf_codegen = "0.11"
 prost-build = "0.13"
 
 [dev-dependencies]
+libc = "0.2"
 tempfile = "3"
+
+[lib]
+name = "serviceradar_netprobe"
+path = "src/lib.rs"
 
 [[bin]]
 name = "serviceradar-netprobe"
 path = "src/main.rs"
+
+[[bench]]
+name = "af_xdp_cpu"
+harness = false
