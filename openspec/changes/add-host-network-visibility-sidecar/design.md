@@ -820,7 +820,7 @@ case), security review (eBPF capability surface).
   - **JA4T** (TCP) — FoxIO License 1.1, patent pending. The
     monetization clause and patent posture make it incompatible with
     ServiceRadar's commercial sale. **Not used.** p0f is the
-    public-domain substitute and our primary need anyway, since
+    license-clean substitute and our primary need anyway, since
     most fingerprintable traffic crossing the agent host is
     TCP-without-TLS.
   - **JA4H** (HTTP) — FoxIO 1.1, patent pending. **Not used.**
@@ -843,9 +843,9 @@ case), security review (eBPF capability surface).
   - **`huginn-net` + p0f signatures (the original Phase 1 plan).**
     Rejected. huginn-net's API is tightly coupled to its libpcap
     capture loop, which we are eliminating in Phase 3 (§19.1–§19.3).
-    We retain the *signature corpus* p0f produced (public domain) but
-    drop the implementation crate. ServiceRadar's in-tree parser is
-    ~300 LOC, single file, zero deps.
+    We retain the *signature corpus* p0f produced as a separately
+    replaceable LGPL-2.1 data file and drop the implementation crate.
+    ServiceRadar's in-tree parser is ~300 LOC, single file, zero deps.
   - **Full JA4+ ensemble (JA4T / JA4H / JA4S / JA4SSH).** Rejected
     on licensing grounds. FoxIO License 1.1 prohibits commercial
     use without an OEM license; all methods are patent pending.
@@ -865,11 +865,13 @@ case), security review (eBPF capability surface).
     passive observer. The two pipelines feed the same
     `IP Alias Resolution`-bound device record.
 - **Rationale.**
-  - **License-clean for commercial sale.** Every component of the
-    fingerprint stack is BSD-3 or public domain. No FoxIO OEM
-    licensing required. No patent exposure. ServiceRadar can ship,
-    sell, and update the fingerprint stack without an external
-    licensing dependency.
+  - **License-clean for commercial sale.** The executable fingerprint
+    stack is in-tree / permissively licensed. The upstream p0f corpus
+    is LGPL-2.1 and shipped as a separate replaceable data file with
+    its original notice and license preserved. No FoxIO OEM licensing
+    required. No FoxIO patent exposure. ServiceRadar can ship, sell,
+    and update the fingerprint stack while preserving the p0f corpus's
+    LGPL boundary.
   - **TCP is the dominant fingerprintable signal anyway.** The user
     has confirmed the discovery scope is "fingerprint discoverable
     devices for inventory," which is overwhelmingly TCP traffic
@@ -882,13 +884,13 @@ case), security review (eBPF capability surface).
     existing tool does this; certainly no commercial NPM vendor
     does. Same architectural win as we'd get with JA4T, without
     the licensing cost.
-  - **20 years of p0f signatures.** The public-domain `p0f.fp`
-    corpus has 20 years of fingerprints from across the OS / device
-    spectrum. While upstream is effectively frozen since 2014,
-    the corpus still covers an enormous range, particularly the
-    legacy / embedded gear that modern signature databases under-cover.
-    ServiceRadar additions land in `serviceradar-additions.fp`
-    over time as we encounter signatures upstream lacks.
+  - **20 years of p0f signatures.** The LGPL-2.1 `p0f.fp` corpus has
+    20 years of fingerprints from across the OS / device spectrum.
+    While upstream is effectively frozen, the corpus still covers an
+    enormous range, particularly the legacy / embedded gear that
+    modern signature databases under-cover. ServiceRadar additions
+    land in `serviceradar-additions.fp` over time as we encounter
+    signatures upstream lacks.
   - **IPv6 covered.** Modern p0f.fp signatures include IPv6 entries;
     where they don't, ServiceRadar additions can fill the gap. The
     kprobe encodes both IPv4 and IPv6 SYN observations.

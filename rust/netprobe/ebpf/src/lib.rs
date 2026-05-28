@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+mod p0f;
+
 use aya_ebpf::{
     bindings::{BPF_ANY, TC_ACT_OK},
     helpers::bpf_ktime_get_ns,
@@ -194,11 +196,26 @@ pub struct TcpSynSignatureRecord {
     pub options_layout: [u8; TCP_MAX_OPTIONS_LAYOUT],
 }
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct P0fRecord {
+    pub version: u16,
+    pub reserved: [u8; 6],
+    pub flow_key: FlowKey,
+    pub observed_ns: u64,
+    pub p0f_string: [u8; p0f::P0F_SIGNATURE_MAX_LEN],
+    pub p0f_len: u8,
+    pub reserved_tail: [u8; 7],
+}
+
 #[map(name = "flow_events")]
 static FLOW_EVENTS: RingBuf = RingBuf::pinned(1 << 20, 0);
 
 #[map(name = "tcp_syn_signatures")]
 static TCP_SYN_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
+
+#[map(name = "p0f_signatures")]
+static P0F_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
 
 #[map(name = "flow_table")]
 static FLOW_TABLE: LruHashMap<FlowTableKey, FlowTableEntry> =
@@ -806,6 +823,42 @@ fn emit_tcp_syn_header_from_tc(
             &mut *record,
         );
     }
+    emit_p0f_signature(record);
+    entry.submit(0);
+}
+
+#[inline(always)]
+fn emit_p0f_signature(syn_record: *const TcpSynSignatureRecord) {
+    let Some(mut entry) = P0F_SIGNATURES.reserve::<P0fRecord>(0) else {
+        return;
+    };
+    let record = entry.as_mut_ptr();
+
+    // SAFETY: `syn_record` points to the initialized tcp_syn_signatures
+    // ring-buffer slot still owned by the caller. `record` points to a freshly
+    // reserved p0f_signatures slot. The p0f encoder writes only within the
+    // fixed-size p0f_string field and returns its bounded length.
+    unsafe {
+        addr_of_mut!((*record).version).write(EVENT_VERSION);
+        addr_of_mut!((*record).reserved).write([0; 6]);
+        addr_of_mut!((*record).flow_key).write((*syn_record).flow_key);
+        addr_of_mut!((*record).observed_ns).write((*syn_record).observed_ns);
+        let p0f_len = p0f::encode(
+            &mut *addr_of_mut!((*record).p0f_string),
+            (*syn_record).ip_version,
+            (*syn_record).ttl,
+            (*syn_record).window_size,
+            (*syn_record).mss,
+            &(*syn_record).options_layout,
+            (*syn_record).options_len,
+            (*syn_record).window_scale,
+            (*syn_record).payload_class,
+            (*syn_record).quirks,
+        );
+        addr_of_mut!((*record).p0f_len).write(p0f_len);
+        addr_of_mut!((*record).reserved_tail).write([0; 7]);
+    }
+
     entry.submit(0);
 }
 

@@ -13,8 +13,9 @@ runs:
    supplied. Issue
    [#3423](https://forgejo/issues/3423) covers this gap. ServiceRadar's
    answer is a **license-clean multi-corpus fingerprint ensemble**
-   (see D14 + D15): the public-domain p0f canonical fingerprint
-   computed inside the eBPF kprobe as the foundation, supplemented by
+   (see D14 + D15): the p0f canonical TCP fingerprint computed inside
+   the eBPF kprobe as the foundation, backed by the upstream LGPL-2.1
+   p0f corpus shipped as a separate replaceable data file, supplemented by
    five permissively-licensed corpora — MuonFP (Censys, MIT) as a
    parallel TCP signature; Recog (Rapid7, BSD-2-Clause-Views) for
    HTTP / SSH / SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner
@@ -101,7 +102,8 @@ pinned passive fingerprinting to the `huginn-net` crate (p0f-style TCP
 analysis + JA4/JA4S extraction); the amendment in D14 replaces that
 with a self-contained **license-clean fingerprint stack**: the p0f
 canonical TCP fingerprint computed inside the eBPF SYN kprobe (primary
-classifier, public-domain corpus + ServiceRadar curated additions),
+classifier, upstream LGPL-2.1 corpus kept as a separate replaceable file
+plus ServiceRadar curated additions),
 plus JA4 base (BSD-3, TLS ClientHello) and HASSH (BSD-3, SSH KEXINIT)
 encoded in userspace as confidence boosters when the corresponding DPI
 dissectors fire. `huginn-net` is removed entirely. `aya` is the eBPF

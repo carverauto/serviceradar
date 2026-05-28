@@ -128,14 +128,16 @@ by FoxIO) MUST be computed in userspace from the DPI TLS dissector
 output. HASSH (SSH KEXINIT, BSD-3-Clause) MUST be computed in userspace
 from the DPI SSH dissector output. The compiled-in `p0f` corpus
 (`P0fSignature → OsMatch { name, version_range, confidence }`) is the
-primary OS classifier; ensemble confidence MUST be boosted when JA4
-or HASSH co-observe a flow and agree with the p0f match on OS family.
-Each signature MUST be independently toggleable from the per-device
-binding in `VisibilityAgentConfig`. `huginn-net` MUST NOT be linked
-into the default `serviceradar-netprobe` build. JA4T, JA4H, JA4S,
-JA4SSH, JA4X, JA4L, and JA4LS MUST NOT be implemented in
-`serviceradar-netprobe` because their FoxIO License 1.1 terms
-prohibit commercial-product resale without an OEM license.
+primary OS classifier; the upstream `p0f.fp` source corpus remains an
+LGPL-2.1-covered, separately shipped and documented data file with its
+original notice preserved. Ensemble confidence MUST be boosted when
+JA4 or HASSH co-observe a flow and agree with the p0f match on OS
+family. Each signature MUST be independently toggleable from the
+per-device binding in `VisibilityAgentConfig`. `huginn-net` MUST NOT
+be linked into the default `serviceradar-netprobe` build. JA4T, JA4H,
+JA4S, JA4SSH, JA4X, JA4L, and JA4LS MUST NOT be implemented in
+`serviceradar-netprobe` because their FoxIO License 1.1 terms prohibit
+commercial-product resale without an OEM license.
 
 #### Scenario: Per-protocol fingerprint toggles honoured
 - **WHEN** a device binding enables only `fingerprint.tcp`
