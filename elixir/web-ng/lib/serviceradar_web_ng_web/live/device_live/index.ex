@@ -381,16 +381,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
           {:noreply, put_flash(socket, :error, "A device with this IP address already exists.")}
 
         {:error, {:hostname_resolution_failed, hostname, reason}} ->
-          Logger.warning(
-            "Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}"
-          )
+          Logger.warning("Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}")
 
-          {:noreply,
-           put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
+          {:noreply, put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
 
         {:error, :missing_device_address} ->
-          {:noreply,
-           put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
+          {:noreply, put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
 
         {:error, :missing_scope} ->
           Logger.error("Device create failed: missing scope for #{inspect(params)}")
@@ -996,31 +992,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp effective_availability(_row, _effective_availability_by_device), do: nil
 
-  defp availability_source_summary(row) when is_map(row) do
-    agent_id = row |> Map.get("availability_source_agent_id") |> blank_to_nil()
-    profile_id = row |> Map.get("availability_source_profile_id") |> blank_to_nil()
-
-    cond do
-      is_binary(agent_id) and is_binary(profile_id) -> "Profile source: #{short_id(agent_id)}"
-      is_binary(agent_id) -> "Manual source: #{short_id(agent_id)}"
-      true -> nil
-    end
-  end
-
-  defp availability_source_summary(_row), do: nil
-
   defp agent_device_row?(row, agent_device_uids) when is_map(row) do
     device_uid = Map.get(row, "uid") || Map.get(row, "id")
     present_text?(device_uid) and MapSet.member?(agent_device_uids, device_uid)
   end
 
   defp agent_device_row?(_row, _agent_device_uids), do: false
-
-  defp short_id(value) when is_binary(value) and byte_size(value) > 20 do
-    String.slice(value, 0, 17) <> "..."
-  end
-
-  defp short_id(value), do: value
 
   defp blank_to_nil(value) when is_binary(value) do
     value
@@ -1813,7 +1790,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                     is_binary(device_uid) and Map.get(@snmp_presence, device_uid, false) == true %>
                   <% has_sysmon =
                     is_binary(device_uid) and Map.get(@sysmon_presence, device_uid, false) == true %>
-                  <% availability_source = availability_source_summary(row) %>
                   <tr class={"hover:bg-base-200/40 #{if is_selected, do: "bg-primary/5", else: ""} #{if deleted or not active, do: "opacity-60", else: ""}"}>
                     <td class="text-center">
                       <input
@@ -1876,17 +1852,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
                       {display_model(Map.get(row, "model"))}
                     </td>
                     <td class="text-xs">
-                      <div class="flex flex-col gap-1">
-                        <.availability_badge available={
-                          effective_availability(row, @effective_availability_by_device)
-                        } />
-                        <span
-                          :if={availability_source}
-                          class="max-w-40 truncate text-[0.68rem] text-base-content/50"
-                        >
-                          {availability_source}
-                        </span>
-                      </div>
+                      <.availability_badge available={
+                        effective_availability(row, @effective_availability_by_device)
+                      } />
                     </td>
                     <td class="text-xs">
                       <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />
@@ -3979,8 +3947,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
   defp format_create_error(error), do: inspect(error)
 
-  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}),
-    do: "#{field}: #{msg}"
+  defp format_single_device_error(%InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
 
   defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
 

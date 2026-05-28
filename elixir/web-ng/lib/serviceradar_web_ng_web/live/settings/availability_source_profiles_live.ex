@@ -260,7 +260,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                       <td>{format_datetime(profile.last_evaluated_at)}</td>
                       <td>{profile.applied_count} / {profile.match_count}</td>
                       <td>
-                        <span class={["badge badge-sm", profile.enabled && "badge-success", !profile.enabled && "badge-ghost"]}>
+                        <span class={[
+                          "badge badge-sm",
+                          profile.enabled && "badge-success",
+                          !profile.enabled && "badge-ghost"
+                        ]}>
                           {if profile.enabled, do: "Enabled", else: "Disabled"}
                         </span>
                       </td>
@@ -284,7 +288,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                             aria-label="Toggle profile"
                             title="Toggle profile"
                           >
-                            <.icon name={if profile.enabled, do: "hero-pause", else: "hero-play"} class="size-4" />
+                            <.icon
+                              name={if profile.enabled, do: "hero-pause", else: "hero-play"}
+                              class="size-4"
+                            />
                           </button>
                           <button
                             type="button"
@@ -546,9 +553,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
   defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   defp format_datetime(value), do: to_string(value)
 
-  defp preview_uid(row),
-    do:
-      Map.get(row, "uid") || Map.get(row, :uid) || Map.get(row, "id") || Map.get(row, :id) || "-"
+  defp preview_uid(row), do: Map.get(row, "uid") || Map.get(row, :uid) || Map.get(row, "id") || Map.get(row, :id) || "-"
 
   defp preview_label(row) do
     Map.get(row, "hostname") || Map.get(row, :hostname) || Map.get(row, "ip") || Map.get(row, :ip) ||

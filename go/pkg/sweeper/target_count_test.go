@@ -187,9 +187,9 @@ func TestEstimateTargetCountInvalidCIDR(t *testing.T) {
 
 func TestGenerateTargetsBatchedStreamsOversizedSweep(t *testing.T) {
 	config := &models.Config{
-		Networks:   []string{"10.0.0.0/16"},
+		Networks:   []string{"10.0.0.0/19"},
 		SweepModes: []models.SweepMode{models.ModeTCP},
-		Ports:      []int{22, 80, 443, 8080, 8888, 8443, 4000, 8000},
+		Ports:      []int{22, 80, 443, 8080, 8888, 8443, 4000, 8000, 9000, 9443, 10000, 10443, 12000},
 	}
 	sweeper := &NetworkSweeper{config: config, logger: logger.NewTestLogger()}
 
@@ -205,8 +205,11 @@ func TestGenerateTargetsBatchedStreamsOversizedSweep(t *testing.T) {
 		t.Fatalf("generateTargetsBatched() returned error: %v", err)
 	}
 
-	expectedHosts := 65_534
+	expectedHosts := 8_190
 	expectedTargets := expectedHosts * len(config.Ports)
+	if expectedTargets <= defaultTargetBatch {
+		t.Fatalf("test fixture should exceed defaultTargetBatch: got %d <= %d", expectedTargets, defaultTargetBatch)
+	}
 
 	if targets != expectedTargets {
 		t.Fatalf("generateTargetsBatched() targets = %d, expected %d", targets, expectedTargets)

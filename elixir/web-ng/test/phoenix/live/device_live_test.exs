@@ -96,6 +96,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type: "Server",
         hostname: hostname,
         is_available: false,
+        availability_source_agent_id: "agent-live-#{unique}",
         first_seen_time: now,
         last_seen_time: now
       }
@@ -125,6 +126,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Online"
     refute html =~ "Offline"
     refute html =~ "Source: any fresh agent"
+    refute html =~ "Manual source:"
+    refute html =~ "agent-live-#{unique}"
   end
 
   test "device list marks only registered agent devices with bolt", %{conn: conn} do
