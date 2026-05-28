@@ -52,7 +52,7 @@ pub struct HasshPair {
 }
 
 pub fn canonical_client_string(kexinit: &SshKexInit) -> String {
-    // Salesforce HASSH canonical strings use KEX, encryption, MAC, and
+    // Corelight HASSH canonical strings use KEX, encryption, MAC, and
     // compression lists. The SSH server-host-key list is parsed for callers
     // that need the full KEXINIT shape, but it is not part of the hash input.
     canonical_string(
@@ -269,7 +269,7 @@ mod tests {
     const OPENSSH_53_SERVER_COMPRESSION: &str = "none,zlib@openssh.com";
 
     #[test]
-    fn matches_salesforce_client_reference_vector() {
+    fn matches_corelight_client_reference_vector() {
         let kexinit = cyberduck_kexinit();
 
         assert_eq!(
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn matches_salesforce_server_reference_canonical_string() {
+    fn matches_corelight_server_reference_canonical_string() {
         let kexinit = openssh_53_server_kexinit();
 
         assert_eq!(

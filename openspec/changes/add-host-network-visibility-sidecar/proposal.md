@@ -116,7 +116,8 @@ with a self-contained **license-clean fingerprint stack**: the p0f
 canonical TCP fingerprint computed inside the eBPF SYN kprobe (primary
 classifier, upstream LGPL-2.1 corpus kept as a separate replaceable file
 plus ServiceRadar curated additions),
-plus JA4 base (BSD-3, TLS ClientHello) and HASSH (BSD-3, SSH KEXINIT)
+plus JA4 base (BSD-3, TLS ClientHello) and HASSH (BSD-3 via Corelight's
+maintained fork, SSH KEXINIT)
 encoded in userspace as confidence boosters when the corresponding DPI
 dissectors fire. `huginn-net` is removed entirely. `aya` is the eBPF
 runtime; `etherparse` / `pktparse-rs` handle userspace L3/L4 framing

@@ -798,9 +798,10 @@ case), security review (eBPF capability surface).
      Computed in userspace from the TLS ClientHello extracted by the
      existing DPI TLS dissector.
   3. **HASSH (SSH KEXINIT), computed in userspace.** Secondary layer
-     for SSH-visible devices. BSD-3-Clause, Salesforce / Ben Reardon
-     (2018), no patent issues. Computed in userspace from the SSH
-     KEXINIT field lists extracted by the existing DPI SSH dissector.
+     for SSH-visible devices. BSD-3-Clause via Corelight's maintained
+     fork of the Salesforce / Ben Reardon (2018) work, no patent
+     issues. Computed in userspace from the SSH KEXINIT field lists
+     extracted by the existing DPI SSH dissector.
   4. **In-house ServiceRadar canonical formats (optional, deferred).**
      For TLS-server fingerprinting (the JA4S equivalent), HTTP request
      fingerprinting (the JA4H equivalent), and any other surface
