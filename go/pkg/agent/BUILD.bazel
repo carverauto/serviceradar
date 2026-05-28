@@ -100,6 +100,7 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
+        "bumblebee_spool_service_test.go",
         "camera_relay_test.go",
         "control_stream_test.go",
         "credential_broker_resolver_test.go",
@@ -124,6 +125,7 @@ go_test(
     embed = [":agent"],
     deps = [
         "//go/pkg/agent/remoteaccess",
+        "//go/pkg/bumblebee",
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/grpc",

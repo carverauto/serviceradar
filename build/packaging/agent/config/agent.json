@@ -9,12 +9,6 @@
   "status_debounce_interval": "30s",
   "status_heartbeat_interval": "5m",
   "sync_runtime_enabled": true,
-  "bumblebee": {
-    "enabled": true,
-    "spool_path": "/var/lib/serviceradar/bumblebee/spool/latest.json",
-    "catalog_path": "/var/lib/serviceradar/bumblebee/catalog/current",
-    "tmp_dir": "/var/lib/serviceradar/bumblebee/tmp"
-  },
   "gateway_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",

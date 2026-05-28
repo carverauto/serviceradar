@@ -1,20 +1,6 @@
 {
   "enabled": false,
   "agent_id": "default-agent",
-  "bumblebee_bin": "/usr/local/bin/bumblebee",
-  "command_template": [
-    "{bumblebee_bin}",
-    "scan",
-    "--profile",
-    "deep",
-    "--findings-only",
-    "--exposure-catalog",
-    "{catalog_path}",
-    "--max-duration",
-    "{scan_timeout}",
-    "--root",
-    "{root_path}"
-  ],
   "catalog_path": "/var/lib/serviceradar/bumblebee/catalog/current",
   "catalog_snapshot_ref": "",
   "spool_dir": "/var/lib/serviceradar/bumblebee/spool",

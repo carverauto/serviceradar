@@ -15,26 +15,41 @@ package inventory by default.
 
 ## Architecture
 
-Bumblebee scanning is split across two processes:
+Bumblebee scanning is an optional native capability split across two processes:
 
 - `serviceradar-bumblebee-scan.service` runs as `root` on a timer. It resolves
-  scan roots, invokes Bumblebee as a bounded one-shot scanner, sanitizes the
-  output, and writes a spool file under `/var/lib/serviceradar/bumblebee/spool/`.
+  scan roots, invokes the vendored Bumblebee scanner implementation as a
+  bounded one-shot scan, sanitizes the output, and writes a spool file under
+  `/var/lib/serviceradar/bumblebee/spool/`.
 - `serviceradar-agent` remains non-root. It only reads the sanitized spool file
   and reports the result through the normal agent result path.
 
 This split lets a Linux host scan all local users and `/root` without giving the
 main agent broad filesystem privileges.
 
+## Optional Deployment
+
+The base `serviceradar-agent` package does not install, configure, or start the
+root-owned Bumblebee scanner helper. This keeps the default RPM/deb installer
+minimal for operations groups that do not want privileged local exposure
+scanning on every agent host.
+
+Bumblebee should be deployed as an explicit native capability add-on through
+Edge Ops feature-set deployment. The add-on is expected to carry the root helper,
+`serviceradar-bumblebee-scan.service`, `serviceradar-bumblebee-scan.timer`, the
+scanner config, and the `/var/lib/serviceradar/bumblebee` state directory
+ownership/permissions. The main agent remains the same binary and only reports
+Bumblebee posture when its optional `bumblebee` config is enabled.
+
+The helper vendors the pinned Bumblebee scanner implementation and runs it
+in-process; there is no separate upstream Bumblebee CLI runtime dependency and
+no shell-out to another scanner binary.
+
 ## Enabling On An Agent
 
-The current package installs the ServiceRadar root scanner wrapper and systemd
-timer. It expects the upstream Bumblebee CLI at `/usr/local/bin/bumblebee`; the
-ServiceRadar build should pin and package that scanner binary before this is
-enabled by default in production.
-
-The packaged root scanner config is installed at
-`/etc/serviceradar/bumblebee-scan.json`. It is disabled by default.
+When the native capability add-on is installed, its root scanner config lives at
+`/etc/serviceradar/bumblebee-scan.json`. It should be disabled until Edge Ops or
+a local operator explicitly enables it.
 
 Set the scanner config to enabled and use the reporting agent ID:
 
@@ -56,8 +71,8 @@ Then enable and start the timer:
 sudo systemctl enable --now serviceradar-bumblebee-scan.timer
 ```
 
-The main agent config has a separate `bumblebee` section that controls spool
-reporting and catalog staging paths. In normal packages it points at:
+The main agent config has a separate optional `bumblebee` section that controls
+spool reporting and catalog staging paths. When enabled, it normally points at:
 
 - `/var/lib/serviceradar/bumblebee/spool/latest.json`
 - `/var/lib/serviceradar/bumblebee/catalog/current`

@@ -30,8 +30,6 @@ const (
 type Config struct {
 	Enabled            bool     `json:"enabled"`
 	AgentID            string   `json:"agent_id"`
-	BumblebeeBin       string   `json:"bumblebee_bin"`
-	CommandTemplate    []string `json:"command_template"`
 	CatalogPath        string   `json:"catalog_path"`
 	CatalogSnapshotRef string   `json:"catalog_snapshot_ref"`
 	SpoolDir           string   `json:"spool_dir"`

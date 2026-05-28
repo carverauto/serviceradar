@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	defaultBumblebeeBin   = "/usr/local/bin/bumblebee"
 	defaultCatalogPath    = "/var/lib/serviceradar/bumblebee/catalog/current"
 	defaultSpoolDir       = "/var/lib/serviceradar/bumblebee/spool"
 	defaultTmpDir         = "/var/lib/serviceradar/bumblebee/tmp"
@@ -41,7 +40,6 @@ var ErrAgentIDRequired = errors.New("agent_id is required")
 func DefaultConfig() Config {
 	return Config{
 		Enabled:          false,
-		BumblebeeBin:     defaultBumblebeeBin,
 		CatalogPath:      defaultCatalogPath,
 		SpoolDir:         defaultSpoolDir,
 		TmpDir:           defaultTmpDir,
@@ -75,9 +73,6 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func applyDefaults(cfg *Config) {
-	if cfg.BumblebeeBin == "" {
-		cfg.BumblebeeBin = defaultBumblebeeBin
-	}
 	if cfg.CatalogPath == "" {
 		cfg.CatalogPath = defaultCatalogPath
 	}

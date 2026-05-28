@@ -48,6 +48,10 @@ func TestParseFindingsAcceptsObjectArray(t *testing.T) {
 	findings, err := ParseFindings([]byte(`{
 		"findings": [
 			{
+				"record_type": "scan_summary",
+				"status": "complete"
+			},
+			{
 				"id": "catalog-1",
 				"severity": "high",
 				"package": "ollama",
@@ -67,6 +71,29 @@ func TestParseFindingsAcceptsObjectArray(t *testing.T) {
 		t.Fatal("expected generated finding id")
 	}
 	if findings[0].PackageName != "ollama" || findings[0].Severity != "high" {
+		t.Fatalf("unexpected finding: %#v", findings[0])
+	}
+}
+
+func TestParseFindingsSkipsUpstreamNonFindingRecords(t *testing.T) {
+	data := []byte(`
+{"record_type":"package","record_id":"pkg-1","package_name":"leftpad","version":"1.0.0"}
+{"record_type":"finding","record_id":"finding-1","catalog_id":"cat-1","severity":"critical","ecosystem":"npm","package_name":"leftpad","version":"1.0.0","source_file":"/home/alice/package-lock.json"}
+{"record_type":"scan_summary","record_id":"summary-1","status":"complete","findings_emitted":1}
+`)
+
+	findings, err := ParseFindings(data, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(findings) != 1 {
+		t.Fatalf("len(findings) = %d, want 1", len(findings))
+	}
+	if findings[0].ID != "finding-1" || findings[0].FindingID != "finding-1" {
+		t.Fatalf("unexpected ids: %#v", findings[0])
+	}
+	if findings[0].CatalogID != "cat-1" || findings[0].PackageName != "leftpad" {
 		t.Fatalf("unexpected finding: %#v", findings[0])
 	}
 }

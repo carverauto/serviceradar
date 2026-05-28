@@ -35,28 +35,6 @@ chmod 755 /var/lib/serviceradar/agent
 chmod 755 /var/lib/serviceradar/agent/versions
 chmod 755 /var/lib/serviceradar/agent/tmp
 
-# Root-owned Bumblebee scanner state. The scanner runs as root with group
-# serviceradar so the non-root agent can read sanitized spool files only.
-mkdir -p /var/lib/serviceradar/bumblebee/catalog
-mkdir -p /var/lib/serviceradar/bumblebee/cache
-mkdir -p /var/lib/serviceradar/bumblebee/spool/runs
-mkdir -p /var/lib/serviceradar/bumblebee/tmp
-chown -R root:serviceradar /var/lib/serviceradar/bumblebee
-chmod 750 /var/lib/serviceradar/bumblebee
-chmod 750 /var/lib/serviceradar/bumblebee/cache
-chmod 750 /var/lib/serviceradar/bumblebee/catalog
-chmod 750 /var/lib/serviceradar/bumblebee/spool
-chmod 750 /var/lib/serviceradar/bumblebee/spool/runs
-chmod 750 /var/lib/serviceradar/bumblebee/tmp
-if [ -f /etc/serviceradar/bumblebee-scan.json ]; then
-    chown root:serviceradar /etc/serviceradar/bumblebee-scan.json
-    chmod 0640 /etc/serviceradar/bumblebee-scan.json
-fi
-if [ -x /usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan ]; then
-    chown root:root /usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan
-    chmod 0755 /usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan
-fi
-
 NETPROBE_BIN=/usr/local/lib/serviceradar/bin/serviceradar-netprobe
 warn_netprobe_capability() {
     echo "Warning: $1; run:"
@@ -90,10 +68,6 @@ fi
 
 # Reload systemd and manage service
 systemctl daemon-reload
-if [ -f /lib/systemd/system/serviceradar-bumblebee-scan.timer ]; then
-    systemctl enable serviceradar-bumblebee-scan.timer || true
-    systemctl start serviceradar-bumblebee-scan.timer || true
-fi
 systemctl enable serviceradar-agent
 if [ -f /etc/serviceradar/agent.json ] && \
    [ -f /etc/serviceradar/certs/component.pem ] && \

@@ -23,15 +23,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/bumblebee/upstream"
 )
 
 const (
@@ -95,13 +95,10 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		return payload, nil
 	}
 
-	version := r.scannerVersion(ctx)
-	if version != "" {
-		payload.ScannerVersion = version
-	}
+	payload.ScannerVersion = upstream.Version
 
 	for _, root := range roots {
-		findings, err := r.scanRoot(ctx, root.Path)
+		findings, err := r.scanRoot(ctx, runID, root.Path)
 		if err != nil {
 			payload.SkippedRoots = append(payload.SkippedRoots, SkippedRoot{Path: root.Path, Reason: "scan_failed:" + err.Error()})
 			continue
@@ -134,102 +131,28 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	return payload, nil
 }
 
-func (r *Runner) scanRoot(parent context.Context, root string) ([]Finding, error) {
+func (r *Runner) scanRoot(parent context.Context, runID string, root string) ([]Finding, error) {
 	timeout := ScanTimeout(r.cfg)
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 
-	outFile, err := os.CreateTemp(r.cfg.TmpDir, ".bumblebee-output-*.json")
+	result, err := upstream.ScanRoot(ctx, upstream.ScanOptions{
+		Root:        root,
+		CatalogPath: r.cfg.CatalogPath,
+		RunID:       runID,
+		Ecosystems:  r.cfg.Ecosystems,
+		MaxDuration: timeout,
+		MaxOutput:   r.cfg.MaxOutputBytes,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("create scanner output file: %w", err)
-	}
-	outPath := outFile.Name()
-	defer os.Remove(outPath)
-	defer outFile.Close()
-
-	var stderr limitedBuffer
-	stderr.limit = 64 * 1024
-
-	args := r.commandForRoot(root, outPath)
-	if len(args) == 0 {
-		return nil, errors.New("empty command template")
+		return nil, err
 	}
 
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Stdout = outFile
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, fmt.Errorf("%w: %s", err, stderr.String())
+	if int64(len(result.Records)) > r.cfg.MaxOutputBytes {
+		return nil, fmt.Errorf("scanner output exceeds %d bytes", r.cfg.MaxOutputBytes)
 	}
 
-	if err := outFile.Close(); err != nil {
-		return nil, fmt.Errorf("close scanner output file: %w", err)
-	}
-
-	return ParseFindingsFile(outPath, r.cfg.MaxOutputBytes, r.cfg.MaxFindings)
-}
-
-func (r *Runner) commandForRoot(root string, outputPath string) []string {
-	template := r.cfg.CommandTemplate
-	if len(template) == 0 {
-		template = []string{
-			r.cfg.BumblebeeBin,
-			"scan",
-			"--profile",
-			"deep",
-			"--findings-only",
-			"--exposure-catalog",
-			"{catalog_path}",
-			"--max-duration",
-			"{scan_timeout}",
-			"--root",
-			"{root_path}",
-		}
-	}
-
-	values := map[string]string{
-		"{bumblebee_bin}": r.cfg.BumblebeeBin,
-		"{catalog_path}":  r.cfg.CatalogPath,
-		"{root_path}":     root,
-		"{output_path}":   outputPath,
-		"{ecosystems}":    strings.Join(r.cfg.Ecosystems, ","),
-		"{scan_timeout}":  r.cfg.ScanTimeout,
-	}
-
-	args := make([]string, 0, len(template))
-	for _, part := range template {
-		for key, value := range values {
-			part = strings.ReplaceAll(part, key, value)
-		}
-		args = append(args, part)
-	}
-
-	return args
-}
-
-func (r *Runner) scannerVersion(ctx context.Context) string {
-	if strings.TrimSpace(r.cfg.BumblebeeBin) == "" {
-		return ""
-	}
-
-	versionCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(versionCtx, r.cfg.BumblebeeBin, "--version")
-	var out limitedBuffer
-	out.limit = 4096
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	if err := cmd.Run(); err != nil {
-		return ""
-	}
-
-	return strings.TrimSpace(out.String())
+	return ParseFindings(result.Records, r.cfg.MaxFindings)
 }
 
 func ParseFindingsFile(path string, maxBytes int64, maxFindings int) ([]Finding, error) {
@@ -276,6 +199,9 @@ func ParseFindings(data []byte, maxFindings int) ([]Finding, error) {
 		if err := decoder.Decode(&item); err != nil {
 			return nil, err
 		}
+		if !isFindingRecord(item) {
+			continue
+		}
 		findings = append(findings, findingFromMap(item))
 		if len(findings) >= maxFindings {
 			break
@@ -296,6 +222,9 @@ func findingsFromAny(value any, maxFindings int) []Finding {
 		if results, ok := typed["results"].([]any); ok {
 			return findingsFromList(results, maxFindings)
 		}
+		if !isFindingRecord(typed) {
+			return nil
+		}
 		return []Finding{findingFromMap(typed)}
 	default:
 		return nil
@@ -306,6 +235,9 @@ func findingsFromList(list []any, maxFindings int) []Finding {
 	findings := make([]Finding, 0, min(len(list), maxFindings))
 	for _, item := range list {
 		if itemMap, ok := item.(map[string]any); ok {
+			if !isFindingRecord(itemMap) {
+				continue
+			}
 			findings = append(findings, findingFromMap(itemMap))
 			if len(findings) >= maxFindings {
 				break
@@ -316,10 +248,16 @@ func findingsFromList(list []any, maxFindings int) []Finding {
 	return findings
 }
 
+func isFindingRecord(item map[string]any) bool {
+	recordType := firstString(item, "record_type", "recordType")
+
+	return recordType == "" || recordType == "finding"
+}
+
 func findingFromMap(item map[string]any) Finding {
 	finding := Finding{
-		ID:             stringField(item, "id"),
-		FindingID:      firstString(item, "finding_id", "findingId", "id"),
+		ID:             firstString(item, "record_id", "recordId", "id"),
+		FindingID:      firstString(item, "finding_id", "findingId", "record_id", "recordId", "id"),
 		CatalogID:      firstString(item, "catalog_id", "catalogId", "rule_id", "ruleId"),
 		Severity:       firstString(item, "severity", "level"),
 		RiskScore:      intField(item, "risk_score"),
@@ -447,26 +385,4 @@ func newRunID(now time.Time) string {
 	_, _ = rand.Read(randomBytes[:])
 
 	return fmt.Sprintf("bumblebee-%d-%s", now.UnixNano(), hex.EncodeToString(randomBytes[:]))
-}
-
-type limitedBuffer struct {
-	buf   bytes.Buffer
-	limit int
-}
-
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.limit <= 0 {
-		return len(p), nil
-	}
-
-	remaining := b.limit - b.buf.Len()
-	if remaining > 0 {
-		_, _ = b.buf.Write(p[:min(len(p), remaining)])
-	}
-
-	return len(p), nil
-}
-
-func (b *limitedBuffer) String() string {
-	return strings.TrimSpace(b.buf.String())
 }

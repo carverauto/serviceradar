@@ -44,6 +44,18 @@ The system SHALL support an opt-in Bumblebee scanner configuration delivered thr
 ### Requirement: Bumblebee Root-Owned Scanner Service
 The system SHALL run full-system Bumblebee scans through a dedicated root-owned scanner service while keeping `serviceradar-agent` non-root. The scanner service SHALL use fixed configuration, bounded arguments, scrubbed environment variables, read-only scanner behavior, output size limits, and a sanitized spool contract consumed by the agent.
 
+#### Scenario: Base agent package does not install scanner helper
+- **GIVEN** an operator installs the standard `serviceradar-agent` RPM or deb package
+- **WHEN** the package post-install script runs
+- **THEN** it SHALL NOT install, enable, or start `serviceradar-bumblebee-scan.service` or `serviceradar-bumblebee-scan.timer`
+- **AND** it SHALL NOT create root-owned Bumblebee state directories unless the optional native capability bundle is installed
+
+#### Scenario: Optional native capability bundle installs scanner helper
+- **GIVEN** an operator enables the Bumblebee native capability through Edge Ops feature-set deployment
+- **WHEN** the add-on is installed on a Linux host
+- **THEN** it SHALL install the root-owned scanner helper, scanner config, systemd service, systemd timer, and spool directory permissions
+- **AND** the existing non-root `serviceradar-agent` SHALL report the sanitized spool without requiring a different agent package
+
 #### Scenario: Non-root agent ingests sanitized output
 - **GIVEN** the root-owned scanner service completes a Bumblebee scan
 - **WHEN** it writes findings, scan summary, and coverage metadata to the spool path

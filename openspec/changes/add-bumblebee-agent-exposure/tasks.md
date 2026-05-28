@@ -1,6 +1,6 @@
 ## 1. Specification And Design
 - [x] 1.1 Package Bumblebee through a root-owned scheduled scanner service while keeping `serviceradar-agent` non-root.
-- [ ] 1.2 Pin the upstream Bumblebee scanner binary in ServiceRadar builds. The seeded catalog source is pinned to `v0.1.1+c24089804ee66ece4bec6f14638cb98985389cdb`.
+- [x] 1.2 Vendor and pin the upstream Bumblebee scanner implementation in ServiceRadar builds. The seeded catalog source is pinned to `v0.1.1+c24089804ee66ece4bec6f14638cb98985389cdb`.
 
 ## 2. Catalog Sync
 - [x] 2.1 Add Elixir migrations for platform-scoped exposure catalog snapshots, catalog entries, device-linked postures, finding state, and sync audit state.
@@ -15,7 +15,8 @@
 - [ ] 3.1 Extend agent config protobufs and config compilers with opt-in Bumblebee profile settings.
 - [x] 3.2 Add local Bumblebee config override and cache paths under the agent filesystem conventions.
 - [x] 3.3 Add scanner-service root discovery for current user, all local user homes, `/root`, and explicit operator roots with bounded allow/deny policy.
-- [ ] 3.4 Package the pinned Bumblebee scanner service, systemd unit/timer, and non-root-readable sanitized output spool for Linux; define the macOS launchd equivalent or mark macOS as follow-up.
+- [ ] 3.4 Package the pinned Bumblebee scanner service, systemd unit/timer, and non-root-readable sanitized output spool as an optional native capability bundle for Linux; define the macOS launchd equivalent or mark macOS as follow-up.
+- [x] 3.5 Keep the base `serviceradar-agent` package from installing or enabling Bumblebee root components by default.
 
 ## 4. Agent Execution And Ingest
 - [x] 4.1 Run Bumblebee scans from the root-owned scanner service as bounded one-shot executions with configured profile, roots, ecosystems, max duration, and catalog snapshot.
@@ -37,6 +38,6 @@
 
 ## 6. Verification
 - [ ] 6.1 Add unit tests for catalog parsing, promotion, and failure preservation.
-- [ ] 6.2 Add scanner service and agent tests with Bumblebee fixture NDJSON covering findings-only, scan-summary, coverage, and skipped-root handling.
+- [x] 6.2 Add scanner service and agent tests with Bumblebee fixture NDJSON covering findings-only, scan-summary, coverage, and skipped-root handling.
 - [ ] 6.3 Add device posture association tests covering agent-to-device resolution and pending agent-only posture backfill.
 - [ ] 6.4 Run targeted Go tests and `./scripts/elixir_quality.sh --project elixir/serviceradar_core`.
