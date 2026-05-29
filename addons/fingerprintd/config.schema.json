@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "fingerprintd Configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "interfaces": {
+      "type": "array",
+      "title": "Interfaces",
+      "description": "Network interfaces fingerprintd passively observes. Empty means all non-loopback interfaces.",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "scan_interval_seconds": {
+      "type": "integer",
+      "title": "Scan interval (seconds)",
+      "description": "How often fingerprintd reconciles its observed-asset inventory.",
+      "minimum": 5,
+      "maximum": 3600,
+      "default": 60
+    }
+  }
+}

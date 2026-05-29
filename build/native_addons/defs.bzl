@@ -29,17 +29,26 @@ def declare_native_addon_targets(addon_bundles):
         srcs = []
         artifact_args = []
 
-        for (os, arch) in bundle["platforms"]:
-            cross_name = "{}_{}_{}".format(name, os, arch)
-            go_cross_binary(
-                name = cross_name,
-                target = bundle["binary"],
-                platform = "@io_bazel_rules_go//go/toolchain:{}_{}".format(os, arch),
-                visibility = ["//visibility:public"],
-            )
+        # "go" (default) cross-compiles a go_binary per arch; "rust" packages the
+        # rules_rust rust_binary directly (no go_cross_binary analogue), reusing
+        # the single configured-platform binary for each declared platform path.
+        language = bundle.get("language", "go")
 
-            label = ":" + cross_name
-            srcs.append(label)
+        for (os, arch) in bundle["platforms"]:
+            if language == "rust":
+                label = bundle["binary"]
+            else:
+                cross_name = "{}_{}_{}".format(name, os, arch)
+                go_cross_binary(
+                    name = cross_name,
+                    target = bundle["binary"],
+                    platform = "@io_bazel_rules_go//go/toolchain:{}_{}".format(os, arch),
+                    visibility = ["//visibility:public"],
+                )
+                label = ":" + cross_name
+
+            if label not in srcs:
+                srcs.append(label)
             binary_outputs.append(label)
             archive_path = "bin/{}/{}/{}".format(os, arch, bundle["binary_name"])
             artifact_args.append(
