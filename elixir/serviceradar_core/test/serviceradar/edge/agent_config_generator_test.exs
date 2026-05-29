@@ -1470,6 +1470,33 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert addon.artifact_object_key in [nil, ""]
       assert addon.target_arch in [nil, ""]
     end
+
+    test "incomplete artifact entry (missing sha256) yields no artifact reference", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"})
+
+      # Matching arch, but the artifact entry is missing sha256: the agent must not be
+      # told to fetch something it cannot verify, so no reference is emitted.
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :pushed_artifact,
+          artifacts: %{"linux/amd64" => %{"object_key" => "addons/x/linux-amd64"}}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.artifact_object_key in [nil, ""]
+      assert addon.artifact_sha256 in [nil, ""]
+    end
   end
 
   defp create_approved_addon_package(actor, unique_id, opts) do

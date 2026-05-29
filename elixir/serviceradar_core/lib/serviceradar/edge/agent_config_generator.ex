@@ -470,18 +470,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # to binary_path.
   defp select_addon_artifact(artifacts, os, arch)
        when is_map(artifacts) and is_binary(os) and is_binary(arch) and os != "" and arch != "" do
-    case Map.get(artifacts, "#{os}/#{arch}") do
-      entry when is_map(entry) ->
-        %{
-          object_key: map_string(entry, "object_key", nil),
-          sha256: map_string(entry, "sha256", nil),
-          signature: map_string(entry, "signature", nil),
-          os: os,
-          arch: arch
-        }
-
-      _ ->
-        %{}
+    with entry when is_map(entry) <- Map.get(artifacts, "#{os}/#{arch}"),
+         object_key when object_key not in [nil, ""] <- map_string(entry, "object_key", nil),
+         sha256 when sha256 not in [nil, ""] <- map_string(entry, "sha256", nil) do
+      %{
+        object_key: object_key,
+        sha256: sha256,
+        signature: map_string(entry, "signature", nil),
+        os: os,
+        arch: arch
+      }
+    else
+      # No matching entry, or an incomplete one (missing object_key/sha256): emit no
+      # artifact reference so the agent does not attempt a fetch it cannot verify.
+      _ -> %{}
     end
   end
 

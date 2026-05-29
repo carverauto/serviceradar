@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -263,6 +264,101 @@ func TestApplyLocalAddonOverridesMalformedReturnsPushed(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].GetBinaryPath() != "/pushed/a" {
 		t.Fatalf("malformed override must return pushed unchanged: %#v", got)
+	}
+}
+
+func TestStageAddonArtifactRejectsUnsafePath(t *testing.T) {
+	root := t.TempDir()
+	payload := []byte("x")
+	key := "addons/evil"
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+
+	cases := []struct {
+		name    string
+		addonID string
+		version string
+	}{
+		{"traversal addon_id", "../../etc", "1.0.0"},
+		{"slash addon_id", "a/b", "1.0.0"},
+		{"empty addon_id", "", "1.0.0"},
+		{"traversal version", "evil", "../../tmp"},
+		{"dotdot version", "evil", ".."},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &proto.AddonAssignmentConfig{
+				AddonId:           tc.addonID,
+				Version:           tc.version,
+				ArtifactObjectKey: key,
+				ArtifactSha256:    sha256Hex(payload),
+			}
+			if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonUnsafePath) {
+				t.Fatalf("want ErrAddonUnsafePath, got %v", err)
+			}
+		})
+	}
+
+	// Nothing should have been created under or outside root.
+	entries, _ := os.ReadDir(root)
+	if len(entries) != 0 {
+		t.Fatalf("unsafe staging created entries under root: %v", entries)
+	}
+}
+
+func TestStageAddonArtifactFailsClosedWhenSignedButKeyUnset(t *testing.T) {
+	// No release verification key configured...
+	t.Setenv(releasePublicKeyEnv, "")
+
+	root := t.TempDir()
+	payload := []byte("signed-but-unverifiable")
+	key := "addons/signed"
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "signed",
+		Version:           "1.0.0",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(payload),
+		ArtifactSignature: "abcdef", // a signature is supplied
+	}
+
+	// ...so a supplied signature must fail closed (not silently activate).
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); err == nil {
+		t.Fatal("expected staging to fail closed when a signature is supplied but no verification key is configured")
+	}
+}
+
+func TestApplyLocalAddonOverridesCanDisable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, addonLocalOverrideFile)
+	if err := os.WriteFile(path, []byte(`{"addons":[{"addon_id":"a","enabled":false}]}`), 0o600); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+
+	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: "/pushed/a", Enabled: true}}
+
+	got, err := applyLocalAddonOverrides(pushed, path)
+	if err != nil {
+		t.Fatalf("apply overrides: %v", err)
+	}
+	if len(got) != 1 || got[0].GetEnabled() {
+		t.Fatalf("local override enabled=false should disable the pushed add-on: %#v", got)
+	}
+}
+
+func TestAddonLastGoodSpecCache(t *testing.T) {
+	pl := &PushLoop{}
+	if _, ok := pl.lastGoodAddonSpec("a"); ok {
+		t.Fatal("expected empty cache initially")
+	}
+
+	spec := agentaddon.Spec{ID: "a", Version: "1.0.0", BinaryPath: "/run/a", Args: []string{"--x"}}
+	pl.rememberAddonSpec(spec)
+
+	got, ok := pl.lastGoodAddonSpec("a")
+	if !ok || got.BinaryPath != "/run/a" || got.Version != "1.0.0" {
+		t.Fatalf("cache did not return the remembered spec: ok=%v spec=%#v", ok, got)
 	}
 }
 

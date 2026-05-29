@@ -199,6 +199,9 @@ type PushLoop struct {
 	tcpMu                     sync.Mutex
 	tcpSessions               map[string]*remoteaccess.TCPAdapter
 
+	addonLastGoodMu sync.Mutex
+	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
+
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
@@ -3152,6 +3155,29 @@ const (
 	addonSupervisionAgentSidecar = "agent_sidecar"
 )
 
+// rememberAddonSpec records a freshly staged, fully verified add-on spec as the
+// last-known-good for its id, so a later transient delivery failure can reuse it.
+func (p *PushLoop) rememberAddonSpec(spec agentaddon.Spec) {
+	p.addonLastGoodMu.Lock()
+	defer p.addonLastGoodMu.Unlock()
+
+	if p.addonLastGood == nil {
+		p.addonLastGood = make(map[string]agentaddon.Spec)
+	}
+
+	p.addonLastGood[spec.ID] = spec
+}
+
+// lastGoodAddonSpec returns the last-known-good spec for an add-on id, if any.
+func (p *PushLoop) lastGoodAddonSpec(id string) (agentaddon.Spec, bool) {
+	p.addonLastGoodMu.Lock()
+	defer p.addonLastGoodMu.Unlock()
+
+	spec, ok := p.addonLastGood[id]
+
+	return spec, ok
+}
+
 // applyAddonAssignments reconciles the agent's supervised native add-ons to the
 // assignments delivered in the gateway config. Enabled assignments are launched
 // and supervised as go-plugin subprocesses; disabled or removed ones are stopped.
@@ -3212,6 +3238,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 		}
 
 		binaryPath := a.GetBinaryPath()
+		freshlyStaged := false
 
 		// For pushed_artifact delivery, fetch + verify + stage the signed artifact
 		// from object storage and run the resolved staged binary. compiled_in /
@@ -3225,9 +3252,21 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 			resolved, err := stageAddonArtifact(ctx, store, root, a)
 			if err != nil {
-				// Delivery/verification failed: fall back to the last-known-good
-				// staged version so a transient failure does not tear down a running
-				// add-on. Only skip when nothing has been staged before.
+				// Delivery/verification failed. Prefer the cached last-known-good spec
+				// so the add-on keeps running exactly as it was (same binary, args, and
+				// config) rather than applying the new assignment's config to the old
+				// binary. Skip only when nothing good has been applied before.
+				if cached, hit := p.lastGoodAddonSpec(a.GetAddonId()); hit {
+					p.logger.Warn().
+						Err(err).
+						Str("addon", a.GetAddonId()).
+						Msg("Pushed-artifact add-on delivery failed; keeping last-known-good assignment")
+
+					specs = append(specs, cached)
+
+					continue
+				}
+
 				lkg, ok := lastKnownGoodAddonBinary(root, a)
 				if !ok {
 					p.logger.Warn().
@@ -3243,7 +3282,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 					Err(err).
 					Str("addon", a.GetAddonId()).
 					Str("binary_path", lkg).
-					Msg("Pushed-artifact add-on delivery failed; using last-known-good staged version")
+					Msg("Pushed-artifact add-on delivery failed; reusing last-known-good staged binary")
 
 				binaryPath = lkg
 			} else {
@@ -3254,6 +3293,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 				}
 
 				binaryPath = resolved
+				freshlyStaged = true
 			}
 		}
 
@@ -3265,14 +3305,22 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			continue
 		}
 
-		specs = append(specs, agentaddon.Spec{
+		spec := agentaddon.Spec{
 			ID:           a.GetAddonId(),
 			Version:      a.GetVersion(),
 			BinaryPath:   binaryPath,
 			Args:         a.GetArgs(),
 			ConfigJSON:   a.GetConfigJson(),
 			Capabilities: a.GetCapabilities(),
-		})
+		}
+
+		// Cache the fully verified, freshly staged spec as last-known-good so a later
+		// transient delivery failure can reuse it unchanged.
+		if freshlyStaged {
+			p.rememberAddonSpec(spec)
+		}
+
+		specs = append(specs, spec)
 	}
 
 	if err := manager.Apply(ctx, specs); err != nil {

@@ -64,7 +64,24 @@ var (
 	// ErrAddonSignatureInvalid is returned when a supplied artifact signature fails
 	// ed25519 verification.
 	ErrAddonSignatureInvalid = errors.New("addon artifact signature invalid")
+	// ErrAddonUnsafePath is returned when an add-on id or version would not form a
+	// single safe path segment under the staging root (path-traversal guard).
+	ErrAddonUnsafePath = errors.New("addon id or version is not a safe path segment")
 )
+
+// safeAddonSegment reports whether s is safe to use as a single path component under
+// the staging root: non-empty, not "." or "..", and free of path separators. This
+// blocks path traversal from control-plane-supplied addon_id / version values.
+func safeAddonSegment(s string) bool {
+	switch s {
+	case "", ".", "..":
+		return false
+	}
+
+	return !strings.ContainsRune(s, '/') &&
+		!strings.ContainsRune(s, '\\') &&
+		!strings.ContainsRune(s, filepath.Separator)
+}
 
 // resolveAddonArtifactRoot returns the base directory under which pushed-artifact
 // add-ons are staged, alongside the agent release runtime root.
@@ -92,6 +109,19 @@ func stageAddonArtifact(
 		return "", ErrAddonArtifactIncomplete
 	}
 
+	addonID := strings.TrimSpace(a.GetAddonId())
+	version := addonStagedVersion(a, wantSHA)
+
+	// addon_id and version come from the control plane and become path segments under
+	// the staging root, so reject anything that is not a single safe segment (no
+	// separators, no "." / ".." traversal) before fetching or touching the filesystem.
+	if !safeAddonSegment(addonID) {
+		return "", fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+	if !safeAddonSegment(version) {
+		return "", fmt.Errorf("%w: version %q", ErrAddonUnsafePath, version)
+	}
+
 	data, err := downloader.DownloadObject(ctx, objectKey)
 	if err != nil {
 		return "", fmt.Errorf("download addon artifact %q: %w", objectKey, err)
@@ -112,8 +142,6 @@ func stageAddonArtifact(
 		}
 	}
 
-	addonID := strings.TrimSpace(a.GetAddonId())
-	version := addonStagedVersion(a, wantSHA)
 	binName := addonBinaryName(a)
 
 	addonDir := filepath.Join(root, addonID)
@@ -143,7 +171,7 @@ func stageAddonArtifact(
 // add-on. Returns ("", false) when nothing has been staged yet.
 func lastKnownGoodAddonBinary(root string, a *proto.AddonAssignmentConfig) (string, bool) {
 	addonID := strings.TrimSpace(a.GetAddonId())
-	if addonID == "" {
+	if !safeAddonSegment(addonID) {
 		return "", false
 	}
 
