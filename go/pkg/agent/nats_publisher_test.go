@@ -30,6 +30,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
+const testNATSUserJWT = "stub-user-jwt"
+
 // writeCredsFile writes a syntactically-valid minimal NATS .creds file
 // (the contents are never parsed by nats.UserCredentials at config-bind
 // time — it just records the path — so a placeholder is sufficient for
@@ -39,7 +41,7 @@ func writeCredsFile(t *testing.T) string {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nats.creds")
 	const stub = `-----BEGIN NATS USER JWT-----
-stub
+stub-user-jwt
 ------END NATS USER JWT------
 
 -----BEGIN USER NKEY SEED-----
@@ -78,9 +80,9 @@ func TestBuildExtraNATSOpts_MissingFileFailsClearly(t *testing.T) {
 func TestBuildExtraNATSOpts_AppendsUserCredentialsOption(t *testing.T) {
 	// Acceptance criterion #2/#5: when nats_creds_file is set and the
 	// file exists, an option that registers JWT + signature callbacks
-	// must be appended. We verify by applying the captured option to a
-	// fresh nats.Options{} and asserting both handler slots are filled
-	// — this is what nats.UserCredentials does internally.
+	// must be appended and must resolve the JWT from the configured
+	// .creds file. This catches regressions where a handler slot is
+	// populated but points at the wrong credential source.
 	path := writeCredsFile(t)
 
 	opts, err := buildExtraNATSOpts(path)
@@ -93,6 +95,10 @@ func TestBuildExtraNATSOpts_AppendsUserCredentialsOption(t *testing.T) {
 		"nats.UserCredentials should register a UserJWT handler")
 	require.NotNil(t, applied.SignatureCB,
 		"nats.UserCredentials should register a SignatureCB handler")
+
+	jwt, err := applied.UserJWT()
+	require.NoError(t, err)
+	require.Equal(t, testNATSUserJWT, jwt)
 }
 
 func TestNewFlowPublisher_DisabledWhenAllEmpty(t *testing.T) {
@@ -148,8 +154,9 @@ func TestNewFlowPublisher_MissingCredsFileFails(t *testing.T) {
 func TestNewFlowPublisher_PassesUserCredentialsOption(t *testing.T) {
 	// Acceptance criterion #5: when the bootstrap config has
 	// nats_creds_file set, the connector receives a nats.Option that
-	// installs the UserJWT + Signature callbacks (i.e. is the option
-	// returned by nats.UserCredentials).
+	// installs UserCredentials against the configured creds file. This
+	// is behavioral: the applied option must resolve the same JWT bytes
+	// that were written to disk.
 	log := logger.NewTestLogger()
 	path := writeCredsFile(t)
 
@@ -184,6 +191,10 @@ func TestNewFlowPublisher_PassesUserCredentialsOption(t *testing.T) {
 		"connector should receive the UserCredentials option (UserJWT handler)")
 	require.NotNil(t, applied.SignatureCB,
 		"connector should receive the UserCredentials option (SignatureCB handler)")
+
+	jwt, err := applied.UserJWT()
+	require.NoError(t, err)
+	require.Equal(t, testNATSUserJWT, jwt)
 }
 
 func TestNewFlowPublisher_URLOnlyFallsBackToExistingAuth(t *testing.T) {
