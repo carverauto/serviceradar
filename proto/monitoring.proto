@@ -344,6 +344,15 @@ message AddonAssignmentConfig {
   repeated string capabilities = 7; // Capability identifiers the add-on advertises
   string delivery = 8;              // Delivery model: compiled_in | pushed_artifact | os_package
   string supervision = 9;           // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
+
+  // Artifact reference for the `pushed_artifact` delivery model. The agent fetches
+  // object_key from object storage, verifies sha256 (and signature when present),
+  // and stages it; binary_path above is then the resolved path under the staged dir.
+  string artifact_object_key = 10;  // Object-storage key of the selected per-arch artifact
+  string artifact_sha256 = 11;      // Expected SHA-256 (hex) of the artifact, verified before activation
+  string artifact_signature = 12;   // Optional ed25519 signature over the artifact (verified when set)
+  string target_os = 13;            // OS of the selected artifact (e.g. linux)
+  string target_arch = 14;          // Architecture of the selected artifact (e.g. amd64)
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.

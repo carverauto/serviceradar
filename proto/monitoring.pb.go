@@ -2391,18 +2391,26 @@ func (x *AgentConfigResponse) GetAddons() []*AddonAssignmentConfig {
 // AddonAssignmentConfig is one native add-on (feature set) assignment delivered
 // to an agent.
 type AddonAssignmentConfig struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AddonId       string                 `protobuf:"bytes,1,opt,name=addon_id,json=addonId,proto3" json:"addon_id,omitempty"`          // Stable add-on identifier (matches addon.yaml id)
-	Version       string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                         // Assigned add-on version
-	Enabled       bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`                        // Whether the add-on should run on this agent
-	BinaryPath    string                 `protobuf:"bytes,4,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"` // Resolved absolute path to the add-on plugin binary
-	Args          []string               `protobuf:"bytes,5,rep,name=args,proto3" json:"args,omitempty"`                               // Optional extra arguments for the plugin binary
-	ConfigJson    []byte                 `protobuf:"bytes,6,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"` // Operator-selected config (validated against config.schema.json)
-	Capabilities  []string               `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`               // Capability identifiers the add-on advertises
-	Delivery      string                 `protobuf:"bytes,8,opt,name=delivery,proto3" json:"delivery,omitempty"`                       // Delivery model: compiled_in | pushed_artifact | os_package
-	Supervision   string                 `protobuf:"bytes,9,opt,name=supervision,proto3" json:"supervision,omitempty"`                 // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	AddonId      string                 `protobuf:"bytes,1,opt,name=addon_id,json=addonId,proto3" json:"addon_id,omitempty"`          // Stable add-on identifier (matches addon.yaml id)
+	Version      string                 `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`                         // Assigned add-on version
+	Enabled      bool                   `protobuf:"varint,3,opt,name=enabled,proto3" json:"enabled,omitempty"`                        // Whether the add-on should run on this agent
+	BinaryPath   string                 `protobuf:"bytes,4,opt,name=binary_path,json=binaryPath,proto3" json:"binary_path,omitempty"` // Resolved absolute path to the add-on plugin binary
+	Args         []string               `protobuf:"bytes,5,rep,name=args,proto3" json:"args,omitempty"`                               // Optional extra arguments for the plugin binary
+	ConfigJson   []byte                 `protobuf:"bytes,6,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"` // Operator-selected config (validated against config.schema.json)
+	Capabilities []string               `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`               // Capability identifiers the add-on advertises
+	Delivery     string                 `protobuf:"bytes,8,opt,name=delivery,proto3" json:"delivery,omitempty"`                       // Delivery model: compiled_in | pushed_artifact | os_package
+	Supervision  string                 `protobuf:"bytes,9,opt,name=supervision,proto3" json:"supervision,omitempty"`                 // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
+	// Artifact reference for the `pushed_artifact` delivery model. The agent fetches
+	// object_key from object storage, verifies sha256 (and signature when present),
+	// and stages it; binary_path above is then the resolved path under the staged dir.
+	ArtifactObjectKey string `protobuf:"bytes,10,opt,name=artifact_object_key,json=artifactObjectKey,proto3" json:"artifact_object_key,omitempty"` // Object-storage key of the selected per-arch artifact
+	ArtifactSha256    string `protobuf:"bytes,11,opt,name=artifact_sha256,json=artifactSha256,proto3" json:"artifact_sha256,omitempty"`            // Expected SHA-256 (hex) of the artifact, verified before activation
+	ArtifactSignature string `protobuf:"bytes,12,opt,name=artifact_signature,json=artifactSignature,proto3" json:"artifact_signature,omitempty"`   // Optional ed25519 signature over the artifact (verified when set)
+	TargetOs          string `protobuf:"bytes,13,opt,name=target_os,json=targetOs,proto3" json:"target_os,omitempty"`                              // OS of the selected artifact (e.g. linux)
+	TargetArch        string `protobuf:"bytes,14,opt,name=target_arch,json=targetArch,proto3" json:"target_arch,omitempty"`                        // Architecture of the selected artifact (e.g. amd64)
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *AddonAssignmentConfig) Reset() {
@@ -2494,6 +2502,41 @@ func (x *AddonAssignmentConfig) GetDelivery() string {
 func (x *AddonAssignmentConfig) GetSupervision() string {
 	if x != nil {
 		return x.Supervision
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetArtifactObjectKey() string {
+	if x != nil {
+		return x.ArtifactObjectKey
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetArtifactSha256() string {
+	if x != nil {
+		return x.ArtifactSha256
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetArtifactSignature() string {
+	if x != nil {
+		return x.ArtifactSignature
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetTargetOs() string {
+	if x != nil {
+		return x.TargetOs
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetTargetArch() string {
+	if x != nil {
+		return x.TargetArch
 	}
 	return ""
 }
@@ -5956,7 +5999,7 @@ const file_monitoring_proto_rawDesc = "" +
 	" \x01(\v2\x1c.monitoring.VisibilityConfigR\x10visibilityConfig\x12=\n" +
 	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\x12F\n" +
 	"\x10bumblebee_config\x18\f \x01(\v2\x1b.monitoring.BumblebeeConfigR\x0fbumblebeeConfig\x129\n" +
-	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\"\x9e\x02\n" +
+	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\"\xe4\x03\n" +
 	"\x15AddonAssignmentConfig\x12\x19\n" +
 	"\baddon_id\x18\x01 \x01(\tR\aaddonId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x18\n" +
@@ -5968,7 +6011,14 @@ const file_monitoring_proto_rawDesc = "" +
 	"configJson\x12\"\n" +
 	"\fcapabilities\x18\a \x03(\tR\fcapabilities\x12\x1a\n" +
 	"\bdelivery\x18\b \x01(\tR\bdelivery\x12 \n" +
-	"\vsupervision\x18\t \x01(\tR\vsupervision\"\xc2\x02\n" +
+	"\vsupervision\x18\t \x01(\tR\vsupervision\x12.\n" +
+	"\x13artifact_object_key\x18\n" +
+	" \x01(\tR\x11artifactObjectKey\x12'\n" +
+	"\x0fartifact_sha256\x18\v \x01(\tR\x0eartifactSha256\x12-\n" +
+	"\x12artifact_signature\x18\f \x01(\tR\x11artifactSignature\x12\x1b\n" +
+	"\ttarget_os\x18\r \x01(\tR\btargetOs\x12\x1f\n" +
+	"\vtarget_arch\x18\x0e \x01(\tR\n" +
+	"targetArch\"\xc2\x02\n" +
 	"\x10AgentConfigChunk\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +

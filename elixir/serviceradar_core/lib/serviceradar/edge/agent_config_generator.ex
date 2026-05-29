@@ -367,16 +367,27 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp load_addon_assignments(agent_id) do
     actor = SystemActor.system(:agent_config_generator)
 
-    AddonAssignment
-    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
-    |> Ash.Query.filter(enabled == true)
-    |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
-    |> Ash.Query.load(:addon_package)
-    |> Ash.read!()
-    |> Enum.map(&ensure_addon_package_loaded(&1, actor))
-    |> Enum.filter(&approved_addon_package?/1)
-    |> Enum.uniq_by(&logical_addon_id/1)
-    |> Enum.map(&build_addon_assignment_config/1)
+    assignments =
+      AddonAssignment
+      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+      |> Ash.Query.filter(enabled == true)
+      |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
+      |> Ash.Query.load(:addon_package)
+      |> Ash.read!()
+      |> Enum.map(&ensure_addon_package_loaded(&1, actor))
+      |> Enum.filter(&approved_addon_package?/1)
+      |> Enum.uniq_by(&logical_addon_id/1)
+
+    case assignments do
+      [] ->
+        []
+
+      _ ->
+        # Resolve the agent's platform only when there are assignments to compile,
+        # so the common no-add-on path avoids the extra registry lookup.
+        {agent_os, agent_arch} = resolve_agent_platform(agent_id, actor)
+        Enum.map(assignments, &build_addon_assignment_config(&1, agent_os, agent_arch))
+    end
   rescue
     e ->
       Logger.warning("Error loading addon assignments: #{inspect(e)}")
@@ -415,8 +426,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
 
-  defp build_addon_assignment_config(%AddonAssignment{} = assignment) do
+  defp build_addon_assignment_config(%AddonAssignment{} = assignment, agent_os, agent_arch) do
     package = assignment.addon_package
+    artifact = select_addon_artifact(package.artifacts, agent_os, agent_arch)
 
     %{
       addon_id: logical_addon_id(assignment),
@@ -427,9 +439,55 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       params: normalize_map(assignment.params),
       capabilities: effective_addon_capabilities(package),
       delivery: package.delivery,
-      supervision: package.supervision
+      supervision: package.supervision,
+      artifact_object_key: artifact[:object_key],
+      artifact_sha256: artifact[:sha256],
+      artifact_signature: artifact[:signature],
+      target_os: artifact[:os],
+      target_arch: artifact[:arch]
     }
   end
+
+  # Resolves the target agent's {os, arch} from registry metadata so the generator
+  # can select the matching per-architecture artifact. Returns {nil, nil} when the
+  # agent or its platform metadata is unavailable.
+  defp resolve_agent_platform(agent_id, actor) do
+    case Agent.get_by_uid(agent_id, actor: actor) do
+      {:ok, %{metadata: meta}} when is_map(meta) ->
+        {map_string(meta, "os", nil), map_string(meta, "arch", nil)}
+
+      _ ->
+        {nil, nil}
+    end
+  rescue
+    _ -> {nil, nil}
+  end
+
+  # Selects the per-architecture artifact matching the agent's os/arch from the
+  # package's artifacts map (keyed by "os/arch" -> %{object_key, sha256, signature}).
+  # Returns an empty map when arch is unknown or no matching artifact exists (e.g.
+  # before the signing pipeline populates artifacts), leaving the agent to fall back
+  # to binary_path.
+  defp select_addon_artifact(artifacts, os, arch)
+       when is_map(artifacts) and is_binary(os) and is_binary(arch) and os != "" and arch != "" do
+    with entry when is_map(entry) <- Map.get(artifacts, "#{os}/#{arch}"),
+         object_key when object_key not in [nil, ""] <- map_string(entry, "object_key", nil),
+         sha256 when sha256 not in [nil, ""] <- map_string(entry, "sha256", nil) do
+      %{
+        object_key: object_key,
+        sha256: sha256,
+        signature: map_string(entry, "signature", nil),
+        os: os,
+        arch: arch
+      }
+    else
+      # No matching entry, or an incomplete one (missing object_key/sha256): emit no
+      # artifact reference so the agent does not attempt a fetch it cannot verify.
+      _ -> %{}
+    end
+  end
+
+  defp select_addon_artifact(_artifacts, _os, _arch), do: %{}
 
   # Prefer the operator-approved capability subset when set (mirrors plugin
   # effective_capabilities); fall back to the package's full manifest list.
@@ -1111,7 +1169,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         config_json: encode_json(normalize_map(addon[:params])),
         capabilities: addon[:capabilities] || [],
         delivery: assignment_enum_string(addon[:delivery]),
-        supervision: assignment_enum_string(addon[:supervision])
+        supervision: assignment_enum_string(addon[:supervision]),
+        artifact_object_key: assignment_string(addon[:artifact_object_key]),
+        artifact_sha256: assignment_string(addon[:artifact_sha256]),
+        artifact_signature: assignment_string(addon[:artifact_signature]),
+        target_os: assignment_string(addon[:target_os]),
+        target_arch: assignment_string(addon[:target_arch])
       }
     end)
   end

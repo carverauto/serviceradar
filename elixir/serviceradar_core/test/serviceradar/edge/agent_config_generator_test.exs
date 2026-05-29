@@ -1407,12 +1407,105 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       assert {:ok, _assignment} = assign_addon(actor, agent_uid, package, %{"port" => 8080})
     end
+
+    test "pushed-artifact assignment carries the per-arch artifact reference", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"})
+
+      object_key = "addons/sample-addon-#{unique_id}/1.0.0/linux-amd64"
+      sha = String.duplicate("a", 64)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :pushed_artifact,
+          artifacts: %{
+            "linux/amd64" => %{
+              "object_key" => object_key,
+              "sha256" => sha,
+              "signature" => "sig-#{unique_id}"
+            }
+          }
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.delivery == :pushed_artifact
+      assert addon.artifact_object_key == object_key
+      assert addon.artifact_sha256 == sha
+      assert addon.artifact_signature == "sig-#{unique_id}"
+      assert addon.target_os == "linux"
+      assert addon.target_arch == "amd64"
+    end
+
+    test "artifact reference is empty when no artifact matches the agent arch", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      # Agent is arm64 but the package only published a linux/amd64 artifact.
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "arm64"})
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :pushed_artifact,
+          artifacts: %{"linux/amd64" => %{"object_key" => "k", "sha256" => "s"}}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.artifact_object_key in [nil, ""]
+      assert addon.target_arch in [nil, ""]
+    end
+
+    test "incomplete artifact entry (missing sha256) yields no artifact reference", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"})
+
+      # Matching arch, but the artifact entry is missing sha256: the agent must not be
+      # told to fetch something it cannot verify, so no reference is emitted.
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :pushed_artifact,
+          artifacts: %{"linux/amd64" => %{"object_key" => "addons/x/linux-amd64"}}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.artifact_object_key in [nil, ""]
+      assert addon.artifact_sha256 in [nil, ""]
+    end
   end
 
   defp create_approved_addon_package(actor, unique_id, opts) do
     capabilities = Keyword.get(opts, :capabilities, [])
     approved = Keyword.get(opts, :approved_capabilities, [])
     config_schema = Keyword.get(opts, :config_schema, %{})
+    delivery = Keyword.get(opts, :delivery, :pushed_artifact)
+    artifacts = Keyword.get(opts, :artifacts, %{})
 
     {:ok, package} =
       AddonPackage
@@ -1425,7 +1518,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           binary: "sample-addon-#{unique_id}",
           install_path: "/opt/sr/bin",
           capabilities: capabilities,
-          config_schema: config_schema
+          config_schema: config_schema,
+          delivery: delivery,
+          artifacts: artifacts
         },
         actor: actor
       )
@@ -1450,7 +1545,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     |> Ash.create()
   end
 
-  defp create_connected_agent(actor, agent_uid) do
+  defp create_connected_agent(actor, agent_uid, metadata \\ %{}) do
     Agent
     |> Ash.Changeset.for_create(
       :register_connected,
@@ -1458,7 +1553,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         uid: agent_uid,
         name: "Config Test Agent #{agent_uid}",
         host: "127.0.0.1",
-        port: 50_051
+        port: 50_051,
+        metadata: metadata
       },
       actor: actor
     )
