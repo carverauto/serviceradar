@@ -53,7 +53,6 @@ type SweepService struct {
 
 // NewSweepService creates a new SweepService.
 func NewSweepService(
-	ctx context.Context,
 	config *models.Config,
 	log logger.Logger,
 	opts ...sweeper.Option,

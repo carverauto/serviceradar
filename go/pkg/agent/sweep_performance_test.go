@@ -17,7 +17,6 @@
 package agent
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"testing"
@@ -62,7 +61,7 @@ func TestSweepService_Creation(t *testing.T) {
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSweepService(context.Background(), config, log)
+	service, err := NewSweepService(config, log)
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 	assert.Equal(t, "network_sweep", service.Name())
@@ -89,7 +88,7 @@ func TestSweepService_LargeScaleConfig(t *testing.T) {
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSweepService(context.Background(), config, log)
+	service, err := NewSweepService(config, log)
 	require.NoError(t, err)
 	assert.NotNil(t, service)
 
@@ -131,12 +130,12 @@ func TestSweepService_PerformanceComparison(t *testing.T) {
 	log := logger.NewTestLogger()
 
 	// Test old configuration
-	oldService, err := NewSweepService(context.Background(), oldConfig, log)
+	oldService, err := NewSweepService(oldConfig, log)
 	require.NoError(t, err)
 	assert.Equal(t, "network_sweep", oldService.Name())
 
 	// Test new configuration (with optimized defaults)
-	newService, err := NewSweepService(context.Background(), newConfig, log)
+	newService, err := NewSweepService(newConfig, log)
 	require.NoError(t, err)
 	assert.Equal(t, "network_sweep", newService.Name())
 
@@ -166,7 +165,7 @@ func TestSweepService_RealTimeProgressTracking(t *testing.T) {
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSweepService(context.Background(), config, log)
+	service, err := NewSweepService(config, log)
 	require.NoError(t, err)
 
 	// The service should initialize without errors
@@ -193,7 +192,7 @@ func TestSweepService_TimeoutHandling(t *testing.T) {
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSweepService(context.Background(), config, log)
+	service, err := NewSweepService(config, log)
 	require.NoError(t, err)
 
 	// Should not timeout immediately - the 20-minute scan timeout should allow completion
@@ -260,7 +259,7 @@ func BenchmarkSweepService_OptimizedPerformance(b *testing.B) {
 
 	log := logger.NewTestLogger()
 
-	service, err := NewSweepService(context.Background(), config, log)
+	service, err := NewSweepService(config, log)
 	require.NoError(b, err)
 
 	b.ResetTimer()

@@ -119,7 +119,7 @@ func (s *MultiSweepService) Start(ctx context.Context) error {
 }
 
 // Stop gracefully stops all sweep group services.
-func (s *MultiSweepService) Stop(_ context.Context) error {
+func (s *MultiSweepService) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	groupServices := make([]*SweepService, 0, len(s.groups))
 	for _, svc := range s.groups {
@@ -130,7 +130,7 @@ func (s *MultiSweepService) Stop(_ context.Context) error {
 	s.mu.Unlock()
 
 	for _, svc := range groupServices {
-		if err := svc.Stop(context.Background()); err != nil {
+		if err := svc.Stop(ctx); err != nil {
 			s.logger.Error().Err(err).Str("service", svc.Name()).Msg("Failed to stop sweep group service")
 		}
 	}
@@ -235,6 +235,10 @@ func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
 	started := s.started
 	startCtx := s.startCtx
 	s.mu.RUnlock()
+	stopCtx := startCtx
+	if stopCtx == nil {
+		stopCtx = context.TODO()
+	}
 
 	toStop := make(map[string]*SweepService)
 	for groupID, svc := range existingGroups {
@@ -244,7 +248,7 @@ func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
 	}
 
 	for groupID, svc := range toStop {
-		if err := svc.Stop(context.Background()); err != nil {
+		if err := svc.Stop(stopCtx); err != nil {
 			s.logger.Error().Err(err).Str("sweep_group_id", groupID).Msg("Failed to stop sweep group service")
 		}
 	}
@@ -265,7 +269,7 @@ func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
 			continue
 		}
 
-		sweepSvc, err := NewSweepService(context.Background(), modelConfig, s.logger, s.sweepOptions...)
+		sweepSvc, err := NewSweepService(modelConfig, s.logger, s.sweepOptions...)
 		if err != nil {
 			s.logger.Error().Err(err).Str("sweep_group_id", groupID).Msg("Failed to create sweep group service")
 			continue
