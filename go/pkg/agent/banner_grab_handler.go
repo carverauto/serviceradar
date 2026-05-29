@@ -227,6 +227,7 @@ func bannerMatchToFingerprintEvent(
 
 	return &netprobepb.FingerprintEvent{
 		Ip:                 strings.TrimSpace(observation.Host),
+		ProfileId:          strings.TrimSpace(observation.Source),
 		ObservedAtUnixNano: observation.ObservedAt.UnixNano(),
 		Evidence: &netprobepb.FingerprintEvent_LicenseClean{
 			LicenseClean: fingerprint,

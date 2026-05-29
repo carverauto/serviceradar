@@ -3295,7 +3295,7 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 			"agent_id":   agentID,
 			"gateway_id": opts.GatewayID,
 			"partition":  partition,
-			"source":     string(models.DiscoverySourcePassiveNetprobe),
+			"source":     netprobeDiscoverySource(device.GetMetadata()),
 			"metadata":   device.GetMetadata(),
 			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
 		}
@@ -3383,6 +3383,19 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		Msg("Streamed netprobe results to gateway")
 
 	return true
+}
+
+func netprobeDiscoverySource(metadata map[string]string) string {
+	if metadata != nil {
+		if source := strings.TrimSpace(metadata["discovery_source"]); source != "" {
+			return source
+		}
+		if source := strings.TrimSpace(metadata["source"]); source != "" {
+			return source
+		}
+	}
+
+	return string(models.DiscoverySourcePassiveNetprobe)
 }
 
 func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {

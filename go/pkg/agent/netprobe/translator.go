@@ -32,7 +32,9 @@ import (
 const (
 	metadataDiscoverySource        = "discovery_source"
 	metadataDPIBase                = "dpi"
+	metadataActiveFingerprintBase  = "active_fingerprint"
 	metadataPassiveFingerprintBase = "passive_fingerprint"
+	sourceSweepActive              = "sweep_active"
 )
 
 var (
@@ -73,7 +75,7 @@ type processSnapshotEntryMetadata struct {
 	ContainerID       string   `json:"container_id,omitempty"`
 }
 
-// FingerprintEventToDiscoveredDevice converts a passive netprobe event into a discovery device record.
+// FingerprintEventToDiscoveredDevice converts a netprobe fingerprint event into a discovery device record.
 func FingerprintEventToDiscoveredDevice(event *netprobepb.FingerprintEvent, opts TranslationOptions) (*discoverypb.DiscoveredDevice, error) {
 	if event == nil {
 		return nil, ErrNilFingerprintEvent
@@ -84,7 +86,7 @@ func FingerprintEventToDiscoveredDevice(event *netprobepb.FingerprintEvent, opts
 	}
 
 	metadata := baseMetadata(event, opts, ip)
-	if err := addEvidenceMetadata(metadata, event); err != nil {
+	if err := addEvidenceMetadata(metadata, event, fingerprintMetadataBase(event)); err != nil {
 		return nil, err
 	}
 
@@ -94,13 +96,13 @@ func FingerprintEventToDiscoveredDevice(event *netprobepb.FingerprintEvent, opts
 	}, nil
 }
 
-// FingerprintEventsToResults converts multiple passive events into a completed discovery result set.
+// FingerprintEventsToResults converts multiple fingerprint events into a completed discovery result set.
 func FingerprintEventsToResults(events []*netprobepb.FingerprintEvent, opts TranslationOptions) (*discoverypb.ResultsResponse, error) {
 	result := &discoverypb.ResultsResponse{
 		Status:   discoverypb.DiscoveryStatus_COMPLETED,
 		Progress: 100,
 		Metadata: map[string]string{
-			metadataDiscoverySource: string(models.DiscoverySourcePassiveNetprobe),
+			metadataDiscoverySource: fingerprintResultSource(events),
 		},
 	}
 	if strings.TrimSpace(opts.AgentID) != "" {
@@ -166,14 +168,15 @@ func ProcessSnapshotToDiscoveredDevice(snapshot *netprobepb.ProcessSnapshot, opt
 }
 
 func baseMetadata(event *netprobepb.FingerprintEvent, opts TranslationOptions, ip string) map[string]string {
-	source := string(models.DiscoverySourcePassiveNetprobe)
+	source := fingerprintDiscoverySource(event)
+	base := fingerprintMetadataBase(event)
 	metadata := map[string]string{
 		metadataDiscoverySource: source,
 		"source":                source,
-		metadataPassiveFingerprintBase + ".source":     source,
-		metadataPassiveFingerprintBase + ".profile_id": strings.TrimSpace(event.GetProfileId()),
-		metadataPassiveFingerprintBase + ".interface":  strings.TrimSpace(event.GetInterfaceName()),
-		"_alias_last_seen_ip":                          ip,
+		base + ".source":        source,
+		base + ".profile_id":    profileID(event),
+		base + ".interface":     strings.TrimSpace(event.GetInterfaceName()),
+		"_alias_last_seen_ip":   ip,
 	}
 
 	if agentID := strings.TrimSpace(opts.AgentID); agentID != "" {
@@ -185,13 +188,19 @@ func baseMetadata(event *netprobepb.FingerprintEvent, opts TranslationOptions, i
 	if collectorIP := strings.TrimSpace(opts.CollectorIP); collectorIP != "" {
 		metadata["_alias_collector_ip"] = collectorIP
 	}
+	if metadata[base+".profile_id"] == "" {
+		delete(metadata, base+".profile_id")
+	}
+	if metadata[base+".interface"] == "" {
+		delete(metadata, base+".interface")
+	}
 	if profileName := profileName(event, opts); profileName != "" {
-		metadata[metadataPassiveFingerprintBase+".profile_name"] = profileName
+		metadata[base+".profile_name"] = profileName
 	}
 	if observed := observedAt(event); !observed.IsZero() {
 		timestamp := observed.Format(time.RFC3339Nano)
-		metadata[metadataPassiveFingerprintBase+".observed_at"] = timestamp
-		metadata[metadataPassiveFingerprintBase+".observed_at_unix_nano"] = strconv.FormatInt(event.GetObservedAtUnixNano(), 10)
+		metadata[base+".observed_at"] = timestamp
+		metadata[base+".observed_at_unix_nano"] = strconv.FormatInt(event.GetObservedAtUnixNano(), 10)
 		metadata["_alias_last_seen_at"] = timestamp
 		metadata["ip_alias:"+ip] = timestamp
 	} else {
@@ -199,6 +208,46 @@ func baseMetadata(event *netprobepb.FingerprintEvent, opts TranslationOptions, i
 	}
 
 	return metadata
+}
+
+func fingerprintResultSource(events []*netprobepb.FingerprintEvent) string {
+	for _, event := range events {
+		source := fingerprintDiscoverySource(event)
+		if source != "" {
+			return source
+		}
+	}
+
+	return string(models.DiscoverySourcePassiveNetprobe)
+}
+
+func fingerprintDiscoverySource(event *netprobepb.FingerprintEvent) string {
+	if isSweepActiveFingerprint(event) {
+		return string(models.DiscoverySourceSweepActive)
+	}
+
+	return string(models.DiscoverySourcePassiveNetprobe)
+}
+
+func fingerprintMetadataBase(event *netprobepb.FingerprintEvent) string {
+	if isSweepActiveFingerprint(event) {
+		return metadataActiveFingerprintBase
+	}
+
+	return metadataPassiveFingerprintBase
+}
+
+func isSweepActiveFingerprint(event *netprobepb.FingerprintEvent) bool {
+	return strings.TrimSpace(event.GetProfileId()) == sourceSweepActive
+}
+
+func profileID(event *netprobepb.FingerprintEvent) string {
+	value := strings.TrimSpace(event.GetProfileId())
+	if value == sourceSweepActive {
+		return ""
+	}
+
+	return value
 }
 
 func dpiDeviceIP(event *netprobepb.DpiEvent, opts TranslationOptions) string {
@@ -325,37 +374,37 @@ func processSnapshotEntries(entries []*netprobepb.ProcessSnapshotEntry) []proces
 	return out
 }
 
-func addEvidenceMetadata(metadata map[string]string, event *netprobepb.FingerprintEvent) error {
+func addEvidenceMetadata(metadata map[string]string, event *netprobepb.FingerprintEvent, base string) error {
 	switch evidence := event.GetEvidence().(type) {
 	case *netprobepb.FingerprintEvent_Tcp:
 		tcp := evidence.Tcp
-		metadata[metadataPassiveFingerprintBase+".protocol"] = "tcp"
-		metadata[metadataPassiveFingerprintBase+".tcp.signature"] = strings.TrimSpace(tcp.GetSignature())
-		metadata[metadataPassiveFingerprintBase+".tcp.os_family"] = strings.TrimSpace(tcp.GetOsFamily())
-		metadata[metadataPassiveFingerprintBase+".tcp.os_name"] = strings.TrimSpace(tcp.GetOsName())
-		metadata[metadataPassiveFingerprintBase+".tcp.confidence"] = strconv.FormatFloat(float64(tcp.GetConfidence()), 'f', 3, 32)
-		metadata[metadataPassiveFingerprintBase+".tcp.ttl"] = strconv.FormatUint(uint64(tcp.GetTtl()), 10)
-		metadata[metadataPassiveFingerprintBase+".tcp.window_size"] = strings.TrimSpace(tcp.GetWindowSize())
-		metadata[metadataPassiveFingerprintBase+".tcp.mss"] = strconv.FormatUint(uint64(tcp.GetMss()), 10)
-		metadata[metadataPassiveFingerprintBase+".tcp.options_layout"] = strings.Join(tcp.GetOptionsLayout(), ",")
-		metadata[metadataPassiveFingerprintBase+".tcp.quirks"] = strings.Join(tcp.GetQuirks(), ",")
-		metadata[metadataPassiveFingerprintBase+".tcp.ip_version"] = strings.TrimSpace(tcp.GetIpVersion())
-		metadata[metadataPassiveFingerprintBase+".tcp.window_scale"] = strconv.FormatUint(uint64(tcp.GetWindowScale()), 10)
-		metadata[metadataPassiveFingerprintBase+".tcp.payload_class"] = strings.TrimSpace(tcp.GetPayloadClass())
+		metadata[base+".protocol"] = "tcp"
+		metadata[base+".tcp.signature"] = strings.TrimSpace(tcp.GetSignature())
+		metadata[base+".tcp.os_family"] = strings.TrimSpace(tcp.GetOsFamily())
+		metadata[base+".tcp.os_name"] = strings.TrimSpace(tcp.GetOsName())
+		metadata[base+".tcp.confidence"] = strconv.FormatFloat(float64(tcp.GetConfidence()), 'f', 3, 32)
+		metadata[base+".tcp.ttl"] = strconv.FormatUint(uint64(tcp.GetTtl()), 10)
+		metadata[base+".tcp.window_size"] = strings.TrimSpace(tcp.GetWindowSize())
+		metadata[base+".tcp.mss"] = strconv.FormatUint(uint64(tcp.GetMss()), 10)
+		metadata[base+".tcp.options_layout"] = strings.Join(tcp.GetOptionsLayout(), ",")
+		metadata[base+".tcp.quirks"] = strings.Join(tcp.GetQuirks(), ",")
+		metadata[base+".tcp.ip_version"] = strings.TrimSpace(tcp.GetIpVersion())
+		metadata[base+".tcp.window_scale"] = strconv.FormatUint(uint64(tcp.GetWindowScale()), 10)
+		metadata[base+".tcp.payload_class"] = strings.TrimSpace(tcp.GetPayloadClass())
 	case *netprobepb.FingerprintEvent_Tls:
 		tls := evidence.Tls
-		metadata[metadataPassiveFingerprintBase+".protocol"] = "tls"
-		metadata[metadataPassiveFingerprintBase+".tls.ja4"] = strings.TrimSpace(tls.GetJa4())
-		metadata[metadataPassiveFingerprintBase+".tls.ja4s"] = strings.TrimSpace(tls.GetJa4S())
-		metadata[metadataPassiveFingerprintBase+".tls.sni_redacted"] = sanitizeSniRedacted(tls.GetSniRedacted())
+		metadata[base+".protocol"] = "tls"
+		metadata[base+".tls.ja4"] = strings.TrimSpace(tls.GetJa4())
+		metadata[base+".tls.ja4s"] = strings.TrimSpace(tls.GetJa4S())
+		metadata[base+".tls.sni_redacted"] = sanitizeSniRedacted(tls.GetSniRedacted())
 	case *netprobepb.FingerprintEvent_Http:
 		http := evidence.Http
-		metadata[metadataPassiveFingerprintBase+".protocol"] = "http"
-		metadata[metadataPassiveFingerprintBase+".http.user_agent"] = strings.TrimSpace(http.GetUserAgent())
-		metadata[metadataPassiveFingerprintBase+".http.server"] = strings.TrimSpace(http.GetServer())
-		metadata[metadataPassiveFingerprintBase+".http.accept_language"] = strings.TrimSpace(http.GetAcceptLanguage())
+		metadata[base+".protocol"] = "http"
+		metadata[base+".http.user_agent"] = strings.TrimSpace(http.GetUserAgent())
+		metadata[base+".http.server"] = strings.TrimSpace(http.GetServer())
+		metadata[base+".http.accept_language"] = strings.TrimSpace(http.GetAcceptLanguage())
 	case *netprobepb.FingerprintEvent_LicenseClean:
-		addLicenseCleanMetadata(metadata, evidence.LicenseClean)
+		addLicenseCleanMetadata(metadata, evidence.LicenseClean, base)
 	default:
 		return fmt.Errorf("%w: evidence", ErrFingerprintEventMissing)
 	}
@@ -363,46 +412,46 @@ func addEvidenceMetadata(metadata map[string]string, event *netprobepb.Fingerpri
 	return nil
 }
 
-func addLicenseCleanMetadata(metadata map[string]string, fingerprint *netprobepb.LicenseCleanFingerprint) {
+func addLicenseCleanMetadata(metadata map[string]string, fingerprint *netprobepb.LicenseCleanFingerprint, base string) {
 	if fingerprint == nil {
 		return
 	}
 
-	metadata[metadataPassiveFingerprintBase+".protocol"] = "license_clean"
+	metadata[base+".protocol"] = "license_clean"
 	if osMatch := fingerprint.GetOsMatch(); osMatch != nil {
-		metadata[metadataPassiveFingerprintBase+".os.name"] = strings.TrimSpace(osMatch.GetName())
-		metadata[metadataPassiveFingerprintBase+".os.version_range"] = strings.TrimSpace(osMatch.GetVersionRange())
-		metadata[metadataPassiveFingerprintBase+".os.family"] = strings.TrimSpace(osMatch.GetOsFamily())
-		metadata[metadataPassiveFingerprintBase+".os.confidence"] = strconv.FormatFloat(float64(osMatch.GetConfidence()), 'f', 3, 32)
+		metadata[base+".os.name"] = strings.TrimSpace(osMatch.GetName())
+		metadata[base+".os.version_range"] = strings.TrimSpace(osMatch.GetVersionRange())
+		metadata[base+".os.family"] = strings.TrimSpace(osMatch.GetOsFamily())
+		metadata[base+".os.confidence"] = strconv.FormatFloat(float64(osMatch.GetConfidence()), 'f', 3, 32)
 	}
 	if recog := fingerprint.GetRecogHttp(); recog != nil {
-		addRecogMetadata(metadata, "http", recog)
+		addRecogMetadata(metadata, base, "http", recog)
 	}
 	if recog := fingerprint.GetRecogSsh(); recog != nil {
-		addRecogMetadata(metadata, "ssh", recog)
+		addRecogMetadata(metadata, base, "ssh", recog)
 	}
 	if recog := fingerprint.GetRecogSmb(); recog != nil {
-		addRecogMetadata(metadata, "smb", recog)
+		addRecogMetadata(metadata, base, "smb", recog)
 	}
 	if recog := fingerprint.GetRecogFtp(); recog != nil {
-		addRecogMetadata(metadata, "ftp", recog)
+		addRecogMetadata(metadata, base, "ftp", recog)
 	}
 	if recog := fingerprint.GetRecogTelnet(); recog != nil {
-		addRecogMetadata(metadata, "telnet", recog)
+		addRecogMetadata(metadata, base, "telnet", recog)
 	}
 	if recog := fingerprint.GetRecogRdp(); recog != nil {
-		addRecogMetadata(metadata, "rdp", recog)
+		addRecogMetadata(metadata, base, "rdp", recog)
 	}
 	if recog := fingerprint.GetRecogDns(); recog != nil {
-		addRecogMetadata(metadata, "dns", recog)
+		addRecogMetadata(metadata, base, "dns", recog)
 	}
 }
 
-func addRecogMetadata(metadata map[string]string, protocol string, match *netprobepb.RecogFingerprintMatch) {
-	base := metadataPassiveFingerprintBase + ".recog." + protocol
-	metadata[base+".product"] = strings.TrimSpace(match.GetProduct())
-	metadata[base+".version"] = strings.TrimSpace(match.GetVersion())
-	metadata[base+".os_family"] = strings.TrimSpace(match.GetOsFamily())
+func addRecogMetadata(metadata map[string]string, base string, protocol string, match *netprobepb.RecogFingerprintMatch) {
+	prefix := base + ".recog." + protocol
+	metadata[prefix+".product"] = strings.TrimSpace(match.GetProduct())
+	metadata[prefix+".version"] = strings.TrimSpace(match.GetVersion())
+	metadata[prefix+".os_family"] = strings.TrimSpace(match.GetOsFamily())
 }
 
 func sanitizeSniRedacted(value string) string {

@@ -150,6 +150,50 @@ func TestFingerprintEventToDiscoveredDeviceTLSAndHTTP(t *testing.T) {
 	}
 }
 
+func TestFingerprintEventToDiscoveredDeviceSweepActiveLicenseClean(t *testing.T) {
+	device, err := FingerprintEventToDiscoveredDevice(&netprobepb.FingerprintEvent{
+		Ip:                 "192.0.2.50",
+		ProfileId:          "sweep_active",
+		ObservedAtUnixNano: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC).UnixNano(),
+		Evidence: &netprobepb.FingerprintEvent_LicenseClean{
+			LicenseClean: &netprobepb.LicenseCleanFingerprint{
+				OsMatch: &netprobepb.OsMatch{
+					Name:         "Ubuntu Linux",
+					VersionRange: "22.04",
+					OsFamily:     "linux",
+					Confidence:   0.86,
+				},
+				RecogSsh: &netprobepb.RecogFingerprintMatch{
+					Product:  "OpenSSH",
+					Version:  "8.9",
+					OsFamily: "linux",
+				},
+			},
+		},
+	}, TranslationOptions{})
+	if err != nil {
+		t.Fatalf("FingerprintEventToDiscoveredDevice() error = %v", err)
+	}
+
+	metadata := device.GetMetadata()
+	assertMetadata(t, metadata, "discovery_source", string(models.DiscoverySourceSweepActive))
+	assertMetadata(t, metadata, "source", string(models.DiscoverySourceSweepActive))
+	assertMetadata(t, metadata, "active_fingerprint.source", string(models.DiscoverySourceSweepActive))
+	assertMetadata(t, metadata, "active_fingerprint.protocol", "license_clean")
+	assertMetadata(t, metadata, "active_fingerprint.os.name", "Ubuntu Linux")
+	assertMetadata(t, metadata, "active_fingerprint.os.version_range", "22.04")
+	assertMetadata(t, metadata, "active_fingerprint.os.family", "linux")
+	assertMetadata(t, metadata, "active_fingerprint.os.confidence", "0.860")
+	assertMetadata(t, metadata, "active_fingerprint.recog.ssh.product", "OpenSSH")
+	assertMetadata(t, metadata, "active_fingerprint.recog.ssh.version", "8.9")
+	assertMetadata(t, metadata, "active_fingerprint.recog.ssh.os_family", "linux")
+	assertMetadata(t, metadata, "active_fingerprint.observed_at", "2026-05-28T12:00:00Z")
+
+	if _, ok := metadata["active_fingerprint.profile_id"]; ok {
+		t.Fatal("active_fingerprint.profile_id should not expose sweep_active source sentinel")
+	}
+}
+
 func TestFingerprintEventsToResults(t *testing.T) {
 	result, err := FingerprintEventsToResults([]*netprobepb.FingerprintEvent{
 		{

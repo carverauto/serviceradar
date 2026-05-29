@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
+  alias ServiceRadar.Inventory.ActiveFingerprintPayload
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -1197,12 +1198,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       |> merge_snmp_fingerprint_metadata(get_map(update, ["snmp_fingerprint", :snmp_fingerprint]))
       |> merge_boundary_names_metadata()
       |> PassiveFingerprintPayload.enrich_metadata()
+      |> ActiveFingerprintPayload.enrich_metadata()
       |> DpiPayload.enrich_metadata()
 
     os =
       update
       |> get_map(["os", :os])
       |> PassiveFingerprintPayload.enrich_os(metadata)
+      |> ActiveFingerprintPayload.enrich_os(metadata)
 
     %{
       device_id: get_string(update, ["device_id", :device_id]),
