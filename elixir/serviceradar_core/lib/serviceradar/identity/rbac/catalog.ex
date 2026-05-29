@@ -635,6 +635,12 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "networks.sweeps.banner_grab",
+          label: "Enable banner grab",
+          description: "Enable active banner-grab probes in network sweep profiles",
+          default_roles: @operator_roles
+        },
+        %{
           key: "networks.discovery.run",
           label: "Run discovery now",
           description: "Trigger on-demand discovery jobs",

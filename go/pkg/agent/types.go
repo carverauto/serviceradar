@@ -80,11 +80,30 @@ type SweepConfig struct {
 	Ports         []int                 `json:"ports"`
 	SweepModes    []models.SweepMode    `json:"sweep_modes"`
 	DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	BannerGrab    BannerGrabConfig      `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
 	Interval      Duration              `json:"interval"`
 	Concurrency   int                   `json:"concurrency"`
 	Timeout       Duration              `json:"timeout"`
 	SweepGroupID  string                `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
 	ConfigHash    string                `json:"config_hash,omitempty"`    // Hash of config for change detection
+}
+
+// BannerGrabConfig controls the optional active banner-grab phase.
+type BannerGrabConfig struct {
+	Enabled                bool             `json:"enabled"`
+	Protocols              []string         `json:"protocols"`
+	Ports                  map[string][]int `json:"ports"`
+	ConnectTimeoutMS       int              `json:"connect_timeout_ms"`
+	ReadTimeoutMS          int              `json:"read_timeout_ms"`
+	MaxBannerBytes         int              `json:"max_banner_bytes"`
+	MaxConcurrencyPerHost  int              `json:"max_concurrency_per_host"`
+	MaxGlobalConcurrency   int              `json:"max_global_concurrency"`
+	MaxProbeRatePerSecond  int              `json:"max_probe_rate_per_second"`
+	MaxCandidateQueue      int              `json:"max_candidate_queue"`
+	MatchBatchSize         int              `json:"match_batch_size"`
+	MatchBatchMaxBytes     int              `json:"match_batch_max_bytes"`
+	MinReprobeIntervalSec  int              `json:"min_reprobe_interval_s"`
+	PerHostRateLimitMillis int              `json:"per_host_rate_limit_ms"`
 }
 
 // SweepGroupConfig represents a single sweep group config parsed from gateway payloads.
@@ -95,6 +114,7 @@ type SweepGroupConfig struct {
 	Ports          []int
 	SweepModes     []models.SweepMode
 	DeviceTargets  []models.DeviceTarget
+	BannerGrab     BannerGrabConfig
 	Interval       Duration
 	Concurrency    int
 	Timeout        Duration

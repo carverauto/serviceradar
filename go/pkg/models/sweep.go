@@ -40,6 +40,7 @@ type Config struct {
 	Ports         []int          `json:"ports"`
 	SweepModes    []SweepMode    `json:"sweep_modes"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	BannerGrab    BannerGrab     `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
 	Interval      time.Duration  `json:"interval"`
 	Concurrency   int            `json:"concurrency"`
 	Timeout       time.Duration  `json:"timeout"`
@@ -276,12 +277,31 @@ type SweepConfig struct {
 	Interval      string         `json:"interval,omitempty"`
 	Concurrency   int            `json:"concurrency,omitempty"`
 	Timeout       string         `json:"timeout,omitempty"`
+	BannerGrab    BannerGrab     `json:"banner_grab,omitempty"`
 	ICMPCount     int            `json:"icmp_count,omitempty"`
 	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
 	SweepGroupID  string         `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
 	ConfigHash    string         `json:"config_hash,omitempty"`    // Hash of config for change detection
+}
+
+// BannerGrab defines optional active banner-grab sweep behaviour.
+type BannerGrab struct {
+	Enabled                bool             `json:"enabled"`
+	Protocols              []string         `json:"protocols"`
+	Ports                  map[string][]int `json:"ports"`
+	ConnectTimeoutMS       int              `json:"connect_timeout_ms"`
+	ReadTimeoutMS          int              `json:"read_timeout_ms"`
+	MaxBannerBytes         int              `json:"max_banner_bytes"`
+	MaxConcurrencyPerHost  int              `json:"max_concurrency_per_host"`
+	MaxGlobalConcurrency   int              `json:"max_global_concurrency"`
+	MaxProbeRatePerSecond  int              `json:"max_probe_rate_per_second"`
+	MaxCandidateQueue      int              `json:"max_candidate_queue"`
+	MatchBatchSize         int              `json:"match_batch_size"`
+	MatchBatchMaxBytes     int              `json:"match_batch_max_bytes"`
+	MinReprobeIntervalSec  int              `json:"min_reprobe_interval_s"`
+	PerHostRateLimitMillis int              `json:"per_host_rate_limit_ms"`
 }
 
 // DeviceTarget represents a single device/network with its specific sweep configuration

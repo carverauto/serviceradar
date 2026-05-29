@@ -182,6 +182,7 @@ func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 		Ports:         config.Ports,
 		SweepModes:    config.SweepModes,
 		DeviceTargets: config.DeviceTargets,
+		BannerGrab:    fromModelBannerGrab(config.BannerGrab),
 		Interval:      Duration(config.Interval),
 		Concurrency:   config.Concurrency,
 		Timeout:       Duration(config.Timeout),

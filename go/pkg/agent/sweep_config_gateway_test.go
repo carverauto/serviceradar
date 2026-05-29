@@ -172,6 +172,110 @@ func TestParseGatewaySweepConfig_NoDeviceTargets(t *testing.T) {
 	}
 }
 
+func TestParseGatewaySweepConfig_BannerGrab(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [{
+				"id": "test-group",
+				"targets": ["10.0.0.0/24"],
+				"ports": [22],
+				"modes": ["tcp"],
+				"banner_grab": {
+					"enabled": true,
+					"protocols": ["ssh", "http", "invalid", "ssh"],
+					"ports": {
+						"ssh": [22, 22, 70000],
+						"http": [80, 8080]
+					},
+					"connect_timeout_ms": 1500,
+					"read_timeout_ms": 1200,
+					"max_banner_bytes": 2048,
+					"max_concurrency_per_host": 2,
+					"max_global_concurrency": 128,
+					"max_probe_rate_per_second": 1000,
+					"max_candidate_queue": 4096,
+					"match_batch_size": 128,
+					"match_batch_max_bytes": 524288,
+					"min_reprobe_interval_s": 3600,
+					"per_host_rate_limit_ms": 50
+				},
+				"schedule": {
+					"type": "interval",
+					"interval": "5m"
+				},
+				"settings": {
+					"concurrency": 5
+				}
+			}]
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, log)
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+	if config == nil || len(config.Groups) != 1 {
+		t.Fatalf("expected one group, got %#v", config)
+	}
+
+	bannerGrab := config.Groups[0].BannerGrab
+	if !bannerGrab.Enabled {
+		t.Fatal("expected banner grab to be enabled")
+	}
+	if got, want := bannerGrab.Protocols, []string{"ssh", "http"}; !equalStringSlices(got, want) {
+		t.Fatalf("expected protocols %v, got %v", want, got)
+	}
+	if got, want := bannerGrab.Ports["ssh"], []int{22}; !equalIntSlices(got, want) {
+		t.Fatalf("expected ssh ports %v, got %v", want, got)
+	}
+	if got, want := bannerGrab.Ports["http"], []int{80, 8080}; !equalIntSlices(got, want) {
+		t.Fatalf("expected http ports %v, got %v", want, got)
+	}
+
+	assertBannerGrabValues(t, bannerGrab)
+}
+
+func TestParseGatewaySweepConfig_BannerGrabDefaultsWhenMissing(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	configJSON := []byte(`{
+		"sweep": {
+			"groups": [{
+				"id": "test-group",
+				"targets": ["10.0.0.0/24"],
+				"ports": [22],
+				"modes": ["tcp"],
+				"schedule": {"type": "interval", "interval": "5m"},
+				"settings": {"concurrency": 5}
+			}]
+		}
+	}`)
+
+	config, err := parseGatewaySweepConfig(configJSON, log)
+	if err != nil {
+		t.Fatalf("parseGatewaySweepConfig failed: %v", err)
+	}
+	if config == nil || len(config.Groups) != 1 {
+		t.Fatalf("expected one group, got %#v", config)
+	}
+
+	bannerGrab := config.Groups[0].BannerGrab
+	if bannerGrab.Enabled {
+		t.Fatal("expected banner grab to default disabled")
+	}
+	if len(bannerGrab.Protocols) != 0 {
+		t.Fatalf("expected no default protocols, got %v", bannerGrab.Protocols)
+	}
+	if len(bannerGrab.Ports) != 0 {
+		t.Fatalf("expected no default ports, got %v", bannerGrab.Ports)
+	}
+	if got, want := bannerGrab.MinReprobeIntervalSec, 86400; got != want {
+		t.Fatalf("expected min reprobe interval %d, got %d", want, got)
+	}
+}
+
 func TestParseGatewaySweepConfig_EmptyPayload(t *testing.T) {
 	log := logger.NewTestLogger()
 
@@ -183,6 +287,58 @@ func TestParseGatewaySweepConfig_EmptyPayload(t *testing.T) {
 	if config != nil {
 		t.Error("expected nil config for empty payload")
 	}
+}
+
+func assertBannerGrabValues(t *testing.T, bannerGrab BannerGrabConfig) {
+	t.Helper()
+
+	checks := map[string][2]int{
+		"connect_timeout_ms":        {bannerGrab.ConnectTimeoutMS, 1500},
+		"read_timeout_ms":           {bannerGrab.ReadTimeoutMS, 1200},
+		"max_banner_bytes":          {bannerGrab.MaxBannerBytes, 2048},
+		"max_concurrency_per_host":  {bannerGrab.MaxConcurrencyPerHost, 2},
+		"max_global_concurrency":    {bannerGrab.MaxGlobalConcurrency, 128},
+		"max_probe_rate_per_second": {bannerGrab.MaxProbeRatePerSecond, 1000},
+		"max_candidate_queue":       {bannerGrab.MaxCandidateQueue, 4096},
+		"match_batch_size":          {bannerGrab.MatchBatchSize, 128},
+		"match_batch_max_bytes":     {bannerGrab.MatchBatchMaxBytes, 524288},
+		"min_reprobe_interval_s":    {bannerGrab.MinReprobeIntervalSec, 3600},
+		"per_host_rate_limit_ms":    {bannerGrab.PerHostRateLimitMillis, 50},
+	}
+
+	for field, check := range checks {
+		if got, want := check[0], check[1]; got != want {
+			t.Fatalf("expected %s=%d, got %d", field, want, got)
+		}
+	}
+}
+
+func equalStringSlices(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func equalIntSlices(left []int, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func TestParseGatewaySweepConfig_MultipleGroups(t *testing.T) {

@@ -38,6 +38,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
+  alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
   alias ServiceRadar.Types.Cidr
 
   require Ash.Query
@@ -212,6 +213,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
     # Build settings from profile with overrides
     settings = compile_settings(profile, group)
+    banner_grab = compile_banner_grab(profile, group)
 
     compiled = %{
       "id" => group.id,
@@ -222,6 +224,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       "targets" => targets,
       "ports" => ports,
       "modes" => modes,
+      "banner_grab" => banner_grab,
       "settings" => settings
     }
 
@@ -453,7 +456,105 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         }
       end
 
-    # Apply group overrides
-    Map.merge(base_settings, group.overrides || %{})
+    # Apply group overrides, excluding top-level phase blocks.
+    overrides = Map.drop(group.overrides || %{}, ["banner_grab", :banner_grab])
+    Map.merge(base_settings, overrides)
+  end
+
+  defp compile_banner_grab(profile, group) do
+    profile
+    |> profile_banner_grab()
+    |> merge_banner_grab_override(group.overrides || %{})
+    |> normalize_banner_grab()
+  end
+
+  defp profile_banner_grab(nil), do: BannerGrab.default_input()
+  defp profile_banner_grab(%{banner_grab: nil}), do: BannerGrab.default_input()
+  defp profile_banner_grab(%{banner_grab: banner_grab}), do: banner_grab
+
+  defp merge_banner_grab_override(banner_grab, %{"banner_grab" => override})
+       when is_map(override),
+       do: Map.merge(map_from_banner_grab(banner_grab), override)
+
+  defp merge_banner_grab_override(banner_grab, %{banner_grab: override}) when is_map(override),
+    do: Map.merge(map_from_banner_grab(banner_grab), override)
+
+  defp merge_banner_grab_override(banner_grab, _overrides), do: banner_grab
+
+  defp normalize_banner_grab(banner_grab) do
+    banner_grab = map_from_banner_grab(banner_grab)
+
+    %{
+      "enabled" => Map.get(banner_grab, :enabled, Map.get(banner_grab, "enabled", false)),
+      "protocols" =>
+        normalize_banner_protocols(
+          Map.get(banner_grab, :protocols, Map.get(banner_grab, "protocols", []))
+        ),
+      "ports" =>
+        normalize_banner_ports(Map.get(banner_grab, :ports, Map.get(banner_grab, "ports", %{}))),
+      "connect_timeout_ms" => banner_int(banner_grab, :connect_timeout_ms, 2_000),
+      "read_timeout_ms" => banner_int(banner_grab, :read_timeout_ms, 2_000),
+      "max_banner_bytes" => banner_int(banner_grab, :max_banner_bytes, 1_024),
+      "max_concurrency_per_host" => banner_int(banner_grab, :max_concurrency_per_host, 4),
+      "max_global_concurrency" => banner_int(banner_grab, :max_global_concurrency, 256),
+      "max_probe_rate_per_second" => banner_int(banner_grab, :max_probe_rate_per_second, 0),
+      "max_candidate_queue" => banner_int(banner_grab, :max_candidate_queue, 8_192),
+      "match_batch_size" => banner_int(banner_grab, :match_batch_size, 256),
+      "match_batch_max_bytes" => banner_int(banner_grab, :match_batch_max_bytes, 1_048_576),
+      "min_reprobe_interval_s" => banner_int(banner_grab, :min_reprobe_interval_s, 86_400),
+      "per_host_rate_limit_ms" => banner_int(banner_grab, :per_host_rate_limit_ms, 100)
+    }
+  end
+
+  defp map_from_banner_grab(%_{} = banner_grab) do
+    banner_grab
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :__metadata__, :aggregates, :calculations])
+  end
+
+  defp map_from_banner_grab(banner_grab) when is_map(banner_grab), do: banner_grab
+  defp map_from_banner_grab(_banner_grab), do: BannerGrab.default_input()
+
+  defp normalize_banner_protocols(protocols) when is_list(protocols) do
+    protocols
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(
+      &(&1 in Enum.map(BannerGrab.protocols(), fn protocol -> Atom.to_string(protocol) end))
+    )
+    |> Enum.uniq()
+  end
+
+  defp normalize_banner_protocols(_protocols), do: []
+
+  defp normalize_banner_ports(ports) when is_map(ports) do
+    Map.new(ports, fn {protocol, values} ->
+      {to_string(protocol), normalize_port_list(values)}
+    end)
+  end
+
+  defp normalize_banner_ports(_ports), do: %{}
+
+  defp normalize_port_list(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_integer/1)
+    |> Enum.filter(&(&1 >= 1 and &1 <= 65_535))
+    |> Enum.uniq()
+  end
+
+  defp normalize_port_list(_values), do: []
+
+  defp banner_int(banner_grab, key, default) do
+    case Map.get(banner_grab, key, Map.get(banner_grab, Atom.to_string(key), default)) do
+      value when is_integer(value) -> value
+      value when is_binary(value) -> parse_int(value, default)
+      _ -> default
+    end
+  end
+
+  defp parse_int(value, default) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _ -> default
+    end
   end
 end

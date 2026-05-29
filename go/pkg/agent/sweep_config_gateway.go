@@ -42,9 +42,27 @@ type gatewaySweepGroup struct {
 	Targets       []string              `json:"targets"`
 	Ports         []int                 `json:"ports"`
 	Modes         []string              `json:"modes"`
+	BannerGrab    gatewayBannerGrab     `json:"banner_grab"`
 	Schedule      gatewaySweepSchedule  `json:"schedule"`
 	Settings      gatewaySweepSettings  `json:"settings"`
 	DeviceTargets []gatewayDeviceTarget `json:"device_targets,omitempty"`
+}
+
+type gatewayBannerGrab struct {
+	Enabled                bool             `json:"enabled"`
+	Protocols              []string         `json:"protocols"`
+	Ports                  map[string][]int `json:"ports"`
+	ConnectTimeoutMS       *int             `json:"connect_timeout_ms"`
+	ReadTimeoutMS          *int             `json:"read_timeout_ms"`
+	MaxBannerBytes         *int             `json:"max_banner_bytes"`
+	MaxConcurrencyPerHost  *int             `json:"max_concurrency_per_host"`
+	MaxGlobalConcurrency   *int             `json:"max_global_concurrency"`
+	MaxProbeRatePerSecond  *int             `json:"max_probe_rate_per_second"`
+	MaxCandidateQueue      *int             `json:"max_candidate_queue"`
+	MatchBatchSize         *int             `json:"match_batch_size"`
+	MatchBatchMaxBytes     *int             `json:"match_batch_max_bytes"`
+	MinReprobeIntervalSec  *int             `json:"min_reprobe_interval_s"`
+	PerHostRateLimitMillis *int             `json:"per_host_rate_limit_ms"`
 }
 
 type gatewayDeviceTarget struct {
@@ -108,6 +126,7 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 			Ports:          group.Ports,
 			SweepModes:     parseSweepModes(group.Modes, log),
 			DeviceTargets:  convertDeviceTargets(group.DeviceTargets, log),
+			BannerGrab:     normalizeBannerGrab(group.BannerGrab),
 			Concurrency:    group.Settings.Concurrency,
 			ScheduleType:   strings.ToLower(strings.TrimSpace(group.Schedule.Type)),
 			CronExpression: strings.TrimSpace(group.Schedule.Cron),
@@ -128,6 +147,169 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 	}
 
 	return config, nil
+}
+
+func defaultBannerGrabConfig() BannerGrabConfig {
+	return BannerGrabConfig{
+		Enabled:                false,
+		Protocols:              []string{},
+		Ports:                  map[string][]int{},
+		ConnectTimeoutMS:       2000,
+		ReadTimeoutMS:          2000,
+		MaxBannerBytes:         1024,
+		MaxConcurrencyPerHost:  4,
+		MaxGlobalConcurrency:   256,
+		MaxProbeRatePerSecond:  0,
+		MaxCandidateQueue:      8192,
+		MatchBatchSize:         256,
+		MatchBatchMaxBytes:     1048576,
+		MinReprobeIntervalSec:  86400,
+		PerHostRateLimitMillis: 100,
+	}
+}
+
+func normalizeBannerGrab(raw gatewayBannerGrab) BannerGrabConfig {
+	config := defaultBannerGrabConfig()
+	config.Enabled = raw.Enabled
+	config.Protocols = normalizeBannerProtocols(raw.Protocols)
+	config.Ports = normalizeBannerPorts(raw.Ports)
+	config.ConnectTimeoutMS = positiveOrDefault(raw.ConnectTimeoutMS, config.ConnectTimeoutMS)
+	config.ReadTimeoutMS = positiveOrDefault(raw.ReadTimeoutMS, config.ReadTimeoutMS)
+	config.MaxBannerBytes = positiveOrDefault(raw.MaxBannerBytes, config.MaxBannerBytes)
+	config.MaxConcurrencyPerHost = positiveOrDefault(raw.MaxConcurrencyPerHost, config.MaxConcurrencyPerHost)
+	config.MaxGlobalConcurrency = positiveOrDefault(raw.MaxGlobalConcurrency, config.MaxGlobalConcurrency)
+	config.MaxProbeRatePerSecond = nonNegativeOrDefault(raw.MaxProbeRatePerSecond, config.MaxProbeRatePerSecond)
+	config.MaxCandidateQueue = positiveOrDefault(raw.MaxCandidateQueue, config.MaxCandidateQueue)
+	config.MatchBatchSize = positiveOrDefault(raw.MatchBatchSize, config.MatchBatchSize)
+	config.MatchBatchMaxBytes = positiveOrDefault(raw.MatchBatchMaxBytes, config.MatchBatchMaxBytes)
+	config.MinReprobeIntervalSec = nonNegativeOrDefault(raw.MinReprobeIntervalSec, config.MinReprobeIntervalSec)
+	config.PerHostRateLimitMillis = nonNegativeOrDefault(raw.PerHostRateLimitMillis, config.PerHostRateLimitMillis)
+
+	return config
+}
+
+func normalizeBannerProtocols(protocols []string) []string {
+	allowed := map[string]struct{}{
+		"ssh": {}, "http": {}, "smb": {}, "ftp": {}, "telnet": {}, "smtp": {}, "ntp": {}, "dns": {}, "rdp": {},
+	}
+	seen := make(map[string]struct{}, len(protocols))
+	normalized := make([]string, 0, len(protocols))
+
+	for _, protocol := range protocols {
+		protocol = strings.ToLower(strings.TrimSpace(protocol))
+		if _, ok := allowed[protocol]; !ok {
+			continue
+		}
+		if _, ok := seen[protocol]; ok {
+			continue
+		}
+		seen[protocol] = struct{}{}
+		normalized = append(normalized, protocol)
+	}
+
+	return normalized
+}
+
+func normalizeBannerPorts(ports map[string][]int) map[string][]int {
+	if len(ports) == 0 {
+		return map[string][]int{}
+	}
+
+	normalized := make(map[string][]int, len(ports))
+	for protocol, values := range ports {
+		protocol = strings.ToLower(strings.TrimSpace(protocol))
+		if protocol == "" {
+			continue
+		}
+		normalized[protocol] = normalizeBannerPortList(values)
+	}
+
+	return normalized
+}
+
+func normalizeBannerPortList(values []int) []int {
+	seen := make(map[int]struct{}, len(values))
+	normalized := make([]int, 0, len(values))
+
+	for _, port := range values {
+		if port < 1 || port > 65535 {
+			continue
+		}
+		if _, ok := seen[port]; ok {
+			continue
+		}
+		seen[port] = struct{}{}
+		normalized = append(normalized, port)
+	}
+
+	return normalized
+}
+
+func positiveOrDefault(value *int, fallback int) int {
+	if value != nil && *value > 0 {
+		return *value
+	}
+
+	return fallback
+}
+
+func nonNegativeOrDefault(value *int, fallback int) int {
+	if value != nil && *value >= 0 {
+		return *value
+	}
+
+	return fallback
+}
+
+func toModelBannerGrab(config BannerGrabConfig) models.BannerGrab {
+	return models.BannerGrab{
+		Enabled:                config.Enabled,
+		Protocols:              append([]string(nil), config.Protocols...),
+		Ports:                  cloneBannerPorts(config.Ports),
+		ConnectTimeoutMS:       config.ConnectTimeoutMS,
+		ReadTimeoutMS:          config.ReadTimeoutMS,
+		MaxBannerBytes:         config.MaxBannerBytes,
+		MaxConcurrencyPerHost:  config.MaxConcurrencyPerHost,
+		MaxGlobalConcurrency:   config.MaxGlobalConcurrency,
+		MaxProbeRatePerSecond:  config.MaxProbeRatePerSecond,
+		MaxCandidateQueue:      config.MaxCandidateQueue,
+		MatchBatchSize:         config.MatchBatchSize,
+		MatchBatchMaxBytes:     config.MatchBatchMaxBytes,
+		MinReprobeIntervalSec:  config.MinReprobeIntervalSec,
+		PerHostRateLimitMillis: config.PerHostRateLimitMillis,
+	}
+}
+
+func fromModelBannerGrab(config models.BannerGrab) BannerGrabConfig {
+	return BannerGrabConfig{
+		Enabled:                config.Enabled,
+		Protocols:              append([]string(nil), config.Protocols...),
+		Ports:                  cloneBannerPorts(config.Ports),
+		ConnectTimeoutMS:       config.ConnectTimeoutMS,
+		ReadTimeoutMS:          config.ReadTimeoutMS,
+		MaxBannerBytes:         config.MaxBannerBytes,
+		MaxConcurrencyPerHost:  config.MaxConcurrencyPerHost,
+		MaxGlobalConcurrency:   config.MaxGlobalConcurrency,
+		MaxProbeRatePerSecond:  config.MaxProbeRatePerSecond,
+		MaxCandidateQueue:      config.MaxCandidateQueue,
+		MatchBatchSize:         config.MatchBatchSize,
+		MatchBatchMaxBytes:     config.MatchBatchMaxBytes,
+		MinReprobeIntervalSec:  config.MinReprobeIntervalSec,
+		PerHostRateLimitMillis: config.PerHostRateLimitMillis,
+	}
+}
+
+func cloneBannerPorts(ports map[string][]int) map[string][]int {
+	if len(ports) == 0 {
+		return map[string][]int{}
+	}
+
+	cloned := make(map[string][]int, len(ports))
+	for protocol, values := range ports {
+		cloned[protocol] = append([]int(nil), values...)
+	}
+
+	return cloned
 }
 
 func parseScheduleInterval(schedule gatewaySweepSchedule, log logger.Logger) (Duration, bool) {
