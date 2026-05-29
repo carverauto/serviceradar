@@ -54,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
+  alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
@@ -682,7 +683,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
 
-    {flows, pagination, flows_error} = load_flows(srql_mod, uid, scope, cursor)
+    {flows, pagination, flows_error} = FlowData.load_flows(srql_mod, uid, scope, cursor, @flows_limit)
 
     socket
     |> assign(:device_flows, flows)
@@ -1183,7 +1184,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tasks ++
       [
         timed_device_task(:flows, fn ->
-          load_flows(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))
+          FlowData.load_flows(
+            srql_module,
+            uid,
+            scope,
+            normalize_cursor(Map.get(params, "cursor")),
+            @flows_limit
+          )
         end)
       ]
   end
@@ -2014,10 +2021,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     query = "#{base} sort:time:desc"
     opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
-    flows_task = Task.async(fn -> {:flows, load_zoomed_flows(srql_mod, query, opts)} end)
+    flows_task = Task.async(fn -> {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)} end)
 
     stats_task =
-      Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope, base)} end)
+      Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
 
     results = safe_yield_many([flows_task, stats_task], 15_000)
 
@@ -2062,7 +2069,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
 
-    {flows, pagination, flows_error} = load_flows(srql_mod, uid, scope, nil)
+    {flows, pagination, flows_error} = FlowData.load_flows(srql_mod, uid, scope, nil, @flows_limit)
 
     default_query = default_flows_query(uid)
     srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
@@ -2122,7 +2129,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       flows_task =
         Task.async(fn ->
           try do
-            {:flows, load_zoomed_flows(srql_mod, query, opts)}
+            {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)}
           rescue
             _ -> {:flows, {[], %{}, "Failed to load flows for selected range"}}
           end
@@ -2131,7 +2138,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       stats_task =
         Task.async(fn ->
           try do
-            {:stats, load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
+            {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
           rescue
             _ ->
               {:stats,
@@ -2183,8 +2190,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
 
-    flows_task = Task.async(fn -> {:flows, load_flows(srql_mod, uid, scope, nil)} end)
-    stats_task = Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope)} end)
+    flows_task = Task.async(fn -> {:flows, FlowData.load_flows(srql_mod, uid, scope, nil, @flows_limit)} end)
+    stats_task = Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope)} end)
 
     results = safe_yield_many([flows_task, stats_task], 15_000)
 
@@ -2541,30 +2548,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_flows(srql_module, device_uid, scope, cursor) do
-    query = default_flows_query(device_uid)
-    opts = %{scope: scope, limit: @flows_limit, cursor: cursor}
-
-    case srql_module.query(query, opts) do
-      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), pagination || %{}, nil}
-
-      {:ok, %{"results" => results}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), %{}, nil}
-
-      {:ok, %{"error" => error}} when is_binary(error) ->
-        {[], %{}, error}
-
-      {:ok, other} ->
-        Logger.warning("Unexpected SRQL flows response for #{device_uid}: #{inspect(other)}")
-        {[], %{}, "Failed to load flows data"}
-
-      {:error, reason} ->
-        Logger.warning("Failed to load device flows for #{device_uid}: #{inspect(reason)}")
-        {[], %{}, "Failed to load flows data"}
-    end
-  end
-
   defp load_logs(srql_module, device_uid, scope, cursor) do
     query = default_logs_query(device_uid)
     opts = %{scope: scope, limit: @logs_limit, cursor: cursor}
@@ -2589,19 +2572,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp load_zoomed_flows(srql_mod, query, opts) do
-    case srql_mod.query(query, opts) do
-      {:ok, %{"results" => results, "pagination" => p}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), p || %{}, nil}
-
-      {:ok, %{"results" => results}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), %{}, nil}
-
-      _ ->
-        {[], %{}, "Failed to load flows for selected range"}
-    end
-  end
-
   defp reload_flows_with_facets(socket, uid, facets) do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
@@ -2617,10 +2587,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     query = "#{base} sort:time:desc"
     opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
-    flows_task = Task.async(fn -> {:flows, load_zoomed_flows(srql_mod, query, opts)} end)
+    flows_task = Task.async(fn -> {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)} end)
 
     stats_task =
-      Task.async(fn -> {:stats, load_device_flow_stats(srql_mod, uid, scope, base)} end)
+      Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
 
     results = safe_yield_many([flows_task, stats_task], 15_000)
 
@@ -2659,10 +2629,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_begin_flow_background_loads(socket, _active_tab, _uid, _flows), do: socket
 
-  defp empty_flow_stats_bundle do
-    {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
-  end
-
   defp begin_flow_stats_refresh(socket, uid) do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
@@ -2670,7 +2636,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
      top_ports_json, top_protocols_json, facets} =
-      empty_flow_stats_bundle()
+      FlowData.empty_flow_stats_bundle()
 
     socket
     |> assign(:flow_stats_request_ref, request_ref)
@@ -2686,7 +2652,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:flow_top_protocols_json, top_protocols_json)
     |> assign(:flow_facets, facets)
     |> start_async({:flow_stats, uid, request_ref}, fn ->
-      load_device_flow_stats(srql_mod, uid, scope)
+      FlowData.load_device_flow_stats(srql_mod, uid, scope)
     end)
   end
 
@@ -2710,297 +2676,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         geo_iso2_map = bulk_geo_iso2(ips, scope)
         {rdns_map, geo_iso2_map}
       end)
-    end
-  end
-
-  defp load_device_flow_stats(srql_mod, device_uid, scope) do
-    load_device_flow_stats(
-      srql_mod,
-      device_uid,
-      scope,
-      "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h"
-    )
-  end
-
-  defp load_device_flow_stats(srql_mod, _device_uid, scope, base) do
-    tasks = [
-      Task.async(fn -> {:summary, load_device_flow_summary(srql_mod, scope, base)} end),
-      Task.async(fn ->
-        {:protocols, load_device_flow_protocols(srql_mod, scope, base)}
-      end),
-      Task.async(fn ->
-        {:talkers, load_device_flow_top_n(srql_mod, scope, base, "src_endpoint_ip")}
-      end),
-      Task.async(fn ->
-        {:destinations, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_ip")}
-      end),
-      Task.async(fn ->
-        {:ports, load_device_flow_top_n(srql_mod, scope, base, "dst_endpoint_port")}
-      end),
-      Task.async(fn ->
-        {:directions, load_device_flow_top_n(srql_mod, scope, base, "direction")}
-      end),
-      Task.async(fn ->
-        {:services, load_device_flow_top_n(srql_mod, scope, base, "dst_service_label")}
-      end),
-      Task.async(fn -> {:timeseries, load_device_flow_timeseries(srql_mod, scope, base)} end)
-    ]
-
-    results = safe_yield_many(tasks, 10_000)
-
-    summary = Map.get(results, :summary, %{})
-    protocols = Map.get(results, :protocols, [])
-    talkers = Map.get(results, :talkers, [])
-    destinations = Map.get(results, :destinations, [])
-    ports = Map.get(results, :ports, [])
-    directions = Map.get(results, :directions, [])
-    services = Map.get(results, :services, [])
-    timeseries = Map.get(results, :timeseries, [])
-
-    proto_json =
-      protocols
-      |> Enum.map(fn row -> %{label: row[:name] || "unknown", value: row[:bytes] || 0} end)
-      |> Jason.encode!()
-
-    sparkline_json =
-      timeseries
-      |> Enum.map(fn %{t: t, v: v} -> %{t: t, v: v} end)
-      |> Jason.encode!()
-
-    chart_points =
-      timeseries
-      |> Enum.map(fn %{t: t, v: v} -> %{"t" => t, "bytes_total" => v} end)
-      |> Jason.encode!()
-
-    chart_keys = Jason.encode!(["bytes_total"])
-
-    top_talkers_json = encode_top_n(talkers)
-    top_destinations_json = encode_top_n(destinations)
-    top_ports_json = encode_top_n(ports)
-    top_protocols_json = encode_top_n(protocols)
-
-    facets = %{
-      protocols:
-        Enum.map(protocols, fn row ->
-          %{
-            label: row[:name] || "unknown",
-            value: row[:bytes] || 0,
-            filter_value: row[:filter_value] || row[:name] || "unknown"
-          }
-        end),
-      directions:
-        Enum.map(directions, fn row ->
-          %{label: row[:name] || "unknown", value: row[:bytes] || 0}
-        end),
-      services:
-        services
-        |> Enum.map(fn row ->
-          %{label: row[:name] || "unknown", value: row[:bytes] || 0}
-        end)
-        |> Enum.reject(&(&1.label == "unknown"))
-    }
-
-    {summary, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets}
-  end
-
-  defp load_device_flow_summary(srql_mod, scope, base) do
-    queries = [
-      {"#{base} stats:sum(bytes_total) as total_bytes", :total_bytes, "total_bytes"},
-      {"#{base} stats:sum(packets_total) as total_packets", :total_packets, "total_packets"},
-      {"#{base} stats:count(*) as flow_count", :flow_count, "flow_count"},
-      {"#{base} stats:count_distinct(src_endpoint_ip) as unique_talkers", :unique_talkers, "unique_talkers"}
-    ]
-
-    queries
-    |> Enum.map(fn {q, key, alias_field} ->
-      Task.async(fn -> {key, query_single_stat(srql_mod, scope, q, alias_field)} end)
-    end)
-    |> safe_yield_many(10_000)
-  end
-
-  defp query_single_stat(srql_mod, scope, query, alias_field) do
-    srql_mod
-    |> srql_results(query, scope)
-    |> List.first()
-    |> row_payload()
-    |> flow_stat_number(alias_field)
-  end
-
-  defp load_device_flow_top_n(srql_mod, scope, base, group_field) do
-    query =
-      "#{base} stats:sum(bytes_total) as bytes_total by #{group_field} sort:bytes_total:desc limit:5"
-
-    srql_mod
-    |> srql_results(query, scope)
-    |> Enum.map(fn row ->
-      p = row_payload(row)
-
-      %{
-        name: flow_stat_field(p, group_field),
-        bytes: flow_stat_number(p, "bytes_total")
-      }
-    end)
-  end
-
-  defp load_device_flow_protocols(srql_mod, scope, base) do
-    query =
-      ~s|#{base} stats:"sum(bytes_total) as bytes_total by protocol_num, protocol_name" sort:bytes_total:desc limit:5|
-
-    srql_mod
-    |> srql_results(query, scope)
-    |> Enum.map(fn row ->
-      p = row_payload(row)
-      protocol_num = flow_stat_field(p, "protocol_num")
-      protocol_name = flow_stat_field(p, "protocol_name")
-
-      %{
-        name: protocol_label(protocol_num, protocol_name),
-        filter_value: protocol_filter_value(protocol_num, protocol_name),
-        bytes: flow_stat_number(p, "bytes_total")
-      }
-    end)
-  end
-
-  defp load_device_flow_timeseries(srql_mod, scope, base) do
-    query = "#{base} bucket:5m agg:sum value_field:bytes_total"
-
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        results
-        |> Enum.map(fn row ->
-          raw_t = row["timestamp"] || row["bucket"] || row["time_bucket"]
-
-          %{
-            t: parse_timestamp_ms(raw_t),
-            v: to_safe_number(row["value"] || row["bytes_total"] || 0)
-          }
-        end)
-        |> Enum.reject(&is_nil(&1.t))
-
-      _ ->
-        []
-    end
-  end
-
-  defp parse_timestamp_ms(%DateTime{} = dt), do: DateTime.to_unix(dt, :millisecond)
-
-  defp parse_timestamp_ms(%NaiveDateTime{} = ndt),
-    do: ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
-
-  defp parse_timestamp_ms(raw) when is_integer(raw), do: if(raw < 1_000_000_000_000, do: raw * 1000, else: raw)
-
-  defp parse_timestamp_ms(raw) when is_float(raw) do
-    ms = trunc(raw)
-    if ms < 1_000_000_000_000, do: ms * 1000, else: ms
-  end
-
-  defp parse_timestamp_ms(raw) when is_binary(raw) do
-    with :error <- parse_iso8601_ms(raw),
-         :error <- parse_naive_iso8601_ms(raw),
-         do: nil
-  end
-
-  defp parse_timestamp_ms(_), do: nil
-
-  defp parse_iso8601_ms(str) do
-    case DateTime.from_iso8601(str) do
-      {:ok, dt, _} -> DateTime.to_unix(dt, :millisecond)
-      _ -> :error
-    end
-  end
-
-  defp parse_naive_iso8601_ms(str) do
-    case NaiveDateTime.from_iso8601(str) do
-      {:ok, ndt} -> ndt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
-      _ -> :error
-    end
-  end
-
-  defp encode_top_n(rows) do
-    rows
-    |> Enum.take(5)
-    |> Enum.map(fn row ->
-      %{
-        label: row[:name] || "unknown",
-        value: row[:bytes] || 0,
-        filter_value: row[:filter_value] || row[:name] || "unknown"
-      }
-    end)
-    |> Jason.encode!()
-  end
-
-  defp protocol_label(protocol_num, protocol_name) do
-    case parse_protocol_num(protocol_num) do
-      1 -> "ICMP"
-      6 -> "TCP"
-      17 -> "UDP"
-      47 -> "GRE"
-      50 -> "ESP"
-      51 -> "AH"
-      58 -> "ICMPv6"
-      89 -> "OSPF"
-      132 -> "SCTP"
-      n when is_integer(n) -> normalized_protocol_name(protocol_name) || "proto #{n}"
-      nil -> normalized_protocol_name(protocol_name) || "unknown"
-    end
-  end
-
-  defp protocol_filter_value(protocol_num, protocol_name) do
-    case parse_protocol_num(protocol_num) do
-      n when is_integer(n) -> Integer.to_string(n)
-      nil -> normalized_protocol_name(protocol_name) || "unknown"
-    end
-  end
-
-  defp parse_protocol_num(n) when is_integer(n), do: n
-
-  defp parse_protocol_num(n) when is_binary(n) do
-    case Integer.parse(String.trim(n)) do
-      {value, ""} -> value
-      _ -> nil
-    end
-  end
-
-  defp parse_protocol_num(_), do: nil
-
-  defp normalized_protocol_name(name) when is_binary(name) do
-    name = String.trim(name)
-    if name == "", do: nil, else: String.upcase(name)
-  end
-
-  defp normalized_protocol_name(_), do: nil
-
-  defp flow_stat_field(payload, key) when is_map(payload) do
-    Map.get(payload, key) || Map.get(payload, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> Map.get(payload, key)
-  end
-
-  defp row_payload(%{"payload" => payload}) when is_map(payload), do: payload
-  defp row_payload(%{} = row), do: row
-  defp row_payload(_), do: %{}
-
-  defp srql_results(srql_mod, query, scope) do
-    case srql_mod.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) -> results
-      _ -> []
-    end
-  end
-
-  defp flow_stat_number(payload, key) do
-    case flow_stat_field(payload, key) do
-      n when is_number(n) ->
-        n
-
-      s when is_binary(s) ->
-        case Float.parse(s) do
-          {f, _} -> f
-          :error -> 0
-        end
-
-      _ ->
-        0
     end
   end
 
