@@ -14,6 +14,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
+  alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
   alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment
 
@@ -57,6 +58,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       change SetAssignmentAddonId
       validate AddonPackageApproved
       validate NoDuplicateEnabledAddonAssignment
+      validate AddonAssignmentParams
     end
 
     update :update do
@@ -65,6 +67,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       change SetAssignmentAddonId
       validate AddonPackageApproved
       validate NoDuplicateEnabledAddonAssignment
+      validate AddonAssignmentParams
     end
   end
 

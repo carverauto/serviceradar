@@ -1275,11 +1275,57 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       refute before.config_version == after_change.config_version
     end
+
+    test "rejects assignment params that violate the package config schema", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess"],
+          approved_capabilities: ["remoteaccess"],
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{"port" => %{"type" => "integer"}},
+            "required" => ["port"]
+          }
+        )
+
+      # Invalid params must be rejected at the control plane, not pushed to the
+      # agent to fail later as a Configure rejection.
+      assert {:error, error} = assign_addon(actor, agent_uid, package, %{"port" => "not-an-int"})
+      assert inspect(error) =~ "params"
+    end
+
+    test "accepts assignment params that satisfy the package config schema", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess"],
+          approved_capabilities: ["remoteaccess"],
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{"port" => %{"type" => "integer"}},
+            "required" => ["port"]
+          }
+        )
+
+      assert {:ok, _assignment} = assign_addon(actor, agent_uid, package, %{"port" => 8080})
+    end
   end
 
   defp create_approved_addon_package(actor, unique_id, opts) do
     capabilities = Keyword.get(opts, :capabilities, [])
     approved = Keyword.get(opts, :approved_capabilities, [])
+    config_schema = Keyword.get(opts, :config_schema, %{})
 
     {:ok, package} =
       AddonPackage
@@ -1291,7 +1337,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
           name: "Sample Addon #{unique_id}",
           binary: "sample-addon-#{unique_id}",
           install_path: "/opt/sr/bin",
-          capabilities: capabilities
+          capabilities: capabilities,
+          config_schema: config_schema
         },
         actor: actor
       )
@@ -1306,11 +1353,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     |> Ash.update()
   end
 
-  defp assign_addon(actor, agent_uid, package) do
+  defp assign_addon(actor, agent_uid, package, params \\ %{}) do
     AddonAssignment
     |> Ash.Changeset.for_create(
       :create,
-      %{agent_uid: agent_uid, addon_package_id: package.id, enabled: true},
+      %{agent_uid: agent_uid, addon_package_id: package.id, enabled: true, params: params},
       actor: actor
     )
     |> Ash.create()
