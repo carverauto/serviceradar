@@ -1,5 +1,5 @@
 defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Flowpb.AttributedFlowMessage
   alias Flowpb.FlowAttribution
@@ -362,6 +362,211 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
 
       assert_receive {:telemetry, @telemetry_event, %{original_bytes: 100, truncated_bytes: 64},
                       %{field: "container_id"}}
+    end
+  end
+
+  describe "partition mismatch telemetry (B-4)" do
+    @partition_mismatch_event [
+      :serviceradar,
+      :event_writer,
+      :flows,
+      :partition_mismatch
+    ]
+
+    defp attach_partition_mismatch_handler(test_pid) do
+      ref = make_ref()
+      handler_id = "partition-mismatch-#{inspect(ref)}"
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          @partition_mismatch_event,
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:telemetry, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      detach_on_exit(handler_id)
+      handler_id
+    end
+
+    defp detach_on_exit(handler_id) do
+      ExUnit.Callbacks.on_exit(fn ->
+        _ = :telemetry.detach(handler_id)
+      end)
+    end
+
+    defp build_attributed_row_with_body_partition(body_partition, subject) do
+      flow = %FlowMessage{
+        type: :NETFLOW_V9,
+        time_received_ns: 1_705_363_200_000_000_000,
+        src_addr: <<192, 0, 2, 10>>,
+        dst_addr: <<198, 51, 100, 20>>,
+        proto: 6,
+        src_port: 53_000,
+        dst_port: 443,
+        bytes: 4096,
+        packets: 8
+      }
+
+      message = %AttributedFlowMessage{
+        event_type: "attributed_flow",
+        flow: flow,
+        attribution: %FlowAttribution{
+          pid: 1,
+          comm: "nginx",
+          redacted_cmdline: "ok",
+          uid: 0,
+          container_id: "c1"
+        },
+        agent_id: "agent-1",
+        partition: body_partition
+      }
+
+      Flows.parse_message(%{
+        data: AttributedFlowMessage.encode(message),
+        metadata: %{subject: subject}
+      })
+    end
+
+    test "emits partition_mismatch when body partition differs from subject partition" do
+      attach_partition_mismatch_handler(self())
+
+      row = build_attributed_row_with_body_partition("beta", "flow.attributed.alpha")
+
+      assert_receive {:telemetry, @partition_mismatch_event, %{count: 1}, metadata}
+      assert metadata.subject == "flow.attributed.alpha"
+      assert metadata.body_partition == "beta"
+      assert metadata.subject_partition == "alpha"
+
+      # Subject wins per flows.ex:622.
+      assert row.partition == "alpha"
+      assert row.ocsf_payload["partition"] == "alpha"
+    end
+
+    test "does not emit when body partition matches subject partition" do
+      attach_partition_mismatch_handler(self())
+
+      row = build_attributed_row_with_body_partition("alpha", "flow.attributed.alpha")
+
+      refute_receive {:telemetry, @partition_mismatch_event, _, _}, 50
+      assert row.partition == "alpha"
+    end
+
+    test "does not emit when body partition is blank" do
+      attach_partition_mismatch_handler(self())
+
+      row = build_attributed_row_with_body_partition("", "flow.attributed.alpha")
+
+      refute_receive {:telemetry, @partition_mismatch_event, _, _}, 50
+      # Subject partition still wins when body is blank.
+      assert row.partition == "alpha"
+    end
+  end
+
+  describe "attributed-subject decode telemetry (Mi-86)" do
+    @attributed_decode_event [
+      :serviceradar,
+      :event_writer,
+      :flows,
+      :attributed_decode_failed
+    ]
+
+    defp attach_attributed_decode_handler(test_pid) do
+      ref = make_ref()
+      handler_id = "attributed-decode-#{inspect(ref)}"
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          @attributed_decode_event,
+          fn event, measurements, metadata, _config ->
+            send(test_pid, {:telemetry, event, measurements, metadata})
+          end,
+          nil
+        )
+
+      ExUnit.Callbacks.on_exit(fn ->
+        _ = :telemetry.detach(handler_id)
+      end)
+
+      handler_id
+    end
+
+    test "emits :decode_error on malformed protobuf bytes for attributed subject" do
+      attach_attributed_decode_handler(self())
+
+      result =
+        Flows.parse_message(%{
+          data: <<0xFF, 0xFF, 0xFF, 0xFF>>,
+          metadata: %{subject: "flow.attributed.alpha"}
+        })
+
+      assert is_nil(result)
+
+      assert_receive {:telemetry, @attributed_decode_event, %{count: 1}, metadata}
+      assert metadata.subject == "flow.attributed.alpha"
+      assert metadata.reason == :decode_error
+    end
+
+    test "emits :event_type_mismatch on valid protobuf that decodes to a non-usable AttributedFlowMessage shape" do
+      attach_attributed_decode_handler(self())
+
+      # Encode an AttributedFlowMessage whose event_type does not match
+      # @attributed_flow_event_type ("attributed_flow"). The decode succeeds,
+      # but processed_from_attributed_flow_message/2 returns nil per the
+      # head guard at flows.ex:166-172, triggering :event_type_mismatch.
+      flow = %FlowMessage{
+        type: :NETFLOW_V9,
+        time_received_ns: 1_705_363_200_000_000_000,
+        src_addr: <<192, 0, 2, 10>>,
+        dst_addr: <<198, 51, 100, 20>>,
+        proto: 6,
+        src_port: 53_000,
+        dst_port: 443,
+        bytes: 4096,
+        packets: 8
+      }
+
+      message = %AttributedFlowMessage{
+        event_type: "not_attributed_flow",
+        flow: flow,
+        attribution: %FlowAttribution{
+          pid: 1,
+          comm: "nginx",
+          redacted_cmdline: "ok",
+          uid: 0,
+          container_id: "c1"
+        },
+        agent_id: "agent-1",
+        partition: "alpha"
+      }
+
+      result =
+        Flows.parse_message(%{
+          data: AttributedFlowMessage.encode(message),
+          metadata: %{subject: "flow.attributed.alpha"}
+        })
+
+      assert is_nil(result)
+
+      assert_receive {:telemetry, @attributed_decode_event, %{count: 1}, metadata}
+      assert metadata.subject == "flow.attributed.alpha"
+      assert metadata.reason == :event_type_mismatch
+    end
+
+    test "does not emit attributed_decode_failed for unattributed subjects with malformed payload" do
+      attach_attributed_decode_handler(self())
+
+      _result =
+        Flows.parse_message(%{
+          data: <<0xFF, 0xFF, 0xFF, 0xFF>>,
+          metadata: %{subject: "flows.raw.netflow"}
+        })
+
+      # The Mi-86 gate only fires on attributed subjects (flows.ex:200-205).
+      refute_receive {:telemetry, @attributed_decode_event, _, _}, 50
     end
   end
 end
