@@ -109,7 +109,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
       attribution: %FlowAttribution{
         pid: 1234,
         comm: "nginx",
-        cmdline: "nginx: worker process",
+        redacted_cmdline: "nginx: worker process",
         uid: 33,
         container_id: "container-1"
       },
@@ -132,7 +132,7 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
     assert row.ocsf_payload["attribution"] == %{
              "pid" => 1234,
              "comm" => "nginx",
-             "cmdline" => "nginx: worker process",
+             "redacted_cmdline" => "nginx: worker process",
              "uid" => 33,
              "container_id" => "container-1"
            }
