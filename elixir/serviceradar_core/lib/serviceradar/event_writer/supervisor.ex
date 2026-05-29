@@ -37,11 +37,21 @@ defmodule ServiceRadar.EventWriter.Supervisor do
       streams: length(config.streams)
     )
 
-    children = [
-      {ServiceRadar.EventWriter.Pipeline, config}
-    ]
+    children =
+      [
+        {ServiceRadar.EventWriter.Pipeline, config},
+        ServiceRadar.EventWriter.AttributedFlowJoiner
+      ] ++ host_slice_subscriber_child()
 
     Supervisor.init(children, strategy: :one_for_one)
+  end
+
+  defp host_slice_subscriber_child do
+    if Application.get_env(:serviceradar_core, :host_slice_subscriber_enabled, false) do
+      [ServiceRadar.EventWriter.HostSliceSubscriber]
+    else
+      []
+    end
   end
 
   @doc """
