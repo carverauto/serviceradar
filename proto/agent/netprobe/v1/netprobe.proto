@@ -169,6 +169,8 @@ message LicenseCleanFingerprint {
   bool icmp_observed = 30;
   bool ntp_observed = 31;
   bool sip_observed = 32;
+  RecogFingerprintMatch recog_smtp = 33;
+  RecogFingerprintMatch recog_ntp = 34;
 }
 
 message P0fFingerprintMatch {

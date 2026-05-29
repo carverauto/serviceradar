@@ -141,6 +141,68 @@ func TestHandleBannerObservationsMatchesAndEnqueuesFingerprintEvents(t *testing.
 	<-serverDone
 }
 
+func TestBannerMatchToFingerprintEventCarriesSMTPAndNTPRecogEvidence(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		protocol string
+		assert   func(t *testing.T, fingerprint *netprobepb.LicenseCleanFingerprint)
+	}{
+		{
+			name:     "smtp",
+			protocol: banner_grab.ProtocolSMTP,
+			assert: func(t *testing.T, fingerprint *netprobepb.LicenseCleanFingerprint) {
+				t.Helper()
+				if fingerprint.GetRecogSmtp().GetProduct() != "Postfix" {
+					t.Fatalf("RecogSmtp = %#v, want Postfix", fingerprint.GetRecogSmtp())
+				}
+			},
+		},
+		{
+			name:     "ntp",
+			protocol: banner_grab.ProtocolNTP,
+			assert: func(t *testing.T, fingerprint *netprobepb.LicenseCleanFingerprint) {
+				t.Helper()
+				if fingerprint.GetRecogNtp().GetProduct() != "Postfix" || !fingerprint.GetNtpObserved() {
+					t.Fatalf("NTP fingerprint = %#v, want RecogNtp and observed flag", fingerprint)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			event := bannerMatchToFingerprintEvent(
+				banner_grab.BannerObservation{
+					ObservationID: 42,
+					Host:          "192.0.2.10",
+					Protocol:      tc.protocol,
+					Source:        banner_grab.SourceSweepActive,
+					ObservedAt:    time.Unix(1_700_000_000, 0),
+				},
+				&netprobepb.BannerMatch{
+					ObservationId: 42,
+					CorpusLabel:   "recog",
+					OsFamily:      "linux",
+					Product:       "Postfix",
+					Version:       "3.8",
+					Confidence:    0.9,
+				},
+			)
+
+			fingerprint := event.GetLicenseClean()
+			if fingerprint == nil {
+				t.Fatal("LicenseClean = nil")
+			}
+
+			tc.assert(t, fingerprint)
+		})
+	}
+}
+
 func readTestNetprobeFrame(r io.Reader) (*netprobepb.NetprobeFrame, error) {
 	var lenBuf [4]byte
 	if _, err := io.ReadFull(r, lenBuf[:]); err != nil {

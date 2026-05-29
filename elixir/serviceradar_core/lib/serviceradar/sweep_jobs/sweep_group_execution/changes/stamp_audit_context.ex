@@ -12,7 +12,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution.Changes.StampAuditContext d
     actor = actor_from_context(context)
     actor_payload = normalize_actor(actor)
     actor_id = actor_id(actor_payload)
-    request_id = request_id(context, actor)
+    request_id = request_id(changeset, context, actor)
 
     changeset
     |> maybe_change_attribute(:actor, actor_payload)
@@ -42,8 +42,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution.Changes.StampAuditContext d
   defp actor_id(%{"id" => id}) when not is_nil(id), do: to_string(id)
   defp actor_id(_actor), do: nil
 
-  defp request_id(context, actor) do
+  defp request_id(changeset, context, actor) do
     first_present([
+      changeset_context_value(changeset, :request_id),
+      changeset_context_value(changeset, "request_id"),
+      changeset_context_value(changeset, :correlation_id),
+      changeset_context_value(changeset, "correlation_id"),
       context_value(context, :request_id),
       context_value(context, "request_id"),
       context_value(context, :correlation_id),
@@ -56,6 +60,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution.Changes.StampAuditContext d
 
   defp context_value(%{private: private}, key), do: map_value(private, key)
   defp context_value(context, key), do: map_value(context, key)
+
+  defp changeset_context_value(%{context: context}, key), do: map_value(context, key)
+  defp changeset_context_value(_changeset, _key), do: nil
 
   defp map_value(%{} = map, key), do: Map.get(map, key)
   defp map_value(_map, _key), do: nil

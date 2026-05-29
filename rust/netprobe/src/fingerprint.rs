@@ -925,6 +925,7 @@ fn license_clean_p0f_event_with_accumulated(
     let recog_ssh = recog_proto_match(accumulated.as_ref(), RecogService::SshBanner);
     let recog_smb = recog_proto_match(accumulated.as_ref(), RecogService::SmbVersion);
     let recog_ftp = recog_proto_match(accumulated.as_ref(), RecogService::FtpBanner);
+    let recog_smtp = recog_proto_match(accumulated.as_ref(), RecogService::SmtpBanner);
     let recog_telnet = recog_proto_match(accumulated.as_ref(), RecogService::TelnetBanner);
     let recog_snmp = recog_proto_match(accumulated.as_ref(), RecogService::SnmpBanner);
     let recog_sip = recog_proto_match(accumulated.as_ref(), RecogService::SipBanner);
@@ -962,11 +963,13 @@ fn license_clean_p0f_event_with_accumulated(
             recog_ssh,
             recog_smb,
             recog_ftp,
+            recog_smtp,
             recog_telnet,
             recog_snmp,
             recog_sip,
             recog_rdp,
             recog_dns,
+            recog_ntp: None,
             satori_matches: Vec::new(),
             tcp_observed: true,
             ja4_observed: ja4_observation.is_some(),

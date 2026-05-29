@@ -168,6 +168,15 @@ func TestFingerprintEventToDiscoveredDeviceSweepActiveLicenseClean(t *testing.T)
 					Version:  "8.9",
 					OsFamily: "linux",
 				},
+				RecogSmtp: &netprobepb.RecogFingerprintMatch{
+					Product:  "Postfix",
+					Version:  "3.8",
+					OsFamily: "linux",
+				},
+				RecogNtp: &netprobepb.RecogFingerprintMatch{
+					Product: "ntpsec",
+					Version: "1.2",
+				},
 			},
 		},
 	}, TranslationOptions{})
@@ -187,6 +196,10 @@ func TestFingerprintEventToDiscoveredDeviceSweepActiveLicenseClean(t *testing.T)
 	assertMetadata(t, metadata, "active_fingerprint.recog.ssh.product", "OpenSSH")
 	assertMetadata(t, metadata, "active_fingerprint.recog.ssh.version", "8.9")
 	assertMetadata(t, metadata, "active_fingerprint.recog.ssh.os_family", "linux")
+	assertMetadata(t, metadata, "active_fingerprint.recog.smtp.product", "Postfix")
+	assertMetadata(t, metadata, "active_fingerprint.recog.smtp.version", "3.8")
+	assertMetadata(t, metadata, "active_fingerprint.recog.ntp.product", "ntpsec")
+	assertMetadata(t, metadata, "active_fingerprint.recog.ntp.version", "1.2")
 	assertMetadata(t, metadata, "active_fingerprint.observed_at", "2026-05-28T12:00:00Z")
 
 	if _, ok := metadata["active_fingerprint.profile_id"]; ok {

@@ -4266,10 +4266,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   defp normalize_banner_ports_param(params) do
+    selected_protocols =
+      params
+      |> Map.get("protocols", [])
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+
     ports =
       params
       |> Map.get("ports", %{})
       |> normalize_banner_ports()
+      |> Map.take(selected_protocols)
 
     Map.put(params, "ports", ports)
   end
@@ -4384,6 +4391,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp banner_key_atom("match_batch_max_bytes"), do: :match_batch_max_bytes
   defp banner_key_atom("min_reprobe_interval_s"), do: :min_reprobe_interval_s
   defp banner_key_atom("per_host_rate_limit_ms"), do: :per_host_rate_limit_ms
+  defp banner_key_atom(_other), do: nil
 
   defp banner_grab_protocols(banner_grab) do
     banner_grab
@@ -4416,6 +4424,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp protocol_atom("ntp"), do: :ntp
   defp protocol_atom("dns"), do: :dns
   defp protocol_atom("rdp"), do: :rdp
+  defp protocol_atom(_other), do: nil
 
   defp banner_grab_protocol_options do
     [

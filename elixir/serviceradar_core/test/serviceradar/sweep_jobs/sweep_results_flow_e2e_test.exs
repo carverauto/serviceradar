@@ -174,6 +174,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   } do
     unique_id = Ash.UUID.generate()
     ip = unique_ip("banner-audit-#{unique_id}")
+    request_id = "req-banner-audit-#{unique_id}"
 
     {:ok, group} =
       SweepGroup
@@ -206,6 +207,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               request_id: request_id,
                banner_grab_summary: %{
                  "sweep_banner_grab_probes_total" => 12,
                  "sweep_banner_grab_matches_total" => 5,
@@ -213,7 +215,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  "sweep_banner_grab_errors_total" => 1,
                  "sweep_banner_grab_connection_reset_total" => 3,
                  "sweep_banner_grab_timeout_total" => "4",
-                 "sweep_banner_grab_bytes_received_total" => 4096.9
+                 "sweep_banner_grab_bytes_received_total" => 4096.9,
+                 "attacker_controlled_blob" => String.duplicate("x", 1024)
                }
              )
 
@@ -229,11 +232,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert execution.banner_grab_summary["empty_response_count"] == 2
     assert execution.banner_grab_summary["error_count"] == 8
     assert execution.banner_grab_summary["total_bytes_received"] == 4096
+    refute Map.has_key?(execution.banner_grab_summary["counters"], "attacker_controlled_blob")
 
     version =
       Repo.query!(
         """
-        SELECT version_action_name, version_action_inputs
+        SELECT version_action_name, version_action_inputs, request_id
         FROM platform.sweep_group_execution_versions
         WHERE version_source_id = ($1::text)::uuid
           AND version_action_name = 'record_banner_grab_phase'
@@ -246,13 +250,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert [
              [
                "record_banner_grab_phase",
-               %{"banner_grab_summary" => version_summary}
+               %{"banner_grab_summary" => version_summary, "request_id" => ^request_id},
+               ^request_id
              ]
            ] = version.rows
 
     assert version_summary["probe_count"] == 12
     assert version_summary["banner_match_count"] == 5
     assert version_summary["error_count"] == 8
+    refute Map.has_key?(version_summary["counters"], "attacker_controlled_blob")
   end
 
   test "successful ICMP or TCP evidence updates device availability when aggregate is false", %{

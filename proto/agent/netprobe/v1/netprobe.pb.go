@@ -1126,6 +1126,8 @@ type LicenseCleanFingerprint struct {
 	IcmpObserved   bool                      `protobuf:"varint,30,opt,name=icmp_observed,json=icmpObserved,proto3" json:"icmp_observed,omitempty"`
 	NtpObserved    bool                      `protobuf:"varint,31,opt,name=ntp_observed,json=ntpObserved,proto3" json:"ntp_observed,omitempty"`
 	SipObserved    bool                      `protobuf:"varint,32,opt,name=sip_observed,json=sipObserved,proto3" json:"sip_observed,omitempty"`
+	RecogSmtp      *RecogFingerprintMatch    `protobuf:"bytes,33,opt,name=recog_smtp,json=recogSmtp,proto3" json:"recog_smtp,omitempty"`
+	RecogNtp       *RecogFingerprintMatch    `protobuf:"bytes,34,opt,name=recog_ntp,json=recogNtp,proto3" json:"recog_ntp,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1382,6 +1384,20 @@ func (x *LicenseCleanFingerprint) GetSipObserved() bool {
 		return x.SipObserved
 	}
 	return false
+}
+
+func (x *LicenseCleanFingerprint) GetRecogSmtp() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogSmtp
+	}
+	return nil
+}
+
+func (x *LicenseCleanFingerprint) GetRecogNtp() *RecogFingerprintMatch {
+	if x != nil {
+		return x.RecogNtp
+	}
+	return nil
 }
 
 type P0FFingerprintMatch struct {
@@ -3042,7 +3058,7 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x04http\x18\f \x01(\v2/.serviceradar.agent.netprobe.v1.HttpFingerprintB\x02\x18\x01H\x00R\x04http\x12^\n" +
 	"\rlicense_clean\x18\r \x01(\v27.serviceradar.agent.netprobe.v1.LicenseCleanFingerprintH\x00R\flicenseCleanB\n" +
 	"\n" +
-	"\bevidence\"\xcb\x0e\n" +
+	"\bevidence\"\xf5\x0f\n" +
 	"\x17LicenseCleanFingerprint\x12#\n" +
 	"\rp0f_signature\x18\x01 \x01(\tR\fp0fSignature\x12P\n" +
 	"\tp0f_match\x18\x02 \x01(\v23.serviceradar.agent.netprobe.v1.P0fFingerprintMatchR\bp0fMatch\x12\x10\n" +
@@ -3079,7 +3095,10 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\fdns_observed\x18\x1d \x01(\bR\vdnsObserved\x12#\n" +
 	"\ricmp_observed\x18\x1e \x01(\bR\ficmpObserved\x12!\n" +
 	"\fntp_observed\x18\x1f \x01(\bR\vntpObserved\x12!\n" +
-	"\fsip_observed\x18  \x01(\bR\vsipObserved\"\x83\x01\n" +
+	"\fsip_observed\x18  \x01(\bR\vsipObserved\x12T\n" +
+	"\n" +
+	"recog_smtp\x18! \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\trecogSmtp\x12R\n" +
+	"\trecog_ntp\x18\" \x01(\v25.serviceradar.agent.netprobe.v1.RecogFingerprintMatchR\brecogNtp\"\x83\x01\n" +
 	"\x13P0fFingerprintMatch\x12\x14\n" +
 	"\x05label\x18\x01 \x01(\tR\x05label\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12%\n" +
@@ -3313,15 +3332,17 @@ var file_agent_netprobe_v1_netprobe_proto_depIdxs = []int32{
 	14, // 35: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_rdp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
 	14, // 36: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_dns:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
 	15, // 37: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.satori_matches:type_name -> serviceradar.agent.netprobe.v1.SatoriFingerprintMatch
-	18, // 38: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
-	25, // 39: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
-	29, // 40: serviceradar.agent.netprobe.v1.BannerBatch.observations:type_name -> serviceradar.agent.netprobe.v1.BannerObservation
-	31, // 41: serviceradar.agent.netprobe.v1.BannerMatchBatch.matches:type_name -> serviceradar.agent.netprobe.v1.BannerMatch
-	42, // [42:42] is the sub-list for method output_type
-	42, // [42:42] is the sub-list for method input_type
-	42, // [42:42] is the sub-list for extension type_name
-	42, // [42:42] is the sub-list for extension extendee
-	0,  // [0:42] is the sub-list for field type_name
+	14, // 38: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_smtp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	14, // 39: serviceradar.agent.netprobe.v1.LicenseCleanFingerprint.recog_ntp:type_name -> serviceradar.agent.netprobe.v1.RecogFingerprintMatch
+	18, // 40: serviceradar.agent.netprobe.v1.OsMatch.disagreements:type_name -> serviceradar.agent.netprobe.v1.FingerprintDisagreement
+	25, // 41: serviceradar.agent.netprobe.v1.ProcessSnapshot.entries:type_name -> serviceradar.agent.netprobe.v1.ProcessSnapshotEntry
+	29, // 42: serviceradar.agent.netprobe.v1.BannerBatch.observations:type_name -> serviceradar.agent.netprobe.v1.BannerObservation
+	31, // 43: serviceradar.agent.netprobe.v1.BannerMatchBatch.matches:type_name -> serviceradar.agent.netprobe.v1.BannerMatch
+	44, // [44:44] is the sub-list for method output_type
+	44, // [44:44] is the sub-list for method input_type
+	44, // [44:44] is the sub-list for extension type_name
+	44, // [44:44] is the sub-list for extension extendee
+	0,  // [0:44] is the sub-list for field type_name
 }
 
 func init() { file_agent_netprobe_v1_netprobe_proto_init() }

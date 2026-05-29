@@ -89,6 +89,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {"smb", "SMB"},
     {"ftp", "FTP"},
     {"telnet", "Telnet"},
+    {"smtp", "SMTP"},
+    {"ntp", "NTP"},
     {"rdp", "RDP"},
     {"dns", "DNS"}
   ]
@@ -670,14 +672,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp handle_same_device_params(socket, uid, limit, requested_tab, cursor) do
     active_tab =
-      resolve_active_tab(
-        requested_tab,
+      requested_tab
+      |> resolve_active_tab(
         socket.assigns.has_ifaces,
         socket.assigns.has_flows,
         socket.assigns.has_logs,
         socket.assigns.has_mtr,
         socket.assigns.has_virtualization_guests
       )
+      |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
 
     srql = srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
 
@@ -931,14 +934,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       has_virtualization_guests = Map.get(supplemental_assigns, :has_virtualization_guests, false)
 
       active_tab =
-        resolve_active_tab(
-          requested_tab,
+        requested_tab
+        |> resolve_active_tab(
           has_ifaces,
           has_flows,
           has_logs,
           has_mtr,
           has_virtualization_guests
         )
+        |> authorize_active_tab(device_row, scope)
 
       srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
@@ -1368,6 +1372,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_logs, _has_mtr, _has_guests), do: requested_tab
 
+  defp authorize_active_tab("active-fingerprint", row, scope) do
+    if active_fingerprint_tab_visible?(row, scope), do: "active-fingerprint", else: "details"
+  end
+
+  defp authorize_active_tab(tab, _row, _scope), do: tab
+
   @impl true
   def handle_event("srql_change", %{"q" => q}, socket) do
     {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
@@ -1719,14 +1729,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     tab =
-      resolve_active_tab(
-        tab,
+      tab
+      |> resolve_active_tab(
         socket.assigns.has_ifaces,
         socket.assigns.has_flows,
         socket.assigns.has_logs,
         socket.assigns.has_mtr,
         socket.assigns.has_virtualization_guests
       )
+      |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
 
     srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
 
@@ -4183,7 +4194,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
             </button>
           </div>
-          
+
     <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
@@ -4327,12 +4338,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <% end %>
             </div>
           </div>
-          
+
     <!-- Guests Tab Content -->
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
-          
+
     <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content
@@ -4349,7 +4360,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               can_launch_northbound={can_launch_northbound_actions?(@current_scope)}
             />
           </div>
-          
+
     <!-- Flows Tab Content -->
           <div :if={@active_tab == "flows" and @has_flows}>
             <.flows_tab_content
@@ -4389,7 +4400,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               limit={@logs_limit}
             />
           </div>
-          
+
     <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">

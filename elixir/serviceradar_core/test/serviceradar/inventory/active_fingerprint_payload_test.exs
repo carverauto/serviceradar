@@ -14,7 +14,9 @@ defmodule ServiceRadar.Inventory.ActiveFingerprintPayloadTest do
       "active_fingerprint.os.confidence" => "0.86",
       "active_fingerprint.recog.ssh.product" => "OpenSSH",
       "active_fingerprint.recog.ssh.version" => "8.9",
-      "active_fingerprint.recog.ssh.os_family" => "linux"
+      "active_fingerprint.recog.ssh.os_family" => "linux",
+      "active_fingerprint.recog.smtp.product" => "Postfix",
+      "active_fingerprint.recog.ntp.product" => "ntpsec"
     }
 
     enriched = ActiveFingerprintPayload.enrich_metadata(metadata)
@@ -33,6 +35,9 @@ defmodule ServiceRadar.Inventory.ActiveFingerprintPayloadTest do
              "version" => "8.9",
              "os_family" => "linux"
            }
+
+    assert enriched["active_fingerprint"]["recog"]["smtp"] == %{"product" => "Postfix"}
+    assert enriched["active_fingerprint"]["recog"]["ntp"] == %{"product" => "ntpsec"}
 
     os = ActiveFingerprintPayload.enrich_os(%{}, enriched)
 
@@ -61,5 +66,16 @@ defmodule ServiceRadar.Inventory.ActiveFingerprintPayloadTest do
     assert enriched["active_fingerprint"]["custom_axis"] == %{"label" => "kept"}
     assert enriched["active_fingerprint"]["recog"]["http"] == %{"product" => "nginx"}
     assert enriched["active_fingerprint"]["recog"]["ssh"] == %{"product" => "OpenSSH"}
+  end
+
+  @tag :visibility
+  test "does not synthesize OS fingerprint metadata without OS evidence" do
+    metadata = %{
+      "hostname" => "router-1",
+      "active_fingerprint.observed_at" => "2026-05-28T12:00:00Z"
+    }
+
+    assert ActiveFingerprintPayload.enrich_metadata(metadata) == metadata
+    assert ActiveFingerprintPayload.enrich_os(%{}, metadata) == %{}
   end
 end

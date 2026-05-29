@@ -1,6 +1,6 @@
 defmodule ServiceRadar.SweepJobs.Checks.EnablingBannerGrabWithoutPermission do
   @moduledoc """
-  Forbids enabling active banner grab unless the actor has the explicit permission.
+  Forbids enabling or changing active banner grab unless the actor has the explicit permission.
   """
 
   use Ash.Policy.SimpleCheck
@@ -11,7 +11,7 @@ defmodule ServiceRadar.SweepJobs.Checks.EnablingBannerGrabWithoutPermission do
   @permission "networks.sweeps.banner_grab"
 
   @impl true
-  def describe(_opts), do: "actor lacks permission to enable banner grab"
+  def describe(_opts), do: "actor lacks permission to change banner grab"
 
   @impl true
   def match?(actor, %Authorizer{} = authorizer, opts) when is_list(opts) do
@@ -21,23 +21,36 @@ defmodule ServiceRadar.SweepJobs.Checks.EnablingBannerGrabWithoutPermission do
   def match?(actor, %{changeset: %Ash.Changeset{} = changeset}, opts) do
     permission = Keyword.get(opts, :permission, @permission)
 
-    enabling_banner_grab?(changeset) and not actor_has_permission?(actor, permission)
+    banner_grab_changed_while_enabled?(changeset) and not actor_has_permission?(actor, permission)
   end
 
   def match?(_actor, _context, _opts), do: false
 
-  defp enabling_banner_grab?(%Ash.Changeset{} = changeset) do
-    prior_enabled? =
-      if changeset.action_type == :create do
-        false
-      else
-        enabled?(Map.get(changeset.data || %{}, :banner_grab))
-      end
+  defp banner_grab_changed_while_enabled?(%Ash.Changeset{} = changeset) do
+    if Ash.Changeset.changing_attribute?(changeset, :banner_grab) do
+      prior_banner_grab = Map.get(changeset.data || %{}, :banner_grab)
+      new_banner_grab = Ash.Changeset.get_attribute(changeset, :banner_grab)
 
-    new_enabled? = enabled?(Ash.Changeset.get_attribute(changeset, :banner_grab))
-
-    not prior_enabled? and new_enabled?
+      enabled?(new_banner_grab) and normalized(prior_banner_grab) != normalized(new_banner_grab)
+    else
+      false
+    end
   end
+
+  defp normalized(%_{} = banner_grab) do
+    banner_grab
+    |> Map.from_struct()
+    |> Map.drop([:__metadata__, :__meta__, :aggregates, :calculations, :relationships])
+    |> normalized()
+  end
+
+  defp normalized(%{} = banner_grab) do
+    Map.new(banner_grab, fn {key, value} -> {to_string(key), normalized(value)} end)
+  end
+
+  defp normalized(values) when is_list(values), do: Enum.map(values, &normalized/1)
+  defp normalized(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalized(value), do: value
 
   defp enabled?(%{enabled: true}), do: true
   defp enabled?(%{"enabled" => true}), do: true

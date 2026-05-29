@@ -9,6 +9,8 @@ defmodule ServiceRadar.Inventory.ActiveFingerprintPayload do
     {"smb", :smb},
     {"ftp", :ftp},
     {"telnet", :telnet},
+    {"smtp", :smtp},
+    {"ntp", :ntp},
     {"rdp", :rdp},
     {"dns", :dns}
   ]
@@ -46,16 +48,23 @@ defmodule ServiceRadar.Inventory.ActiveFingerprintPayload do
   defp os_payload(metadata, nested) do
     os = get_map(nested, ["os", :os])
 
-    %{}
-    |> maybe_put("family", active_string(metadata, os, "os.family", ["family"]))
-    |> maybe_put("name", active_string(metadata, os, "os.name", ["name"]))
-    |> maybe_put(
-      "version_range",
-      active_string(metadata, os, "os.version_range", ["version_range"])
-    )
-    |> maybe_put("confidence", active_number(metadata, os, "os.confidence", ["confidence"]))
-    |> maybe_put("source", @fingerprint_source)
-    |> maybe_put("observed_at", observed_at(metadata, os))
+    payload =
+      %{}
+      |> maybe_put("family", active_string(metadata, os, "os.family", ["family"]))
+      |> maybe_put("name", active_string(metadata, os, "os.name", ["name"]))
+      |> maybe_put(
+        "version_range",
+        active_string(metadata, os, "os.version_range", ["version_range"])
+      )
+      |> maybe_put("confidence", active_number(metadata, os, "os.confidence", ["confidence"]))
+
+    if map_size(payload) == 0 do
+      %{}
+    else
+      payload
+      |> maybe_put("source", @fingerprint_source)
+      |> maybe_put("observed_at", observed_at(metadata, os))
+    end
   end
 
   defp recog_payload(metadata, nested) do

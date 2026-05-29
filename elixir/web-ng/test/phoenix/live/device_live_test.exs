@@ -526,6 +526,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert render(view) =~ "42 total"
   end
 
+  test "shows active fingerprint tab when active banner evidence exists", %{conn: conn} do
+    uid = insert_active_fingerprint_device!()
+
+    {:ok, view, html} = live(conn, ~p"/devices/#{uid}?tab=active-fingerprint")
+
+    assert has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='active-fingerprint']")
+
+    assert html =~ "Active OS fingerprint"
+    assert html =~ "Banner-grab matches"
+    assert html =~ "Ubuntu Linux"
+    assert html =~ "OpenSSH"
+    assert html =~ "Postfix"
+    assert html =~ "ntpsec"
+    assert html =~ "SMTP"
+    assert html =~ "NTP"
+  end
+
+  test "hides and rejects active fingerprint tab without banner-grab permission", %{conn: _conn} do
+    uid = insert_active_fingerprint_device!()
+    viewer = AshTestHelpers.viewer_user_fixture()
+    conn = log_in_user(build_conn(), viewer)
+
+    {:ok, view, html} = live(conn, ~p"/devices/#{uid}")
+
+    refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='active-fingerprint']")
+    refute html =~ "Active OS fingerprint"
+
+    html = render_click(view, "switch_tab", %{"tab" => "active-fingerprint"})
+
+    refute html =~ "Active OS fingerprint"
+    refute html =~ "Banner-grab matches"
+  end
+
   test "shows advisory when managed-device count exceeds configured limit", %{conn: conn} do
     previous_limit = Application.get_env(:serviceradar_web_ng, :managed_device_limit)
     Application.put_env(:serviceradar_web_ng, :managed_device_limit, 1)
@@ -2521,6 +2554,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
+
+  defp insert_active_fingerprint_device! do
+    unique = System.unique_integer([:positive])
+    uid = "test-device-active-fingerprint-#{unique}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "active-fingerprint-host-#{unique}",
+        ip: "192.0.2.#{rem(unique, 200) + 1}",
+        is_available: true,
+        metadata: %{
+          "active_fingerprint" => %{
+            "source" => "sweep_active",
+            "observed_at" => "2026-05-28T12:00:00Z",
+            "os" => %{
+              "family" => "linux",
+              "name" => "Ubuntu Linux",
+              "version_range" => "22.04",
+              "confidence" => 0.91,
+              "source" => "serviceradar-sweep-active",
+              "observed_at" => "2026-05-28T12:00:00Z"
+            },
+            "recog" => %{
+              "ssh" => %{"product" => "OpenSSH", "version" => "9.6", "os_family" => "linux"},
+              "smtp" => %{"product" => "Postfix", "version" => "3.8", "os_family" => "linux"},
+              "ntp" => %{"product" => "ntpsec", "version" => "1.2"}
+            }
+          }
+        },
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    uid
+  end
 
   defp insert_test_interfaces!(device_uid) do
     ts = DateTime.truncate(DateTime.utc_now(), :second)

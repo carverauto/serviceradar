@@ -161,6 +161,7 @@ defmodule ServiceRadar.ResultsRouter do
             expected_total_hosts: expected_total_hosts,
             scanner_metrics: scanner_metrics,
             banner_grab_summary: banner_grab_summary,
+            request_id: status[:request_id],
             chunk_index: status[:chunk_index],
             total_chunks: status[:total_chunks],
             is_final: status[:is_final]

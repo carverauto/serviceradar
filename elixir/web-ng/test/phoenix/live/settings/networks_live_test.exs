@@ -130,7 +130,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
         "banner_grab" => %{
           "enabled" => "true",
           "protocols" => ["ssh", "http"],
-          "ports" => %{"ssh" => "22", "http" => "80, 443"},
+          "ports" => %{"ssh" => "22", "http" => "80, 443", "ntp" => "123"},
           "connect_timeout_ms" => "1500",
           "read_timeout_ms" => "1200",
           "max_banner_bytes" => "2048",
@@ -156,6 +156,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert Enum.sort(profile.banner_grab.protocols) == [:http, :ssh]
     assert profile.banner_grab.ports["ssh"] == [22]
     assert profile.banner_grab.ports["http"] == [80, 443]
+    refute Map.has_key?(profile.banner_grab.ports, "ntp")
     assert profile.banner_grab.connect_timeout_ms == 1_500
     assert profile.banner_grab.max_global_concurrency == 64
   end

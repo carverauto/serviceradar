@@ -207,12 +207,15 @@ func bannerMatchToFingerprintEvent(
 		fingerprint.RecogFtp = recog
 	case banner_grab.ProtocolTelnet:
 		fingerprint.RecogTelnet = recog
+	case banner_grab.ProtocolSMTP:
+		fingerprint.RecogSmtp = recog
 	case banner_grab.ProtocolRDP:
 		fingerprint.RecogRdp = recog
 	case banner_grab.ProtocolDNS:
 		fingerprint.RecogDns = recog
 		fingerprint.DnsObserved = true
 	case banner_grab.ProtocolNTP:
+		fingerprint.RecogNtp = recog
 		fingerprint.NtpObserved = true
 	}
 

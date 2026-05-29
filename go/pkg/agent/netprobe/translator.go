@@ -34,7 +34,6 @@ const (
 	metadataDPIBase                = "dpi"
 	metadataActiveFingerprintBase  = "active_fingerprint"
 	metadataPassiveFingerprintBase = "passive_fingerprint"
-	sourceSweepActive              = "sweep_active"
 )
 
 var (
@@ -238,12 +237,12 @@ func fingerprintMetadataBase(event *netprobepb.FingerprintEvent) string {
 }
 
 func isSweepActiveFingerprint(event *netprobepb.FingerprintEvent) bool {
-	return strings.TrimSpace(event.GetProfileId()) == sourceSweepActive
+	return strings.TrimSpace(event.GetProfileId()) == string(models.DiscoverySourceSweepActive)
 }
 
 func profileID(event *netprobepb.FingerprintEvent) string {
 	value := strings.TrimSpace(event.GetProfileId())
-	if value == sourceSweepActive {
+	if value == string(models.DiscoverySourceSweepActive) {
 		return ""
 	}
 
@@ -439,11 +438,17 @@ func addLicenseCleanMetadata(metadata map[string]string, fingerprint *netprobepb
 	if recog := fingerprint.GetRecogTelnet(); recog != nil {
 		addRecogMetadata(metadata, base, "telnet", recog)
 	}
+	if recog := fingerprint.GetRecogSmtp(); recog != nil {
+		addRecogMetadata(metadata, base, "smtp", recog)
+	}
 	if recog := fingerprint.GetRecogRdp(); recog != nil {
 		addRecogMetadata(metadata, base, "rdp", recog)
 	}
 	if recog := fingerprint.GetRecogDns(); recog != nil {
 		addRecogMetadata(metadata, base, "dns", recog)
+	}
+	if recog := fingerprint.GetRecogNtp(); recog != nil {
+		addRecogMetadata(metadata, base, "ntp", recog)
 	}
 }
 
