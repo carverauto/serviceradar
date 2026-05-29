@@ -75,7 +75,7 @@ func writeJSONAtomic(path string, tmpDir string, payload *ScanPayload) error {
 	}
 
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()

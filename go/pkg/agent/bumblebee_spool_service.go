@@ -30,6 +30,8 @@ import (
 
 const maxBumblebeeSpoolBytes = 16 * 1024 * 1024
 
+var errBumblebeeSpoolTooLarge = errors.New("bumblebee spool payload exceeds size budget")
+
 type BumblebeeSpoolService struct {
 	agentID   string
 	spoolPath string
@@ -60,7 +62,7 @@ func (s *BumblebeeSpoolService) GetStatus(context.Context) (*proto.StatusRespons
 		return nil, err
 	}
 	if len(data) > maxBumblebeeSpoolBytes {
-		return nil, errors.New("bumblebee spool payload exceeds size budget")
+		return nil, errBumblebeeSpoolTooLarge
 	}
 
 	data = ensureBumblebeeAgentID(data, s.agentID)

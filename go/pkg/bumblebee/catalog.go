@@ -148,7 +148,7 @@ func writeCatalogAtomic(path string, tmpDir string, data []byte) (bool, error) {
 	}
 
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()

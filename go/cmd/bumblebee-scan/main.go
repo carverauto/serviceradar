@@ -28,6 +28,8 @@ import (
 
 const defaultConfigPath = "/etc/serviceradar/bumblebee-scan.json"
 
+var errScanFailed = errors.New("scan failed; wrote failure summary to spool")
+
 func main() {
 	configPath := flag.String("config", defaultConfigPath, "path to bumblebee scanner config")
 	flag.Parse()
@@ -55,7 +57,7 @@ func run(ctx context.Context, configPath string) error {
 	}
 
 	if payload.State == "scan_failed" {
-		return errors.New("scan failed; wrote failure summary to spool")
+		return errScanFailed
 	}
 
 	return nil

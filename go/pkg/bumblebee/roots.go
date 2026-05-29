@@ -70,7 +70,7 @@ func discoverHomeRoots(passwdPath string) ([]RootCandidate, []SkippedRoot) {
 	if err != nil {
 		return nil, []SkippedRoot{{Path: passwdPath, Reason: "passwd_unreadable"}}
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var roots []RootCandidate
 	var skipped []SkippedRoot

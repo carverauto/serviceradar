@@ -23,6 +23,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -41,6 +42,8 @@ const (
 	coveragePartial  = "partial"
 	coverageFailed   = "failed"
 )
+
+var errScannerOutputTooLarge = errors.New("scanner output exceeds configured limit")
 
 type Runner struct {
 	cfg Config
@@ -152,7 +155,7 @@ func (r *Runner) scanRoot(parent context.Context, runID string, root string) ([]
 	}
 
 	if int64(len(result.Records)) > r.cfg.MaxOutputBytes {
-		return nil, fmt.Errorf("scanner output exceeds %d bytes", r.cfg.MaxOutputBytes)
+		return nil, fmt.Errorf("%w: %d bytes", errScannerOutputTooLarge, r.cfg.MaxOutputBytes)
 	}
 
 	return ParseFindings(result.Records, r.cfg.MaxFindings)
@@ -163,7 +166,7 @@ func ParseFindingsFile(path string, maxBytes int64, maxFindings int) ([]Finding,
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxOutputBytes
@@ -175,7 +178,7 @@ func ParseFindingsFile(path string, maxBytes int64, maxFindings int) ([]Finding,
 		return nil, err
 	}
 	if int64(len(data)) > maxBytes {
-		return nil, fmt.Errorf("scanner output exceeds %d bytes", maxBytes)
+		return nil, fmt.Errorf("%w: %d bytes", errScannerOutputTooLarge, maxBytes)
 	}
 
 	return ParseFindings(data, maxFindings)

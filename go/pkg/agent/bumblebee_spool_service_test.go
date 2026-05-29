@@ -10,9 +10,11 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 )
 
+const bumblebeeSpoolTestAgentID = "agent-1"
+
 func TestBumblebeeSpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	spoolPath := filepath.Join(t.TempDir(), "missing.json")
-	service := NewBumblebeeSpoolService("agent-1", &BumblebeeStatusConfig{SpoolPath: spoolPath})
+	service := NewBumblebeeSpoolService(bumblebeeSpoolTestAgentID, &BumblebeeStatusConfig{SpoolPath: spoolPath})
 
 	status, err := service.GetStatus(context.Background())
 	if err != nil {
@@ -27,7 +29,7 @@ func TestBumblebeeSpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	if err := json.Unmarshal(status.Message, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.AgentID != "agent-1" || payload.State != "not_scanned" || payload.CoverageState != "not_scanned" {
+	if payload.AgentID != bumblebeeSpoolTestAgentID || payload.State != "not_scanned" || payload.CoverageState != "not_scanned" {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
 	if payload.Metadata["reason"] != "spool_not_found" {
@@ -42,7 +44,7 @@ func TestBumblebeeSpoolServiceInjectsMissingAgentID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	service := NewBumblebeeSpoolService("agent-1", &BumblebeeStatusConfig{SpoolPath: spoolPath})
+	service := NewBumblebeeSpoolService(bumblebeeSpoolTestAgentID, &BumblebeeStatusConfig{SpoolPath: spoolPath})
 	status, err := service.GetStatus(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +58,8 @@ func TestBumblebeeSpoolServiceInjectsMissingAgentID(t *testing.T) {
 	if err := json.Unmarshal(status.Message, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["agent_id"] != "agent-1" {
-		t.Fatalf("agent_id = %#v, want agent-1", payload["agent_id"])
+	if payload["agent_id"] != bumblebeeSpoolTestAgentID {
+		t.Fatalf("agent_id = %#v, want %s", payload["agent_id"], bumblebeeSpoolTestAgentID)
 	}
 }
 
@@ -68,7 +70,7 @@ func TestBumblebeeSpoolServicePreservesExistingAgentID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	service := NewBumblebeeSpoolService("agent-1", &BumblebeeStatusConfig{SpoolPath: spoolPath})
+	service := NewBumblebeeSpoolService(bumblebeeSpoolTestAgentID, &BumblebeeStatusConfig{SpoolPath: spoolPath})
 	status, err := service.GetStatus(context.Background())
 	if err != nil {
 		t.Fatal(err)
