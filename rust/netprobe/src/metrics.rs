@@ -18,6 +18,8 @@ pub struct Metrics {
     signature_failures_total: IntCounter,
     p0f_vs_muonfp_disagreement_total: IntCounter,
     encode_buffer_reuses_total: IntCounter,
+    external_flow_unmatched_total: IntCounter,
+    external_flow_invalid_total: IntCounter,
     #[allow(dead_code)]
     sampling_budget: IntGauge,
     uptime_seconds: IntGauge,
@@ -55,6 +57,14 @@ impl Metrics {
             "serviceradar_netprobe_encode_buffer_reuses_total",
             "IPC protobuf encode buffer reuses after warmup",
         ))?;
+        let external_flow_unmatched_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_external_flow_unmatched_total",
+            "External flow records dropped because no local process attribution matched",
+        ))?;
+        let external_flow_invalid_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_external_flow_invalid_total",
+            "External flow records dropped because their 5-tuple was invalid",
+        ))?;
         let sampling_budget = IntGauge::with_opts(Opts::new(
             "serviceradar_netprobe_sampling_budget",
             "Current AF_XDP per-flow packet redirect budget",
@@ -71,6 +81,8 @@ impl Metrics {
         registry.register(Box::new(signature_failures_total.clone()))?;
         registry.register(Box::new(p0f_vs_muonfp_disagreement_total.clone()))?;
         registry.register(Box::new(encode_buffer_reuses_total.clone()))?;
+        registry.register(Box::new(external_flow_unmatched_total.clone()))?;
+        registry.register(Box::new(external_flow_invalid_total.clone()))?;
         registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
@@ -83,6 +95,8 @@ impl Metrics {
             signature_failures_total,
             p0f_vs_muonfp_disagreement_total,
             encode_buffer_reuses_total,
+            external_flow_unmatched_total,
+            external_flow_invalid_total,
             sampling_budget,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
@@ -173,6 +187,14 @@ impl Metrics {
 
     pub fn inc_encode_buffer_reuses(&self) {
         self.encode_buffer_reuses_total.inc();
+    }
+
+    pub fn inc_external_flow_unmatched(&self) {
+        self.external_flow_unmatched_total.inc();
+    }
+
+    pub fn inc_external_flow_invalid(&self) {
+        self.external_flow_invalid_total.inc();
     }
 
     #[allow(dead_code)]

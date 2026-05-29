@@ -16,6 +16,7 @@ mod ebpf_loader;
 #[allow(dead_code)]
 mod ebpf_runtime;
 mod event_queue;
+mod external_flow;
 #[allow(dead_code)]
 mod fingerprint;
 mod framing;

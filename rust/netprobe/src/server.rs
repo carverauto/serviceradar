@@ -16,6 +16,7 @@ use tokio::{
 use crate::{
     capabilities,
     event_queue::EventReceiver,
+    external_flow::{ExternalFlowIngest, ExternalFlowMatcher},
     fingerprint::{
         FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
         P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
@@ -25,8 +26,8 @@ use crate::{
     ipc::match_banner,
     metrics::Metrics,
     proto::netprobe::{
-        netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, FingerprintEvent, FlowAttributionEvent,
-        NetprobeFrame, PingAck, ProcessSnapshot,
+        netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
+        FingerprintEvent, FlowAttributionEvent, NetprobeFrame, PingAck, ProcessSnapshot,
     },
     runtime_config::RuntimeConfig,
 };
@@ -150,6 +151,8 @@ async fn handle_client(
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
     let mut encode_buffer = Vec::new();
+    let mut external_flows =
+        ExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
 
     loop {
         tokio::select! {
@@ -157,8 +160,16 @@ async fn handle_client(
                 let Some(frame) = frame? else {
                     return Ok(());
                 };
-                let response = response_for_frame(frame, &runtime_config);
-                write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
+                if let Some(response) = response_for_frame(
+                    frame,
+                    &runtime_config,
+                    &mut external_flows,
+                    &metrics,
+                    &mut writer,
+                    &mut encode_buffer,
+                ).await? {
+                    write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
+                }
             }
             event = recv_event(&fingerprint_events) => {
                 match event {
@@ -187,6 +198,7 @@ async fn handle_client(
             event = flow_attribution_events.recv() => {
                 match event {
                     Ok(event) => {
+                        external_flows.observe_attribution(&event);
                         let frame = NetprobeFrame {
                             sequence: 0,
                             payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
@@ -243,10 +255,21 @@ where
     Ok(())
 }
 
-fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> NetprobeFrame {
+async fn response_for_frame<W>(
+    frame: NetprobeFrame,
+    runtime_config: &RuntimeConfig,
+    external_flows: &mut ExternalFlowMatcher,
+    metrics: &Metrics,
+    writer: &mut W,
+    encode_buffer: &mut Vec<u8>,
+) -> Result<Option<NetprobeFrame>, crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let sequence = frame.sequence;
     match frame.payload {
-        Some(netprobe_frame::Payload::Ping(ping)) => NetprobeFrame {
-            sequence: frame.sequence,
+        Some(netprobe_frame::Payload::Ping(ping)) => Ok(Some(NetprobeFrame {
+            sequence,
             payload: Some(netprobe_frame::Payload::PingAck(PingAck {
                 sent_at_unix_nano: ping.sent_at_unix_nano,
                 acked_at_unix_nano: now_unix_nano(),
@@ -262,40 +285,96 @@ fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> N
                     .to_string(),
                 recog_corpus_loaded: true,
             })),
-        },
+        })),
         Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
             match apply
                 .config
                 .and_then(|config| runtime_config.apply(config).ok())
             {
-                Some(config_hash) => NetprobeFrame {
-                    sequence: frame.sequence,
+                Some(config_hash) => Ok(Some(NetprobeFrame {
+                    sequence,
                     payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
                         config_hash,
                     })),
-                },
-                None => NetprobeFrame {
-                    sequence: frame.sequence,
+                })),
+                None => Ok(Some(NetprobeFrame {
+                    sequence,
                     payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
                         code: "invalid_config".to_string(),
                         message: "visibility config is missing or invalid".to_string(),
                     })),
-                },
+                })),
             }
         }
-        Some(netprobe_frame::Payload::BannerBatch(batch)) => NetprobeFrame {
-            sequence: frame.sequence,
+        Some(netprobe_frame::Payload::BannerBatch(batch)) => Ok(Some(NetprobeFrame {
+            sequence,
             payload: Some(netprobe_frame::Payload::BannerMatchBatch(
                 match_banner::match_banner_batch(&batch),
             )),
-        },
-        _ => NetprobeFrame {
-            sequence: frame.sequence,
+        })),
+        Some(netprobe_frame::Payload::ExternalFlowRecord(record)) => {
+            external_flows.set_match_window_ms(runtime_config.external_flow_match_window_ms());
+            let ack =
+                ingest_external_flow_record(record, external_flows, metrics, writer, encode_buffer)
+                    .await?;
+            if sequence == 0 {
+                Ok(None)
+            } else {
+                Ok(Some(NetprobeFrame {
+                    sequence,
+                    payload: Some(netprobe_frame::Payload::ExternalFlowAck(ack)),
+                }))
+            }
+        }
+        _ => Ok(Some(NetprobeFrame {
+            sequence,
             payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
                 code: "unsupported_frame".to_string(),
                 message: "frame type is not supported by the Phase 1 skeleton".to_string(),
             })),
-        },
+        })),
+    }
+}
+
+async fn ingest_external_flow_record<W>(
+    record: ExternalFlowRecord,
+    external_flows: &ExternalFlowMatcher,
+    metrics: &Metrics,
+    writer: &mut W,
+    encode_buffer: &mut Vec<u8>,
+) -> Result<ExternalFlowAck, crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    match external_flows.ingest(&record, now_unix_nano()) {
+        ExternalFlowIngest::Matched(event) => {
+            metrics.inc_flow_attribution_events();
+            let frame = NetprobeFrame {
+                sequence: 0,
+                payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
+            };
+            write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
+            Ok(ExternalFlowAck {
+                accepted: 1,
+                matched: 1,
+                ..Default::default()
+            })
+        }
+        ExternalFlowIngest::Unmatched => {
+            metrics.inc_external_flow_unmatched();
+            Ok(ExternalFlowAck {
+                accepted: 1,
+                unmatched: 1,
+                ..Default::default()
+            })
+        }
+        ExternalFlowIngest::Invalid => {
+            metrics.inc_external_flow_invalid();
+            Ok(ExternalFlowAck {
+                invalid: 1,
+                ..Default::default()
+            })
+        }
     }
 }
 
@@ -325,9 +404,9 @@ mod tests {
         framing::{read_frame, write_frame},
         metrics::Metrics,
         proto::netprobe::{
-            fingerprint_event, netprobe_frame, ApplyConfig, DpiEvent, FingerprintEvent,
-            FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot, TcpFingerprint,
-            VisibilityAgentConfig,
+            fingerprint_event, netprobe_frame, ApplyConfig, DpiEvent, ExternalFlowRecord,
+            FingerprintEvent, FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot,
+            TcpFingerprint, VisibilityAgentConfig,
         },
         runtime_config::RuntimeConfig,
     };
@@ -532,6 +611,111 @@ mod tests {
         };
         assert_eq!(event.local_ip, "192.0.2.10");
         assert_eq!(event.pid, 123);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn ingests_external_flow_record_and_emits_matched_attribution() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx.clone(),
+            process_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&flow_tx).await;
+        flow_tx.send(flow_attribution_event()).unwrap();
+
+        let local = read_frame(&mut client).await.unwrap().unwrap();
+        assert!(matches!(
+            local.payload,
+            Some(netprobe_frame::Payload::FlowAttributionEvent(_))
+        ));
+
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 0,
+                payload: Some(netprobe_frame::Payload::ExternalFlowRecord(
+                    external_flow_record(),
+                )),
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::FlowAttributionEvent(event)) = response.payload else {
+            panic!("expected matched flow attribution event");
+        };
+        assert_eq!(event.pid, 123);
+        assert_eq!(event.source, "external_netflow");
+        assert_eq!(event.external_flow_id, 42);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn acks_unmatched_external_flow_record_requests() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 99,
+                payload: Some(netprobe_frame::Payload::ExternalFlowRecord(
+                    external_flow_record(),
+                )),
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 99);
+        let Some(netprobe_frame::Payload::ExternalFlowAck(ack)) = response.payload else {
+            panic!("expected external flow ack");
+        };
+        assert_eq!(ack.accepted, 1);
+        assert_eq!(ack.matched, 0);
+        assert_eq!(ack.unmatched, 1);
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
@@ -755,6 +939,21 @@ mod tests {
                 "[redacted 1 arg(s)]".to_string(),
             ],
             observed_at_unix_nano: 123,
+            ..Default::default()
+        }
+    }
+
+    fn external_flow_record() -> ExternalFlowRecord {
+        ExternalFlowRecord {
+            external_flow_id: 42,
+            source_ip: vec![198, 51, 100, 20],
+            destination_ip: vec![192, 0, 2, 10],
+            source_port: 443,
+            destination_port: 49_152,
+            transport_protocol: "tcp".to_string(),
+            time_flow_end_ns: 123,
+            bytes: 4096,
+            packets: 9,
             ..Default::default()
         }
     }

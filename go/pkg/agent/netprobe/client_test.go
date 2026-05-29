@@ -312,6 +312,78 @@ func TestClientMatchBanners(t *testing.T) {
 	<-serverDone
 }
 
+func TestClientIngestExternalFlow(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+			record := frame.GetExternalFlowRecord()
+			if record == nil || record.GetExternalFlowId() != 42 {
+				t.Errorf("frame payload = %T, want external_flow_record 42", frame.GetPayload())
+				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected external_flow_record")
+			}
+
+			return &netprobepb.NetprobeFrame{
+				Sequence: frame.GetSequence(),
+				Payload: &netprobepb.NetprobeFrame_ExternalFlowAck{
+					ExternalFlowAck: &netprobepb.ExternalFlowAck{Accepted: 1, Matched: 1},
+				},
+			}
+		})
+	}()
+
+	client := NewClient(clientConn, 1)
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	ack, err := client.IngestExternalFlow(ctx, externalFlowRecord())
+	if err != nil {
+		t.Fatalf("IngestExternalFlow() error = %v", err)
+	}
+	if ack.GetAccepted() != 1 || ack.GetMatched() != 1 {
+		t.Fatalf("external flow ack = %#v, want accepted+matched", ack)
+	}
+
+	_ = client.Close()
+	<-serverDone
+}
+
+func TestClientStreamExternalFlowUsesFireAndForgetFrame(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		frame, err := readFrame(serverConn)
+		if err != nil {
+			t.Errorf("read external flow frame: %v", err)
+			return
+		}
+		if frame.GetSequence() != 0 {
+			t.Errorf("external flow sequence = %d, want 0", frame.GetSequence())
+		}
+		if frame.GetExternalFlowRecord().GetExternalFlowId() != 42 {
+			t.Errorf("external_flow_id = %d, want 42", frame.GetExternalFlowRecord().GetExternalFlowId())
+		}
+	}()
+
+	client := NewClient(clientConn, 1)
+	defer func() { _ = client.Close() }()
+
+	if err := client.StreamExternalFlow(externalFlowRecord()); err != nil {
+		t.Fatalf("StreamExternalFlow() error = %v", err)
+	}
+
+	_ = client.Close()
+	<-serverDone
+}
+
 func TestClientDropsFlowAttributionEventsOnBackpressure(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer func() { _ = serverConn.Close() }()
@@ -448,6 +520,20 @@ func errorResponse(sequence uint64, code, message string) *netprobepb.NetprobeFr
 		Payload: &netprobepb.NetprobeFrame_Error{
 			Error: &netprobepb.ErrorFrame{Code: code, Message: message},
 		},
+	}
+}
+
+func externalFlowRecord() *netprobepb.ExternalFlowRecord {
+	return &netprobepb.ExternalFlowRecord{
+		ExternalFlowId:    42,
+		SourceIp:          []byte{198, 51, 100, 20},
+		DestinationIp:     []byte{192, 0, 2, 10},
+		SourcePort:        443,
+		DestinationPort:   49152,
+		TransportProtocol: "tcp",
+		TimeFlowEndNs:     123,
+		Bytes:             4096,
+		Packets:           9,
 	}
 }
 

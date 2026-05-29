@@ -43,6 +43,7 @@ const (
 var (
 	ErrClientClosed    = errors.New("netprobe client is closed")
 	ErrNilConnection   = errors.New("netprobe client connection is nil")
+	ErrNilExternalFlow = errors.New("netprobe external flow record is nil")
 	ErrUnexpectedFrame = errors.New("netprobe returned unexpected frame")
 )
 
@@ -219,6 +220,42 @@ func (c *Client) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch
 	}
 
 	return matches, nil
+}
+
+// IngestExternalFlow sends one external flow record and waits for the sidecar's ingest ack.
+func (c *Client) IngestExternalFlow(ctx context.Context, record *netprobepb.ExternalFlowRecord) (*netprobepb.ExternalFlowAck, error) {
+	if record == nil {
+		return nil, ErrNilExternalFlow
+	}
+
+	frame, err := c.request(ctx, &netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_ExternalFlowRecord{
+			ExternalFlowRecord: record,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ack := frame.GetExternalFlowAck()
+	if ack == nil {
+		return nil, fmt.Errorf("%w: expected external_flow_ack", ErrUnexpectedFrame)
+	}
+
+	return ack, nil
+}
+
+// StreamExternalFlow sends one fire-and-forget external flow frame on the client-streamed channel.
+func (c *Client) StreamExternalFlow(record *netprobepb.ExternalFlowRecord) error {
+	if record == nil {
+		return ErrNilExternalFlow
+	}
+
+	return c.writeRequest(&netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_ExternalFlowRecord{
+			ExternalFlowRecord: record,
+		},
+	})
 }
 
 // Events returns the bounded stream of fingerprint events from netprobe.

@@ -218,7 +218,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 
 ### 21. [Phase 4] Sidecar + bridge + UI
 
-- [ ] 21.1 Implement `IngestExternalFlows` client-streamed RPC consumer in `netprobe`.
+- [x] 21.1 Implement `IngestExternalFlows` client-streamed RPC consumer in `netprobe`.
 - [ ] 21.2 Annotate matched 5-tuples with PID / process / cmdline / uid / container-id; drop unmatched.
 - [ ] 21.3 Add the Go bridge subscriber for `flow.host-slice.<agent-id>` and republish `attributed_flow` records.
 - [ ] 21.4 Add the "Attributed Flows" view to the Flows dashboard.

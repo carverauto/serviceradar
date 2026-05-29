@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use crate::external_flow::default_external_flow_match_window_ms;
+
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -17,6 +19,8 @@ pub struct Config {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     #[serde(default = "default_process_snapshot_interval_s")]
     pub process_snapshot_interval_s: u64,
+    #[serde(default = "default_external_flow_match_window_ms")]
+    pub external_flow_match_window_ms: u32,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -39,6 +43,7 @@ impl Default for Config {
             capture_interfaces: Vec::new(),
             flow_table_max_entries: 0,
             process_snapshot_interval_s: DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
+            external_flow_match_window_ms: default_external_flow_match_window_ms(),
         }
     }
 }

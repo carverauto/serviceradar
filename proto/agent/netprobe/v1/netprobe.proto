@@ -44,6 +44,7 @@ message NetprobeFrame {
     PcapngBlock pcapng_block = 25;
     BannerBatch banner_batch = 26;
     BannerMatchBatch banner_match_batch = 27;
+    ExternalFlowAck external_flow_ack = 28;
   }
 }
 
@@ -89,6 +90,7 @@ message VisibilityAgentConfig {
   DpiConfig dpi = 20;
   uint32 flow_table_max_entries = 40;
   uint32 process_snapshot_interval_s = 41;
+  uint32 external_flow_match_window_ms = 42;
 
   reserved 21 to 39;
   reserved "flow_attribution";
@@ -283,6 +285,8 @@ message FlowAttributionEvent {
   uint32 event_kind = 15;
   int32 old_state = 16;
   int32 new_state = 17;
+  string source = 18;
+  uint64 external_flow_id = 19;
 }
 
 message ProcessSnapshot {
@@ -305,7 +309,25 @@ message ProcessSnapshotEntry {
 }
 
 message ExternalFlowRecord {
-  // TODO(add-host-network-visibility-sidecar Phase 4): define external flow fields.
+  uint64 external_flow_id = 1;
+  bytes source_ip = 2;
+  bytes destination_ip = 3;
+  uint32 source_port = 4;
+  uint32 destination_port = 5;
+  string transport_protocol = 6;
+  uint32 ip_protocol = 7;
+  uint64 time_flow_start_ns = 8;
+  uint64 time_flow_end_ns = 9;
+  uint64 bytes = 10;
+  uint64 packets = 11;
+  string partition = 12;
+}
+
+message ExternalFlowAck {
+  uint64 accepted = 1;
+  uint64 matched = 2;
+  uint64 unmatched = 3;
+  uint64 invalid = 4;
 }
 
 message StartRemoteCapture {

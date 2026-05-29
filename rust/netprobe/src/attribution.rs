@@ -432,6 +432,8 @@ fn flow_attribution_event(
         event_kind: u32::from(flow.pid.event_kind),
         old_state: flow.pid.old_state,
         new_state: flow.pid.new_state,
+        source: String::new(),
+        external_flow_id: 0,
     })
 }
 

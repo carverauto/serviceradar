@@ -8,6 +8,7 @@ use prost::Message;
 
 use crate::{
     config::{effective_flow_table_max_entries, validate_capture_interfaces, Config},
+    external_flow::default_external_flow_match_window_ms,
     proto::netprobe::{
         fingerprint_event, DeviceBinding, DpiConfig, DpiEvent, FingerprintConfig, FingerprintEvent,
         VisibilityAgentConfig,
@@ -19,6 +20,7 @@ pub struct RuntimeConfig {
     inner: Arc<RwLock<VisibilityState>>,
     capture_interfaces: Arc<Vec<String>>,
     flow_table_max_entries: u32,
+    external_flow_match_window_ms: Arc<RwLock<u32>>,
 }
 
 #[derive(Clone, Debug)]
@@ -91,6 +93,9 @@ impl RuntimeConfig {
             })),
             capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
             flow_table_max_entries: config.effective_flow_table_max_entries(),
+            external_flow_match_window_ms: Arc::new(RwLock::new(
+                effective_external_flow_match_window_ms(config.external_flow_match_window_ms),
+            )),
         }
     }
 
@@ -119,12 +124,25 @@ impl RuntimeConfig {
             default_sample_interval_ms: config.default_sample_interval_ms,
             default_dpi: config.dpi.clone().unwrap_or_else(default_dpi_disabled),
         };
+        let external_flow_match_window_ms =
+            effective_external_flow_match_window_ms(config.external_flow_match_window_ms);
 
         let config_hash = config_hash(&config);
         let mut state = self.inner.write().expect("runtime config lock poisoned");
         *state = next;
+        *self
+            .external_flow_match_window_ms
+            .write()
+            .expect("external flow match window lock poisoned") = external_flow_match_window_ms;
 
         Ok(config_hash)
+    }
+
+    pub fn external_flow_match_window_ms(&self) -> u32 {
+        *self
+            .external_flow_match_window_ms
+            .read()
+            .expect("external flow match window lock poisoned")
     }
 
     #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
@@ -321,6 +339,14 @@ fn default_fingerprints_disabled() -> FingerprintConfig {
 
 fn default_dpi_disabled() -> DpiConfig {
     DpiConfig::default()
+}
+
+fn effective_external_flow_match_window_ms(configured: u32) -> u32 {
+    if configured == 0 {
+        default_external_flow_match_window_ms()
+    } else {
+        configured
+    }
 }
 
 #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
